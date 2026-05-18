@@ -1137,9 +1137,13 @@ int main(int argc, char *argv[])
                      &bleManager, &BLEManager::de1LogMessage);
 #endif
 
-    // Scale auto-reconnect after disconnect: 3 retries with backoff (5s, 30s, 60s).
-    // First retry is quick (5s). Subsequent delays exceed BLE's 20s connection timeout
-    // so each attempt completes before the next fires.
+    // Scale auto-reconnect after disconnect: backoff ramp 5s → 30s → 60s, then
+    // the 60s tail repeats indefinitely while the scale stays disconnected.
+    // First retry is quick (5s); the 30s/60s delays exceed BLE's 20s connection
+    // timeout so each attempt completes before the next fires. We never give up
+    // permanently (matches de1app): a scale powered back on hours later is
+    // reconnected automatically because each retry runs a scan that latches on
+    // the instant the saved scale re-advertises (#1207).
     int scaleReconnectAttempt = 0;
     QTimer scaleReconnectTimer;
     scaleReconnectTimer.setSingleShot(true);
@@ -1152,24 +1156,34 @@ int main(int argc, char *argv[])
     // initiated scan so normal reconnect behaviour resumes.
     bool scaleAutoReconnectSuppressed = false;
 
+    // R2 refractometer auto-reconnect: same persistent backoff as the scale
+    // (5s → 30s → 60s, then 60s forever). The R2 has no DE1-sleep power
+    // management, so there is no deliberate-disconnect suppression to track —
+    // it simply keeps trying whenever it is disconnected and an address is
+    // saved. Shares reconnectDelays with the scale.
+    int refractometerReconnectAttempt = 0;
+    QTimer refractometerReconnectTimer;
+    refractometerReconnectTimer.setSingleShot(true);
+
     QObject::connect(&scaleReconnectTimer, &QTimer::timeout,
                      [&bleManager, &settings, &scaleReconnectAttempt, &scaleReconnectTimer, &reconnectDelays]() {
         if (settings.scaleAddress().isEmpty()) {
             qDebug() << "Scale reconnect: no saved scale address, stopping retries";
             return;
         }
-        qDebug() << "Scale reconnect: attempt" << (scaleReconnectAttempt + 1) << "of" << reconnectDelays.size();
-        bleManager.appendScaleLog(QString("Auto-reconnect attempt %1 of %2")
-                                  .arg(scaleReconnectAttempt + 1)
-                                  .arg(reconnectDelays.size()));
+        qDebug() << "Scale reconnect: attempt" << (scaleReconnectAttempt + 1);
+        bleManager.appendScaleLog(QString("Auto-reconnect attempt %1").arg(scaleReconnectAttempt + 1));
         bleManager.resetScaleConnectionState();
         bleManager.tryDirectConnectToScale();
         scaleReconnectAttempt++;
+        // Persistent reconnect: walk the ramp, then hold on the last (60s)
+        // delay forever. Stops naturally when the scale connects
+        // (connectedChanged), the user forgets it (scaleAddress empty, above),
+        // or the user scans for a different scale.
         if (scaleReconnectAttempt < static_cast<int>(reconnectDelays.size())) {
             scaleReconnectTimer.start(reconnectDelays[scaleReconnectAttempt]);
         } else {
-            qDebug() << "Scale reconnect: retries exhausted, waiting for manual reconnect or app resume";
-            bleManager.appendScaleLog("Auto-reconnect exhausted - tap Scan to retry");
+            scaleReconnectTimer.start(reconnectDelays.back());
         }
     });
 
@@ -1568,6 +1582,53 @@ int main(int argc, char *argv[])
             bleManager.setRefractometerDevice(nullptr);
             engine.rootContext()->setContextProperty("Refractometer", nullptr);
             refractometer.reset();
+        }
+    });
+
+    QObject::connect(&refractometerReconnectTimer, &QTimer::timeout,
+                     [&bleManager, &settings, &refractometerReconnectAttempt,
+                      &refractometerReconnectTimer, &reconnectDelays]() {
+        if (settings.savedRefractometerAddress().isEmpty()) {
+            qDebug() << "Refractometer reconnect: no saved address, stopping retries";
+            return;
+        }
+        if (bleManager.isRefractometerConnected()) {
+            qDebug() << "Refractometer reconnect: already connected, stopping retries";
+            return;
+        }
+        qDebug() << "Refractometer reconnect: attempt" << (refractometerReconnectAttempt + 1);
+        bleManager.appendScaleLog(QString("R2 auto-reconnect attempt %1")
+                                  .arg(refractometerReconnectAttempt + 1));
+        bleManager.tryDirectConnectToRefractometer();
+        refractometerReconnectAttempt++;
+        // Persistent reconnect: walk the ramp, then hold on the 60s tail
+        // forever. Stops when the R2 connects or the user forgets it (both
+        // guarded above).
+        if (refractometerReconnectAttempt < static_cast<int>(reconnectDelays.size())) {
+            refractometerReconnectTimer.start(reconnectDelays[refractometerReconnectAttempt]);
+        } else {
+            refractometerReconnectTimer.start(reconnectDelays.back());
+        }
+    });
+
+    // Arm the R2 reconnect when it drops; stop it when it connects. Without
+    // this the R2 has no disconnect-triggered reconnect at all (only app
+    // startup/resume), so a powered-off R2 stays dead for the rest of the
+    // session. refractometerConnectedChanged also fires transiently while a
+    // fresh connection is still being set up and on Forget — the saved-address
+    // guard and the !isActive() guard keep those from scrambling the backoff.
+    QObject::connect(&bleManager, &BLEManager::refractometerConnectedChanged,
+                     [&bleManager, &settings, &refractometerReconnectTimer,
+                      &refractometerReconnectAttempt, &reconnectDelays]() {
+        if (bleManager.isRefractometerConnected()) {
+            refractometerReconnectTimer.stop();
+            refractometerReconnectAttempt = 0;
+        } else if (!settings.savedRefractometerAddress().isEmpty()
+                   && !refractometerReconnectTimer.isActive()) {
+            refractometerReconnectAttempt = 0;
+            refractometerReconnectTimer.start(reconnectDelays[0]);
+            qDebug() << "Refractometer reconnect: scheduled first retry in"
+                     << reconnectDelays[0] << "ms";
         }
     });
 
@@ -2170,7 +2231,7 @@ int main(int argc, char *argv[])
     // when app is suspended/resumed. Neither DE1 nor scale are put to sleep when
     // backgrounded — users may switch apps while the machine heats up.
     QObject::connect(&app, &QGuiApplication::applicationStateChanged,
-                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &de1ReconnectTimer, &de1ReconnectAttempt, &scaleAutoReconnectSuppressed](Qt::ApplicationState state) {
+                     [&physicalScale, &bleManager, &settings, &batteryManager, &de1Device, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &de1ReconnectTimer, &de1ReconnectAttempt, &scaleAutoReconnectSuppressed, &refractometerReconnectTimer, &refractometerReconnectAttempt](Qt::ApplicationState state) {
         static bool wasSuspended = false;
 
         // Log every state transition so the debug log captures pre-suspend
@@ -2255,11 +2316,14 @@ int main(int argc, char *argv[])
                 qDebug() << "App resumed - starting scale reconnect sequence";
             }
 
-            // Try to reconnect refractometer
+            // Refractometer disconnected while suspended - (re)start its
+            // persistent reconnect sequence (mirrors the scale path above).
             if (!bleManager.isRefractometerConnected()
-                && !settings.savedRefractometerAddress().isEmpty()) {
-                QTimer::singleShot(500, &bleManager, &BLEManager::tryDirectConnectToRefractometer);
-                qDebug() << "App resumed - reconnecting refractometer";
+                && !settings.savedRefractometerAddress().isEmpty()
+                && !refractometerReconnectTimer.isActive()) {
+                refractometerReconnectAttempt = 0;
+                refractometerReconnectTimer.start(reconnectDelays[0]);
+                qDebug() << "App resumed - starting refractometer reconnect sequence";
             }
 
             // Resume smart charging check now that app is active again
