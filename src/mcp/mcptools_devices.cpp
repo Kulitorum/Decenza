@@ -275,12 +275,14 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                                   "\"observe\" (mode unchanged)";
                 return result;
             }
-            if (!args.value("confirmed").toBool()) {
-                result["error"] = "Confirmation required: re-call with "
-                                  "confirmed=true (mode unchanged)";
-                result["confirmationRequired"] = true;
-                return result;
-            }
+            // NOTE: do NOT check `confirmed` here. McpServer strips the
+            // `confirmed` key before invoking any handler (mcpserver.cpp:
+            // "Strip the confirmed key before passing to tool handler"), and
+            // the chat-confirmation handshake is owned entirely by the server
+            // via needsChatConfirmation(). A handler-side `confirmed` check is
+            // unreachable-true and makes the tool permanently uninvokable
+            // (this was the shipped #1219 bug). Confirmation for this tool is
+            // enforced by listing it in McpServer::needsChatConfirmation().
             const QString prev = BLEManager::backoffModeToString(
                 bleManager->backoffMode());
             const auto target = BLEManager::backoffModeFromString(mode);

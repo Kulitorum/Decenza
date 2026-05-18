@@ -1179,11 +1179,18 @@ bool McpServer::needsChatConfirmation(const QString& toolName) const
     int level = m_settings->mcp()->mcpConfirmationLevel();
     if (level == 0) return false;
 
-    // All non-zero levels: settings/profile/dial-in write ops
+    // All non-zero levels: settings/profile/dial-in write ops + the
+    // persistent connection-priority device-policy mutations. Those two
+    // devices_* tools advertise a `confirmed` arg, but the handler must NOT
+    // check it — McpServer strips `confirmed` before the handler runs, so
+    // confirmation is enforced HERE (server-side), not in the handler. A
+    // handler-side check is unreachable-true and was the shipped #1219 bug.
     if (toolName == "profiles_set_active" || toolName == "profiles_edit_params" ||
         toolName == "profiles_save" || toolName == "profiles_delete" ||
         toolName == "profiles_create" || toolName == "shots_delete" ||
-        toolName == "settings_set")
+        toolName == "settings_set" ||
+        toolName == "devices_set_scale_priority_mode" ||
+        toolName == "devices_reset_scale_priority")
         return true;
 
     // Level 2 (All Control): also non-start machine control ops
@@ -1213,6 +1220,10 @@ QString McpServer::confirmationDescription(const QString& toolName) const
         {"profiles_create", "Create a new profile"},
         {"shots_delete", "Delete a shot permanently"},
         {"settings_set", "Change machine settings"},
+        {"devices_set_scale_priority_mode",
+         "Change the scale connection-priority backoff policy (enforce/observe)"},
+        {"devices_reset_scale_priority",
+         "Clear the scale connection-priority backoff latch"},
     };
     return descriptions.value(toolName, toolName);
 }
