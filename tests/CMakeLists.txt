@@ -164,6 +164,13 @@ add_decenza_test(tst_saw_settings
     ${CORE_SOURCES}
 )
 
+# --- tst_autowakewindow: scheduled stay-awake window predicate (#1203) ---
+add_decenza_test(tst_autowakewindow
+    tst_autowakewindow.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/autowakemanager.cpp
+    ${CORE_SOURCES}
+)
+
 # --- tst_tclimport: TCL profile import round-trip against de1app profiles ---
 add_decenza_test(tst_tclimport
     tst_tclimport.cpp

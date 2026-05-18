@@ -106,3 +106,41 @@ void AutoWakeManager::stop() {
     qDebug() << "AutoWakeManager: Stopping";
     m_checkTimer->stop();
 }
+
+bool AutoWakeManager::isWithinStayAwakeWindow() const {
+    return isWithinStayAwakeWindowAt(QDateTime::currentDateTime());
+}
+
+bool AutoWakeManager::isWithinStayAwakeWindowAt(const QDateTime& now) const {
+    if (!m_settings->autoWakeStayAwakeEnabled())
+        return false;
+
+    const int stayMinutes = m_settings->autoWakeStayAwakeMinutes();
+    if (stayMinutes <= 0)
+        return false;
+
+    const QVariantList schedule = m_settings->autoWakeSchedule();
+
+    // Check today's and yesterday's schedule entry. A window that started
+    // before midnight (e.g. wake 22:00 + 8 h) is still active in the early
+    // hours of the next day, so the day it began may be "yesterday".
+    for (int dayOffset = 0; dayOffset <= 1; ++dayOffset) {
+        const QDate date = now.date().addDays(-dayOffset);
+        const int dayOfWeek = date.dayOfWeek() - 1; // 0=Mon .. 6=Sun
+        if (dayOfWeek < 0 || dayOfWeek >= schedule.size())
+            continue;
+
+        const QVariantMap day = schedule[dayOfWeek].toMap();
+        if (!day.value("enabled", false).toBool())
+            continue;
+
+        const int hour = day.value("hour", 7).toInt();
+        const int minute = day.value("minute", 0).toInt();
+        const QDateTime windowStart(date, QTime(hour, minute));
+        const QDateTime windowEnd = windowStart.addSecs(qint64(stayMinutes) * 60);
+
+        if (now >= windowStart && now < windowEnd)
+            return true;
+    }
+    return false;
+}
