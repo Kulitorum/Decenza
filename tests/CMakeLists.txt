@@ -482,6 +482,12 @@ add_decenza_test(tst_scaleblepriority
     tst_scaleblepriority.cpp
 )
 
+# --- tst_scaleskiphighlatch: BLEManager::ScaleSkipHighLatch value-type
+# invariant (#1093/#1176, D7). Struct is header-inline — no extra sources. ---
+add_decenza_test(tst_scaleskiphighlatch
+    tst_scaleskiphighlatch.cpp
+)
+
 # --- tst_sawprediction: shared SAW expected-drip kernel (σ + Gaussian math) ---
 add_decenza_test(tst_sawprediction
     tst_sawprediction.cpp

@@ -46,6 +46,11 @@ The probe SHALL only start after the scale is **confirmed correctly streaming we
 - **THEN** the probe SHALL NOT start
 - **AND** it SHALL start only after the known-good streaming baseline is established (DE1 connected, machine idle)
 
+#### Scenario: Streaming confirmed while the machine is busy, then it becomes idle
+- **WHEN** the known-good streaming baseline is established while the machine is NOT idle (e.g. the scale connected during warm-up / a shot) AND the machine later returns to idle with the latch still clear and the probe not yet run this connect
+- **THEN** the probe SHALL start on the become-idle transition
+- **AND** it SHALL NOT be permanently skipped for the connection merely because streaming was confirmed during a non-idle phase
+
 #### Scenario: Probe never misconfigures the DE1
 - **WHEN** the probe runs its stressor
 - **THEN** it SHALL issue only reads (MMR block reads and safe readable-characteristic reads)
@@ -64,3 +69,8 @@ The probe SHALL only start after the scale is **confirmed correctly streaming we
 #### Scenario: Probe runs at most once per scale connect
 - **WHEN** the probe has already run for the current scale connect, or the app-run skip-HIGH latch is already set
 - **THEN** the probe SHALL NOT run again for that connect
+
+#### Scenario: Probe outcome is self-evidencing in a single debug log
+- **WHEN** the probe ends (whether it provoked a backoff or not)
+- **THEN** it SHALL log a distinct end line carrying the outcome and the number of DE1 link faults observed during the probe window
+- **AND** a stall observed while the detector is disarmed (already latched / not at HIGH) SHALL be logged rather than silently dropped, so a single reporter debug log is sufficient to determine what happened without another round trip

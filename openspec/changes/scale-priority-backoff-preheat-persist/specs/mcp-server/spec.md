@@ -15,7 +15,7 @@ The MCP server SHALL expose the **in-memory, app-run-scoped** scale connection-p
 #### Scenario: Reset clears the in-memory latch
 - **WHEN** an MCP client invokes the scale connection-priority reset
 - **THEN** the server SHALL clear the in-memory `BLEManager` skip-HIGH latch
-- **AND** SHALL report success
+- **AND** SHALL report the reset as accepted/queued and applying on the next scale (re)connect, NOT assert a verified-complete state change (the clear is marshalled to the BLEManager and the server cannot confirm execution synchronously)
 - **AND** the next scale (re)connect SHALL request HIGH and re-enter detection (including the startup probe) as if the device were seen for the first time this run
 
 #### Scenario: Reset is eventually-consistent with a live connection

@@ -106,6 +106,9 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             const bool latched = bleManager && bleManager->scaleSkipHighPriority();
             sp["scaleLinkPriority"] = latched ? "balanced" : "high";
             sp["latchedToBalanced"] = latched;
+            // "Not suppressed by the latch" — not a guarantee detection is
+            // armed right now (that additionally needs a scale connected at
+            // HIGH; the latch is the dominant, app-run-scoped signal).
             sp["detectionActive"] = !latched;
             sp["persisted"] = false;  // by design (D2) — app restart re-detects
             if (latched) {
@@ -152,16 +155,22 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                 return result;
             }
             const bool wasLatched = bleManager->scaleSkipHighPriority();
+            // Marshalled to the BLEManager thread; this handler cannot confirm
+            // the clear executed, so report it as accepted/queued rather than
+            // asserting a verified-complete state change.
             QMetaObject::invokeMethod(bleManager, [bleManager]() {
                 bleManager->clearScaleSkipHighPriority();
             }, Qt::QueuedConnection);
-            result["success"] = true;
+            result["accepted"] = true;
             result["wasLatched"] = wasLatched;
+            result["appliesOnNextReconnect"] = true;
             result["message"] = wasLatched
-                ? "Scale connection-priority latch cleared. It takes effect on "
-                  "the next scale (re)connect (eventually-consistent — the "
-                  "current connection is not torn down)."
-                : "Scale connection-priority latch was already clear; no change.";
+                ? "Scale connection-priority latch clear was queued. It applies "
+                  "on the next scale (re)connect (eventually-consistent — the "
+                  "current connection is NOT torn down; this response does not "
+                  "assert the clear has executed yet)."
+                : "Scale connection-priority latch was already clear; clear "
+                  "still queued as a no-op, nothing will change.";
             return result;
         },
         "control");

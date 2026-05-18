@@ -37,10 +37,24 @@ public:
     ScalePriorityProbe(DE1Device* de1, MachineState* machine,
                        BLEManager* ble, WeightProcessor* wp,
                        QObject* parent = nullptr);
+    // Guarantees an in-flight probe is ended (idempotent endProbe()) on every
+    // teardown path, so m_probeActive cannot strand true on the worker.
+    ~ScalePriorityProbe() override;
 
     // Non-UI kill-switch (cheap field insurance, D5 / open question). The
     // probe is disabled for the run if the env var is set at launch.
     static bool probeDisabled();
+
+    // Probe lifecycle, per scale connect. An explicit state machine replaces
+    // the prior bool soup so illegal combinations are unrepresentable (D7):
+    //   Idle       — scale not connected; nothing to do.
+    //   Confirming — connected; accumulating the streaming baseline.
+    //   Armed      — baseline confirmed; waiting for the start gate
+    //                (DE1 connected ∧ machine idle ∧ latch clear).
+    //   Probing    — bounded read-only burst running.
+    //   Done       — probe ran (or latch already set) this connect; no
+    //                re-probe until the next (re)connect.
+    enum class State { Idle, Confirming, Armed, Probing, Done };
 
 public slots:
     // Wired in main.cpp to the active scale + machine. A scale-type change
@@ -48,6 +62,9 @@ public slots:
     void onScaleConnectionChanged(bool connected);
     void onScaleWeight();        // a streamed weight sample arrived
     void onMachinePhaseChanged(); // yield-on-shot / idle gating
+    // Counted only while Probing — surfaced in the probe end-line so a single
+    // debug.log attributes contention to the probe window (D6/D7-H2).
+    void onDe1LinkFault(const QString& kind);
 
 private:
     bool machineIdle() const;
@@ -68,15 +85,18 @@ private:
     static constexpr int     kProbeTickMs          = 500;
     static constexpr qint64  kProbeDurationMs      = 6000;
 
-    bool         m_scaleConnected   = false;
-    bool         m_streamConfirmed  = false;
-    bool         m_probedThisConnect = false;
-    int          m_streamRun        = 0;
-    qint64       m_lastSampleMs     = 0;
-    QElapsedTimer m_clock;
-
-    bool         m_probing          = false;
-    bool         m_latchedAtStart   = false;
+    State        m_state           = State::Idle;
+    int          m_streamRun       = 0;   // Confirming working set
+    qint64       m_lastSampleMs    = 0;   // Confirming working set
+    QElapsedTimer m_clock;                // free-running sample-gap clock
+    bool         m_latchedAtStart  = false;  // Probing working set
+    int          m_de1FaultsInWindow = 0;    // Probing working set
     QTimer       m_tickTimer;
-    QElapsedTimer m_probeClock;
+    QElapsedTimer m_probeClock;           // per-probe stopwatch
+
+#ifdef DECENZA_TESTING
+public:
+    State testState() const { return m_state; }
+    int   testStreamRun() const { return m_streamRun; }
+#endif
 };

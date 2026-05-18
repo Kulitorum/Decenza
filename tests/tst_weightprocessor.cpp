@@ -640,6 +640,61 @@ private slots:
         wp.setCurrentFrame(0);
         QCOMPARE(stallSpy.count(), 2);
     }
+
+    // Regression net for the ORIGINAL (pre-#1202) in-shot extraction path.
+    // The gate refactor changed `m_active && m_tareComplete` →
+    // `((m_active||m_preheatActive)&&m_tareComplete)||m_probeActive`; this
+    // pins the `m_active` OR-branch so the live-pour backstop can't silently
+    // regress while preheat/probe tests stay green.
+    void stallDuringActiveExtractionTriggers() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy stallSpy(&wp, &WeightProcessor::scaleFeedStalled);
+
+        wp.startExtraction();        // m_active = true
+        wp.setTareComplete(true);
+        wp.processWeight(0.0);       // establishes m_lastWallClockMs
+
+        m_fakeClock += 3000;         // > kScaleStaleMs, feed dead
+        wp.setCurrentFrame(0);       // DE1 cadence keeps ticking
+
+        QCOMPARE(stallSpy.count(), 1);
+    }
+
+    // D5 safety invariant: preheat active but tare NOT complete must NOT
+    // fire — the espresso cycle enters EspressoPreheating before the cup is
+    // placed / tared, exactly the window a scale legitimately isn't streaming.
+    void preheatWithoutTareCompleteDoesNotTrigger() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy stallSpy(&wp, &WeightProcessor::scaleFeedStalled);
+
+        wp.setShotCycleActive(true); // preheat, but NO setTareComplete(true)
+        wp.processWeight(0.0);
+        m_fakeClock += 3000;
+        wp.setCurrentFrame(0);
+
+        QCOMPARE(stallSpy.count(), 0);  // tare gate keeps shotContext closed
+    }
+
+    // Cross-state interaction: a shot starts while m_probeActive is still
+    // true (queued probe-deactivation can land after startExtraction()).
+    // Detection must still work — extraction stall coverage is desired
+    // regardless of the lingering probe flag.
+    void probeActiveThenExtractionStillDetects() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy stallSpy(&wp, &WeightProcessor::scaleFeedStalled);
+
+        wp.setProbeActive(true);
+        wp.startExtraction();        // resets stale/clock; leaves m_probeActive
+        wp.setTareComplete(true);
+        wp.processWeight(0.0);
+        m_fakeClock += 3000;
+        wp.setCurrentFrame(0);
+
+        QCOMPARE(stallSpy.count(), 1);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_WeightProcessor)

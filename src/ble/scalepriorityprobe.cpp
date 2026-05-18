@@ -17,6 +17,21 @@ ScalePriorityProbe::ScalePriorityProbe(DE1Device* de1, MachineState* machine,
     // Genuinely periodic task (the probe's read cadence + liveness tick) —
     // not a guard/workaround timer (CLAUDE.md design rule).
     connect(&m_tickTimer, &QTimer::timeout, this, &ScalePriorityProbe::onProbeTick);
+    // Attribute DE1 link faults observed during the probe window (D6/D7-H2).
+    if (m_de1)
+        connect(m_de1, &DE1Device::de1LinkFault,
+                this, &ScalePriorityProbe::onDe1LinkFault);
+}
+
+ScalePriorityProbe::~ScalePriorityProbe()
+{
+    // endProbe() is idempotent (no-ops unless State::Probing) and enqueues the
+    // setProbeActive(false) cleanup, so m_probeActive cannot strand true on
+    // any teardown path. Note: at process exit the worker thread may already
+    // be stopped, so a late queued lambda can be dropped — that is benign
+    // (the process is exiting); the value here is the non-shutdown teardown
+    // path and a self-documenting log line.
+    endProbe("probe object destroyed");
 }
 
 bool ScalePriorityProbe::probeDisabled()
@@ -33,17 +48,21 @@ bool ScalePriorityProbe::machineIdle() const
 
 void ScalePriorityProbe::onScaleConnectionChanged(bool connected)
 {
-    if (connected == m_scaleConnected) return;
-    m_scaleConnected = connected;
-    // Each connect is a fresh probe opportunity (the streaming baseline must
-    // be re-established). A backoff sets the app-run latch, so a post-backoff
-    // reconnect will fail the latch gate and not re-probe.
-    m_streamConfirmed = false;
-    m_probedThisConnect = false;
-    m_streamRun = 0;
-    m_lastSampleMs = 0;
-    if (!connected && m_probing)
-        endProbe("scale disconnected");
+    if (connected) {
+        if (m_state != State::Idle) return;  // already tracking this connect
+        // Fresh probe opportunity — the streaming baseline must be
+        // re-established. A backoff sets the app-run latch, so a post-backoff
+        // reconnect will fail the latch gate in maybeStartProbe().
+        m_state = State::Confirming;
+        m_streamRun = 0;
+        m_lastSampleMs = 0;
+    } else {
+        if (m_state == State::Probing)
+            endProbe("scale disconnected");
+        m_state = State::Idle;
+        m_streamRun = 0;
+        m_lastSampleMs = 0;
+    }
 }
 
 void ScalePriorityProbe::onScaleWeight()
@@ -52,15 +71,16 @@ void ScalePriorityProbe::onScaleWeight()
     const qint64 gap = (m_lastSampleMs > 0) ? (now - m_lastSampleMs) : 0;
     m_lastSampleMs = now;
 
-    if (m_probing) return;  // detection is via WeightProcessor while probing
+    // Only the Confirming state counts samples. Probing detection is via
+    // WeightProcessor; Armed/Done/Idle do not accumulate a baseline.
+    if (m_state != State::Confirming) return;
 
-    if (m_streamConfirmed) return;
     // A too-large gap means the feed is not yet healthily streaming — restart
     // the run so we only confirm on a genuine cadence-stable baseline.
     if (gap > kStreamMaxGapMs) { m_streamRun = 1; return; }
     if (++m_streamRun < kStreamConfirmSamples) return;
 
-    m_streamConfirmed = true;
+    m_state = State::Armed;
     maybeStartProbe();
 }
 
@@ -69,29 +89,43 @@ void ScalePriorityProbe::onMachinePhaseChanged()
     // Yield-on-shot: an espresso cycle (or any non-idle phase) started while
     // probing → end immediately, do NOT trip the backoff ourselves; normal
     // preheat/extraction liveness governs from here.
-    if (m_probing && !machineIdle())
+    if (m_state == State::Probing && !machineIdle()) {
         endProbe("machine left idle (shot started)");
+        return;
+    }
+    // Become-idle path: the baseline may have been confirmed (State::Armed)
+    // while the machine was busy (e.g. scale connected during warm-up).
+    // onScaleWeight() only reaches maybeStartProbe() on the single
+    // confirm transition, so without this the probe would never run for that
+    // whole connect. maybeStartProbe() is fully guarded + idempotent.
+    if (m_state == State::Armed && machineIdle())
+        maybeStartProbe();
+}
+
+void ScalePriorityProbe::onDe1LinkFault(const QString& /*kind*/)
+{
+    if (m_state == State::Probing) ++m_de1FaultsInWindow;
 }
 
 void ScalePriorityProbe::maybeStartProbe()
 {
-    if (m_probing || m_probedThisConnect) return;
+    if (m_state != State::Armed) return;
     if (probeDisabled()) return;
     if (!m_de1 || !m_de1->isConnected()) return;
-    if (!m_scaleConnected || !m_streamConfirmed) return;
     if (!machineIdle()) return;
     // Latch already set this run (e.g. a prior backoff): nothing to provoke,
-    // the scale is already at BALANCED and detection is disarmed.
-    if (m_ble && m_ble->scaleSkipHighPriority()) return;
+    // the scale is already at BALANCED and detection is disarmed. Mark Done
+    // so we don't keep re-evaluating this connect.
+    if (m_ble && m_ble->scaleSkipHighPriority()) { m_state = State::Done; return; }
 
     startProbe();
 }
 
 void ScalePriorityProbe::startProbe()
 {
-    m_probing = true;
-    m_probedThisConnect = true;
+    m_state = State::Probing;
     m_latchedAtStart = m_ble && m_ble->scaleSkipHighPriority();
+    m_de1FaultsInWindow = 0;
     m_probeClock.start();
 
     // WARN so a single reporter debug.log shows the probe ran (D6).
@@ -111,7 +145,7 @@ void ScalePriorityProbe::startProbe()
 
 void ScalePriorityProbe::onProbeTick()
 {
-    if (!m_probing) return;
+    if (m_state != State::Probing) return;
 
     // A provoked stall trips WeightProcessor::scaleFeedStalled → the existing
     // backoff, which sets the app-run latch. Detect that and finish.
@@ -138,8 +172,8 @@ void ScalePriorityProbe::onProbeTick()
 
 void ScalePriorityProbe::endProbe(const char* why)
 {
-    if (!m_probing) return;
-    m_probing = false;
+    if (m_state != State::Probing) return;
+    m_state = State::Done;          // no re-probe until the next (re)connect
     m_tickTimer.stop();
 
     if (m_wp) {
@@ -150,10 +184,14 @@ void ScalePriorityProbe::endProbe(const char* why)
 
     const bool provoked = m_ble && m_ble->scaleSkipHighPriority()
                           && !m_latchedAtStart;
-    // WARN so the outcome is self-evidencing in one debug.log (D6).
+    // WARN so the outcome is self-evidencing in one debug.log (D6). The DE1
+    // link-fault count attributes any contention noise to the probe window
+    // (D7-H2: DE1 errorOccurred has no UI surface, so this log line — not
+    // error-channel suppression — is the correct resolution).
     qWarning().noquote()
         << QStringLiteral("[BLE] Scale connection-priority PROBE ended "
-                          "(provoked=%1) — %2")
+                          "(provoked=%1, de1LinkFaults=%2) — %3")
                .arg(provoked ? "true" : "false")
+               .arg(m_de1FaultsInWindow)
                .arg(QString::fromUtf8(why));
 }

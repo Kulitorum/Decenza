@@ -313,6 +313,14 @@ void QtScaleBleTransport::onScaleFeedStalled() {
         triggerScaleBackoff("scale weight feed stalled while weight expected "
                             "(extraction/preheat/probe) at HIGH",
                             QStringLiteral("scale-feed-stall"));
+    } else {
+        // Stall observed but the detector took no action (already latched /
+        // backed off, or the scale is not at HIGH so detection is disarmed).
+        // Log it — the single field debug.log must never silently swallow a
+        // stall signal (this is exactly what we want to see when triaging a
+        // "still no weight" report on an already-backed-off run).
+        log("scale weight feed stall observed but connection-priority detector "
+            "is disarmed (already latched / not at HIGH) — no backoff taken");
     }
 }
 
@@ -330,7 +338,7 @@ void QtScaleBleTransport::triggerScaleBackoff(const char* reason,
     // after a scale-type change, which builds a fresh transport+detector)
     // skips HIGH for the rest of this run. In-memory only; cleared on restart.
     if (auto* mgr = BLEManager::instance()) {
-        mgr->setScaleSkipHighPriority(true, triggerKind);
+        mgr->latchScaleSkipHighPriority(triggerKind);
         warn(QStringLiteral("Scale connection-priority: app-run skip-HIGH latch "
              "SET (trigger=%1) — all scales will run at BALANCED until app "
              "restart or MCP reset").arg(triggerKind));

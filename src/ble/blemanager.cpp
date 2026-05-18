@@ -129,29 +129,21 @@ BLEManager::~BLEManager() {
     if (s_instance == this) s_instance = nullptr;
 }
 
-void BLEManager::setScaleSkipHighPriority(bool skip, const QString& triggerKind)
+void BLEManager::latchScaleSkipHighPriority(const QString& triggerKind)
 {
-    m_scaleSkipHighPriority = skip;
-    if (skip) {
-        // Record the trigger kind + wall-clock set time for the MCP read.
-        // In-memory only — never persisted (D2/D4).
-        m_scaleSkipHighTriggerKind =
-            triggerKind.isEmpty() ? QStringLiteral("unknown") : triggerKind;
-        m_scaleSkipHighSetTime = QDateTime::currentDateTime();
-    } else {
-        m_scaleSkipHighTriggerKind.clear();
-        m_scaleSkipHighSetTime = QDateTime();
-    }
+    // The value type enforces "kind+time set iff latched"; in-memory only,
+    // never persisted (D2/D4).
+    m_scaleSkipHigh.set(triggerKind);
 }
 
 void BLEManager::clearScaleSkipHighPriority()
 {
-    if (!m_scaleSkipHighPriority && m_scaleSkipHighTriggerKind.isEmpty()) return;
+    if (!m_scaleSkipHigh.latched && m_scaleSkipHigh.triggerKind.isEmpty()) return;
     qWarning().noquote()
         << "[BLE] Scale connection-priority skip-HIGH latch CLEARED via MCP "
            "reset — next scale (re)connect will request HIGH and re-enter "
            "detection (incl. the startup probe)";
-    setScaleSkipHighPriority(false);
+    m_scaleSkipHigh.clear();
 }
 
 void BLEManager::requestBluezCacheHint()

@@ -94,14 +94,36 @@ public:
     // the trigger kind ("de1-fault-cluster" / "scale-feed-stall") and the
     // wall-clock time it was set, from which the MCP derives "elapsed since
     // app start when latched". No persisted state — app restart clears it.
-    bool scaleSkipHighPriority() const { return m_scaleSkipHighPriority; }
-    void setScaleSkipHighPriority(bool skip, const QString& triggerKind = QString());
+    //
+    // The three correlated fields are one value type with the enforced
+    // invariant "triggerKind non-empty AND setTime valid IFF latched": they
+    // are mutated only via set()/clear(), so the correlation cannot drift
+    // (D7). m_appStartTime is deliberately NOT part of this — it is a
+    // process-lifetime fact, a different lifetime category.
+    struct ScaleSkipHighLatch {
+        bool      latched = false;
+        QString   triggerKind;   // non-empty iff latched
+        QDateTime setTime;       // valid    iff latched
+        void set(const QString& kind) {
+            latched = true;
+            // Belt-and-suspenders: the public API mandates a kind (no
+            // default), so an empty kind here would be an internal bug.
+            triggerKind = kind.isEmpty() ? QStringLiteral("unknown") : kind;
+            setTime = QDateTime::currentDateTime();
+        }
+        void clear() { latched = false; triggerKind.clear(); setTime = QDateTime(); }
+    };
+
+    bool scaleSkipHighPriority() const { return m_scaleSkipHigh.latched; }
+    // Latch the skip-HIGH decision with a mandatory trigger kind (no default —
+    // "latch without a reason" is a compile error, not a silent "unknown").
+    void latchScaleSkipHighPriority(const QString& triggerKind);
     // Clear the in-memory latch (MCP reset escape hatch). Takes effect on the
     // next scale (re)connect's detection pass — eventually-consistent, no
     // forced teardown of a live connection.
     void clearScaleSkipHighPriority();
-    QString scaleSkipHighTriggerKind() const { return m_scaleSkipHighTriggerKind; }
-    QDateTime scaleSkipHighSetTime() const { return m_scaleSkipHighSetTime; }
+    QString scaleSkipHighTriggerKind() const { return m_scaleSkipHigh.triggerKind; }
+    QDateTime scaleSkipHighSetTime() const { return m_scaleSkipHigh.setTime; }
     QDateTime appStartTime() const { return m_appStartTime; }
 
     Q_INVOKABLE QBluetoothDeviceInfo getScaleDeviceInfo(const QString& address) const;
@@ -221,10 +243,9 @@ private:
 
     // App-run dual-HIGH backoff latch + diagnostic metadata (in-memory only;
     // see scaleSkipHighPriority()). m_appStartTime is captured at construction
-    // (process start) so the MCP read can report "elapsed since app start".
-    bool m_scaleSkipHighPriority = false;
-    QString m_scaleSkipHighTriggerKind;
-    QDateTime m_scaleSkipHighSetTime;
+    // (process start) so the MCP read can report "elapsed since app start" —
+    // intentionally separate from the latch value (different lifetime).
+    ScaleSkipHighLatch m_scaleSkipHigh;
     QDateTime m_appStartTime;
 
     // Simulator mode - disable all BLE operations
