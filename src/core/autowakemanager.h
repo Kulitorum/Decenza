@@ -12,10 +12,19 @@ class SettingsAutoWake;
 /**
  * @brief Manages automatic wake-up scheduling for the DE1 machine.
  *
- * Uses a "time passed" approach to ensure wake times are never missed:
- * - Checks every 30 seconds
- * - If current time >= target time AND we haven't triggered today, wake up
- * - Tracks last triggered date per day to avoid duplicate wake-ups
+ * Wake scheduling uses a single-shot QTimer armed to the exact next
+ * enabled wake time:
+ * - scheduleNextWake() scans up to 8 days ahead for the nearest enabled
+ *   day and arms the timer to that precise delta
+ * - On fire, emits wakeRequested(), records the day in
+ *   m_lastTriggeredDates to avoid duplicate triggers, then reschedules
+ * - Reschedules automatically when the schedule setting changes
+ *
+ * Separately, isWithinStayAwakeWindow() answers "is the machine inside a
+ * scheduled stay-awake window right now?" as a pure function of the
+ * schedule + current wall clock (no internal timer/state), so callers can
+ * keep the machine awake across app restarts and missed wake ticks
+ * (Kulitorum/Decenza#1203).
  */
 class AutoWakeManager : public QObject {
     Q_OBJECT
