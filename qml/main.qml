@@ -350,19 +350,22 @@ ApplicationWindow {
         return (val === undefined || val === null) ? 60 : parseInt(val)
     }
 
-    // Two-counter sleep system:
+    // Sleep system:
     // - sleepCountdownNormal: resets on user activity, counts down from autoSleepMinutes
-    // - sleepCountdownStayAwake: only set on auto-wake, never reset by activity
-    // Sleep when BOTH <= 0
+    // - the scheduled stay-awake window is evaluated continuously from the
+    //   schedule + wall clock via AutoWakeManager.isWithinStayAwakeWindow(),
+    //   so it survives app restarts / manual wakes / process suspension
+    //   (was previously a one-shot counter armed only on the wake event,
+    //   which silently failed whenever that exact tick wasn't observed —
+    //   #1203). Sleep only when the normal countdown has expired AND we are
+    //   not inside a scheduled stay-awake window.
     onAutoSleepMinutesChanged: {
         if (autoSleepMinutes > 0 && sleepCountdownNormal < 0) {
             sleepCountdownNormal = autoSleepMinutes
-            sleepCountdownStayAwake = 0
             console.log("[AutoSleep] Setting changed: normal=" + sleepCountdownNormal)
         }
     }
     property int sleepCountdownNormal: -1      // Minutes remaining (-1 = not started)
-    property int sleepCountdownStayAwake: -1   // Minutes remaining (-1 = already satisfied)
 
     // Active operation phases that should pause the sleep countdown
     property bool operationActive: {
@@ -389,14 +392,18 @@ ApplicationWindow {
         running: !screensaverActive && !root.operationActive && root.autoSleepMinutes > 0
         repeat: true
         onTriggered: {
-            // Decrement both counters (only if > 0)
             if (root.sleepCountdownNormal > 0) root.sleepCountdownNormal--
-            if (root.sleepCountdownStayAwake > 0) root.sleepCountdownStayAwake--
 
-            // Sleep when BOTH <= 0
-            if (root.sleepCountdownNormal <= 0 && root.sleepCountdownStayAwake <= 0) {
-                console.log("[AutoSleep] Both counters expired — triggering sleep")
-                triggerAutoSleep()
+            // The schedule takes priority over auto-off: never sleep while
+            // inside a scheduled stay-awake window, regardless of the
+            // inactivity countdown.
+            if (root.sleepCountdownNormal <= 0) {
+                if (AutoWakeManager.isWithinStayAwakeWindow()) {
+                    console.log("[AutoSleep] Inactivity elapsed but inside scheduled stay-awake window — staying awake")
+                } else {
+                    console.log("[AutoSleep] Inactivity elapsed, no stay-awake window — triggering sleep")
+                    triggerAutoSleep()
+                }
             }
         }
     }
@@ -792,11 +799,11 @@ ApplicationWindow {
             maybeShowAutoRelaunchPrompt()
         }
 
-        // Initialize sleep countdowns (fresh app start, not auto-woken)
+        // Initialize sleep countdown (fresh app start). The scheduled
+        // stay-awake window is derived live from AutoWakeManager, so there
+        // is nothing to arm here even if the app started mid-window.
         if (root.autoSleepMinutes > 0) {
             root.sleepCountdownNormal = root.autoSleepMinutes
-            root.sleepCountdownStayAwake = 0  // Already satisfied on fresh start
-        } else {
         }
 
         // Auto-match current bean data to a preset so the bean button
@@ -3064,9 +3071,8 @@ ApplicationWindow {
     function goToScreensaver() {
         console.log("[Main] goToScreensaver called, type:", ScreensaverManager.screensaverType)
         screensaverActive = true
-        // Reset sleep counters (stopped state)
+        // Reset sleep counter (stopped state)
         root.sleepCountdownNormal = 0
-        root.sleepCountdownStayAwake = 0
 
         // Close any open popups to prevent burn-in (Qt Popup renders above the
         // StackView on the overlay layer, so the screensaver can't cover them).
@@ -3114,10 +3120,10 @@ ApplicationWindow {
 
     function goToIdleFromScreensaver() {
         screensaverActive = false
-        // Brightness is restored in ScreensaverPage.StackView.onRemoved
-        // Initialize sleep countdown (stayAwake is set separately by onAutoWakeTriggered if needed)
+        // Brightness is restored in ScreensaverPage.StackView.onRemoved.
+        // The scheduled stay-awake window is evaluated live, so waking here
+        // (manually or via auto-wake) needs no separate arming.
         root.sleepCountdownNormal = root.autoSleepMinutes
-        root.sleepCountdownStayAwake = 0  // Already satisfied unless auto-wake sets it
         console.log("Waking from screensaver: normal countdown=" + root.sleepCountdownNormal +
                     " pendingPopups=" + pendingPopups.length)
         pageStack.replace(null, idlePage)
@@ -3138,7 +3144,8 @@ ApplicationWindow {
         z: 1000  // Above everything
         propagateComposedEvents: true
         onPressed: function(mouse) {
-            // Reset normal countdown on user touch (but not stayAwake)
+            // Reset the inactivity countdown on user touch (the scheduled
+            // stay-awake window is independent of activity)
             if (root.autoSleepMinutes > 0 && !screensaverActive) {
                 var prev = root.sleepCountdownNormal
                 root.sleepCountdownNormal = root.autoSleepMinutes
@@ -3345,16 +3352,10 @@ ApplicationWindow {
             if (screensaverActive) {
                 goToIdleFromScreensaver()
             }
-            // Arm on every auto-wake, not only when exiting screensaver — the app
-            // may already be awake at the scheduled time, and skipping would let
-            // the machine auto-sleep before the stay-awake window applies.
-            if (Settings.autoWake.autoWakeStayAwakeEnabled && Settings.autoWake.autoWakeStayAwakeMinutes > 0) {
-                root.sleepCountdownStayAwake = Settings.autoWake.autoWakeStayAwakeMinutes
-                console.log("Auto-wake: stayAwake countdown=" + root.sleepCountdownStayAwake)
-            } else {
-                console.log("Auto-wake: stayAwake not armed (enabled=" + Settings.autoWake.autoWakeStayAwakeEnabled +
-                            ", minutes=" + Settings.autoWake.autoWakeStayAwakeMinutes + ")")
-            }
+            // No stay-awake arming here: the window is evaluated live from
+            // the schedule by AutoWakeManager.isWithinStayAwakeWindow(), so
+            // it applies even when this signal isn't observed (app started
+            // after the wake minute, manual wake, process suspended) — #1203.
         }
 
         function onRemoteSleepRequested() {

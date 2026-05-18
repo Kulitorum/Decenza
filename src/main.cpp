@@ -1816,6 +1816,7 @@ int main(int argc, char *argv[])
     context->setContextProperty("MainController", &mainController);
     context->setContextProperty("ProfileManager", mainController.profileManager());
     context->setContextProperty("ScreensaverManager", &screensaverManager);
+    context->setContextProperty("AutoWakeManager", &autoWakeManager);
     context->setContextProperty("BatteryManager", &batteryManager);
     context->setContextProperty("MemoryMonitor", &memoryMonitor);
     memoryMonitor.setEngine(&engine);
