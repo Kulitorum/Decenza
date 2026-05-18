@@ -148,8 +148,8 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
         "both the in-memory latch and the persisted (build-scoped) record. The "
         "reset is durable: a same-build app restart will NOT re-apply it. After "
         "reset, the next scale (re)connect requests HIGH and re-enters "
-        "detection (including the startup probe) as if the device were seen "
-        "for the first time. Eventually-consistent: it does NOT tear down a "
+        "detection from scratch (as if the device were seen for the first "
+        "time). Eventually-consistent: it does NOT tear down a "
         "currently-connected scale. Use to recover from a false-positive or to "
         "re-test a device.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{

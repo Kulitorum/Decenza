@@ -201,7 +201,7 @@ void BLEManager::clearScaleSkipHighPriority()
         qWarning().noquote()
             << "[BLE] Scale connection-priority skip-HIGH latch CLEARED via "
                "MCP reset — next (re)connect will request HIGH on both links "
-               "and re-enter detection (incl. the startup probe)";
+               "and re-enter detection from scratch";
     }
 }
 

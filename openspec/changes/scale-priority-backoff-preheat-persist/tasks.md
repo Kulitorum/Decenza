@@ -5,7 +5,13 @@
 - [x] 1.3 Wire the EspressoPreheating phase from `MachineState`/`MainController` into the new `WeightProcessor` input in `src/main.cpp` (cross-thread → explicit `Qt::QueuedConnection`, consistent with the existing WeightProcessor wiring); ensure it clears on Idle/Sleep/extraction-end so idle never trips.
 - [x] 1.4 Verify the idle/no-scale guard still holds: no espresso cycle and no probe window → gate closed → no false trigger; add/extend a `tst_scaleblepriority` or weightprocessor test covering "stall during preheat triggers" and "quiet idle scale (no cycle, no probe) does not". No persistence is added in this scope — the latch stays the in-memory `BLEManager` latch from #1185.
 
-## 2. Startup connection-priority probe (the early win — read-only, strictly additive)
+## 2. ~~Startup connection-priority probe~~ — REMOVED by Group 7 (D10)
+
+> Shipped in #1202, then removed: it false-positived the SM-X210 capable
+> control device on the first real-device test. Tasks below kept struck-through
+> for history; the implementation is reverted in Group 7.
+
+### 2 (original — superseded by Group 7/D10)
 
 - [x] 2.1 Add a scale-streaming-confirmed signal/flag: `WeightProcessor` (or the scale path) reports when the scale has delivered a healthy run of weight notifications at expected cadence (known-good baseline). This is the precondition for the probe — never fire on bare scale-connect.
 - [x] 2.2 Add a probe controller (in/near `QtScaleBleTransport` / the DE1 transport boundary) that, gated on `scale-streaming-confirmed ∧ DE1-connected ∧ machine-idle ∧ not-yet-probed-this-connect ∧ latch-not-set`, runs a **bounded read-only** DE1 burst: MMR block reads (`a005`) over the known-safe address range + a read-poll loop of safe readable characteristics only (`a001`, `a00a`, `a00e`, `a011`). It MUST NOT write or poll any state-affecting/DANGER char (`a002`/`a006`/`a009`/`a00b`/`a00f`/`a010`/`a012`), MUST enqueue via the normal BLE command queue (respect 50 ms write spacing rule; reads enqueued normally), and MUST run at most once per scale connect.
@@ -53,3 +59,14 @@
 - [x] 6.7 Tests: extend `tst_scaleskiphighlatch` (or a focused test) to cover the build-scoped record round-trip — save+load same build → seeded; save with old build + load on new build → wiped + not latched; clear → persisted gone. Pure (SettingsHardware uses QSettings; use a temp QSettings scope/org if needed) — no BLE deps.
 - [ ] 6.8 On-device acceptance gate (D8): on the weak Tab A8 with the latch set (DE1 at BALANCED), confirm SAW stop accuracy is within tolerance vs HIGH; if contradicted, revert D8 only (D1/D3/D5/D6/D7/D9 stand independently). (ON-DEVICE — not runnable in this environment.)
 - [x] 6.9 Update `docs/CLAUDE_MD/MCP_SERVER.md` if the read/reset description needs to note persistence (read now reflects a persisted classification; reset clears persisted+in-memory).
+
+## 7. D10 — remove the startup idle probe (field-proven capable-HW false positive)
+
+- [x] 7.1 Delete `src/ble/scalepriorityprobe.{h,cpp}`; remove from `CMakeLists.txt`.
+- [x] 7.2 `src/main.cpp`: remove the include, the `ScalePriorityProbe` construction, the `phaseChanged→onMachinePhaseChanged` connection, the `weightChanged→onScaleWeight` connection, the `connectedChanged→onScaleConnectionChanged` call, and `&scalePriorityProbe` from the two scale-lifecycle lambda capture lists.
+- [x] 7.3 `DE1Device`: delete `issueConnectionPriorityProbeReads()` (decl + impl) — was probe-only.
+- [x] 7.4 `WeightProcessor`: delete `m_probeActive`, `setProbeActive()`, `pollScaleFeedLiveness()`; simplify `checkScaleFeedStall()` gate to `(m_active || m_preheatActive) && m_tareComplete` (preheat + extraction, D1); update comments.
+- [x] 7.5 Tidy residual probe wording in `qtscalebletransport.cpp` (stall message → `(extraction/preheat)`), `blemanager.cpp` (clear log), `mcptools_devices.cpp` (reset-tool description).
+- [x] 7.6 `tst_weightprocessor.cpp`: drop the 4 probe tests (`probeWindowStallTriggersAtIdle`, `probeOnCapableHardwareDoesNotTrigger`, `probeDeactivationClearsStaleSoLaterShotReDetects`, `probeActiveThenExtractionStillDetects`); keep preheat/extraction/idle-negative; tidy section header + the `quietIdleScaleNoCycleDoesNotTrigger` rename. (`tst_scaleskiphighlatch` unaffected — D8/D9 retained.)
+- [x] 7.7 OpenSpec: D10 added; D5/D6 marked superseded/moot; spec delta drops the probe-window liveness context + deletes the `Startup Connection-Priority Probe` ADDED requirement; proposal/Non-Goals/Risks/Migration updated; `--strict` valid.
+- [ ] 7.8 Build (Qt Creator) + tests green + `tests_with_warnings` empty; follow-up PR (plain links to #1093/#1176/#1185/#1202).
