@@ -3,7 +3,8 @@
 
 #include <QByteArray>
 
-#include "widgetsharedkeys.h"   // single source of truth for the keys
+#include "widget/widgetsharedkeys.h"   // single source of truth for the keys
+                                       // (src/ is the target's header root)
 
 // Writes the machine-status snapshot to the App Group shared UserDefaults so
 // the WidgetKit extension can read it, then asks WidgetKit to refresh the
