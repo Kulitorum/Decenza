@@ -87,6 +87,14 @@ signals:
     // observation — never alters SAW/flow/frame decisions; the transport
     // decides whether to log it (observe mode).
     void scaleFeedResumed(qint64 gapMs);
+    // Confirmed-stall edge (epoch-scope-and-stall-confirm change). Emitted
+    // once, only when a suspected stall has PERSISTED past kScaleStallConfirmMs
+    // with NO intervening scaleFeedResumed (i.e. it did not self-recover).
+    // This — not scaleFeedStalled — is what enforce mode latches on, and what
+    // observe mode records as the real "would back off". A transient blip that
+    // recovers before the confirm threshold never emits this. `gapMs` is the
+    // confirmed silent duration. Pure observation; SAW/flow/frame untouched.
+    void scaleFeedStallConfirmed(qint64 gapMs);
 
 private:
     double computeLSLR(int windowMs) const;
@@ -94,6 +102,12 @@ private:
     // Scale-agnostic stall evaluation, run on the DE1 shot-sample cadence
     // (setCurrentFrame) during extraction / preheat.
     void checkScaleFeedStall(int frameNumber);
+    // Single chokepoint that clears the three correlated stall fields
+    // together (m_scaleFeedStale / m_scaleStallConfirmed / m_feedStallStartMs).
+    // Every reset path calls this so a half-reset (e.g. confirmed left set
+    // without stale) — which gates the real enforce backoff — is impossible
+    // by construction, mirroring ScaleSkipHighLatch::clear()'s discipline.
+    void resetStallTracking();
 
     // Weight sample buffer (1-second rolling window for LSLR)
     struct WeightSample {
@@ -114,7 +128,19 @@ private:
     // reconnect-gap value but is a distinct liveness threshold (kept separate
     // to avoid coupling de-jitter tuning to fault detection).
     static constexpr qint64 kScaleStaleMs = 2000;
+    // Confirm threshold: a suspected stall only CONFIRMS (→ enforce may latch)
+    // if it persists this long with no recovery. PROVISIONAL — final value is
+    // calibrated from #1219 observe-mode field data (the recovered-gap
+    // distribution: above the transient self-recovery cluster, below genuine
+    // sustained stalls). Distinct from kScaleStaleMs so the suspected signal
+    // (observe/diagnostics) and the latch trigger tune independently. Still a
+    // DE1-tick-evaluated threshold, not a timer.
+    static constexpr qint64 kScaleStallConfirmMs = 6000;
     bool m_scaleFeedStale = false;
+    // True once the current stall has been confirmed (persisted past
+    // kScaleStallConfirmMs unrecovered). Reset by recovery and every
+    // extraction/cycle reset so a later independent stall re-confirms cleanly.
+    bool m_scaleStallConfirmed = false;
     // Wall-clock of the last good sample before the current silent gap (set
     // when a stall is detected; 0 = no active stall). Drives scaleFeedResumed's
     // gap. Reset on the resume edge and on every extraction/cycle reset.

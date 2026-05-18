@@ -116,9 +116,15 @@ public slots:
      * self-reconnect backoff. Scale-agnostic — no driver code involved.
      */
     virtual void onDe1LinkFault(const QString& kind) { Q_UNUSED(kind); }
-    // `gapMs`: how long the feed had been silent at detection. enforce-mode
-    // handlers ignore it (behavior unchanged); observe mode logs it.
+    // SUSPECTED stall (gap > kScaleStaleMs). `gapMs` = silence at detection.
+    // No longer drives the backoff — it is the observe/diagnostic breadcrumb;
+    // the latch trigger is onScaleFeedStallConfirmed. Default no-op.
     virtual void onScaleFeedStalled(qint64 gapMs) { Q_UNUSED(gapMs); }
+    // CONFIRMED stall (epoch-scope-and-stall-confirm): persisted past
+    // kScaleStallConfirmMs with no recovery. THIS is what enforce latches on
+    // and what observe records as the real "would back off". Default no-op;
+    // only QtScaleBleTransport acts.
+    virtual void onScaleFeedStallConfirmed(qint64 gapMs) { Q_UNUSED(gapMs); }
     // Recovery counterpart (observe-mode change): a previously-stalled feed
     // resumed on its own. `gapMs` is the measured silent duration. Default
     // no-op; only QtScaleBleTransport logs it (observe mode).

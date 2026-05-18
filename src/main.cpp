@@ -1442,6 +1442,12 @@ int main(int argc, char *argv[])
             QObject::connect(&weightProcessor, &WeightProcessor::scaleFeedResumed,
                              scaleTransport, &ScaleBleTransport::onScaleFeedResumed,
                              Qt::QueuedConnection);
+            // Confirmed-stall trigger (epoch-scope-and-stall-confirm). This —
+            // not scaleFeedStalled — is what drives the enforce backoff now.
+            // Same cross-thread Queued pinning rationale as above.
+            QObject::connect(&weightProcessor, &WeightProcessor::scaleFeedStallConfirmed,
+                             scaleTransport, &ScaleBleTransport::onScaleFeedStallConfirmed,
+                             Qt::QueuedConnection);
         }
 
         // When physical scale connects/disconnects, switch between physical and FlowScale

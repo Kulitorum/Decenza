@@ -711,3 +711,8 @@ add_decenza_test(tst_steamhealth
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
 )
 target_link_libraries(tst_steamhealth PRIVATE Qt6::Quick Qt6::Graphs)
+
+# --- tst_raceconditionfix: Temporary canary for the run_tests parser-race fix ---
+add_decenza_test(tst_raceconditionfix
+    tst_raceconditionfix.cpp
+)
