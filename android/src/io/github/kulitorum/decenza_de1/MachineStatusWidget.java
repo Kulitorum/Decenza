@@ -33,7 +33,9 @@ public final class MachineStatusWidget {
             prefs.edit().putString(PREFS_KEY, json).apply();
             requestWidgetUpdate(context);
         } catch (Exception e) {
-            Log.w(TAG, "Failed to write widget snapshot: " + e.getMessage());
+            // Pass the throwable so the type + stack survive (getMessage()
+            // is null for e.g. NPE).
+            Log.w(TAG, "Failed to write widget snapshot", e);
         }
     }
 
@@ -52,7 +54,7 @@ public final class MachineStatusWidget {
                 MachineStatusWidgetProvider.renderAll(context, mgr, ids);
             }
         } catch (Exception e) {
-            Log.w(TAG, "Widget update request failed: " + e.getMessage());
+            Log.w(TAG, "Widget update request failed", e);
         }
     }
 }

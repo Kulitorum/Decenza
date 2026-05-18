@@ -34,7 +34,14 @@ struct MachineStatusProvider: TimelineProvider {
 }
 
 struct DecenzaWidgetEntryView: View {
+    @Environment(\.widgetFamily) private var family
     var entry: MachineStatusEntry
+
+    // systemSmall is too tight for four rows + long phase names, so it shows
+    // only the two glanceable essentials (phase + temp). Medium and larger
+    // add the last-shot and staleness lines. Not user-configurable by design;
+    // the content is right-sized to the family instead.
+    private var compact: Bool { family == .systemSmall }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -43,21 +50,25 @@ struct DecenzaWidgetEntryView: View {
                     .font(.system(size: 16))
                 Text(entry.display.phaseLabel)
                     .font(.headline)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
             }
             if !entry.display.tempLine.isEmpty {
                 Text(entry.display.tempLine)
                     .font(.subheadline)
                     .lineLimit(1)
             }
-            if !entry.display.lastShotLine.isEmpty {
+            if !compact, !entry.display.lastShotLine.isEmpty {
                 Text(entry.display.lastShotLine)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
-            if !entry.display.statusLine.isEmpty {
+            // On compact, the only status worth the space is the
+            // disconnected "Tap to open" prompt; staleness is dropped.
+            if !entry.display.statusLine.isEmpty,
+               !compact || entry.display.disconnected {
                 Text(entry.display.statusLine)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)

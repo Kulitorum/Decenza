@@ -5,7 +5,9 @@ import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
 import android.widget.RemoteViews;
 
 import org.json.JSONObject;
@@ -13,6 +15,7 @@ import org.json.JSONObject;
 import java.time.OffsetDateTime;
 import java.time.Duration;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Home Screen widget showing DE1 machine phase, temperature-vs-target, and the
@@ -26,19 +29,56 @@ public class MachineStatusWidgetProvider extends AppWidgetProvider {
     // Snapshot older than this (while still "connected") is annotated stale.
     private static final long FRESH_WINDOW_MIN = 3;
 
+    // Below this widget height (dp) only phase + temp are shown (no room for
+    // last-shot/staleness). Mirrors the iOS systemSmall compact rule.
+    private static final int COMPACT_MAX_HEIGHT_DP = 120;
+
+    // Authoritative short labels for raw MachineState phase strings. Mirrors
+    // docs/CLAUDE_MD/WIDGET_SNAPSHOT.md and the iOS WidgetPhase.labels —
+    // keep all three in sync.
+    private static final Map<String, String> PHASE_LABELS = Map.ofEntries(
+            Map.entry("Disconnected", "Disconnected"),
+            Map.entry("Sleep", "Sleep"),
+            Map.entry("Idle", "Idle"),
+            Map.entry("Heating", "Heating"),
+            Map.entry("Ready", "Ready"),
+            Map.entry("EspressoPreheating", "Preheating"),
+            Map.entry("Preinfusion", "Preinfusion"),
+            Map.entry("Pouring", "Pouring"),
+            Map.entry("Ending", "Finishing"),
+            Map.entry("Steaming", "Steaming"),
+            Map.entry("HotWater", "Hot Water"),
+            Map.entry("Flushing", "Flushing"),
+            Map.entry("Refill", "Refill"),
+            Map.entry("Descaling", "Descaling"),
+            Map.entry("Cleaning", "Cleaning"));
+
     @Override
     public void onUpdate(Context context, AppWidgetManager mgr, int[] ids) {
         renderAll(context, mgr, ids);
     }
 
+    @Override
+    public void onAppWidgetOptionsChanged(Context context, AppWidgetManager mgr,
+                                          int id, Bundle newOptions) {
+        mgr.updateAppWidget(id, buildViews(context, isCompact(newOptions)));
+    }
+
     static void renderAll(Context context, AppWidgetManager mgr, int[] ids) {
         for (int id : ids) {
-            RemoteViews views = buildViews(context);
-            mgr.updateAppWidget(id, views);
+            boolean compact = isCompact(mgr.getAppWidgetOptions(id));
+            mgr.updateAppWidget(id, buildViews(context, compact));
         }
     }
 
-    private static RemoteViews buildViews(Context context) {
+    private static boolean isCompact(Bundle options) {
+        if (options == null) return false;
+        int minH = options.getInt(
+                AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0);
+        return minH > 0 && minH < COMPACT_MAX_HEIGHT_DP;
+    }
+
+    private static RemoteViews buildViews(Context context, boolean compact) {
         RemoteViews v = new RemoteViews(context.getPackageName(),
                 R.layout.machine_status_widget);
 
@@ -55,47 +95,49 @@ public class MachineStatusWidgetProvider extends AppWidgetProvider {
                         Context.MODE_PRIVATE)
                 .getString(MachineStatusWidget.PREFS_KEY, null);
 
-        if (json == null || json.isEmpty()) {
-            applyDisconnected(v);
-            return v;
-        }
+        boolean disconnected = true;
+        if (json != null && !json.isEmpty()) {
+            try {
+                JSONObject o = new JSONObject(json);
+                if (o.optBoolean("connected", false)) {
+                    disconnected = false;
+                    String phase = o.optString("phase", "");
+                    double tempC = o.optDouble("temperatureC", Double.NaN);
+                    double targetC = o.optDouble("targetTemperatureC", Double.NaN);
+                    double steamC = o.optDouble("steamTemperatureC", Double.NaN);
 
-        try {
-            JSONObject o = new JSONObject(json);
-            boolean connected = o.optBoolean("connected", false);
-            if (!connected) {
-                applyDisconnected(v);
-                return v;
+                    v.setTextViewText(R.id.widget_phase, phaseLabel(phase));
+                    v.setTextViewText(R.id.widget_temp,
+                            tempLine(phase, tempC, targetC, steamC));
+                    v.setTextViewText(R.id.widget_last_shot, lastShotLine(o));
+                    v.setTextViewText(R.id.widget_status, stalenessLine(o));
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Snapshot parse failed", e);
             }
-
-            String phase = o.optString("phase", "");
-            double tempC = o.optDouble("temperatureC", Double.NaN);
-            double targetC = o.optDouble("targetTemperatureC", Double.NaN);
-            double steamC = o.optDouble("steamTemperatureC", Double.NaN);
-
-            v.setTextViewText(R.id.widget_phase, phaseLabel(phase));
-            v.setTextViewText(R.id.widget_temp,
-                    tempLine(phase, tempC, targetC, steamC));
-            v.setTextViewText(R.id.widget_last_shot, lastShotLine(o));
-            v.setTextViewText(R.id.widget_status, stalenessLine(o));
-        } catch (Exception e) {
-            Log.w(TAG, "Snapshot parse failed: " + e.getMessage());
-            applyDisconnected(v);
         }
-        return v;
-    }
 
-    private static void applyDisconnected(RemoteViews v) {
-        v.setTextViewText(R.id.widget_phase, "Disconnected");
-        v.setTextViewText(R.id.widget_temp, "");
-        v.setTextViewText(R.id.widget_last_shot, "");
-        v.setTextViewText(R.id.widget_status, "Tap to open");
+        if (disconnected) {
+            v.setTextViewText(R.id.widget_phase, "Disconnected");
+            v.setTextViewText(R.id.widget_temp, "");
+            v.setTextViewText(R.id.widget_last_shot, "");
+            v.setTextViewText(R.id.widget_status, "Tap to open");
+        }
+
+        // Compact (small) size: phase + temp only. Keep the status line only
+        // when it's the disconnected "Tap to open" prompt.
+        boolean showExtras = !compact;
+        v.setViewVisibility(R.id.widget_last_shot,
+                showExtras ? View.VISIBLE : View.GONE);
+        v.setViewVisibility(R.id.widget_status,
+                (showExtras || disconnected) ? View.VISIBLE : View.GONE);
+        return v;
     }
 
     private static String phaseLabel(String phase) {
         if (phase == null || phase.isEmpty()) return "Decenza";
-        // Insert spaces in CamelCase phase names (e.g. HotWater -> Hot Water).
-        return phase.replaceAll("(?<=[a-z])(?=[A-Z])", " ");
+        String label = PHASE_LABELS.get(phase);
+        return label != null ? label : phase;
     }
 
     private static String tempLine(String phase, double tempC,
@@ -138,7 +180,9 @@ public class MachineStatusWidgetProvider extends AppWidgetProvider {
                 return "updated " + min + " min ago";
             }
         } catch (Exception e) {
-            // Unparsable timestamp — treat as stale rather than claim live.
+            // Unparsable timestamp is a writer/schema bug — log it, and treat
+            // as stale rather than silently claiming the data is live.
+            Log.w(TAG, "capturedAt parse failed: " + captured, e);
             return "updated a while ago";
         }
         return "";

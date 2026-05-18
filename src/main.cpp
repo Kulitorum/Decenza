@@ -524,7 +524,11 @@ int main(int argc, char *argv[])
     // Publishes machine phase/temp/last-shot to platform-shared storage for
     // the iOS/Android Home Screen widget. Reads existing accessors only.
     MachineStatusSnapshot machineStatusSnapshot(&de1Device, &machineState);
-    QObject::connect(&machineState, &MachineState::shotEnded,
+    // shotEndedShowMetadata fires only from the shotSaved success path (post
+    // SAW-settling, espresso only — steam never saves a shot), so the yield
+    // and duration are finalized and we don't publish a bogus "last shot"
+    // after steaming or before settling.
+    QObject::connect(&mainController, &MainController::shotEndedShowMetadata,
                      &machineStatusSnapshot,
                      [&shotDataModel, &machineStatusSnapshot]() {
                          machineStatusSnapshot.setLastShot(

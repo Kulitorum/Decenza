@@ -2,8 +2,9 @@
 
 // Single source of truth for the machine-status snapshot transport keys.
 // The Android Java helper (MachineStatusWidget) and the iOS Swift widget
-// (WidgetKeys) mirror these exact strings — keep all three in sync.
-// See openspec/changes/add-machine-status-widget/snapshot-schema.md.
+// (WidgetKeys) mirror these strings by hand — keep them in sync. The iOS
+// ObjC++ bridge (MachineStatusWidgetBridge.mm) #includes this header, so it
+// is not a mirror. Schema: docs/CLAUDE_MD/WIDGET_SNAPSHOT.md.
 
 namespace WidgetSharedKeys {
 

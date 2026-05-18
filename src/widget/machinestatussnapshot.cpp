@@ -3,7 +3,7 @@
 #include "../ble/de1device.h"
 #include "../machine/machinestate.h"
 
-#include <climits>
+#include <cmath>
 
 #include <QJsonObject>
 #include <QJsonDocument>
@@ -12,6 +12,7 @@
 
 #if defined(Q_OS_ANDROID)
 #include <QJniObject>
+#include <QJniEnvironment>
 #include <QCoreApplication>
 #elif defined(Q_OS_IOS)
 // Implemented in ios/MachineStatusWidgetBridge.mm
@@ -21,6 +22,33 @@ extern void decenzaWriteWidgetSnapshotIOS(const QByteArray& json);
 #include <QDir>
 #include <QSaveFile>
 #endif
+
+// --- WidgetSnapshot: the single serializer -----------------------------------
+
+QByteArray WidgetSnapshot::toJson() const
+{
+    QJsonObject o;
+    o["schemaVersion"] = WidgetSharedKeys::kSchemaVersion;
+    o["connected"] = connected;
+    o["phase"] = phase;
+    if (temperatureC)        o["temperatureC"] = *temperatureC;
+    if (targetTemperatureC)  o["targetTemperatureC"] = *targetTemperatureC;
+    if (steamTemperatureC)   o["steamTemperatureC"] = *steamTemperatureC;
+    if (lastShot) {
+        QJsonObject shot;
+        shot["yieldG"] = lastShot->yieldG;
+        shot["durationSec"] = lastShot->durationSec;
+        if (!lastShot->qualityBadge.isEmpty())
+            shot["qualityBadge"] = lastShot->qualityBadge;
+        o["lastShot"] = shot;
+    }
+    const QDateTime now = QDateTime::currentDateTime();
+    o["capturedAt"] = now.toOffsetFromUtc(now.offsetFromUtc())
+                          .toString(Qt::ISODate);
+    return QJsonDocument(o).toJson(QJsonDocument::Compact);
+}
+
+// --- MachineStatusSnapshot ---------------------------------------------------
 
 MachineStatusSnapshot::MachineStatusSnapshot(DE1Device* device,
                                              MachineState* machineState,
@@ -40,24 +68,40 @@ MachineStatusSnapshot::MachineStatusSnapshot(DE1Device* device,
                 this, &MachineStatusSnapshot::onSampleReceived);
     }
     // Publish an initial snapshot so the widget has something to render
-    // immediately rather than showing the disconnected fallback until the
-    // first state change.
+    // immediately rather than the disconnected fallback until the first
+    // state change.
     flush();
+}
+
+MachineStatusSnapshot::~MachineStatusSnapshot()
+{
+    m_shuttingDown = true;
+    for (QThread* w : std::as_const(m_workers)) {
+        if (w) {
+            w->wait();
+            delete w;
+        }
+    }
 }
 
 void MachineStatusSnapshot::setLastShot(double yieldG, double durationSec,
                                         const QString& qualityBadge)
 {
-    m_hasLastShot = true;
-    m_lastShotYieldG = yieldG;
-    m_lastShotDurationSec = durationSec;
-    m_lastShotQualityBadge = qualityBadge;
+    // Single writer-side validity guard so all three platform readers can
+    // stay thin (iOS in particular renders NaN/Inf verbatim otherwise).
+    if (!std::isfinite(yieldG) || !std::isfinite(durationSec)
+        || yieldG < 0.0 || durationSec < 0.0)
+        return;
+    m_lastShot = WidgetLastShot{ yieldG, durationSec, qualityBadge };
     flush();
 }
 
 void MachineStatusSnapshot::onPhaseChanged()
 {
-    // Phase transitions are always meaningful — flush immediately.
+    // Phase transitions are always meaningful, and the temperature source can
+    // change with phase (group vs steam) — reset the coalescing key so the
+    // first sample of the new phase always flushes.
+    m_lastTempKeyC.reset();
     flush();
 }
 
@@ -68,8 +112,6 @@ void MachineStatusSnapshot::onConnectionChanged()
 
 void MachineStatusSnapshot::onSampleReceived()
 {
-    // ~5 Hz stream. Only flush when the integer-rounded temperature the widget
-    // would display actually changes — event/value-based, no guard timer.
     if (!m_device)
         return;
     const bool steaming = m_machineState
@@ -77,86 +119,91 @@ void MachineStatusSnapshot::onSampleReceived()
     const double t = steaming ? m_device->steamTemperature()
                               : m_device->temperature();
     const int key = qRound(t);
-    if (key == m_lastTempKeyC)
+    if (m_lastTempKeyC && *m_lastTempKeyC == key)
         return;
     m_lastTempKeyC = key;
     flush();
 }
 
-QByteArray MachineStatusSnapshot::buildSnapshotJson() const
+WidgetSnapshot MachineStatusSnapshot::buildSnapshot() const
 {
-    QJsonObject o;
-    o["schemaVersion"] = WidgetSharedKeys::kSchemaVersion;
-
-    const bool connected = m_device && m_device->isConnected();
-    o["connected"] = connected;
-    o["phase"] = m_machineState ? m_machineState->phaseString()
-                                : QStringLiteral("Disconnected");
+    WidgetSnapshot s;
+    s.connected = m_device && m_device->isConnected();
+    if (m_machineState)
+        s.phase = m_machineState->phaseString();
     if (m_device) {
-        o["temperatureC"] = m_device->temperature();
-        o["targetTemperatureC"] = m_device->goalTemperature();
-        o["steamTemperatureC"] = m_device->steamTemperature();
+        s.temperatureC = m_device->temperature();
+        s.targetTemperatureC = m_device->goalTemperature();
+        s.steamTemperatureC = m_device->steamTemperature();
     }
-    if (m_hasLastShot) {
-        QJsonObject shot;
-        shot["yieldG"] = m_lastShotYieldG;
-        shot["durationSec"] = m_lastShotDurationSec;
-        if (!m_lastShotQualityBadge.isEmpty())
-            shot["qualityBadge"] = m_lastShotQualityBadge;
-        o["lastShot"] = shot;
-    }
-
-    const QDateTime now = QDateTime::currentDateTime();
-    o["capturedAt"] = now.toOffsetFromUtc(now.offsetFromUtc())
-                          .toString(Qt::ISODate);
-
-    return QJsonDocument(o).toJson(QJsonDocument::Compact);
+    s.lastShot = m_lastShot;
+    return s;
 }
 
 void MachineStatusSnapshot::flush()
 {
-    writeAsync(buildSnapshotJson());
+    writeAsync(buildSnapshot().toJson());
 }
 
 void MachineStatusSnapshot::writeAsync(const QByteArray& json)
 {
-    // Off-main-thread platform write (project background-I/O rule). The
-    // payload is a few hundred bytes and flush frequency is low (phase /
-    // connection / rounded-temperature changes), so a short-lived worker
-    // per flush — the canonical pattern used elsewhere — is appropriate.
-    QThread* worker = QThread::create([json]() {
-        platformWrite(json);
+    if (m_shuttingDown)
+        return;
+    // Off-main-thread platform write. Payload is a few hundred bytes and
+    // flush frequency is low (phase/connection/rounded-temperature changes),
+    // so a short-lived fire-and-forget worker per flush is appropriate (no
+    // result to marshal back — the simpler half of the project's
+    // background-I/O pattern).
+    QThread* worker = QThread::create([json]() { platformWrite(json); });
+    m_workers.append(worker);
+    connect(worker, &QThread::finished, this, [this, worker]() {
+        m_workers.removeOne(worker);
+        worker->deleteLater();
     });
-    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
     worker->start();
 }
 
 void MachineStatusSnapshot::publishDisconnected()
 {
-    // Shutdown path: the event loop is going away, so write synchronously
-    // rather than spinning up a worker that may never run.
-    QJsonObject o;
-    o["schemaVersion"] = WidgetSharedKeys::kSchemaVersion;
-    o["connected"] = false;
-    o["phase"] = QStringLiteral("Disconnected");
-    const QDateTime now = QDateTime::currentDateTime();
-    o["capturedAt"] = now.toOffsetFromUtc(now.offsetFromUtc())
-                          .toString(Qt::ISODate);
-    platformWrite(QJsonDocument(o).toJson(QJsonDocument::Compact));
+    // Shutdown path: latch the gate so connectedChanged firing later in the
+    // same aboutToQuit teardown can't spawn a worker that outlives us, then
+    // write synchronously (the event loop is going away).
+    m_shuttingDown = true;
+    WidgetSnapshot s;          // connected=false, phase="Disconnected"
+    platformWrite(s.toJson());
 }
 
 void MachineStatusSnapshot::platformWrite(const QByteArray& json)
 {
+    // Best-effort, but never silently-forever: a persistent failure here
+    // makes the widget show "Disconnected" while the machine is live, so it
+    // must leave one searchable breadcrumb (throttled to avoid flush-rate
+    // spam).
+    static int failCount = 0;
+    auto logFail = [](const char* what) {
+        if (failCount == 0 || failCount % 100 == 0)
+            qWarning().noquote()
+                << "[widget] snapshot write failed:" << what
+                << "(occurrence" << (failCount + 1) << ")";
+        ++failCount;
+    };
+
 #if defined(Q_OS_ANDROID)
     QJniObject context = QNativeInterface::QAndroidApplication::context();
-    if (!context.isValid())
+    if (!context.isValid()) {
+        logFail("Android context invalid");
         return;
+    }
     QJniObject jJson = QJniObject::fromString(QString::fromUtf8(json));
     QJniObject::callStaticMethod<void>(
         "io/github/kulitorum/decenza_de1/MachineStatusWidget",
         "writeSnapshot",
         "(Landroid/content/Context;Ljava/lang/String;)V",
         context.object(), jJson.object<jstring>());
+    QJniEnvironment env;
+    if (env.checkAndClearExceptions())
+        logFail("JNI exception in MachineStatusWidget.writeSnapshot "
+                "(Java/C++ schema drift?)");
 #elif defined(Q_OS_IOS)
     decenzaWriteWidgetSnapshotIOS(json);
 #else
@@ -167,9 +214,13 @@ void MachineStatusSnapshot::platformWrite(const QByteArray& json)
     QDir().mkpath(dir);
     QSaveFile f(dir + QDir::separator()
                 + QString::fromUtf8(WidgetSharedKeys::kDesktopFileName));
-    if (f.open(QIODevice::WriteOnly)) {
-        f.write(json);
-        f.commit();
+    if (!f.open(QIODevice::WriteOnly)) {
+        logFail(qUtf8Printable("open " + f.fileName() + ": "
+                               + f.errorString()));
+        return;
     }
+    f.write(json);
+    if (!f.commit())
+        logFail(qUtf8Printable("commit: " + f.errorString()));
 #endif
 }

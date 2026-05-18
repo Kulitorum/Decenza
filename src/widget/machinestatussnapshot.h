@@ -1,22 +1,44 @@
 #pragma once
 
+#include <optional>
+
 #include <QObject>
 #include <QByteArray>
+#include <QString>
 #include <QPointer>
+#include <QVector>
 
 class DE1Device;
 class MachineState;
+class QThread;
 
-// Publishes a compact machine-status snapshot to platform-shared storage so
-// the iOS WidgetKit / Android AppWidget can render machine phase,
-// temperature-vs-target, last-shot summary, and an honest connection/staleness
-// state while the app is backgrounded or dead.
-//
-// Reads only existing accessors (no new BLE traffic). Snapshot assembly runs
-// on the object's thread; the actual shared-storage write is dispatched off
-// the main thread per the project's background-I/O rule.
-//
-// Schema: openspec/changes/add-machine-status-widget/snapshot-schema.md
+struct WidgetLastShot {
+    double yieldG = 0.0;
+    double durationSec = 0.0;
+    QString qualityBadge;   // empty → omitted from JSON
+};
+
+// Value type for the machine-status snapshot. One serializer (toJson) is the
+// single source of the on-disk schema — the live path and the shutdown
+// disconnected path both go through it so they cannot drift.
+// Schema: docs/CLAUDE_MD/WIDGET_SNAPSHOT.md
+struct WidgetSnapshot {
+    bool connected = false;
+    QString phase = QStringLiteral("Disconnected");
+    std::optional<double> temperatureC;
+    std::optional<double> targetTemperatureC;
+    std::optional<double> steamTemperatureC;
+    std::optional<WidgetLastShot> lastShot;
+
+    QByteArray toJson() const;
+};
+
+// Publishes a WidgetSnapshot to platform-shared storage so the iOS WidgetKit /
+// Android AppWidget can render machine phase, temperature-vs-target, last-shot
+// summary, and an honest connection/staleness state while the app is
+// backgrounded or dead. Reads only existing accessors (no new BLE traffic).
+// Snapshot assembly runs on the object's thread; the shared-storage write is
+// dispatched off the main thread per the project's background-I/O rule.
 class MachineStatusSnapshot : public QObject {
     Q_OBJECT
 
@@ -24,15 +46,18 @@ public:
     explicit MachineStatusSnapshot(DE1Device* device,
                                    MachineState* machineState,
                                    QObject* parent = nullptr);
+    ~MachineStatusSnapshot() override;
 
-    // Called by the existing shot-end wiring with the just-finished shot's
-    // summary. qualityBadge may be empty (omitted from the snapshot then).
+    // Called by the finalized shot-saved wiring with the just-saved espresso
+    // shot's summary. Non-finite or negative values are rejected (the single
+    // writer-side guard keeps all three platform readers thin). qualityBadge
+    // may be empty (then omitted from the snapshot).
     void setLastShot(double yieldG, double durationSec,
                       const QString& qualityBadge = QString());
 
     // Synchronous publish of a connected=false snapshot. Call on app
-    // shutdown / BLE teardown so a dead app degrades honestly rather than
-    // leaving the last "connected" snapshot behind.
+    // shutdown / BLE teardown so a dead app degrades honestly. Also latches
+    // a shutdown gate so no further async worker is spawned during teardown.
     void publishDisconnected();
 
 private slots:
@@ -41,7 +66,7 @@ private slots:
     void onSampleReceived();
 
 private:
-    QByteArray buildSnapshotJson() const;
+    WidgetSnapshot buildSnapshot() const;
     void flush();                              // assemble + async write
     void writeAsync(const QByteArray& json);   // off-main-thread platform write
     static void platformWrite(const QByteArray& json);
@@ -50,12 +75,19 @@ private:
     QPointer<MachineState> m_machineState;
 
     // Event-based coalescing for the ~5 Hz sample stream: only flush when the
-    // integer-rounded temperature the widget would display actually changes.
-    // No guard timers (project rule) — the value change is the trigger.
-    int m_lastTempKeyC = INT_MIN;
+    // integer-rounded temperature the widget would display changes. No guard
+    // timer — the value change is the trigger. Reset on phase change so a
+    // new phase (e.g. Heating→Steaming, different temp source) always flushes.
+    std::optional<int> m_lastTempKeyC;
 
-    bool m_hasLastShot = false;
-    double m_lastShotYieldG = 0.0;
-    double m_lastShotDurationSec = 0.0;
-    QString m_lastShotQualityBadge;
+    std::optional<WidgetLastShot> m_lastShot;
+
+    // Outstanding fire-and-forget write workers, tracked so the destructor can
+    // join them; m_shuttingDown gates new workers once teardown begins.
+    QVector<QThread*> m_workers;
+    bool m_shuttingDown = false;
+
+#ifdef DECENZA_TESTING
+    friend class tst_MachineStatusSnapshot;
+#endif
 };

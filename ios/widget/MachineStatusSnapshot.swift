@@ -1,11 +1,39 @@
 import Foundation
 
-// Mirrors src/widget/widgetsharedkeys.h and snapshot-schema.md — keep in sync.
+// Mirrors src/widget/widgetsharedkeys.h. Schema: docs/CLAUDE_MD/WIDGET_SNAPSHOT.md
 enum WidgetKeys {
     static let appGroupId = "group.io.github.kulitorum.decenza"
     static let snapshotKey = "machineStatusSnapshot"
     // Snapshot older than this (while still "connected") is shown as stale.
     static let freshWindowMinutes = 3
+}
+
+// Authoritative short widget labels for the raw MachineState phase strings.
+// Mirrors the table in docs/CLAUDE_MD/WIDGET_SNAPSHOT.md and the Android
+// MachineStatusWidgetProvider.PHASE_LABELS — keep all three in sync. Short
+// so they fit the smallest widget size without truncation.
+enum WidgetPhase {
+    static let labels: [String: String] = [
+        "Disconnected": "Disconnected",
+        "Sleep": "Sleep",
+        "Idle": "Idle",
+        "Heating": "Heating",
+        "Ready": "Ready",
+        "EspressoPreheating": "Preheating",
+        "Preinfusion": "Preinfusion",
+        "Pouring": "Pouring",
+        "Ending": "Finishing",
+        "Steaming": "Steaming",
+        "HotWater": "Hot Water",
+        "Flushing": "Flushing",
+        "Refill": "Refill",
+        "Descaling": "Descaling",
+        "Cleaning": "Cleaning",
+    ]
+    static func shortLabel(_ phase: String) -> String {
+        if phase.isEmpty { return "Decenza" }
+        return labels[phase] ?? phase
+    }
 }
 
 struct LastShot {
@@ -95,7 +123,7 @@ struct WidgetDisplay {
         }
 
         return WidgetDisplay(
-            phaseLabel: spaced(phase),
+            phaseLabel: WidgetPhase.shortLabel(phase),
             tempLine: tempLine(phase: phase,
                                t: s.temperatureC,
                                target: s.targetTemperatureC,
@@ -103,16 +131,6 @@ struct WidgetDisplay {
             lastShotLine: lastShotLine(s.lastShot),
             statusLine: status,
             disconnected: false)
-    }
-
-    private static func spaced(_ phase: String) -> String {
-        guard !phase.isEmpty else { return "Decenza" }
-        var out = ""
-        for (i, ch) in phase.enumerated() {
-            if i > 0, ch.isUppercase { out.append(" ") }
-            out.append(ch)
-        }
-        return out
     }
 
     private static func tempLine(phase: String, t: Double?,

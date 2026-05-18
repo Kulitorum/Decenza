@@ -37,9 +37,22 @@ project = Xcodeproj::Project.open(proj_path)
 app = project.targets.find { |t| t.name == APP_TARGET }
 abort "App target '#{APP_TARGET}' not found in #{proj_path}" unless app
 
-if project.targets.any? { |t| t.name == EXT_TARGET }
-  puts "[inject] '#{EXT_TARGET}' already present — nothing to do."
-  exit 0
+existing = project.targets.find { |t| t.name == EXT_TARGET }
+if existing
+  # Only a no-op if the injection is COMPLETE. A target present without the
+  # app's embed phase referencing its .appex is a partial/corrupt injection
+  # that would archive successfully but ship an IPA with no widget — fail
+  # loudly instead of silently exiting 0.
+  embedded = app.copy_files_build_phases.any? do |ph|
+    ph.symbol_dst_subfolder_spec == :plug_ins &&
+      ph.files_references.any? { |r| r == existing.product_reference }
+  end
+  if embedded
+    puts "[inject] '#{EXT_TARGET}' already fully present — nothing to do."
+    exit 0
+  end
+  abort "[inject] '#{EXT_TARGET}' exists but is NOT embedded in '#{APP_TARGET}' "\
+        "(partial injection). Refusing to proceed — regenerate the project."
 end
 
 team    = ENV["TEAM_ID"].to_s

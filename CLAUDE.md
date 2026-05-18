@@ -34,6 +34,7 @@ Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in th
 | `QML_GOTCHAS.md` | QML bug-prone patterns with code samples (font conflict, reserved names, IME drop, etc.) |
 | `QML_NAVIGATION.md` | StackView page navigation, phase-change handler, operation-page conventions |
 | `SHOTSERVER.md` | ShotServer file split, async community endpoints, JS `fetch()` rules |
+| `WIDGET_SNAPSHOT.md` | iOS/Android Home Screen widget: snapshot JSON schema, transport, phase-label table, display/staleness rules |
 
 Read [`docs/SHOT_REVIEW.md`](https://github.com/Kulitorum/Decenza/blob/main/docs/SHOT_REVIEW.md) when working on the post-shot review / shot detail pages, the five quality-badge detectors (pour truncated, channeling, grind issue, temperature unstable, skip-first-frame), the Shot Summary dialog, badge persistence, or `src/ai/shotanalysis.{h,cpp}`. It is the source of truth for detector internals, gate semantics, and the recompute-on-load contract; keep it in sync when changing any of the above.
 

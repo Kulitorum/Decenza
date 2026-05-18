@@ -74,6 +74,14 @@ CI (`.github/workflows/ios-release.yml`) runs this automatically between
 - The existing app profile must also include the App Group entitlement
   (regenerate it after enabling the capability).
 
+> **Custom bundle IDs:** the App Group is fixed at
+> `group.io.github.kulitorum.decenza` (and the widget bundle id at
+> `io.github.kulitorum.decenza.widget`). A local dev build with a custom
+> `-DIOS_BUNDLE_ID` (e.g. `…decenza.jefftest`) will build, but the widget
+> cannot share the App Group unless that group is also provisioned for the
+> custom App ID — so on `jefftest` the widget shows "Disconnected". This is
+> expected; the widget is validated on the production bundle id / TestFlight.
+
 **Configure macOS (generates Xcode project):**
 ```bash
 rm -rf build/Qt_6_11_1_for_macOS && mkdir -p build/Qt_6_11_1_for_macOS && cd build/Qt_6_11_1_for_macOS && /Users/mic/Qt/6.11.1/macos/bin/qt-cmake ../.. -G Xcode

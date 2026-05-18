@@ -145,6 +145,20 @@ add_decenza_test(tst_machinestate
     ${SIMULATOR_SOURCES}
 )
 
+# --- tst_machinestatussnapshot: widget snapshot schema + temp coalescing ---
+add_decenza_test(tst_machinestatussnapshot
+    tst_machinestatussnapshot.cpp
+    mocks/MockScaleDevice.h
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
+    ${CMAKE_SOURCE_DIR}/src/widget/machinestatussnapshot.cpp
+    ${MACHINE_SOURCES}
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+)
+
 # --- tst_recipeparams: RecipeParams serialization, validation, clamping ---
 add_decenza_test(tst_recipeparams
     tst_recipeparams.cpp
