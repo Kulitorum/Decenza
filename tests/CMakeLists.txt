@@ -483,9 +483,11 @@ add_decenza_test(tst_scaleblepriority
 )
 
 # --- tst_scaleskiphighlatch: BLEManager::ScaleSkipHighLatch value-type
-# invariant (#1093/#1176, D7). Struct is header-inline — no extra sources. ---
+# invariant (#1093/#1176, D7) + D9 SettingsHardware persisted store. The
+# struct is header-inline; settings_hardware.cpp is QtCore-only (QSettings). ---
 add_decenza_test(tst_scaleskiphighlatch
     tst_scaleskiphighlatch.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_hardware.cpp
 )
 
 # --- tst_sawprediction: shared SAW expected-drip kernel (σ + Gaussian math) ---

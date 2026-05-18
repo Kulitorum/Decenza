@@ -16,6 +16,7 @@
 
 class ScaleDevice;
 class DiFluidR2;
+class SettingsHardware;
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
 class AppleBtState;
 #endif
@@ -125,6 +126,15 @@ public:
     QString scaleSkipHighTriggerKind() const { return m_scaleSkipHigh.triggerKind; }
     QDateTime scaleSkipHighSetTime() const { return m_scaleSkipHigh.setTime; }
     QDateTime appStartTime() const { return m_appStartTime; }
+
+    // D9: wire the persisted (build-scoped) classification store. Called once
+    // at startup BEFORE any BLE connect. Loads a prior classification: if it
+    // was set by the CURRENT build it seeds the in-memory latch so the first
+    // connect of the run already skips HIGH on both links (no detection
+    // window); if it was set by a DIFFERENT build it is discarded + wiped
+    // (the build-scoped safety valve — every new build re-detects).
+    // latch/clear then write through to this store.
+    void setSettings(SettingsHardware* settings);
 
     Q_INVOKABLE QBluetoothDeviceInfo getScaleDeviceInfo(const QString& address) const;
     Q_INVOKABLE QString getScaleType(const QString& address) const;
@@ -247,6 +257,11 @@ private:
     // intentionally separate from the latch value (different lifetime).
     ScaleSkipHighLatch m_scaleSkipHigh;
     QDateTime m_appStartTime;
+    // D9: persisted (build-scoped) classification store. Non-owning; the
+    // SettingsHardware domain object outlives BLEManager (main()-scoped).
+    // Null until setSettings() is wired (and on platforms/tests that don't
+    // wire it — then the classification is in-memory-only, as before D9).
+    SettingsHardware* m_settings = nullptr;
 
     // Simulator mode - disable all BLE operations
     bool m_disabled = false;

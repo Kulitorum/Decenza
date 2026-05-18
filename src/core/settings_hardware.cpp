@@ -91,3 +91,38 @@ void SettingsHardware::setFanThreshold(int value) {
         emit fanThresholdChanged();
     }
 }
+
+// --- Connection-priority weak-device classification (D9) ---
+// Dumb persisted storage under the "connectionPriority/" QSettings group;
+// BLEManager owns build-scoped gating + the value invariant. No NOTIFY/QML.
+
+bool SettingsHardware::cpLatched() const {
+    return m_settings.value("connectionPriority/latched", false).toBool();
+}
+
+QString SettingsHardware::cpTriggerKind() const {
+    return m_settings.value("connectionPriority/triggerKind").toString();
+}
+
+QString SettingsHardware::cpSetTimeIso() const {
+    return m_settings.value("connectionPriority/setTimeIso").toString();
+}
+
+int SettingsHardware::cpBuildCode() const {
+    return m_settings.value("connectionPriority/buildCode", 0).toInt();
+}
+
+void SettingsHardware::setConnectionPriorityLatch(const QString& triggerKind,
+                                                  const QString& setTimeIso,
+                                                  int buildCode) {
+    m_settings.setValue("connectionPriority/latched", true);
+    m_settings.setValue("connectionPriority/triggerKind", triggerKind);
+    m_settings.setValue("connectionPriority/setTimeIso", setTimeIso);
+    m_settings.setValue("connectionPriority/buildCode", buildCode);
+}
+
+void SettingsHardware::clearConnectionPriorityLatch() {
+    // Remove the whole group so a later cpLatched() defaults to false and no
+    // stale kind/time/build lingers.
+    m_settings.remove("connectionPriority");
+}

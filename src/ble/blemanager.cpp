@@ -4,6 +4,8 @@
 #include "protocol/de1characteristics.h"
 #include "scales/scalefactory.h"
 #include "refractometers/difluidr2.h"
+#include "../core/settings_hardware.h"
+#include "version.h"
 #include <QBluetoothLocalDevice>
 #include <QBluetoothUuid>
 #include <QCoreApplication>
@@ -129,21 +131,66 @@ BLEManager::~BLEManager() {
     if (s_instance == this) s_instance = nullptr;
 }
 
+void BLEManager::setSettings(SettingsHardware* settings)
+{
+    m_settings = settings;
+    if (!m_settings || !m_settings->cpLatched()) return;
+
+    const int storedBuild = m_settings->cpBuildCode();
+    if (storedBuild == versionCode()) {
+        // Same build → rehydrate the in-memory latch from the persisted
+        // record, preserving the ORIGINAL trigger kind + set-time (do NOT
+        // call ScaleSkipHighLatch::set(), which would re-stamp the time).
+        m_scaleSkipHigh.latched = true;
+        const QString kind = m_settings->cpTriggerKind();
+        m_scaleSkipHigh.triggerKind = kind.isEmpty() ? QStringLiteral("unknown") : kind;
+        m_scaleSkipHigh.setTime =
+            QDateTime::fromString(m_settings->cpSetTimeIso(), Qt::ISODate);
+        qWarning().noquote()
+            << QStringLiteral("[BLE] Loaded persisted dual-HIGH-incapable "
+                  "classification (build %1, trigger=%2) — BOTH BLE links "
+                  "will start at BALANCED this run (no detection window)")
+                   .arg(storedBuild).arg(m_scaleSkipHigh.triggerKind);
+    } else {
+        // Build changed → the build-scoped safety valve: discard + wipe so a
+        // (possibly mis-classified) device re-detects from scratch on every
+        // new build. MCP reset is the in-session escape hatch within a build.
+        m_settings->clearConnectionPriorityLatch();
+        qWarning().noquote()
+            << QStringLiteral("[BLE] Persisted connection-priority "
+                  "classification was set by build %1 but this is build %2 — "
+                  "discarding and re-detecting from scratch (build-scoped "
+                  "safety valve)").arg(storedBuild).arg(versionCode());
+    }
+}
+
 void BLEManager::latchScaleSkipHighPriority(const QString& triggerKind)
 {
-    // The value type enforces "kind+time set iff latched"; in-memory only,
-    // never persisted (D2/D4).
+    // The value type enforces "kind+time set iff latched".
     m_scaleSkipHigh.set(triggerKind);
+    // D9: write through so the classification survives restarts of THIS
+    // build (build-scoped — a new build re-detects via setSettings()).
+    if (m_settings) {
+        m_settings->setConnectionPriorityLatch(
+            m_scaleSkipHigh.triggerKind,
+            m_scaleSkipHigh.setTime.toString(Qt::ISODate),
+            versionCode());
+    }
 }
 
 void BLEManager::clearScaleSkipHighPriority()
 {
-    if (!m_scaleSkipHigh.latched && m_scaleSkipHigh.triggerKind.isEmpty()) return;
-    qWarning().noquote()
-        << "[BLE] Scale connection-priority skip-HIGH latch CLEARED via MCP "
-           "reset — next scale (re)connect will request HIGH and re-enter "
-           "detection (incl. the startup probe)";
+    const bool wasLatched = m_scaleSkipHigh.latched;
     m_scaleSkipHigh.clear();
+    // D9: clear the persisted record too (idempotent — safe even if the
+    // in-memory latch was already clear).
+    if (m_settings) m_settings->clearConnectionPriorityLatch();
+    if (wasLatched) {
+        qWarning().noquote()
+            << "[BLE] Scale connection-priority skip-HIGH latch CLEARED via "
+               "MCP reset — next (re)connect will request HIGH on both links "
+               "and re-enter detection (incl. the startup probe)";
+    }
 }
 
 void BLEManager::requestBluezCacheHint()

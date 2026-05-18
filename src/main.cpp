@@ -494,6 +494,11 @@ int main(int argc, char *argv[])
 
     DE1Device de1Device;
     de1Device.setSettings(settings.hardware());  // Heater calibration sent to firmware
+    // D9: wire the persisted (build-scoped) dual-HIGH-incapable classification
+    // store BEFORE any BLE connect, so a known-weak device starts both links
+    // at BALANCED on the first connect (no detection window) — and a record
+    // from a different build is auto-discarded (re-detect every new build).
+    bleManager.setSettings(settings.hardware());
     qDebug() << "Simulation mode:" << (settings.app()->simulationMode() ? "ON" : "off");
     de1Device.setSimulationMode(settings.app()->simulationMode());  // Restore simulation mode from settings
     std::unique_ptr<ScaleDevice> physicalScale;  // Physical BLE scale (when connected)
