@@ -76,8 +76,15 @@ jobs:
           target: 'ios'
           arch: 'ios'
           modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtimageformats qtcanvaspainter'
-          cache: true
-          cache-key-prefix: 'qt-ios-v4'
+          # Qt-for-iOS caching is intentionally disabled. The iOS Qt install
+          # is ~4.2 GB — over half the 10 GB per-repo Actions cache budget —
+          # and its presence forced GitHub's LRU eviction to thrash the
+          # other 5 platforms' Qt caches (and the ccache entries), making
+          # every release slower. iOS is our least release-critical build,
+          # so it pays the cold Qt-install cost (a few extra minutes) to
+          # keep windows/macos/linux/android Qt caches resident. Re-enable
+          # only if the budget pressure is otherwise resolved.
+          cache: false
 
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
