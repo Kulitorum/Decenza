@@ -144,11 +144,12 @@ private slots:
     }
 
     void epochIsTheGateNotBuild() {
-        // BLEManager rehydrates iff storedEpoch == kBleDetectionEpoch,
-        // regardless of buildCode (now diagnostic only). This pins that the
-        // epoch is faithfully retrievable for that comparison and that a
-        // differing buildCode does NOT change it (gate logic lives in
-        // BLEManager::setSettings; the build-scoped behavior is removed).
+        // Same-epoch ⇒ rehydrate, regardless of buildCode (now diagnostic
+        // only). (Legacy `-1` records ALSO rehydrate, via migrate-forward —
+        // the full trichotomy is exhaustively pinned by the epochGate_*
+        // tests below.) This pins that the epoch is faithfully retrievable
+        // and a differing buildCode does NOT change the gate (decision logic:
+        // decideBleEpochGate; the build-scoped behavior is removed).
         SettingsHardware s;
         s.setConnectionPriorityLatch(QStringLiteral("de1-fault-cluster"),
                                      QStringLiteral("2026-05-18T12:00:00"),

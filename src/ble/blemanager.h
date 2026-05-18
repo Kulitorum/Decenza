@@ -130,7 +130,7 @@ public:
         // on a partial write / manual edit / format drift: an empty kind
         // becomes "unknown"; an invalid time falls back to now (the
         // classification is the load-bearing fact — do NOT discard a valid
-        // same-build latch over a bad diagnostic timestamp). Returns false iff
+        // same-epoch/legacy latch over a bad diagnostic timestamp). Returns false iff
         // the time had to be substituted, so the caller can log the anomaly.
         bool rehydrate(const QString& kind, const QDateTime& time) {
             latched = true;
@@ -144,11 +144,15 @@ public:
 
     // --- BLE detection epoch (scale-priority-epoch-scope-and-stall-confirm) ---
     // The persisted dual-HIGH-incapable classification is scoped to THIS
-    // constant, NOT to versionCode/build. BLEManager rehydrates a persisted
-    // latch iff its stored epoch == kBleDetectionEpoch, otherwise it discards
-    // and re-detects. CI / versioncode.txt MUST NOT touch this — it is the
-    // single, deliberate "re-classify every device once on this release"
-    // lever (replaces the old accidental per-build reset).
+    // constant, NOT to versionCode/build. The gate (decideBleEpochGate, the
+    // function setSettings dispatches on) is a trichotomy, NOT a biconditional:
+    //   • stored epoch == kBleDetectionEpoch        → rehydrate
+    //   • legacy record (no epoch key; cpEpoch -1)  → rehydrate + migrate fwd
+    //   • a DIFFERENT non-negative epoch, or corrupt → discard + re-detect
+    // i.e. a legacy record is rehydrated, NOT discarded — discard happens
+    // only on a deliberate epoch bump (or corruption). CI / versioncode.txt
+    // MUST NOT touch this — it is the single, deliberate "re-classify every
+    // device once on this release" lever (replaces the old per-build reset).
     //
     // BUMP THIS (by one) ONLY when a release intentionally changes BLE
     // connection behaviour (connection parameters / priority handling) OR you
