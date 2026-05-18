@@ -45,6 +45,7 @@ public slots:
     // backoff. No-ops once backed off or when starting at BALANCED.
     void onDe1LinkFault(const QString& kind) override;
     void onScaleFeedStalled(qint64 gapMs) override;
+    void onScaleFeedStallConfirmed(qint64 gapMs) override;
     void onScaleFeedResumed(qint64 gapMs) override;
 
 private slots:

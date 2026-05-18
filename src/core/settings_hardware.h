@@ -43,16 +43,22 @@ public:
     // --- Connection-priority weak-device classification (D9, #1093/#1176) ---
     // INTERNAL: deliberately NOT a Q_PROPERTY, no NOTIFY, no QML/Settings-UI
     // binding (settings-architecture rule — operator access is MCP-only).
-    // Dumb storage: BLEManager owns the build-scoped gating + invariant.
+    // Dumb storage: BLEManager owns the epoch-scoped gating + invariant.
     // Persisted so a proven dual-HIGH-incapable radio starts BOTH BLE links
-    // at BALANCED across restarts; the stored buildCode lets BLEManager
-    // auto-clear on every new app build (the safety valve). MCP reset clears.
+    // at BALANCED across restarts. `detectionEpoch` is the gate (BLEManager
+    // re-detects only when it differs from kBleDetectionEpoch — a deliberate
+    // global-reset lever, NOT per build); `buildCode` is retained DIAGNOSTIC
+    // ONLY ("last classified by build N"). cpEpoch() returns -1 when no epoch
+    // key is stored (a legacy pre-epoch record → BLEManager migrates it
+    // forward). MCP reset clears the whole latch (incl. the epoch key).
     bool cpLatched() const;
     QString cpTriggerKind() const;
     QString cpSetTimeIso() const;
     int cpBuildCode() const;
+    int cpEpoch() const;  // -1 ⇒ legacy record (no detectionEpoch key)
     void setConnectionPriorityLatch(const QString& triggerKind,
-                                    const QString& setTimeIso, int buildCode);
+                                    const QString& setTimeIso, int buildCode,
+                                    int detectionEpoch);
     void clearConnectionPriorityLatch();
 
     // Backoff policy mode (observe-mode change). Distinct from the latch:

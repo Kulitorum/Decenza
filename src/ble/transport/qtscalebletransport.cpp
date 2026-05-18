@@ -344,14 +344,27 @@ void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
 }
 
 void QtScaleBleTransport::onScaleFeedStalled(qint64 gapMs) {
-    // Backstop: covers sessions where the DE1 cluster never appears early and
-    // the scale silently stalls mid-shot (the actual #1176 shot-1151 case).
+    // SUSPECTED stall only — this no longer drives the backoff (a transient
+    // blip that self-recovers must NOT latch). It is the observe/diagnostic
+    // breadcrumb; the latch trigger is onScaleFeedStallConfirmed below. The
+    // WeightProcessor already qWarns the suspected edge; in observe add an
+    // explicit line so the field log shows "watching, not yet acted".
+    if (m_priority.observing()) {
+        warn(QStringLiteral("[observe] SUSPECTED scale-feed stall (silent "
+             "%1 s) — watching for confirmation; no action, link stays HIGH")
+             .arg(gapMs / 1000.0, 0, 'f', 1));
+    }
+}
+
+void QtScaleBleTransport::onScaleFeedStallConfirmed(qint64 gapMs) {
+    // CONFIRMED stall — persisted past kScaleStallConfirmMs with no recovery
+    // (the transient/false shape never reaches here). THIS is the real
+    // backstop trigger (the actual #1176 shot-1151 case is a sustained dead
+    // feed, which confirms).
     if (m_priority.onScaleStall()) {
-        // Covers an in-shot stall AND a pre-shot EspressoPreheating stall —
-        // both surface here as the scale-feed-stall trigger kind.
         const QString reason = QStringLiteral(
-            "scale weight feed stalled while weight expected "
-            "(extraction/preheat) at HIGH");
+            "scale weight feed stall CONFIRMED (sustained, no recovery) while "
+            "weight expected (extraction/preheat) at HIGH");
         if (m_priority.observing())
             logWouldBackoff(reason, QStringLiteral("scale-feed-stall"),
                             gapMs / 1000.0);
@@ -359,24 +372,27 @@ void QtScaleBleTransport::onScaleFeedStalled(qint64 gapMs) {
             triggerScaleBackoff(qPrintable(reason),
                                 QStringLiteral("scale-feed-stall"));
     } else {
-        // Stall observed but the detector took no action (already latched /
-        // backed off, or the scale is not at HIGH so detection is disarmed).
-        // Log it — the single field debug.log must never silently swallow a
-        // stall signal (this is exactly what we want to see when triaging a
+        // Confirmed stall observed but the detector took no action (already
+        // latched / backed off, or the scale is not at HIGH so detection is
+        // disarmed). Log it — the single field debug.log must never silently
+        // swallow a confirmed stall (exactly what we want when triaging a
         // "still no weight" report on an already-backed-off run).
-        log("scale weight feed stall observed but connection-priority detector "
-            "is disarmed (already latched / not at HIGH) — no backoff taken");
+        log("confirmed scale-feed stall observed but connection-priority "
+            "detector is disarmed (already latched / not at HIGH) — no "
+            "backoff taken");
     }
 }
 
 void QtScaleBleTransport::onScaleFeedResumed(qint64 gapMs) {
-    // Observe-only recovery evidence: a feed that had stalled came back on
-    // its own at HIGH (no backoff was taken). Silent in enforce mode (the
-    // reconnect is the structural confirmation there).
+    // Observe-only recovery evidence: a SUSPECTED stall came back on its own
+    // before it could confirm — so with confirmation it would NOT have backed
+    // off. Recording the recovered gap here is also the calibration data for
+    // kScaleStallConfirmMs. Silent in enforce (no action was pending anyway).
     if (!m_priority.observing()) return;
     const double gapSec = gapMs / 1000.0;
     warn(QStringLiteral("[observe] scale feed RESUMED after %1 s — "
-         "would-have-been-backoff recovered on its own at HIGH (no action taken)")
+         "self-recovered before confirmation; would NOT have backed off "
+         "(no action, link stays HIGH)")
          .arg(gapSec, 0, 'f', 1));
     if (auto* mgr = BLEManager::instance())
         mgr->recordObserveEvent(BLEManager::ObserveEvent::recovered(

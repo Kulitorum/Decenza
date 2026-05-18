@@ -152,43 +152,70 @@ void BLEManager::setSettings(SettingsHardware* settings)
 
     if (!m_settings->cpLatched()) return;
 
-    const int storedBuild = m_settings->cpBuildCode();
-    if (storedBuild == versionCode()) {
-        // Same build → rehydrate the in-memory latch from the persisted
-        // record. rehydrate() preserves the ORIGINAL set-time (unlike set(),
-        // which would re-stamp it) and sanitises possibly-corrupt persisted
-        // input so the ScaleSkipHighLatch invariant ("kind non-empty AND time
-        // valid IFF latched") holds even on a partial write / manual edit /
-        // ISO-format drift. It returns false iff the stored timestamp was
-        // invalid and had to be substituted — log that anomaly (otherwise the
-        // MCP read would silently show a latched device with no set-time and
-        // no debug trail explaining why).
-        const QString isoIn = m_settings->cpSetTimeIso();
-        const bool timeOk = m_scaleSkipHigh.rehydrate(
-            m_settings->cpTriggerKind(),
-            QDateTime::fromString(isoIn, Qt::ISODate));
-        qWarning().noquote()
-            << QStringLiteral("[BLE] Loaded persisted dual-HIGH-incapable "
-                  "classification (build %1, trigger=%2) — BOTH BLE links "
-                  "will start at BALANCED this run (no detection window)")
-                   .arg(storedBuild).arg(m_scaleSkipHigh.triggerKind);
-        if (!timeOk) {
-            qWarning().noquote()
-                << QStringLiteral("[BLE] Persisted connection-priority set-time "
-                      "was invalid/missing (stored=\"%1\") — substituted "
-                      "current time; classification kept (it is the "
-                      "load-bearing fact)").arg(isoIn);
-        }
-    } else {
-        // Build changed → the build-scoped safety valve: discard + wipe so a
-        // (possibly mis-classified) device re-detects from scratch on every
-        // new build. MCP reset is the in-session escape hatch within a build.
+    const int storedEpoch = m_settings->cpEpoch();   // -1 ⇒ legacy (no key)
+    const int storedBuild = m_settings->cpBuildCode(); // diagnostic only now
+
+    if (storedEpoch >= 0 && storedEpoch != kBleDetectionEpoch) {
+        // A DELIBERATE epoch bump shipped (e.g. a release that changed BLE
+        // handling or intentionally re-classifies everyone). This is now the
+        // ONLY auto-wipe path — it fires only on an intentional epoch change,
+        // NOT on every build. Discard + re-detect from scratch.
         m_settings->clearConnectionPriorityLatch();
         qWarning().noquote()
             << QStringLiteral("[BLE] Persisted connection-priority "
-                  "classification was set by build %1 but this is build %2 — "
-                  "discarding and re-detecting from scratch (build-scoped "
-                  "safety valve)").arg(storedBuild).arg(versionCode());
+                  "classification was set under detection epoch %1 but this "
+                  "build is epoch %2 — discarding and re-detecting from "
+                  "scratch (deliberate epoch reset)")
+                   .arg(storedEpoch).arg(kBleDetectionEpoch);
+        return;
+    }
+
+    // storedEpoch == kBleDetectionEpoch (ordinary same-epoch rehydrate) OR
+    // storedEpoch < 0 (a legacy pre-epoch record → honor + migrate forward,
+    // ZERO extra detection on the upgrade that introduces epoch scoping).
+    const bool legacy = (storedEpoch < 0);
+
+    // rehydrate() preserves the ORIGINAL set-time (unlike set(), which would
+    // re-stamp it) and sanitises possibly-corrupt persisted input so the
+    // ScaleSkipHighLatch invariant ("kind non-empty AND time valid IFF
+    // latched") holds even on a partial write / manual edit / ISO drift. It
+    // returns false iff the stored timestamp was invalid and had to be
+    // substituted — log that anomaly.
+    const QString isoIn = m_settings->cpSetTimeIso();
+    const bool timeOk = m_scaleSkipHigh.rehydrate(
+        m_settings->cpTriggerKind(),
+        QDateTime::fromString(isoIn, Qt::ISODate));
+    m_scaleSkipHighBuildCode = storedBuild;  // diagnostic ("classified by N")
+    qWarning().noquote()
+        << QStringLiteral("[BLE] Loaded persisted dual-HIGH-incapable "
+              "classification (epoch %1, build %2 [diagnostic], trigger=%3) — "
+              "BOTH BLE links will start at BALANCED this run (no detection "
+              "window)")
+               .arg(legacy ? kBleDetectionEpoch : storedEpoch)
+               .arg(storedBuild).arg(m_scaleSkipHigh.triggerKind);
+    if (!timeOk) {
+        qWarning().noquote()
+            << QStringLiteral("[BLE] Persisted connection-priority set-time "
+                  "was invalid/missing (stored=\"%1\") — substituted current "
+                  "time; classification kept (it is the load-bearing fact)")
+                   .arg(isoIn);
+    }
+
+    if (legacy) {
+        // One-time forward migration: stamp the current epoch so subsequent
+        // same-epoch builds rehydrate normally (and are never re-migrated).
+        // Persist from the now-sanitised in-memory latch (keeps the
+        // invariant); keep the original buildCode as the diagnostic.
+        m_settings->setConnectionPriorityLatch(
+            m_scaleSkipHigh.triggerKind,
+            m_scaleSkipHigh.setTime.toString(Qt::ISODate),
+            storedBuild, kBleDetectionEpoch);
+        qWarning().noquote()
+            << QStringLiteral("[BLE] Migrated a legacy (pre-epoch) "
+                  "connection-priority record forward to detection epoch %1 — "
+                  "the device was already classified, so NO re-detection is "
+                  "incurred (the old per-build reset is gone)")
+                   .arg(kBleDetectionEpoch);
     }
 }
 
@@ -196,13 +223,16 @@ void BLEManager::latchScaleSkipHighPriority(const QString& triggerKind)
 {
     // The value type enforces "kind+time set iff latched".
     m_scaleSkipHigh.set(triggerKind);
-    // D9: write through so the classification survives restarts of THIS
-    // build (build-scoped — a new build re-detects via setSettings()).
+    m_scaleSkipHighBuildCode = versionCode();  // diagnostic ("classified by N")
+    // Write through so the classification survives restarts. Now EPOCH-scoped:
+    // it persists across all builds sharing kBleDetectionEpoch; versionCode()
+    // is stored only as a diagnostic ("last classified by build N"), no
+    // longer the rehydrate gate.
     if (m_settings) {
         m_settings->setConnectionPriorityLatch(
             m_scaleSkipHigh.triggerKind,
             m_scaleSkipHigh.setTime.toString(Qt::ISODate),
-            versionCode());
+            versionCode(), kBleDetectionEpoch);
     }
 }
 
@@ -210,6 +240,7 @@ void BLEManager::clearScaleSkipHighPriority()
 {
     const bool wasLatched = m_scaleSkipHigh.latched;
     m_scaleSkipHigh.clear();
+    m_scaleSkipHighBuildCode = 0;  // diagnostic cleared with the latch
     // D9: clear the persisted record too (idempotent — safe even if the
     // in-memory latch was already clear).
     if (m_settings) m_settings->clearConnectionPriorityLatch();

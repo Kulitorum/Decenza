@@ -101,8 +101,8 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             result["bleAvailable"] = bleManager != nullptr;
 
             // Scale connection-priority (dual-HIGH backoff) state. Persisted,
-            // build-scoped (D9): a same-build restart rehydrates it; a new
-            // build, or this MCP reset, re-detects from scratch.
+            // epoch-scoped: a same-epoch restart rehydrates it; a deliberate
+            // epoch bump, or this MCP reset, re-detects from scratch.
             QJsonObject sp;
             const bool latched = bleManager && bleManager->scaleSkipHighPriority();
             sp["scaleLinkPriority"] = latched ? "balanced" : "high";
@@ -111,13 +111,22 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             // armed right now (that additionally needs a scale connected at
             // HIGH; the latch is the dominant signal).
             sp["detectionActive"] = !latched;
-            // D9: build-scoped QSettings persistence. A same-build restart
-            // keeps this latched (no detection window); a new app build, or
-            // the devices_reset_scale_priority tool, clears it.
+            // Epoch-scoped QSettings persistence: the classification persists
+            // across all builds sharing detectionEpoch; a same-epoch restart
+            // keeps it latched (no detection window). It re-detects only on a
+            // deliberate epoch bump (a release that changed BLE handling /
+            // re-classifies everyone) or via devices_reset_scale_priority.
             sp["persisted"] = true;
-            sp["persistenceScope"] = "build";
+            sp["persistenceScope"] = "epoch";
+            // The active detection epoch (always reported, latched or not).
+            sp["detectionEpoch"] = BLEManager::kBleDetectionEpoch;
             if (latched) {
                 sp["triggerKind"] = bleManager->scaleSkipHighTriggerKind();
+                // Diagnostic ONLY — the versionCode that last classified this
+                // device. NOT the rehydrate gate (the epoch is); surfaced so
+                // the "classified by build N" field-triage trail survives.
+                const int byBuild = bleManager->scaleSkipHighBuildCode();
+                if (byBuild > 0) sp["classifiedByBuildCode"] = byBuild;
                 const QDateTime setT = bleManager->scaleSkipHighSetTime();
                 const QDateTime appStart = bleManager->appStartTime();
                 if (setT.isValid()) {
@@ -166,15 +175,16 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
         "read");
 
     // devices_reset_scale_priority — clears the dual-HIGH backoff latch, both
-    // in-memory AND the persisted (build-scoped) record (the only operator
+    // in-memory AND the persisted (epoch-scoped) record (the only operator
     // path; there is intentionally no UI). Takes effect on the next scale
     // (re)connect's detection pass: eventually-consistent, no forced teardown
-    // of a live connection. Durable: a same-build restart will NOT rehydrate.
+    // of a live connection. Durable: a restart will NOT rehydrate it (the
+    // clear wipes the epoch key too — the device re-detects from scratch).
     registry->registerTool(
         "devices_reset_scale_priority",
         "Reset (clear) the scale connection-priority dual-HIGH backoff latch — "
-        "both the in-memory latch and the persisted (build-scoped) record. The "
-        "reset is durable: a same-build app restart will NOT re-apply it. After "
+        "both the in-memory latch and the persisted (epoch-scoped) record. The "
+        "reset is durable: an app restart will NOT re-apply it. After "
         "reset, the next scale (re)connect requests HIGH and re-enters "
         "detection from scratch (as if the device were seen for the first "
         "time). Eventually-consistent: it does NOT tear down a "
@@ -229,7 +239,8 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
         "recovery events are logged and surfaced in devices_connection_status, "
         "so the backoff's aggressiveness can be evaluated on a production "
         "build. The mode persists across app restarts AND build upgrades "
-        "until explicitly changed (it is NOT build-scoped, unlike the latch). "
+        "until explicitly changed (it is not scoped at all, unlike the latch "
+        "which is epoch-scoped). "
         "Eventually-consistent: the change is queued onto the BLE-manager "
         "thread (this response does NOT assert the persist has executed yet), "
         "and the HIGH-forcing additionally only applies on the next scale "

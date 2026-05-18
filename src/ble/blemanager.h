@@ -142,6 +142,22 @@ public:
         void clear() { latched = false; triggerKind.clear(); setTime = QDateTime(); }
     };
 
+    // --- BLE detection epoch (scale-priority-epoch-scope-and-stall-confirm) ---
+    // The persisted dual-HIGH-incapable classification is scoped to THIS
+    // constant, NOT to versionCode/build. BLEManager rehydrates a persisted
+    // latch iff its stored epoch == kBleDetectionEpoch, otherwise it discards
+    // and re-detects. CI / versioncode.txt MUST NOT touch this — it is the
+    // single, deliberate "re-classify every device once on this release"
+    // lever (replaces the old accidental per-build reset).
+    //
+    // BUMP THIS (by one) ONLY when a release intentionally changes BLE
+    // connection behaviour (connection parameters / priority handling) OR you
+    // explicitly want every device to re-run detection once on that release.
+    // Bumping it on a release that fixes the dual-HIGH contention is how the
+    // fix reaches already-latched devices. A legacy pre-epoch record (no
+    // stored epoch) is migrated forward, NOT re-detected (see setSettings).
+    static constexpr int kBleDetectionEpoch = 1;
+
     bool scaleSkipHighPriority() const { return m_scaleSkipHigh.latched; }
     // Latch the skip-HIGH decision with a mandatory trigger kind (no default —
     // "latch without a reason" is a compile error, not a silent "unknown").
@@ -154,6 +170,10 @@ public:
     void clearScaleSkipHighPriority();
     QString scaleSkipHighTriggerKind() const { return m_scaleSkipHigh.triggerKind; }
     QDateTime scaleSkipHighSetTime() const { return m_scaleSkipHigh.setTime; }
+    // Diagnostic only (NOT a gate): the versionCode that last set/rehydrated
+    // the current latch. 0 when not latched. Surfaced in the MCP read so the
+    // "last classified by build N" trail survives the build→epoch demotion.
+    int scaleSkipHighBuildCode() const { return m_scaleSkipHighBuildCode; }
     QDateTime appStartTime() const { return m_appStartTime; }
 
     // --- Backoff policy mode (observe-mode change) ---
@@ -376,6 +396,10 @@ private:
     // (process start) so the MCP read can report "elapsed since app start" —
     // intentionally separate from the latch value (different lifetime).
     ScaleSkipHighLatch m_scaleSkipHigh;
+    // Diagnostic: versionCode that last set/rehydrated the latch (0 = none).
+    // NOT part of the invariant-bearing latch struct (it is informational and
+    // no longer the gate — the epoch is). Set on latch/rehydrate, 0 on clear.
+    int m_scaleSkipHighBuildCode = 0;
     QDateTime m_appStartTime;
     // Backoff policy mode (observe-mode change). Loaded from SettingsHardware
     // in setSettings() (not build-scoped); default Enforce until then.
