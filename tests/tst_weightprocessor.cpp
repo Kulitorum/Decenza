@@ -604,6 +604,9 @@ private slots:
         wp.setCurrentFrame(0);       // DE1 cadence keeps ticking
 
         QCOMPARE(stallSpy.count(), 1);
+        // The gap carried to observe mode must be the real silent duration
+        // (now − last good sample), not anchored to "now". 3000 ms advanced.
+        QCOMPARE(stallSpy.first().at(0).toLongLong(), qint64(3000));
     }
 
     // Safety invariant: preheat active but tare NOT complete must NOT fire —

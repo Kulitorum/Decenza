@@ -2,16 +2,16 @@
 
 ### Requirement: Set Scale Connection-Priority Mode Tool
 
-The MCP server SHALL expose a `devices_set_scale_priority_mode` tool that sets the persistent backoff policy mode to `enforce` or `observe`. It MUST require an explicit confirmation argument before applying (matching `devices_reset_scale_priority`). The mode change MUST persist immediately, but the HIGH-forcing effect of `observe` is eventually-consistent — it applies on the next scale (re)connect and does NOT tear down the current connection. The response MUST state this explicitly. An unrecognized mode value MUST be rejected without changing state.
+The MCP server SHALL expose a `devices_set_scale_priority_mode` tool that sets the persistent backoff policy mode to `enforce` or `observe`. It MUST require an explicit confirmation argument before applying. The change is eventually-consistent: it MUST be queued onto the BLE-manager thread and the response MUST NOT assert the persist has completed; the HIGH-forcing effect of `observe` additionally only applies on the next scale (re)connect and does NOT tear down the current connection. The response MUST state this queued, eventually-consistent contract explicitly. An unrecognized mode value MUST be rejected without changing state.
 
 #### Scenario: Set observe mode
 - **WHEN** the tool is called with `mode: "observe"` and `confirmed: true`
-- **THEN** the persisted mode becomes `observe` immediately
-- **AND** the response states the mode persisted and that HIGH-forcing applies on the next scale reconnect (the current connection is not torn down)
+- **THEN** the mode change is queued and, once applied on the BLE-manager thread, reads back as `observe`
+- **AND** the response states the change was queued (not asserted-persisted) and that HIGH-forcing applies on the next scale reconnect (the current connection is not torn down)
 
 #### Scenario: Set back to enforce
 - **WHEN** the tool is called with `mode: "enforce"` and `confirmed: true`
-- **THEN** the persisted mode becomes `enforce`
+- **THEN** the mode change is queued and, once applied, reads back as `enforce`
 - **AND** the prior persisted latch (if any) is honored again on the next reconnect
 
 #### Scenario: Missing confirmation

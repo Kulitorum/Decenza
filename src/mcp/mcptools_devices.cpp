@@ -212,10 +212,12 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
         "control");
 
     // devices_set_scale_priority_mode — sets the persistent backoff policy
-    // mode (observe-mode change). Mirrors devices_reset_scale_priority's
-    // confirmation + eventually-consistent contract: the mode persists
-    // immediately, but observe's HIGH-forcing applies on the next scale
-    // (re)connect (the current connection is NOT torn down).
+    // mode (observe-mode change). Follows devices_reset_scale_priority's
+    // eventually-consistent, queued-to-the-BLEManager-thread contract (this
+    // handler reports accepted/queued, NOT verified-applied — the persist
+    // runs after it returns). It additionally enforces the `confirmed` gate
+    // for real (the reset tool advertises `confirmed` but does not read it);
+    // do not assume confirmation parity with that tool.
     registry->registerTool(
         "devices_set_scale_priority_mode",
         "Set the persistent scale connection-priority backoff policy mode. "
@@ -228,9 +230,10 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
         "so the backoff's aggressiveness can be evaluated on a production "
         "build. The mode persists across app restarts AND build upgrades "
         "until explicitly changed (it is NOT build-scoped, unlike the latch). "
-        "Eventually-consistent: the mode is saved immediately but the "
-        "HIGH-forcing applies on the next scale (re)connect; the current "
-        "connection is not torn down.",
+        "Eventually-consistent: the change is queued onto the BLE-manager "
+        "thread (this response does NOT assert the persist has executed yet), "
+        "and the HIGH-forcing additionally only applies on the next scale "
+        "(re)connect; the current connection is not torn down.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{
             {"mode", QJsonObject{{"type", "string"},
                 {"enum", QJsonArray{"enforce", "observe"}},
@@ -271,9 +274,11 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             result["mode"] = mode;
             result["appliesOnNextReconnect"] = true;
             result["message"] = QStringLiteral(
-                "Backoff policy mode set to \"%1\" (was \"%2\"). The mode is "
-                "persisted immediately and survives restarts/build upgrades. "
-                "%3 Eventually-consistent: this does NOT tear down the current "
+                "Backoff policy mode change to \"%1\" (was \"%2\") was queued. "
+                "It is applied + persisted on the BLE-manager thread (this "
+                "response does not assert the write has completed); once "
+                "written it survives restarts/build upgrades. %3 "
+                "Eventually-consistent: this does NOT tear down the current "
                 "scale connection — force a scale reconnect (toggle the scale "
                 "or restart the app) for it to take effect.")
                 .arg(mode, prev,

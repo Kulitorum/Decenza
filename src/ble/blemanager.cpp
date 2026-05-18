@@ -140,8 +140,9 @@ void BLEManager::setSettings(SettingsHardware* settings)
     // independent of the latch: it is deliberately NOT build-scoped, so it is
     // read even when the latch is absent/cleared and is never touched by the
     // build-change safety valve below. Absent/unrecognized ⇒ Enforce.
-    m_backoffMode = backoffModeFromString(m_settings->cpMode());
-    if (m_backoffMode == BackoffMode::Observe) {
+    m_backoffMode.store(backoffModeFromString(m_settings->cpMode()),
+                        std::memory_order_relaxed);
+    if (observeMode()) {
         qWarning().noquote()
             << "[BLE] Backoff policy mode = OBSERVE (persisted) — connection-"
                "priority detection runs but takes NO action and the scale "
@@ -222,8 +223,8 @@ void BLEManager::clearScaleSkipHighPriority()
 
 void BLEManager::setBackoffMode(BackoffMode mode)
 {
-    const bool changed = (m_backoffMode != mode);
-    m_backoffMode = mode;
+    const bool changed =
+        m_backoffMode.exchange(mode, std::memory_order_relaxed) != mode;
     // Write through to the (non-build-scoped) persisted store so the choice
     // survives restarts and build upgrades. Deliberately does NOT touch the
     // latch: observe overrides the latch at the transport, but the latch
@@ -236,29 +237,8 @@ void BLEManager::setBackoffMode(BackoffMode mode)
                "the current connection is not torn down)";
     }
 }
-
-void BLEManager::recordObserveEvent(const QString& kind,
-                                    const QString& triggerKind,
-                                    double durationSec)
-{
-    QMutexLocker lock(&m_observeEventsMutex);
-    m_observeEvents.append(ObserveEvent{QDateTime::currentDateTime(),
-                                        triggerKind, kind, durationSec});
-    // Bounded ring: drop the oldest once over capacity (append order; the
-    // MCP read reverses to most-recent-first).
-    while (m_observeEvents.size() > kObserveEventRingCapacity)
-        m_observeEvents.removeFirst();
-}
-
-QList<BLEManager::ObserveEvent> BLEManager::recentObserveEvents() const
-{
-    QMutexLocker lock(&m_observeEventsMutex);
-    QList<ObserveEvent> out;
-    out.reserve(m_observeEvents.size());
-    for (auto it = m_observeEvents.crbegin(); it != m_observeEvents.crend(); ++it)
-        out.append(*it);
-    return out;  // most-recent-first copy
-}
+// recordObserveEvent / recentObserveEvents are header-inline (they delegate to
+// the self-locking ObserveEventRing — see blemanager.h).
 
 void BLEManager::requestBluezCacheHint()
 {

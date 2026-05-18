@@ -55,6 +55,11 @@ public:
     // never leaks across an enforce re-arm.
     void armWindow(int64_t /*nowMs*/, bool observe = false) {
         m_observe = observe;
+        // INVARIANT: observe MUST be evaluated before the skip-HIGH guard.
+        // observe overrides (but does not erase) a persisted latch, so a
+        // stale m_skipHighPriority must NOT suppress observe arming. Do not
+        // reorder these two branches — the ordering is the only thing that
+        // makes the legal (observe && m_skipHighPriority) state behave.
         if (observe) { m_armed = true; return; }
         if (m_skipHighPriority) { m_armed = false; return; }
         m_armed = true;

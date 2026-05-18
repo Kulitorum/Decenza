@@ -74,8 +74,18 @@ void WeightProcessor::processWeight(double weight)
     // timer. enforce-mode behavior is unaffected — this is observation only;
     // the transport decides whether to log it.
     if (m_scaleFeedStale) {
-        const qint64 gapMs = (m_feedStallStartMs > 0)
-                                 ? (wallClock - m_feedStallStartMs) : 0;
+        qint64 gapMs = 0;
+        if (m_feedStallStartMs > 0) {
+            gapMs = wallClock - m_feedStallStartMs;
+        } else {
+            // Unreachable on every current path (checkScaleFeedStall always
+            // sets m_feedStallStartMs alongside m_scaleFeedStale). Log loudly
+            // rather than silently emit gapMs=0 — a fake "recovered after
+            // 0.0 s" would be plausible-looking but wrong observe evidence.
+            qWarning() << "[Weight-Worker] scaleFeedResumed with no recorded "
+                          "stall-start — emitting gap 0 (investigate: a stall "
+                          "was flagged without m_feedStallStartMs being set)";
+        }
         m_feedStallStartMs = 0;
         emit scaleFeedResumed(gapMs);
     }

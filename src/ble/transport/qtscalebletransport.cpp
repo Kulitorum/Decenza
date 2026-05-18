@@ -292,6 +292,12 @@ void QtScaleBleTransport::onControllerConnected() {
             m_controller->requestConnectionUpdate(params);
             m_priority.armWindow(nowMs(), /*observe=*/true);
         } else {
+            // No controller → observe cannot arm. Operators validate observe
+            // by reading the log; a silent disarm here would produce empty
+            // evidence with no trail and look like "observe found nothing".
+            warn(QStringLiteral("Scale connection-priority: OBSERVE mode but "
+                 "no controller at connect — detection NOT armed this "
+                 "connection (no observe evidence will be produced)"));
             m_priority.disarm();
         }
     } else {
@@ -373,8 +379,8 @@ void QtScaleBleTransport::onScaleFeedResumed(qint64 gapMs) {
          "would-have-been-backoff recovered on its own at HIGH (no action taken)")
          .arg(gapSec, 0, 'f', 1));
     if (auto* mgr = BLEManager::instance())
-        mgr->recordObserveEvent(QStringLiteral("recovered"),
-                                QStringLiteral("scale-feed-stall"), gapSec);
+        mgr->recordObserveEvent(BLEManager::ObserveEvent::recovered(
+            QStringLiteral("scale-feed-stall"), gapSec));
 }
 
 void QtScaleBleTransport::logWouldBackoff(const QString& reason,
@@ -385,9 +391,10 @@ void QtScaleBleTransport::logWouldBackoff(const QString& reason,
     warn(QStringLiteral("[observe] WOULD back off (trigger=%1): %2 — observe "
          "mode, NO action taken; link stays HIGH")
          .arg(triggerKind, reason));
+    // The factory clamps a negative (n/a) stallSec to 0 and stamps the time.
     if (auto* mgr = BLEManager::instance())
-        mgr->recordObserveEvent(QStringLiteral("wouldBackoff"), triggerKind,
-                                stallSec < 0 ? 0.0 : stallSec);
+        mgr->recordObserveEvent(
+            BLEManager::ObserveEvent::wouldBackoff(triggerKind, stallSec));
 }
 
 void QtScaleBleTransport::triggerScaleBackoff(const char* reason,
