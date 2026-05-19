@@ -983,14 +983,24 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
         } else {
             d.grindDirection = QStringLiteral("onTarget");
             if (grind.verifiedClean) {
-                // Positive "we saw a healthy pressurized pour and the puck
-                // tracked goal" signal. Today's verdict on lever / two-frame
-                // profiles infers "Clean" from no-data; this line confirms
-                // it from data. Skipped when the detector was silent
-                // (hasData=false), which is handled by the notAnalyzable
-                // branch below.
+                // Positive "we saw a healthy pressurized pour" signal.
+                // Two arms can drive verifiedClean: Arm 1's flow-vs-goal
+                // averaging (sampleCount > 0) OR — on a KB-unresolved
+                // profile where Arm 1 was skipped (openspec
+                // skip-grind-arm1-when-kb-unresolved) — Arm 2's
+                // sustained-pressurized flow gate alone. The line text
+                // honestly names which signal fired so a reader doesn't
+                // mistake an Arm-2-only verify for an Arm-1 measurement
+                // (Arm 1 didn't run; we have no flow-vs-goal observation
+                // to cite). Today's verdict on lever / two-frame
+                // profiles infers "Clean" from no-data; this line
+                // confirms it from data on either path.
                 QVariantMap line;
-                line["text"] = QStringLiteral("Grind tracked goal during pour");
+                if (grind.sampleCount > 0) {
+                    line["text"] = QStringLiteral("Grind tracked goal during pour");
+                } else {
+                    line["text"] = QStringLiteral("Puck sustained healthy pressure during pour");
+                }
                 line["type"] = QStringLiteral("good");
                 line["kind"] = QStringLiteral("grind_clean");
                 lines.append(line);

@@ -680,6 +680,164 @@ private slots:
         QVERIFY(r.delta < -0.4);
     }
 
+    // Arm-2-only verifiedClean on an unresolved profile must emit the
+    // honest "Puck sustained healthy pressure during pour" line, NOT
+    // the legacy "Grind tracked goal during pour" wording (Arm 1 didn't
+    // run, so we'd be citing a measurement that wasn't taken). Guards
+    // the sampleCount-based branch in analyzeShot's [good] line emission.
+    void analyzeShot_unresolvedKb_armTwoVerifiedClean_emitsSustainedPressureLine()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion", 0, /*isFlowMode=*/true),
+            phase(8.0, "pour",        1, /*isFlowMode=*/false),
+        };
+        // Pressure ≥ 4 bar for ≥ 15 s with mean flow ≥ 0.5 mL/s and
+        // yield ratio within the clean band — Arm 2's flow-arm gates
+        // pass and verifiedClean fires from Arm 2 alone. Arm 1 is
+        // skipped because profileKbResolved=false.
+        QVector<QPointF> pressure = flatSeries(0.0, 30.0, 8.0);
+        QVector<QPointF> flow = flatSeries(0.0, 30.0, 1.8);
+        QVector<QPointF> pressureGoal = pressure;
+        QVector<QPointF> flowGoal = flatSeries(0.0, 30.0, 1.8);
+        QVector<QPointF> dCdt = flatSeries(0.0, 30.0, 0.0);
+        QVector<QPointF> weight;
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight,
+            dCdt, phases, "espresso", 30.0,
+            pressureGoal, flowGoal, /*analysisFlags=*/{},
+            /*firstFrameConfiguredSeconds=*/-1.0,
+            /*targetWeightG=*/36.0, /*finalWeightG=*/36.0,
+            /*expectedFrameCount=*/-1, /*expertBand=*/std::nullopt,
+            /*profileKbResolved=*/false);
+
+        const auto& d = result.detectors;
+        QVERIFY(d.grindHasData);
+        QVERIFY(d.grindVerifiedClean);
+        QCOMPARE(d.grindSampleCount, qsizetype{0});  // Arm 1 didn't run
+        QCOMPARE(d.grindCoverage, QStringLiteral("verified"));
+
+        bool sawSustainedLine = false;
+        bool sawLegacyTrackedLine = false;
+        for (const QVariant& v : result.lines) {
+            const QVariantMap m = v.toMap();
+            const QString text = m["text"].toString();
+            if (m["type"].toString() == QStringLiteral("good")
+                && text.contains("Puck sustained healthy pressure",
+                                 Qt::CaseInsensitive))
+                sawSustainedLine = true;
+            if (text.contains("Grind tracked goal", Qt::CaseInsensitive))
+                sawLegacyTrackedLine = true;
+        }
+        QVERIFY2(sawSustainedLine,
+                 "Arm-2-only verifiedClean must emit the honest sustained-pressure line");
+        QVERIFY2(!sawLegacyTrackedLine,
+                 "Arm-2-only verifiedClean must NOT cite Arm 1's 'tracked goal' wording");
+    }
+
+    // grindCoverage="skipped" path through the full analyzeShot pipeline:
+    // when analysisFlags contains "grind_check_skip", the function
+    // early-returns with GrindCheck::skipped=true, distinct from the new
+    // profileKbResolved=false path (which leaves skipped=false and
+    // projects to "notAnalyzable"). The distinction is load-bearing for
+    // skip-grind-arm1-when-kb-unresolved — a future refactor that
+    // conflates the two paths (e.g. setting skipped=true in the
+    // unresolved branch) would silently regress Arm 2's behaviour on
+    // unresolved profiles. This test pins the "skipped" coverage value
+    // so the distinction stays visible.
+    void analyzeShot_grindCheckSkipFlag_projectsSkippedCoverage()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion", 0, /*isFlowMode=*/true),
+            phase(10.0, "pour",       1, /*isFlowMode=*/true),
+        };
+        // Same Arm-1-would-fire shape as the unresolved-KB test. With
+        // grind_check_skip the whole detector short-circuits before
+        // either arm runs.
+        QVector<QPointF> pressure = flatSeries(0.0, 30.0, 3.5);
+        QVector<QPointF> flow = flatSeries(0.0, 30.0, 0.8);
+        QVector<QPointF> pressureGoal = pressure;
+        QVector<QPointF> flowGoal = flatSeries(0.0, 30.0, 1.7);
+        QVector<QPointF> dCdt = flatSeries(0.0, 30.0, 0.0);
+        QVector<QPointF> weight;
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight,
+            dCdt, phases, "espresso", 30.0,
+            pressureGoal, flowGoal,
+            QStringList{QStringLiteral("grind_check_skip")},
+            /*firstFrameConfiguredSeconds=*/-1.0,
+            /*targetWeightG=*/36.0, /*finalWeightG=*/30.0);
+
+        const auto& d = result.detectors;
+        QVERIFY(!d.grindHasData);
+        QVERIFY(!d.grindChecked);            // detector explicitly suppressed
+        QCOMPARE(d.grindCoverage, QStringLiteral("skipped"));
+        // verdictCategory must NOT be "cleanGrindNotAnalyzable" — that
+        // value is reserved for the unresolved-KB path.
+        QVERIFY(d.verdictCategory != QStringLiteral("cleanGrindNotAnalyzable"));
+
+        bool sawNotAnalyzableLine = false;
+        for (const QVariant& v : result.lines) {
+            const QVariantMap m = v.toMap();
+            if (m["text"].toString().contains("Could not analyze grind",
+                                              Qt::CaseInsensitive))
+                sawNotAnalyzableLine = true;
+        }
+        QVERIFY2(!sawNotAnalyzableLine,
+                 "grind_check_skip path must NOT emit the notAnalyzable observation");
+    }
+
+    // pourTruncated cascade dominates the unresolved-KB gate: when peak
+    // pressure stays below PRESSURE_FLOOR_BAR, analyzeShot sets
+    // grind = GrindCheck{} unconditionally before the gate is reached.
+    // The profileKbResolved flag is therefore irrelevant on a truncated
+    // shot. Locks in that ordering — a future refactor that gates the
+    // GrindCheck{} short-circuit on profileKbResolved would silently
+    // break the cascade dominator on unresolved profiles.
+    void analyzeShot_pourTruncated_dominatesUnresolvedKbGate()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion start", 0, /*isFlowMode=*/true),
+            phase(2.0, "pour",              1, /*isFlowMode=*/true),
+        };
+        // Pressure capped at 0.6 bar — well below PRESSURE_FLOOR_BAR
+        // (2.5), so pourTruncated fires.
+        QVector<QPointF> pressure = flatSeries(0.0, 7.0, 0.6);
+        QVector<QPointF> flow = flatSeries(0.0, 7.0, 7.0);
+        QVector<QPointF> flowGoal = flatSeries(0.0, 7.0, 7.5);
+        QVector<QPointF> dCdt = flatSeries(0.0, 7.0, 0.0);
+        QVector<QPointF> weight;
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight,
+            dCdt, phases, "espresso", 7.0,
+            /*pressureGoal=*/{}, flowGoal, /*analysisFlags=*/{},
+            /*firstFrameConfiguredSeconds=*/-1.0,
+            /*targetWeightG=*/32.0, /*finalWeightG=*/36.5,
+            /*expectedFrameCount=*/-1, /*expertBand=*/std::nullopt,
+            /*profileKbResolved=*/false);
+
+        const auto& d = result.detectors;
+        QVERIFY(d.pourTruncated);
+        QCOMPARE(d.verdictCategory, QStringLiteral("puckTruncated"));
+        // pourTruncated cascade zeroes the grind block before the
+        // profileKbResolved gate is even consulted — grindCoverage
+        // stays empty (suppressed) on this path, NOT "notAnalyzable".
+        QVERIFY(d.grindCoverage.isEmpty());
+
+        bool sawNotAnalyzableLine = false;
+        for (const QVariant& v : result.lines) {
+            const QVariantMap m = v.toMap();
+            if (m["text"].toString().contains("Could not analyze grind",
+                                              Qt::CaseInsensitive))
+                sawNotAnalyzableLine = true;
+        }
+        QVERIFY2(!sawNotAnalyzableLine,
+                 "pourTruncated cascade must suppress the notAnalyzable observation "
+                 "regardless of profileKbResolved");
+    }
+
     // 80's Espresso style: preinfusion is flow-mode 7.5 ml/s with a pressure
     // ceiling that exits the frame on "pressure" transition once the puck
     // builds. The trailing samples (pressure limiter engaged → controller
@@ -2109,9 +2267,16 @@ private slots:
     // Grind coverage signal — verified clean: a healthy pressurized pour
     // with no choke / no overshoot / on-target flow must set
     // grindVerifiedClean=true, emit `grindCoverage="verified"`, and append
-    // a [good] line confirming the puck tracked goal. Without this signal
-    // the dialog falls back on inferring "Clean" from no-data, which is
-    // exactly the long-running gap on simple two-marker profiles.
+    // a [good] line confirming the puck behaved. Without this signal the
+    // dialog falls back on inferring "Clean" from no-data, which is
+    // exactly the long-running gap on simple two-marker profiles. The
+    // fixture's flow-mode phase ends at pourStart=8 so Arm 1 sees no
+    // qualifying samples (sampleCount=0); verifiedClean is supplied by
+    // Arm 2's sustained-pressurized-flow gate alone. The [good] line
+    // text therefore SHALL be the honest "Puck sustained healthy
+    // pressure during pour" — NOT the legacy "Grind tracked goal" which
+    // would falsely cite an Arm 1 measurement that wasn't taken. See
+    // openspec change skip-grind-arm1-when-kb-unresolved.
     void analyzeShot_grindCoverage_verifiedCleanEmitsPositiveLine()
     {
         QList<HistoryPhaseMarker> phases{
@@ -2140,6 +2305,7 @@ private slots:
         QVERIFY(d.grindVerifiedClean);
         QVERIFY(!d.grindChokedPuck);
         QVERIFY(!d.grindYieldOvershoot);
+        QCOMPARE(d.grindSampleCount, qsizetype{0});  // Arm 1 saw no samples
         QCOMPARE(d.grindCoverage, QStringLiteral("verified"));
         QCOMPARE(d.verdictCategory, QStringLiteral("clean"));
 
@@ -2147,10 +2313,12 @@ private slots:
         for (const QVariant& v : result.lines) {
             const QVariantMap m = v.toMap();
             if (m["type"].toString() == "good"
-                && m["text"].toString().contains("Grind tracked goal", Qt::CaseInsensitive))
+                && m["text"].toString().contains("Puck sustained healthy pressure",
+                                                 Qt::CaseInsensitive))
                 sawVerifiedLine = true;
         }
-        QVERIFY2(sawVerifiedLine, "verified-clean shot must emit [good] line");
+        QVERIFY2(sawVerifiedLine,
+                 "Arm-2-only verified-clean shot must emit the sustained-pressure [good] line");
     }
 
     // Grind coverage signal — not analyzable: a two-marker profile whose

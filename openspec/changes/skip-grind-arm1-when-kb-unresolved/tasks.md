@@ -44,9 +44,9 @@
 
 ## 7. Land
 
-- [ ] 7.1 Run full test suite via Qt Creator MCP (`mcp__qtcreator__run_tests`); expect 0 failures, 0 new warnings.
-- [ ] 7.2 Run `tools/validate_kb.py` (no KB content change, but cheap sanity).
-- [ ] 7.3 Open PR on a feature branch (e.g. `feat/skip-grind-arm1-when-kb-unresolved`) with proposal/design/spec excerpts in the body, the corpus-diff result from section 5, and a closing-keyword link to the openspec change.
-- [ ] 7.4 Run `/pr-review-toolkit:review-pr` on the PR; address any issues it surfaces above the noise floor.
+- [x] 7.1 Run full test suite via Qt Creator MCP (`mcp__qtcreator__run_tests`); expect 0 failures, 0 new warnings.
+- [x] 7.2 Run `tools/validate_kb.py` (no KB content change, but cheap sanity).
+- [x] 7.3 Open PR on a feature branch (e.g. `feat/skip-grind-arm1-when-kb-unresolved`) with proposal/design/spec excerpts in the body, the corpus-diff result from section 5, and a closing-keyword link to the openspec change.
+- [x] 7.4 Run `/pr-review-toolkit:review-pr` on the PR; address any issues it surfaces above the noise floor.
 - [ ] 7.5 After approval/sign-off, `/merge-pr` to squash-merge and delete the branch.
 - [ ] 7.6 Run `/openspec-archive-change skip-grind-arm1-when-kb-unresolved` (or the openspec CLI equivalent) once the PR has landed on `main`.

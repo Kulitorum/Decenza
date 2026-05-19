@@ -32,7 +32,9 @@ Detectors other than grind SHALL be unaffected by `profileKbResolved`. `pourTrun
 - **AND** Arm 2 SHALL run and set `GrindCheck.hasData = true` AND `GrindCheck.verifiedClean = true`
 - **AND** `DetectorResults.grindCoverage` SHALL equal `"verified"`
 - **AND** `grindIssueDetected` SHALL be `false`
-- **AND** `summaryLines` SHALL contain the existing "Grind tracked goal during pour" `[good]` line
+- **AND** `summaryLines` SHALL contain a `[good]` line whose text is "Puck sustained healthy pressure during pour" (because Arm 1 did not run — `sampleCount == 0` — so the existing "Grind tracked goal during pour" wording would falsely cite a measurement that wasn't taken)
+
+The `[good]` line text SHALL branch on `GrindCheck.sampleCount`: a positive count (Arm 1 ran and confirmed) keeps the existing "Grind tracked goal during pour" wording; a zero count with `verifiedClean == true` (Arm 2 alone verified a sustained pressurized pour) emits "Puck sustained healthy pressure during pour" instead. The `type` (`"good"`) and `kind` (`"grind_clean"`) are unchanged across the two branches.
 
 #### Scenario: Unresolved profile with no Arm 2 data projects as not-analyzable
 
