@@ -1087,13 +1087,29 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     block["grinderModel"] = grinderModel;
     block["confidence"] = confidence;
     block["currentProfileUgsPlaced"] = curUgsPlaced;
-    block["usageConstraint"] = QStringLiteral(
+    QString usage = QStringLiteral(
         "UGS is a relative ordering of profiles by grind coarseness, not "
         "grinder clicks or a dial position. Numeric settings are valid only "
         "within calibratedUgsRange. For any profile with source "
         "\"directional\" give finer/coarser only and tell the user to pull a "
         "reference shot on that profile — never a number, never a click "
         "delta. Do not multiply a UGS distance by any factor of your own.");
+    // Variable-RPM grinders: dial + RPM are two independent grind axes
+    // and shots at the same dial / different RPM are NOT the same grind.
+    // The parser tolerates the "<dial> <rpm>rpm" suffix but does NOT yet
+    // split pairs by RPM (Phase-2 work), so any approximate `rgs` is
+    // anchored at whatever RPM the user's recent dialed-in shot used.
+    // Surface this caveat so the model qualifies numeric recommendations
+    // and does NOT pool dial values across RPMs in its own reasoning.
+    block["variableRpm"] = gEntry.variableRpm;
+    if (gEntry.variableRpm && approximate) {
+        usage += QStringLiteral(
+            " This grinder has variable RPM: the recommended setting "
+            "applies only at the SAME RPM as the user's recent dialed-in "
+            "shot. State this caveat when quoting a number, and never "
+            "treat shots at different RPM as the same grind.");
+    }
+    block["usageConstraint"] = usage;
     if (approximate) {
         block["conversionKey"] = std::round(conversionKey * 100.0) / 100.0;
         block["calibratedUgsRange"] = QJsonArray{ validLo, validHi };

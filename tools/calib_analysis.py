@@ -192,7 +192,9 @@ def main():
         final_weight,enjoyment,drink_tds,beverage_type,bean_brand,bean_type,
         roast_date,
         channeling_detected,grind_issue_detected,skip_first_frame_detected,
-        pour_truncated_detected, json_extract(profile_json,'$.target_weight') tw
+        pour_truncated_detected,
+        COALESCE(yield_override, 0) AS yield_override,
+        json_extract(profile_json,'$.target_weight') tw
         FROM shots WHERE grinder_model=? ORDER BY timestamp DESC""",
         (args.grinder,)).fetchall()
 
@@ -251,8 +253,16 @@ def main():
             return True
         if (r["drink_tds"] or 0) > 0:
             return True
-        tw, fw = fnum(r["tw"]), r["final_weight"]
-        return bool(tw and fw and abs(fw - tw) <= 0.10 * tw)
+        # Same target-weight precedence as the C++ effectiveTargetWeightG:
+        # the stored yield_override column wins (native Decenza SAW path
+        # persists it there), profile_json target_weight is the fallback
+        # for imported shots. Reading json_extract alone silently dropped
+        # the common SAW dial-in cohort (no rating, no TDS) — review on
+        # PR #1236.
+        yo, jt = r["yield_override"] or 0, fnum(r["tw"]) or 0
+        tw = yo if yo > 0 else jt
+        fw = r["final_weight"]
+        return bool(tw > 0 and fw and abs(fw - tw) <= 0.10 * tw)
 
     # ---- legacy pooled reproduction ----
     pooled = {}

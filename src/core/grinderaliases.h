@@ -39,9 +39,13 @@ struct GrinderEntry {
     // True when the motor RPM is user-adjustable (V/W/WS suffix models,
     // Mignon Turbo, single-dose Lagom/Weber/Kafatek, etc.). Users
     // commonly annotate the grinder_setting with the RPM (`24 1400rpm`
-    // on a DF83V) — the parser tolerates the suffix, and the AI should
-    // know it is a second grind axis (same dial + different RPM is NOT
-    // the same grind). Manual hand grinders are false (no motor).
+    // on a DF83V); parseGrinderSetting tolerates that suffix so the
+    // shot is not silently discarded. The calibration block today does
+    // NOT split within-batch pairs by RPM (Phase-2 work); instead, when
+    // this flag is true and the block publishes `approximate`, the
+    // usageConstraint string is extended with a per-RPM caveat so the
+    // model quotes the recommended setting only relative to the
+    // anchor's RPM. Manual hand grinders are false (no motor).
     bool variableRpm = false;
 };
 
@@ -381,9 +385,13 @@ inline const GrinderEntry* findEntryByAlias(const QString& raw)
 //     trailing text starting with `+`/`-` (Eureka multi-turn with a space:
 //     "1 + 4") so structured notations never silently lose information.
 //   Compound: ^\s*(-?\d+)\s*\+\s*(\d+(?:\.\d+)?)\s*$ → linear = a·N + b.
-//     Compound grinders ALSO accept plain numeric (some users record
-//     decimal positions like "0.5" on a Mignon), interpreted as a direct
-//     linear value, so we don't drop the cohort that collapses notation.
+//     The `\s*\+\s*` allows whitespace around the `+`, so BOTH "1+4" and
+//     "1 + 4" are accepted on Compound grinders (the +/- rejection above
+//     applies only on NumericWithSuffix — on Compound the structured form
+//     wins via this branch first). Compound grinders ALSO accept plain
+//     numeric (some users record decimal positions like "0.5" on a
+//     Mignon), interpreted as a direct linear value, so we don't drop
+//     the cohort that collapses notation.
 inline std::optional<double> parseGrinderSetting(const GrinderEntry& g,
                                                  const QString& raw)
 {
