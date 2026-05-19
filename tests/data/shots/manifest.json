@@ -123,10 +123,11 @@
     },
     {
       "file": "gagne_adaptive_clean.json",
-      "description": "Gagné Adaptive Shot — multi-step adaptive profile with scan frames. Clean shot, detector must stay None (no confusion from the scan).",
+      "description": "Gagné Adaptive Shot — multi-step adaptive profile with scan frames. Clean shot, detector must stay None (no confusion from the scan). Profile title 'Gagné/Adaptive Shot 92C vME 7 bar' is a custom variant that does NOT match the 'gagne-adaptive' KB aliases (which list 'Gagné/Adaptive Shot 92C v1.0' etc.) and is therefore unresolvable. Post skip-grind-arm1-when-kb-unresolved this lands in grindCoverage=\"notAnalyzable\" with verdictCategory=\"cleanGrindNotAnalyzable\" — locked in here so any future KB addition that makes 'vME' resolve would flip the verdict back and surface the corpus shift.",
       "expect": {
         "channeling": "None",
-        "pourTruncated": false
+        "pourTruncated": false,
+        "verdictCategory": "cleanGrindNotAnalyzable"
       }
     },
     {

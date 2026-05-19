@@ -561,6 +561,11 @@ private slots:
         QVERIFY(!d.grindVerifiedClean);
         QVERIFY(!badges.grindIssueDetected);
         QCOMPARE(d.grindCoverage, QStringLiteral("notAnalyzable"));
+        // The verdictCategory drives the dialog tint and the structured
+        // MCP output — assert it directly so a future refactor of the
+        // cascade can't silently flip back to "clean" while the lines
+        // list still grep-matches.
+        QCOMPARE(d.verdictCategory, QStringLiteral("cleanGrindNotAnalyzable"));
         QCOMPARE(d.grindFlowDeltaMlPerSec, 0.0);  // Arm 1 didn't run
 
         bool sawObservation = false;

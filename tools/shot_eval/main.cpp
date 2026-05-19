@@ -651,33 +651,24 @@ EvaluatedShot evaluate(const LoadedShot& s)
     // instead of the old empty-flags reimpl that silently diverged on
     // flow_trend_ok suppression + the expert-band line.
     //
-    // editorType is inferred from the title prefix below (mirroring
-    // Profile::editorType for the D-Flow/A-Flow editor namespaces), so
-    // custom-titled editor profiles ("D-Flow / Malabar") resolve to the
-    // editor-default KB entry the same way the app's prepareAnalysisInputs
-    // does. Pressure/flow/advanced editor types (settings_2a / settings_2b
-    // / advanced) have no title prefix in the canonical convention; their
-    // resolution depends on having profileType in the fixture, which the
-    // current corpus doesn't carry — but those editor types have no
-    // editor-default KB entry, so resolution falls through to "" either
-    // way and the consequence is the same. TstShotCorpus validates
-    // shot_eval against its own manifest baseline, not against the live
-    // app — but the title-prefix inference closes the largest known
-    // divergence (#1198 + skip-grind-arm1-when-kb-unresolved era).
-    // Mirror Profile::editorType's title-prefix inference: a title starting
-    // with "D-Flow" / "A-Flow" identifies the editor namespace, which lets
-    // matchProfileKey's editor-type-default fallback resolve custom-titled
-    // editor profiles ("D-Flow / Malabar") even when no exact alias or
-    // prefix-anchor hit exists. Without this, shot_eval's resolution path
-    // would silently drop those fixtures into the unresolved bucket, and
-    // the new profileKbResolved gate (openspec
-    // skip-grind-arm1-when-kb-unresolved) would skip Arm 1 on them — a
-    // false divergence from production, where Profile::editorType supplies
-    // this hint to prepareAnalysisInputs. Pressure/flow/advanced editor
-    // types don't have a title prefix; they pass through with an empty
-    // hint (no editor-default KB entry to fall back to). The "*"
-    // leading-character convention for renamed copies is honored to mirror
-    // production.
+    // editorType is inferred from the title prefix below — keep in sync
+    // with Profile::editorType (src/profile/profile.cpp:344). A title
+    // starting with "D-Flow" / "A-Flow" identifies the editor namespace,
+    // which lets matchProfileKey's editor-type-default fallback resolve
+    // custom-titled editor profiles ("D-Flow / Malabar") to the editor-
+    // default KB entry the same way prepareAnalysisInputs does in the
+    // live app. Without this, shot_eval would silently drop those
+    // fixtures into the unresolved bucket and the new profileKbResolved
+    // gate (openspec skip-grind-arm1-when-kb-unresolved) would skip
+    // Arm 1 on them — a false divergence from production. The "*"
+    // leading-character convention for renamed copies is honored for
+    // the same reason. Pressure/flow/advanced editor types have no
+    // title prefix in this convention and no editor-default KB entry
+    // either, so they fall through to "" with the same consequence on
+    // both sides. TstShotCorpus validates shot_eval against its own
+    // manifest baseline, not against the live app — but the title-prefix
+    // inference closes the largest known divergence (#1198 +
+    // skip-grind-arm1-when-kb-unresolved era).
     QString editorTypeHint;
     {
         const QString t = s.profileTitle.startsWith(QLatin1Char('*'))

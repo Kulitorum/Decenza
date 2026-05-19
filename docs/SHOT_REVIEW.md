@@ -174,9 +174,10 @@ vice versa.
 empty (no exact alias hit, no #1198 longest-boundary-prefix hit, no
 editor-type default hit) — Arm 1 is **skipped entirely**: the flow-mode
 range builder doesn't run, `sampleCount`/`delta` stay zero, and Arm 1
-contributes nothing to `hasData`. Arm 2 (yield-shortfall + sustained-
-pressurized-flow choke) still runs unconditionally — those arms read
-physics-level signals that don't depend on profile shape. The result
+contributes nothing to `hasData`. Arm 2 (choked-puck + yield-shortfall
++ yield-overshoot) still runs unconditionally — those arms read
+physics-level signals (mean pressurized flow, yield ratio) that don't
+depend on profile shape. The result
 projects through the existing `grindCoverage="notAnalyzable"` path when
 Arm 2 also has no data, or `"verified"` when it does. `skipped` stays
 `false`, distinct from the `grind_check_skip` flag's `"skipped"`

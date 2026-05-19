@@ -401,6 +401,108 @@ private slots:
     // then feed those into the fast path and confirm the result matches.
     // This catches drift if the fast-path branch is ever modified to do
     // something different than just reading the pre-computed field.
+    // Integration coverage for openspec change
+    // skip-grind-arm1-when-kb-unresolved: the gate inside analyzeFlowVsGoal
+    // is unit-tested in tst_shotanalysis, but the bit that drives it —
+    // `!summary.profileKbId.isEmpty()` derived inside runShotAnalysisAndPopulate —
+    // would silently invert on a missing `!` and slip past the algorithm
+    // tests (they pass profileKbResolved directly as an argument). This
+    // test pins that wire-up. Same curves, two profileKbId values, asserts
+    // opposite grindCoverage projections.
+    //
+    // Shot shape: flow-mode pour with actual=0.8 vs goal=1.7 → delta=-0.9,
+    // well past the 0.4 trigger. Pressure 3.5 bar throughout sits above
+    // pourTruncated's 2.5 floor (cascade dormant) AND below Arm 2's 4-bar
+    // gate (Arm 2 silent on both runs), so Arm 1 is the only thing the
+    // gate can flip. Yield ratio 30/36 = 0.83 keeps the yield-shortfall
+    // arm silent too. With Arm 2 silent, Arm 1 skipped ⇒ "notAnalyzable",
+    // Arm 1 ran ⇒ "verified" (delta past threshold ⇒ grindIssue fires).
+    void summarizeFromHistory_profileKbResolvedThreadsToGate()
+    {
+        auto buildArm1WouldFireShot = []() {
+            QVariantMap shot;
+            shot["beverageType"] = QStringLiteral("espresso");
+            shot["durationSec"] = 30.0;
+            shot["doseWeightG"] = 18.0;
+            shot["finalWeightG"] = 30.0;
+            shot["targetWeightG"] = 36.0;
+
+            QVariantList pressure, flow, flowGoal, temperature, temperatureGoal,
+                         derivative, weight;
+            appendFlat(pressure, 0.0, 30.0, 3.5);
+            appendFlat(flow, 0.0, 30.0, 0.8);
+            appendFlat(flowGoal, 0.0, 30.0, 1.7);
+            appendFlat(temperature, 0.0, 30.0, 92.0);
+            appendFlat(temperatureGoal, 0.0, 30.0, 92.0);
+            appendFlat(derivative, 0.0, 30.0, 0.0);
+            appendFlat(weight, 0.0, 30.0, 30.0);
+
+            QVariantList phases;
+            appendPhase(phases, 0.0,  QStringLiteral("preinfusion"), 0,
+                        /*isFlowMode=*/true);
+            appendPhase(phases, 10.0, QStringLiteral("pour"), 1,
+                        /*isFlowMode=*/true);
+
+            shot["pressure"] = pressure;
+            shot["flow"] = flow;
+            shot["flowGoal"] = flowGoal;
+            shot["pressureGoal"] = QVariantList();
+            shot["temperature"] = temperature;
+            shot["temperatureGoal"] = temperatureGoal;
+            shot["conductanceDerivative"] = derivative;
+            shot["weight"] = weight;
+            shot["phases"] = phases;
+            return shot;
+        };
+
+        ShotSummarizer summarizer;
+
+        // Resolved: profileKbId points at a real KB entry. Arm 1 runs,
+        // delta hits threshold, grindIssue fires, coverage is "verified".
+        QVariantMap resolvedShot = buildArm1WouldFireShot();
+        resolvedShot["profileName"] = QStringLiteral("Adaptive v2");
+        resolvedShot["profileKbId"] = QStringLiteral("adaptive-v2");
+        const ShotSummary resolved = summarizer.summarizeFromHistory(
+            ShotProjection::fromVariantMap(resolvedShot));
+        bool resolvedSawNotAnalyzable = false;
+        for (const QVariant& v : resolved.summaryLines) {
+            const QVariantMap m = v.toMap();
+            if (m["text"].toString().contains(
+                    QStringLiteral("Could not analyze grind"),
+                    Qt::CaseInsensitive))
+                resolvedSawNotAnalyzable = true;
+        }
+        QVERIFY2(!resolvedSawNotAnalyzable,
+                 "resolved profile must NOT emit the notAnalyzable observation");
+
+        // Unresolved: profileKbId is empty. Arm 1 is skipped; with Arm 2
+        // also silent, coverage falls into "notAnalyzable" and the
+        // [observation] line + alternate verdict fire.
+        QVariantMap unresolvedShot = buildArm1WouldFireShot();
+        unresolvedShot["profileName"] = QStringLiteral("Jeff's Custom Profile 47");
+        unresolvedShot["profileKbId"] = QString();
+        const ShotSummary unresolved = summarizer.summarizeFromHistory(
+            ShotProjection::fromVariantMap(unresolvedShot));
+        bool unresolvedSawNotAnalyzable = false;
+        bool unresolvedSawAlternateVerdict = false;
+        for (const QVariant& v : unresolved.summaryLines) {
+            const QVariantMap m = v.toMap();
+            const QString text = m["text"].toString();
+            if (m["type"].toString() == QStringLiteral("observation")
+                && text.contains(QStringLiteral("Could not analyze grind"),
+                                 Qt::CaseInsensitive))
+                unresolvedSawNotAnalyzable = true;
+            if (m["type"].toString() == QStringLiteral("verdict")
+                && text.contains(QStringLiteral("grind could not be evaluated"),
+                                 Qt::CaseInsensitive))
+                unresolvedSawAlternateVerdict = true;
+        }
+        QVERIFY2(unresolvedSawNotAnalyzable,
+                 "unresolved profile must emit the [observation] notAnalyzable line");
+        QVERIFY2(unresolvedSawAlternateVerdict,
+                 "unresolved profile must emit the alternate verdict");
+    }
+
     void summarizeFromHistory_fastAndSlowPathsAgree()
     {
         QVariantMap slowShot = buildHealthyShotMap();

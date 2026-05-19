@@ -628,9 +628,10 @@ public:
     // #1198 longest-boundary-prefix, or editor-type default), false otherwise.
     // When false, Arm 1 of the grind detector is skipped — see analyzeFlowVsGoal
     // docstring above for the full contract. Default true preserves pre-change
-    // behaviour for direct callers (tests, future entry points). All five
-    // production call sites derive this from `!profileKbId.isEmpty()` of the
-    // resolved id already stored on the ShotRecord / ShotSaveData / ShotSummary.
+    // behaviour for direct callers (tests, future entry points). Every
+    // production call site of analyzeShot derives this from
+    // `!profileKbId.isEmpty()` of the resolved id already stored on the
+    // shot's carrier struct (ShotRecord / ShotSaveData / ShotSummary).
     static AnalysisResult analyzeShot(const QVector<QPointF>& pressure,
                                        const QVector<QPointF>& flow,
                                        const QVector<QPointF>& weight,

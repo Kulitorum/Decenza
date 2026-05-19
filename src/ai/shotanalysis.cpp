@@ -374,8 +374,9 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     // false-positive grind diagnoses. Leaving flowModeRanges empty here
     // skips the averaging block below; sampleCount and delta stay zero,
     // hasData stays false from Arm 1's perspective. Arm 2 (choked-puck +
-    // yield-shortfall) runs unconditionally — those arms read physics-
-    // level signals that don't depend on profile shape. `skipped` is
+    // yield-shortfall + yield-overshoot) runs unconditionally — those
+    // arms read physics-level signals (mean pressurized flow, yield
+    // ratio) that don't depend on profile shape. `skipped` is
     // deliberately NOT set; the projection then falls into
     // grindCoverage="notAnalyzable" when Arm 2 also has no data, distinct
     // from grind_check_skip's "skipped" coverage. See openspec change
