@@ -37,6 +37,7 @@ public:
     bool isConnected() const override;
 
     void setSkipHighPriority(bool skip) override { m_priority.setSkipHighPriority(skip); }
+    void setConnectionPriorityManaged(bool managed) override { m_connectionPriorityManaged = managed; }
 
 public slots:
     // Connection-priority detection (#1093/#1176). Correlated against the
@@ -91,6 +92,12 @@ private:
     // main.cpp). Gates triggerScaleBackoff(): defer the teardown while a shot
     // is in progress, bounce only when idle. #1176.
     bool m_shotActive = false;
+
+    // False when this transport drives a non-scale link (refractometer): the
+    // connection-priority enforcement and scale-feed-stall detection are
+    // scale-only and would destabilize / log-spam a device that never sends
+    // weight. Default true keeps every scale path unchanged.
+    bool m_connectionPriorityManaged = true;
 
     // Connection-priority backoff. Pure decision logic in a Qt-free helper
     // (unit-tested in isolation); it lives on this transport, which persists
