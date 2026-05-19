@@ -104,7 +104,7 @@ public:
      * When set, the transport must NOT request CONNECTION_PRIORITY_HIGH on
      * (re)connect, leaving the link at the platform-default BALANCED interval.
      * Session-scoped, in-memory only. Default no-op (only QtScaleBleTransport
-     * — Android — implements it; CoreBluetooth is unaffected).
+     * — Android/desktop — implements it; CoreBluetooth is unaffected).
      */
     virtual void setSkipHighPriority(bool skip) { Q_UNUSED(skip); }
 
@@ -117,7 +117,8 @@ public:
      * (the refractometer) down mid-discovery. Pass false for non-scale links so
      * the connection stays at the platform-default interval with no DE1-fault /
      * feed-stall detection armed. Default no-op (only QtScaleBleTransport —
-     * Android/desktop — runs this machinery; CoreBluetooth never forces HIGH).
+     * Android/desktop — runs this machinery; the CoreBluetooth transport does
+     * not request connection priority).
      */
     virtual void setConnectionPriorityManaged(bool managed) { Q_UNUSED(managed); }
 
