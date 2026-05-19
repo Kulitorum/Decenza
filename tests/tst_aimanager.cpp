@@ -880,84 +880,108 @@ private slots:
 
     void emitRecentShotContext_appendsGrinderCalibrationBlock()
     {
-        // Pins the ## Grinder Calibration prose rendering in emitRecentShotContext:
-        // history and derived profile entries appear; extrapolated entries do not.
+        // Pins the rewritten ## Grinder Calibration prose (issue #1223):
+        // approximate → usageConstraint verbatim + anchored numbers for
+        // history/derived; directional → no numbers, finer/coarser only.
         QNetworkAccessManager nam;
         Settings settings;
         AIManager mgr(&nam, &settings);
         mgr.m_contextSerial = 42;
 
-        auto makeAnchor = [](const QString& name, double ugs,
-                              const QString& setting, int count) {
-            QJsonObject a;
-            a[QStringLiteral("profileName")] = name;
-            a[QStringLiteral("ugs")] = ugs;
-            a[QStringLiteral("medianSetting")] = setting;
-            a[QStringLiteral("sampleCount")] = count;
-            return a;
-        };
+        const QString usage = QStringLiteral(
+            "UGS is a relative ordering of profiles by grind coarseness, "
+            "not grinder clicks. SENTINEL-USAGE-STRING.");
 
-        QJsonObject calibration;
-        calibration[QStringLiteral("grinderModel")] = QStringLiteral("Niche Zero");
-        calibration[QStringLiteral("fineAnchor")]   = makeAnchor(QStringLiteral("D-Flow"), 0.0, QStringLiteral("7.75"), 8);
-        calibration[QStringLiteral("coarseAnchor")] = makeAnchor(QStringLiteral("Classic Italian"), 1.25, QStringLiteral("12.1"), 3);
-        calibration[QStringLiteral("conversionKey")] = 3.48;
-
+        // --- approximate branch ---
+        QJsonObject calib;
+        calib[QStringLiteral("grinderModel")] = QStringLiteral("Niche Zero");
+        calib[QStringLiteral("confidence")] = QStringLiteral("approximate");
+        calib[QStringLiteral("currentProfileUgsPlaced")] = true;
+        calib[QStringLiteral("usageConstraint")] = usage;
+        calib[QStringLiteral("conversionKey")] = 2.0;
+        calib[QStringLiteral("calibratedUgsRange")] = QJsonArray{ 0.0, 2.0 };
+        QJsonObject anchor;
+        anchor[QStringLiteral("profileName")] = QStringLiteral("Londinium");
+        anchor[QStringLiteral("ugs")] = 0.0;
+        anchor[QStringLiteral("setting")] = QStringLiteral("6");
+        anchor[QStringLiteral("coffee")] = QStringLiteral("RoasterX / BeanY");
+        calib[QStringLiteral("coffeeAnchor")] = anchor;
         QJsonArray profiles;
-        {
+        auto addP = [&](const QString& n, double u, const QString& src,
+                        const QString& rgs, const QString& dir) {
             QJsonObject p;
-            p[QStringLiteral("profileName")] = QStringLiteral("D-Flow");
-            p[QStringLiteral("ugs")] = 0.0;
-            p[QStringLiteral("rgs")] = QStringLiteral("7.75");
-            p[QStringLiteral("source")] = QStringLiteral("history");
+            p[QStringLiteral("profileName")] = n;
+            p[QStringLiteral("ugs")] = u;
+            p[QStringLiteral("source")] = src;
+            if (!rgs.isEmpty()) p[QStringLiteral("rgs")] = rgs;
+            if (!dir.isEmpty()) p[QStringLiteral("direction")] = dir;
             profiles.append(p);
-        }
-        {
-            QJsonObject p;
-            p[QStringLiteral("profileName")] = QStringLiteral("LRv3");
-            p[QStringLiteral("ugs")] = 0.5;
-            p[QStringLiteral("rgs")] = QStringLiteral("9.49");
-            p[QStringLiteral("source")] = QStringLiteral("derived");
-            profiles.append(p);
-        }
-        {
-            QJsonObject p;
-            p[QStringLiteral("profileName")] = QStringLiteral("Turbo 35");
-            p[QStringLiteral("ugs")] = 5.0;
-            p[QStringLiteral("rgs")] = QStringLiteral("25.0");
-            p[QStringLiteral("source")] = QStringLiteral("extrapolated"); // must not appear
-            profiles.append(p);
-        }
-        calibration[QStringLiteral("profiles")] = profiles;
+        };
+        addP(QStringLiteral("Londinium"), 0.0, QStringLiteral("history"),
+             QStringLiteral("6"), QString());
+        addP(QStringLiteral("Adaptive v2"), 1.25, QStringLiteral("derived"),
+             QStringLiteral("4.5"), QString());
+        addP(QStringLiteral("TurboTurbo"), 6.0, QStringLiteral("directional"),
+             QString(), QStringLiteral("coarser"));
+        calib[QStringLiteral("profiles")] = profiles;
 
         QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
         QVERIFY(spy.isValid());
-
-        mgr.emitRecentShotContext({}, GrinderContext{}, {}, 42, calibration);
-
+        mgr.emitRecentShotContext({}, GrinderContext{}, {}, 42, calib);
         QCOMPARE(spy.count(), 1);
-        const QString payload = spy.takeFirst().at(0).toString();
+        QString payload = spy.takeFirst().at(0).toString();
 
         QVERIFY2(payload.contains(QStringLiteral("## Grinder Calibration")),
-                 "calibration section header missing");
+                 "calibration header missing");
+        QVERIFY2(payload.contains(QStringLiteral("SENTINEL-USAGE-STRING")),
+                 "usageConstraint must be repeated verbatim");
         QVERIFY2(payload.contains(QStringLiteral("Niche Zero")),
                  "grinder model missing");
-        QVERIFY2(payload.contains(QStringLiteral("Fine anchor")),
-                 "fine anchor label missing");
-        QVERIFY2(payload.contains(QStringLiteral("D-Flow")),
-                 "fine anchor profile name missing");
-        QVERIFY2(payload.contains(QStringLiteral("Coarse anchor")),
-                 "coarse anchor label missing");
-        QVERIFY2(payload.contains(QStringLiteral("Classic Italian")),
-                 "coarse anchor profile name missing");
-        QVERIFY2(payload.contains(QStringLiteral("3.48")),
-                 "conversion key missing");
-        QVERIFY2(payload.contains(QStringLiteral("Profile RGS")),
-                 "profile table header missing");
-        QVERIFY2(payload.contains(QStringLiteral("LRv3")),
+        QVERIFY2(payload.contains(QStringLiteral("Londinium")),
+                 "history profile entry missing");
+        QVERIFY2(payload.contains(QStringLiteral("Adaptive v2")),
                  "derived profile entry missing");
-        QVERIFY2(!payload.contains(QStringLiteral("Turbo 35")),
-                 "extrapolated profile must not appear in prose table");
+        QVERIFY2(payload.contains(QStringLiteral("4.5")),
+                 "derived rgs missing");
+        QVERIFY2(payload.contains(QStringLiteral("TurboTurbo")),
+                 "directional profile must still be listed");
+        QVERIFY2(payload.contains(QStringLiteral("coarser")),
+                 "directional entry must say coarser");
+        QVERIFY2(!payload.contains(QStringLiteral("fineAnchor"))
+                 && !payload.contains(QStringLiteral("Profile RGS")),
+                 "legacy anchor/table wording must be gone");
+
+        // --- directional branch: no numbers at all ---
+        QJsonObject dir;
+        dir[QStringLiteral("grinderModel")] = QStringLiteral("Niche Zero");
+        dir[QStringLiteral("confidence")] = QStringLiteral("directional");
+        dir[QStringLiteral("currentProfileUgsPlaced")] = true;
+        dir[QStringLiteral("usageConstraint")] = usage;
+        QJsonArray dprofiles;
+        {
+            QJsonObject p;
+            p[QStringLiteral("profileName")] = QStringLiteral("TurboTurbo");
+            p[QStringLiteral("ugs")] = 6.0;
+            p[QStringLiteral("source")] = QStringLiteral("directional");
+            p[QStringLiteral("direction")] = QStringLiteral("coarser");
+            dprofiles.append(p);
+        }
+        dir[QStringLiteral("profiles")] = dprofiles;
+
+        mgr.m_contextSerial = 43;
+        QSignalSpy spy2(&mgr, &AIManager::recentShotContextReady);
+        mgr.emitRecentShotContext({}, GrinderContext{}, {}, 43, dir);
+        QCOMPARE(spy2.count(), 1);
+        payload = spy2.takeFirst().at(0).toString();
+        QVERIFY2(payload.contains(QStringLiteral("SENTINEL-USAGE-STRING")),
+                 "directional must still repeat usageConstraint");
+        QVERIFY2(payload.contains(QStringLiteral("No numeric cross-profile")),
+                 "directional must state no numeric calibration");
+        QVERIFY2(payload.contains(QStringLiteral("coarser")),
+                 "directional must still give finer/coarser");
+        QVERIFY2(!payload.contains(QStringLiteral("conversionKey"))
+                 && !payload.contains(QStringLiteral("Conversion ≈")),
+                 "directional must emit no conversion key");
     }
 
     // =====================================================================

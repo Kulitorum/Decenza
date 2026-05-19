@@ -467,22 +467,35 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     QJsonObject result;
                     result["shotId"] = resolvedShotId;
                     if (calibration.isEmpty()) {
-                        // The builder returns {} when preconditions aren't met
-                        // (espresso-only, ≥2 KB-known profiles on this
-                        // grinder+burrs with numeric settings, non-degenerate
-                        // spread). The AI explicitly asked, so explain why
-                        // rather than returning a bare empty object.
+                        // {} only on hard guards: empty grinder model,
+                        // filter/pourover, invalid shot, or no dialed-in
+                        // shots at all. The AI explicitly asked, so explain.
                         result["available"] = false;
                         result["reason"] =
                             "Cross-profile grinder calibration is not available for this "
-                            "grinder yet. It needs at least two different KB-known espresso "
-                            "profiles pulled on this exact grinder + burrs, with numeric "
-                            "grind settings spanning a wide enough range to anchor the "
-                            "conversion. Pull a few more shots on different profiles, or "
-                            "advise qualitatively (finer / coarser) instead of quoting a "
-                            "specific number for another profile.";
+                            "grinder yet — no qualifying dialed-in espresso shots on this "
+                            "exact grinder + burrs. Advise qualitatively (finer / coarser) "
+                            "and have the user pull a reference shot on the target profile "
+                            "rather than quoting a specific number.";
                     } else {
+                        // Block is present. It is self-describing via
+                        // `confidence`: "approximate" carries numbers within
+                        // a stated range; "directional" carries finer/coarser
+                        // only. Never a numeric table when not validated —
+                        // the builder enforces that. Surface a `reason` on
+                        // the directional path so the model gives direction
+                        // + a reference-shot suggestion, not a number.
                         result["grinderCalibration"] = calibration;
+                        if (calibration[QStringLiteral("confidence")].toString()
+                                == QStringLiteral("directional")) {
+                            result["available"] = false;
+                            result["reason"] =
+                                "No numeric cross-profile calibration for the current "
+                                "coffee — not enough same-roast-batch dial-in data. Use "
+                                "the per-profile finer/coarser `direction` only, and tell "
+                                "the user to pull a reference shot on the target profile. "
+                                "Do not quote or compute a grinder number.";
+                        }
                     }
                     respond(result);
                 }, Qt::QueuedConnection);
