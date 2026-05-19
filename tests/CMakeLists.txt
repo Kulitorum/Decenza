@@ -483,6 +483,15 @@ add_decenza_test(tst_weightprocessor
     ${CMAKE_SOURCE_DIR}/src/machine/weightprocessor.cpp
 )
 
+# --- tst_scalefeedliveness: stall detector driven by sample arrival, not value
+# change — a constant weight must not trip a false stall (#1176/#1185) ---
+add_decenza_test(tst_scalefeedliveness
+    tst_scalefeedliveness.cpp
+    mocks/MockScaleDevice.h
+    ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
+    ${CMAKE_SOURCE_DIR}/src/machine/weightprocessor.cpp
+)
+
 # --- tst_scaleblepriority: connection-priority backoff decision logic (#1093/#1176) ---
 # BlePriorityDetector is header-only and Qt-free — no extra sources to link.
 add_decenza_test(tst_scaleblepriority

@@ -46,6 +46,12 @@ void WeightProcessor::processWeight(double weight)
     } else {
         m_consecutiveRejections = 0;
     }
+    // Captured before the overwrite below: pre-#1176, a sample equal to the
+    // previous one was dropped by ScaleDevice's weightChanged dedup, so a
+    // static-weight window (empty cup through DE1 EspressoPreheating) starved
+    // this slot and tripped a false scale-feed stall. Such samples now arrive
+    // via weightSampleReceived; see the diagnostic after the de-jitter block.
+    const bool sampleValueUnchanged = m_hasLastWeight && weight == m_lastRawWeight;
     m_hasLastWeight = true;
     m_lastRawWeight = weight;
 
@@ -64,6 +70,25 @@ void WeightProcessor::processWeight(double weight)
 
     qint64 sinceLast = m_lastWallClockMs > 0 ? (wallClock - m_lastWallClockMs) : -1;
     m_lastWallClockMs = wallClock;
+
+    // #1176 liveness diagnostic. An unchanged-value sample during a shot's
+    // static window (classically an empty cup through EspressoPreheating)
+    // would, pre-fix, have been swallowed by ScaleDevice's weightChanged
+    // dedup — the feed looked dead and a false scale-feed stall fired. It now
+    // reaches us via weightSampleReceived. Log it (throttled ~2s, shot context
+    // only) so the fix is provable from a field debug log without needing the
+    // recorded weight curve. Event-based throttle (no timer): gated on sample
+    // arrival + the injected wall clock.
+    if (sampleValueUnchanged && (m_active || m_preheatActive) && m_tareComplete
+        && (m_lastConstantSampleLogMs == 0
+            || wallClock - m_lastConstantSampleLogMs >= 2000)) {
+        m_lastConstantSampleLogMs = wallClock;
+        qInfo().noquote()
+            << "[ScaleFeed] alive: constant weight"
+            << QString::number(weight, 'f', 1)
+            << "g still streaming via weightSampleReceived"
+            << "(pre-#1176 this static window read as a stalled feed)";
+    }
 
     // Scale-feed liveness: a genuine (non-spike) sample arrived, so the feed
     // is alive again — clear the stall flag so a later stall in this shot can
@@ -433,6 +458,7 @@ void WeightProcessor::startExtraction()
     m_settleCount = 0;
     m_lastTareWarnMs = 0;
     m_lastLowFlowLogMs = 0;
+    m_lastConstantSampleLogMs = 0;
     m_flowBecameValidLogged = false;
     m_untaredCupSignalled = false;
     m_lastWallClockMs = 0;
@@ -485,6 +511,7 @@ void WeightProcessor::resetForRetare()
     m_uncalibratedBatchWarned = false;  // Timestamps cleared — de-jitter needs recalibration
     m_lastTareWarnMs = 0;
     m_lastLowFlowLogMs = 0;
+    m_lastConstantSampleLogMs = 0;
     m_flowBecameValidLogged = false;
     qDebug() << "[SAW-Worker] Reset for auto-retare";
 }

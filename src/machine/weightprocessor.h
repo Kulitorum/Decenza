@@ -170,6 +170,9 @@ private:
     // Log throttle timestamps — reset each shot so warnings are never suppressed at shot start
     qint64 m_lastTareWarnMs = 0;
     qint64 m_lastLowFlowLogMs = 0;
+    // Throttle for the #1176 constant-weight liveness diagnostic, logged off
+    // the unconditional weightSampleReceived path. 0 = not logged this shot.
+    qint64 m_lastConstantSampleLogMs = 0;
     bool m_flowBecameValidLogged = false;  // Log once when flowShort transitions 0→valid
     bool m_untaredCupSignalled = false;   // Fire untaredCupDetected only once per extraction
 

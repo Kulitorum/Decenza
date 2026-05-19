@@ -587,7 +587,7 @@ int main(int argc, char *argv[])
 
     // Scale → WeightProcessor (main → worker, auto QueuedConnection)
     // Initially connected to FlowScale; reconnected when physical scale is found
-    QObject::connect(&flowScale, &ScaleDevice::weightChanged,
+    QObject::connect(&flowScale, &ScaleDevice::weightSampleReceived,
                      &weightProcessor, &WeightProcessor::processWeight);
 
     // WeightProcessor → DE1Device: stop-at-weight.
@@ -1357,7 +1357,7 @@ int main(int argc, char *argv[])
                 machineState.setScale(&flowScale);  // Switch to FlowScale first
                 timingController.setScale(&flowScale);
                 // Reconnect FlowScale to WeightProcessor temporarily
-                QObject::connect(&flowScale, &ScaleDevice::weightChanged,
+                QObject::connect(&flowScale, &ScaleDevice::weightSampleReceived,
                                  &weightProcessor, &WeightProcessor::processWeight);
                 bleManager.setScaleDevice(nullptr);  // Clear BLEManager's reference
                 physicalScale.reset();  // Now safe to delete old scale
@@ -1400,7 +1400,7 @@ int main(int argc, char *argv[])
         // Disconnect FlowScale from graph and weight processor
         QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
                             &mainController, &MainController::onScaleWeightChanged);
-        QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
+        QObject::disconnect(&flowScale, &ScaleDevice::weightSampleReceived,
                             &weightProcessor, &WeightProcessor::processWeight);
 
         // Connect physical scale weight updates to MainController (permanent for scale lifetime).
@@ -1468,10 +1468,10 @@ int main(int argc, char *argv[])
                 // Disconnect FlowScale from graph and weight processor
                 QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
                                     &mainController, &MainController::onScaleWeightChanged);
-                QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
+                QObject::disconnect(&flowScale, &ScaleDevice::weightSampleReceived,
                                     &weightProcessor, &WeightProcessor::processWeight);
                 // Connect physical scale to weight processor
-                QObject::connect(physicalScale.get(), &ScaleDevice::weightChanged,
+                QObject::connect(physicalScale.get(), &ScaleDevice::weightSampleReceived,
                                  &weightProcessor, &WeightProcessor::processWeight);
                 // Notify MQTT
                 if (mainController.mqttClient()) {
@@ -1485,12 +1485,12 @@ int main(int argc, char *argv[])
                 timingController.setScale(&flowScale);
                 engine.rootContext()->setContextProperty("ScaleDevice", &flowScale);
                 // Disconnect physical scale from weight processor
-                QObject::disconnect(physicalScale.get(), &ScaleDevice::weightChanged,
+                QObject::disconnect(physicalScale.get(), &ScaleDevice::weightSampleReceived,
                                     &weightProcessor, &WeightProcessor::processWeight);
                 // Reconnect FlowScale to graph and weight processor
                 QObject::connect(&flowScale, &ScaleDevice::weightChanged,
                                  &mainController, &MainController::onScaleWeightChanged);
-                QObject::connect(&flowScale, &ScaleDevice::weightChanged,
+                QObject::connect(&flowScale, &ScaleDevice::weightSampleReceived,
                                  &weightProcessor, &WeightProcessor::processWeight);
                 // Notify MQTT
                 if (mainController.mqttClient()) {
@@ -1539,11 +1539,11 @@ int main(int argc, char *argv[])
             // Disconnect first to avoid duplicate connections if connectedChanged fires during reset().
             QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
                                 &mainController, &MainController::onScaleWeightChanged);
-            QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
+            QObject::disconnect(&flowScale, &ScaleDevice::weightSampleReceived,
                                 &weightProcessor, &WeightProcessor::processWeight);
             QObject::connect(&flowScale, &ScaleDevice::weightChanged,
                              &mainController, &MainController::onScaleWeightChanged);
-            QObject::connect(&flowScale, &ScaleDevice::weightChanged,
+            QObject::connect(&flowScale, &ScaleDevice::weightSampleReceived,
                              &weightProcessor, &WeightProcessor::processWeight);
             // Notify MQTT that scale is disconnected
             if (mainController.mqttClient()) {
@@ -1727,13 +1727,13 @@ int main(int argc, char *argv[])
         // Disconnect FlowScale from graph and weight processor
         QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
                             &mainController, &MainController::onScaleWeightChanged);
-        QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
+        QObject::disconnect(&flowScale, &ScaleDevice::weightSampleReceived,
                             &weightProcessor, &WeightProcessor::processWeight);
 
         // Connect USB scale weight updates
         QObject::connect(usbScale, &ScaleDevice::weightChanged,
                          &mainController, &MainController::onScaleWeightChanged);
-        QObject::connect(usbScale, &ScaleDevice::weightChanged,
+        QObject::connect(usbScale, &ScaleDevice::weightSampleReceived,
                          &weightProcessor, &WeightProcessor::processWeight);
 
         // Save USB scale as the active scale type (so Settings panel shows it)
@@ -1756,7 +1756,7 @@ int main(int argc, char *argv[])
         if (usbScaleManager.scale()) {
             QObject::disconnect(usbScaleManager.scale(), &ScaleDevice::weightChanged,
                                 &mainController, &MainController::onScaleWeightChanged);
-            QObject::disconnect(usbScaleManager.scale(), &ScaleDevice::weightChanged,
+            QObject::disconnect(usbScaleManager.scale(), &ScaleDevice::weightSampleReceived,
                                 &weightProcessor, &WeightProcessor::processWeight);
         }
 
@@ -1773,7 +1773,7 @@ int main(int argc, char *argv[])
             // Reconnect FlowScale
             QObject::connect(&flowScale, &ScaleDevice::weightChanged,
                              &mainController, &MainController::onScaleWeightChanged);
-            QObject::connect(&flowScale, &ScaleDevice::weightChanged,
+            QObject::connect(&flowScale, &ScaleDevice::weightSampleReceived,
                              &weightProcessor, &WeightProcessor::processWeight);
             qDebug() << "[USB Scale] Lost — falling back to FlowScale";
         }
@@ -2061,7 +2061,7 @@ int main(int argc, char *argv[])
         }
 
         // Reconnect WeightProcessor from FlowScale to SimulatedScale for espresso SAW
-        QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
+        QObject::disconnect(&flowScale, &ScaleDevice::weightSampleReceived,
                             &weightProcessor, &WeightProcessor::processWeight);
 
         // Helper: apply current simulatedScaleEnabled state.
@@ -2074,14 +2074,14 @@ int main(int argc, char *argv[])
                 QObject::connect(&de1Simulator, &DE1Simulator::scaleWeightChanged,
                                  &simulatedScale, &SimulatedScale::setSimulatedWeight,
                                  Qt::UniqueConnection);
-                QObject::connect(&simulatedScale, &ScaleDevice::weightChanged,
+                QObject::connect(&simulatedScale, &ScaleDevice::weightSampleReceived,
                                  &weightProcessor, &WeightProcessor::processWeight,
                                  Qt::UniqueConnection);
             } else {
                 simulatedScale.simulateDisconnection();
                 QObject::disconnect(&de1Simulator, &DE1Simulator::scaleWeightChanged,
                                     &simulatedScale, &SimulatedScale::setSimulatedWeight);
-                QObject::disconnect(&simulatedScale, &ScaleDevice::weightChanged,
+                QObject::disconnect(&simulatedScale, &ScaleDevice::weightSampleReceived,
                                     &weightProcessor, &WeightProcessor::processWeight);
             }
         };
