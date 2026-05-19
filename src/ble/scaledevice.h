@@ -70,10 +70,14 @@ public slots:
 signals:
     void connectedChanged();
     void weightChanged(double weight);
-    // Liveness signal: emitted for EVERY accepted weight sample, including ones
-    // whose value equals the previous reading. weightChanged is intentionally
-    // deduped (drives the `weight` Q_PROPERTY / QML bindings / MQTT — a constant
-    // value must not churn those). But the scale-feed stall detector and SAW
+    // Liveness signal: emitted for every weight sample that passes through
+    // setWeight() — including ones whose value equals the previous reading.
+    // (Synthetic resets that emit weightChanged directly, e.g.
+    // setSimulationMode(), are not device samples and deliberately do not emit
+    // this.) weightChanged is intentionally deduped (drives the `weight`
+    // Q_PROPERTY / QML bindings, and onScaleWeightChanged which feeds MQTT — a
+    // constant value must not churn those). But the scale-feed stall detector
+    // and SAW
     // de-jitter need sample *arrival*, not value *change*: a healthy scale
     // reporting a constant weight (a static cup through DE1 preheat) is
     // otherwise indistinguishable from a dead feed and trips a false stall →

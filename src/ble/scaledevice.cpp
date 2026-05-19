@@ -86,8 +86,9 @@ void ScaleDevice::setWeight(double weight) {
     // Unconditional: a sample arrived. Drives the scale-feed stall detector and
     // SAW de-jitter, which must track sample arrival, not value change (#1176).
     emit weightSampleReceived(weight);
-    // Deduped: only on a genuine value change. Drives the `weight` Q_PROPERTY,
-    // QML bindings and MQTT — a constant reading must not churn those.
+    // Deduped: only on a genuine value change. Drives the `weight` Q_PROPERTY
+    // and QML bindings (and onScaleWeightChanged, which feeds MQTT) — a
+    // constant reading must not churn those.
     if (m_weight != weight) {
         m_weight = weight;
         emit weightChanged(weight);
