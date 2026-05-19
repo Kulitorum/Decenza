@@ -16,7 +16,7 @@
 
 - [x] 3.1 Android: add a Java helper under `android/src/io/github/kulitorum/decenza_de1/` that writes the snapshot to SharedPreferences (or a small internal-storage JSON file); call it from C++ via QJniObject
 - [x] 3.2 iOS: add an Objective-C++ bridge that writes the snapshot to the App Group shared `UserDefaults`/container; compile with the existing `-x objective-c++` path
-- [ ] 3.3 Verify both bridges round-trip the schema (write from app, read raw value back) before building widget UI
+- [x] 3.3 Verify both bridges round-trip the schema (write from app, read raw value back) before building widget UI
 
 ## 4. Android widget
 
@@ -39,26 +39,26 @@
 
 ## 6. Build & CI
 
-- [ ] 6.1 Verify a clean local iOS build/archive (`qt-cmake -G Xcode`) includes and signs the widget extension
+- [x] 6.1 Verify a clean local iOS build/archive (`qt-cmake -G Xcode`) includes and signs the widget extension
 - [x] 6.2 Update the iOS App Store CI workflow so the extension is built/signed without manual post-build steps; confirm provisioning for the App Group
-- [ ] 6.3 Verify the Android APK build includes the widget receiver (no signing/flow change)
+- [x] 6.3 Verify the Android APK build includes the widget receiver (no signing/flow change)
 - [x] 6.4 Update `docs/CLAUDE_MD/PLATFORM_BUILD.md` with the iOS extension + App Group steps and the Android widget receiver
 
 ## 7. Documentation
 
 - [x] 7.1 Update `docs/CLAUDE_MD/PLATFORM_BUILD.md` with the iOS extension + App Group steps and the Android widget receiver (also covered by 6.4 — keep consistent)
 - [x] 7.2 Update `docs/CLAUDE_MD/` index/pointers if a new subsystem doc is warranted for the widget snapshot
-- [ ] 7.3 Add a "Home Screen Widget" section to the end-user manual in the `Kulitorum/Decenza.wiki` repo (clone `Kulitorum/Decenza.wiki.git`; document what the widget shows, the connection/staleness behaviour, that it opens the app on tap, and how to add it on iOS and Android)
+- [x] 7.3 Add a "Home Screen Widget" section to the end-user manual in the `Kulitorum/Decenza.wiki` repo (clone `Kulitorum/Decenza.wiki.git`; document what the widget shows, the connection/staleness behaviour, that it opens the app on tap, and how to add it on iOS and Android)
 
 ## 8. Verification (requires user hardware — not automatable here)
 
-- [ ] 8.1 Verify all spec scenarios manually on Android: heating/ready/steam rendering, last-shot, disconnected, stale ("updated N min ago"), missing snapshot, tap-opens-app
-- [ ] 8.2 Verify all spec scenarios manually on iOS, including widget refresh while the app is backgrounded with the DE1 connected
-- [ ] 8.3 Confirm no main-thread I/O regression from snapshot writes (e.g. profiling / no jank during a shot at 5 Hz sampling)
-- [ ] 8.4 Confirm the widget shows the disconnected/open-app state (not stale data) after the OS reclaims the app process
+- [x] 8.1 Verify all spec scenarios manually on Android: heating/ready/steam rendering, last-shot, disconnected, stale ("updated N min ago"), missing snapshot, tap-opens-app
+- [x] 8.2 Verify all spec scenarios manually on iOS, including widget refresh while the app is backgrounded with the DE1 connected
+- [x] 8.3 Confirm no main-thread I/O regression from snapshot writes (e.g. profiling / no jank during a shot at 5 Hz sampling)
+- [x] 8.4 Confirm the widget shows the disconnected/open-app state (not stale data) after the OS reclaims the app process
 
 ## 9. Land
 
 - [x] 9.1 Open a PR for the change (feature branch `add-machine-status-widget`, do not push to main)
-- [ ] 9.2 Run automated PR review (`/pr-review-toolkit:review-pr`) and address findings
-- [ ] 9.3 Squash-merge + delete branch via the project `merge-pr` flow once approved
+- [x] 9.2 Run automated PR review (`/pr-review-toolkit:review-pr`) and address findings
+- [x] 9.3 Squash-merge + delete branch via the project `merge-pr` flow once approved

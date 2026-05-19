@@ -518,3 +518,64 @@ This requirement constrains the KB content the existing `loadProfileKnowledge()`
 - **WHEN** analysis flags are read for the kbIds of "D-Flow / default", "D-Flow / Q", and "Damian's LRv2"
 - **THEN** `getAnalysisFlags(kbId)` SHALL contain `flow_trend_ok` for each of the three variants
 
+### Requirement: The shipped Profile Knowledge Base SHALL describe D-Flow/A-Flow as editor types, not profiles
+
+The D-Flow and A-Flow content in `resources/ai/profile_knowledge.md` (the KB injected verbatim into both the in-app advisor system prompt and `dialing_get_context`) SHALL describe `D-Flow` and `A-Flow` as Recipe Editor *types*, with the profile being the name past the `/`. It SHALL NOT use "variant", "family", or "base D-Flow" phrasing in a way that implies D-Flow or A-Flow is itself a profile; a shared-behavior grouping SHALL be expressed as "profiles built with the D-Flow editor" (or equivalent). The lever-decline shape and the per-profile pressure-limit clamp SHALL be described as editor-level behavior, not as a profile trait.
+
+Section headers (`## D-Flow`, `## D-Flow Q variant`, `## Damian's LRv2 / LRv3`, `## A-Flow`, `## Londinium`) and `Also matches:` alias lines SHALL remain byte-identical — only body prose and in-section profile-name references are changed.
+
+#### Scenario: D-Flow/A-Flow sections teach the editor model without renaming headers
+
+- **WHEN** the D-Flow/A-Flow sections of `resources/ai/profile_knowledge.md` are rendered into the advisor prompt and `dialing_get_context`
+- **THEN** the prose SHALL state D-Flow/A-Flow are editor types and the profile is the name past the `/`
+- **AND** it SHALL NOT contain profile-implying "D-Flow variant/family/base D-Flow" phrasing
+- **AND** every `## ` heading and every `Also matches:` line SHALL be unchanged from before this change (drift-check)
+
+### Requirement: The shipped Profile Knowledge Base SHALL reference only real built-in profile names
+
+D-Flow/A-Flow profile names written in `resources/ai/profile_knowledge.md` SHALL correspond to actual shipped built-in profile titles in `resources/profiles/`. Specifically, the stale A-Flow names `A-Flow / medium`, `A-Flow / dark`, `A-Flow / very dark`, `A-Flow / like D-Flow` SHALL be replaced with the real built-ins `A-Flow / default-light`, `A-Flow / default-medium`, `A-Flow / default-dark`, `A-Flow / default-very-dark`, `A-Flow / default-like-dflow`. No profile name not backed by a `resources/profiles/*.json` `title` SHALL be presented to the AI as an existing profile.
+
+#### Scenario: Stale A-Flow names are corrected to shipped built-ins
+
+- **WHEN** the shipped KB is parsed/rendered
+- **THEN** it SHALL NOT contain `A-Flow / medium`, `A-Flow / dark`, `A-Flow / very dark`, or `A-Flow / like D-Flow`
+- **AND** it SHALL reference the actual A-Flow built-in titles as shipped in `resources/profiles/a_flow_*.json`
+
+#### Scenario: A regression guard prevents reintroduction
+
+- **WHEN** the test suite runs
+- **THEN** a guard SHALL fail if `resources/ai/profile_knowledge.md` contains any of the stale A-Flow names
+- **AND** the guard SHALL fail if a referenced D-Flow/A-Flow profile name has no corresponding `resources/profiles/*.json` title
+
+### Requirement: D-Flow / La Pavoni SHALL resolve to its own KB section, not the base D-Flow section
+
+The Profile Knowledge Base (`resources/ai/profile_knowledge.md`) SHALL parse `D-Flow / La Pavoni` into its own `ProfileKnowledge` record with its own canonical name, distinct from `D-Flow / default`'s. `D-Flow / La Pavoni` SHALL NOT be an `Also matches:` alias of the base `## D-Flow` section. The new section's title SHALL NOT contain `" / "` (the parser splits titles on `" / "`; a `## D-Flow / La Pavoni` header would register the bare key `d-flow` and collide with the base section) — resolution SHALL be via `Also matches: "D-Flow / La Pavoni"`, the same construction the shipped `## D-Flow Q variant` section uses.
+
+This requirement constrains KB content the existing `loadProfileKnowledge()` parser consumes; it does not change the parser, the relative-grinder-setting anchor algorithm, or the canonical/inferred `source` semantics. `D-Flow / La Pavoni` SHALL resolve to a strictly coarser (numerically greater) UGS than base `D-Flow / default` and SHALL be marked inferred (the same lower-pressure-target + 84°C-fill mechanism the shipped Q variant documents). The shared behavioral false-positive suppression (`AnalysisFlags: flow_trend_ok` and the "DO NOT flag declining pressure / pressurized soak / setpoint-vs-actual temperature gap" guidance) SHALL remain in effect for `D-Flow / La Pavoni` after the split.
+
+#### Scenario: D-Flow / La Pavoni resolves to its own canonical name, distinct from default
+
+- **GIVEN** the shipped `profile_knowledge.md` parsed by `loadProfileKnowledge()`
+- **WHEN** `kbBase = computeProfileKbId("D-Flow / default", "dflow")` and `kbLP = computeProfileKbId("D-Flow / La Pavoni", "dflow")` are resolved
+- **THEN** `canonicalNameForKbId(kbLP)` SHALL NOT equal `canonicalNameForKbId(kbBase)`
+
+#### Scenario: D-Flow / La Pavoni resolves strictly coarser than base D-Flow and is inferred
+
+- **GIVEN** the shipped `profile_knowledge.md` parsed by `loadProfileKnowledge()`
+- **WHEN** `kbBase = computeProfileKbId("D-Flow / default", "dflow")` and `kbLP = computeProfileKbId("D-Flow / La Pavoni", "dflow")` are resolved
+- **THEN** `ugsForKbId(kbLP)` SHALL be strictly greater than `ugsForKbId(kbBase)`
+- **AND** `ugsInferredForKbId(kbLP)` SHALL be `true`
+
+#### Scenario: Shared behavioral suppression is preserved for D-Flow / La Pavoni
+
+- **GIVEN** the shipped `profile_knowledge.md` parsed by `loadProfileKnowledge()`
+- **WHEN** `kbLP = computeProfileKbId("D-Flow / La Pavoni", "dflow")` is resolved
+- **THEN** `getAnalysisFlags(kbLP)` SHALL contain `flow_trend_ok`
+
+#### Scenario: The split introduces exactly one section and no title collision
+
+- **GIVEN** the shipped `profile_knowledge.md` before and after this change
+- **WHEN** the `## ` heading count is compared and every built-in profile title is resolved
+- **THEN** the heading count after SHALL be exactly the count before plus one
+- **AND** every built-in profile title SHALL resolve to exactly one section (no key collides with the bare `d-flow` base key)
+
