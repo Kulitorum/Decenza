@@ -1274,51 +1274,86 @@ void AIManager::emitRecentShotContext(
         result += section;
     }
 
-    // Append grinder calibration (RGS anchors + conversionKey). Goes into
-    // historicalContext → first user message → cached by the Anthropic
-    // provider exactly like the shot history and grinder context sections.
+    // Append grinder calibration. Rewritten for issue #1223
+    // (openspec `fix-grinder-calibration-cross-profile`): the block is now
+    // `confidence`-tagged and may be directional-only (no numbers). The
+    // `usageConstraint` string is repeated verbatim so the model cannot
+    // misuse UGS as click arithmetic; directional profiles get finer/
+    // coarser only — never a number, never a click delta. Goes into
+    // historicalContext → first user message → cached like the rest.
     if (!grinderCalibration.isEmpty()) {
-        QJsonObject fine = grinderCalibration["fineAnchor"].toObject();
-        QJsonObject coarse = grinderCalibration["coarseAnchor"].toObject();
-        double ck = grinderCalibration["conversionKey"].toDouble();
-        QString model = grinderCalibration["grinderModel"].toString();
+        const QString model = grinderCalibration[QStringLiteral("grinderModel")].toString();
+        const QString confidence = grinderCalibration[QStringLiteral("confidence")].toString();
+        const QString usage = grinderCalibration[QStringLiteral("usageConstraint")].toString();
+        const bool curUgsPlaced =
+            grinderCalibration[QStringLiteral("currentProfileUgsPlaced")].toBool();
+        const QJsonArray profiles =
+            grinderCalibration[QStringLiteral("profiles")].toArray();
 
-        if (!fine.isEmpty() && !coarse.isEmpty()) {
-            QString cal = QStringLiteral("\n\n## Grinder Calibration\n\n");
-            cal += QStringLiteral("Calibrated on your %1 using anchor shots:\n\n").arg(model);
-            cal += QStringLiteral("- **Fine anchor**: %1 (UGS %2) — median setting **%3** (%4 shots)\n")
-                .arg(fine[QStringLiteral("profileName")].toString())
-                .arg(fine[QStringLiteral("ugs")].toDouble())
-                .arg(fine[QStringLiteral("medianSetting")].toString())
-                .arg(fine[QStringLiteral("sampleCount")].toInt());
-            cal += QStringLiteral("- **Coarse anchor**: %1 (UGS %2) — median setting **%3** (%4 shots)\n")
-                .arg(coarse[QStringLiteral("profileName")].toString())
-                .arg(coarse[QStringLiteral("ugs")].toDouble())
-                .arg(coarse[QStringLiteral("medianSetting")].toString())
-                .arg(coarse[QStringLiteral("sampleCount")].toInt());
-            if (ck > 1e-9)
-                cal += QStringLiteral("- **Conversion**: %1 grinder steps per UGS unit\n").arg(ck);
+        QString cal = QStringLiteral("\n\n## Grinder Calibration\n\n");
+        if (!usage.isEmpty())
+            cal += usage + QStringLiteral("\n\n");
 
-            QStringList profLines;
-            const QJsonArray profiles = grinderCalibration[QStringLiteral("profiles")].toArray();
+        if (confidence == QStringLiteral("approximate")) {
+            const QJsonObject anchor =
+                grinderCalibration[QStringLiteral("coffeeAnchor")].toObject();
+            const QJsonArray range =
+                grinderCalibration[QStringLiteral("calibratedUgsRange")].toArray();
+            const double ck = grinderCalibration[QStringLiteral("conversionKey")].toDouble();
+            cal += QStringLiteral(
+                "Approximate calibration for your %1, anchored on your recent "
+                "**%2** shot (setting %3) for the current coffee (%4). "
+                "Conversion ≈ %5 grinder steps per UGS unit; numbers are "
+                "valid only within UGS %6–%7. Treat as a rough starting "
+                "point, not a precise dial.\n\n")
+                .arg(model)
+                .arg(anchor[QStringLiteral("profileName")].toString())
+                .arg(anchor[QStringLiteral("setting")].toString())
+                .arg(anchor[QStringLiteral("coffee")].toString())
+                .arg(ck)
+                .arg(range.size() == 2 ? range.at(0).toDouble() : 0.0)
+                .arg(range.size() == 2 ? range.at(1).toDouble() : 0.0);
+        } else {
+            cal += QStringLiteral(
+                "No numeric cross-profile calibration is available for the "
+                "current coffee on your %1 — not enough same-batch dial-in "
+                "data. Give only relative grind direction (finer/coarser) "
+                "and tell the user to pull a reference shot on the target "
+                "profile; do NOT quote or compute a grinder number.\n\n")
+                .arg(model);
+        }
+
+        if (!curUgsPlaced) {
+            cal += QStringLiteral(
+                "Your current profile is not on the UGS chart, so finer/"
+                "coarser ordering against it cannot be given — say so rather "
+                "than guess.\n");
+        } else {
+            QStringList lines;
             for (const QJsonValue& v : profiles) {
                 const QJsonObject p = v.toObject();
+                const QString name = p[QStringLiteral("profileName")].toString();
+                const double ugs = p[QStringLiteral("ugs")].toDouble();
                 const QString src = p[QStringLiteral("source")].toString();
                 if (src == QStringLiteral("history") || src == QStringLiteral("derived")) {
-                    profLines << QStringLiteral("- **%1** (UGS %2): **%3** (%4)")
-                        .arg(p[QStringLiteral("profileName")].toString())
-                        .arg(p[QStringLiteral("ugs")].toDouble())
-                        .arg(p[QStringLiteral("rgs")].toString())
-                        .arg(src);
+                    lines << QStringLiteral("- **%1** (UGS %2): **%3** (%4)")
+                        .arg(name).arg(ugs)
+                        .arg(p[QStringLiteral("rgs")].toString()).arg(src);
+                } else {
+                    const QString dir = p[QStringLiteral("direction")].toString();
+                    lines << QStringLiteral("- **%1** (UGS %2): grind %3 — pull a reference shot")
+                        .arg(name).arg(ugs)
+                        .arg(dir.isEmpty()
+                             ? QStringLiteral("similar; relative position unclear")
+                             : dir);
                 }
             }
-            if (!profLines.isEmpty()) {
-                cal += QStringLiteral("\nProfile RGS — seed starting grind when switching profiles:\n\n");
-                cal += profLines.join('\n') + '\n';
-            }
-
-            result += cal;
+            if (!lines.isEmpty())
+                cal += QStringLiteral("Cross-profile guidance (relative to your "
+                                      "current profile):\n\n") + lines.join('\n') + '\n';
         }
+
+        result += cal;
     }
 
     emit recentShotContextReady(result);

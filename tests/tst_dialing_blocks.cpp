@@ -930,13 +930,53 @@ private slots:
     }
 
     // ------------------------------------------------------------------
-    // buildGrinderCalibrationBlock — gate, happy-path, and edge cases
+    // buildGrinderCalibrationBlock — rewritten for issue #1223
+    // (openspec fix-grinder-calibration-cross-profile). Within-batch
+    // paired slope, dimensionless gate, per-batch anchor, hard cap,
+    // directional fallback. KB UGS: d-flow 0.5, d-flow-q-variant 1.0,
+    // adaptive-v2 1.25, allonge 8.0, londinium 0.0, turboturbo 6.0,
+    // blooming-espresso -0.5, gentle-and-sweet 2.0.
     //
-    // Profile KB IDs used (canonical, with ai.qrc linked):
-    //   "d-flow"        → D-Flow,         UGS 0.5  (canonical)
-    //   "allonge"       → Allonge,        UGS 8.0  (canonical)
-    //   "80's espresso" → 80's Espresso,  UGS ~0.25 (inferred)
+    // Fixtures default beanBrand/beanType empty and use close
+    // timestamps, so every dialed-in shot is one undated roast batch.
+    // A shot qualifies as dialed-in via enjoyment >= 50 (insertShot
+    // writes no roast_date / drink_tds; targetWeight → yield_override,
+    // not profile_json, so the on-target path is not exercised here).
     // ------------------------------------------------------------------
+
+    // Helper: seed a UGS-placed dialed-in shot on the shared batch.
+    qint64 calSeed(QSqlDatabase& db, const QString& uuid, qint64 ts,
+                   const QString& name, const QString& kbId,
+                   const QString& setting, const QString& model = QStringLiteral("Niche Zero"),
+                   const QString& burrs = QStringLiteral("63mm conical"))
+    {
+        // Non-empty bean so the shot is batch-knowable (#1236 empty-bean
+        // guard); shared across calSeed calls so they form one roast batch.
+        return insertShot(db, ShotRow{
+            .uuid = uuid, .timestamp = ts,
+            .profileName = name, .profileKbId = kbId,
+            .finalWeight = 36.0,
+            .beanBrand = QStringLiteral("TestRoaster"),
+            .beanType = QStringLiteral("TestBean"),
+            .grinderModel = model, .grinderBurrs = burrs,
+            .grinderSetting = setting, .enjoyment = 80 });
+    }
+
+    static bool calAnyHasRgs(const QJsonObject& block)
+    {
+        const QJsonArray ps = block.value(QStringLiteral("profiles")).toArray();
+        for (const QJsonValue& v : ps)
+            if (v.toObject().contains(QStringLiteral("rgs"))) return true;
+        return false;
+    }
+    static QJsonObject calProfile(const QJsonObject& block, const QString& name)
+    {
+        const QJsonArray ps = block.value(QStringLiteral("profiles")).toArray();
+        for (const QJsonValue& v : ps)
+            if (v.toObject().value(QStringLiteral("profileName")).toString() == name)
+                return v.toObject();
+        return {};
+    }
 
     void calibrationBlock_emptyWhenGrinderModelEmpty()
     {
@@ -945,7 +985,7 @@ private slots:
         withRawDb(path, QStringLiteral("calib_empty_model"), [&](QSqlDatabase& db) {
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
                 db, QStringLiteral(""), QStringLiteral(""), QStringLiteral("espresso"), 0);
-            QVERIFY2(r.isEmpty(), "empty grinderModel must return empty block");
+            QVERIFY2(r.isEmpty(), "empty grinderModel → empty block");
         });
     }
 
@@ -954,687 +994,415 @@ private slots:
         const QString path = freshDbPath();
         initAndClose(path);
         withRawDb(path, QStringLiteral("calib_filter_bev"), [&](QSqlDatabase& db) {
-            const QJsonObject r1 = DialingBlocks::buildGrinderCalibrationBlock(
+            QVERIFY(DialingBlocks::buildGrinderCalibrationBlock(
                 db, QStringLiteral("Niche Zero"), QStringLiteral(""),
-                QStringLiteral("filter"), 0);
-            QVERIFY2(r1.isEmpty(), "beverageType 'filter' must return empty block");
-
-            const QJsonObject r2 = DialingBlocks::buildGrinderCalibrationBlock(
+                QStringLiteral("filter"), 0).isEmpty());
+            QVERIFY(DialingBlocks::buildGrinderCalibrationBlock(
                 db, QStringLiteral("Niche Zero"), QStringLiteral(""),
-                QStringLiteral("pourover"), 0);
-            QVERIFY2(r2.isEmpty(), "beverageType 'pourover' must return empty block");
+                QStringLiteral("pourover"), 0).isEmpty());
         });
     }
 
-    void calibrationBlock_emptyWhenNoMatchingShots()
+    void calibrationBlock_emptyWhenResolvedShotInvalid()
     {
         const QString path = freshDbPath();
         initAndClose(path);
-        withRawDb(path, QStringLiteral("calib_no_shots"), [&](QSqlDatabase& db) {
+        withRawDb(path, QStringLiteral("calib_bad_shot"), [&](QSqlDatabase& db) {
+            // No such shot id → resolved shot invalid → empty block.
+            QTest::ignoreMessage(QtWarningMsg,
+                "ShotHistoryStorage::loadShotRecordStatic: Shot not found: 999999");
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
                 db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
-                QStringLiteral("espresso"), 0);
-            QVERIFY2(r.isEmpty(), "no shots → empty block");
+                QStringLiteral("espresso"), 999999);
+            QVERIFY2(r.isEmpty(), "invalid resolved shot → empty block");
         });
     }
 
-    void calibrationBlock_emptyWhenFewerThanTwoUgsProfiles()
+    void calibrationBlock_emptyWhenNoDialedInShots()
     {
         const QString path = freshDbPath();
         initAndClose(path);
-        withRawDb(path, QStringLiteral("calib_single_profile"), [&](QSqlDatabase& db) {
-            // Only shots on D-Flow — one profile cannot anchor a calibration.
-            for (int i = 0; i < 3; ++i) {
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-dflow-%1").arg(i),
-                    .timestamp = 1000 + i,
-                    .profileName = QStringLiteral("D-Flow"),
-                    .profileKbId = QStringLiteral("d-flow"),
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("6.0")
-                });
-            }
+        withRawDb(path, QStringLiteral("calib_no_dialed"), [&](QSqlDatabase& db) {
+            // Current shot exists (resolved OK) but is unrated, no TDS,
+            // no target → not dialed-in → no rows → empty block.
+            const qint64 cur = insertShot(db, ShotRow{
+                .uuid = QStringLiteral("u-cur"), .timestamp = 1000,
+                .profileName = QStringLiteral("D-Flow / Q"),
+                .profileKbId = QStringLiteral("d-flow-q-variant"),
+                .grinderModel = QStringLiteral("Niche Zero"),
+                .grinderBurrs = QStringLiteral("63mm conical"),
+                .grinderSetting = QStringLiteral("6"), .enjoyment = 0 });
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
                 db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
-                QStringLiteral("espresso"), 0);
-            QVERIFY2(r.isEmpty(), "single profile → fewer than 2 anchors → empty block");
+                QStringLiteral("espresso"), cur);
+            QVERIFY2(r.isEmpty(), "no dialed-in shots → empty block");
         });
     }
 
-    void calibrationBlock_happyPath()
+    // #1223 core: dialed-in on D-Flow / Q, asking about far profiles →
+    // directional only. No conversionKey, no rgs anywhere, no negative
+    // numbers; TurboTurbo (UGS 6, far above current UGS 1.0) is coarser.
+    void calibrationBlock_directionalSparse_1223()
     {
-        // D-Flow (UGS 0.5) → 3 shots at 6.0 → median 6.
-        // Allonge (UGS 8.0) → 3 shots at 16.0 → median 16.
-        // conversionKey = (16 − 6) / (8 − 0.5) = 10/7.5 = 1.333… → 1.33.
         const QString path = freshDbPath();
         initAndClose(path);
-        withRawDb(path, QStringLiteral("calib_happy"), [&](QSqlDatabase& db) {
-            for (int i = 0; i < 3; ++i) {
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-df-%1").arg(i),
-                    .timestamp = 1000 + i,
-                    .profileName = QStringLiteral("D-Flow"),
-                    .profileKbId = QStringLiteral("d-flow"),
-                    .finalWeight = 36.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("6.0")
-                });
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-al-%1").arg(i),
-                    .timestamp = 2000 + i,
-                    .profileName = QStringLiteral("Allonge"),
-                    .profileKbId = QStringLiteral("allonge"),
-                    .finalWeight = 60.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("16.0")
-                });
-            }
-
+        withRawDb(path, QStringLiteral("calib_1223"), [&](QSqlDatabase& db) {
+            calSeed(db, QStringLiteral("u1"), 1000,
+                    QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                    QStringLiteral("6"));
+            const qint64 cur = calSeed(db, QStringLiteral("u2"), 1100,
+                    QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                    QStringLiteral("6"));
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
                 db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
-                QStringLiteral("espresso"), 0);
-
+                QStringLiteral("espresso"), cur);
             QVERIFY(!r.isEmpty());
-            QCOMPARE(r.value(QStringLiteral("grinderModel")).toString(),
-                     QStringLiteral("Niche Zero"));
-            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 1.33);
-
-            const QJsonObject fine = r.value(QStringLiteral("fineAnchor")).toObject();
-            QCOMPARE(fine.value(QStringLiteral("profileName")).toString(),
-                     QStringLiteral("D-Flow"));
-            QCOMPARE(fine.value(QStringLiteral("ugs")).toDouble(), 0.5);
-            QCOMPARE(fine.value(QStringLiteral("medianSetting")).toString(),
-                     QStringLiteral("6"));
-
-            const QJsonObject coarse = r.value(QStringLiteral("coarseAnchor")).toObject();
-            QCOMPARE(coarse.value(QStringLiteral("profileName")).toString(),
-                     QStringLiteral("Allonge"));
-            QCOMPARE(coarse.value(QStringLiteral("ugs")).toDouble(), 8.0);
-            QCOMPARE(coarse.value(QStringLiteral("medianSetting")).toString(),
-                     QStringLiteral("16"));
-
-            // Both anchor profiles must appear in profiles array with source "history".
-            // Turbo Shot (UGS 5.0) is within [0.5, 8.0] with canonical UGS → "derived".
-            // Londinium (UGS 0.0) is below the fine anchor → "extrapolated".
-            // This exercises the three-way source classification in the profiles loop.
-            const QJsonArray profiles = r.value(QStringLiteral("profiles")).toArray();
-            QVERIFY(!profiles.isEmpty());
-            bool foundDFlow = false, foundAllonge = false;
-            bool foundDerived = false, foundExtrapolated = false;
-            for (const QJsonValue& pv : profiles) {
-                const QJsonObject p = pv.toObject();
-                const QString name = p.value(QStringLiteral("profileName")).toString();
-                const QString source = p.value(QStringLiteral("source")).toString();
-                if (name == QStringLiteral("D-Flow")) {
-                    QCOMPARE(source, QStringLiteral("history"));
-                    QCOMPARE(p.value(QStringLiteral("rgs")).toString(),
-                             QStringLiteral("6"));
-                    foundDFlow = true;
-                } else if (name == QStringLiteral("Allonge")) {
-                    QCOMPARE(source, QStringLiteral("history"));
-                    QCOMPARE(p.value(QStringLiteral("rgs")).toString(),
-                             QStringLiteral("16"));
-                    foundAllonge = true;
-                } else if (name == QStringLiteral("Turbo Shot")) {
-                    // UGS 5.0 is within calibrated range [0.5, 8.0] → "derived"
-                    QCOMPARE(source, QStringLiteral("derived"));
-                    foundDerived = true;
-                } else if (name == QStringLiteral("Londinium")) {
-                    // UGS 0.0 is below fine anchor (0.5) → "extrapolated"
-                    QCOMPARE(source, QStringLiteral("extrapolated"));
-                    foundExtrapolated = true;
-                }
-            }
-            QVERIFY2(foundDFlow, "D-Flow must appear in profiles array");
-            QVERIFY2(foundAllonge, "Allonge must appear in profiles array");
-            QVERIFY2(foundDerived, "Turbo Shot must appear as 'derived' within the calibrated range");
-            QVERIFY2(foundExtrapolated, "Londinium must appear as 'extrapolated' below the fine anchor");
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("directional"));
+            QVERIFY2(!r.contains(QStringLiteral("conversionKey")),
+                     "directional must carry no conversionKey");
+            QVERIFY2(!calAnyHasRgs(r), "directional must emit no rgs anywhere");
+            const QJsonObject tt = calProfile(r, QStringLiteral("TurboTurbo"));
+            QVERIFY(!tt.isEmpty());
+            QCOMPARE(tt.value(QStringLiteral("source")).toString(),
+                     QStringLiteral("directional"));
+            QCOMPARE(tt.value(QStringLiteral("direction")).toString(),
+                     QStringLiteral("coarser"));
+            QVERIFY2(!tt.contains(QStringLiteral("rgs")),
+                     "TurboTurbo must not carry a number (#1223)");
         });
     }
 
-    void calibrationBlock_aliasEquivalentTitlesCollapseToOneGroup()
+    // The legacy pooled cross-coffee path produced conversionKey = -2.4
+    // here. Different beans → different batches → no within-batch pair →
+    // directional; a wrong-signed key can no longer be emitted.
+    void calibrationBlock_wrongSignImpossible_1223()
     {
-        // Regression: shots persisted under the three declared-equivalent
-        // identifiers of the SAME KB entry (`d-flow-q-variant`) — the
-        // current id, the legacy normalized-title kb-id "d-flow / q", and
-        // the alsoMatches title "Damian's Q" (empty stored kb-id → resolved
-        // from the profile title) — must collapse into ONE group.
-        //
-        // Pre-fix: grouping keyed by displayName string split these into
-        // "D-Flow / Q" / "Damian's Q" / "D-Flow Q variant", the canonical
-        // usage was rejected as "variant of D-Flow Q variant", and the
-        // cross-profile dedup re-emitted phantom standalone rows.
         const QString path = freshDbPath();
         initAndClose(path);
-        withRawDb(path, QStringLiteral("calib_alias_collapse"), [&](QSqlDatabase& db) {
-            // Clean canonical anchor pair so the block is non-empty:
-            // D-Flow (UGS 0.5) @6 and Allonge (UGS 8.0) @16.
+        withRawDb(path, QStringLiteral("calib_wrongsign"), [&](QSqlDatabase& db) {
+            // Londinium (UGS 0) high settings on bean A; Adaptive v2
+            // (UGS 1.25) low settings on bean B — the real-data shape
+            // that pooled to a negative slope.
             for (int i = 0; i < 3; ++i) {
                 insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-df-%1").arg(i),
-                    .timestamp = 1000 + i,
-                    .profileName = QStringLiteral("D-Flow"),
-                    .profileKbId = QStringLiteral("d-flow"),
-                    .finalWeight = 36.0,
+                    .uuid = QStringLiteral("u-lon-%1").arg(i), .timestamp = 1000 + i,
+                    .profileName = QStringLiteral("Londinium"),
+                    .profileKbId = QStringLiteral("londinium"),
+                    .beanBrand = QStringLiteral("RoasterA"), .beanType = QStringLiteral("BeanA"),
                     .grinderModel = QStringLiteral("Niche Zero"),
                     .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("6.0")
-                });
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-al-%1").arg(i),
-                    .timestamp = 2000 + i,
-                    .profileName = QStringLiteral("Allonge"),
-                    .profileKbId = QStringLiteral("allonge"),
-                    .finalWeight = 60.0,
+                    .grinderSetting = QStringLiteral("12"), .enjoyment = 80 });
+            }
+            qint64 cur = 0;
+            for (int i = 0; i < 3; ++i) {
+                cur = insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-av-%1").arg(i), .timestamp = 5000 + i,
+                    .profileName = QStringLiteral("Adaptive v2"),
+                    .profileKbId = QStringLiteral("adaptive-v2"),
+                    .beanBrand = QStringLiteral("RoasterB"), .beanType = QStringLiteral("BeanB"),
                     .grinderModel = QStringLiteral("Niche Zero"),
                     .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("16.0")
-                });
+                    .grinderSetting = QStringLiteral("9"), .enjoyment = 80 });
             }
-            // Same logical profile (d-flow-q-variant), three identifiers,
-            // all at setting 9.0 → pooled median must be 9 across all 6.
-            struct QId { QString title; QString kbid; };
-            const QId qIds[] = {
-                { QStringLiteral("D-Flow Q variant"), QStringLiteral("d-flow-q-variant") }, // current id
-                { QStringLiteral("D-Flow / Q"),       QStringLiteral("d-flow / q") },       // legacy title kb-id
-                { QStringLiteral("Damian's Q"),       QString() },                          // resolved from title
-            };
-            int n = 0;
-            for (const QId& q : qIds) {
-                for (int i = 0; i < 2; ++i, ++n) {
-                    insertShot(db, ShotRow{
-                        .uuid = QStringLiteral("u-q-%1").arg(n),
-                        .timestamp = 3000 + n,
-                        .profileName = q.title,
-                        .profileKbId = q.kbid,
-                        .finalWeight = 36.0,
-                        .grinderModel = QStringLiteral("Niche Zero"),
-                        .grinderBurrs = QStringLiteral("63mm conical"),
-                        .grinderSetting = QStringLiteral("9.0")
-                    });
-                }
-            }
-
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
                 db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
-                QStringLiteral("espresso"), 0);
+                QStringLiteral("espresso"), cur);
             QVERIFY(!r.isEmpty());
-
-            const QJsonArray profiles = r.value(QStringLiteral("profiles")).toArray();
-            int qRows = 0;
-            QString qName, qSource, qRgs;
-            for (const QJsonValue& pv : profiles) {
-                const QJsonObject p = pv.toObject();
-                const QString name = p.value(QStringLiteral("profileName")).toString();
-                // The alias titles must NOT leak as separate phantom rows.
-                QVERIFY2(name != QStringLiteral("D-Flow / Q"),
-                         "alsoMatches title 'D-Flow / Q' must not appear as its own row");
-                QVERIFY2(name != QStringLiteral("Damian's Q"),
-                         "alsoMatches title \"Damian's Q\" must not appear as its own row");
-                if (name == QStringLiteral("D-Flow Q variant")) {
-                    ++qRows;
-                    qName   = name;
-                    qSource = p.value(QStringLiteral("source")).toString();
-                    qRgs    = p.value(QStringLiteral("rgs")).toString();
-                }
-            }
-            QCOMPARE(qRows, 1);  // collapsed to exactly one row, not three
-            QCOMPARE(qSource, QStringLiteral("history"));
-            // Pooled median of all 6 equivalent shots (all at 9.0) → "9".
-            // A split would median only the 2 same-title shots' subset.
-            QCOMPARE(qRgs, QStringLiteral("9"));
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("directional"));
+            QVERIFY2(!r.contains(QStringLiteral("conversionKey")),
+                     "no conversionKey from cross-batch data (no wrong sign)");
+            QVERIFY2(!calAnyHasRgs(r), "no numbers from cross-batch data");
         });
     }
 
-    void calibrationBlock_resolvedNoUgsEmittedAsHistoryRow()
-    {
-        // New branch: a profile whose kb-id resolves but whose KB entry has
-        // no UGS (e.g. "advanced-spring-lever"). It is recorded in
-        // medianById, skipped as an anchor, excluded from the UGS-sorted KB
-        // loop (allKbUgsEntries drops NaN-UGS entries), then emitted exactly
-        // once by the medianById leftover loop as a history row labelled
-        // with the displayName — NOT the raw id, and not duplicated.
-        const QString path = freshDbPath();
-        initAndClose(path);
-        withRawDb(path, QStringLiteral("calib_nan_ugs_history"), [&](QSqlDatabase& db) {
-            for (int i = 0; i < 3; ++i) {
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-df-%1").arg(i),
-                    .timestamp = 1000 + i,
-                    .profileName = QStringLiteral("D-Flow"),
-                    .profileKbId = QStringLiteral("d-flow"),
-                    .finalWeight = 36.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("6.0")
-                });
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-al-%1").arg(i),
-                    .timestamp = 2000 + i,
-                    .profileName = QStringLiteral("Allonge"),
-                    .profileKbId = QStringLiteral("allonge"),
-                    .finalWeight = 60.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("16.0")
-                });
-            }
-            for (int i = 0; i < 3; ++i) {
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-asl-%1").arg(i),
-                    .timestamp = 3000 + i,
-                    .profileName = QStringLiteral("Advanced Spring Lever"),
-                    .profileKbId = QStringLiteral("advanced-spring-lever"),
-                    .finalWeight = 36.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("8.0")
-                });
-            }
-
-            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
-                QStringLiteral("espresso"), 0);
-            QVERIFY(!r.isEmpty());
-
-            const QJsonArray profiles = r.value(QStringLiteral("profiles")).toArray();
-            int aslRows = 0;
-            for (const QJsonValue& pv : profiles) {
-                const QJsonObject p = pv.toObject();
-                if (p.value(QStringLiteral("profileName")).toString()
-                        == QStringLiteral("Advanced Spring Lever")) {
-                    ++aslRows;
-                    QCOMPARE(p.value(QStringLiteral("source")).toString(),
-                             QStringLiteral("history"));
-                    QCOMPARE(p.value(QStringLiteral("rgs")).toString(),
-                             QStringLiteral("8"));
-                    QVERIFY2(!p.contains(QStringLiteral("ugs")),
-                             "NaN-UGS history row must not carry a ugs field");
-                }
-            }
-            QCOMPARE(aslRows, 1);  // emitted exactly once, displayName-labelled
-        });
-    }
-
-    void calibrationBlock_recipeVariantTitleResolvesToParentGroup_1198()
-    {
-        // #1198 (inverts the former pre-#1198 contract): a bean-specific
-        // renamed variant of a documented recipe ("D-Flow / Q - Jeff",
-        // empty stored kb-id) is NO LONGER an unresolved raw row. The
-        // deterministic recipe-alias longest-boundary-prefix step resolves
-        // it to d-flow-q-variant (via the registered recipe alias
-        // "D-Flow / Q"), so its shots correctly AGGREGATE into that
-        // parent group's history — the collapse the issue explicitly
-        // anticipated. Assert (a) the "D-Flow Q variant" row is now
-        // sourced from history with the variant shots' grind setting, and
-        // (b) there is no longer a separate raw "D-Flow / Q - Jeff" row.
-        const QString path = freshDbPath();
-        initAndClose(path);
-        withRawDb(path, QStringLiteral("calib_custom_history"), [&](QSqlDatabase& db) {
-            for (int i = 0; i < 3; ++i) {
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-df-%1").arg(i),
-                    .timestamp = 1000 + i,
-                    .profileName = QStringLiteral("D-Flow"),
-                    .profileKbId = QStringLiteral("d-flow"),
-                    .finalWeight = 36.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("6.0")
-                });
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-al-%1").arg(i),
-                    .timestamp = 2000 + i,
-                    .profileName = QStringLiteral("Allonge"),
-                    .profileKbId = QStringLiteral("allonge"),
-                    .finalWeight = 60.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("16.0")
-                });
-            }
-            for (int i = 0; i < 4; ++i) {
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-jeff-%1").arg(i),
-                    .timestamp = 3000 + i,
-                    .profileName = QStringLiteral("D-Flow / Q - Jeff"),
-                    // empty stored kb-id → re-resolved from the title, which
-                    // now prefix-resolves to d-flow-q-variant (#1198)
-                    .profileKbId = QString(),
-                    .finalWeight = 36.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("7.0")
-                });
-            }
-
-            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
-                QStringLiteral("espresso"), 0);
-            QVERIFY(!r.isEmpty());
-
-            const QJsonArray profiles = r.value(QStringLiteral("profiles")).toArray();
-            int qVariantHistoryRows = 0;
-            int rawJeffRows = 0;
-            for (const QJsonValue& pv : profiles) {
-                const QJsonObject p = pv.toObject();
-                const QString name = p.value(QStringLiteral("profileName")).toString();
-                // #1198: the 4 "D-Flow / Q - Jeff" shots (grind 7.0) now
-                // resolve to d-flow-q-variant, so its row is sourced from
-                // THAT history (the correct aggregation the issue wanted),
-                // not derived/extrapolated.
-                if (name == QStringLiteral("D-Flow Q variant")) {
-                    ++qVariantHistoryRows;
-                    QCOMPARE(p.value(QStringLiteral("source")).toString(),
-                             QStringLiteral("history"));
-                    QCOMPARE(p.value(QStringLiteral("rgs")).toString(),
-                             QStringLiteral("7"));
-                }
-                // The raw title no longer surfaces as its own row — it is
-                // resolved, not unresolved.
-                if (name == QStringLiteral("D-Flow / Q - Jeff"))
-                    ++rawJeffRows;
-            }
-            QCOMPARE(qVariantHistoryRows, 1);  // variant row, history-sourced
-            QCOMPARE(rawJeffRows, 0);           // no stray raw custom row
-        });
-    }
-
-    // #1198 negative control (restores the integration invariant the
-    // inverted test above used to carry): a FULLY-custom title with no
-    // recipe-prefix match and an empty stored kb-id must still resolve to
-    // NO id, surface exactly once via customMedians as a raw history row
-    // labelled with its verbatim title, and must NOT contaminate any KB
-    // group. "My Morning Pull" does not prefix-match any recipe alias, so
-    // it exercises the still-live unresolved path in
-    // buildGrinderCalibrationBlock that the recipe-prefix step bypasses
-    // for documented variants.
-    void calibrationBlock_fullyCustomTitleStillEmittedAsRawHistoryRow_1198()
+    // Same batch, three profiles on an exact line → gate passes →
+    // approximate. Within-cap profile derived; far profile (TurboTurbo)
+    // capped to directional with no number.
+    void calibrationBlock_approximatePublishesAndCaps()
     {
         const QString path = freshDbPath();
         initAndClose(path);
-        withRawDb(path, QStringLiteral("calib_custom_unresolved"), [&](QSqlDatabase& db) {
-            for (int i = 0; i < 3; ++i) {
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-df-%1").arg(i),
-                    .timestamp = 1000 + i,
-                    .profileName = QStringLiteral("D-Flow"),
-                    .profileKbId = QStringLiteral("d-flow"),
-                    .finalWeight = 36.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("6.0")
-                });
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-al-%1").arg(i),
-                    .timestamp = 2000 + i,
-                    .profileName = QStringLiteral("Allonge"),
-                    .profileKbId = QStringLiteral("allonge"),
-                    .finalWeight = 60.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("16.0")
-                });
-            }
-            for (int i = 0; i < 4; ++i) {
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-cust-%1").arg(i),
-                    .timestamp = 3000 + i,
-                    .profileName = QStringLiteral("My Morning Pull"),
-                    .profileKbId = QString(),  // empty AND title has no recipe prefix
-                    .finalWeight = 36.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("9.0")
-                });
-            }
-
-            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
-                QStringLiteral("espresso"), 0);
-            QVERIFY(!r.isEmpty());
-
-            const QJsonArray profiles = r.value(QStringLiteral("profiles")).toArray();
-            int customRows = 0;
-            for (const QJsonValue& pv : profiles) {
-                const QJsonObject p = pv.toObject();
-                const QString name = p.value(QStringLiteral("profileName")).toString();
-                if (name == QStringLiteral("My Morning Pull")) {
-                    ++customRows;
-                    QCOMPARE(p.value(QStringLiteral("source")).toString(),
-                             QStringLiteral("history"));
-                    QCOMPARE(p.value(QStringLiteral("rgs")).toString(),
-                             QStringLiteral("9"));
-                }
-                // No KB group may be history-sourced from these unresolved
-                // shots: with no history of its own, d-flow-q-variant must
-                // never read "history" (that would be contamination).
-                if (name == QStringLiteral("D-Flow Q variant"))
-                    QVERIFY2(p.value(QStringLiteral("source")).toString()
-                                 != QStringLiteral("history"),
-                             "unresolved custom title must not contaminate a KB group");
-            }
-            QCOMPARE(customRows, 1);  // exactly one raw row, verbatim title
-        });
-    }
-
-    void calibrationBlock_badgedShotsExcluded()
-    {
-        // D-Flow: 2 clean shots at 6.0, 3 grind-issue shots at 15.0.
-        // Without badge filtering: median([6,6,15,15,15]) = 15 → conversionKey ≈ 0.13.
-        // With badge filtering:    median([6,6])          = 6  → conversionKey = 1.33.
-        const QString path = freshDbPath();
-        initAndClose(path);
-        withRawDb(path, QStringLiteral("calib_badges"), [&](QSqlDatabase& db) {
+        withRawDb(path, QStringLiteral("calib_approx"), [&](QSqlDatabase& db) {
+            // Three profiles, every pairwise UGS gap ≥ 0.75 so all 3
+            // pairs survive the span filter, settings on an exact line
+            // (setting = 2 + 2·UGS) → every pairwise slope = 2 → IQR 0 →
+            // gate passes. londinium 0.0→2, d-flow-q-variant 1.0→4,
+            // gentle-and-sweet 2.0→6.
             for (int i = 0; i < 2; ++i) {
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-df-clean-%1").arg(i),
-                    .timestamp = 1000 + i,
-                    .profileName = QStringLiteral("D-Flow"),
-                    .profileKbId = QStringLiteral("d-flow"),
-                    .finalWeight = 36.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("6.0")
-                });
+                calSeed(db, QStringLiteral("u-lo-%1").arg(i), 1000 + i,
+                        QStringLiteral("Londinium"), QStringLiteral("londinium"),
+                        QStringLiteral("2"));
+                calSeed(db, QStringLiteral("u-dq-%1").arg(i), 1100 + i,
+                        QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                        QStringLiteral("4"));
             }
-            for (int i = 0; i < 3; ++i) {
-                const qint64 id = insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-df-bad-%1").arg(i),
-                    .timestamp = 2000 + i,
-                    .profileName = QStringLiteral("D-Flow"),
-                    .profileKbId = QStringLiteral("d-flow"),
-                    .finalWeight = 36.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("15.0")
-                });
-                QSqlQuery upd(db);
-                upd.prepare(QStringLiteral("UPDATE shots SET grind_issue_detected = 1 WHERE id = ?"));
-                upd.addBindValue(id);
-                upd.exec();
-            }
-            for (int i = 0; i < 4; ++i) {
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-al-%1").arg(i),
-                    .timestamp = 3000 + i,
-                    .profileName = QStringLiteral("Allonge"),
-                    .profileKbId = QStringLiteral("allonge"),
-                    .finalWeight = 60.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("16.0")
-                });
-            }
-
+            qint64 cur = 0;
+            for (int i = 0; i < 2; ++i)
+                cur = calSeed(db, QStringLiteral("u-gs-%1").arg(i), 1200 + i,
+                        QStringLiteral("Gentle & Sweet"), QStringLiteral("gentle-and-sweet"),
+                        QStringLiteral("6"));
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
                 db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
-                QStringLiteral("espresso"), 0);
-
+                QStringLiteral("espresso"), cur);
             QVERIFY(!r.isEmpty());
-            // conversionKey 1.33 proves the 15.0 grind-issue shots were excluded.
-            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 1.33);
-            const QJsonObject fine = r.value(QStringLiteral("fineAnchor")).toObject();
-            QCOMPARE(fine.value(QStringLiteral("medianSetting")).toString(),
-                     QStringLiteral("6"));
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("approximate"));
+            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 2.0);
+            QVERIFY(r.contains(QStringLiteral("coffeeAnchor")));
+            // Seeded profiles are in the current batch → history median.
+            const QJsonObject lo = calProfile(r, QStringLiteral("Londinium"));
+            QCOMPARE(lo.value(QStringLiteral("source")).toString(),
+                     QStringLiteral("history"));
+            QCOMPARE(lo.value(QStringLiteral("rgs")).toString(), QStringLiteral("2"));
+            // Validated span 0.0..2.0; cap 1.5 → numeric in [-1.5, 3.5].
+            // Adaptive v2 (UGS 1.25) is in range but unseeded → derived;
+            // anchor = recent Gentle&Sweet (UGS 2.0, setting 6) →
+            // 6 + (1.25 − 2.0)·2 = 4.5.
+            const QJsonObject av = calProfile(r, QStringLiteral("Adaptive v2"));
+            QCOMPARE(av.value(QStringLiteral("source")).toString(),
+                     QStringLiteral("derived"));
+            QCOMPARE(av.value(QStringLiteral("rgs")).toString(),
+                     QStringLiteral("4.5"));
+            // TurboTurbo UGS 6 far outside → directional, no number.
+            const QJsonObject tt = calProfile(r, QStringLiteral("TurboTurbo"));
+            QCOMPARE(tt.value(QStringLiteral("source")).toString(),
+                     QStringLiteral("directional"));
+            QVERIFY2(!tt.contains(QStringLiteral("rgs")),
+                     "out-of-cap profile must have no rgs");
+            QCOMPARE(tt.value(QStringLiteral("direction")).toString(),
+                     QStringLiteral("coarser"));
         });
     }
 
-    void calibrationBlock_inferredFallbackWhenCanonicalDegenerate()
+    // Zero history beyond one current shot: direction still correct from
+    // KB ordering alone (anchor-free, grinder-convention-free, D5a).
+    void calibrationBlock_directionAnchorFreeZeroData()
     {
-        // D-Flow and Allonge both have median 7.0 → canonical anchor pair is
-        // degenerate (setting diff 0.0 < 0.5 threshold). The block falls back to
-        // the inferred-UGS pool and uses 80's Espresso (UGS ~0.25) as fine anchor.
-        // conversionKey = (7 − 5) / (8 − 0.25) = 2/7.75 ≈ 0.26.
         const QString path = freshDbPath();
         initAndClose(path);
-        withRawDb(path, QStringLiteral("calib_inferred"), [&](QSqlDatabase& db) {
-            for (int i = 0; i < 3; ++i) {
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-df-%1").arg(i),
-                    .timestamp = 1000 + i,
-                    .profileName = QStringLiteral("D-Flow"),
-                    .profileKbId = QStringLiteral("d-flow"),
-                    .finalWeight = 36.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("7.0")
-                });
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-al-%1").arg(i),
-                    .timestamp = 2000 + i,
-                    .profileName = QStringLiteral("Allonge"),
-                    .profileKbId = QStringLiteral("allonge"),
-                    .finalWeight = 60.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("7.0")
-                });
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-80s-%1").arg(i),
-                    .timestamp = 3000 + i,
-                    .profileName = QStringLiteral("80's Espresso"),
-                    .profileKbId = QStringLiteral("80's espresso"),
-                    .finalWeight = 36.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("5.0")
-                });
-            }
-
+        withRawDb(path, QStringLiteral("calib_zero"), [&](QSqlDatabase& db) {
+            const qint64 cur = calSeed(db, QStringLiteral("only"), 1000,
+                    QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                    QStringLiteral("6"));
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
                 db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
-                QStringLiteral("espresso"), 0);
-
-            QVERIFY2(!r.isEmpty(), "inferred fallback must produce a non-empty block");
-
-            const QJsonObject fine = r.value(QStringLiteral("fineAnchor")).toObject();
-            QCOMPARE(fine.value(QStringLiteral("profileName")).toString(),
-                     QStringLiteral("80's Espresso"));
-            QCOMPARE(fine.value(QStringLiteral("ugs")).toDouble(), -0.5);
-
-            const QJsonObject coarse = r.value(QStringLiteral("coarseAnchor")).toObject();
-            QCOMPARE(coarse.value(QStringLiteral("profileName")).toString(),
-                     QStringLiteral("Allonge"));
-            QCOMPARE(coarse.value(QStringLiteral("medianSetting")).toString(),
-                     QStringLiteral("7"));
-
-            // conversionKey = (7−5) / (8−(−0.5)) = 2/8.5 = 0.235… → 0.24
-            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 0.24);
+                QStringLiteral("espresso"), cur);
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("directional"));
+            QVERIFY(r.value(QStringLiteral("currentProfileUgsPlaced")).toBool());
+            QCOMPARE(calProfile(r, QStringLiteral("TurboTurbo"))
+                         .value(QStringLiteral("direction")).toString(),
+                     QStringLiteral("coarser"));
+            QCOMPARE(calProfile(r, QStringLiteral("Blooming Espresso"))
+                         .value(QStringLiteral("direction")).toString(),
+                     QStringLiteral("finer"));
+            QVERIFY2(!calAnyHasRgs(r), "zero-data must yield no numbers");
         });
     }
 
-    void calibrationBlock_emptyWhenDegenerateAndNoInferredFallback()
+    // Current profile not on the UGS chart → ordering withheld, flagged.
+    void calibrationBlock_currentProfileNoUgsWithholdsDirection()
     {
-        // Canonical anchors are degenerate (same setting) AND no inferred shots exist.
-        // The combined pool (canonical + empty inferred) still has no valid pair →
-        // the block must return empty. This covers the "no non-degenerate anchor pair"
-        // branch when the inferred fallback produces nothing.
         const QString path = freshDbPath();
         initAndClose(path);
-        withRawDb(path, QStringLiteral("calib_degen_no_inferred"), [&](QSqlDatabase& db) {
-            for (int i = 0; i < 3; ++i) {
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-df-%1").arg(i),
-                    .timestamp = 1000 + i,
-                    .profileName = QStringLiteral("D-Flow"),
-                    .profileKbId = QStringLiteral("d-flow"),
-                    .finalWeight = 36.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("7.0")
-                });
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-al-%1").arg(i),
-                    .timestamp = 2000 + i,
-                    .profileName = QStringLiteral("Allonge"),
-                    .profileKbId = QStringLiteral("allonge"),
-                    .finalWeight = 60.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("7.0")
-                });
-            }
+        withRawDb(path, QStringLiteral("calib_nougs"), [&](QSqlDatabase& db) {
+            const qint64 cur = insertShot(db, ShotRow{
+                .uuid = QStringLiteral("u-custom"), .timestamp = 1000,
+                .profileName = QStringLiteral("My Secret Pull"),
+                .grinderModel = QStringLiteral("Niche Zero"),
+                .grinderBurrs = QStringLiteral("63mm conical"),
+                .grinderSetting = QStringLiteral("6"), .enjoyment = 80 });
             const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
                 db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
-                QStringLiteral("espresso"), 0);
-            QVERIFY2(r.isEmpty(),
-                "degenerate canonical pair with no inferred fallback must return empty");
-        });
-    }
-
-    void calibrationBlock_abortedShotsExcluded()
-    {
-        // D-Flow: 3 clean shots at 6.0 + 3 aborted shots (finalWeight 2.0) at 15.0.
-        // Without the final_weight >= 15 filter: median([6,6,6,15,15,15]) = 10.5.
-        // With the filter: median([6,6,6]) = 6 → conversionKey = 1.33.
-        const QString path = freshDbPath();
-        initAndClose(path);
-        withRawDb(path, QStringLiteral("calib_aborted"), [&](QSqlDatabase& db) {
-            for (int i = 0; i < 3; ++i) {
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-df-clean-%1").arg(i),
-                    .timestamp = 1000 + i,
-                    .profileName = QStringLiteral("D-Flow"),
-                    .profileKbId = QStringLiteral("d-flow"),
-                    .finalWeight = 36.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("6.0")
-                });
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-df-abort-%1").arg(i),
-                    .timestamp = 2000 + i,
-                    .profileName = QStringLiteral("D-Flow"),
-                    .profileKbId = QStringLiteral("d-flow"),
-                    .finalWeight = 2.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("15.0")
-                });
-                insertShot(db, ShotRow{
-                    .uuid = QStringLiteral("u-al-%1").arg(i),
-                    .timestamp = 3000 + i,
-                    .profileName = QStringLiteral("Allonge"),
-                    .profileKbId = QStringLiteral("allonge"),
-                    .finalWeight = 60.0,
-                    .grinderModel = QStringLiteral("Niche Zero"),
-                    .grinderBurrs = QStringLiteral("63mm conical"),
-                    .grinderSetting = QStringLiteral("16.0")
-                });
-            }
-            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
-                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
-                QStringLiteral("espresso"), 0);
+                QStringLiteral("espresso"), cur);
             QVERIFY(!r.isEmpty());
-            // conversionKey 1.33 proves the sub-15g aborted shots were excluded.
-            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 1.33);
-            const QJsonObject fine = r.value(QStringLiteral("fineAnchor")).toObject();
-            QCOMPARE(fine.value(QStringLiteral("medianSetting")).toString(),
-                     QStringLiteral("6"));
+            QVERIFY2(!r.value(QStringLiteral("currentProfileUgsPlaced")).toBool(),
+                     "custom profile is not UGS-placed");
+            const QJsonObject tt = calProfile(r, QStringLiteral("TurboTurbo"));
+            QCOMPARE(tt.value(QStringLiteral("source")).toString(),
+                     QStringLiteral("directional"));
+            QVERIFY2(!tt.contains(QStringLiteral("direction")),
+                     "no direction when current profile has no UGS");
+        });
+    }
+
+    // Both consumer surfaces call this one builder; identical input →
+    // byte-identical JSON (cross-surface drift guard, review S4).
+    void calibrationBlock_byteStableForIdenticalInput()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_bytestable"), [&](QSqlDatabase& db) {
+            const qint64 cur = calSeed(db, QStringLiteral("b1"), 1000,
+                    QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                    QStringLiteral("6"));
+            const QJsonObject a = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                QStringLiteral("espresso"), cur);
+            const QJsonObject b = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                QStringLiteral("espresso"), cur);
+            QCOMPARE(QJsonDocument(a).toJson(QJsonDocument::Compact),
+                     QJsonDocument(b).toJson(QJsonDocument::Compact));
+        });
+    }
+
+    // Variable-RPM grinder (DF83V): users annotate dial with RPM
+    // ("24 1400rpm"). The parser accepts the leading dial and the rest
+    // is ignorable annotation; without this fix 93% of such users' data
+    // was silently discarded (review on PR #1236 / #1223 reporter DB).
+    void calibrationBlock_acceptsNumericWithSuffix_DF83V()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_suffix"), [&](QSqlDatabase& db) {
+            // Three profiles on an exact line through (setting = 2 + 2·UGS).
+            // Settings written WITH the variable-RPM suffix.
+            auto seed = [&](const QString& uuid, qint64 ts,
+                            const QString& name, const QString& kbId,
+                            const QString& setting) {
+                return insertShot(db, ShotRow{
+                    .uuid = uuid, .timestamp = ts,
+                    .profileName = name, .profileKbId = kbId,
+                    .finalWeight = 36.0,
+                    .beanBrand = QStringLiteral("TestRoaster"),
+                    .beanType = QStringLiteral("TestBean"),
+                    .grinderModel = QStringLiteral("DF83V"),
+                    .grinderBurrs = QStringLiteral("83mm flat steel"),
+                    .grinderSetting = setting, .enjoyment = 80 });
+            };
+            for (int i = 0; i < 2; ++i) {
+                seed(QStringLiteral("u-lo-%1").arg(i), 1000 + i,
+                     QStringLiteral("Londinium"), QStringLiteral("londinium"),
+                     QStringLiteral("2 1400rpm"));
+                seed(QStringLiteral("u-dq-%1").arg(i), 1100 + i,
+                     QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                     QStringLiteral("4 1400rpm"));
+            }
+            qint64 cur = 0;
+            for (int i = 0; i < 2; ++i)
+                cur = seed(QStringLiteral("u-gs-%1").arg(i), 1200 + i,
+                           QStringLiteral("Gentle & Sweet"),
+                           QStringLiteral("gentle-and-sweet"),
+                           QStringLiteral("6 1400rpm"));
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("DF83V"), QStringLiteral("83mm flat steel"),
+                QStringLiteral("espresso"), cur);
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("approximate"));
+            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 2.0);
+            // History rgs emits dial-only (no rpm round-trip).
+            const QJsonObject lo = calProfile(r, QStringLiteral("Londinium"));
+            QCOMPARE(lo.value(QStringLiteral("rgs")).toString(), QStringLiteral("2"));
+        });
+    }
+
+    // Compound notation (Eureka Mignon Specialita): "1+4" → linear
+    // 1·100 + 4 = 104; recommended-grind round-trips back as "a+b".
+    void calibrationBlock_compoundNotation_MignonSpecialita()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_compound"), [&](QSqlDatabase& db) {
+            // setting = 100 + 4·linearUGS, linear = a·100 + b.
+            // londinium(0)→1+4 (=104); d-flow-q(1)→2+8 (=208); g&s(2)→3+12 (=312)
+            // pairwise slopes consistent (104→208→312 over ugs 0/1/2):
+            // slope per UGS = 104; all pairs equal → gate passes.
+            auto seed = [&](const QString& uuid, qint64 ts,
+                            const QString& name, const QString& kbId,
+                            const QString& setting) {
+                return insertShot(db, ShotRow{
+                    .uuid = uuid, .timestamp = ts,
+                    .profileName = name, .profileKbId = kbId,
+                    .finalWeight = 36.0,
+                    .beanBrand = QStringLiteral("TestRoaster"),
+                    .beanType = QStringLiteral("TestBean"),
+                    .grinderModel = QStringLiteral("Mignon Specialita"),
+                    .grinderBurrs = QStringLiteral("55mm flat steel"),
+                    .grinderSetting = setting, .enjoyment = 80 });
+            };
+            for (int i = 0; i < 2; ++i) {
+                seed(QStringLiteral("u-lo-%1").arg(i), 1000 + i,
+                     QStringLiteral("Londinium"), QStringLiteral("londinium"),
+                     QStringLiteral("1+4"));
+                seed(QStringLiteral("u-dq-%1").arg(i), 1100 + i,
+                     QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                     QStringLiteral("2+8"));
+            }
+            qint64 cur = 0;
+            for (int i = 0; i < 2; ++i)
+                cur = seed(QStringLiteral("u-gs-%1").arg(i), 1200 + i,
+                           QStringLiteral("Gentle & Sweet"),
+                           QStringLiteral("gentle-and-sweet"),
+                           QStringLiteral("3+12"));
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Mignon Specialita"),
+                QStringLiteral("55mm flat steel"),
+                QStringLiteral("espresso"), cur);
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("approximate"));
+            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 104.0);
+            // History rgs round-trips in "a+b" notation.
+            const QJsonObject lo = calProfile(r, QStringLiteral("Londinium"));
+            QCOMPARE(lo.value(QStringLiteral("rgs")).toString(), QStringLiteral("1+4"));
+            const QJsonObject gs = calProfile(r, QStringLiteral("Gentle & Sweet"));
+            QCOMPARE(gs.value(QStringLiteral("rgs")).toString(), QStringLiteral("3+12"));
+        });
+    }
+
+    // Eureka multi-turn "1+4" must NOT be silently mis-parsed as "1" on
+    // a non-compound (plain numeric) grinder — those rows are excluded
+    // so a future grinder added without a Compound entry can't fabricate
+    // numbers from misread multi-turn notation. Same guard catches
+    // "1 + 4" (spaced multi-turn) on every grinder.
+    void calibrationBlock_compoundSyntax_rejectedOnNonCompoundGrinder()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_compound_rej"), [&](QSqlDatabase& db) {
+            // All shots on a plain-numeric grinder ("Niche Zero") with
+            // compound notation in the setting field → all rejected at
+            // parse → no dialed-in rows → block empty.
+            for (int i = 0; i < 3; ++i) {
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-%1").arg(i),
+                    .timestamp = 1000 + i,
+                    .profileName = QStringLiteral("D-Flow / Q"),
+                    .profileKbId = QStringLiteral("d-flow-q-variant"),
+                    .finalWeight = 36.0,
+                    .beanBrand = QStringLiteral("TestRoaster"),
+                    .beanType = QStringLiteral("TestBean"),
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = i == 0 ? QStringLiteral("1+4")
+                                   : i == 1 ? QStringLiteral("1 + 4")
+                                            : QStringLiteral("medium"),
+                    .enjoyment = 80 });
+            }
+            // Need a valid resolved shot — add one current shot with a
+            // proper numeric setting (it just provides the bean/profile).
+            const qint64 cur = insertShot(db, ShotRow{
+                .uuid = QStringLiteral("u-cur"), .timestamp = 1100,
+                .profileName = QStringLiteral("D-Flow / Q"),
+                .profileKbId = QStringLiteral("d-flow-q-variant"),
+                .finalWeight = 36.0,
+                .beanBrand = QStringLiteral("TestRoaster"),
+                .beanType = QStringLiteral("TestBean"),
+                .grinderModel = QStringLiteral("Niche Zero"),
+                .grinderBurrs = QStringLiteral("63mm conical"),
+                .grinderSetting = QStringLiteral("6"), .enjoyment = 80 });
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                QStringLiteral("espresso"), cur);
+            // 3 compound-syntax shots rejected; the one cur shot is the
+            // only kept row → only one profile, no pairs → directional.
+            // Crucially: no numbers anywhere, no `1` rgs leaking from
+            // a mis-parsed `1+4`.
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("directional"));
+            QVERIFY(!calAnyHasRgs(r));
         });
     }
 

@@ -214,21 +214,28 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
     return bean;
 }
 
-// Per-user grinder calibration block. Derives a conversion key (settings per
-// UGS unit) from the user's all-time shot history on the same grinder model +
-// burrs and uses it to compute a Relative Grind Setting (RGS) for every
-// profile in the knowledge base that carries a UGS value. All-time (no window)
-// because the conversion key is a physical property of the grinder+burrs pair.
+// Per-user cross-profile grinder calibration block. Rewritten for issue
+// #1223 (openspec `fix-grinder-calibration-cross-profile`). Model:
+//   grind(profile, coffeeBatch) ≈ batchBaseline + UGS·conversionKey
+// `conversionKey` is mined from WITHIN-ROAST-BATCH paired slopes (same
+// bean batch, two profiles — cancels the dominant per-batch baseline that
+// made the old pooled all-coffee slope wrong-signed), gated dimensionlessly
+// (IQR ≤ ratio·|key|, grinder-portable), and is a per-grinder runtime
+// value — never a shipped constant. Numbers are anchored on the most recent
+// dialed-in shot of the CURRENT roast batch and never extrapolated past a
+// hard UGS cap. With no usable signal the block is *directional*: each
+// profile carries only finer/coarser from KB UGS ordering vs the current
+// profile (anchor-free, grinder-convention-free) — never a fabricated
+// number. `confidence` is `"approximate"` (numeric, gated) or
+// `"directional"`. `resolvedShotId` IS used — it supplies the current
+// roast batch and current-profile UGS.
 //
 // Returns an empty `QJsonObject` (caller suppresses the key) when:
 //   - `grinderModel` is empty, OR
 //   - `beverageType` is filter / pourover, OR
-//   - fewer than 2 qualifying profiles with a usable UGS (canonical preferred;
-//     inferred used as fallback when canonical-only pair is degenerate), OR
-//   - no non-degenerate anchor pair exists (setting difference < 0.5).
-//
-// `resolvedShotId` is accepted for API symmetry with other block builders but
-// is not used — the all-time query is intentional (see proposal.md).
+//   - the resolved shot is invalid, OR
+//   - there are no dialed-in shots on this grinder + burrs.
+// Otherwise the block is always present (directional at minimum).
 //
 // Background-thread / DB-owning: must be called from the same thread that
 // owns `db` (same tier as `buildGrinderContextBlock`).
@@ -236,7 +243,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
                                          const QString& grinderModel,
                                          const QString& grinderBurrs,
                                          const QString& beverageType,
-                                         qint64 resolvedShotId  /* unused — see comment */);
+                                         qint64 resolvedShotId);
 
 // SAW (Stop-at-Weight) prediction for the resolved shot. Returns an
 // empty `QJsonObject` when any of the following hold:
