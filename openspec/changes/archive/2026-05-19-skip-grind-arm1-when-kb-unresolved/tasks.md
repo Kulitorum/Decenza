@@ -48,5 +48,5 @@
 - [x] 7.2 Run `tools/validate_kb.py` (no KB content change, but cheap sanity).
 - [x] 7.3 Open PR on a feature branch (e.g. `feat/skip-grind-arm1-when-kb-unresolved`) with proposal/design/spec excerpts in the body, the corpus-diff result from section 5, and a closing-keyword link to the openspec change.
 - [x] 7.4 Run `/pr-review-toolkit:review-pr` on the PR; address any issues it surfaces above the noise floor.
-- [ ] 7.5 After approval/sign-off, `/merge-pr` to squash-merge and delete the branch.
-- [ ] 7.6 Run `/openspec-archive-change skip-grind-arm1-when-kb-unresolved` (or the openspec CLI equivalent) once the PR has landed on `main`.
+- [x] 7.5 After approval/sign-off, `/merge-pr` to squash-merge and delete the branch.
+- [x] 7.6 Run `/openspec-archive-change skip-grind-arm1-when-kb-unresolved` (or the openspec CLI equivalent) once the PR has landed on `main`.
