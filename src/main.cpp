@@ -1612,8 +1612,15 @@ int main(int argc, char *argv[])
 
     QObject::connect(&bleManager, &BLEManager::refractometerDiscovered,
                      [&refractometer, &mainController, &engine, &bleManager, &settings](const QBluetoothDeviceInfo& device) {
+        qDebug().noquote() << QString("[R2-diag] refractometerDiscovered dev=%1 existingInstance=%2 existingConnected=%3")
+            .arg(getDeviceIdentifier(device),
+                 refractometer ? QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16)
+                                : QStringLiteral("none"),
+                 (refractometer && refractometer->isConnected()) ? QStringLiteral("true")
+                                                                 : QStringLiteral("false"));
         if (refractometer && refractometer->isConnected()) {
             if (getDeviceIdentifier(device) == settings.savedRefractometerAddress()) {
+                qDebug().noquote() << "[R2-diag] same device already connected — ignoring discovery (no churn)";
                 return;  // Same device already connected — nothing to do
             }
             // Different device selected — continue to cleanup + create
@@ -1622,6 +1629,9 @@ int main(int argc, char *argv[])
         // Clean up old refractometer before replacing — disconnect first (emits
         // signals while pointers are still valid), then clear raw pointer holders
         if (refractometer) {
+            qDebug().noquote() << QString("[R2-diag] tearing down previous DiFluidR2 instance=%1 connected=%2 to recreate")
+                .arg(QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16),
+                     refractometer->isConnected() ? QStringLiteral("true") : QStringLiteral("false"));
             refractometer->disconnectFromDevice();
             mainController.setRefractometer(nullptr);
             bleManager.setRefractometerDevice(nullptr);
@@ -1660,6 +1670,8 @@ int main(int argc, char *argv[])
         QObject::connect(refractometer.get(), &DiFluidR2::logMessage,
                          &bleManager, &BLEManager::appendScaleLog);
 
+        qDebug().noquote() << QString("[R2-diag] created DiFluidR2 instance=%1 connecting to %2")
+            .arg(QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16), device.name());
         qDebug() << "[Refractometer] Created and connecting to" << device.name();
     });
 
@@ -1695,6 +1707,9 @@ int main(int argc, char *argv[])
             qDebug() << "Refractometer reconnect: already connected, stopping retries";
             return;
         }
+        qDebug().noquote() << QString("[R2-diag] reconnect tick attempt=%1 isRefractometerConnected=%2 — will scan")
+            .arg(refractometerReconnectAttempt + 1)
+            .arg(bleManager.isRefractometerConnected() ? QStringLiteral("true") : QStringLiteral("false"));
         qDebug() << "Refractometer reconnect: attempt" << (refractometerReconnectAttempt + 1);
         // Bounded ramp only in the user-visible log (the 60s tail is endless).
         if (refractometerReconnectAttempt < static_cast<int>(reconnectDelays.size())) {

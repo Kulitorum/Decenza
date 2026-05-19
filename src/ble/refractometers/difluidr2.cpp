@@ -56,6 +56,8 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
                                          Refractometer::DiFluidR2::CHARACTERISTIC);
         m_connected = true;
         emit connectedChanged();
+        R2_LOG(QString("[R2-diag] connectedChanged -> TRUE (instance=%1)")
+               .arg(QString::number(reinterpret_cast<quintptr>(this), 16)));
         R2_LOG("Connected and ready for measurements");
 
         // Send "get temperature unit" as init handshake (Func=1, Cmd=0, DataLen=0)
@@ -174,11 +176,16 @@ void DiFluidR2::requestMeasurement() {
 // === Transport callbacks ===
 
 void DiFluidR2::onTransportConnected() {
+    R2_LOG(QString("[R2-diag] transport connected (instance=%1) — starting service discovery")
+           .arg(QString::number(reinterpret_cast<quintptr>(this), 16)));
     R2_LOG("Transport connected, starting service discovery");
     m_transport->discoverServices();
 }
 
 void DiFluidR2::onTransportDisconnected() {
+    R2_LOG(QString("[R2-diag] connectedChanged -> FALSE (instance=%1) reason=transport-disconnected wasConnected=%2")
+           .arg(QString::number(reinterpret_cast<quintptr>(this), 16),
+                m_connected ? QStringLiteral("true") : QStringLiteral("false")));
     R2_LOG("Transport disconnected");
     m_measurementTimer.stop();
     m_initTimer.stop();
@@ -191,6 +198,9 @@ void DiFluidR2::onTransportDisconnected() {
 }
 
 void DiFluidR2::onTransportError(const QString& message) {
+    R2_WARN(QString("[R2-diag] connectedChanged -> FALSE (instance=%1) reason=transport-error wasConnected=%2")
+            .arg(QString::number(reinterpret_cast<quintptr>(this), 16),
+                 m_connected ? QStringLiteral("true") : QStringLiteral("false")));
     R2_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("DiFluid R2 connection error");
     m_measurementTimer.stop();
