@@ -65,16 +65,28 @@ public class DecenzaActivity extends QtActivity {
         super.onDestroy();
     }
 
-    // Catches both DeadObjectException (the common case: the Bluetooth GATT
-    // binder/process died — toggled off, OEM power policy, driver hiccup) and
-    // its subclass DeadSystemException (system_server died — deep sleep, OEM
-    // power management). Qt's QtBluetoothLE.executeWriteJob doesn't wrap the
+    // Catches three closely-related dead-binder cases:
+    //   1. DeadObjectException — the common case: a remote Bluetooth binder
+    //      we were writing to died (BT toggled off, OEM power policy, driver
+    //      hiccup). Covered by `instanceof DeadObjectException`. (Issue #1227)
+    //   2. DeadSystemException — system_server died. Subclass of
+    //      DeadObjectException so the same `instanceof` covers it.
+    //   3. DeadSystemRuntimeException — the API 31+ unchecked variant of
+    //      case 2. **Despite the name, it does NOT extend DeadObjectException**
+    //      (it extends RuntimeException directly), and is typically thrown
+    //      without a DeadObjectException in its cause chain, so the
+    //      `instanceof` check misses it. We fall back to a class-name
+    //      substring match to cover it. (Was caught by the original
+    //      `contains("DeadSystem")` filter in PR #544 / issue #538.)
+    // Qt's QtBluetoothLE.executeWriteJob doesn't wrap the
     // BluetoothGatt.writeCharacteristic binder call in try/catch (verified
     // through Qt 6.11.1), so the RuntimeException it raises lands here.
-    // Issues #189 (v1.5.0) and #1227 (v1.7.3).
+    // Issues #189 (v1.5.0), #538 (v1.4.x DeadSystemRuntimeException),
+    // #1227 (v1.7.3 DeadObjectException).
     private static boolean isDeadObjectException(Throwable t) {
         while (t != null) {
-            if (t instanceof DeadObjectException) {
+            if (t instanceof DeadObjectException
+                    || t.getClass().getName().contains("DeadSystem")) {
                 return true;
             }
             t = t.getCause();
