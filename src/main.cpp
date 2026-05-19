@@ -866,11 +866,12 @@ int main(int argc, char *argv[])
         "idleGc", "()V");
     idleGcTimer->start();
 
-    // BLE dead system recovery: Android's Bluetooth system service can die
-    // (DeadSystemException) during deep sleep or OEM power management.
-    // When this happens, the Qt BLE handler thread dies but the app keeps running.
-    // The Java crash handler writes a flag file; we check for it every 10 seconds
-    // and trigger BLE reconnection if found.
+    // BLE dead-binder recovery: when the Bluetooth GATT binder/process dies
+    // (toggled off, OEM power policy, GATT proxy unbound) Qt's BLE handler
+    // thread raises a DeadObjectException (or its DeadSystemException
+    // subclass if system_server itself died). The Java crash handler catches
+    // both, keeps the app alive, and writes a flag file; we poll for it
+    // every 10 s and trigger BLE reconnection if found. Issues #189, #1227.
     auto* bleRecoveryTimer = new QTimer();
     bleRecoveryTimer->setInterval(10000);
     QObject::connect(bleRecoveryTimer, &QTimer::timeout,
@@ -882,7 +883,7 @@ int main(int argc, char *argv[])
         if (!flagFile.exists())
             return;
 
-        qWarning() << "BLE recovery: DeadSystemException detected, triggering reconnect";
+        qWarning() << "BLE recovery: dead BLE binder detected, triggering reconnect";
         flagFile.remove();
 
         // The BLE handler thread is dead — Qt's QLowEnergyController won't emit
