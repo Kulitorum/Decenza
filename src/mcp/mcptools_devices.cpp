@@ -101,8 +101,8 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             result["bleAvailable"] = bleManager != nullptr;
 
             // Scale connection-priority (dual-HIGH backoff) state. Persisted,
-            // build-scoped (D9): a same-build restart rehydrates it; a new
-            // build, or this MCP reset, re-detects from scratch.
+            // epoch-scoped: a same-epoch restart rehydrates it; a deliberate
+            // epoch bump, or this MCP reset, re-detects from scratch.
             QJsonObject sp;
             const bool latched = bleManager && bleManager->scaleSkipHighPriority();
             sp["scaleLinkPriority"] = latched ? "balanced" : "high";
@@ -111,13 +111,31 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             // armed right now (that additionally needs a scale connected at
             // HIGH; the latch is the dominant signal).
             sp["detectionActive"] = !latched;
-            // D9: build-scoped QSettings persistence. A same-build restart
-            // keeps this latched (no detection window); a new app build, or
-            // the devices_reset_scale_priority tool, clears it.
+            // Epoch-scoped QSettings persistence: the classification persists
+            // across all builds sharing detectionEpoch; a same-epoch restart
+            // keeps it latched (no detection window). It re-detects only on a
+            // deliberate epoch bump (a release that changed BLE handling /
+            // re-classifies everyone) or via devices_reset_scale_priority.
             sp["persisted"] = true;
-            sp["persistenceScope"] = "build";
+            sp["persistenceScope"] = "epoch";
+            // The active detection epoch (always reported, latched or not).
+            sp["detectionEpoch"] = BLEManager::kBleDetectionEpoch;
             if (latched) {
                 sp["triggerKind"] = bleManager->scaleSkipHighTriggerKind();
+                // Diagnostic ONLY — the versionCode that last classified this
+                // device. NOT the rehydrate gate (the epoch is); surfaced so
+                // the "classified by build N" field-triage trail survives.
+                // ALWAYS emitted when latched: a migrated-legacy / pre-build
+                // record has buildCode 0 — exactly the population under triage
+                // right after this ships, so absence-of-provenance must be an
+                // explicit string, never a silently-missing field (the very
+                // "diagnostic black hole" this feature exists to avoid).
+                const int byBuild = bleManager->scaleSkipHighBuildCode();
+                if (byBuild > 0)
+                    sp["classifiedByBuildCode"] = byBuild;
+                else
+                    sp["classifiedByBuildCode"] =
+                        QStringLiteral("unknown (legacy / migrated / pre-buildcode)");
                 const QDateTime setT = bleManager->scaleSkipHighSetTime();
                 const QDateTime appStart = bleManager->appStartTime();
                 if (setT.isValid()) {
@@ -132,21 +150,50 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                             .arg(s / 60).arg(s % 60);
                 }
             }
+            // Backoff policy mode (observe-mode change) + recent observe
+            // events. backoffMode is always reported so the active policy is
+            // never hidden; the event list is empty unless observe has fired.
+            if (bleManager) {
+                sp["backoffMode"] = BLEManager::backoffModeToString(
+                    bleManager->backoffMode());
+                QJsonArray events;
+                const auto recent = bleManager->recentObserveEvents();
+                for (const auto& e : recent) {
+                    QJsonObject ev;
+                    ev["kind"] = e.kind;                 // wouldBackoff | recovered
+                    ev["triggerKind"] = e.triggerKind;   // human-readable
+                    if (e.time.isValid()) {
+                        ev["timeIso8601"] = e.time
+                            .toOffsetFromUtc(e.time.offsetFromUtc())
+                            .toString(Qt::ISODate);
+                    }
+                    // Unit-suffixed per kind (CLAUDE.md MCP conventions):
+                    // a stall that would have backed off vs. a recovered gap.
+                    if (e.kind == QLatin1String("recovered"))
+                        ev["gapSec"] = e.durationSec;
+                    else
+                        ev["stallSec"] = e.durationSec;
+                    events.append(ev);
+                }
+                sp["recentObserveEvents"] = events;  // most-recent-first
+            }
+
             result["scaleConnectionPriority"] = sp;
             return result;
         },
         "read");
 
     // devices_reset_scale_priority — clears the dual-HIGH backoff latch, both
-    // in-memory AND the persisted (build-scoped) record (the only operator
+    // in-memory AND the persisted (epoch-scoped) record (the only operator
     // path; there is intentionally no UI). Takes effect on the next scale
     // (re)connect's detection pass: eventually-consistent, no forced teardown
-    // of a live connection. Durable: a same-build restart will NOT rehydrate.
+    // of a live connection. Durable: a restart will NOT rehydrate it (the
+    // clear wipes the epoch key too — the device re-detects from scratch).
     registry->registerTool(
         "devices_reset_scale_priority",
         "Reset (clear) the scale connection-priority dual-HIGH backoff latch — "
-        "both the in-memory latch and the persisted (build-scoped) record. The "
-        "reset is durable: a same-build app restart will NOT re-apply it. After "
+        "both the in-memory latch and the persisted (epoch-scoped) record. The "
+        "reset is durable: an app restart will NOT re-apply it. After "
         "reset, the next scale (re)connect requests HIGH and re-enters "
         "detection from scratch (as if the device were seen for the first "
         "time). Eventually-consistent: it does NOT tear down a "
@@ -179,6 +226,91 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                   "assert the clear has executed yet)."
                 : "Scale connection-priority latch was already clear; clear "
                   "still queued as a no-op, nothing will change.";
+            return result;
+        },
+        "control");
+
+    // devices_set_scale_priority_mode — sets the persistent backoff policy
+    // mode (observe-mode change). Follows devices_reset_scale_priority's
+    // eventually-consistent, queued-to-the-BLEManager-thread contract (this
+    // handler reports accepted/queued, NOT verified-applied — the persist
+    // runs after it returns). It additionally enforces the `confirmed` gate
+    // for real (the reset tool advertises `confirmed` but does not read it);
+    // do not assume confirmation parity with that tool.
+    registry->registerTool(
+        "devices_set_scale_priority_mode",
+        "Set the persistent scale connection-priority backoff policy mode. "
+        "'enforce' (default) is the normal dual-HIGH backoff: on a detected "
+        "stall/fault cluster it latches the scale link to BALANCED and "
+        "reconnects. 'observe' is detect-and-log-only: detection still runs "
+        "but takes NO action — the link is forced to HIGH (overriding, but "
+        "not erasing, any existing BALANCED latch) and would-back-off / "
+        "recovery events are logged and surfaced in devices_connection_status, "
+        "so the backoff's aggressiveness can be evaluated on a production "
+        "build. The mode persists across app restarts AND build upgrades "
+        "until explicitly changed (it is not scoped at all, unlike the latch "
+        "which is epoch-scoped). "
+        "Eventually-consistent: the change is queued onto the BLE-manager "
+        "thread (this response does NOT assert the persist has executed yet), "
+        "and the HIGH-forcing additionally only applies on the next scale "
+        "(re)connect; the current connection is not torn down.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{
+            {"mode", QJsonObject{{"type", "string"},
+                {"enum", QJsonArray{"enforce", "observe"}},
+                {"description", "enforce = normal backoff; observe = "
+                                "detect-and-log-only, link forced HIGH"}}},
+            {"confirmed", QJsonObject{{"type", "boolean"},
+                {"description", "Set to true after the user confirms this action in chat"}}}
+        }}, {"required", QJsonArray{"mode"}}},
+        [bleManager](const QJsonObject& args) -> QJsonObject {
+            QJsonObject result;
+            if (!bleManager) {
+                result["error"] = "BLE manager not available";
+                return result;
+            }
+            const QString mode = args.value("mode").toString();
+            if (mode != QLatin1String("enforce") &&
+                mode != QLatin1String("observe")) {
+                result["error"] = "Invalid mode: must be \"enforce\" or "
+                                  "\"observe\" (mode unchanged)";
+                return result;
+            }
+            // NOTE: do NOT check `confirmed` here. McpServer strips the
+            // `confirmed` key before invoking any handler (mcpserver.cpp:
+            // "Strip the confirmed key before passing to tool handler"), and
+            // the chat-confirmation handshake is owned entirely by the server
+            // via needsChatConfirmation(). A handler-side `confirmed` check is
+            // unreachable-true and makes the tool permanently uninvokable
+            // (this was the shipped #1219 bug). Confirmation for this tool is
+            // enforced by listing it in McpServer::needsChatConfirmation().
+            const QString prev = BLEManager::backoffModeToString(
+                bleManager->backoffMode());
+            const auto target = BLEManager::backoffModeFromString(mode);
+            // Marshalled to the BLEManager thread (like the reset tool); this
+            // handler reports accepted/queued, not verified-applied.
+            QMetaObject::invokeMethod(bleManager, [bleManager, target]() {
+                bleManager->setBackoffMode(target);
+            }, Qt::QueuedConnection);
+            result["accepted"] = true;
+            result["previousMode"] = prev;
+            result["mode"] = mode;
+            result["appliesOnNextReconnect"] = true;
+            result["message"] = QStringLiteral(
+                "Backoff policy mode change to \"%1\" (was \"%2\") was queued. "
+                "It is applied + persisted on the BLE-manager thread (this "
+                "response does not assert the write has completed); once "
+                "written it survives restarts/build upgrades. %3 "
+                "Eventually-consistent: this does NOT tear down the current "
+                "scale connection — force a scale reconnect (toggle the scale "
+                "or restart the app) for it to take effect.")
+                .arg(mode, prev,
+                     mode == QLatin1String("observe")
+                       ? QStringLiteral("On the next scale reconnect the link "
+                           "is forced HIGH and detection logs only (no latch, "
+                           "no disconnect).")
+                       : QStringLiteral("On the next scale reconnect the "
+                           "normal dual-HIGH backoff resumes and any persisted "
+                           "latch is honoured again."));
             return result;
         },
         "control");

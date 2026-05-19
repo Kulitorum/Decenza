@@ -31,6 +31,10 @@ void ScaleDevice::setSimulationMode(bool enabled) {
         m_weight = 0.0;
         m_flowRate = 0.0;
         m_batteryLevel = 85;
+        // Keep the liveness contract intact: every weight value this layer
+        // publishes also goes out on weightSampleReceived (the stall detector
+        // and SAW path listen only to that, never weightChanged). #1176.
+        emit weightSampleReceived(m_weight);
         emit weightChanged(m_weight);
         emit flowRateChanged(m_flowRate);
         emit batteryLevelChanged(m_batteryLevel);
@@ -83,6 +87,12 @@ void ScaleDevice::setConnected(bool connected) {
 }
 
 void ScaleDevice::setWeight(double weight) {
+    // Unconditional: a sample arrived. Drives the scale-feed stall detector and
+    // SAW de-jitter, which must track sample arrival, not value change (#1176).
+    emit weightSampleReceived(weight);
+    // Deduped: only on a genuine value change. Drives the `weight` Q_PROPERTY
+    // and QML bindings (and onScaleWeightChanged, which feeds MQTT) — a
+    // constant reading must not churn those.
     if (m_weight != weight) {
         m_weight = weight;
         emit weightChanged(weight);

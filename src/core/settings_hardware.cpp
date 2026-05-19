@@ -113,13 +113,23 @@ int SettingsHardware::cpBuildCode() const {
     return m_settings.value("connectionPriority/buildCode", 0).toInt();
 }
 
+int SettingsHardware::cpEpoch() const {
+    // -1 sentinel ⇒ no detectionEpoch key was ever written: a legacy
+    // (pre-epoch) record. BLEManager honors + migrates such a record forward
+    // exactly once rather than discarding it (zero extra detection on the
+    // upgrade that introduces epoch scoping).
+    return m_settings.value("connectionPriority/detectionEpoch", -1).toInt();
+}
+
 void SettingsHardware::setConnectionPriorityLatch(const QString& triggerKind,
                                                   const QString& setTimeIso,
-                                                  int buildCode) {
+                                                  int buildCode,
+                                                  int detectionEpoch) {
     m_settings.setValue("connectionPriority/latched", true);
     m_settings.setValue("connectionPriority/triggerKind", triggerKind);
     m_settings.setValue("connectionPriority/setTimeIso", setTimeIso);
     m_settings.setValue("connectionPriority/buildCode", buildCode);
+    m_settings.setValue("connectionPriority/detectionEpoch", detectionEpoch);
     // QSettings::setValue is fire-and-forget (no return, no throw). On
     // read-only storage / full disk the write silently drops and the
     // classification degrades to in-memory-only (re-detects next run) — which
@@ -137,7 +147,34 @@ void SettingsHardware::setConnectionPriorityLatch(const QString& triggerKind,
 }
 
 void SettingsHardware::clearConnectionPriorityLatch() {
-    // Remove the whole group so a later cpLatched() defaults to false and no
-    // stale kind/time/build lingers.
-    m_settings.remove("connectionPriority");
+    // Remove ONLY the latch sub-keys (latched/triggerKind/setTimeIso/
+    // buildCode/detectionEpoch) — NOT the whole "connectionPriority" group:
+    // the sibling connectionPriority/policyMode must survive a latch clear
+    // (MCP reset / epoch re-detect), since the policy mode is an explicit
+    // operator choice with a different lifetime. Removing the group would
+    // silently wipe the mode. A cleared record is fully fresh — each absent
+    // key defaults correctly (cpLatched() ⇒ false, cpEpoch() ⇒ -1, etc.).
+    m_settings.remove("connectionPriority/latched");
+    m_settings.remove("connectionPriority/triggerKind");
+    m_settings.remove("connectionPriority/setTimeIso");
+    m_settings.remove("connectionPriority/buildCode");
+    m_settings.remove("connectionPriority/detectionEpoch");
+}
+
+QString SettingsHardware::cpMode() const {
+    return m_settings.value("connectionPriority/policyMode").toString();
+}
+
+void SettingsHardware::setCpMode(const QString& mode) {
+    m_settings.setValue("connectionPriority/policyMode", mode);
+    // Mirror setConnectionPriorityLatch()'s durability discipline: a silently
+    // dropped write here would look like "mode keeps reverting to enforce"
+    // with no trail. Force a flush and surface a persist failure.
+    m_settings.sync();
+    if (m_settings.status() != QSettings::NoError) {
+        qWarning().noquote()
+            << "[BLE] Failed to PERSIST connection-priority policy mode "
+               "(QSettings status" << static_cast<int>(m_settings.status())
+            << ") — mode change is in-memory-only this run";
+    }
 }

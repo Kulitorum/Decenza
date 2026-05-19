@@ -1179,11 +1179,29 @@ bool McpServer::needsChatConfirmation(const QString& toolName) const
     int level = m_settings->mcp()->mcpConfirmationLevel();
     if (level == 0) return false;
 
-    // All non-zero levels: settings/profile/dial-in write ops
+    // All non-zero levels: confirm tools that cause IRREVERSIBLE data loss or
+    // change PERSISTENT device/startup state. (Reversible/routine ops —
+    // tare, timers, scan, connect, theme, backup, mqtt — are deliberately
+    // NOT here: prompt fatigue would erode the safety net's value.) The MCP
+    // server is network-exposed, so an ungated destructive tool is remotely
+    // invocable with no operator prompt — that is the threat model here.
+    //
+    // Confirmation is enforced HERE (server-side); handlers must NEVER check
+    // `confirmed` themselves — McpServer strips it before the handler runs.
+    // A handler-side check is unreachable-true and was the shipped #1219 bug.
     if (toolName == "profiles_set_active" || toolName == "profiles_edit_params" ||
         toolName == "profiles_save" || toolName == "profiles_delete" ||
         toolName == "profiles_create" || toolName == "shots_delete" ||
-        toolName == "settings_set")
+        toolName == "settings_set" ||
+        toolName == "devices_set_scale_priority_mode" ||
+        toolName == "devices_reset_scale_priority" ||
+        // Irreversible learning/calibration wipes + forget-the-scale (the
+        // last also advertises a `confirmed` arg that was never enforced —
+        // same class as the #1219 bug above).
+        toolName == "reset_saw_learning" ||
+        toolName == "reset_saw_learning_for_profile" ||
+        toolName == "clear_flow_calibration" ||
+        toolName == "devices_disconnect_scale")
         return true;
 
     // Level 2 (All Control): also non-start machine control ops
@@ -1213,6 +1231,19 @@ QString McpServer::confirmationDescription(const QString& toolName) const
         {"profiles_create", "Create a new profile"},
         {"shots_delete", "Delete a shot permanently"},
         {"settings_set", "Change machine settings"},
+        {"devices_set_scale_priority_mode",
+         "Change the scale connection-priority backoff policy (enforce/observe)"},
+        {"devices_reset_scale_priority",
+         "Clear the scale connection-priority backoff latch"},
+        {"reset_saw_learning",
+         "Erase ALL stop-at-weight learning (global pool, every profile/scale "
+         "history, bootstrap) — irreversible"},
+        {"reset_saw_learning_for_profile",
+         "Erase stop-at-weight learning for one profile/scale pair — irreversible"},
+        {"clear_flow_calibration",
+         "Clear the profile's flow calibration (re-learned over future shots)"},
+        {"devices_disconnect_scale",
+         "Disconnect and forget the saved scale (must be re-paired)"},
     };
     return descriptions.value(toolName, toolName);
 }

@@ -178,6 +178,13 @@ add_decenza_test(tst_saw_settings
     ${CORE_SOURCES}
 )
 
+# --- tst_autowakewindow: scheduled stay-awake window predicate (#1203) ---
+add_decenza_test(tst_autowakewindow
+    tst_autowakewindow.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/autowakemanager.cpp
+    ${CORE_SOURCES}
+)
+
 # --- tst_tclimport: TCL profile import round-trip against de1app profiles ---
 add_decenza_test(tst_tclimport
     tst_tclimport.cpp
@@ -490,6 +497,15 @@ add_decenza_test(tst_weightprocessor
     ${CMAKE_SOURCE_DIR}/src/machine/weightprocessor.cpp
 )
 
+# --- tst_scalefeedliveness: stall detector driven by sample arrival, not value
+# change — a constant weight must not trip a false stall (#1176/#1185) ---
+add_decenza_test(tst_scalefeedliveness
+    tst_scalefeedliveness.cpp
+    mocks/MockScaleDevice.h
+    ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
+    ${CMAKE_SOURCE_DIR}/src/machine/weightprocessor.cpp
+)
+
 # --- tst_scaleblepriority: connection-priority backoff decision logic (#1093/#1176) ---
 # BlePriorityDetector is header-only and Qt-free — no extra sources to link.
 add_decenza_test(tst_scaleblepriority
@@ -718,3 +734,8 @@ add_decenza_test(tst_steamhealth
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
 )
 target_link_libraries(tst_steamhealth PRIVATE Qt6::Quick Qt6::Graphs)
+
+# --- tst_raceconditionfix: Temporary canary for the run_tests parser-race fix ---
+add_decenza_test(tst_raceconditionfix
+    tst_raceconditionfix.cpp
+)

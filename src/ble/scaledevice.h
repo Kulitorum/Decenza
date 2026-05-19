@@ -70,6 +70,18 @@ public slots:
 signals:
     void connectedChanged();
     void weightChanged(double weight);
+    // Liveness signal: emitted for every weight value this layer publishes —
+    // every setWeight() sample including unchanged repeats, plus the synthetic
+    // setSimulationMode() reset. weightChanged is intentionally deduped (drives
+    // the `weight` Q_PROPERTY / QML bindings, and onScaleWeightChanged which
+    // feeds MQTT — a constant value must not churn those). But the scale-feed
+    // stall detector and SAW
+    // de-jitter need sample *arrival*, not value *change*: a healthy scale
+    // reporting a constant weight (a static cup through DE1 preheat) is
+    // otherwise indistinguishable from a dead feed and trips a false stall →
+    // mid-shot connection-priority backoff / ruined shot. See #1176, #1185.
+    // WeightProcessor::processWeight is wired to THIS, never weightChanged.
+    void weightSampleReceived(double weight);
     void flowRateChanged(double rate);
     void batteryLevelChanged(int level);
     void buttonPressed(int button);

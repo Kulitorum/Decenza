@@ -275,20 +275,47 @@ void QtScaleBleTransport::onControllerConnected() {
     // radio + the DE1 link, not of any one scale, so a fresh transport built
     // for a different scale (after a scale-type change) must inherit it rather
     // than re-pay the detection window.
-    if (auto* mgr = BLEManager::instance(); mgr && mgr->scaleSkipHighPriority())
-        m_priority.setSkipHighPriority(true);
+    auto* mgr = BLEManager::instance();
+    const bool observe = mgr && mgr->observeMode();
 
-    if (m_priority.skipHighPriority()) {
-        QT_TRANSPORT_LOG("Scale connection-priority: skipping HIGH "
-                         "(app-run backoff latch set) — link stays at BALANCED");
-        m_priority.disarm();
-    } else if (m_controller) {
-        QT_TRANSPORT_LOG("Requesting CONNECTION_PRIORITY_HIGH on scale");
-        QLowEnergyConnectionParameters params;
-        m_controller->requestConnectionUpdate(params);
-        m_priority.armWindow(nowMs());  // arm DE1-fault / scale-stall detection
+    if (observe) {
+        // Observe mode (observe-mode change): force HIGH regardless of any
+        // persisted latch (the latch is overridden, NOT erased — switching
+        // back to enforce honours it again). Do NOT seed skip-HIGH from the
+        // manager. Arm the detector in observe so it logs would-fire /
+        // recovery without acting.
+        if (m_controller) {
+            warn(QStringLiteral("Scale connection-priority: OBSERVE mode — "
+                 "forcing HIGH (any backoff latch overridden, not erased); "
+                 "detection runs but logs only, no disconnect/latch"));
+            QLowEnergyConnectionParameters params;
+            m_controller->requestConnectionUpdate(params);
+            m_priority.armWindow(nowMs(), /*observe=*/true);
+        } else {
+            // No controller → observe cannot arm. Operators validate observe
+            // by reading the log; a silent disarm here would produce empty
+            // evidence with no trail and look like "observe found nothing".
+            warn(QStringLiteral("Scale connection-priority: OBSERVE mode but "
+                 "no controller at connect — detection NOT armed this "
+                 "connection (no observe evidence will be produced)"));
+            m_priority.disarm();
+        }
     } else {
-        m_priority.disarm();
+        if (mgr && mgr->scaleSkipHighPriority())
+            m_priority.setSkipHighPriority(true);
+
+        if (m_priority.skipHighPriority()) {
+            QT_TRANSPORT_LOG("Scale connection-priority: skipping HIGH "
+                             "(app-run backoff latch set) — link stays at BALANCED");
+            m_priority.disarm();
+        } else if (m_controller) {
+            QT_TRANSPORT_LOG("Requesting CONNECTION_PRIORITY_HIGH on scale");
+            QLowEnergyConnectionParameters params;
+            m_controller->requestConnectionUpdate(params);
+            m_priority.armWindow(nowMs());  // arm DE1-fault / scale-stall detection
+        } else {
+            m_priority.disarm();
+        }
     }
 
     emit connected();
@@ -297,31 +324,101 @@ void QtScaleBleTransport::onControllerConnected() {
 void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
     // Primary signal: a DE1-link fault clustered shortly after the scale
     // requested HIGH is the dual-HIGH contention signature (#1093/#1176).
-    if (m_priority.onDe1Fault(nowMs())) {
-        triggerScaleBackoff(qPrintable(QStringLiteral(
-            "DE1-link fault cluster (last kind=%1) within scale-HIGH window")
-            .arg(kind)), QStringLiteral("de1-fault-cluster"));
+    const bool fired = m_priority.onDe1Fault(nowMs());
+    const QString reason = QStringLiteral(
+        "DE1-link fault cluster (last kind=%1) within scale-HIGH window")
+        .arg(kind);
+    if (fired) {
+        if (m_priority.observing())
+            logWouldBackoff(reason, QStringLiteral("de1-fault-cluster"), -1.0);
+        else
+            triggerScaleBackoff(qPrintable(reason),
+                                QStringLiteral("de1-fault-cluster"));
+    } else if (m_priority.observing() && m_priority.takeObserveClusterSubsided()) {
+        // Observe-only: a fault window elapsed with ≥1 fault but below the
+        // backoff threshold — would-have-been-backoff did NOT escalate.
+        warn(QStringLiteral("[observe] DE1-fault cluster window elapsed "
+             "without reaching the backoff threshold — subsided, no action "
+             "(link stays HIGH)"));
     }
 }
 
-void QtScaleBleTransport::onScaleFeedStalled() {
-    // Backstop: covers sessions where the DE1 cluster never appears early and
-    // the scale silently stalls mid-shot (the actual #1176 shot-1151 case).
-    if (m_priority.onScaleStall()) {
-        // Covers an in-shot stall AND a pre-shot EspressoPreheating stall —
-        // both surface here as the scale-feed-stall trigger kind.
-        triggerScaleBackoff("scale weight feed stalled while weight expected "
-                            "(extraction/preheat) at HIGH",
-                            QStringLiteral("scale-feed-stall"));
-    } else {
-        // Stall observed but the detector took no action (already latched /
-        // backed off, or the scale is not at HIGH so detection is disarmed).
-        // Log it — the single field debug.log must never silently swallow a
-        // stall signal (this is exactly what we want to see when triaging a
-        // "still no weight" report on an already-backed-off run).
-        log("scale weight feed stall observed but connection-priority detector "
-            "is disarmed (already latched / not at HIGH) — no backoff taken");
+void QtScaleBleTransport::onScaleFeedStalled(qint64 gapMs) {
+    // SUSPECTED stall only — this no longer drives the backoff (a transient
+    // blip that self-recovers must NOT latch). It is the observe/diagnostic
+    // breadcrumb; the latch trigger is onScaleFeedStallConfirmed below. The
+    // WeightProcessor already qWarns the suspected edge; in observe add an
+    // explicit line so the field log shows "watching, not yet acted".
+    if (m_priority.observing()) {
+        warn(QStringLiteral("[observe] SUSPECTED scale-feed stall (silent "
+             "%1 s) — watching for confirmation; no action, link stays HIGH")
+             .arg(gapMs / 1000.0, 0, 'f', 1));
     }
+}
+
+void QtScaleBleTransport::onScaleFeedStallConfirmed(qint64 gapMs) {
+    // CONFIRMED stall — persisted past kScaleStallConfirmMs with no recovery
+    // (the transient/false shape never reaches here). THIS is the real
+    // backstop trigger (the actual #1176 shot-1151 case is a sustained dead
+    // feed, which confirms).
+    if (m_priority.onScaleStall()) {
+        const QString reason = QStringLiteral(
+            "scale weight feed stall CONFIRMED (sustained, no recovery) while "
+            "weight expected (extraction/preheat) at HIGH");
+        if (m_priority.observing())
+            logWouldBackoff(reason, QStringLiteral("scale-feed-stall"),
+                            gapMs / 1000.0);
+        else
+            triggerScaleBackoff(qPrintable(reason),
+                                QStringLiteral("scale-feed-stall"));
+    } else {
+        // Confirmed stall observed but the detector took no action (already
+        // latched / backed off, or the scale is not at HIGH so detection is
+        // disarmed). Log it — the single field debug.log must never silently
+        // swallow a confirmed stall (exactly what we want when triaging a
+        // "still no weight" report on an already-backed-off run).
+        log("confirmed scale-feed stall observed but connection-priority "
+            "detector is disarmed (already latched / not at HIGH) — no "
+            "backoff taken");
+    }
+}
+
+void QtScaleBleTransport::onScaleFeedResumed(qint64 gapMs) {
+    // Observe-only recovery evidence: a SUSPECTED stall came back on its own
+    // before it could confirm — so with confirmation it would NOT have backed
+    // off. Recording the recovered gap here is also the calibration data for
+    // kScaleStallConfirmMs. Silent in enforce (no action was pending anyway).
+    if (!m_priority.observing()) return;
+    const double gapSec = gapMs / 1000.0;
+    warn(QStringLiteral("[observe] scale feed RESUMED after %1 s — "
+         "self-recovered before confirmation; would NOT have backed off "
+         "(no action, link stays HIGH)")
+         .arg(gapSec, 0, 'f', 1));
+    if (auto* mgr = BLEManager::instance())
+        mgr->recordObserveEvent(BLEManager::ObserveEvent::recovered(
+            QStringLiteral("scale-feed-stall"), gapSec));
+}
+
+void QtScaleBleTransport::setShotActive(bool active) {
+    // Set by MachineState (main.cpp): true from EspressoPreheating through
+    // shot end. Only gates the teardown decision in triggerScaleBackoff();
+    // detection itself is unaffected. Silent — the backoff log states the
+    // shot state when it matters.
+    m_shotActive = active;
+}
+
+void QtScaleBleTransport::logWouldBackoff(const QString& reason,
+                                          const QString& triggerKind,
+                                          double stallSec) {
+    // WARN salience (same as the real BACKOFF line — the point is field
+    // grep-ability) but unmistakably observe / no-action.
+    warn(QStringLiteral("[observe] WOULD back off (trigger=%1): %2 — observe "
+         "mode, NO action taken; link stays HIGH")
+         .arg(triggerKind, reason));
+    // The factory clamps a negative (n/a) stallSec to 0 and stamps the time.
+    if (auto* mgr = BLEManager::instance())
+        mgr->recordObserveEvent(
+            BLEManager::ObserveEvent::wouldBackoff(triggerKind, stallSec));
 }
 
 void QtScaleBleTransport::triggerScaleBackoff(const char* reason,
@@ -332,31 +429,49 @@ void QtScaleBleTransport::triggerScaleBackoff(const char* reason,
     // app run (no loop, no re-trigger by any scale).
     // WARN-level: this is the headline event for log-based field validation.
     warn(QString("Scale connection-priority BACKOFF triggered: %1 — skipping "
-                 "HIGH and reconnecting the scale at BALANCED")
+                 "HIGH for subsequent scale connections")
              .arg(QString::fromUtf8(reason)));
     // Latch the decision app-run-wide so every scale (incl. one connected
     // after a scale-type change, which builds a fresh transport+detector)
-    // skips HIGH for the rest of this run. In-memory only; cleared on restart.
+    // skips HIGH for the rest of this run; epoch-persisted (#1220) so the
+    // next launch also starts at BALANCED. In-memory part cleared on restart.
     if (auto* mgr = BLEManager::instance()) {
         mgr->latchScaleSkipHighPriority(triggerKind);
         warn(QStringLiteral("Scale connection-priority: app-run skip-HIGH latch "
              "SET (trigger=%1) — all scales will run at BALANCED until app "
              "restart or MCP reset").arg(triggerKind));
     }
-    // Tear down the link, then emit disconnected() explicitly.
-    // disconnectFromDevice() calls m_controller->disconnect(), which severs
-    // ALL Qt signals from the controller — that alone is sufficient to
-    // guarantee onControllerDisconnected() never fires on this path, in ANY
-    // controller state, so disconnectFromDevice() does NOT emit disconnected()
-    // here. (Separately, for a fully-discovered scale in DiscoveredState the
-    // inner m_controller->disconnectFromDevice() is also skipped, so the BLE
-    // peer isn't explicitly notified — a distinct fact, NOT the reason the
-    // signal is missing.) We must therefore emit disconnected() ourselves —
-    // unconditionally, regardless of state — honouring the ScaleBleTransport
-    // contract, so the scale driver reaches setConnected(false) →
-    // ScaleDevice::connectedChanged, which the existing scale auto-reconnect
-    // (main.cpp) is gated on. Without it the backoff would be a permanent
-    // scale drop instead of a reconnect-at-BALANCED.
+
+    // #1176: NEVER tear down the scale link mid-shot. A disconnect+reconnect
+    // during preheat/extraction loses several seconds of weight — that bounce
+    // itself caused some of the very shot failures this feature was meant to
+    // prevent — and BALANCED cannot rescue the in-progress shot anyway (it
+    // only helps the *next* connection). So if a shot is in progress, latch
+    // only and let BALANCED take effect at the next natural (re)connect.
+    // scale-feed-stall is by construction always in-shot (WeightProcessor
+    // only confirms during extraction/preheat); force-treat it as in-shot
+    // even if the queued shotEnded raced ahead of the queued confirm.
+    const bool inShot =
+        m_shotActive || triggerKind == QStringLiteral("scale-feed-stall");
+    if (inShot) {
+        warn(QStringLiteral("Scale connection-priority: shot in progress — NOT "
+             "bouncing the scale mid-shot; skip-HIGH latched, BALANCED applies "
+             "at the next natural scale (re)connect (trigger=%1)")
+             .arg(triggerKind));
+        return;
+    }
+
+    // Idle / between shots: safe to bounce now so the upcoming shot starts at
+    // BALANCED. disconnectFromDevice() calls m_controller->disconnect(), which
+    // severs ALL Qt signals from the controller — sufficient to guarantee
+    // onControllerDisconnected() never fires on this path in ANY controller
+    // state, so disconnectFromDevice() does NOT emit disconnected() here. We
+    // therefore emit disconnected() ourselves so the scale driver reaches
+    // setConnected(false) → ScaleDevice::connectedChanged, which the existing
+    // scale auto-reconnect (main.cpp) is gated on. Without it the backoff
+    // would be a permanent scale drop instead of a reconnect-at-BALANCED.
+    warn(QStringLiteral("Scale connection-priority: idle — reconnecting the "
+         "scale now at BALANCED (trigger=%1)").arg(triggerKind));
     disconnectFromDevice();
     emit disconnected();
 }

@@ -5,6 +5,7 @@
 #include "scales/scalefactory.h"
 #include "refractometers/difluidr2.h"
 #include "../core/settings_hardware.h"
+#include "bleepochgate.h"
 #include "version.h"
 #include <QBluetoothLocalDevice>
 #include <QBluetoothUuid>
@@ -134,45 +135,114 @@ BLEManager::~BLEManager() {
 void BLEManager::setSettings(SettingsHardware* settings)
 {
     m_settings = settings;
-    if (!m_settings || !m_settings->cpLatched()) return;
+    if (!m_settings) return;
 
-    const int storedBuild = m_settings->cpBuildCode();
-    if (storedBuild == versionCode()) {
-        // Same build → rehydrate the in-memory latch from the persisted
-        // record. rehydrate() preserves the ORIGINAL set-time (unlike set(),
-        // which would re-stamp it) and sanitises possibly-corrupt persisted
-        // input so the ScaleSkipHighLatch invariant ("kind non-empty AND time
-        // valid IFF latched") holds even on a partial write / manual edit /
-        // ISO-format drift. It returns false iff the stored timestamp was
-        // invalid and had to be substituted — log that anomaly (otherwise the
-        // MCP read would silently show a latched device with no set-time and
-        // no debug trail explaining why).
-        const QString isoIn = m_settings->cpSetTimeIso();
-        const bool timeOk = m_scaleSkipHigh.rehydrate(
-            m_settings->cpTriggerKind(),
-            QDateTime::fromString(isoIn, Qt::ISODate));
+    // Backoff policy mode (observe-mode change). Loaded UNCONDITIONALLY and
+    // independent of the latch: it is deliberately NOT build-scoped, so it is
+    // read even when the latch is absent/cleared and is never touched by the
+    // build-change safety valve below. Absent/unrecognized ⇒ Enforce.
+    m_backoffMode.store(backoffModeFromString(m_settings->cpMode()),
+                        std::memory_order_relaxed);
+    if (observeMode()) {
         qWarning().noquote()
-            << QStringLiteral("[BLE] Loaded persisted dual-HIGH-incapable "
-                  "classification (build %1, trigger=%2) — BOTH BLE links "
-                  "will start at BALANCED this run (no detection window)")
-                   .arg(storedBuild).arg(m_scaleSkipHigh.triggerKind);
-        if (!timeOk) {
-            qWarning().noquote()
-                << QStringLiteral("[BLE] Persisted connection-priority set-time "
-                      "was invalid/missing (stored=\"%1\") — substituted "
-                      "current time; classification kept (it is the "
-                      "load-bearing fact)").arg(isoIn);
-        }
-    } else {
-        // Build changed → the build-scoped safety valve: discard + wipe so a
-        // (possibly mis-classified) device re-detects from scratch on every
-        // new build. MCP reset is the in-session escape hatch within a build.
+            << "[BLE] Backoff policy mode = OBSERVE (persisted) — connection-"
+               "priority detection runs but takes NO action and the scale "
+               "link is forced HIGH (any latch is overridden, not erased). "
+               "Set enforce via MCP to restore the dual-HIGH backoff.";
+    }
+
+    if (!m_settings->cpLatched()) return;
+
+    const int storedEpoch = m_settings->cpEpoch();   // -1 ⇒ legacy (no key)
+    const int storedBuild = m_settings->cpBuildCode(); // diagnostic only now
+
+    const BleEpochDecision decision =
+        decideBleEpochGate(true, storedEpoch, kBleDetectionEpoch);
+
+    if (decision == BleEpochDecision::Discard) {
+        // Either a DELIBERATE epoch bump (a release that changed BLE handling
+        // / re-classifies everyone) OR a corrupt persisted epoch. This is the
+        // ONLY auto-wipe path — it fires only on an intentional epoch change
+        // or genuine corruption, NOT on every build. Discard + re-detect.
         m_settings->clearConnectionPriorityLatch();
+        if (storedEpoch >= 0) {
+            qWarning().noquote()
+                << QStringLiteral("[BLE] Persisted connection-priority "
+                      "classification was set under detection epoch %1 but "
+                      "this build is epoch %2 — discarding and re-detecting "
+                      "from scratch (deliberate epoch reset)")
+                       .arg(storedEpoch).arg(kBleDetectionEpoch);
+        } else {
+            // Negative but not the -1 "no key" sentinel ⇒ corrupt record.
+            qWarning().noquote()
+                << QStringLiteral("[BLE] Persisted connection-priority "
+                      "detection epoch is corrupt/unrecognized (stored=%1, "
+                      "expected %2 or absent) — discarding and re-detecting "
+                      "from scratch rather than honoring a damaged record")
+                       .arg(storedEpoch).arg(kBleDetectionEpoch);
+        }
+        return;
+    }
+
+    // Rehydrate (storedEpoch == kBleDetectionEpoch) OR MigrateForward (a
+    // legacy pre-epoch record, epoch key absent → honor + stamp forward,
+    // ZERO extra detection on the upgrade that introduces epoch scoping).
+    const bool legacy = (decision == BleEpochDecision::MigrateForward);
+
+    // rehydrate() preserves the ORIGINAL set-time (unlike set(), which would
+    // re-stamp it) and sanitises possibly-corrupt persisted input so the
+    // ScaleSkipHighLatch invariant ("kind non-empty AND time valid IFF
+    // latched") holds even on a partial write / manual edit / ISO drift. It
+    // returns false iff the stored timestamp was invalid and had to be
+    // substituted — log that anomaly.
+    const QString isoIn = m_settings->cpSetTimeIso();
+    const QString kindIn = m_settings->cpTriggerKind();
+    const bool timeOk = m_scaleSkipHigh.rehydrate(
+        kindIn, QDateTime::fromString(isoIn, Qt::ISODate));
+    m_scaleSkipHighBuildCode = storedBuild;  // diagnostic ("classified by N")
+    if (kindIn.isEmpty()) {
+        // Symmetric with the !timeOk anomaly below: a missing trigger kind is
+        // also corruption (partial write / manual edit). rehydrate() salvaged
+        // it to "unknown" — surface that so the MCP "unknown"-kind latch isn't
+        // mistaken for a genuine unknown-cause classification with no trail.
         qWarning().noquote()
-            << QStringLiteral("[BLE] Persisted connection-priority "
-                  "classification was set by build %1 but this is build %2 — "
-                  "discarding and re-detecting from scratch (build-scoped "
-                  "safety valve)").arg(storedBuild).arg(versionCode());
+            << QStringLiteral("[BLE] Persisted connection-priority trigger "
+                  "kind was missing/empty — salvaged to \"%1\"; classification "
+                  "kept (it is the load-bearing fact)")
+                   .arg(m_scaleSkipHigh.triggerKind);
+    }
+    qWarning().noquote()
+        << QStringLiteral("[BLE] Loaded persisted dual-HIGH-incapable "
+              "classification (epoch %1, build %2 [diagnostic], trigger=%3) — "
+              "BOTH BLE links will start at BALANCED this run (no detection "
+              "window)")
+               .arg(legacy ? kBleDetectionEpoch : storedEpoch)
+               .arg(storedBuild).arg(m_scaleSkipHigh.triggerKind);
+    if (!timeOk) {
+        qWarning().noquote()
+            << QStringLiteral("[BLE] Persisted connection-priority set-time "
+                  "was invalid/missing (stored=\"%1\") — substituted current "
+                  "time; classification kept (it is the load-bearing fact)")
+                   .arg(isoIn);
+    }
+
+    if (legacy) {
+        // One-time forward migration: stamp the current epoch so subsequent
+        // same-epoch builds rehydrate normally (and are never re-migrated).
+        // Persist from the now-sanitised in-memory latch (keeps the
+        // invariant); keep the original buildCode as the diagnostic.
+        m_settings->setConnectionPriorityLatch(
+            m_scaleSkipHigh.triggerKind,
+            m_scaleSkipHigh.setTime.toString(Qt::ISODate),
+            storedBuild, kBleDetectionEpoch);
+        qWarning().noquote()
+            << QStringLiteral("[BLE] Legacy (pre-epoch) connection-priority "
+                  "record honored; stamping detection epoch %1. NO re-detection "
+                  "is incurred regardless (the in-memory latch is already live "
+                  "— BALANCED this run). If a 'Failed to PERSIST' warning "
+                  "follows, the stamp did not stick and this line will repeat "
+                  "next launch (still no re-detection — cosmetic only)")
+                   .arg(kBleDetectionEpoch);
     }
 }
 
@@ -180,13 +250,16 @@ void BLEManager::latchScaleSkipHighPriority(const QString& triggerKind)
 {
     // The value type enforces "kind+time set iff latched".
     m_scaleSkipHigh.set(triggerKind);
-    // D9: write through so the classification survives restarts of THIS
-    // build (build-scoped — a new build re-detects via setSettings()).
+    m_scaleSkipHighBuildCode = versionCode();  // diagnostic ("classified by N")
+    // Write through so the classification survives restarts. Now EPOCH-scoped:
+    // it persists across all builds sharing kBleDetectionEpoch; versionCode()
+    // is stored only as a diagnostic ("last classified by build N"), no
+    // longer the rehydrate gate.
     if (m_settings) {
         m_settings->setConnectionPriorityLatch(
             m_scaleSkipHigh.triggerKind,
             m_scaleSkipHigh.setTime.toString(Qt::ISODate),
-            versionCode());
+            versionCode(), kBleDetectionEpoch);
     }
 }
 
@@ -194,6 +267,7 @@ void BLEManager::clearScaleSkipHighPriority()
 {
     const bool wasLatched = m_scaleSkipHigh.latched;
     m_scaleSkipHigh.clear();
+    m_scaleSkipHighBuildCode = 0;  // diagnostic cleared with the latch
     // D9: clear the persisted record too (idempotent — safe even if the
     // in-memory latch was already clear).
     if (m_settings) m_settings->clearConnectionPriorityLatch();
@@ -204,6 +278,25 @@ void BLEManager::clearScaleSkipHighPriority()
                "and re-enter detection from scratch";
     }
 }
+
+void BLEManager::setBackoffMode(BackoffMode mode)
+{
+    const bool changed =
+        m_backoffMode.exchange(mode, std::memory_order_relaxed) != mode;
+    // Write through to the (non-build-scoped) persisted store so the choice
+    // survives restarts and build upgrades. Deliberately does NOT touch the
+    // latch: observe overrides the latch at the transport, but the latch
+    // value is preserved so switching back to enforce honours it honestly.
+    if (m_settings) m_settings->setCpMode(backoffModeToString(mode));
+    if (changed) {
+        qWarning().noquote()
+            << "[BLE] Backoff policy mode set to" << backoffModeToString(mode).toUpper()
+            << "— applies on the next scale (re)connect (eventually-consistent; "
+               "the current connection is not torn down)";
+    }
+}
+// recordObserveEvent / recentObserveEvents are header-inline (they delegate to
+// the self-locking ObserveEventRing — see blemanager.h).
 
 void BLEManager::requestBluezCacheHint()
 {

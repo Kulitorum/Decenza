@@ -46,7 +46,21 @@ public:
     // The window is anchored to the first fault and slides (see onDe1Fault),
     // so isolated faults far apart never accumulate; only a genuine cluster
     // does. Full reset happens in disarm() (BALANCED start / backed off).
-    void armWindow(int64_t /*nowMs*/) {
+    // `observe` (observe-mode change): when true the detector runs the
+    // IDENTICAL trigger conditions but reports them via wouldFire() — no
+    // latch, no disarm, keeps detecting subsequent episodes — and ignores the
+    // skip-HIGH guard (observe forces HIGH at the transport, so a stale latch
+    // must not suppress detection). enforce (observe=false) is byte-identical
+    // to the pre-change behavior. observe is re-asserted on every arm so it
+    // never leaks across an enforce re-arm.
+    void armWindow(int64_t /*nowMs*/, bool observe = false) {
+        m_observe = observe;
+        // INVARIANT: observe MUST be evaluated before the skip-HIGH guard.
+        // observe overrides (but does not erase) a persisted latch, so a
+        // stale m_skipHighPriority must NOT suppress observe arming. Do not
+        // reorder these two branches — the ordering is the only thing that
+        // makes the legal (observe && m_skipHighPriority) state behave.
+        if (observe) { m_armed = true; return; }
         if (m_skipHighPriority) { m_armed = false; return; }
         m_armed = true;
     }
@@ -64,19 +78,33 @@ public:
     bool onDe1Fault(int64_t nowMs) {
         if (!m_armed || m_backoffTriggered) return false;
         if (m_de1FaultCount == 0 || nowMs - m_windowStartMs > kDe1FaultWindowMs) {
+            // Window expired (or first fault). In observe mode, an expiry
+            // while ≥1 fault had accumulated without reaching the threshold
+            // is a "cluster subsided without escalation" — surface it for
+            // observe-only logging (the transport polls takeObserveClusterSubsided()).
+            if (m_observe && m_de1FaultCount >= 1) m_observeClusterSubsided = true;
             m_windowStartMs = nowMs;  // anchor / re-anchor the window
             m_de1FaultCount = 1;
             return false;
         }
         if (++m_de1FaultCount < kDe1FaultThreshold) return false;
-        return fire();
+        return m_observe ? wouldFire() : fire();
     }
 
     // Backstop: an in-shot scale-feed stall while armed (covers sessions with
     // no early DE1 cluster — the actual #1176 shot-1151 case).
     bool onScaleStall() {
         if (!m_armed || m_backoffTriggered) return false;
-        return fire();
+        return m_observe ? wouldFire() : fire();
+    }
+
+    // Observe-mode introspection: which path a true return took, and the
+    // one-shot "cluster subsided without escalation" notice (cleared on read).
+    bool observing() const { return m_observe; }
+    bool takeObserveClusterSubsided() {
+        const bool v = m_observeClusterSubsided;
+        m_observeClusterSubsided = false;
+        return v;
     }
 
     // Session skip-HIGH flag. Persisted in-memory on the (long-lived)
@@ -99,9 +127,21 @@ private:
         return true;
     }
 
+    // Observe-mode counterpart of fire(): reports the trigger WITHOUT
+    // latching skip-HIGH, WITHOUT marking backed-off, and WITHOUT disarming,
+    // so detection keeps running for the rest of the session. Resets the
+    // cluster window so the next independent episode is detected cleanly.
+    bool wouldFire() {
+        m_de1FaultCount = 0;
+        m_windowStartMs = 0;
+        return true;
+    }
+
     bool m_skipHighPriority = false;
     bool m_backoffTriggered = false;
     bool m_armed = false;
+    bool m_observe = false;                // armed in observe (no-action) mode
+    bool m_observeClusterSubsided = false; // one-shot, observe-only
     int m_de1FaultCount = 0;
     int64_t m_windowStartMs = 0;
 };

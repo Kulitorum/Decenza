@@ -604,6 +604,9 @@ private slots:
         wp.setCurrentFrame(0);       // DE1 cadence keeps ticking
 
         QCOMPARE(stallSpy.count(), 1);
+        // The gap carried to observe mode must be the real silent duration
+        // (now − last good sample), not anchored to "now". 3000 ms advanced.
+        QCOMPARE(stallSpy.first().at(0).toLongLong(), qint64(3000));
     }
 
     // Safety invariant: preheat active but tare NOT complete must NOT fire —
@@ -620,6 +623,218 @@ private slots:
         wp.setCurrentFrame(0);
 
         QCOMPARE(stallSpy.count(), 0);  // tare gate keeps shotContext closed
+    }
+
+    // --- scaleFeedResumed recovery edge (observe-mode change) ---
+
+    // After a stall, the first genuine sample emits scaleFeedResumed exactly
+    // once, carrying the silent gap; a second sample does NOT re-emit.
+    void feedResumeEmitsOnceWithGapAfterStall() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy stallSpy(&wp, &WeightProcessor::scaleFeedStalled);
+        QSignalSpy resumeSpy(&wp, &WeightProcessor::scaleFeedResumed);
+
+        wp.startExtraction();
+        wp.setTareComplete(true);
+        wp.processWeight(0.0);       // last good sample @ start clock
+
+        m_fakeClock += 3000;         // > kScaleStaleMs of silence
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
+        wp.setCurrentFrame(0);       // DE1 tick detects the stall
+        QCOMPARE(stallSpy.count(), 1);
+        QCOMPARE(resumeSpy.count(), 0);  // not recovered yet
+
+        wp.processWeight(0.5);       // genuine sample → recovery edge
+        QCOMPARE(resumeSpy.count(), 1);
+        QCOMPARE(resumeSpy.first().at(0).toLongLong(), qint64(3000));
+
+        m_fakeClock += 250;          // non-batched gap (avoids the unrelated
+                                     // de-jitter "batched before calibration"
+                                     // diagnostic — orthogonal to recovery)
+        wp.processWeight(0.6);       // edge already consumed → no re-emit
+        QCOMPARE(resumeSpy.count(), 1);
+    }
+
+    // No stall ⇒ no resume signal (it is strictly a 1→0 edge).
+    void feedResumeNotEmittedWithoutPriorStall() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy resumeSpy(&wp, &WeightProcessor::scaleFeedResumed);
+
+        wp.startExtraction();
+        wp.setTareComplete(true);
+        feedRising(wp, 0.0, 2.0, 10);   // healthy continuous feed
+
+        QCOMPARE(resumeSpy.count(), 0);
+    }
+
+    // Recovery is observation-only: a stall→resume cycle must not spuriously
+    // drive SAW (stopNow) or frame-exit (skipFrame).
+    void resumeDoesNotAlterSawOrFrameExit() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        configureEspresso(wp, 36.0, 0);
+        QSignalSpy stopSpy(&wp, &WeightProcessor::stopNow);
+        QSignalSpy skipSpy(&wp, &WeightProcessor::skipFrame);
+
+        wp.startExtraction();
+        wp.setTareComplete(true);
+        wp.processWeight(1.0);
+        m_fakeClock += 3000;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
+        wp.setCurrentFrame(0);
+        wp.processWeight(1.2);          // recovery edge
+
+        QCOMPARE(stopSpy.count(), 0);   // far below 36 g target — no SAW
+        QCOMPARE(skipSpy.count(), 0);   // no frame-exit weights configured
+    }
+
+    // --- suspected → confirmed stall (epoch-scope-and-stall-confirm) ---
+
+    // Suspected fires at kScaleStaleMs; confirmed only after
+    // kScaleStallConfirmMs of CONTINUED silence; each fires exactly once.
+    void suspectedThenConfirmedOnSustainedStall() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy stall(&wp, &WeightProcessor::scaleFeedStalled);
+        QSignalSpy confirm(&wp, &WeightProcessor::scaleFeedStallConfirmed);
+
+        wp.startExtraction();
+        wp.setTareComplete(true);
+        wp.processWeight(0.0);                 // last good sample @ T0
+
+        m_fakeClock += 2500;                   // > kScaleStaleMs, < confirm
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
+        wp.setCurrentFrame(0);                 // SUSPECTED
+        QCOMPARE(stall.count(), 1);
+        QCOMPARE(confirm.count(), 0);          // not confirmed yet
+
+        m_fakeClock += 4000;                   // total 6500 > kScaleStallConfirmMs
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("CONFIRMED")));
+        wp.setCurrentFrame(0);                 // CONFIRMED
+        QCOMPARE(confirm.count(), 1);
+        QCOMPARE(confirm.first().at(0).toLongLong(), qint64(6500));
+
+        wp.setCurrentFrame(0);                 // still stalled → no re-emit
+        QCOMPARE(stall.count(), 1);
+        QCOMPARE(confirm.count(), 1);
+    }
+
+    // A stall that self-recovers before the confirm threshold NEVER confirms
+    // (this is the false-positive shape enforce must not latch on); a later
+    // independent stall re-arms suspected→confirmed cleanly.
+    void recoveryBeforeConfirmCancelsThenReArms() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy confirm(&wp, &WeightProcessor::scaleFeedStallConfirmed);
+        QSignalSpy resume(&wp, &WeightProcessor::scaleFeedResumed);
+
+        wp.startExtraction();
+        wp.setTareComplete(true);
+        wp.processWeight(0.0);
+
+        m_fakeClock += 2500;                   // suspected
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
+        wp.setCurrentFrame(0);
+        QCOMPARE(confirm.count(), 0);
+
+        m_fakeClock += 1000;                   // total 3500, still < confirm
+        wp.processWeight(0.5);                 // genuine sample → recovery
+        QCOMPARE(resume.count(), 1);
+        QCOMPARE(confirm.count(), 0);          // cancelled — never confirmed
+
+        // Independent later stall must re-arm and be able to confirm.
+        m_fakeClock += 2500;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
+        wp.setCurrentFrame(0);                 // re-SUSPECTED (fresh episode)
+        QCOMPARE(confirm.count(), 0);
+        m_fakeClock += 6000;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("CONFIRMED")));
+        wp.setCurrentFrame(0);                 // CONFIRMED on the new episode
+        QCOMPARE(confirm.count(), 1);
+    }
+
+    // Confirmation is pure observation — a full suspected→confirmed cycle
+    // must not drive SAW (stopNow) or frame-exit (skipFrame).
+    void confirmDoesNotAlterSawOrFrameExit() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        configureEspresso(wp, 36.0, 0);
+        QSignalSpy stopSpy(&wp, &WeightProcessor::stopNow);
+        QSignalSpy skipSpy(&wp, &WeightProcessor::skipFrame);
+
+        wp.startExtraction();
+        wp.setTareComplete(true);
+        wp.processWeight(1.0);
+        m_fakeClock += 2500;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
+        wp.setCurrentFrame(0);                 // suspected
+        m_fakeClock += 5000;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("CONFIRMED")));
+        wp.setCurrentFrame(0);                 // confirmed
+
+        QCOMPARE(stopSpy.count(), 0);
+        QCOMPARE(skipSpy.count(), 0);
+    }
+
+    // Regression for the PR #1220 review bug: a rejected SPIKE packet during
+    // a stall advances m_lastWallClockMs. If CONFIRM measured the gap from
+    // m_lastWallClockMs it would be reset to ~0 by the spike and a genuinely
+    // dead feed that emits periodic garbage (#1176/#610 overlap) would never
+    // confirm → never back off. CONFIRM must measure from the frozen
+    // m_feedStallStartMs and therefore stay spike-immune.
+    void confirmSurvivesSpikeRejectionDuringStall() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy confirm(&wp, &WeightProcessor::scaleFeedStallConfirmed);
+
+        wp.startExtraction();
+        wp.setTareComplete(true);
+        wp.processWeight(1.0);                 // T0, last good sample
+
+        m_fakeClock += 2500;                   // > kScaleStaleMs
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
+        wp.setCurrentFrame(0);                 // SUSPECTED; m_feedStallStartMs := T0
+        QCOMPARE(confirm.count(), 0);
+
+        m_fakeClock += 3000;                   // T0+5500
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Spike rejected")));
+        wp.processWeight(200.0);               // |200-1|>100 → rejected; advances
+                                               // m_lastWallClockMs to T0+5500,
+                                               // NOT a genuine sample (no recovery)
+        QCOMPARE(confirm.count(), 0);
+
+        m_fakeClock += 1000;                   // T0+6500: 6500 from frozen start
+                                               // ≥ 6000, but only 1000 from the
+                                               // spike-advanced m_lastWallClockMs
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("CONFIRMED")));
+        wp.setCurrentFrame(0);                 // must STILL confirm (spike-immune)
+        QCOMPARE(confirm.count(), 1);
+        QCOMPARE(confirm.first().at(0).toLongLong(), qint64(6500));
+    }
+
+    // Confirmation must work in the pre-shot preheat context too (the spec's
+    // confirmed-stall scenario says "extraction/preheat"; only the suspected
+    // arm had preheat coverage before).
+    void confirmWorksInPreheatContext() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        QSignalSpy confirm(&wp, &WeightProcessor::scaleFeedStallConfirmed);
+
+        wp.setShotCycleActive(true);           // EspressoPreheating (not m_active)
+        wp.setTareComplete(true);
+        wp.processWeight(0.0);
+
+        m_fakeClock += 2500;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("Scale feed stalled")));
+        wp.setCurrentFrame(0);                 // SUSPECTED in preheat
+        QCOMPARE(confirm.count(), 0);
+
+        m_fakeClock += 4000;                   // total 6500 ≥ kScaleStallConfirmMs
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("CONFIRMED")));
+        wp.setCurrentFrame(0);
+        QCOMPARE(confirm.count(), 1);
     }
 };
 

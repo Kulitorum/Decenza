@@ -1,0 +1,29 @@
+## Why
+
+The dual-HIGH "this device can't run HIGH" latch is **build-scoped**: `BLEManager::setSettings()` discards the persisted classification whenever `connectionPriority/buildCode != versionCode()`. CI bumps `versionCode` on every release, so a genuinely dual-HIGH-incapable device **re-pays the detection cost on essentially every app update** — and that cost is a real fault event (a scale-feed stall or DE1-fault cluster during preheat/shot: at best a disrupted preheat, at worst an off-target SAW shot). The justification ("a new build may fix it / may be mis-classified") is weak — BLE contention is a property of the radio/OS/DE1 link, not the Decenza build — and the cost/benefit is inverted: true positives are punished every build to auto-recover false positives from a state (BALANCED) that is proven safe and costs no bad coffee. Separately, the scale-feed-stall backstop latches on a *single* >2 s gap with no confirmation (unlike the DE1-fault path's ≥2/20 s), so a transient blip that would self-recover can still latch — exactly the false-positive whose auto-recovery the per-build reset was paying for.
+
+## What Changes
+
+- **Epoch scoping replaces build scoping.** A single source constant `kBleDetectionEpoch` (deliberately edited, **not** derived from `versionCode`, never touched by CI/`versioncode.txt`) gates rehydrate-vs-rediscard. The latch persists across all builds sharing an epoch. Bumping the epoch in a release is the **deliberate "re-classify every device once" lever** — it replaces the accidental per-build reset, so "we fixed BLE handling, reset everyone" becomes an explicit one-line decision.
+- **`buildCode` is demoted to a diagnostic-only field** ("last set by build X"), surfaced (with the epoch) in `devices_connection_status`; it no longer gates anything.
+- **Legacy records migrate forward, zero extra detection.** An existing latched record from the current release (has `buildCode`, no `detectionEpoch`) is honored once and stamped with the current epoch — an already-classified user upgrading from the current release pays **no** additional detection. (Trade-off, accepted: a stale legacy latch is carried forward, but BALANCED is safe and the epoch bump / MCP reset are the recovery paths.)
+- **Scale-feed-stall confirmation.** The first >2 s gap is a *suspected* stall (the existing `scaleFeedStalled` signal is unchanged — observe mode still logs it). It only *confirms* (becomes eligible to latch in enforce, and the observe "would back off") if the feed is **still stalled** past a larger persistence threshold `kScaleStallConfirmMs` with **no `scaleFeedResumed` in between**. A stall that self-recovers before confirmation never latches. Event/edge-based on the existing DE1 shot-sample cadence + the recovery edge — **no timer**. The DE1-fault-cluster path is unchanged.
+- **Observe mode (from #1219) logs the full picture:** suspected stall, recovery, confirmed stall (the real would-backoff). Enforce acts only on the confirmed stall.
+- Not breaking; no new user-facing setting (both new knobs are source constants). Capable hardware is unaffected (it never latches, so neither scoping nor confirmation applies to it).
+
+## Capabilities
+
+### New Capabilities
+<!-- none — extends existing in-flight capabilities -->
+
+### Modified Capabilities
+- `ble-connection-priority`: the persisted classification is epoch-scoped instead of build-scoped (with documented legacy-record migration and `buildCode` demoted to diagnostic), and the scale-feed-stall backstop requires persistence-confirmation (suspected → confirmed, recovery cancels) before it may latch; the DE1-fault-cluster trigger and capable-hardware behavior are unchanged. Layers on the active `scale-ble-priority-backoff` (#1185), `scale-priority-backoff-preheat-persist` (#1202/#1209), and `scale-priority-backoff-observe-mode` (#1219); archives none of them.
+- `mcp-server`: `devices_connection_status` additionally reports the detection epoch and the (now diagnostic-only) build code; `devices_reset_scale_priority` is unchanged (still the in-session escape hatch).
+
+## Impact
+
+- **Code**: `src/core/settings_hardware.{h,cpp}` (`cpEpoch()/setConnectionPriorityLatch` writes epoch; `cpBuildCode` demoted to diagnostic; narrowed clear already in #1219), `src/ble/blemanager.{h,cpp}` (`setSettings()` epoch gate + legacy-record forward-migration; `latchScaleSkipHighPriority` writes the epoch), a BLE constants header for `kBleDetectionEpoch`, `src/machine/weightprocessor.{h,cpp}` (`kScaleStallConfirmMs`, `scaleFeedStallConfirmed` signal, recovery cancels pending confirmation), `src/ble/transport/bleprioritydetector.h` + `qtscalebletransport.cpp` (act on confirmed not suspected; observe logs suspected/recovered/confirmed), `src/mcp/mcptools_devices.cpp` (surface epoch + diagnostic buildCode).
+- **Persistence/migration**: one new key `connectionPriority/detectionEpoch`; `buildCode` retained for diagnostics; legacy latched records (no epoch key) honored + migrated forward exactly once, logged. No DB/schema change.
+- **Dependency**: the confirmation arm reuses `scaleFeedResumed` and the detector/transport observe plumbing from #1219 — implemented on a branch stacked on `feat/scale-priority-backoff-observe-mode` (or rebased after it merges). The epoch arm is independent of #1219 and could land first.
+- **Tests**: epoch gate + legacy-record forward-migration (header/QtCore-only, `tst_scaleskiphighlatch` pattern); suspected-vs-confirmed stall + recovery-cancels-confirmation (`tst_weightprocessor`); enforce acts only on confirmed, observe logs suspected/recovered/confirmed (`tst_scaleblepriority`).
+- **Constraints**: CLAUDE.md MCP data conventions; no timers as guards; capable-hardware path byte-identical (never latches → neither change applies); minimal root-cause (no new user setting). Rollback is a revert; legacy migration degrades safely to "re-detect once" if removed.
