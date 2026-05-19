@@ -181,5 +181,6 @@ private:
     friend class tst_SAV;
     friend class tst_MachineState;
     friend class tst_ProfileManager;
+    friend class tst_MachineStatusSnapshot;
 #endif
 };

@@ -155,11 +155,66 @@ jobs:
           echo "CCACHE_LAUNCH_C=$WRAPPER_DIR/launch-c" >> $GITHUB_ENV
           echo "CCACHE_LAUNCH_CXX=$WRAPPER_DIR/launch-cxx" >> $GITHUB_ENV
 
+      - name: Configure CMake
+        run: |
+          mkdir -p build/ios
+          cd build/ios
+          # Wrap only CC/CXX with ccache (not LD/LDPLUSPLUS): ccache
+          # doesn't cache link products, and pointing LD at launch-c forces
+          # the C++ link through the `clang` driver instead of `clang++`,
+          # which drops the implicit -lc++ and breaks the link.
+          #
+          # Once CC/CXX point at a non-Apple wrapper, Xcode also stops
+          # auto-adding the C++ runtime libraries to the Ld phase (and
+          # drops -ivfsstatcache and other Apple-internal flags). Compen-
+          # sate by setting -lc++ -lc++abi in OTHER_LDFLAGS explicitly.
+          $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
+            -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX" \
+            -DCMAKE_XCODE_ATTRIBUTE_OTHER_LDFLAGS="-lc++ -lc++abi"
+
+      - name: Inject widget extension target
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APP_PROVISIONING_PROFILE_NAME: ${{ secrets.PROVISIONING_PROFILE_NAME }}
+          WIDGET_PROVISIONING_PROFILE_NAME: ${{ secrets.WIDGET_PROVISIONING_PROFILE_NAME }}
+        run: |
+          # qt-cmake -G Xcode only emits the single app target and the
+          # project is regenerated every run, so add the WidgetKit
+          # app-extension target to the freshly-generated project here,
+          # after Configure CMake and before any build.
+          gem install --no-document xcodeproj
+          ruby ios/inject_widget_extension.rb \
+            build/ios/Decenza.xcodeproj \
+            "$GITHUB_WORKSPACE"
+
+      # Unsigned compile of the app + injected widget extension. Runs BEFORE
+      # the signing setup so a manual dispatch can validate that the Qt
+      # build, the pbxproj injection, and the Swift/framework linking work
+      # WITHOUT requiring any signing secrets. Dispatch-only: tag releases
+      # skip straight to the signed archive (the cert step + archive below
+      # are unchanged for releases).
+      - name: Build (unsigned compile check — dispatch only)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          cd build/ios
+          xcodebuild build \
+            -project Decenza.xcodeproj \
+            -scheme Decenza \
+            -destination "generic/platform=iOS" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS=""
+
       - name: Install Apple certificate and provisioning profile
         env:
           P12_CERTIFICATE_BASE64: ${{ secrets.P12_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+          WIDGET_PROVISIONING_PROFILE_BASE64: ${{ secrets.WIDGET_PROVISIONING_PROFILE_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           # Create variables
@@ -188,25 +243,14 @@ jobs:
           echo "Installed profile with UUID: $PROFILE_UUID"
           echo "PROFILE_UUID=$PROFILE_UUID" >> $GITHUB_ENV
 
-      - name: Configure CMake
-        run: |
-          mkdir -p build/ios
-          cd build/ios
-          # Wrap only CC/CXX with ccache (not LD/LDPLUSPLUS): ccache
-          # doesn't cache link products, and pointing LD at launch-c forces
-          # the C++ link through the `clang` driver instead of `clang++`,
-          # which drops the implicit -lc++ and breaks the link.
-          #
-          # Once CC/CXX point at a non-Apple wrapper, Xcode also stops
-          # auto-adding the C++ runtime libraries to the Ld phase (and
-          # drops -ivfsstatcache and other Apple-internal flags). Compen-
-          # sate by setting -lc++ -lc++abi in OTHER_LDFLAGS explicitly.
-          $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-            -DCMAKE_XCODE_ATTRIBUTE_CC="$CCACHE_LAUNCH_C" \
-            -DCMAKE_XCODE_ATTRIBUTE_CXX="$CCACHE_LAUNCH_CXX" \
-            -DCMAKE_XCODE_ATTRIBUTE_OTHER_LDFLAGS="-lc++ -lc++abi"
+          # Second profile: the widget app-extension is a separate bundle id
+          # (io.github.kulitorum.decenza.widget) and needs its own
+          # distribution profile, or CodeSignOnCopy of the .appex fails.
+          WIDGET_PROFILE_PATH=$RUNNER_TEMP/widget_profile.mobileprovision
+          echo -n "$WIDGET_PROVISIONING_PROFILE_BASE64" | base64 --decode -o $WIDGET_PROFILE_PATH
+          WIDGET_PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(/usr/bin/security cms -D -i $WIDGET_PROFILE_PATH))
+          cp $WIDGET_PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles/$WIDGET_PROFILE_UUID.mobileprovision
+          echo "Installed widget profile with UUID: $WIDGET_PROFILE_UUID"
 
       - name: Build and Archive
         env:
@@ -214,7 +258,10 @@ jobs:
         run: |
           cd build/ios
 
-          # Build archive
+          # Build archive. No global PROVISIONING_PROFILE_SPECIFIER: a
+          # command-line specifier applies to ALL targets and would clobber
+          # the extension's own profile. Both targets carry their per-target
+          # profile in-project (set by inject_widget_extension.rb).
           xcodebuild archive \
             -project Decenza.xcodeproj \
             -scheme Decenza \
@@ -222,13 +269,24 @@ jobs:
             -archivePath $RUNNER_TEMP/Decenza.xcarchive \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=$TEAM_ID \
-            CODE_SIGN_IDENTITY="iPhone Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER="${{ secrets.PROVISIONING_PROFILE_NAME }}"
+            CODE_SIGN_IDENTITY="iPhone Distribution"
+
+      - name: Verify widget extension in archive
+        run: |
+          # The pbxproj injection is the single most failure-prone step; a
+          # missing .appex means a green build that silently ships no widget.
+          APPEX="$RUNNER_TEMP/Decenza.xcarchive/Products/Applications/Decenza.app/PlugIns/DecenzaWidgetExtension.appex"
+          if [ ! -d "$APPEX" ]; then
+            echo "::error::Widget extension missing from archive — pbxproj injection did not take"
+            exit 1
+          fi
+          echo "Widget extension present in archive: $APPEX"
 
       - name: Export IPA
         env:
           KEYCHAIN_PATH: ${{ runner.temp }}/app-signing.keychain-db
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          WIDGET_PROFILE_NAME: ${{ secrets.WIDGET_PROVISIONING_PROFILE_NAME }}
         run: |
           # Unlock keychain for export
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
@@ -256,6 +314,8 @@ jobs:
               <dict>
                   <key>io.github.kulitorum.decenza</key>
                   <string>Decenza App Store</string>
+                  <key>io.github.kulitorum.decenza.widget</key>
+                  <string>${WIDGET_PROFILE_NAME}</string>
               </dict>
           </dict>
           </plist>
@@ -269,6 +329,15 @@ jobs:
             -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
             -exportPath $RUNNER_TEMP/export \
             -allowProvisioningUpdates
+
+      - name: Verify widget extension in IPA
+        run: |
+          IPA=$(ls "$RUNNER_TEMP"/export/*.ipa 2>/dev/null | head -1)
+          if [ -z "$IPA" ] || ! unzip -l "$IPA" | grep -q 'DecenzaWidgetExtension.appex'; then
+            echo "::error::Widget extension missing from exported IPA"
+            exit 1
+          fi
+          echo "Widget extension present in IPA: $IPA"
 
       - name: Upload to App Store Connect
         if: ${{ inputs.upload_to_appstore || startsWith(github.ref, 'refs/tags/v') }}

@@ -496,6 +496,7 @@ private:
     friend class tst_SAV;
     friend class tst_MachineState;
     friend class tst_ProfileManager;
+    friend class tst_MachineStatusSnapshot;
     friend class tst_MMRWrite;
     friend class tst_DE1DeviceFirmware;
 #endif
