@@ -263,6 +263,17 @@ void QtScaleBleTransport::onControllerConnected() {
     QT_TRANSPORT_LOG("Controller connected!");
     m_connected = true;
 
+    if (!m_connectionPriorityManaged) {
+        // Non-scale link (refractometer): leave the connection at the
+        // platform-default interval and arm no DE1-fault / feed-stall
+        // detection. Forcing a third HIGH link here contends with the DE1 +
+        // scale and the GATT scheduler tears this (weakest) link down.
+        QT_TRANSPORT_LOG("Connection-priority: unmanaged link (non-scale) — "
+                         "staying at platform default, no detection armed");
+        emit connected();
+        return;
+    }
+
     // Connection-priority for the scale link (dual-HIGH BLE contention,
     // #1093/#1176). The DE1 always requests HIGH; the scale also requests
     // HIGH UNLESS a backoff was triggered earlier this app run, in which case
@@ -322,6 +333,7 @@ void QtScaleBleTransport::onControllerConnected() {
 }
 
 void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
+    if (!m_connectionPriorityManaged) return;  // non-scale link, no detection
     // Primary signal: a DE1-link fault clustered shortly after the scale
     // requested HIGH is the dual-HIGH contention signature (#1093/#1176).
     const bool fired = m_priority.onDe1Fault(nowMs());
@@ -344,6 +356,7 @@ void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
 }
 
 void QtScaleBleTransport::onScaleFeedStalled(qint64 gapMs) {
+    if (!m_connectionPriorityManaged) return;  // non-scale link, no detection
     // SUSPECTED stall only — this no longer drives the backoff (a transient
     // blip that self-recovers must NOT latch). It is the observe/diagnostic
     // breadcrumb; the latch trigger is onScaleFeedStallConfirmed below. The
@@ -357,6 +370,7 @@ void QtScaleBleTransport::onScaleFeedStalled(qint64 gapMs) {
 }
 
 void QtScaleBleTransport::onScaleFeedStallConfirmed(qint64 gapMs) {
+    if (!m_connectionPriorityManaged) return;  // non-scale link, no detection
     // CONFIRMED stall — persisted past kScaleStallConfirmMs with no recovery
     // (the transient/false shape never reaches here). THIS is the real
     // backstop trigger (the actual #1176 shot-1151 case is a sustained dead
@@ -384,6 +398,7 @@ void QtScaleBleTransport::onScaleFeedStallConfirmed(qint64 gapMs) {
 }
 
 void QtScaleBleTransport::onScaleFeedResumed(qint64 gapMs) {
+    if (!m_connectionPriorityManaged) return;  // non-scale link, no detection
     // Observe-only recovery evidence: a SUSPECTED stall came back on its own
     // before it could confirm — so with confirmation it would NOT have backed
     // off. Recording the recovered gap here is also the calibration data for

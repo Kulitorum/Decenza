@@ -108,6 +108,19 @@ public:
      */
     virtual void setSkipHighPriority(bool skip) { Q_UNUSED(skip); }
 
+    /**
+     * Scope the connection-priority + scale-feed-stall machinery to actual
+     * scales. A refractometer reuses this transport class but is NOT a scale:
+     * it never produces weight samples, and forcing its link to
+     * CONNECTION_PRIORITY_HIGH adds a third HIGH connection that contends with
+     * the DE1 + scale — the platform GATT scheduler then tears the weakest link
+     * (the refractometer) down mid-discovery. Pass false for non-scale links so
+     * the connection stays at the platform-default interval with no DE1-fault /
+     * feed-stall detection armed. Default no-op (only QtScaleBleTransport —
+     * Android/desktop — runs this machinery; CoreBluetooth never forces HIGH).
+     */
+    virtual void setConnectionPriorityManaged(bool managed) { Q_UNUSED(managed); }
+
 public slots:
     /**
      * Detection inputs wired in main.cpp from the (stable) DE1Device and the

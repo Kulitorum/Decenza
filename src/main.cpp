@@ -1358,7 +1358,15 @@ int main(int argc, char *argv[])
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
                      [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed](const QBluetoothDeviceInfo& device, const QString& type) {
-        // Don't connect if we already have a connected scale
+        // Single-scale invariant: at most one physical scale is connected at a
+        // time (a different scale type replaces the old one below, never runs
+        // alongside it). This caps concurrent forced-HIGH BLE links at two —
+        // DE1 + scale — the proven-good #1097 baseline. Connecting a second
+        // scale simultaneously would make it a third HIGH link and reintroduce
+        // the GATT-scheduler contention that tears the weakest link down (the
+        // refractometer fix relies on this same 2-link ceiling). If
+        // simultaneous multi-scale is ever added, the non-primary link must
+        // stay BALANCED / unmanaged like the refractometer transport.
         if (physicalScale && physicalScale->isConnected()) {
             return;
         }
@@ -1627,6 +1635,11 @@ int main(int argc, char *argv[])
         auto* transport = new QtScaleBleTransport();
 #endif
         refractometer = std::make_unique<DiFluidR2>(transport);
+        // The refractometer reuses the scale transport class but is not a
+        // scale: a 3rd forced-HIGH BLE link contends with the DE1 + scale and
+        // the platform GATT scheduler tears the weakest one (this) down. Keep
+        // the scale connection-priority / feed-stall machinery off this link.
+        transport->setConnectionPriorityManaged(false);
         refractometer->connectToDevice(device);
 
         // Wire to MainController for TDS → Settings pipeline
