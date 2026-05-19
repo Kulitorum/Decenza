@@ -2,6 +2,7 @@ package io.github.kulitorum.decenza_de1;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.DeadObjectException;
 import android.util.Log;
 
 import org.qtproject.qt.android.bindings.QtActivity;
@@ -64,9 +65,28 @@ public class DecenzaActivity extends QtActivity {
         super.onDestroy();
     }
 
-    private static boolean isDeadSystemException(Throwable t) {
+    // Catches three closely-related dead-binder cases:
+    //   1. DeadObjectException — the common case: a remote Bluetooth binder
+    //      we were writing to died (BT toggled off, OEM power policy, driver
+    //      hiccup). Covered by `instanceof DeadObjectException`. (Issue #1227)
+    //   2. DeadSystemException — system_server died. Subclass of
+    //      DeadObjectException so the same `instanceof` covers it.
+    //   3. DeadSystemRuntimeException — the API 31+ unchecked variant of
+    //      case 2. **Despite the name, it does NOT extend DeadObjectException**
+    //      (it extends RuntimeException directly), and is typically thrown
+    //      without a DeadObjectException in its cause chain, so the
+    //      `instanceof` check misses it. We fall back to a class-name
+    //      substring match to cover it. (Was caught by the original
+    //      `contains("DeadSystem")` filter in PR #544 / issue #538.)
+    // Qt's QtBluetoothLE.executeWriteJob doesn't wrap the
+    // BluetoothGatt.writeCharacteristic binder call in try/catch (verified
+    // through Qt 6.11.1), so the RuntimeException it raises lands here.
+    // Issues #189 (v1.5.0), #538 (v1.4.x DeadSystemRuntimeException),
+    // #1227 (v1.7.3 DeadObjectException).
+    private static boolean isDeadObjectException(Throwable t) {
         while (t != null) {
-            if (t.getClass().getName().contains("DeadSystem")) {
+            if (t instanceof DeadObjectException
+                    || t.getClass().getName().contains("DeadSystem")) {
                 return true;
             }
             t = t.getCause();
@@ -78,16 +98,18 @@ public class DecenzaActivity extends QtActivity {
         defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
 
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
-            // DeadSystemException means Android's Bluetooth system service died
-            // (deep sleep, OEM power management, system_server crash).
-            // Create a flag file so the C++ side can detect it and trigger BLE
-            // recovery (disconnect + reconnect). This fires on any thread — we
-            // don't filter by thread name since DeadSystemException only occurs
-            // when Android system services die, which always affects BLE.
-            // Don't crash the app — the rest of the app is fine, only BLE is dead.
-            if (isDeadSystemException(throwable)) {
-                Log.w(TAG, "DeadSystemException on thread " + thread.getName()
-                        + " — Bluetooth system died, signaling BLE recovery");
+            // A DeadObjectException means the remote Bluetooth binder we
+            // were writing to died (toggled off, OEM power-managed away,
+            // GATT proxy unbound) — or, in the DeadSystemException subclass
+            // case, system_server itself died. In all of these the BLE
+            // handler thread is gone but the UI thread and the rest of the
+            // app are fine, so we drop a flag file for the C++ side to
+            // observe and trigger reconnect (see main.cpp ble recovery
+            // timer), and explicitly do NOT call defaultHandler — the
+            // process must stay alive.
+            if (isDeadObjectException(throwable)) {
+                Log.w(TAG, "DeadObjectException on thread " + thread.getName()
+                        + " — BLE binder died, signaling BLE recovery");
                 try {
                     File flagFile = new File(getFilesDir(), "ble_dead_system");
                     flagFile.createNewFile();
