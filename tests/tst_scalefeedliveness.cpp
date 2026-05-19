@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QSignalSpy>
 #include <QVector>
+#include <QRegularExpression>
 
 #include "ble/scaledevice.h"
 #include "machine/weightprocessor.h"
@@ -93,19 +94,27 @@ private slots:
         QObject::connect(&scale, &ScaleDevice::weightChanged,
                          &wp, &WeightProcessor::processWeight);
 
-        // Prime once with a changing reading so m_lastWallClockMs is set
-        // (mirrors the real first/tare reading before the static dwell).
-        scale.mockSetWeight(0.2);
-        m_clock += 100;
-
         QSignalSpy confirmed(&wp, &WeightProcessor::scaleFeedStallConfirmed);
 
-        for (int i = 0; i < 150; ++i) {
-            scale.mockSetWeight(0.2);   // unchanged → weightChanged never fires
-            if (i % 2 == 0) wp.setCurrentFrame(0);
-            m_clock += 100;
-        }
+        // Prime m_lastWallClockMs with one changing reading (mirrors the real
+        // first/tare sample before the static dwell). The cup then sits
+        // dead-static at 0.2 g: deduped weightChanged drops every identical
+        // sample, so processWeight is never called again and the DE1 tick
+        // (setCurrentFrame) is the only stall evaluator — the #1176 failure.
+        scale.mockSetWeight(0.2);
 
+        m_clock += 2500;                       // > kScaleStaleMs (2000)
+        scale.mockSetWeight(0.2);              // unchanged → no weightChanged
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("Scale feed stalled")));
+        wp.setCurrentFrame(0);                 // SUSPECTED (false stall)
+        QCOMPARE(confirmed.count(), 0);
+
+        m_clock += 4000;                       // total 6500 > kScaleStallConfirmMs
+        scale.mockSetWeight(0.2);              // still unchanged
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("CONFIRMED")));
+        wp.setCurrentFrame(0);                 // CONFIRMED — the #1176 false stall
         QVERIFY2(confirmed.count() >= 1,
                  "deduped weightChanged wiring must still reproduce the #1176 "
                  "false stall — otherwise this regression test proves nothing");
