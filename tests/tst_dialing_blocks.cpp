@@ -1249,6 +1249,163 @@ private slots:
         });
     }
 
+    // Variable-RPM grinder (DF83V): users annotate dial with RPM
+    // ("24 1400rpm"). The parser accepts the leading dial and the rest
+    // is ignorable annotation; without this fix 93% of such users' data
+    // was silently discarded (review on PR #1236 / #1223 reporter DB).
+    void calibrationBlock_acceptsNumericWithSuffix_DF83V()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_suffix"), [&](QSqlDatabase& db) {
+            // Three profiles on an exact line through (setting = 2 + 2·UGS).
+            // Settings written WITH the variable-RPM suffix.
+            auto seed = [&](const QString& uuid, qint64 ts,
+                            const QString& name, const QString& kbId,
+                            const QString& setting) {
+                return insertShot(db, ShotRow{
+                    .uuid = uuid, .timestamp = ts,
+                    .profileName = name, .profileKbId = kbId,
+                    .finalWeight = 36.0,
+                    .beanBrand = QStringLiteral("TestRoaster"),
+                    .beanType = QStringLiteral("TestBean"),
+                    .grinderModel = QStringLiteral("DF83V"),
+                    .grinderBurrs = QStringLiteral("83mm flat steel"),
+                    .grinderSetting = setting, .enjoyment = 80 });
+            };
+            for (int i = 0; i < 2; ++i) {
+                seed(QStringLiteral("u-lo-%1").arg(i), 1000 + i,
+                     QStringLiteral("Londinium"), QStringLiteral("londinium"),
+                     QStringLiteral("2 1400rpm"));
+                seed(QStringLiteral("u-dq-%1").arg(i), 1100 + i,
+                     QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                     QStringLiteral("4 1400rpm"));
+            }
+            qint64 cur = 0;
+            for (int i = 0; i < 2; ++i)
+                cur = seed(QStringLiteral("u-gs-%1").arg(i), 1200 + i,
+                           QStringLiteral("Gentle & Sweet"),
+                           QStringLiteral("gentle-and-sweet"),
+                           QStringLiteral("6 1400rpm"));
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("DF83V"), QStringLiteral("83mm flat steel"),
+                QStringLiteral("espresso"), cur);
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("approximate"));
+            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 2.0);
+            // History rgs emits dial-only (no rpm round-trip).
+            const QJsonObject lo = calProfile(r, QStringLiteral("Londinium"));
+            QCOMPARE(lo.value(QStringLiteral("rgs")).toString(), QStringLiteral("2"));
+        });
+    }
+
+    // Compound notation (Eureka Mignon Specialita): "1+4" → linear
+    // 1·100 + 4 = 104; recommended-grind round-trips back as "a+b".
+    void calibrationBlock_compoundNotation_MignonSpecialita()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_compound"), [&](QSqlDatabase& db) {
+            // setting = 100 + 4·linearUGS, linear = a·100 + b.
+            // londinium(0)→1+4 (=104); d-flow-q(1)→2+8 (=208); g&s(2)→3+12 (=312)
+            // pairwise slopes consistent (104→208→312 over ugs 0/1/2):
+            // slope per UGS = 104; all pairs equal → gate passes.
+            auto seed = [&](const QString& uuid, qint64 ts,
+                            const QString& name, const QString& kbId,
+                            const QString& setting) {
+                return insertShot(db, ShotRow{
+                    .uuid = uuid, .timestamp = ts,
+                    .profileName = name, .profileKbId = kbId,
+                    .finalWeight = 36.0,
+                    .beanBrand = QStringLiteral("TestRoaster"),
+                    .beanType = QStringLiteral("TestBean"),
+                    .grinderModel = QStringLiteral("Mignon Specialita"),
+                    .grinderBurrs = QStringLiteral("55mm flat steel"),
+                    .grinderSetting = setting, .enjoyment = 80 });
+            };
+            for (int i = 0; i < 2; ++i) {
+                seed(QStringLiteral("u-lo-%1").arg(i), 1000 + i,
+                     QStringLiteral("Londinium"), QStringLiteral("londinium"),
+                     QStringLiteral("1+4"));
+                seed(QStringLiteral("u-dq-%1").arg(i), 1100 + i,
+                     QStringLiteral("D-Flow / Q"), QStringLiteral("d-flow-q-variant"),
+                     QStringLiteral("2+8"));
+            }
+            qint64 cur = 0;
+            for (int i = 0; i < 2; ++i)
+                cur = seed(QStringLiteral("u-gs-%1").arg(i), 1200 + i,
+                           QStringLiteral("Gentle & Sweet"),
+                           QStringLiteral("gentle-and-sweet"),
+                           QStringLiteral("3+12"));
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Mignon Specialita"),
+                QStringLiteral("55mm flat steel"),
+                QStringLiteral("espresso"), cur);
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("approximate"));
+            QCOMPARE(r.value(QStringLiteral("conversionKey")).toDouble(), 104.0);
+            // History rgs round-trips in "a+b" notation.
+            const QJsonObject lo = calProfile(r, QStringLiteral("Londinium"));
+            QCOMPARE(lo.value(QStringLiteral("rgs")).toString(), QStringLiteral("1+4"));
+            const QJsonObject gs = calProfile(r, QStringLiteral("Gentle & Sweet"));
+            QCOMPARE(gs.value(QStringLiteral("rgs")).toString(), QStringLiteral("3+12"));
+        });
+    }
+
+    // Eureka multi-turn "1+4" must NOT be silently mis-parsed as "1" on
+    // a non-compound (plain numeric) grinder — those rows are excluded
+    // so a future grinder added without a Compound entry can't fabricate
+    // numbers from misread multi-turn notation. Same guard catches
+    // "1 + 4" (spaced multi-turn) on every grinder.
+    void calibrationBlock_compoundSyntax_rejectedOnNonCompoundGrinder()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("calib_compound_rej"), [&](QSqlDatabase& db) {
+            // All shots on a plain-numeric grinder ("Niche Zero") with
+            // compound notation in the setting field → all rejected at
+            // parse → no dialed-in rows → block empty.
+            for (int i = 0; i < 3; ++i) {
+                insertShot(db, ShotRow{
+                    .uuid = QStringLiteral("u-%1").arg(i),
+                    .timestamp = 1000 + i,
+                    .profileName = QStringLiteral("D-Flow / Q"),
+                    .profileKbId = QStringLiteral("d-flow-q-variant"),
+                    .finalWeight = 36.0,
+                    .beanBrand = QStringLiteral("TestRoaster"),
+                    .beanType = QStringLiteral("TestBean"),
+                    .grinderModel = QStringLiteral("Niche Zero"),
+                    .grinderBurrs = QStringLiteral("63mm conical"),
+                    .grinderSetting = i == 0 ? QStringLiteral("1+4")
+                                   : i == 1 ? QStringLiteral("1 + 4")
+                                            : QStringLiteral("medium"),
+                    .enjoyment = 80 });
+            }
+            // Need a valid resolved shot — add one current shot with a
+            // proper numeric setting (it just provides the bean/profile).
+            const qint64 cur = insertShot(db, ShotRow{
+                .uuid = QStringLiteral("u-cur"), .timestamp = 1100,
+                .profileName = QStringLiteral("D-Flow / Q"),
+                .profileKbId = QStringLiteral("d-flow-q-variant"),
+                .finalWeight = 36.0,
+                .beanBrand = QStringLiteral("TestRoaster"),
+                .beanType = QStringLiteral("TestBean"),
+                .grinderModel = QStringLiteral("Niche Zero"),
+                .grinderBurrs = QStringLiteral("63mm conical"),
+                .grinderSetting = QStringLiteral("6"), .enjoyment = 80 });
+            const QJsonObject r = DialingBlocks::buildGrinderCalibrationBlock(
+                db, QStringLiteral("Niche Zero"), QStringLiteral("63mm conical"),
+                QStringLiteral("espresso"), cur);
+            // 3 compound-syntax shots rejected; the one cur shot is the
+            // only kept row → only one profile, no pairs → directional.
+            // Crucially: no numbers anywhere, no `1` rgs leaking from
+            // a mis-parsed `1+4`.
+            QCOMPARE(r.value(QStringLiteral("confidence")).toString(),
+                     QStringLiteral("directional"));
+            QVERIFY(!calAnyHasRgs(r));
+        });
+    }
+
     void recentAdvice_byteStabilityAcrossCalls()
     {
         const QString dbPath = freshDbPath();

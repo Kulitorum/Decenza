@@ -90,7 +90,56 @@ def make_resolver(alias_to_id, recipe_aliases, info):
     return resolve_kb_input, resolve_title
 
 
+import re
+
+# Mirrors GrinderAliases::SettingNotation and the per-model registry.
+# Keep this table in sync with src/core/grinderaliases.h. Compound
+# entries: positionsPerRev (the modulus N for "a+b" → a·N + b).
+# NumericWithSuffix is the default — accepts plain decimal + tolerates
+# trailing whitespace + ignorable annotation ("24 1400rpm", "30 clicks").
+_COMPOUND = {
+    # Eureka Mignon micrometric line: N=100 (24 µm/position, full rev =
+    # 1→100). Spec'd in honestcoffeeguide / Clive Coffee manual / ARO.
+    "Mignon Specialita": 100, "Mignon Notte": 100, "Mignon Manuale": 100,
+    "Mignon XL": 100, "Mignon Turbo": 100, "Mignon Single Dose": 100,
+    "Mignon Libra": 100, "Mignon Perfetto": 100, "Mignon Crono": 100,
+    "Atom 65": 100, "Atom 75": 100, "Helios 80": 100,
+    # 1Zpresso (per 1zpresso.coffee manuals).
+    "JX-Pro": 40, "J-Max": 30, "K-Max": 90, "K-Plus": 90, "Q2": 30,
+}
+
+_NUMSFX_RE = re.compile(r"^(-?\d+(?:\.\d+)?)(?:\s+(\S.*))?$")
+_COMPOUND_RE = re.compile(r"^(-?\d+)\s*\+\s*(\d+(?:\.\d+)?)$")
+
+
+def parse_grinder_setting(grinder_model, raw):
+    """Returns the linear scalar or None. Mirrors C++
+    GrinderAliases::parseGrinderSetting."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    ppr = _COMPOUND.get(grinder_model)
+    if ppr:
+        m = _COMPOUND_RE.match(s)
+        if m:
+            return float(m.group(1)) * ppr + float(m.group(2))
+        # fall through to plain numeric (some users record decimals)
+    m = _NUMSFX_RE.match(s)
+    if not m:
+        return None
+    sfx = (m.group(2) or "").strip()
+    if sfx and sfx[0] in "+-":
+        return None  # "1 + 4" multi-turn / range — refuse to mis-parse
+    try:
+        return float(m.group(1))
+    except ValueError:
+        return None
+
+
 def fnum(s):
+    # Legacy strict numeric (used only by --bean-only / legacy path).
     try:
         return float(str(s).strip())
     except (TypeError, ValueError):
@@ -119,6 +168,14 @@ def main():
     # grinder+burrs — Al-Shemmeri: 13.4 vs 58.4 microns/step across grinders).
     ap.add_argument("--max-spread-ratio", type=float, default=0.6)
     ap.add_argument("--cap", type=float, default=1.5)
+    # Eligibility for the SLOPE/PAIRING pool. "dialed" = shipped behavior
+    # (rated>=50 OR on-target OR TDS). "clean" = the proposed D2-split:
+    # any clean extraction (final_weight>=15, no badge) may form a pair;
+    # the dialed-in bar is reserved for the anchor/history medians. A
+    # slope is a physical property and does not need a rated shot — the
+    # spread gate already rejects noisy batches.
+    ap.add_argument("--slope-eligibility", choices=["dialed", "clean"],
+                    default="dialed")
     args = ap.parse_args()
 
     alias_to_id, recipe_aliases, info = load_kb(KB_PATH)
@@ -252,11 +309,15 @@ def main():
               f"  {'<-- WRONG SIGN' if ck < 0 else ''}")
 
     # ---- proposed within-coffee paired ----
+    slope_ok = base_clean if args.slope_eligibility == "clean" else dialed_in
     coffees = {}
     for r in rows:
-        if not dialed_in(r):
+        if not slope_ok(r):
             continue
-        v = fnum(r["grinder_setting"])
+        # Notation-aware parse (mirrors GrinderAliases C++): tolerate
+        # "24 1400rpm" on variable-RPM grinders, accept compound "a+b"
+        # on Eureka Mignon / 1Zpresso.
+        v = parse_grinder_setting(args.grinder, r["grinder_setting"])
         if v is None:
             continue
         pid = resolve(r)
@@ -278,7 +339,8 @@ def main():
                 continue
             pairs.append((u2 - u1, (m2 - m1) / (u2 - u1), c))
     print(f"\n=== PROPOSED within-coffee (span>={args.min_pair_span}, "
-          f"n>={args.min_endpoint_samples}) ===")
+          f"n>={args.min_endpoint_samples}, slope-eligibility="
+          f"{args.slope_eligibility}) ===")
     if pairs:
         sl = sorted(s for _, s, _ in pairs)
         ck = round(statistics.median(sl), 2)

@@ -4,6 +4,7 @@
 
 #include "../history/shothistorystorage.h"
 #include "../history/shotprojection.h"
+#include "../core/grinderaliases.h"
 #include "../core/settings.h"
 #include "../core/settings_calibration.h"
 #include "../controllers/profilemanager.h"
@@ -700,14 +701,6 @@ static double computeMedian(QList<double>& values)
     return (values[n / 2 - 1] + values[n / 2]) / 2.0;
 }
 
-static QString formatGrinderSetting(double v)
-{
-    QString s = QString::number(v, 'f', 1);
-    if (s.endsWith(QStringLiteral(".0")))
-        s.chop(2);
-    return s;
-}
-
 // Phase-1 grinder-calibration constants. Provenance and tuning are in the
 // openspec change `fix-grinder-calibration-cross-profile` (design.md
 // Open-Questions resolution); the offline harness is tools/calib_analysis.py.
@@ -759,6 +752,18 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         qDebug() << "buildGrinderCalibrationBlock: resolved shot invalid → empty";
         return QJsonObject();
     }
+
+    // Per-grinder notation: how to parse `grinder_setting` into a linear
+    // scalar and how to render a recommended setting back. Unknown
+    // grinders fall back to a default entry (NumericWithSuffix), which
+    // accepts plain "25" and "8.5" and tolerates ignorable trailing text
+    // like "24 1400rpm" or "30 clicks". Compound (Eureka Mignon family,
+    // 1Zpresso) round-trips as `a+b`.
+    const GrinderAliases::GrinderEntry* gEntryPtr =
+        GrinderAliases::findEntryByAlias(grinderModel);
+    static const GrinderAliases::GrinderEntry kDefaultGrinder{};
+    const GrinderAliases::GrinderEntry& gEntry =
+        gEntryPtr ? *gEntryPtr : kDefaultGrinder;
 
     auto normEq = [](const QString& a, const QString& b) {
         return QString::compare(a.trimmed(), b.trimmed(), Qt::CaseInsensitive) == 0;
@@ -861,9 +866,13 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         const bool hasTds   = tds > 0.0;
         if (!ratedOk && !onTarget && !hasTds) continue;
 
-        bool numericOk = false;
-        const double setVal = setStr.toDouble(&numericOk);
-        if (!numericOk) continue;  // letter/click notation can't anchor a numeric key
+        // Notation-aware parse: numeric (incl. "24 1400rpm" suffix on
+        // variable-RPM grinders) or compound "a+b" for Eureka/1Zpresso.
+        // Truly non-numeric notation (letters, "1 + 4" with spaces, etc.)
+        // still excluded — those rows are served by the directional path.
+        const auto setOpt = GrinderAliases::parseGrinderSetting(gEntry, setStr);
+        if (!setOpt) continue;
+        const double setVal = *setOpt;
 
         QString id = ShotSummarizer::resolveKbId(rawKbId);
         if (id.isEmpty())
@@ -1044,13 +1053,14 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         if (approximate) {
             if (currentBatchMedian.contains(e.kbId)) {
                 p["source"] = QStringLiteral("history");
-                p["rgs"] = formatGrinderSetting(currentBatchMedian[e.kbId]);
+                p["rgs"] = GrinderAliases::formatGrinderSetting(
+                    gEntry, currentBatchMedian[e.kbId]);
                 emittedNumber = true;
             } else if (e.ugs >= validLo - kCalibCap - 1e-9
                        && e.ugs <= validHi + kCalibCap + 1e-9) {
                 p["source"] = QStringLiteral("derived");
-                p["rgs"] = formatGrinderSetting(
-                    anchorSetting + (e.ugs - anchorUgs) * conversionKey);
+                p["rgs"] = GrinderAliases::formatGrinderSetting(
+                    gEntry, anchorSetting + (e.ugs - anchorUgs) * conversionKey);
                 emittedNumber = true;
             }
         }
@@ -1090,7 +1100,8 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         QJsonObject anchor;
         anchor["profileName"] = anchorName;
         anchor["ugs"] = anchorUgs;
-        anchor["setting"] = formatGrinderSetting(anchorSetting);
+        anchor["setting"] = GrinderAliases::formatGrinderSetting(
+            gEntry, anchorSetting);
         anchor["coffee"] = curBean;
         block["coffeeAnchor"] = anchor;
     }
