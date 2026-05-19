@@ -539,6 +539,11 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
         // Avoid duplicates
         for (const auto& existing : m_refractometerDevices) {
             if (getDeviceIdentifier(existing) == getDeviceIdentifier(device)) {
+                // No log here: onDeviceDiscovered fires on every BLE
+                // advertisement (~100-500 ms); the device is already logged
+                // once on first discovery below. Logging here would flood the
+                // diagnostic timeline this instrumentation exists to keep
+                // readable.
                 return;
             }
         }
@@ -547,9 +552,17 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
         qDebug() << "[BLE] Found refractometer:" << device.name() << "at" << getDeviceIdentifier(device);
         appendScaleLog(QString("Found refractometer: %1 (%2)").arg(device.name(), getDeviceIdentifier(device)));
 
+        const bool savedMatch = !m_savedRefractometerAddress.isEmpty()
+            && deviceIdentifiersMatch(device, m_savedRefractometerAddress);
+        qDebug().noquote() << QString("[R2-diag] R2 advert dev=%1 savedMatch=%2 userInitiatedScan=%3 -> %4")
+            .arg(getDeviceIdentifier(device),
+                 savedMatch ? QStringLiteral("true") : QStringLiteral("false"),
+                 m_userInitiatedScaleScan ? QStringLiteral("true") : QStringLiteral("false"),
+                 savedMatch ? QStringLiteral("emit refractometerDiscovered")
+                            : (m_userInitiatedScaleScan ? QStringLiteral("listed only (no auto-connect)")
+                                                         : QStringLiteral("listed, skip auto-connect (not saved device)")));
         // Auto-connect if this is our saved refractometer
-        if (!m_savedRefractometerAddress.isEmpty()
-            && deviceIdentifiersMatch(device, m_savedRefractometerAddress)) {
+        if (savedMatch) {
             emit refractometerDiscovered(device);
         } else if (m_userInitiatedScaleScan) {
             // User scan — show all devices (emit for UI listing only, not auto-connect)
@@ -595,6 +608,7 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
 }
 
 void BLEManager::onScanFinished() {
+    qDebug().noquote() << "[R2-diag] scan cycle finished — clearing scanning/scanningForScales/userInitiated flags";
     m_scanning = false;
     m_scanningForScales = false;
     m_userInitiatedScaleScan = false;
@@ -802,6 +816,11 @@ void BLEManager::clearSavedRefractometer() {
 }
 
 void BLEManager::setRefractometerDevice(DiFluidR2* device) {
+    qDebug().noquote() << QString("[R2-diag] setRefractometerDevice old=%1 new=%2")
+        .arg(m_refractometerDevice ? QString::number(reinterpret_cast<quintptr>(m_refractometerDevice), 16)
+                                    : QStringLiteral("none"),
+             device ? QString::number(reinterpret_cast<quintptr>(device), 16)
+                     : QStringLiteral("none"));
     if (m_refractometerDevice) {
         disconnect(m_refractometerDevice, nullptr, this, nullptr);
     }
@@ -814,9 +833,19 @@ void BLEManager::setRefractometerDevice(DiFluidR2* device) {
 }
 
 void BLEManager::tryDirectConnectToRefractometer() {
-    if (m_savedRefractometerAddress.isEmpty() || m_disabled) return;
+    if (m_savedRefractometerAddress.isEmpty() || m_disabled) {
+        qDebug().noquote() << QString("[R2-diag] tryDirectConnectToRefractometer no-op (savedAddrEmpty=%1 disabled=%2)")
+            .arg(m_savedRefractometerAddress.isEmpty() ? QStringLiteral("true") : QStringLiteral("false"),
+                 m_disabled ? QStringLiteral("true") : QStringLiteral("false"));
+        return;
+    }
     // Piggyback on the scale scan infrastructure — set the flag so
     // onDeviceDiscovered processes refractometer advertisements
+    qDebug().noquote() << QString("[R2-diag] tryDirectConnectToRefractometer scanningForScales=%1 scanning=%2 -> %3")
+        .arg(m_scanningForScales ? QStringLiteral("true") : QStringLiteral("false"),
+             m_scanning ? QStringLiteral("true") : QStringLiteral("false"),
+             m_scanningForScales ? QStringLiteral("no-op (scan flag already set)")
+                                  : QStringLiteral("startScan()"));
     if (!m_scanningForScales) {
         m_scanningForScales = true;
         startScan();
@@ -892,6 +921,9 @@ void BLEManager::scanForDevices() {
     // Note: m_disabled is intentionally not checked here — scale and refractometer
     // scanning is allowed in simulator mode so real hardware can be tested against
     // a simulated DE1. Only DE1 BLE (startScan without m_scanningForScales) is suppressed.
+    qDebug().noquote() << QString("[R2-diag] scanForDevices (user-initiated) scanning=%1 scanningForScales=%2 (read before stopScan)")
+        .arg(m_scanning ? QStringLiteral("true") : QStringLiteral("false"),
+             m_scanningForScales ? QStringLiteral("true") : QStringLiteral("false"));
     appendScaleLog("Starting device scan...");
     m_scaleConnectionFailed = false;
     m_flowScaleFallbackEmitted = false;  // User-initiated scan resets the dialog guard
