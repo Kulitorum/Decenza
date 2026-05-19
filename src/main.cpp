@@ -1448,6 +1448,22 @@ int main(int argc, char *argv[])
             QObject::connect(&weightProcessor, &WeightProcessor::scaleFeedStallConfirmed,
                              scaleTransport, &ScaleBleTransport::onScaleFeedStallConfirmed,
                              Qt::QueuedConnection);
+            // #1176: tell the transport when an espresso cycle is in progress
+            // (EspressoPreheating → shot end) so a triggered backoff DEFERS
+            // the skip-HIGH teardown instead of bouncing the scale mid-shot;
+            // an idle backoff still reconnects immediately. MachineState and
+            // the transport are both main-thread → AutoConnection (same
+            // rationale as the de1LinkFault wiring above). scaleTransport is
+            // the context object so these auto-disconnect on a scale-type
+            // change. No-op for transports keeping the base virtual no-op.
+            QObject::connect(&machineState, &MachineState::espressoCycleStarted,
+                             scaleTransport, [scaleTransport]() {
+                                 scaleTransport->setShotActive(true);
+                             });
+            QObject::connect(&machineState, &MachineState::shotEnded,
+                             scaleTransport, [scaleTransport]() {
+                                 scaleTransport->setShotActive(false);
+                             });
         }
 
         // When physical scale connects/disconnects, switch between physical and FlowScale

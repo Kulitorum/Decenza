@@ -399,6 +399,14 @@ void QtScaleBleTransport::onScaleFeedResumed(qint64 gapMs) {
             QStringLiteral("scale-feed-stall"), gapSec));
 }
 
+void QtScaleBleTransport::setShotActive(bool active) {
+    // Set by MachineState (main.cpp): true from EspressoPreheating through
+    // shot end. Only gates the teardown decision in triggerScaleBackoff();
+    // detection itself is unaffected. Silent — the backoff log states the
+    // shot state when it matters.
+    m_shotActive = active;
+}
+
 void QtScaleBleTransport::logWouldBackoff(const QString& reason,
                                           const QString& triggerKind,
                                           double stallSec) {
@@ -421,31 +429,49 @@ void QtScaleBleTransport::triggerScaleBackoff(const char* reason,
     // app run (no loop, no re-trigger by any scale).
     // WARN-level: this is the headline event for log-based field validation.
     warn(QString("Scale connection-priority BACKOFF triggered: %1 — skipping "
-                 "HIGH and reconnecting the scale at BALANCED")
+                 "HIGH for subsequent scale connections")
              .arg(QString::fromUtf8(reason)));
     // Latch the decision app-run-wide so every scale (incl. one connected
     // after a scale-type change, which builds a fresh transport+detector)
-    // skips HIGH for the rest of this run. In-memory only; cleared on restart.
+    // skips HIGH for the rest of this run; epoch-persisted (#1220) so the
+    // next launch also starts at BALANCED. In-memory part cleared on restart.
     if (auto* mgr = BLEManager::instance()) {
         mgr->latchScaleSkipHighPriority(triggerKind);
         warn(QStringLiteral("Scale connection-priority: app-run skip-HIGH latch "
              "SET (trigger=%1) — all scales will run at BALANCED until app "
              "restart or MCP reset").arg(triggerKind));
     }
-    // Tear down the link, then emit disconnected() explicitly.
-    // disconnectFromDevice() calls m_controller->disconnect(), which severs
-    // ALL Qt signals from the controller — that alone is sufficient to
-    // guarantee onControllerDisconnected() never fires on this path, in ANY
-    // controller state, so disconnectFromDevice() does NOT emit disconnected()
-    // here. (Separately, for a fully-discovered scale in DiscoveredState the
-    // inner m_controller->disconnectFromDevice() is also skipped, so the BLE
-    // peer isn't explicitly notified — a distinct fact, NOT the reason the
-    // signal is missing.) We must therefore emit disconnected() ourselves —
-    // unconditionally, regardless of state — honouring the ScaleBleTransport
-    // contract, so the scale driver reaches setConnected(false) →
-    // ScaleDevice::connectedChanged, which the existing scale auto-reconnect
-    // (main.cpp) is gated on. Without it the backoff would be a permanent
-    // scale drop instead of a reconnect-at-BALANCED.
+
+    // #1176: NEVER tear down the scale link mid-shot. A disconnect+reconnect
+    // during preheat/extraction loses several seconds of weight — that bounce
+    // itself caused some of the very shot failures this feature was meant to
+    // prevent — and BALANCED cannot rescue the in-progress shot anyway (it
+    // only helps the *next* connection). So if a shot is in progress, latch
+    // only and let BALANCED take effect at the next natural (re)connect.
+    // scale-feed-stall is by construction always in-shot (WeightProcessor
+    // only confirms during extraction/preheat); force-treat it as in-shot
+    // even if the queued shotEnded raced ahead of the queued confirm.
+    const bool inShot =
+        m_shotActive || triggerKind == QStringLiteral("scale-feed-stall");
+    if (inShot) {
+        warn(QStringLiteral("Scale connection-priority: shot in progress — NOT "
+             "bouncing the scale mid-shot; skip-HIGH latched, BALANCED applies "
+             "at the next natural scale (re)connect (trigger=%1)")
+             .arg(triggerKind));
+        return;
+    }
+
+    // Idle / between shots: safe to bounce now so the upcoming shot starts at
+    // BALANCED. disconnectFromDevice() calls m_controller->disconnect(), which
+    // severs ALL Qt signals from the controller — sufficient to guarantee
+    // onControllerDisconnected() never fires on this path in ANY controller
+    // state, so disconnectFromDevice() does NOT emit disconnected() here. We
+    // therefore emit disconnected() ourselves so the scale driver reaches
+    // setConnected(false) → ScaleDevice::connectedChanged, which the existing
+    // scale auto-reconnect (main.cpp) is gated on. Without it the backoff
+    // would be a permanent scale drop instead of a reconnect-at-BALANCED.
+    warn(QStringLiteral("Scale connection-priority: idle — reconnecting the "
+         "scale now at BALANCED (trigger=%1)").arg(triggerKind));
     disconnectFromDevice();
     emit disconnected();
 }

@@ -47,6 +47,7 @@ public slots:
     void onScaleFeedStalled(qint64 gapMs) override;
     void onScaleFeedStallConfirmed(qint64 gapMs) override;
     void onScaleFeedResumed(qint64 gapMs) override;
+    void setShotActive(bool active) override;
 
 private slots:
     void onControllerConnected();
@@ -86,6 +87,10 @@ private:
     QString m_deviceName;
     QString m_deviceId;  // UUID on iOS, address on other platforms - for duplicate detection
     bool m_connected = false;
+    // True from EspressoPreheating through shot end (fed by MachineState in
+    // main.cpp). Gates triggerScaleBackoff(): defer the teardown while a shot
+    // is in progress, bounce only when idle. #1176.
+    bool m_shotActive = false;
 
     // Connection-priority backoff. Pure decision logic in a Qt-free helper
     // (unit-tested in isolation); it lives on this transport, which persists

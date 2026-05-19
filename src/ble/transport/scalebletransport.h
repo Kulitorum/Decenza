@@ -129,6 +129,12 @@ public slots:
     // resumed on its own. `gapMs` is the measured silent duration. Default
     // no-op; only QtScaleBleTransport logs it (observe mode).
     virtual void onScaleFeedResumed(qint64 gapMs) { Q_UNUSED(gapMs); }
+    // Espresso-cycle bracket (#1176): true from EspressoPreheating through
+    // shot end, false at idle/between shots. QtScaleBleTransport uses it so a
+    // backoff DEFERS the skip-HIGH teardown while a shot is in progress (latch
+    // only, apply at the next natural reconnect) instead of bouncing the scale
+    // mid-shot; an idle backoff still reconnects immediately. Default no-op.
+    virtual void setShotActive(bool active) { Q_UNUSED(active); }
 
 signals:
     /**
