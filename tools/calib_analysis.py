@@ -2,14 +2,22 @@
 """Offline analysis harness for the cross-profile grinder calibration.
 
 Read-only. Faithfully replays the legacy `buildGrinderCalibrationBlock`
-(pooled all-time medians, two-anchor pick) AND the proposed within-coffee
-paired design, so the named constants in the C++ rewrite
+(pooled all-time medians, two-anchor pick) to reproduce the #1223 failure,
+and reproduces the proposed path's SLOPE-ESTIMATION and GATE LOGIC only
+(within-batch pairing, conversionKey, dimensionless spread gate). It does
+NOT reproduce the full block assembly — the per-batch anchor, per-profile
+rgs table, extrapolation cap, or directional fallback are not modelled
+here; this tool exists to tune the named constants in the C++ rewrite
 (openspec change `fix-grinder-calibration-cross-profile`, tasks 1.2/1.3)
-can be tuned against a real shots.db before any code changes.
+against a real shots.db, not to mirror the production output.
+
+Defaults below MUST stay in sync with the shipped C++ constants in
+src/ai/dialing_blocks.cpp (kCalibMinPairSpanUgs, kCalibMinEndpointN,
+kCalibMinValidatedPairs, kCalibMaxSpreadRatio, kCalibCap).
 
 Usage:
     python3 tools/calib_analysis.py --db /path/to/shots.db [--grinder Zero]
-            [--min-pair-span 1.0] [--min-endpoint-samples 3]
+            [--min-pair-span 0.75] [--min-endpoint-samples 2]
             [--min-validated-pairs 3] [--max-spread-ratio 0.6]
             [--cap 1.5]
 
@@ -97,7 +105,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", required=True)
     ap.add_argument("--grinder", default="Zero")
-    ap.add_argument("--min-pair-span", type=float, default=1.0)
+    # Defaults mirror the shipped C++ constants (dialing_blocks.cpp).
+    ap.add_argument("--min-pair-span", type=float, default=0.75)
     # >=2: a single-shot "median" is one noisy point; the safe DIRECTIONAL
     # outcome at n=1 on any one DB is luck, not robustness (review S3).
     ap.add_argument("--min-endpoint-samples", type=int, default=2)
@@ -210,7 +219,7 @@ def main():
     for nm, u, m in cands:
         print(f"  {nm:<26} ugs={u:<5} median={m}")
 
-    def select_anchors(pool):  # faithful port of dialing_blocks.cpp selectAnchors
+    def select_anchors(pool):  # port of the PRE-#1236 selectAnchors (removed from dialing_blocks.cpp); kept only to reproduce the legacy #1223 failure
         if len(pool) < 2:
             return None
         pool = sorted(pool, key=lambda c: c[1])

@@ -950,10 +950,14 @@ private slots:
                    const QString& setting, const QString& model = QStringLiteral("Niche Zero"),
                    const QString& burrs = QStringLiteral("63mm conical"))
     {
+        // Non-empty bean so the shot is batch-knowable (#1236 empty-bean
+        // guard); shared across calSeed calls so they form one roast batch.
         return insertShot(db, ShotRow{
             .uuid = uuid, .timestamp = ts,
             .profileName = name, .profileKbId = kbId,
             .finalWeight = 36.0,
+            .beanBrand = QStringLiteral("TestRoaster"),
+            .beanType = QStringLiteral("TestBean"),
             .grinderModel = model, .grinderBurrs = burrs,
             .grinderSetting = setting, .enjoyment = 80 });
     }

@@ -715,9 +715,9 @@ static QString formatGrinderSetting(double v)
 // docs/kb_sources/UNIVERSAL_GRIND_SETTING.md) and alone defeats #1223.
 // `kCalibConversionKey` is NEVER hardcoded — slope is a per-grinder runtime
 // output; only the *gates* are constants.
-constexpr double kCalibMinPairSpanUgs   = 0.75;  // ΔUGS floor: tiny denominators amplify rounding noise
-constexpr int    kCalibMinEndpointN     = 2;     // a 1-shot "median" is one noisy point (review S3)
-constexpr int    kCalibMinValidatedPairs = 3;    // below this → directional only
+constexpr double    kCalibMinPairSpanUgs    = 0.75;  // ΔUGS floor: tiny denominators amplify rounding noise
+constexpr qsizetype kCalibMinEndpointN      = 2;     // a 1-shot "median" is one noisy point (review S3)
+constexpr qsizetype kCalibMinValidatedPairs = 3;     // below this → directional only
 constexpr double kCalibMaxSpreadRatio   = 0.6;   // dimensionless: IQR ≤ ratio·|key| (grinder-portable, D1a)
 constexpr double kCalibCap              = 1.5;   // UGS beyond validated range before going directional
 constexpr qint64 kCalibUndatedBatchDays = 90;    // single-linkage gap for undated roast batches (D1b)
@@ -767,6 +767,17 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         const QString t = rd.trimmed();
         return !t.isEmpty() && t != QStringLiteral("--");
     };
+    // Bean identity must be non-empty to assert a roast batch. With no
+    // bean metadata, two shots cannot be proven to be the same coffee, so
+    // pooling them re-creates the cross-batch baseline confound (#1223)
+    // this block exists to remove. A row/shot with empty bean is
+    // "batch-unknowable": excluded from within-batch pairing and from the
+    // current-batch anchor → the block degrades to directional, the
+    // correct honest outcome (review #1236).
+    auto beanResolved = [](const QString& brand, const QString& type) {
+        return !brand.trimmed().isEmpty() || !type.trimmed().isEmpty();
+    };
+    const bool curBeanResolved = beanResolved(cur.beanBrand, cur.beanType);
     const QString curBean = cur.beanBrand + QStringLiteral(" / ") + cur.beanType;
     const bool curDated = isDated(cur.roastDate);
     const qint64 batchGapSec = kCalibUndatedBatchDays * 24 * 3600;
@@ -789,6 +800,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         "SELECT profile_kb_id, profile_name, grinder_setting, timestamp, "
         "       bean_brand, bean_type, roast_date, final_weight, "
         "       COALESCE(enjoyment,0), COALESCE(drink_tds,0), "
+        "       COALESCE(yield_override, 0), "
         "       json_extract(profile_json,'$.target_weight') "
         "FROM shots "
         "WHERE grinder_model = ? "
@@ -815,6 +827,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         QString bean;
         QString roast;
         bool dated = false;
+        bool beanOk = false;    // bean identity non-empty (batch-knowable)
         QString batch;          // assigned below
         bool currentBatch = false;
     };
@@ -831,8 +844,16 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         const double  finalW    = q.value(7).toDouble();
         const int     enj       = q.value(8).toInt();
         const double  tds       = q.value(9).toDouble();
-        const QVariant twv      = q.value(10);
-        const double  targetW   = twv.isNull() ? 0.0 : twv.toString().toDouble();
+        // Stop-at-weight target with the SAME precedence as
+        // effectiveTargetWeightG(): the stored yield_override column wins
+        // (native Decenza SAW shots persist it there, NOT in profile_json),
+        // profile_json target_weight is only the fallback for imported
+        // shots. Reading json_extract alone dropped the common SAW dial-in
+        // cohort (no rating, no refractometer) — review #1236.
+        const double  yieldOv   = q.value(10).toDouble();
+        const QVariant twv      = q.value(11);
+        const double  jsonTw    = twv.isNull() ? 0.0 : twv.toString().toDouble();
+        const double  targetW   = yieldOv > 0.0 ? yieldOv : jsonTw;
 
         // Dialed-in gate.
         const bool ratedOk  = enj >= 50;
@@ -857,6 +878,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         r.bean = bBrand + QStringLiteral(" / ") + bType;
         r.roast = roast;
         r.dated = isDated(roast);
+        r.beanOk = beanResolved(bBrand, bType);
         rows.append(r);
     }
 
@@ -870,9 +892,10 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // single-linkage clustering with a 90-day gap (sliding window, NOT a
     // fixed calendar bucket — review S5b).
     {
-        QHash<QString, QList<int>> undatedByBean;  // bean → row indices
-        for (int i = 0; i < rows.size(); ++i) {
+        QHash<QString, QList<qsizetype>> undatedByBean;  // bean → row indices
+        for (qsizetype i = 0; i < rows.size(); ++i) {
             CalRow& r = rows[i];
+            if (!r.beanOk) continue;  // batch-unknowable → never paired/anchored
             if (r.dated) {
                 r.batch = r.bean + QStringLiteral(" @ ") + r.roast;
             } else {
@@ -880,12 +903,12 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
             }
         }
         for (auto it = undatedByBean.begin(); it != undatedByBean.end(); ++it) {
-            QList<int>& idx = it.value();
+            QList<qsizetype>& idx = it.value();
             std::sort(idx.begin(), idx.end(),
-                      [&](int a, int b){ return rows[a].ts < rows[b].ts; });
+                      [&](qsizetype a, qsizetype b){ return rows[a].ts < rows[b].ts; });
             int cluster = 0;
             qint64 prevTs = -1;
-            for (int j : idx) {
+            for (qsizetype j : idx) {
                 if (prevTs >= 0 && rows[j].ts - prevTs > batchGapSec)
                     ++cluster;
                 rows[j].batch = it.key()
@@ -899,6 +922,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     // and (both dated → same roastDate) else within the 90-day window of
     // the current shot. Matches the spec's "within 90 days of one another".
     for (CalRow& r : rows) {
+        if (!curBeanResolved || !r.beanOk) continue;  // batch-unknowable
         if (!normEq(r.bean, curBean)) continue;
         if (curDated && r.dated)
             r.currentBatch = normEq(r.roast, cur.roastDate);
@@ -911,7 +935,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     struct PB { QList<double> settings; double ugs = 0.0; };
     QHash<QString, QHash<QString, PB>> byBatch;  // batch → kbId → PB
     for (const CalRow& r : rows) {
-        if (std::isnan(r.ugs)) continue;
+        if (std::isnan(r.ugs) || !r.beanOk || r.batch.isEmpty()) continue;
         PB& pb = byBatch[r.batch][r.kbId];
         pb.settings.append(r.setting);
         pb.ugs = r.ugs;
@@ -923,8 +947,8 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     for (auto bit = byBatch.constBegin(); bit != byBatch.constEnd(); ++bit) {
         const QHash<QString, PB>& profs = bit.value();
         QList<QString> ids = profs.keys();
-        for (int i = 0; i < ids.size(); ++i) {
-            for (int j = i + 1; j < ids.size(); ++j) {
+        for (qsizetype i = 0; i < ids.size(); ++i) {
+            for (qsizetype j = i + 1; j < ids.size(); ++j) {
                 PB a = profs[ids[i]];
                 PB b = profs[ids[j]];
                 if (a.settings.size() < kCalibMinEndpointN
@@ -946,14 +970,21 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         QList<double> s = slopes;
         conversionKey = computeMedian(s);  // Theil–Sen (median of pairwise)
         std::sort(s.begin(), s.end());
+        // Conservative spread: floor-index quartiles. At small n (n≤4,
+        // incl. the minimum kCalibMinValidatedPairs=3) q1=s[0], q3=s[max]
+        // so this is the FULL RANGE, not a textbook interquartile range —
+        // intentionally tighter (always fails safe → more directional,
+        // never a fabricated number). kCalibMaxSpreadRatio was tuned
+        // against this exact estimator in tools/calib_analysis.py, so the
+        // two must change together; do not "fix" to true IQR in isolation.
         const double q1 = s[s.size() / 4];
         const double q3 = s[(3 * s.size()) / 4];
-        const double iqr = q3 - q1;
+        const double spread = q3 - q1;
         // Dimensionless spread gate (D1a) — grinder-portable; an absolute
         // steps/UGS threshold is not (slope magnitude is grinder-specific).
         keyValid = s.size() >= kCalibMinValidatedPairs
                    && std::abs(conversionKey) > 1e-9
-                   && iqr <= kCalibMaxSpreadRatio * std::abs(conversionKey);
+                   && spread <= kCalibMaxSpreadRatio * std::abs(conversionKey);
     }
 
     // ---- Per-current-batch anchor (intercept, D3) ----

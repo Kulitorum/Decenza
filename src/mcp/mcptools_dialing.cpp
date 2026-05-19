@@ -379,34 +379,40 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
     // dialing_get_grinder_calibration
     //
     // Split out of dialing_get_context (#1164). The cross-profile grinder
-    // calibration table is ~33 rows and is only relevant when the user is
-    // weighing a profile switch or asks "what grind for profile X?". It is a
-    // stable physical property of the grinder+burrs pair, so the AI fetches
-    // it once on demand here instead of re-receiving it on every
-    // conversational dialing_get_context turn. The one-shot in-app advisor
-    // and ai_advisor_invoke still build the same block inline via
+    // calibration is only relevant when the user is weighing a profile
+    // switch or asks "what grind for profile X?", so the AI fetches it on
+    // demand here instead of re-receiving it on every conversational
+    // dialing_get_context turn. The one-shot in-app advisor and
+    // ai_advisor_invoke still build the same block inline via
     // DialingBlocks::buildGrinderCalibrationBlock — they have no follow-up
     // tool-call channel, so they need it in the initial payload. All three
-    // surfaces share the one builder, so they cannot drift.
+    // surfaces share the one builder, so they cannot drift. NOTE (#1236):
+    // the block is anchored on the CURRENT roast batch, so it is NOT a
+    // stable per-conversation constant — re-fetch when the coffee changes.
     registry->registerAsyncTool(
         "dialing_get_grinder_calibration",
-        "Cross-profile grinder calibration for the user's grinder + burrs: the "
-        "recommended grinder setting (rgs) for every known espresso profile, "
-        "anchored on the profiles the user has actually pulled. Returns "
-        "fineAnchor / coarseAnchor (the two history profiles the conversion is "
-        "pinned to), conversionKey (grinder-setting units per UGS unit), "
-        "calibratedUgsRange, and a profiles[] array — each entry has the "
-        "profile's ugs, rgs, and source: history = median measured from the "
-        "user's own shots, derived = interpolated within the calibrated range, "
-        "extrapolated = projected outside it (lower confidence). "
-        "Call this ONLY when the user asks about switching profiles or wants a "
-        "grind setting for a profile other than the current shot's. It is "
-        "intentionally omitted from dialing_get_context to keep multi-turn "
-        "dial-in lean, and is a stable property of the grinder so one fetch "
-        "per conversation is enough. Espresso only; unavailable until the user "
-        "has pulled at least two KB-known profiles on this exact grinder + "
-        "burrs with numeric grind settings spanning a wide enough range to "
-        "anchor the conversion.",
+        "Cross-profile grinder grind guidance for the user's grinder + burrs. "
+        "The model `grind(profile, coffeeBatch) ≈ batchBaseline + UGS·conversionKey` "
+        "is derived from within-roast-batch paired history. Returns: "
+        "`confidence` (\"approximate\" = a gated numeric conversion is "
+        "available; \"directional\" = not enough same-batch data, relative "
+        "guidance only); `usageConstraint` (a directive to follow verbatim); "
+        "`currentProfileUgsPlaced` (false → the current profile is not on the "
+        "UGS chart and finer/coarser cannot be ordered). When approximate it "
+        "also returns `conversionKey`, `calibratedUgsRange`, and `coffeeAnchor` "
+        "(the recent dialed-in shot of the CURRENT coffee the numbers are "
+        "anchored on). `profiles[]` entries each carry `profileName`, `ugs`, "
+        "`source` and conditionally `rgs`/`direction`: source `history` = "
+        "median from the user's own current-batch shots (has `rgs`), `derived` "
+        "= interpolated within the calibrated range + cap (has `rgs`), "
+        "`directional` = outside the cap OR no numeric calibration (NO `rgs`; "
+        "carries `direction` \"finer\"/\"coarser\" relative to the current "
+        "profile — when no `direction`, the two cannot be ordered). NEVER quote "
+        "or compute a number for a `directional` profile; give finer/coarser "
+        "and tell the user to pull a reference shot. The block is anchored on "
+        "the current roast batch, so re-fetch when the coffee changes. Call "
+        "this ONLY when the user asks about switching profiles or wants a grind "
+        "setting for a profile other than the current shot's. Espresso only.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -478,17 +484,22 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             "and have the user pull a reference shot on the target profile "
                             "rather than quoting a specific number.";
                     } else {
-                        // Block is present. It is self-describing via
+                        // Block is present and self-describing via
                         // `confidence`: "approximate" carries numbers within
                         // a stated range; "directional" carries finer/coarser
-                        // only. Never a numeric table when not validated —
-                        // the builder enforces that. Surface a `reason` on
-                        // the directional path so the model gives direction
-                        // + a reference-shot suggestion, not a number.
+                        // only. The builder guarantees no numeric table when
+                        // not validated. On the directional path, surface a
+                        // `reason` so the model gives direction + a
+                        // reference-shot suggestion — but do NOT set
+                        // `available: false`: the directional block IS
+                        // actionable data, and a top-level "unavailable" flag
+                        // alongside a populated block makes some models
+                        // discard the finer/coarser guidance entirely
+                        // (review #1236). `confidence` + `reason` already
+                        // signal the constraint; the spec permits this form.
                         result["grinderCalibration"] = calibration;
                         if (calibration[QStringLiteral("confidence")].toString()
                                 == QStringLiteral("directional")) {
-                            result["available"] = false;
                             result["reason"] =
                                 "No numeric cross-profile calibration for the current "
                                 "coffee — not enough same-roast-batch dial-in data. Use "
