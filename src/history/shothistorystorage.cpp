@@ -1119,6 +1119,12 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
         // full mapping table and decenza::deriveBadgesFromAnalysis (in
         // history/shotbadgeprojection.h) for the projection rules.
         const AnalysisInputs inputs = prepareAnalysisInputs(data.profileKbId, data.profileJson);
+        // KB-resolved bit gates grind Arm 1 — see openspec change
+        // skip-grind-arm1-when-kb-unresolved. data.profileKbId is empty
+        // when ShotSummarizer::matchProfileKey returned no hit (no exact
+        // alias, no #1198 prefix, no editor-type default), which is the
+        // signal "we have no profile context for Arm 1 to be meaningful".
+        const bool profileKbResolved = !data.profileKbId.isEmpty();
         const auto analysis = ShotAnalysis::analyzeShot(
             tmpRecord.pressure, shotData->flowData(),
             shotData->cumulativeWeightData(),
@@ -1127,7 +1133,8 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             shotData->pressureGoalData(), shotData->flowGoalData(),
             inputs.analysisFlags, inputs.firstFrameSeconds,
             data.targetWeight, data.finalWeight,
-            inputs.frameCount, inputs.expertBand);
+            inputs.frameCount, inputs.expertBand,
+            profileKbResolved);
         decenza::applyBadgesToTarget(data, analysis.detectors);
     }
 
@@ -1834,6 +1841,13 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // helper interprets as "all badges false."
     {
         const AnalysisInputs inputs = prepareAnalysisInputs(record.profileKbId, record.profileJson);
+        // KB-resolved bit gates grind Arm 1 — see openspec change
+        // skip-grind-arm1-when-kb-unresolved. record.profileKbId can be
+        // empty either because the saved row predates KB resolution or
+        // because matchProfileKey returned no hit at save time; in both
+        // cases the right answer at recompute-on-load is "we have no
+        // profile context for Arm 1".
+        const bool profileKbResolved = !record.profileKbId.isEmpty();
         auto analysis = ShotAnalysis::analyzeShot(
             record.pressure, record.flow, record.weight,
             record.conductanceDerivative,
@@ -1841,7 +1855,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
             record.pressureGoal, record.flowGoal,
             inputs.analysisFlags, inputs.firstFrameSeconds,
             record.targetWeight, record.summary.finalWeight,
-            inputs.frameCount, inputs.expertBand);
+            inputs.frameCount, inputs.expertBand,
+            profileKbResolved);
         decenza::applyBadgesToTarget(record, analysis.detectors);
         // Cache the AnalysisResult on the ShotRecord so convertShotRecord
         // (called next in the requestShot path) doesn't have to re-run

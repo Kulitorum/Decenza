@@ -647,36 +647,61 @@ EvaluatedShot evaluate(const LoadedShot& s)
 
     // --- App parity (scoped — read this) ---
     // Route through the ONE production analyzeShot with the SAME inputs the
-    // app resolves (analysisFlags + expertBand), instead of the old
-    // empty-flags reimpl that silently diverged on flow_trend_ok
-    // suppression + the expert-band line.
+    // app resolves (analysisFlags + expertBand + profileKbResolved gate),
+    // instead of the old empty-flags reimpl that silently diverged on
+    // flow_trend_ok suppression + the expert-band line.
     //
-    // SCOPE / NOT a general guarantee: this resolves kbId from the title
-    // with an EMPTY editorType, whereas the app's prepareAnalysisInputs
-    // passes the profile's real editorType. matchProfileKey's editor-type
-    // fallback (dflow→d-flow/default, aflow→a-flow) is the resolution path
-    // for *custom-titled* D-Flow/A-Flow profiles that don't title-match a
-    // KB key. For the current tests/data/shots/ corpus this is moot — every
-    // fixture title-matches a KB key directly and carries no profile JSON
-    // (so frameCount/firstFrameSeconds are -1 on BOTH sides) — so for the
-    // corpus the inputs are identical. It is NOT identical for
-    // custom-titled editor profiles (band-fire counts would under-report
-    // vs the app there), and TstShotCorpus validates shot_eval against its
-    // own manifest baseline, NOT against the live app — it cannot, and does
-    // not, assert app↔tool equality. Treat the parity as "corpus-scoped,
-    // title-match path only." (To make it general: carry editorType in
-    // fixtures and thread it here.)
+    // editorType is inferred from the title prefix below (mirroring
+    // Profile::editorType for the D-Flow/A-Flow editor namespaces), so
+    // custom-titled editor profiles ("D-Flow / Malabar") resolve to the
+    // editor-default KB entry the same way the app's prepareAnalysisInputs
+    // does. Pressure/flow/advanced editor types (settings_2a / settings_2b
+    // / advanced) have no title prefix in the canonical convention; their
+    // resolution depends on having profileType in the fixture, which the
+    // current corpus doesn't carry — but those editor types have no
+    // editor-default KB entry, so resolution falls through to "" either
+    // way and the consequence is the same. TstShotCorpus validates
+    // shot_eval against its own manifest baseline, not against the live
+    // app — but the title-prefix inference closes the largest known
+    // divergence (#1198 + skip-grind-arm1-when-kb-unresolved era).
+    // Mirror Profile::editorType's title-prefix inference: a title starting
+    // with "D-Flow" / "A-Flow" identifies the editor namespace, which lets
+    // matchProfileKey's editor-type-default fallback resolve custom-titled
+    // editor profiles ("D-Flow / Malabar") even when no exact alias or
+    // prefix-anchor hit exists. Without this, shot_eval's resolution path
+    // would silently drop those fixtures into the unresolved bucket, and
+    // the new profileKbResolved gate (openspec
+    // skip-grind-arm1-when-kb-unresolved) would skip Arm 1 on them — a
+    // false divergence from production, where Profile::editorType supplies
+    // this hint to prepareAnalysisInputs. Pressure/flow/advanced editor
+    // types don't have a title prefix; they pass through with an empty
+    // hint (no editor-default KB entry to fall back to). The "*"
+    // leading-character convention for renamed copies is honored to mirror
+    // production.
+    QString editorTypeHint;
+    {
+        const QString t = s.profileTitle.startsWith(QLatin1Char('*'))
+            ? s.profileTitle.mid(1) : s.profileTitle;
+        if (t.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive))
+            editorTypeHint = QStringLiteral("dflow");
+        else if (t.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))
+            editorTypeHint = QStringLiteral("aflow");
+    }
     const QString kbId =
-        ShotSummarizer::computeProfileKbId(s.profileTitle, QString());
+        ShotSummarizer::computeProfileKbId(s.profileTitle, editorTypeHint);
     const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(kbId);
     const std::optional<ShotAnalysis::ExpertBand> expertBand =
         ShotSummarizer::expertBandForKbId(kbId);
+    // Resolved kbId gates grind Arm 1 on; an unresolved one gates it off.
+    // See openspec change skip-grind-arm1-when-kb-unresolved.
+    const bool profileKbResolved = !kbId.isEmpty();
 
     const ShotAnalysis::AnalysisResult R = ShotAnalysis::analyzeShot(
         s.pressure, s.flow, /*weight=*/{}, s.conductanceDerivative, s.phases,
         s.beverageType, s.durationSec, s.pressureGoal, s.flowGoal,
         analysisFlags, /*firstFrameConfiguredSeconds=*/-1.0,
-        s.targetWeightG, s.yieldG, /*expectedFrameCount=*/-1, expertBand);
+        s.targetWeightG, s.yieldG, /*expectedFrameCount=*/-1, expertBand,
+        profileKbResolved);
 
     const decenza::BadgeFlags badges =
         decenza::deriveBadgesFromAnalysis(R.detectors);

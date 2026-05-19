@@ -489,6 +489,192 @@ private slots:
                  false);
     }
 
+    // profileKbResolved=false skips Arm 1 entirely. Same shot setup as
+    // flowVsGoal_flowModePourWithDelta_fires (which fires Arm 1 with
+    // delta = -0.9), but with profileKbResolved=false Arm 1's flow-mode-
+    // range builder is gated off — sampleCount and delta stay zero, the
+    // function returns clean defaults, skipped stays false so Arm 2 can
+    // still run on top. Regression for openspec change
+    // skip-grind-arm1-when-kb-unresolved.
+    void flowVsGoal_unresolvedKb_skipsArm1ButLeavesArm2Active()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "Preinfusion", 0, /*isFlowMode=*/true),
+            phase(10.0, "Pour", 1, /*isFlowMode=*/true),
+        };
+        auto flow = flatSeries(10.0, 30.0, 0.8);
+        auto flowGoal = flatSeries(10.0, 30.0, 1.7);
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, 10.0, 30.0,
+            /*beverage=*/"", /*analysisFlags=*/{},
+            /*pressure=*/{}, /*targetWeightG=*/0.0, /*finalWeightG=*/0.0,
+            /*profileKbResolved=*/false);
+        QVERIFY(!r.skipped);                 // distinct from grind_check_skip path
+        QVERIFY(!r.hasData);                 // Arm 1 didn't run
+        QCOMPARE(r.sampleCount, qsizetype{0});
+        QCOMPARE(r.delta, 0.0);
+
+        QCOMPARE(ShotAnalysis::detectGrindIssue(flow, flowGoal, phases, 10.0, 30.0),
+                 true);  // unchanged default-true contract still fires
+    }
+
+    // Full pipeline: unresolved KB on a flow-mode shot whose Arm 1 would
+    // otherwise fire (delta -0.9) AND whose pressure stays under 4 bar
+    // (Arm 2 silent) projects to grindCoverage="notAnalyzable" with the
+    // existing observation line and alternate verdict. The badge stays
+    // off. This is the false-positive surface the change targets — a
+    // user-created flow profile with no KB context no longer falsely
+    // accuses grind based on a flow-goal series whose meaning we can't
+    // verify.
+    void analyzeShot_unresolvedKb_armOneSilenced_projectsNotAnalyzable()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion", 0, /*isFlowMode=*/true),
+            phase(10.0, "pour",       1, /*isFlowMode=*/true),
+        };
+        // Pressure 3.5 bar everywhere — above pourTruncated (2.5) so the
+        // dominator cascade doesn't fire, below Arm 2's 4 bar gate so
+        // Arm 2 sees no pressurized samples. Without the new gate, Arm 1
+        // would average flow=0.8 vs goal=1.7 across [10.5, 30] and fire
+        // with delta ≈ -0.9.
+        QVector<QPointF> pressure = flatSeries(0.0, 30.0, 3.5);
+        QVector<QPointF> flow = flatSeries(0.0, 30.0, 0.8);
+        QVector<QPointF> pressureGoal = pressure;
+        QVector<QPointF> flowGoal = flatSeries(0.0, 30.0, 1.7);
+        QVector<QPointF> dCdt = flatSeries(0.0, 30.0, 0.0);
+        QVector<QPointF> weight;
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight,
+            dCdt, phases, "espresso", 30.0,
+            pressureGoal, flowGoal, /*analysisFlags=*/{},
+            /*firstFrameConfiguredSeconds=*/-1.0,
+            /*targetWeightG=*/36.0, /*finalWeightG=*/30.0,
+            /*expectedFrameCount=*/-1, /*expertBand=*/std::nullopt,
+            /*profileKbResolved=*/false);
+
+        const auto& d = result.detectors;
+        const auto badges = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY(!d.pourTruncated);
+        QVERIFY(!d.grindHasData);
+        QVERIFY(!d.grindVerifiedClean);
+        QVERIFY(!badges.grindIssueDetected);
+        QCOMPARE(d.grindCoverage, QStringLiteral("notAnalyzable"));
+        QCOMPARE(d.grindFlowDeltaMlPerSec, 0.0);  // Arm 1 didn't run
+
+        bool sawObservation = false;
+        bool sawAlternateVerdict = false;
+        for (const QVariant& v : result.lines) {
+            const QVariantMap m = v.toMap();
+            if (m["type"].toString() == "observation"
+                && m["text"].toString().contains("Could not analyze grind", Qt::CaseInsensitive))
+                sawObservation = true;
+            if (m["type"].toString() == "verdict"
+                && m["text"].toString().contains("grind could not be evaluated", Qt::CaseInsensitive))
+                sawAlternateVerdict = true;
+        }
+        QVERIFY2(sawObservation,
+                 "unresolved-KB shot must emit [observation] line via notAnalyzable path");
+        QVERIFY2(sawAlternateVerdict,
+                 "unresolved-KB shot must emit alternate verdict via notAnalyzable path");
+    }
+
+    // Same shot as above, but with profileKbResolved=true: Arm 1 runs
+    // normally and the grind badge fires with delta < -0.4. Locks in the
+    // bit-for-bit "no behaviour change on resolved profiles" contract
+    // alongside its negated sibling test above.
+    void analyzeShot_resolvedKb_armOneRunsAndFires()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion", 0, /*isFlowMode=*/true),
+            phase(10.0, "pour",       1, /*isFlowMode=*/true),
+        };
+        QVector<QPointF> pressure = flatSeries(0.0, 30.0, 3.5);
+        QVector<QPointF> flow = flatSeries(0.0, 30.0, 0.8);
+        QVector<QPointF> pressureGoal = pressure;
+        QVector<QPointF> flowGoal = flatSeries(0.0, 30.0, 1.7);
+        QVector<QPointF> dCdt = flatSeries(0.0, 30.0, 0.0);
+        QVector<QPointF> weight;
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight,
+            dCdt, phases, "espresso", 30.0,
+            pressureGoal, flowGoal, /*analysisFlags=*/{},
+            /*firstFrameConfiguredSeconds=*/-1.0,
+            /*targetWeightG=*/36.0, /*finalWeightG=*/30.0,
+            /*expectedFrameCount=*/-1, /*expertBand=*/std::nullopt,
+            /*profileKbResolved=*/true);
+
+        const auto& d = result.detectors;
+        const auto badges = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY(d.grindHasData);
+        QVERIFY(d.grindFlowDeltaMlPerSec < -ShotAnalysis::FLOW_DEVIATION_THRESHOLD);
+        QVERIFY(badges.grindIssueDetected);
+        QCOMPARE(d.grindCoverage, QStringLiteral("verified"));
+    }
+
+    // profileKbResolved=false does NOT suppress Arm 2's yield-shortfall
+    // arm. Even on a user-created profile we know nothing about, an
+    // 18g → 22g shot against a 36g target (yield ratio 0.61, below the
+    // 0.70 audit threshold) still fires the grind badge via Arm 2.
+    // Locks in the "we keep the profile-agnostic detectors" half of the
+    // change's contract.
+    void analyzeShot_unresolvedKb_yieldShortfallStillFiresArm2()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "preinfusion", 0, /*isFlowMode=*/true),
+            phase(8.0, "pour",        1, /*isFlowMode=*/false),
+        };
+        // Pressure ≥ 4 bar throughout pour-mode phase so Arm 2 sees
+        // pressurized samples. Duration is short enough that the
+        // flow-arm gate fails (pressurizedDuration < 15s) — only the
+        // yield arm fires. Final 22 g vs target 36 g = 0.61.
+        QVector<QPointF> pressure = flatSeries(0.0, 12.0, 6.0);
+        QVector<QPointF> flow = flatSeries(0.0, 12.0, 1.5);
+        QVector<QPointF> pressureGoal = pressure;
+        QVector<QPointF> flowGoal = flatSeries(0.0, 12.0, 1.5);
+        QVector<QPointF> dCdt = flatSeries(0.0, 12.0, 0.0);
+        QVector<QPointF> weight;
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight,
+            dCdt, phases, "espresso", 12.0,
+            pressureGoal, flowGoal, /*analysisFlags=*/{},
+            /*firstFrameConfiguredSeconds=*/-1.0,
+            /*targetWeightG=*/36.0, /*finalWeightG=*/22.0,
+            /*expectedFrameCount=*/-1, /*expertBand=*/std::nullopt,
+            /*profileKbResolved=*/false);
+
+        const auto& d = result.detectors;
+        const auto badges = decenza::deriveBadgesFromAnalysis(d);
+        QVERIFY(d.grindChokedPuck);          // yield-shortfall fired
+        QVERIFY(d.grindHasData);
+        QVERIFY(badges.grindIssueDetected);
+        QCOMPARE(d.grindCoverage, QStringLiteral("verified"));
+    }
+
+    // Direct callers omitting the new parameter get the default-true
+    // contract: Arm 1 runs as before. Guards against accidentally
+    // changing the default-arg value in a future refactor (which would
+    // silently affect every test in this file).
+    void flowVsGoal_defaultProfileKbResolvedIsTrue()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "Preinfusion", 0, /*isFlowMode=*/true),
+            phase(10.0, "Pour", 1, /*isFlowMode=*/true),
+        };
+        auto flow = flatSeries(10.0, 30.0, 0.8);
+        auto flowGoal = flatSeries(10.0, 30.0, 1.7);
+
+        // No profileKbResolved arg supplied — relies on default.
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, 10.0, 30.0);
+        QVERIFY(r.hasData);                  // Arm 1 ran (default is true)
+        QVERIFY(r.sampleCount > 0);
+        QVERIFY(r.delta < -0.4);
+    }
+
     // 80's Espresso style: preinfusion is flow-mode 7.5 ml/s with a pressure
     // ceiling that exits the frame on "pressure" transition once the puck
     // builds. The trailing samples (pressure limiter engaged → controller

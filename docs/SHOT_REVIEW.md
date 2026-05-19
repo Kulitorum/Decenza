@@ -168,6 +168,32 @@ returns true when either arm fires. Two arms run **additively**, not as
 fallback — a clean flow-mode preinfusion can hide a pressure-mode choke and
 vice versa.
 
+**Profile-context gate (Arm 1 only).** `analyzeFlowVsGoal` takes a
+`bool profileKbResolved` parameter. When `false` — i.e.
+`ShotSummarizer::matchProfileKey(profileTitle, profileType)` returned
+empty (no exact alias hit, no #1198 longest-boundary-prefix hit, no
+editor-type default hit) — Arm 1 is **skipped entirely**: the flow-mode
+range builder doesn't run, `sampleCount`/`delta` stay zero, and Arm 1
+contributes nothing to `hasData`. Arm 2 (yield-shortfall + sustained-
+pressurized-flow choke) still runs unconditionally — those arms read
+physics-level signals that don't depend on profile shape. The result
+projects through the existing `grindCoverage="notAnalyzable"` path when
+Arm 2 also has no data, or `"verified"` when it does. `skipped` stays
+`false`, distinct from the `grind_check_skip` flag's `"skipped"`
+coverage. Production call sites derive the bool from
+`!profileKbId.isEmpty()` of the resolved id already stored on
+`ShotRecord` / `ShotSaveData` / `ShotSummary`. Direct test callers
+default to `profileKbResolved = true`, preserving the pre-change
+contract. See openspec change `skip-grind-arm1-when-kb-unresolved` for
+the rationale: Arm 1 reads the firmware-reported `flow_goal` series as
+a target the puck should track, but on profiles we have no KB context
+for, that series may be a safety limiter, a ramp-down command, or a
+pump-ramp curve rather than a target — averaging actuals against it
+produces false-positive grind diagnoses. The `grind_check_skip` flag is
+still the way to opt a *known* profile family out of Arm 1 (the
+`advanced-spring-lever` pattern from #1230); the new gate handles
+*unknown* profiles by inferring "no opinion" from the resolver state.
+
 **Arm 1: flow-vs-goal averaging** (the "primary" path).
 
 For each flow-mode phase, builds an inclusive time range:

@@ -320,7 +320,8 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     const QStringList& analysisFlags,
     const QVector<QPointF>& pressure,
     double targetWeightG,
-    double finalWeightG)
+    double finalWeightG,
+    bool profileKbResolved)
 {
     GrindCheck result;
 
@@ -365,7 +366,21 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     // sustained "too fine" delta even on clean shots.
     struct Range { double start; double end; };
     QVector<Range> flowModeRanges;
-    if (!phases.isEmpty()) {
+    // Arm 1 (flow-vs-goal averaging) only runs when we have profile context.
+    // When matchProfileKey returned empty (no exact alias, no #1198 prefix
+    // hit, no editor-type default), the "flow goal" series may be a safety
+    // limiter, a ramp-down command, or a pump-ramp curve rather than a
+    // target the puck should track — averaging actuals against it produces
+    // false-positive grind diagnoses. Leaving flowModeRanges empty here
+    // skips the averaging block below; sampleCount and delta stay zero,
+    // hasData stays false from Arm 1's perspective. Arm 2 (choked-puck +
+    // yield-shortfall) runs unconditionally — those arms read physics-
+    // level signals that don't depend on profile shape. `skipped` is
+    // deliberately NOT set; the projection then falls into
+    // grindCoverage="notAnalyzable" when Arm 2 also has no data, distinct
+    // from grind_check_skip's "skipped" coverage. See openspec change
+    // skip-grind-arm1-when-kb-unresolved.
+    if (profileKbResolved && !phases.isEmpty()) {
         // Pump-ramp trim applies to the first flow-mode phase that
         // coincides with pourStart — that's the one where the pump goes
         // from idle to commanded flow. A flow-mode phase that starts
@@ -701,7 +716,8 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
     double targetWeightG,
     double finalWeightG,
     int expectedFrameCount,
-    const std::optional<ExpertBand>& expertBand)
+    const std::optional<ExpertBand>& expertBand,
+    bool profileKbResolved)
 {
     AnalysisResult result;
     QVariantList& lines = result.lines;
@@ -875,7 +891,8 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
                             pourStart, pourEnd,
                             beverageType, analysisFlags,
                             pressure,
-                            targetWeightG, finalWeightG);
+                            targetWeightG, finalWeightG,
+                            profileKbResolved);
     // Mirror channelingChecked / flowTrendChecked: `checked` reflects whether
     // the detector ran, not whether it was reachable. pourTruncated cascade
     // and the beverage / grind_check_skip skip path both leave grindChecked
@@ -1275,12 +1292,13 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                                              double targetWeightG,
                                              double finalWeightG,
                                              int expectedFrameCount,
-                                             const std::optional<ExpertBand>& expertBand)
+                                             const std::optional<ExpertBand>& expertBand,
+                                             bool profileKbResolved)
 {
     return analyzeShot(pressure, flow, weight,
                        conductanceDerivative, phases, beverageType, duration,
                        pressureGoal, flowGoal, analysisFlags,
                        firstFrameConfiguredSeconds, targetWeightG, finalWeightG,
-                       expectedFrameCount, expertBand)
+                       expectedFrameCount, expertBand, profileKbResolved)
         .lines;
 }
