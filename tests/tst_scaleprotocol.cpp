@@ -180,6 +180,76 @@ private slots:
     }
 
     // ==========================================
+    // DecentScale: firmware version logging
+    // ==========================================
+
+    // Build a 7-byte LED-response packet (cmd=0x0A, header=0x03) with the
+    // given battery byte and openscale-encoded firmware version. Mirrors
+    // openscale include/ble.h:730-731: verHigh = BCD(major), verLow =
+    // (minor << 4) | patch. LED responses carry no checksum.
+    static QByteArray buildDecentLedResponse(uint8_t battery, int major, int minor, int patch) {
+        QByteArray pkt(7, 0);
+        pkt[0] = 0x03;
+        pkt[1] = 0x0A;
+        pkt[2] = 0x00;
+        pkt[3] = 0x00;
+        pkt[4] = static_cast<char>(battery);
+        pkt[5] = static_cast<char>(((major / 10) << 4) | (major % 10));
+        pkt[6] = static_cast<char>((minor << 4) | patch);
+        return pkt;
+    }
+
+    void decentFirmwareVersionLoggedOnceOnFirstLedResponse() {
+        // Current openscale source (include/config.h:29) is `FW: 3.0.9` →
+        // wire bytes 0x03 0x09. Verify we decode that exactly, and that
+        // we suppress identical follow-ups so periodic LED responses
+        // don't churn the log.
+        DecentScale scale(nullptr);
+        auto pkt = buildDecentLedResponse(50, 3, 0, 9);
+        QCOMPARE(static_cast<uint8_t>(pkt[5]), uint8_t(0x03));
+        QCOMPARE(static_cast<uint8_t>(pkt[6]), uint8_t(0x09));
+
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Firmware version: 3\\.0\\.9 \\(raw 0x03 0x09\\).*"));
+        scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
+
+        // A second identical packet must NOT re-log (ignoreMessage matches
+        // exactly one occurrence; a second log would fail the test).
+        scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
+    }
+
+    void decentFirmwareVersionBcdMajor() {
+        // Verify BCD decode of a major >= 10 — major=12, minor=3, patch=4
+        // packs to verHigh=0x12, verLow=0x34. Catches a naive `d[5]` (raw
+        // byte) decode that would mis-render as "18.3.4".
+        DecentScale scale(nullptr);
+        auto pkt = buildDecentLedResponse(80, 12, 3, 4);
+        QCOMPARE(static_cast<uint8_t>(pkt[5]), uint8_t(0x12));
+        QCOMPARE(static_cast<uint8_t>(pkt[6]), uint8_t(0x34));
+
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Firmware version: 12\\.3\\.4 \\(raw 0x12 0x34\\).*"));
+        scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
+    }
+
+    void decentFirmwareVersionChangeWarns() {
+        // A subsequent LED response carrying a different version is itself
+        // diagnostic (shouldn't happen on real hardware) — warn-log the
+        // transition rather than silently overwriting.
+        DecentScale scale(nullptr);
+        auto pkt1 = buildDecentLedResponse(50, 3, 0, 9);
+        auto pkt2 = buildDecentLedResponse(50, 3, 1, 0);
+
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Firmware version: 3\\.0\\.9.*"));
+        scale.onCharacteristicChanged(Scale::Decent::READ, pkt1);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(".*Firmware version changed mid-connect.*3\\.0\\.9.*3\\.1\\.0.*"));
+        scale.onCharacteristicChanged(Scale::Decent::READ, pkt2);
+    }
+
+    // ==========================================
     // DecentScale: error handling
     // ==========================================
 
