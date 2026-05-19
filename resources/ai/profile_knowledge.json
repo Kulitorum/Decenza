@@ -278,7 +278,7 @@
       "id": "advanced-spring-lever",
       "displayName": "Advanced Spring Lever",
       "alsoMatches": ["Weiss advanced spring lever"],
-      "analysisFlags": ["flow_trend_ok"],
+      "analysisFlags": ["flow_trend_ok", "grind_check_skip"],
       "family": "lever-decline",
       "prose": "By John Weiss (JW). Spring-lever emulation with an added flow-limit safety valve: fill → rise to 9 bar → declining pressure → if the puck erodes too fast (flow exceeds the limiter) it switches to 1.5 ml/s flow-controlled extraction to prevent gushing. The Weiss variant uses 90°C (vs 88°C) and is tuned slightly differently; JW updated this to ASL2 with refined step transitions. Expected curves: 9 bar peak then gradual decline; flow stays moderate; if a flow-control step kicks in (pressure drop then stabilization) that is the safety valve working — not a problem. A pressure notch/dip at a consistent point during extraction is a SIGN OF PROPER DIAL-IN, not a flaw (JW: \"I actually aim for that result\"). Temperature 88°C (Advanced), 90°C (Weiss); ~35–45s; 18g→32g. All roasts — the flow-recovery step makes these tolerant of grind variation; good when unsure if the puck will channel. Use \"Advanced spring lever\" (not \"Weiss advanced spring lever\") — the Weiss variant has a known skip-first-step bug. DO NOT flag the flow-control recovery step, or a pressure notch/dip during extraction — the former is the designed choke-rescue, the latter signals correct dial-in."
     },
