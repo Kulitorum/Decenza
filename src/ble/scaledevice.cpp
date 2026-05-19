@@ -31,6 +31,10 @@ void ScaleDevice::setSimulationMode(bool enabled) {
         m_weight = 0.0;
         m_flowRate = 0.0;
         m_batteryLevel = 85;
+        // Keep the liveness contract intact: every weight value this layer
+        // publishes also goes out on weightSampleReceived (the stall detector
+        // and SAW path listen only to that, never weightChanged). #1176.
+        emit weightSampleReceived(m_weight);
         emit weightChanged(m_weight);
         emit flowRateChanged(m_flowRate);
         emit batteryLevelChanged(m_batteryLevel);
