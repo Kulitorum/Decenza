@@ -381,6 +381,20 @@ public:
     // silent. The yield-overshoot arm has no pressurized-window gate — a
     // gusher by definition can't sustain pressure — so it can fire even
     // when pressure or flow data is empty.
+    //
+    // profileKbResolved gates Arm 1 (flow-vs-goal averaging). When false —
+    // i.e. ShotSummarizer::matchProfileKey returned empty, so we have no
+    // KB or editor-type context for this profile — Arm 1 is skipped
+    // entirely (delta/sampleCount stay zero, hasData contribution stays
+    // false). Arm 2 (choked-puck + yield-shortfall + yield-overshoot)
+    // runs unchanged because its arms read physics-level signals (yield
+    // ratio, sustained-pressurized mean flow) that don't depend on profile
+    // shape. `skipped` stays false so the projection falls into the
+    // existing grindCoverage="notAnalyzable" path when Arm 2 also has no
+    // data — distinct from grind_check_skip's "skipped" coverage. Default
+    // true preserves the pre-change contract for direct test callers and
+    // any future caller that genuinely intends "act as if resolved".
+    // See openspec change skip-grind-arm1-when-kb-unresolved.
     static GrindCheck analyzeFlowVsGoal(const QVector<QPointF>& flow,
                                          const QVector<QPointF>& flowGoal,
                                          const QList<HistoryPhaseMarker>& phases,
@@ -389,7 +403,8 @@ public:
                                          const QStringList& analysisFlags = {},
                                          const QVector<QPointF>& pressure = {},
                                          double targetWeightG = 0.0,
-                                         double finalWeightG = 0.0);
+                                         double finalWeightG = 0.0,
+                                         bool profileKbResolved = true);
 
     // Returns true if the grind direction check flags a meaningful deviation
     // (|delta| > FLOW_DEVIATION_THRESHOLD, chokedPuck fired, or yieldOvershoot
@@ -608,6 +623,15 @@ public:
     // MCP `shots_get_detail` so external agents can read the same
     // signals without parsing prose). All detectors run once and feed
     // both outputs.
+    // profileKbResolved (last parameter): true when the profile's KB resolution
+    // via ShotSummarizer::matchProfileKey produced a non-empty id (exact alias,
+    // #1198 longest-boundary-prefix, or editor-type default), false otherwise.
+    // When false, Arm 1 of the grind detector is skipped — see analyzeFlowVsGoal
+    // docstring above for the full contract. Default true preserves pre-change
+    // behaviour for direct callers (tests, future entry points). Every
+    // production call site of analyzeShot derives this from
+    // `!profileKbId.isEmpty()` of the resolved id already stored on the
+    // shot's carrier struct (ShotRecord / ShotSaveData / ShotSummary).
     static AnalysisResult analyzeShot(const QVector<QPointF>& pressure,
                                        const QVector<QPointF>& flow,
                                        const QVector<QPointF>& weight,
@@ -622,7 +646,8 @@ public:
                                        double targetWeightG = 0.0,
                                        double finalWeightG = 0.0,
                                        int expectedFrameCount = -1,
-                                       const std::optional<ExpertBand>& expertBand = std::nullopt);
+                                       const std::optional<ExpertBand>& expertBand = std::nullopt,
+                                       bool profileKbResolved = true);
 
     // Backwards-compatible thin wrapper — equivalent to
     // analyzeShot(...).lines. Existing callers (in-app dialog, AI advisor
@@ -641,5 +666,6 @@ public:
                                          double targetWeightG = 0.0,
                                          double finalWeightG = 0.0,
                                          int expectedFrameCount = -1,
-                                         const std::optional<ExpertBand>& expertBand = std::nullopt);
+                                         const std::optional<ExpertBand>& expertBand = std::nullopt,
+                                         bool profileKbResolved = true);
 };

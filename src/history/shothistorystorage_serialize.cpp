@@ -118,6 +118,9 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
             analysisPtr = &record.cachedAnalysis.value();
         } else {
             const AnalysisInputs inputs = prepareAnalysisInputs(record.profileKbId, record.profileJson);
+            // KB-resolved bit gates grind Arm 1 — see openspec change
+            // skip-grind-arm1-when-kb-unresolved.
+            const bool profileKbResolved = !record.profileKbId.isEmpty();
             analysisOwned = ShotAnalysis::analyzeShot(
                 record.pressure, record.flow, record.weight,
                 record.conductanceDerivative,
@@ -125,7 +128,8 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
                 record.pressureGoal, record.flowGoal,
                 inputs.analysisFlags, inputs.firstFrameSeconds,
                 record.targetWeight, record.summary.finalWeight,
-                inputs.frameCount, inputs.expertBand);
+                inputs.frameCount, inputs.expertBand,
+                profileKbResolved);
             analysisPtr = &analysisOwned;
         }
         const ShotAnalysis::AnalysisResult& analysis = *analysisPtr;

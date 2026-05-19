@@ -168,6 +168,33 @@ returns true when either arm fires. Two arms run **additively**, not as
 fallback — a clean flow-mode preinfusion can hide a pressure-mode choke and
 vice versa.
 
+**Profile-context gate (Arm 1 only).** `analyzeFlowVsGoal` takes a
+`bool profileKbResolved` parameter. When `false` — i.e.
+`ShotSummarizer::matchProfileKey(profileTitle, profileType)` returned
+empty (no exact alias hit, no #1198 longest-boundary-prefix hit, no
+editor-type default hit) — Arm 1 is **skipped entirely**: the flow-mode
+range builder doesn't run, `sampleCount`/`delta` stay zero, and Arm 1
+contributes nothing to `hasData`. Arm 2 (choked-puck + yield-shortfall
++ yield-overshoot) still runs unconditionally — those arms read
+physics-level signals (mean pressurized flow, yield ratio) that don't
+depend on profile shape. The result
+projects through the existing `grindCoverage="notAnalyzable"` path when
+Arm 2 also has no data, or `"verified"` when it does. `skipped` stays
+`false`, distinct from the `grind_check_skip` flag's `"skipped"`
+coverage. Production call sites derive the bool from
+`!profileKbId.isEmpty()` of the resolved id already stored on
+`ShotRecord` / `ShotSaveData` / `ShotSummary`. Direct test callers
+default to `profileKbResolved = true`, preserving the pre-change
+contract. See openspec change `skip-grind-arm1-when-kb-unresolved` for
+the rationale: Arm 1 reads the firmware-reported `flow_goal` series as
+a target the puck should track, but on profiles we have no KB context
+for, that series may be a safety limiter, a ramp-down command, or a
+pump-ramp curve rather than a target — averaging actuals against it
+produces false-positive grind diagnoses. The `grind_check_skip` flag is
+still the way to opt a *known* profile family out of Arm 1 (the
+`advanced-spring-lever` pattern from #1230); the new gate handles
+*unknown* profiles by inferring "no opinion" from the resolver state.
+
 **Arm 1: flow-vs-goal averaging** (the "primary" path).
 
 For each flow-mode phase, builds an inclusive time range:
@@ -268,11 +295,16 @@ gates** (≥ 5 samples, ≥ 15 s pressurized at ≥ 4 bar) AND none of
 `chokedPuck`, `yieldOvershoot`, or `|delta| > FLOW_DEVIATION_THRESHOLD`
 fires. The 15 s gate is load-bearing here: a healthy sustained pressurized
 pour is what the positive signal actually asserts. The Shot Summary dialog
-emits a `[good]` line "Grind tracked goal during pour" only on
-`verifiedClean = true`, distinct from the prior implicit "no badge fired
-⇒ assume clean" behavior — without it, profiles whose Arm 1 windows lie
-entirely before `pourStart` (simple two-marker Preinfusion + Pour shapes)
-silently pass even when no detector saw any data.
+emits a `[good]` line on `verifiedClean = true`, distinct from the prior
+implicit "no badge fired ⇒ assume clean" behavior — without it, profiles
+whose Arm 1 windows lie entirely before `pourStart` (simple two-marker
+Preinfusion + Pour shapes) silently pass even when no detector saw any
+data. The line text branches on `GrindCheck.sampleCount`: Arm 1 ran and
+saw qualifying samples (`> 0`) ⇒ "Grind tracked goal during pour"; Arm 1
+saw no samples (`== 0`, either because its windows lay outside the pour
+window or because the new `profileKbResolved` gate skipped it) ⇒ "Puck
+sustained healthy pressure during pour" — the honest wording when Arm 2
+alone supplied the verifiedClean signal.
 
 A shot where `hasData = true` but `verifiedClean = false` means the yield
 arm fired (or, if `chokedPuck=false && yieldOvershoot=false`, the flow
@@ -448,7 +480,10 @@ top-to-bottom:
    averaged X mL/s below target — grind may be too fine" ("caution"),
    "Flow averaged X mL/s above target — grind may be too coarse"
    ("caution"), "Grind tracked goal during pour" ("good") when
-   `verifiedClean` is true, or — when the detector had no analyzable
+   `verifiedClean` is true AND Arm 1 saw samples, "Puck sustained
+   healthy pressure during pour" ("good") when `verifiedClean` is true
+   AND Arm 1 saw no samples (Arm 2 supplied the signal alone), or —
+   when the detector had no analyzable
    data on a non-degenerate espresso pour — "Could not analyze grind on
    this profile shape — check flow trend, channeling, and taste
    instead" ("observation"). **Suppressed when `pourTruncated` fires.**

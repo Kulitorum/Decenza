@@ -157,7 +157,16 @@ private slots:
 
         ShotRecord recordCached = buildHealthyRecord();
         // Run analyzeShot ourselves (matching what loadShotRecordStatic
-        // would do) and stash the result in cachedAnalysis.
+        // would do) and stash the result in cachedAnalysis. Pass
+        // profileKbResolved derived from the same record.profileKbId the
+        // production fallback path reads — without this the cached path
+        // would silently use the parameter's default (true) while the
+        // fallback path derives false from the empty profileKbId, and
+        // the "fast vs slow are equivalent" invariant this test asserts
+        // would hold only by coincidence (both paths land on the same
+        // lines for this fixture). See openspec change
+        // skip-grind-arm1-when-kb-unresolved.
+        const bool profileKbResolved = !recordCached.profileKbId.isEmpty();
         recordCached.cachedAnalysis = ShotAnalysis::analyzeShot(
             recordCached.pressure, recordCached.flow, recordCached.weight,
             recordCached.conductanceDerivative,
@@ -166,7 +175,8 @@ private slots:
             recordCached.pressureGoal, recordCached.flowGoal,
             /*analysisFlags=*/{}, /*firstFrameSec=*/-1.0,
             recordCached.targetWeight, recordCached.summary.finalWeight,
-            /*expectedFrameCount=*/-1);
+            /*expectedFrameCount=*/-1, /*expertBand=*/std::nullopt,
+            profileKbResolved);
         const QVariantMap cachedResult = ShotHistoryStorage::convertShotRecord(recordCached).toVariantMap();
 
         // summaryLines must match line-for-line.

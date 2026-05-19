@@ -320,7 +320,8 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     const QStringList& analysisFlags,
     const QVector<QPointF>& pressure,
     double targetWeightG,
-    double finalWeightG)
+    double finalWeightG,
+    bool profileKbResolved)
 {
     GrindCheck result;
 
@@ -365,7 +366,22 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
     // sustained "too fine" delta even on clean shots.
     struct Range { double start; double end; };
     QVector<Range> flowModeRanges;
-    if (!phases.isEmpty()) {
+    // Arm 1 (flow-vs-goal averaging) only runs when we have profile context.
+    // When matchProfileKey returned empty (no exact alias, no #1198 prefix
+    // hit, no editor-type default), the "flow goal" series may be a safety
+    // limiter, a ramp-down command, or a pump-ramp curve rather than a
+    // target the puck should track — averaging actuals against it produces
+    // false-positive grind diagnoses. Leaving flowModeRanges empty here
+    // skips the averaging block below; sampleCount and delta stay zero,
+    // hasData stays false from Arm 1's perspective. Arm 2 (choked-puck +
+    // yield-shortfall + yield-overshoot) runs unconditionally — those
+    // arms read physics-level signals (mean pressurized flow, yield
+    // ratio) that don't depend on profile shape. `skipped` is
+    // deliberately NOT set; the projection then falls into
+    // grindCoverage="notAnalyzable" when Arm 2 also has no data, distinct
+    // from grind_check_skip's "skipped" coverage. See openspec change
+    // skip-grind-arm1-when-kb-unresolved.
+    if (profileKbResolved && !phases.isEmpty()) {
         // Pump-ramp trim applies to the first flow-mode phase that
         // coincides with pourStart — that's the one where the pump goes
         // from idle to commanded flow. A flow-mode phase that starts
@@ -701,7 +717,8 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
     double targetWeightG,
     double finalWeightG,
     int expectedFrameCount,
-    const std::optional<ExpertBand>& expertBand)
+    const std::optional<ExpertBand>& expertBand,
+    bool profileKbResolved)
 {
     AnalysisResult result;
     QVariantList& lines = result.lines;
@@ -875,7 +892,8 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
                             pourStart, pourEnd,
                             beverageType, analysisFlags,
                             pressure,
-                            targetWeightG, finalWeightG);
+                            targetWeightG, finalWeightG,
+                            profileKbResolved);
     // Mirror channelingChecked / flowTrendChecked: `checked` reflects whether
     // the detector ran, not whether it was reachable. pourTruncated cascade
     // and the beverage / grind_check_skip skip path both leave grindChecked
@@ -965,14 +983,24 @@ ShotAnalysis::AnalysisResult ShotAnalysis::analyzeShot(
         } else {
             d.grindDirection = QStringLiteral("onTarget");
             if (grind.verifiedClean) {
-                // Positive "we saw a healthy pressurized pour and the puck
-                // tracked goal" signal. Today's verdict on lever / two-frame
-                // profiles infers "Clean" from no-data; this line confirms
-                // it from data. Skipped when the detector was silent
-                // (hasData=false), which is handled by the notAnalyzable
-                // branch below.
+                // Positive "we saw a healthy pressurized pour" signal.
+                // Two arms can drive verifiedClean: Arm 1's flow-vs-goal
+                // averaging (sampleCount > 0) OR — on a KB-unresolved
+                // profile where Arm 1 was skipped (openspec
+                // skip-grind-arm1-when-kb-unresolved) — Arm 2's
+                // sustained-pressurized flow gate alone. The line text
+                // honestly names which signal fired so a reader doesn't
+                // mistake an Arm-2-only verify for an Arm-1 measurement
+                // (Arm 1 didn't run; we have no flow-vs-goal observation
+                // to cite). Today's verdict on lever / two-frame
+                // profiles infers "Clean" from no-data; this line
+                // confirms it from data on either path.
                 QVariantMap line;
-                line["text"] = QStringLiteral("Grind tracked goal during pour");
+                if (grind.sampleCount > 0) {
+                    line["text"] = QStringLiteral("Grind tracked goal during pour");
+                } else {
+                    line["text"] = QStringLiteral("Puck sustained healthy pressure during pour");
+                }
                 line["type"] = QStringLiteral("good");
                 line["kind"] = QStringLiteral("grind_clean");
                 lines.append(line);
@@ -1275,12 +1303,13 @@ QVariantList ShotAnalysis::generateSummary(const QVector<QPointF>& pressure,
                                              double targetWeightG,
                                              double finalWeightG,
                                              int expectedFrameCount,
-                                             const std::optional<ExpertBand>& expertBand)
+                                             const std::optional<ExpertBand>& expertBand,
+                                             bool profileKbResolved)
 {
     return analyzeShot(pressure, flow, weight,
                        conductanceDerivative, phases, beverageType, duration,
                        pressureGoal, flowGoal, analysisFlags,
                        firstFrameConfiguredSeconds, targetWeightG, finalWeightG,
-                       expectedFrameCount, expertBand)
+                       expectedFrameCount, expertBand, profileKbResolved)
         .lines;
 }

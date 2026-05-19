@@ -142,13 +142,22 @@ void ShotSummarizer::runShotAnalysisAndPopulate(ShotSummary& summary,
     double targetWeightG,
     int frameCount) const
 {
+    // profileKbResolved gates grind Arm 1. matchProfileKey returns empty
+    // when the profile title and editor type both fail to resolve via
+    // KB alias / #1198 prefix / editor-type default — that's the "we
+    // have no profile context" signal Arm 1 needs to skip on. The kbId
+    // stored on ShotSummary is the resolved id (empty when unresolved),
+    // so we can read the bit directly. See openspec change
+    // skip-grind-arm1-when-kb-unresolved.
+    const bool profileKbResolved = !summary.profileKbId.isEmpty();
     const ShotAnalysis::AnalysisResult analysis = ShotAnalysis::analyzeShot(
         pressure, flow, weight,
         conductanceDerivative, markers,
         summary.beverageType, summary.totalDuration,
         pressureGoal, flowGoal, analysisFlags,
         firstFrameSeconds, targetWeightG, summary.finalWeight,
-        frameCount, expertBandForKbId(summary.profileKbId));
+        frameCount, expertBandForKbId(summary.profileKbId),
+        profileKbResolved);
     summary.summaryLines = analysis.lines;
     summary.pourTruncatedDetected = analysis.detectors.pourTruncated;
 }

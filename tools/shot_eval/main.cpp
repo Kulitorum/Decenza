@@ -647,36 +647,52 @@ EvaluatedShot evaluate(const LoadedShot& s)
 
     // --- App parity (scoped — read this) ---
     // Route through the ONE production analyzeShot with the SAME inputs the
-    // app resolves (analysisFlags + expertBand), instead of the old
-    // empty-flags reimpl that silently diverged on flow_trend_ok
-    // suppression + the expert-band line.
+    // app resolves (analysisFlags + expertBand + profileKbResolved gate),
+    // instead of the old empty-flags reimpl that silently diverged on
+    // flow_trend_ok suppression + the expert-band line.
     //
-    // SCOPE / NOT a general guarantee: this resolves kbId from the title
-    // with an EMPTY editorType, whereas the app's prepareAnalysisInputs
-    // passes the profile's real editorType. matchProfileKey's editor-type
-    // fallback (dflow→d-flow/default, aflow→a-flow) is the resolution path
-    // for *custom-titled* D-Flow/A-Flow profiles that don't title-match a
-    // KB key. For the current tests/data/shots/ corpus this is moot — every
-    // fixture title-matches a KB key directly and carries no profile JSON
-    // (so frameCount/firstFrameSeconds are -1 on BOTH sides) — so for the
-    // corpus the inputs are identical. It is NOT identical for
-    // custom-titled editor profiles (band-fire counts would under-report
-    // vs the app there), and TstShotCorpus validates shot_eval against its
-    // own manifest baseline, NOT against the live app — it cannot, and does
-    // not, assert app↔tool equality. Treat the parity as "corpus-scoped,
-    // title-match path only." (To make it general: carry editorType in
-    // fixtures and thread it here.)
+    // editorType is inferred from the title prefix below — keep in sync
+    // with Profile::editorType (src/profile/profile.cpp:344). A title
+    // starting with "D-Flow" / "A-Flow" identifies the editor namespace,
+    // which lets matchProfileKey's editor-type-default fallback resolve
+    // custom-titled editor profiles ("D-Flow / Malabar") to the editor-
+    // default KB entry the same way prepareAnalysisInputs does in the
+    // live app. Without this, shot_eval would silently drop those
+    // fixtures into the unresolved bucket and the new profileKbResolved
+    // gate (openspec skip-grind-arm1-when-kb-unresolved) would skip
+    // Arm 1 on them — a false divergence from production. The "*"
+    // leading-character convention for renamed copies is honored for
+    // the same reason. Pressure/flow/advanced editor types have no
+    // title prefix in this convention and no editor-default KB entry
+    // either, so they fall through to "" with the same consequence on
+    // both sides. TstShotCorpus validates shot_eval against its own
+    // manifest baseline, not against the live app — but the title-prefix
+    // inference closes the largest known divergence (#1198 +
+    // skip-grind-arm1-when-kb-unresolved era).
+    QString editorTypeHint;
+    {
+        const QString t = s.profileTitle.startsWith(QLatin1Char('*'))
+            ? s.profileTitle.mid(1) : s.profileTitle;
+        if (t.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive))
+            editorTypeHint = QStringLiteral("dflow");
+        else if (t.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))
+            editorTypeHint = QStringLiteral("aflow");
+    }
     const QString kbId =
-        ShotSummarizer::computeProfileKbId(s.profileTitle, QString());
+        ShotSummarizer::computeProfileKbId(s.profileTitle, editorTypeHint);
     const QStringList analysisFlags = ShotSummarizer::getAnalysisFlags(kbId);
     const std::optional<ShotAnalysis::ExpertBand> expertBand =
         ShotSummarizer::expertBandForKbId(kbId);
+    // Resolved kbId gates grind Arm 1 on; an unresolved one gates it off.
+    // See openspec change skip-grind-arm1-when-kb-unresolved.
+    const bool profileKbResolved = !kbId.isEmpty();
 
     const ShotAnalysis::AnalysisResult R = ShotAnalysis::analyzeShot(
         s.pressure, s.flow, /*weight=*/{}, s.conductanceDerivative, s.phases,
         s.beverageType, s.durationSec, s.pressureGoal, s.flowGoal,
         analysisFlags, /*firstFrameConfiguredSeconds=*/-1.0,
-        s.targetWeightG, s.yieldG, /*expectedFrameCount=*/-1, expertBand);
+        s.targetWeightG, s.yieldG, /*expectedFrameCount=*/-1, expertBand,
+        profileKbResolved);
 
     const decenza::BadgeFlags badges =
         decenza::deriveBadgesFromAnalysis(R.detectors);
