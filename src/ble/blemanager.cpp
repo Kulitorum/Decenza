@@ -539,8 +539,11 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
         // Avoid duplicates
         for (const auto& existing : m_refractometerDevices) {
             if (getDeviceIdentifier(existing) == getDeviceIdentifier(device)) {
-                qDebug().noquote() << QString("[R2-diag] R2 advert dev=%1 ALREADY in discovered list — dedup return, NO refractometerDiscovered emitted")
-                    .arg(getDeviceIdentifier(device));
+                // No log here: onDeviceDiscovered fires on every BLE
+                // advertisement (~100-500 ms); the device is already logged
+                // once on first discovery below. Logging here would flood the
+                // diagnostic timeline this instrumentation exists to keep
+                // readable.
                 return;
             }
         }
@@ -556,8 +559,8 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
                  savedMatch ? QStringLiteral("true") : QStringLiteral("false"),
                  m_userInitiatedScaleScan ? QStringLiteral("true") : QStringLiteral("false"),
                  savedMatch ? QStringLiteral("emit refractometerDiscovered")
-                            : (m_userInitiatedScaleScan ? QStringLiteral("listing only (no auto-connect)")
-                                                         : QStringLiteral("ignored")));
+                            : (m_userInitiatedScaleScan ? QStringLiteral("listed only (no auto-connect)")
+                                                         : QStringLiteral("listed, skip auto-connect (not saved device)")));
         // Auto-connect if this is our saved refractometer
         if (savedMatch) {
             emit refractometerDiscovered(device);
@@ -605,7 +608,7 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
 }
 
 void BLEManager::onScanFinished() {
-    qDebug().noquote() << "[R2-diag] scan cycle finished — clearing scanningForScales/userInitiated flags";
+    qDebug().noquote() << "[R2-diag] scan cycle finished — clearing scanning/scanningForScales/userInitiated flags";
     m_scanning = false;
     m_scanningForScales = false;
     m_userInitiatedScaleScan = false;
@@ -918,7 +921,7 @@ void BLEManager::scanForDevices() {
     // Note: m_disabled is intentionally not checked here — scale and refractometer
     // scanning is allowed in simulator mode so real hardware can be tested against
     // a simulated DE1. Only DE1 BLE (startScan without m_scanningForScales) is suppressed.
-    qDebug().noquote() << QString("[R2-diag] scanForDevices (user-initiated) wasScanning=%1 scanningForScales=%2")
+    qDebug().noquote() << QString("[R2-diag] scanForDevices (user-initiated) scanning=%1 scanningForScales=%2 (read before stopScan)")
         .arg(m_scanning ? QStringLiteral("true") : QStringLiteral("false"),
              m_scanningForScales ? QStringLiteral("true") : QStringLiteral("false"));
     appendScaleLog("Starting device scan...");

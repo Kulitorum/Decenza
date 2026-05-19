@@ -54,10 +54,10 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
         if (!m_transport || !m_characteristicsReady) return;
         m_transport->enableNotifications(Refractometer::DiFluidR2::SERVICE,
                                          Refractometer::DiFluidR2::CHARACTERISTIC);
-        m_connected = true;
-        emit connectedChanged();
         R2_LOG(QString("[R2-diag] connectedChanged -> TRUE (instance=%1)")
                .arg(QString::number(reinterpret_cast<quintptr>(this), 16)));
+        m_connected = true;
+        emit connectedChanged();
         R2_LOG("Connected and ready for measurements");
 
         // Send "get temperature unit" as init handshake (Func=1, Cmd=0, DataLen=0)
@@ -183,9 +183,10 @@ void DiFluidR2::onTransportConnected() {
 }
 
 void DiFluidR2::onTransportDisconnected() {
-    R2_LOG(QString("[R2-diag] connectedChanged -> FALSE (instance=%1) reason=transport-disconnected wasConnected=%2")
-           .arg(QString::number(reinterpret_cast<quintptr>(this), 16),
-                m_connected ? QStringLiteral("true") : QStringLiteral("false")));
+    R2_LOG(QString("[R2-diag] %1 (instance=%2) reason=transport-disconnected")
+           .arg(m_connected ? QStringLiteral("connectedChanged -> FALSE")
+                            : QStringLiteral("connect attempt failed before ready (was not connected)"),
+                QString::number(reinterpret_cast<quintptr>(this), 16)));
     R2_LOG("Transport disconnected");
     m_measurementTimer.stop();
     m_initTimer.stop();
@@ -198,9 +199,10 @@ void DiFluidR2::onTransportDisconnected() {
 }
 
 void DiFluidR2::onTransportError(const QString& message) {
-    R2_WARN(QString("[R2-diag] connectedChanged -> FALSE (instance=%1) reason=transport-error wasConnected=%2")
-            .arg(QString::number(reinterpret_cast<quintptr>(this), 16),
-                 m_connected ? QStringLiteral("true") : QStringLiteral("false")));
+    R2_WARN(QString("[R2-diag] %1 (instance=%2) reason=transport-error")
+            .arg(m_connected ? QStringLiteral("connectedChanged -> FALSE")
+                             : QStringLiteral("connect attempt failed before ready (was not connected)"),
+                 QString::number(reinterpret_cast<quintptr>(this), 16)));
     R2_WARN(QString("Transport error: %1").arg(message));
     emit errorOccurred("DiFluid R2 connection error");
     m_measurementTimer.stop();

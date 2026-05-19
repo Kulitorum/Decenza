@@ -1645,6 +1645,8 @@ int main(int argc, char *argv[])
         auto* transport = new QtScaleBleTransport();
 #endif
         refractometer = std::make_unique<DiFluidR2>(transport);
+        qDebug().noquote() << QString("[R2-diag] created DiFluidR2 instance=%1 connecting to %2")
+            .arg(QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16), device.name());
         // The refractometer reuses the scale transport class but is not a
         // scale: a 3rd forced-HIGH BLE link contends with the DE1 + scale and
         // the platform GATT scheduler tears the weakest one (this) down. Keep
@@ -1670,8 +1672,6 @@ int main(int argc, char *argv[])
         QObject::connect(refractometer.get(), &DiFluidR2::logMessage,
                          &bleManager, &BLEManager::appendScaleLog);
 
-        qDebug().noquote() << QString("[R2-diag] created DiFluidR2 instance=%1 connecting to %2")
-            .arg(QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16), device.name());
         qDebug() << "[Refractometer] Created and connecting to" << device.name();
     });
 
