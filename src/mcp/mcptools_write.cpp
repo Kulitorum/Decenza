@@ -257,25 +257,26 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }},
             {"required", QJsonArray{"shotId"}}
         },
-        [shotHistory, visualizerUploader](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
-            if (!shotHistory || !shotHistory->isReady()) {
-                respond(QJsonObject{{"error", "Shot history not available"}});
-                return;
-            }
-            if (!visualizerUploader) {
-                respond(QJsonObject{{"error", "Visualizer uploader not available"}});
-                return;
-            }
-
+        [shotHistory, settings, visualizerUploader](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            // Validate the input first so the unit-test fixture can cover the
+            // shotId guard without wiring full ShotHistoryStorage / VisualizerUploader.
             qint64 shotId = args["shotId"].toInteger();
             if (shotId <= 0) {
                 respond(QJsonObject{{"error", "Valid shotId is required"}});
                 return;
             }
+            if (!shotHistory || !shotHistory->isReady()) {
+                respond(QJsonObject{{"error", "Shot history not available"}});
+                return;
+            }
+            if (!visualizerUploader || !settings) {
+                respond(QJsonObject{{"error", "Visualizer uploader not available"}});
+                return;
+            }
 
             const QString dbPath = shotHistory->databasePath();
 
-            QThread* thread = QThread::create([dbPath, shotId, respond, visualizerUploader]() {
+            QThread* thread = QThread::create([dbPath, shotId, respond, settings, visualizerUploader]() {
                 bool shotFound = false;
                 QString existingVisualizerId;
                 ShotProjection shot;
@@ -295,7 +296,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 });
 
                 QMetaObject::invokeMethod(qApp,
-                    [respond, shotId, shotFound, existingVisualizerId, shot, visualizerUploader]() mutable {
+                    [respond, shotId, shotFound, existingVisualizerId, shot, settings, visualizerUploader]() mutable {
                         if (!shotFound) {
                             respond(QJsonObject{{"error", QString("Shot %1 not found").arg(shotId)}});
                             return;
@@ -311,6 +312,42 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                             respond(QJsonObject{{"error", QString("Failed to load shot %1 for upload").arg(shotId)}});
                             return;
                         }
+
+                        // Pre-flight checks mirror validateUpload so we never enter
+                        // the call chain that emits uploadFailed/uploadSkipped on a
+                        // shared signal — VisualizerUploader's header explicitly
+                        // warns that concurrent callers would mis-attribute those
+                        // signals on a UI page that is filtering on its own
+                        // in-flight flags. Failing fast here also lets the MCP
+                        // caller distinguish "rejected by policy" from "dispatched
+                        // but might fail over the network" — the latter still
+                        // returns success below.
+                        if (settings->visualizer()->visualizerUsername().isEmpty()
+                                || settings->visualizer()->visualizerPassword().isEmpty()) {
+                            respond(QJsonObject{{"error", "Visualizer credentials not configured"}});
+                            return;
+                        }
+                        QString beverageType;
+                        if (!shot.profileJson.isEmpty()) {
+                            QJsonDocument profileDoc = QJsonDocument::fromJson(shot.profileJson.toUtf8());
+                            if (!profileDoc.isNull())
+                                beverageType = profileDoc.object()["beverage_type"].toString();
+                        }
+                        if (beverageType == "cleaning" || beverageType == "calibrate" || beverageType == "descale") {
+                            respond(QJsonObject{
+                                {"error", QString("Shot %1 uses a maintenance profile (%2); not uploaded").arg(shotId).arg(beverageType)}
+                            });
+                            return;
+                        }
+                        const double minDuration = settings->visualizer()->visualizerMinDuration();
+                        if (shot.durationSec < minDuration) {
+                            respond(QJsonObject{
+                                {"error", QString("Shot %1 too short (%2s < %3s); not uploaded")
+                                    .arg(shotId).arg(shot.durationSec, 0, 'f', 1).arg(minDuration, 0, 'f', 0)}
+                            });
+                            return;
+                        }
+
                         // Empty overrides — the projection loaded from DB already
                         // carries the user's current metadata (notes, ratings, bean
                         // info, etc.), so no edit-field overlay is needed.

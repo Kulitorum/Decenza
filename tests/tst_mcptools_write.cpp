@@ -252,9 +252,25 @@ private slots:
 
     // shots_upload_to_visualizer needs both a real ShotHistoryStorage and a real
     // VisualizerUploader to exercise the upload-dispatch path; the test fixture
-    // wires both as nullptr, so what we can verify here is that the tool is
-    // registered and the dependency-guard / shotId-validation return the right
-    // errors. The dispatch path is covered by the MCP integration test.
+    // wires both as nullptr, so what we cover here is the synchronous input and
+    // dependency guards. The dispatch path (load shot, detect existing upload,
+    // pre-flight credentials/maintenance/duration, call uploadShotFromHistoryWithOverrides)
+    // currently has no automated test coverage; adding it would require a real
+    // ShotHistoryStorage plus either a mock VisualizerUploader or a live-network
+    // integration harness.
+    void shotsUploadToVisualizerRejectsInvalidShotId()
+    {
+        McpTestFixture f;
+        registerTools(f);
+
+        QJsonObject args;
+        args["shotId"] = 0;
+        QJsonObject result = f.callAsyncTool("shots_upload_to_visualizer", args);
+
+        QVERIFY2(result.contains("error"), "expected error for shotId <= 0");
+        QCOMPARE(result["error"].toString(), QString("Valid shotId is required"));
+    }
+
     void shotsUploadToVisualizerRejectsMissingShotHistory()
     {
         McpTestFixture f;
