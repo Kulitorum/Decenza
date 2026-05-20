@@ -80,10 +80,18 @@ Page {
     // can always include it without risk of it becoming empty after a save cycle.
     property string _profileName: ""
     // visualizerId from DB — same Q_GADGET-strip hazard as _profileName. Captured in onShotReady
-    // and refreshed in onUploadSuccess/onUpdateSuccess so the "Re-Upload" button label, the
-    // auto-update PATCH gate, and the manual upload button all see a stable value after
+    // and refreshed in onUploadSuccess (first POST completed) so the "Re-Upload" button label,
+    // the auto-update PATCH gate, and the manual upload button all see a stable value after
     // saveEditedShot replaces editShotData with a plain JS object.
     property string _visualizerId: ""
+    // Track which upload/PATCH this page initiated so the shared VisualizerUploader signals
+    // (uploadSuccess, updateSuccess, uploadFailed) can be filtered. Without these guards, an
+    // MCP-triggered PATCH on a different shot would clear our pendingVisualizerUpdate and
+    // potentially overwrite _visualizerId — corrupting the page state. The uploadSuccess
+    // signal carries a Visualizer cloud id (string) that can't be compared to editShotId (int),
+    // and updateSuccess carries no shot id at all, so we use these flags instead.
+    property bool _firstUploadInFlight: false
+    property bool _patchInFlight: false
 
     // Pick up toggle changes made on any other page sharing this setting
     // (Shot Detail, Shot Comparison, Espresso view selector).
@@ -525,9 +533,10 @@ Page {
     }
 
     function buildVisualizerOverrides() {
-        // grinderBurrs is intentionally omitted — the Visualizer API has a single
-        // grinder_model field (brand + model combined) and no separate burrs field,
-        // so including it in overrides has no effect on the PATCH body.
+        // grinderBurrs and beverageType are intentionally omitted — the Visualizer
+        // PATCH body has no fields for them (only combined grinder_model for the
+        // grinder; beverage_type is not part of the PATCH schema). Both values still
+        // persist locally; they just don't propagate to visualizer.coffee.
         var overrides = {
             "beanBrand": editBeanBrand,
             "beanType": editBeanType,
@@ -537,7 +546,6 @@ Page {
             "grinderModel": editGrinderModel,
             "grinderSetting": editGrinderSetting,
             "barista": editBarista,
-            "beverageType": editBeverageType,
             "doseWeightG": editDoseWeight,
             "finalWeightG": editDrinkWeight,
             "drinkTdsPct": editDrinkTds,
@@ -564,6 +572,7 @@ Page {
         // owned by the shot-completion auto-upload flow and the manual button.
         if (!_visualizerId) return
         pendingVisualizerUpdate = false
+        _patchInFlight = true
         console.log("PostShotReview: auto-updating visualizer shot", _visualizerId, "for shot id", editShotId)
         MainController.visualizer.updateShotOnVisualizerWithOverrides(
             _visualizerId, editShotData, buildVisualizerOverrides())
@@ -585,14 +594,14 @@ Page {
             }
         }
         function onUploadSuccess(shotId, url) {
-            // Persistence of the Visualizer id is owned by MainController
-            // (VisualizerUploader::uploadSucceededForShot →
-            // requestUpdateVisualizerInfo), independent of this page. Refresh
-            // the id/url in place (so the button flips to "Re-Upload") instead
-            // of a full reload that would clobber edits / orphan undo.
+            // uploadSuccess fires for any shot uploaded via the shared singleton.
+            // shotId here is the Visualizer cloud string id (not the local DB row id),
+            // so it can't be compared to editShotId. Filter on the in-flight flag we
+            // set before dispatch from this page; ignore other callers (MCP, etc.).
+            if (!_firstUploadInFlight) return
+            _firstUploadInFlight = false
             uploadError = ""
-            pendingVisualizerUpdate = false
-            if (shotId === postShotReviewPage.editShotId && url) {
+            if (url) {
                 var vid = ("" + url).split("/").pop()
                 editShotData = Object.assign({}, editShotData,
                     { visualizerId: vid, visualizerUrl: url })
@@ -600,22 +609,24 @@ Page {
             }
         }
         function onUpdateSuccess(visualizerId) {
+            // updateSuccess carries no shot id. Filter on the in-flight flag we set
+            // before dispatching the PATCH; ignore PATCHes initiated elsewhere (MCP),
+            // which would otherwise clobber _visualizerId with another shot's cloud id.
+            if (!_patchInFlight) return
+            _patchInFlight = false
             uploadError = ""
-            pendingVisualizerUpdate = false
-            // Refresh the id in place — no reload (see onVisualizerInfoUpdated).
-            if (visualizerId) {
-                editShotData = Object.assign({}, editShotData,
-                    { visualizerId: visualizerId })
-                _visualizerId = visualizerId
-            }
         }
         function onUploadFailed(error) {
+            // Only surface and react when the failure belongs to a request we
+            // dispatched. Without this guard, an unrelated background upload failure
+            // would set uploadError on this page and leave our in-flight flag stuck.
+            if (!_firstUploadInFlight && !_patchInFlight) return
+            _firstUploadInFlight = false
+            _patchInFlight = false
             uploadError = error
-            // Do NOT clear pendingVisualizerUpdate here — the signal carries no shot id,
-            // and an unrelated background upload failure would suppress the auto-update
-            // for the shot the user is editing. The flag is already cleared before every
-            // dispatch (manual button before invocation, maybeAutoUpdateVisualizer at
-            // line 561), so leaving it set on failure preserves the user's intent.
+            // pendingVisualizerUpdate is already cleared by every dispatch site
+            // (manual upload button onClicked, maybeAutoUpdateVisualizer above) before
+            // the network request goes out, so there is nothing to roll back here.
         }
     }
 
@@ -1684,15 +1695,18 @@ Page {
                     // Flush any pending edit before uploading
                     autosave()
                     // Clear the pending flag before dispatching — auto-update on destruction
-                    // must not fire a second request. If this upload fails, onUploadFailed also
-                    // clears the flag, so a failed manual upload does not re-trigger on exit.
+                    // must not fire a second request while this one is in flight. On failure
+                    // the flag is intentionally left as-is (see onUploadFailed) so the page
+                    // can still retry via auto-update or manual re-upload.
                     pendingVisualizerUpdate = false
 
                     uploadError = ""
                     if (_visualizerId) {
                         // Re-upload: PATCH metadata from current edit fields.
-                        // grinderBurrs intentionally omitted — Visualizer API has no
-                        // separate burrs field (only combined grinder_model).
+                        // grinderBurrs and beverageType intentionally omitted —
+                        // the Visualizer PATCH body has no fields for them (only
+                        // combined grinder_model for the grinder; beverage_type
+                        // is not present in the PATCH schema).
                         var patchOverrides = {
                             "beanBrand": editBeanBrand,
                             "beanType": editBeanType,
@@ -1702,7 +1716,6 @@ Page {
                             "grinderModel": editGrinderModel,
                             "grinderSetting": editGrinderSetting,
                             "barista": editBarista,
-                            "beverageType": editBeverageType,
                             "doseWeightG": editDoseWeight,
                             "finalWeightG": editDrinkWeight,
                             "drinkTdsPct": editDrinkTds,
@@ -1712,6 +1725,7 @@ Page {
                         }
                         if (_profileName)
                             patchOverrides["profileName"] = _profileName
+                        _patchInFlight = true
                         MainController.visualizer.updateShotOnVisualizerWithOverrides(
                             _visualizerId, editShotData, patchOverrides)
                     } else {
@@ -1721,8 +1735,8 @@ Page {
                         // not work here — Q_GADGET properties are non-enumerable in V4,
                         // so Object.assign silently drops them, leaving id=0 and causing
                         // isValid() to fail.
-                        // grinderBurrs intentionally omitted — Visualizer API has no
-                        // separate burrs field (only combined grinder_model).
+                        // grinderBurrs and beverageType intentionally omitted —
+                        // the Visualizer shot JSON has no fields for them.
                         var uploadOverrides = {
                             "beanBrand": editBeanBrand,
                             "beanType": editBeanType,
@@ -1732,7 +1746,6 @@ Page {
                             "grinderModel": editGrinderModel,
                             "grinderSetting": editGrinderSetting,
                             "barista": editBarista,
-                            "beverageType": editBeverageType,
                             "doseWeightG": editDoseWeight,
                             "finalWeightG": editDrinkWeight,
                             "drinkTdsPct": editDrinkTds,
@@ -1740,6 +1753,7 @@ Page {
                             "espressoNotes": editNotes,
                             "enjoyment0to100": editEnjoyment
                         }
+                        _firstUploadInFlight = true
                         MainController.visualizer.uploadShotFromHistoryWithOverrides(
                             editShotData, uploadOverrides)
                     }

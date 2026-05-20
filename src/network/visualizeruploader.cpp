@@ -197,11 +197,11 @@ void VisualizerUploader::uploadShotFromHistoryWithOverrides(
     applyStr   (&ShotProjection::roastLevel,      "roastLevel");
     applyStr   (&ShotProjection::grinderBrand,    "grinderBrand");
     applyStr   (&ShotProjection::grinderModel,    "grinderModel");
-    applyStr   (&ShotProjection::grinderBurrs,    "grinderBurrs");
     applyStr   (&ShotProjection::grinderSetting,  "grinderSetting");
     applyStr   (&ShotProjection::barista,         "barista");
     applyStr   (&ShotProjection::espressoNotes,   "espressoNotes");
-    applyStr   (&ShotProjection::beverageType,    "beverageType");
+    // grinderBurrs and beverageType: no PATCH/POST JSON fields for them; callers
+    // intentionally omit them from overrides so the applyStr lines would be no-ops.
     applyDouble(&ShotProjection::doseWeightG,     "doseWeightG");
     applyDouble(&ShotProjection::finalWeightG,    "finalWeightG");
     applyDouble(&ShotProjection::drinkTdsPct,     "drinkTdsPct");
@@ -237,11 +237,11 @@ void VisualizerUploader::updateShotOnVisualizerWithOverrides(
     applyStr   (&ShotProjection::roastLevel,      "roastLevel");
     applyStr   (&ShotProjection::grinderBrand,    "grinderBrand");
     applyStr   (&ShotProjection::grinderModel,    "grinderModel");
-    applyStr   (&ShotProjection::grinderBurrs,    "grinderBurrs");
     applyStr   (&ShotProjection::grinderSetting,  "grinderSetting");
     applyStr   (&ShotProjection::barista,         "barista");
     applyStr   (&ShotProjection::espressoNotes,   "espressoNotes");
-    applyStr   (&ShotProjection::beverageType,    "beverageType");
+    // grinderBurrs and beverageType: no PATCH/POST JSON fields for them; callers
+    // intentionally omit them from overrides so the applyStr lines would be no-ops.
     applyDouble(&ShotProjection::doseWeightG,     "doseWeightG");
     applyDouble(&ShotProjection::finalWeightG,    "finalWeightG");
     applyDouble(&ShotProjection::drinkTdsPct,     "drinkTdsPct");

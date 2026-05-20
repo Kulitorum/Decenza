@@ -152,8 +152,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 vizOverrides["grinderSetting"] = args["grinderSetting"].toString();
             if (args.contains("barista"))
                 vizOverrides["barista"] = args["barista"].toString();
-            if (args.contains("beverageType"))
-                vizOverrides["beverageType"] = args["beverageType"].toString();
+            // beverageType intentionally omitted from vizOverrides — Visualizer's
+            // shot PATCH schema has no beverage_type field. Still persisted to
+            // local DB via the metadata map above.
             if (args.contains("drinkTds"))
                 vizOverrides["drinkTdsPct"] = args["drinkTds"].toDouble();
             if (args.contains("drinkEy"))
