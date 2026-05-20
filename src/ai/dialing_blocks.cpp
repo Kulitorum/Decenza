@@ -290,7 +290,7 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     QSqlQuery bestQ(db);
     // Highest user-rated shot in the 90-day window for this profile.
     // Falls back to nothing when the user has no rated shots — the
-    // elicitation paths (QuickRatingRow, conversational capture) keep
+    // elicitation paths (the rating slider, conversational capture) keep
     // this pool populated.
     bestQ.prepare(
         "SELECT id FROM shots "

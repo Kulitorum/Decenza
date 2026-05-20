@@ -753,7 +753,7 @@ bool ShotHistoryStorage::runMigrations()
         if (!hasColumn("shots", "enjoyment_source")) {
             query.exec("ALTER TABLE shots ADD COLUMN enjoyment_source TEXT NOT NULL DEFAULT 'none'");
             // Back-fill: existing rated rows are user-rated by definition
-            // (the column is new; only the manual editor / QuickRatingRow
+            // (the column is new; only the manual editor / the rating slider
             // ever wrote those values).
             query.exec("UPDATE shots SET enjoyment_source = 'user' WHERE enjoyment > 0");
         }
