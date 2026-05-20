@@ -46,6 +46,20 @@ private slots:
         QVERIFY(!d.skipHighPriority());
     }
 
+    void regression1238_faultsJustOutsidePriorWindowNowTrip() {
+        // #1238 (P80X Android 9): scale requested HIGH; the DE1 emitted a
+        // write-failed at t≈10571.6 s and a controller-error at t≈10591.7 s
+        // — Δ=20.034 s, missing the prior 20 s window by 34 ms. The widened
+        // 60 s window MUST capture this cluster. Calling this out as a
+        // regression so any future window narrowing has to confront the log.
+        BlePriorityDetector d;
+        d.armWindow(0);
+        QVERIFY(!d.onDe1Fault(10571649));   // fault 1: write-failed
+        QVERIFY(d.onDe1Fault(10591683));    // fault 2: controller-error, Δ=20.034 s
+        QVERIFY(d.backoffTriggered());
+        QVERIFY(d.skipHighPriority());
+    }
+
     void accumulatesAcrossReconnectsAntiStarvation() {
         // Regression: a flapping weak link (fault, reconnect, fault) must
         // accumulate across reconnects. armWindow() on reconnect must NOT
@@ -162,7 +176,7 @@ private slots:
         d.armWindow(0, /*observe=*/true);
         QVERIFY(!d.onDe1Fault(100));           // 1 fault, window anchored
         QVERIFY(!d.takeObserveClusterSubsided());  // not yet (window open)
-        const int64_t past = 100 + 20000 + 1;      // > kDe1FaultWindowMs later
+        const int64_t past = 100 + BlePriorityDetector::kDe1FaultWindowMs + 1;
         QVERIFY(!d.onDe1Fault(past));          // window expired, re-anchors
         QVERIFY(d.takeObserveClusterSubsided());   // subsided notice set
         QVERIFY(!d.takeObserveClusterSubsided());   // one-shot: cleared on read

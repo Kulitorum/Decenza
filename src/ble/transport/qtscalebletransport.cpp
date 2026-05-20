@@ -336,7 +336,18 @@ void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
     if (!m_connectionPriorityManaged) return;  // non-scale link, no detection
     // Primary signal: a DE1-link fault clustered shortly after the scale
     // requested HIGH is the dual-HIGH contention signature (#1093/#1176).
-    const bool fired = m_priority.onDe1Fault(nowMs());
+    //
+    // A "write-failed" kind represents a 10-retry GATT-write cascade — ~5s
+    // of sustained write starvation, not a single transient blip — so it
+    // counts as 2 faults: a single cascade alone reaches the backoff
+    // threshold without waiting for a follow-on controller-error (#1238,
+    // P80X Android 9, where the controller-error landed 20.034s after the
+    // cascade and just missed the prior 20s window). Transient single-write
+    // retries that recover are not signaled at the source (see
+    // bletransport.cpp ~538), so capable hardware does not false-positive.
+    const bool isCascade = (kind == QLatin1String("write-failed"));
+    bool fired = m_priority.onDe1Fault(nowMs());
+    if (!fired && isCascade) fired = m_priority.onDe1Fault(nowMs());
     const QString reason = QStringLiteral(
         "DE1-link fault cluster (last kind=%1) within scale-HIGH window")
         .arg(kind);

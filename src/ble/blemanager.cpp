@@ -151,7 +151,47 @@ void BLEManager::setSettings(SettingsHardware* settings)
                "Set enforce via MCP to restore the dual-HIGH backoff.";
     }
 
-    if (!m_settings->cpLatched()) return;
+    if (!m_settings->cpLatched()) {
+#ifdef Q_OS_ANDROID
+        // First-launch seed for the dual-HIGH-incapable cohort (#1238).
+        //
+        // The runtime detector (#1185) does eventually catch these devices,
+        // but only after one full DE1-outage detection window (~minutes of
+        // broken scale discovery on the P80X chipset, then a ~70s DE1 GATT
+        // collapse). Seeding the latch up front on the population that the
+        // retired #1097 SDK<30 gate used to cover (Android < 11) bypasses
+        // that first-launch pain. After the seed lands the device's first
+        // run is identical to its 1.7.4 behavior (scale at BALANCED, no
+        // contention), and the persisted record is what every subsequent
+        // launch reads — the SDK check does NOT re-evaluate per launch.
+        //
+        // This is a SEED, not a gate: the runtime detector continues to
+        // handle SDK≥30 devices on weak chipsets (the #1176 Galaxy Tab A8 /
+        // T618 case that motivated #1185), unchanged. The seed is also
+        // user-clearable via the existing MCP path
+        // (clearScaleSkipHighPriority) for an SDK<30 device whose radio
+        // happens to handle dual-HIGH — that wipes the persisted record and
+        // re-arms detection from scratch. A deliberate epoch bump
+        // (kBleDetectionEpoch++) discards the seed along with everything
+        // else and re-evaluates from scratch on the next launch.
+        constexpr int kSeedSdkBelow = 30;  // #1097's predicate, now reused as a seed
+        const jint sdkInt = QJniObject::getStaticField<jint>(
+            "android/os/Build$VERSION", "SDK_INT");
+        if (sdkInt > 0 && sdkInt < kSeedSdkBelow) {
+            const QString kind = QStringLiteral("seed:sdk<%1").arg(kSeedSdkBelow);
+            latchScaleSkipHighPriority(kind);
+            qWarning().noquote()
+                << QStringLiteral("[BLE] First-launch seed: Android SDK %1 < "
+                      "%2 (dual-HIGH-incapable cohort, ex-#1097) — skip-HIGH "
+                      "latch SET without running the detection window. "
+                      "Persisted under epoch %3; both BLE links start at "
+                      "BALANCED this run and every subsequent run until "
+                      "cleared via MCP or epoch bump.")
+                       .arg(sdkInt).arg(kSeedSdkBelow).arg(kBleDetectionEpoch);
+        }
+#endif
+        return;
+    }
 
     const int storedEpoch = m_settings->cpEpoch();   // -1 ⇒ legacy (no key)
     const int storedBuild = m_settings->cpBuildCode(); // diagnostic only now

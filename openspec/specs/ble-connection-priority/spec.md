@@ -67,7 +67,7 @@ The system SHALL emit an event-based recovery signal when a stalled scale feed r
 - **AND** in observe mode a WARN line records the recovery (e.g. "feed RESUMED after X.X s — would-have-been-backoff recovered at HIGH")
 
 #### Scenario: Fault cluster subsides without escalation
-- **WHEN** in observe mode a DE1-fault-cluster window elapses without reaching the ≥2/20 s fire threshold
+- **WHEN** in observe mode a DE1-fault-cluster window elapses without reaching the ≥2/60 s fire threshold (a 10-retry write-failed cascade counts as 2 faults, so a single cascade reaches the threshold on its own)
 - **THEN** a log line records that the cluster subsided without escalation
 
 #### Scenario: Recovery signal does not alter SAW
@@ -114,6 +114,32 @@ A persisted record that is latched and carries a build code but has no stored de
 #### Scenario: Migrated record then behaves epoch-scoped
 - **WHEN** a migrated record is read again on a later same-epoch build
 - **THEN** it rehydrates normally (it is now an ordinary epoch-stamped record, not re-migrated)
+
+### Requirement: Android SDK<30 Devices Are Seeded on First Launch
+
+On Android devices whose runtime `Build$VERSION.SDK_INT` is below 30, the first launch on a build that ships this seed AND has no persisted connection-priority record (no latch and no record at all under the current epoch) SHALL pre-seed the dual-HIGH-incapable classification with a trigger kind of `seed:sdk<30`. The seed MUST be written through the normal persisted-latch path so subsequent launches rehydrate it identically to a detector-set latch. The seed MUST NOT re-evaluate the SDK predicate on later launches — the persisted record alone determines behavior. The seed MUST NOT fire when a persisted record already exists (a manual MCP clear that wipes the record MUST re-arm the runtime detector on the next connect, not re-seed). The seed MUST NOT fire on non-Android platforms or when the SDK query returns a non-positive value. A deliberate epoch bump MUST discard the seed along with all other prior-epoch records and re-evaluate from scratch (which may re-seed if SDK<30 still holds).
+
+This seed is NOT a gate: it bypasses the first-launch detection window for the population that the retired #1097 SDK<30 gate used to cover, and the runtime detector continues to handle SDK≥30 devices on weak chipsets unchanged. The intent is to spare devices in the known-incapable cohort the ~minutes of broken scale discovery and the ~70 s DE1 GATT collapse that the detector observes before it can latch.
+
+#### Scenario: First launch on Android SDK<30 with no record
+- **WHEN** the app starts on Android with `SDK_INT < 30` and no persisted connection-priority record exists under the current epoch
+- **THEN** the latch is seeded with trigger kind `seed:sdk<30` and persisted under the current epoch
+- **AND** both BLE links start at BALANCED on this run with no detection window
+- **AND** a WARN line records the seed action with the observed SDK level
+
+#### Scenario: Seed survives across launches without re-evaluating SDK
+- **WHEN** a device has a `seed:sdk<30` record from a prior launch and the app starts again
+- **THEN** the record is rehydrated via the normal latch path (the SDK is not consulted again on this launch)
+- **AND** both BLE links start at BALANCED with no detection window
+
+#### Scenario: MCP clear of a seeded record re-arms detection
+- **WHEN** a user clears a `seed:sdk<30` record via the MCP reset
+- **THEN** the persisted record is wiped and the in-memory latch is cleared
+- **AND** the next scale connect requests HIGH and the runtime detector arms (re-seeding does NOT occur within the same app run)
+
+#### Scenario: Non-Android platforms are unaffected
+- **WHEN** the app starts on iOS / macOS / Windows / Linux with no persisted connection-priority record
+- **THEN** no seed is written and the runtime detector arms on the next scale connect as before
 
 ### Requirement: Scale-Feed Stall Must Be Confirmed Before Latching
 
