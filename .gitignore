@@ -57,3 +57,7 @@ logcat_*.txt
 !.claude/hooks/
 .DS_Store
 /.codex_tmp
+
+# Python bytecode (from tools/*.py)
+__pycache__/
+*.pyc

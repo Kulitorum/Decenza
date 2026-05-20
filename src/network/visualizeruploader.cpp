@@ -190,6 +190,7 @@ void VisualizerUploader::uploadShotFromHistoryWithOverrides(
         if (it != overrides.end()) shot.*f = it->toInt();
     };
 
+    applyStr   (&ShotProjection::profileName,     "profileName");
     applyStr   (&ShotProjection::beanBrand,       "beanBrand");
     applyStr   (&ShotProjection::beanType,        "beanType");
     applyStr   (&ShotProjection::roastDate,       "roastDate");
@@ -382,7 +383,7 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
         m_lastUploadStatus = "Failed: " + errorMsg;
         emit lastUploadStatusChanged();
         emit uploadFailed(errorMsg);
-        qDebug() << "Visualizer: Update failed -" << errorMsg << "Response:" << response;
+        qWarning() << "Visualizer: Update failed -" << errorMsg << "Response:" << response;
     }
 
     reply->deleteLater();

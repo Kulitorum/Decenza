@@ -65,6 +65,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"grinderBurrs", QJsonObject{{"type", "string"}, {"description", "Grinder burrs"}}},
                 {"grinderSetting", QJsonObject{{"type", "string"}, {"description", "Grinder setting"}}},
                 {"barista", QJsonObject{{"type", "string"}, {"description", "Barista name"}}},
+                {"beverageType", QJsonObject{{"type", "string"}, {"description", "Beverage type (e.g. 'espresso', 'lungo')"}}},
                 {"drinkTds", QJsonObject{{"type", "number"}, {"description", "TDS measurement"}}},
                 {"drinkEy", QJsonObject{{"type", "number"}, {"description", "Extraction yield percentage"}}}
             }},
@@ -110,6 +111,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 metadata["grinderSetting"] = args["grinderSetting"].toString();
             if (args.contains("barista"))
                 metadata["barista"] = args["barista"].toString();
+            if (args.contains("beverageType"))
+                metadata["beverageType"] = args["beverageType"].toString();
             if (args.contains("drinkTds"))
                 metadata["drinkTds"] = args["drinkTds"].toDouble();
             if (args.contains("drinkEy"))
@@ -142,12 +145,15 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 vizOverrides["grinderBrand"] = args["grinderBrand"].toString();
             if (args.contains("grinderModel"))
                 vizOverrides["grinderModel"] = args["grinderModel"].toString();
-            if (args.contains("grinderBurrs"))
-                vizOverrides["grinderBurrs"] = args["grinderBurrs"].toString();
+            // grinderBurrs intentionally omitted from vizOverrides — Visualizer API
+            // has no separate burrs field (only combined grinder_model). The burrs
+            // value is still persisted to the local DB via the metadata map above.
             if (args.contains("grinderSetting"))
                 vizOverrides["grinderSetting"] = args["grinderSetting"].toString();
             if (args.contains("barista"))
                 vizOverrides["barista"] = args["barista"].toString();
+            if (args.contains("beverageType"))
+                vizOverrides["beverageType"] = args["beverageType"].toString();
             if (args.contains("drinkTds"))
                 vizOverrides["drinkTdsPct"] = args["drinkTds"].toDouble();
             if (args.contains("drinkEy"))
@@ -166,8 +172,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         QSqlQuery idQuery(db);
                         idQuery.prepare("SELECT visualizer_id FROM shots WHERE id = :id");
                         idQuery.bindValue(":id", shotId);
-                        if (idQuery.exec() && idQuery.next())
-                            visualizerId = idQuery.value(0).toString();
+                        if (idQuery.exec()) {
+                            if (idQuery.next())
+                                visualizerId = idQuery.value(0).toString();
+                        } else {
+                            qWarning() << "MCP shots_update: failed to query visualizer_id for shot"
+                                       << shotId << ":" << idQuery.lastError().text();
+                        }
                         if (!visualizerId.isEmpty()) {
                             ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr);
                             vizShot = ShotHistoryStorage::convertShotRecord(record);
@@ -195,21 +206,24 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     }
 
                     bool willAutoUpdate = false;
+                    QString skipReason;
                     if (ok && visualizerUploader && !visualizerId.isEmpty()
                             && settings && settings->visualizer()->visualizerAutoUpdate()) {
                         if (vizShot.isValid()) {
                             willAutoUpdate = true;
-                            qDebug() << "MCP shots_update: auto-updating visualizer shot" << visualizerId
-                                     << "for local shot id" << shotId;
+                            qInfo() << "MCP shots_update: auto-updating visualizer shot" << visualizerId
+                                    << "for local shot id" << shotId;
                             visualizerUploader->updateShotOnVisualizerWithOverrides(
                                 visualizerId, vizShot, vizOverrides);
                         } else {
-                            qWarning() << "MCP shots_update: shot" << shotId
-                                       << "no longer exists after update; skipping visualizer PATCH";
+                            skipReason = QString("failed to reload shot %1 for visualizer PATCH").arg(shotId);
+                            qWarning() << "MCP shots_update:" << skipReason;
                         }
                     }
 
-                    result["visualizerUpdateQueued"] = willAutoUpdate;
+                    result["visualizerUpdateTriggered"] = willAutoUpdate;
+                    if (!skipReason.isEmpty())
+                        result["visualizerUpdateSkippedReason"] = skipReason;
                     respond(result);
                 }, Qt::QueuedConnection);
             });

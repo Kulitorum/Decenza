@@ -36,10 +36,15 @@ Page {
             Refractometer.disconnectFromDevice()
         }
         // If a pending edit has not yet been synced to visualizer, fire the
-        // PATCH now (only when pendingVisualizerUpdate && visualizerAutoUpdate
-        // are both true). Safe here because maybeAutoUpdateVisualizer() only
-        // dispatches a network call — no DB writes or Qt.inputMethod.commit(),
-        // which are the operations flagged as unsafe during destruction.
+        // network call now. maybeAutoUpdateVisualizer() requires three conditions
+        // to dispatch: pendingVisualizerUpdate set, Settings.visualizer.visualizerAutoUpdate
+        // on, and MainController.visualizer present. With a captured _visualizerId it
+        // PATCHes the existing shot; otherwise — if visualizerAutoUpload is also on —
+        // it issues a first POST. Safe here because maybeAutoUpdateVisualizer() only
+        // dispatches a network call — no DB writes or Qt.inputMethod.commit(), which
+        // are the operations flagged as unsafe during destruction. Note: any failure
+        // response arrives after this page is fully destroyed, so errors are logged by
+        // the C++ uploader but cannot be surfaced to the user from here.
         maybeAutoUpdateVisualizer()
     }
 
@@ -71,7 +76,15 @@ Page {
     property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
     property string uploadError: ""
     property bool pendingVisualizerUpdate: false  // set when a metadata edit has been saved locally but not yet PATCHed to visualizer
-    property string _profileName: ""              // profileName from DB — captured in onShotReady before Object.assign strips Q_GADGET fields
+    // profileName from DB — captured once in onShotReady before any Object.assign strips Q_GADGET
+    // fields; held for the entire page lifetime so buildVisualizerOverrides() and manual upload
+    // can always include it without risk of it becoming empty after a save cycle.
+    property string _profileName: ""
+    // visualizerId from DB — same Q_GADGET-strip hazard as _profileName. Captured in onShotReady
+    // and refreshed in onVisualizerInfoUpdated/onUpdateSuccess so the "Re-Upload" button label,
+    // the auto-update PATCH-vs-POST branch, and the manual upload button all see a stable value
+    // after saveEditedShot replaces editShotData with a plain JS object.
+    property string _visualizerId: ""
 
     // Pick up toggle changes made on any other page sharing this setting
     // (Shot Detail, Shot Comparison, Espresso view selector).
@@ -132,6 +145,7 @@ Page {
             if (shotId !== postShotReviewPage.editShotId) return
             editShotData = shot
             _profileName = editShotData.profileName || ""
+            _visualizerId = editShotData.visualizerId || ""
             if (editShotData.id) {
                 // Populate editing fields
                 editBeanBrand = editShotData.beanBrand || ""
@@ -512,15 +526,16 @@ Page {
     }
 
     function buildVisualizerOverrides() {
-        return {
-            "profileName": _profileName,
+        // grinderBurrs is intentionally omitted — the Visualizer API has a single
+        // grinder_model field (brand + model combined) and no separate burrs field,
+        // so including it in overrides has no effect on the PATCH body.
+        var overrides = {
             "beanBrand": editBeanBrand,
             "beanType": editBeanType,
             "roastDate": editRoastDate,
             "roastLevel": editRoastLevel,
             "grinderBrand": editGrinderBrand,
             "grinderModel": editGrinderModel,
-            "grinderBurrs": editGrinderBurrs,
             "grinderSetting": editGrinderSetting,
             "barista": editBarista,
             "beverageType": editBeverageType,
@@ -531,6 +546,11 @@ Page {
             "espressoNotes": editNotes,
             "enjoyment0to100": editEnjoyment
         }
+        // Only include profileName when non-empty; an empty string would cause
+        // setStr to send null, clearing profile_title on visualizer.coffee.
+        if (_profileName)
+            overrides["profileName"] = _profileName
+        return overrides
     }
 
     function maybeAutoUpdateVisualizer() {
@@ -538,10 +558,10 @@ Page {
         if (!Settings.visualizer.visualizerAutoUpdate) return
         if (!MainController.visualizer) return
         pendingVisualizerUpdate = false
-        if (editShotData.visualizerId) {
-            console.log("PostShotReview: auto-updating visualizer shot", editShotData.visualizerId, "for shot id", editShotId)
+        if (_visualizerId) {
+            console.log("PostShotReview: auto-updating visualizer shot", _visualizerId, "for shot id", editShotId)
             MainController.visualizer.updateShotOnVisualizerWithOverrides(
-                editShotData.visualizerId, editShotData, buildVisualizerOverrides())
+                _visualizerId, editShotData, buildVisualizerOverrides())
         } else if (Settings.visualizer.visualizerAutoUpload) {
             console.log("PostShotReview: auto-uploading to visualizer (no existing id) for shot id", editShotId)
             MainController.visualizer.uploadShotFromHistoryWithOverrides(
@@ -576,15 +596,18 @@ Page {
                 var vid = ("" + url).split("/").pop()
                 editShotData = Object.assign({}, editShotData,
                     { visualizerId: vid, visualizerUrl: url })
+                _visualizerId = vid
             }
         }
         function onUpdateSuccess(visualizerId) {
             uploadError = ""
             pendingVisualizerUpdate = false
             // Refresh the id in place — no reload (see onVisualizerInfoUpdated).
-            if (visualizerId)
+            if (visualizerId) {
                 editShotData = Object.assign({}, editShotData,
                     { visualizerId: visualizerId })
+                _visualizerId = visualizerId
+            }
         }
         function onUploadFailed(error) {
             uploadError = error
@@ -1617,7 +1640,7 @@ Page {
             color: uploadArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
 
             Accessible.role: Accessible.Button
-            Accessible.name: editShotData.visualizerId
+            Accessible.name: _visualizerId
                 ? TranslationManager.translate("postshotreview.button.reupload", "Re-Upload to Visualizer")
                 : TranslationManager.translate("postshotreview.button.upload", "Upload to Visualizer")
             Accessible.focusable: true
@@ -1637,10 +1660,10 @@ Page {
                 }
 
                 Tr {
-                    key: editShotData.visualizerId
+                    key: _visualizerId
                          ? "postshotreview.button.reupload"
                          : "postshotreview.button.upload"
-                    fallback: editShotData.visualizerId
+                    fallback: _visualizerId
                               ? "Re-Upload to Visualizer"
                               : "Upload to Visualizer"
                     color: Theme.primaryContrastColor
@@ -1656,22 +1679,23 @@ Page {
                 onClicked: {
                     // Flush any pending edit before uploading
                     autosave()
-                    // Manual upload takes ownership — auto-update on destruction
-                    // must not fire a second request for the same edits.
+                    // Clear the pending flag before dispatching — auto-update on destruction
+                    // must not fire a second request. If this upload fails, onUploadFailed also
+                    // clears the flag, so a failed manual upload does not re-trigger on exit.
                     pendingVisualizerUpdate = false
 
                     uploadError = ""
-                    if (editShotData.visualizerId) {
+                    if (_visualizerId) {
                         // Re-upload: PATCH metadata from current edit fields.
+                        // grinderBurrs intentionally omitted — Visualizer API has no
+                        // separate burrs field (only combined grinder_model).
                         var patchOverrides = {
-                            "profileName": _profileName,
                             "beanBrand": editBeanBrand,
                             "beanType": editBeanType,
                             "roastDate": editRoastDate,
                             "roastLevel": editRoastLevel,
                             "grinderBrand": editGrinderBrand,
                             "grinderModel": editGrinderModel,
-                            "grinderBurrs": editGrinderBurrs,
                             "grinderSetting": editGrinderSetting,
                             "barista": editBarista,
                             "beverageType": editBeverageType,
@@ -1682,8 +1706,10 @@ Page {
                             "espressoNotes": editNotes,
                             "enjoyment0to100": editEnjoyment
                         }
+                        if (_profileName)
+                            patchOverrides["profileName"] = _profileName
                         MainController.visualizer.updateShotOnVisualizerWithOverrides(
-                            editShotData.visualizerId, editShotData, patchOverrides)
+                            _visualizerId, editShotData, patchOverrides)
                     } else {
                         // First upload: pass editShotData directly (preserves id,
                         // durationSec, and frame arrays) and supply current edit-field
@@ -1691,6 +1717,8 @@ Page {
                         // not work here — Q_GADGET properties are non-enumerable in V4,
                         // so Object.assign silently drops them, leaving id=0 and causing
                         // isValid() to fail.
+                        // grinderBurrs intentionally omitted — Visualizer API has no
+                        // separate burrs field (only combined grinder_model).
                         var uploadOverrides = {
                             "beanBrand": editBeanBrand,
                             "beanType": editBeanType,
@@ -1698,7 +1726,6 @@ Page {
                             "roastLevel": editRoastLevel,
                             "grinderBrand": editGrinderBrand,
                             "grinderModel": editGrinderModel,
-                            "grinderBurrs": editGrinderBurrs,
                             "grinderSetting": editGrinderSetting,
                             "barista": editBarista,
                             "beverageType": editBeverageType,
@@ -1719,10 +1746,10 @@ Page {
         // Uploading/Updating indicator
         Tr {
             visible: MainController.visualizer.uploading
-            key: editShotData.visualizerId
+            key: _visualizerId
                  ? "postshotreview.status.updating"
                  : "postshotreview.status.uploading"
-            fallback: editShotData.visualizerId ? "Updating..." : "Uploading..."
+            fallback: _visualizerId ? "Updating..." : "Uploading..."
             color: Theme.textSecondaryColor
             font: Theme.labelFont
         }

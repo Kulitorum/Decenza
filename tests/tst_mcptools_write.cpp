@@ -6,6 +6,7 @@
 
 #include "mocks/McpTestFixture.h"
 #include "ble/protocol/de1characteristics.h"
+#include "core/settings_visualizer.h"
 #include "profile/recipeparams.h"
 
 using namespace DE1::Characteristic;
@@ -218,6 +219,34 @@ private slots:
             if (v.toString() == "steamTemperature") found = true;
         }
         QVERIFY2(found, "steamTemperature should be in updated list");
+    }
+
+    // Verifies that settings_set persists visualizerAutoUpdate through the MCP
+    // tool surface. Does NOT exercise the shots_update auto-update gate at
+    // mcptools_write.cpp lines 207-221 — that path requires a real
+    // VisualizerUploader, and registerTools passes nullptr here. Gate coverage
+    // is provided by the MCP integration test in scripts/test_mcp.sh.
+    void settingsSetVisualizerAutoUpdateRoundTrip()
+    {
+        McpTestFixture f;
+        registerTools(f);
+
+        bool orig = f.settings.visualizer()->visualizerAutoUpdate();
+        QJsonObject args;
+        args["visualizerAutoUpdate"] = !orig;
+        QJsonObject result = f.callAsyncTool("settings_set", args);
+
+        QVERIFY(result.contains("updated"));
+        QJsonArray updated = result["updated"].toArray();
+        bool found = false;
+        for (const auto& v : updated) {
+            if (v.toString() == "visualizerAutoUpdate") found = true;
+        }
+        QVERIFY2(found, "visualizerAutoUpdate should be in updated list");
+        QCOMPARE(f.settings.visualizer()->visualizerAutoUpdate(), !orig);
+
+        // Restore
+        f.settings.visualizer()->setVisualizerAutoUpdate(orig);
     }
 };
 
