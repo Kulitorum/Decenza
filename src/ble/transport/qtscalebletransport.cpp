@@ -352,6 +352,10 @@ void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
         "DE1-link fault cluster (last kind=%1) within scale-HIGH window")
         .arg(kind);
     if (fired) {
+        // Consume any stale subsided flag: a cascade double-call can set
+        // observeClusterSubsided on the first call (window re-anchor) and
+        // immediately fire on the second. The cluster escalated — not subsided.
+        m_priority.takeObserveClusterSubsided();
         if (m_priority.observing())
             logWouldBackoff(reason, QStringLiteral("de1-fault-cluster"), -1.0);
         else

@@ -197,6 +197,19 @@ private slots:
         QVERIFY(!d.takeObserveClusterSubsided());   // one-shot: cleared on read
     }
 
+    // Same-instant cascade in observe mode: wouldFire, no latch, no stale subsided.
+    void observeCascadeAtSameInstantWouldFireNoLatch() {
+        BlePriorityDetector d;
+        d.armWindow(0, /*observe=*/true);
+        const int64_t t = 5000;
+        QVERIFY(!d.onDe1Fault(t));          // first: anchors window
+        QVERIFY(d.onDe1Fault(t));           // second at same instant: wouldFire
+        QVERIFY(!d.backoffTriggered());     // observe: never latches
+        QVERIFY(!d.skipHighPriority());     // observe: never sets skip-HIGH
+        QVERIFY(d.armed());                 // observe: stays armed
+        QVERIFY(!d.takeObserveClusterSubsided()); // escalated, not subsided
+    }
+
     // enforce remains byte-identical: observing() is false and the latch path
     // is unchanged when armed without observe.
     void enforceUnchangedWhenNotObserving() {

@@ -19,6 +19,7 @@
 #include <QDateTime>
 
 #ifdef Q_OS_ANDROID
+#include <QJniEnvironment>
 #include <QJniObject>
 #endif
 
@@ -173,9 +174,17 @@ void BLEManager::setSettings(SettingsHardware* settings)
         // this block. There is no in-app way to permanently restore HIGH on
         // SDK<30 hardware — the only exit is an OS upgrade to SDK≥30.
         constexpr int kSeedSdkBelow = 30;  // #1097's predicate, now reused as a seed
+        QJniEnvironment jniEnv;
         const jint sdkInt = QJniObject::getStaticField<jint>(
             "android/os/Build$VERSION", "SDK_INT");
-        if (sdkInt > 0 && sdkInt < kSeedSdkBelow) {
+        const bool jniFailed = jniEnv.checkAndClearExceptions();
+        if (jniFailed || sdkInt <= 0) {
+            qWarning().noquote()
+                << QStringLiteral("[BLE] First-launch seed: failed to read "
+                      "Android SDK_INT via JNI (sdkInt=%1, jni_exception=%2) "
+                      "— seed skipped, runtime detector will arm normally.")
+                       .arg(sdkInt).arg(jniFailed ? "yes" : "no");
+        } else if (sdkInt < kSeedSdkBelow) {
             const QString kind = QStringLiteral("seed:sdk<%1").arg(kSeedSdkBelow);
             latchScaleSkipHighPriority(kind);
             qWarning().noquote()
