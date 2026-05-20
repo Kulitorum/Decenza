@@ -221,7 +221,7 @@ std::optional<QJsonObject> AIManager::parseStructuredNext(const QString& assista
 
 // Heuristic for "the prior assistant message asked the user about
 // taste". Conservative: a false negative just means we don't auto-
-// persist — the user can still rate via the editor or QuickRatingRow.
+// persist — the user can still rate via the editor or the rating slider.
 // False positives are the dangerous mode (a recommendation reply
 // mentioning a "score from 75" past tense triggers a writeback from
 // the user's next prose number). To minimize false positives:
