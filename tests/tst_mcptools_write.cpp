@@ -249,6 +249,24 @@ private slots:
         // Restore
         f.settings.visualizer()->setVisualizerAutoUpdate(orig);
     }
+
+    // shots_upload_to_visualizer needs both a real ShotHistoryStorage and a real
+    // VisualizerUploader to exercise the upload-dispatch path; the test fixture
+    // wires both as nullptr, so what we can verify here is that the tool is
+    // registered and the dependency-guard / shotId-validation return the right
+    // errors. The dispatch path is covered by the MCP integration test.
+    void shotsUploadToVisualizerRejectsMissingShotHistory()
+    {
+        McpTestFixture f;
+        registerTools(f);
+
+        QJsonObject args;
+        args["shotId"] = 42;
+        QJsonObject result = f.callAsyncTool("shots_upload_to_visualizer", args);
+
+        QVERIFY2(result.contains("error"), "expected error when shotHistory is null");
+        QCOMPARE(result["error"].toString(), QString("Shot history not available"));
+    }
 };
 
 QTEST_MAIN(tst_McpToolsWrite)
