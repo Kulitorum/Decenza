@@ -87,7 +87,7 @@ Each tool has a `category` that determines the minimum access level required:
 | Category | Min Access Level | Tools |
 |----------|-----------------|-------|
 | `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, profiles_get_auto_load, settings_get, dialing_get_context, dialing_get_grinder_calibration |
-| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority |
+| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, shots_upload_to_visualizer, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority |
 | `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, apply_theme |
 
 ### Tool → Confirmation Level Mapping
@@ -111,6 +111,7 @@ Two confirmation mechanisms are used depending on where the user is:
 | shots_delete | **Confirm** | Confirm | Chat |
 | settings_set | **Confirm** | Confirm | Chat |
 | shots_update | No confirm | No confirm | — |
+| shots_upload_to_visualizer | No confirm | No confirm | — |
 
 When confirmation level is 0 (None), all tools execute immediately regardless of mechanism.
 
@@ -174,7 +175,8 @@ This avoids holding HTTP connections and works naturally with the conversational
 | `shots_get_detail` | Full shot record with time-series data | read |
 | `shots_get_debug_log` | Per-shot debug log (BLE frames, phase transitions, SAW events, flow calibration). Paginated with offset/limit. | read |
 | `shots_compare` | Side-by-side comparison of 2+ shots with auto-computed change diffs (grind, dose, yield, duration) | read |
-| `shots_update` | Update any metadata field on a shot: enjoyment, notes, dose, yield, bean info, grinder info, barista, TDS, EY. Same fields the QML shot editor can change. Replaces the old `shots_set_feedback`. | control |
+| `shots_update` | Update any metadata field on a shot: enjoyment, notes, dose, yield, bean info, grinder info, barista, TDS, EY. Same fields the QML shot editor can change. Replaces the old `shots_set_feedback`. If the shot already has a `visualizer_id` and `visualizerAutoUpdate` is on, the edits are auto-PATCHed up to visualizer.coffee (response includes `visualizerUpdateTriggered`). | control |
+| `shots_upload_to_visualizer` | Upload a historical shot to visualizer.coffee for the first time (POST). Use for shots that were never auto-uploaded and therefore have no `visualizer_id` yet. Refuses to re-upload an existing shot (points the caller at `shots_update` to PATCH instead) and rejects upfront if the shot is a maintenance profile, shorter than `visualizerMinDuration`, or credentials are missing. Response: `{success, uploadTriggered, message}`; the new `visualizer_id` lands in the local DB when the network response arrives. | control |
 | `shots_delete` | Delete a shot by ID. Permanent and cannot be undone. | settings |
 
 ### Profile Management
