@@ -39,6 +39,17 @@ void SettingsVisualizer::setVisualizerAutoUpload(bool enabled) {
     }
 }
 
+bool SettingsVisualizer::visualizerAutoUpdate() const {
+    return m_settings.value("visualizer/autoUpdate", true).toBool();
+}
+
+void SettingsVisualizer::setVisualizerAutoUpdate(bool enabled) {
+    if (visualizerAutoUpdate() != enabled) {
+        m_settings.setValue("visualizer/autoUpdate", enabled);
+        emit visualizerAutoUpdateChanged();
+    }
+}
+
 double SettingsVisualizer::visualizerMinDuration() const {
     return m_settings.value("visualizer/minDuration", 6.0).toDouble();
 }

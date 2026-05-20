@@ -11,6 +11,7 @@ class SettingsVisualizer : public QObject {
     Q_PROPERTY(QString visualizerUsername READ visualizerUsername WRITE setVisualizerUsername NOTIFY visualizerUsernameChanged)
     Q_PROPERTY(QString visualizerPassword READ visualizerPassword WRITE setVisualizerPassword NOTIFY visualizerPasswordChanged)
     Q_PROPERTY(bool visualizerAutoUpload READ visualizerAutoUpload WRITE setVisualizerAutoUpload NOTIFY visualizerAutoUploadChanged)
+    Q_PROPERTY(bool visualizerAutoUpdate READ visualizerAutoUpdate WRITE setVisualizerAutoUpdate NOTIFY visualizerAutoUpdateChanged)
     Q_PROPERTY(double visualizerMinDuration READ visualizerMinDuration WRITE setVisualizerMinDuration NOTIFY visualizerMinDurationChanged)
     Q_PROPERTY(bool visualizerExtendedMetadata READ visualizerExtendedMetadata WRITE setVisualizerExtendedMetadata NOTIFY visualizerExtendedMetadataChanged)
     Q_PROPERTY(bool visualizerShowAfterShot READ visualizerShowAfterShot WRITE setVisualizerShowAfterShot NOTIFY visualizerShowAfterShotChanged)
@@ -28,6 +29,9 @@ public:
 
     bool visualizerAutoUpload() const;
     void setVisualizerAutoUpload(bool enabled);
+
+    bool visualizerAutoUpdate() const;
+    void setVisualizerAutoUpdate(bool enabled);
 
     double visualizerMinDuration() const;
     void setVisualizerMinDuration(double seconds);
@@ -48,6 +52,7 @@ signals:
     void visualizerUsernameChanged();
     void visualizerPasswordChanged();
     void visualizerAutoUploadChanged();
+    void visualizerAutoUpdateChanged();
     void visualizerMinDurationChanged();
     void visualizerExtendedMetadataChanged();
     void visualizerShowAfterShotChanged();

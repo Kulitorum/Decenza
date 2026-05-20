@@ -2,6 +2,8 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
 #include "../history/shothistorystorage.h"
+#include "../history/shotprojection.h"
+#include "../network/visualizeruploader.h"
 #include "../controllers/profilemanager.h"
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
@@ -34,6 +36,7 @@
 
 void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
+                        VisualizerUploader* visualizerUploader,
                         AccessibilityManager* accessibility,
                         ScreensaverVideoManager* screensaver,
                         TranslationManager* translation,
@@ -66,7 +69,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }},
             {"required", QJsonArray{"shotId"}}
         },
-        [shotHistory](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [shotHistory, settings, visualizerUploader](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Shot history not available"}});
                 return;
@@ -116,12 +119,54 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 return;
             }
 
+            // Build ShotProjection-keyed overrides for visualizer PATCH (field names differ from DB keys).
+            QVariantMap vizOverrides;
+            if (args.contains("enjoyment"))
+                vizOverrides["enjoyment0to100"] = qBound(0, args["enjoyment"].toInt(), 100);
+            if (args.contains("notes"))
+                vizOverrides["espressoNotes"] = args["notes"].toString();
+            if (args.contains("doseWeight"))
+                vizOverrides["doseWeightG"] = args["doseWeight"].toDouble();
+            if (args.contains("drinkWeight"))
+                vizOverrides["finalWeightG"] = args["drinkWeight"].toDouble();
+            if (args.contains("beanBrand"))
+                vizOverrides["beanBrand"] = args["beanBrand"].toString();
+            if (args.contains("beanType"))
+                vizOverrides["beanType"] = args["beanType"].toString();
+            if (args.contains("roastLevel"))
+                vizOverrides["roastLevel"] = args["roastLevel"].toString();
+            if (args.contains("roastDate"))
+                vizOverrides["roastDate"] = args["roastDate"].toString();
+            if (args.contains("grinderBrand"))
+                vizOverrides["grinderBrand"] = args["grinderBrand"].toString();
+            if (args.contains("grinderModel"))
+                vizOverrides["grinderModel"] = args["grinderModel"].toString();
+            if (args.contains("grinderBurrs"))
+                vizOverrides["grinderBurrs"] = args["grinderBurrs"].toString();
+            if (args.contains("grinderSetting"))
+                vizOverrides["grinderSetting"] = args["grinderSetting"].toString();
+            if (args.contains("barista"))
+                vizOverrides["barista"] = args["barista"].toString();
+            if (args.contains("drinkTds"))
+                vizOverrides["drinkTdsPct"] = args["drinkTds"].toDouble();
+            if (args.contains("drinkEy"))
+                vizOverrides["drinkEyPct"] = args["drinkEy"].toDouble();
+
             const QString dbPath = shotHistory->databasePath();
 
-            QThread* thread = QThread::create([dbPath, shotId, metadata, respond, shotHistory]() {
+            QThread* thread = QThread::create([dbPath, shotId, metadata, vizOverrides,
+                                               respond, shotHistory, settings, visualizerUploader]() {
                 bool ok = false;
+                QString visualizerId;
                 withTempDb(dbPath, "mcp_update", [&](QSqlDatabase& db) {
                     ok = ShotHistoryStorage::updateShotMetadataStatic(db, shotId, metadata);
+                    if (ok) {
+                        QSqlQuery idQuery(db);
+                        idQuery.prepare("SELECT visualizer_id FROM shots WHERE id = :id");
+                        idQuery.bindValue(":id", shotId);
+                        if (idQuery.exec() && idQuery.next())
+                            visualizerId = idQuery.value(0).toString();
+                    }
                 });
 
                 QJsonObject result;
@@ -136,11 +181,30 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     result["error"] = "Failed to update shot " + QString::number(shotId);
                 }
 
-                QMetaObject::invokeMethod(qApp, [respond, result, shotHistory, shotId, ok]() {
+                QMetaObject::invokeMethod(qApp, [respond, result, shotHistory, shotId, ok,
+                                                  visualizerId, vizOverrides, settings, visualizerUploader]() mutable {
                     if (ok) {
                         shotHistory->invalidateDistinctCache();
                         emit shotHistory->shotMetadataUpdated(shotId, true);
                     }
+
+                    bool willAutoUpdate = false;
+                    if (ok && visualizerUploader && !visualizerId.isEmpty()
+                            && settings && settings->visualizer()->visualizerAutoUpdate()) {
+                        willAutoUpdate = true;
+                        auto conn = std::make_shared<QMetaObject::Connection>();
+                        *conn = QObject::connect(shotHistory, &ShotHistoryStorage::shotReady,
+                            shotHistory, [visualizerUploader, shotId, visualizerId, vizOverrides, conn]
+                            (qint64 readyShotId, const ShotProjection& shot) {
+                                if (readyShotId != shotId) return;
+                                QObject::disconnect(*conn);
+                                visualizerUploader->updateShotOnVisualizerWithOverrides(
+                                    visualizerId, shot, vizOverrides);
+                            });
+                        shotHistory->requestShot(shotId);
+                    }
+
+                    result["visualizerUpdateTriggered"] = willAutoUpdate;
                     respond(result);
                 }, Qt::QueuedConnection);
             });
@@ -342,6 +406,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"activeShader", QJsonObject{{"type", "string"}, {"description", "Active screen shader (empty for none, 'crt' for CRT)"}}},
                 // Visualizer
                 {"visualizerAutoUpload", QJsonObject{{"type", "boolean"}, {"description", "Auto-upload shots to visualizer.coffee"}}},
+                {"visualizerAutoUpdate", QJsonObject{{"type", "boolean"}, {"description", "Auto-update shot metadata on visualizer.coffee after editing"}}},
                 {"visualizerMinDuration", QJsonObject{{"type", "number"}, {"description", "Minimum shot duration for upload (seconds)"}}},
                 {"visualizerExtendedMetadata", QJsonObject{{"type", "boolean"}, {"description", "Upload extended metadata"}}},
                 {"visualizerShowAfterShot", QJsonObject{{"type", "boolean"}, {"description", "Show visualizer after shot"}}},
@@ -964,6 +1029,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 bool v = args["visualizerAutoUpload"].toBool();
                 addSetter([settings, v]() { settings->visualizer()->setVisualizerAutoUpload(v); });
                 updated << "visualizerAutoUpload";
+            }
+            if (args.contains("visualizerAutoUpdate")) {
+                bool v = args["visualizerAutoUpdate"].toBool();
+                addSetter([settings, v]() { settings->visualizer()->setVisualizerAutoUpdate(v); });
+                updated << "visualizerAutoUpdate";
             }
             if (args.contains("visualizerMinDuration")) {
                 double v = args["visualizerMinDuration"].toDouble();

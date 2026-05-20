@@ -35,6 +35,12 @@ Page {
         if (Refractometer && Refractometer.connected) {
             Refractometer.disconnectFromDevice()
         }
+        // Fire deferred visualizer PATCH exactly once, when the page is truly
+        // being removed (not when a sub-page covers it).  Safe here because
+        // maybeAutoUpdateVisualizer() only dispatches a network call — no DB
+        // writes or Qt.inputMethod.commit(), which are the operations flagged
+        // as unsafe during destruction.
+        maybeAutoUpdateVisualizer()
     }
 
     // Flush whenever the page loses the foreground (back, a child page pushed
@@ -64,6 +70,7 @@ Page {
     property bool autoClose: true  // false when user opens manually (no auto-dismiss)
     property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
     property string uploadError: ""
+    property bool pendingVisualizerUpdate: false  // set when a metadata edit has been saved locally but not yet PATCHed to visualizer
 
     // Pick up toggle changes made on any other page sharing this setting
     // (Shot Detail, Shot Comparison, Espresso view selector).
@@ -441,6 +448,7 @@ Page {
     function saveEditedShot() {
         Qt.inputMethod.commit()
         if (editShotId <= 0) return
+        pendingVisualizerUpdate = true
         var metadata = {
             "beanBrand": editBeanBrand,
             "beanType": editBeanType,
@@ -501,6 +509,41 @@ Page {
         editShotData = nb
     }
 
+    function buildVisualizerOverrides() {
+        return {
+            "beanBrand": editBeanBrand,
+            "beanType": editBeanType,
+            "roastDate": editRoastDate,
+            "roastLevel": editRoastLevel,
+            "grinderBrand": editGrinderBrand,
+            "grinderModel": editGrinderModel,
+            "grinderBurrs": editGrinderBurrs,
+            "grinderSetting": editGrinderSetting,
+            "barista": editBarista,
+            "beverageType": editBeverageType,
+            "doseWeightG": editDoseWeight,
+            "finalWeightG": editDrinkWeight,
+            "drinkTdsPct": editDrinkTds,
+            "drinkEyPct": editDrinkEy,
+            "espressoNotes": editNotes,
+            "enjoyment0to100": editEnjoyment
+        }
+    }
+
+    function maybeAutoUpdateVisualizer() {
+        if (!pendingVisualizerUpdate) return
+        if (!Settings.visualizer.visualizerAutoUpdate) return
+        if (!MainController.visualizer) return
+        pendingVisualizerUpdate = false
+        if (editShotData.visualizerId) {
+            MainController.visualizer.updateShotOnVisualizerWithOverrides(
+                editShotData.visualizerId, editShotData, buildVisualizerOverrides())
+        } else if (Settings.visualizer.visualizerAutoUpload) {
+            MainController.visualizer.uploadShotFromHistoryWithOverrides(
+                editShotData, buildVisualizerOverrides())
+        }
+    }
+
     // Handle upload status changes
     Connections {
         target: MainController.visualizer
@@ -523,6 +566,7 @@ Page {
             // the id/url in place (so the button flips to "Re-Upload") instead
             // of a full reload that would clobber edits / orphan undo.
             uploadError = ""
+            pendingVisualizerUpdate = false
             if (shotId === postShotReviewPage.editShotId && url) {
                 var vid = ("" + url).split("/").pop()
                 editShotData = Object.assign({}, editShotData,
@@ -531,6 +575,7 @@ Page {
         }
         function onUpdateSuccess(visualizerId) {
             uploadError = ""
+            pendingVisualizerUpdate = false
             // Refresh the id in place — no reload (see onVisualizerInfoUpdated).
             if (visualizerId)
                 editShotData = Object.assign({}, editShotData,
