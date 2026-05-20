@@ -159,8 +159,12 @@ private slots:
         DecentScale scale(nullptr);
         QSignalSpy spy(&scale, &ScaleDevice::batteryLevelChanged);
 
-        // Battery response: cmd=0x0A, d4=75 (battery%), rest=0
-        auto pkt = buildDecentPacket(0x0A, 0x00, 0x00, 75, 0x00);
+        // LED-response packet (battery 75%, firmware bytes zero). The
+        // helper sets bytes [5-6] to 0x00 0x00 so the firmware-version
+        // logger emits "Firmware version: 0.0.0 (raw 0x00 0x00)" — ignored
+        // here so it doesn't pollute test output.
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
+        auto pkt = buildDecentLedResponse(75, 0, 0, 0);
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
 
         QVERIFY(spy.count() >= 1);
@@ -171,8 +175,9 @@ private slots:
         DecentScale scale(nullptr);
         QSignalSpy spy(&scale, &ScaleDevice::batteryLevelChanged);
 
-        // Battery charging: d4=0xFF -> 100%
-        auto pkt = buildDecentPacket(0x0A, 0x00, 0x00, 0xFF, 0x00);
+        // Battery charging: d4=0xFF -> 100%.
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
+        auto pkt = buildDecentLedResponse(0xFF, 0, 0, 0);
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
 
         QVERIFY(spy.count() >= 1);
@@ -201,21 +206,38 @@ private slots:
 
     void decentFirmwareVersionLoggedOnceOnFirstLedResponse() {
         // Current openscale source (include/config.h:29) is `FW: 3.0.9` →
-        // wire bytes 0x03 0x09. Verify we decode that exactly, and that
-        // we suppress identical follow-ups so periodic LED responses
-        // don't churn the log.
+        // wire bytes 0x03 0x09. Verify the exact decode, and verify
+        // mechanically (via QSignalSpy on logMessage — see SCALE_LOG in
+        // scalelogging.h, which emits logMessage alongside qDebug) that
+        // the second identical packet does NOT re-log.
         DecentScale scale(nullptr);
         auto pkt = buildDecentLedResponse(50, 3, 0, 9);
         QCOMPARE(static_cast<uint8_t>(pkt[5]), uint8_t(0x03));
         QCOMPARE(static_cast<uint8_t>(pkt[6]), uint8_t(0x09));
 
+        QSignalSpy logSpy(&scale, &ScaleDevice::logMessage);
+
         QTest::ignoreMessage(QtDebugMsg,
             QRegularExpression(".*Firmware version: 3\\.0\\.9 \\(raw 0x03 0x09\\).*"));
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
 
-        // A second identical packet must NOT re-log (ignoreMessage matches
-        // exactly one occurrence; a second log would fail the test).
+        // Count "Firmware version" log emissions after the first packet —
+        // exactly one expected.
+        const auto firmwareLogCount = [&logSpy]() {
+            int n = 0;
+            for (const auto& args : logSpy) {
+                if (args.value(0).toString().contains(QStringLiteral("Firmware version:")))
+                    ++n;
+            }
+            return n;
+        };
+        QCOMPARE(firmwareLogCount(), 1);
+
+        // Second identical packet: no new "Firmware version" log line. If
+        // dedup regresses, this QCOMPARE fires (and the unsuppressed qDebug
+        // would also appear in test output).
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
+        QCOMPARE(firmwareLogCount(), 1);
     }
 
     void decentFirmwareVersionBcdMajor() {
@@ -379,20 +401,17 @@ private slots:
     }
 
     void decentLedResponseSkipsChecksum() {
-        // LED response (0x0A) has no checksum — should parse regardless of byte 6
+        // LED-response (cmd 0x0A) has no checksum — bytes [5-6] carry the
+        // BCD-encoded firmware version, NOT a checksum, and the parser must
+        // accept the packet regardless of what those bytes happen to be.
         DecentScale scale(nullptr);
         QSignalSpy spy(&scale, &ScaleDevice::batteryLevelChanged);
 
-        // Build LED response with arbitrary byte 6 (firmware version, not checksum)
-        QByteArray pkt(7, 0);
-        pkt[0] = 0x03;
-        pkt[1] = 0x0A;
-        pkt[2] = 0x00;  // weight hi
-        pkt[3] = 0x00;  // weight lo
-        pkt[4] = static_cast<char>(60);   // battery 60%
-        pkt[5] = 0x01;  // firmware version hi
-        pkt[6] = 0x02;  // firmware version lo (NOT a checksum)
-
+        // FW: 1.0.2 → wire 0x01 0x02. The exact value doesn't matter for
+        // this test — the point is that byte 6 is not validated as a XOR
+        // checksum of bytes 0-5 (which it would fail).
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
+        auto pkt = buildDecentLedResponse(60, 1, 0, 2);
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
 
         QVERIFY(spy.count() >= 1);
