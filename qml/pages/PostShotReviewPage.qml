@@ -159,6 +159,10 @@ Page {
             editShotData = shot
             _profileName = editShotData.profileName || ""
             _visualizerId = editShotData.visualizerId || ""
+            // Reset upload status text when loading a new shot so stale
+            // error/skip messages from a previous shot don't carry over.
+            uploadError = ""
+            uploadSkipReason = ""
             if (editShotData.id) {
                 // Populate editing fields
                 editBeanBrand = editShotData.beanBrand || ""
@@ -609,6 +613,7 @@ Page {
             if (_firstUploadInFlight)
                 _firstUploadInFlight = false
             uploadError = ""
+            uploadSkipReason = ""
             if (url) {
                 editShotData = Object.assign({}, editShotData,
                     { visualizerId: visualizerId, visualizerUrl: url })
@@ -623,6 +628,7 @@ Page {
             if (!_patchInFlight) return
             _patchInFlight = false
             uploadError = ""
+            uploadSkipReason = ""
         }
         function onUploadFailed(error) {
             // Only surface and react when the failure belongs to a request we
@@ -1766,7 +1772,7 @@ Page {
 
         Text {
             visible: uploadSkipReason.length > 0 && !MainController.visualizer.uploading
-            text: uploadSkipReason
+            text: TranslationManager.translate("postshotreview.upload.skipped", "Upload skipped") + ": " + uploadSkipReason
             color: Theme.textSecondaryColor
             font: Theme.labelFont
             wrapMode: Text.WordWrap

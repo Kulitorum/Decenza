@@ -1119,12 +1119,15 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
 {
     // Skip maintenance profiles
     if (beverageType == "cleaning" || beverageType == "calibrate" || beverageType == "descale") {
-        m_lastUploadStatus = QString("Skipped: maintenance profile (%1)").arg(beverageType);
+        const QString reason = QString("maintenance profile (%1)").arg(beverageType);
+        m_lastUploadStatus = QString("Skipped: %1").arg(reason);
         emit lastUploadStatusChanged();
         // Policy skip, not an error — uploadSkipped lets the page clear its
         // in-flight flags without surfacing a red error or aborting unrelated
-        // listeners (e.g. MainController's migration-16 drain).
-        emit uploadSkipped(m_lastUploadStatus);
+        // listeners (e.g. MainController's migration-16 drain). The page
+        // wraps the reason with a translated "Upload skipped:" prefix; emit
+        // just the reason payload so the C++ "Skipped:" prefix doesn't double up.
+        emit uploadSkipped(reason);
         qDebug() << "Visualizer: Skipping upload for maintenance profile:" << beverageType;
         return false;
     }
@@ -1142,11 +1145,12 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
     // Check minimum duration
     double minDuration = m_settings->value("visualizer/minDuration", 6.0).toDouble();
     if (duration < minDuration) {
-        m_lastUploadStatus = QString("Shot too short (%1s < %2s)").arg(duration, 0, 'f', 1).arg(minDuration, 0, 'f', 0);
+        const QString reason = QString("shot too short (%1s < %2s)").arg(duration, 0, 'f', 1).arg(minDuration, 0, 'f', 0);
+        m_lastUploadStatus = QString("Skipped: %1").arg(reason);
         emit lastUploadStatusChanged();
         // Policy skip, not an error — see uploadSkipped rationale on the
-        // maintenance branch above.
-        emit uploadSkipped(m_lastUploadStatus);
+        // maintenance branch above. Emit just the reason payload.
+        emit uploadSkipped(reason);
         qDebug() << "Visualizer: Shot too short, not uploading";
         return false;
     }
