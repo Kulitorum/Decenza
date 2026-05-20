@@ -339,11 +339,11 @@ void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
     //
     // A "write-failed" kind represents a 10-retry GATT-write cascade — ~5s
     // of sustained write starvation, not a single transient blip — so it
-    // counts as 2 faults: a single cascade alone reaches the backoff
-    // threshold without waiting for a follow-on controller-error (#1238,
-    // P80X Android 9, where the controller-error landed 20.034s after the
-    // cascade and just missed the prior 20s window). Transient single-write
-    // retries that recover are not signaled at the source (see
+    // counts as 2 faults: a cascade alone is sufficient evidence of dual-HIGH
+    // starvation; we must not require a follow-on fault that may never arrive
+    // on devices where the controller subsequently recovers (#1238: the P80X
+    // emitted only one controller-error, 20.034s after the cascade). Transient
+    // single-write retries that recover are not signaled at the source (see
     // bletransport.cpp ~538), so capable hardware does not false-positive.
     const bool isCascade = (kind == QLatin1String("write-failed"));
     bool fired = m_priority.onDe1Fault(nowMs());

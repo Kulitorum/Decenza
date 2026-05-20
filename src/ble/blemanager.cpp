@@ -160,20 +160,18 @@ void BLEManager::setSettings(SettingsHardware* settings)
         // broken scale discovery on the P80X chipset, then a ~70s DE1 GATT
         // collapse). Seeding the latch up front on the population that the
         // retired #1097 SDK<30 gate used to cover (Android < 11) bypasses
-        // that first-launch pain. After the seed lands the device's first
-        // run is identical to its 1.7.4 behavior (scale at BALANCED, no
-        // contention), and the persisted record is what every subsequent
-        // launch reads — the SDK check does NOT re-evaluate per launch.
+        // that first-launch pain.
         //
         // This is a SEED, not a gate: the runtime detector continues to
         // handle SDK≥30 devices on weak chipsets (the #1176 Galaxy Tab A8 /
-        // T618 case that motivated #1185), unchanged. The seed is also
-        // user-clearable via the existing MCP path
-        // (clearScaleSkipHighPriority) for an SDK<30 device whose radio
-        // happens to handle dual-HIGH — that wipes the persisted record and
-        // re-arms detection from scratch. A deliberate epoch bump
-        // (kBleDetectionEpoch++) discards the seed along with everything
-        // else and re-evaluates from scratch on the next launch.
+        // T618 case that motivated #1185), unchanged.
+        //
+        // Sticky by design: SDK_INT is a permanent OS characteristic, so the
+        // seed re-evaluates on every launch where the latch is absent (e.g.,
+        // after an MCP clear or epoch bump that wiped the record). While the
+        // latch persists, subsequent launches rehydrate it without re-running
+        // this block. There is no in-app way to permanently restore HIGH on
+        // SDK<30 hardware — the only exit is an OS upgrade to SDK≥30.
         constexpr int kSeedSdkBelow = 30;  // #1097's predicate, now reused as a seed
         const jint sdkInt = QJniObject::getStaticField<jint>(
             "android/os/Build$VERSION", "SDK_INT");
@@ -185,8 +183,9 @@ void BLEManager::setSettings(SettingsHardware* settings)
                       "%2 (dual-HIGH-incapable cohort, ex-#1097) — skip-HIGH "
                       "latch SET without running the detection window. "
                       "Persisted under epoch %3; both BLE links start at "
-                      "BALANCED this run and every subsequent run until "
-                      "cleared via MCP or epoch bump.")
+                      "BALANCED. Seed re-applies on every launch where the "
+                      "latch is absent (SDK_INT is permanent — no in-app "
+                      "escape hatch on this SDK cohort).")
                        .arg(sdkInt).arg(kSeedSdkBelow).arg(kBleDetectionEpoch);
         }
 #endif
