@@ -26,6 +26,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSet>
+#include <QDebug>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QThread>
@@ -192,6 +193,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     if (ok && visualizerUploader && !visualizerId.isEmpty()
                             && settings && settings->visualizer()->visualizerAutoUpdate()) {
                         willAutoUpdate = true;
+                        qDebug() << "MCP shots_update: auto-updating visualizer shot" << visualizerId
+                                 << "for local shot id" << shotId;
                         auto conn = std::make_shared<QMetaObject::Connection>();
                         *conn = QObject::connect(shotHistory, &ShotHistoryStorage::shotReady,
                             shotHistory, [visualizerUploader, shotId, visualizerId, vizOverrides, conn]

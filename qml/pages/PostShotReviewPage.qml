@@ -536,9 +536,11 @@ Page {
         if (!MainController.visualizer) return
         pendingVisualizerUpdate = false
         if (editShotData.visualizerId) {
+            console.log("PostShotReview: auto-updating visualizer shot", editShotData.visualizerId, "for shot id", editShotId)
             MainController.visualizer.updateShotOnVisualizerWithOverrides(
                 editShotData.visualizerId, editShotData, buildVisualizerOverrides())
         } else if (Settings.visualizer.visualizerAutoUpload) {
+            console.log("PostShotReview: auto-uploading to visualizer (no existing id) for shot id", editShotId)
             MainController.visualizer.uploadShotFromHistoryWithOverrides(
                 editShotData, buildVisualizerOverrides())
         }
