@@ -27,6 +27,7 @@ class AccessibilityManager;
 class ScreensaverVideoManager;
 class TranslationManager;
 class BatteryManager;
+class VisualizerUploader;
 
 struct PendingConfirmation {
     QPointer<QTcpSocket> socket;

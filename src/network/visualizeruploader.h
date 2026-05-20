@@ -114,6 +114,12 @@ signals:
     void uploadSucceededForShot(qint64 dbShotId, const QString& visualizerId, const QString& url);
     void updateSuccess(const QString& visualizerId);
     void uploadFailed(const QString& error);
+    // Emitted when an upload attempt is rejected by policy rather than
+    // an actual failure (maintenance profile, too-short shot). Listeners that
+    // track real failure conditions should NOT react to this — in particular
+    // MainController's uploadFailed-based migration-16 abort logic deliberately
+    // ignores skips so a routine policy rejection cannot kill the drain.
+    void uploadSkipped(const QString& reason);
     void connectionTestResult(bool success, const QString& message);
     // Reconciliation list fetch results.
     void shotListFetched(const QVariantList& shots);

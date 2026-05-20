@@ -2,6 +2,8 @@
 #include "mcpserver.h"
 #include "mcptoolregistry.h"
 #include "../history/shothistorystorage.h"
+#include "../history/shotprojection.h"
+#include "../network/visualizeruploader.h"
 #include "../controllers/profilemanager.h"
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
@@ -24,6 +26,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSet>
+#include <QDebug>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QThread>
@@ -34,6 +37,7 @@
 
 void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
+                        VisualizerUploader* visualizerUploader,
                         AccessibilityManager* accessibility,
                         ScreensaverVideoManager* screensaver,
                         TranslationManager* translation,
@@ -58,15 +62,16 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"roastDate", QJsonObject{{"type", "string"}, {"description", "Roast date (YYYY-MM-DD)"}}},
                 {"grinderBrand", QJsonObject{{"type", "string"}, {"description", "Grinder brand"}}},
                 {"grinderModel", QJsonObject{{"type", "string"}, {"description", "Grinder model"}}},
-                {"grinderBurrs", QJsonObject{{"type", "string"}, {"description", "Grinder burrs"}}},
+                {"grinderBurrs", QJsonObject{{"type", "string"}, {"description", "Grinder burrs (saved locally; the Visualizer shot schema has no burrs field, so this does not propagate to visualizer.coffee)"}}},
                 {"grinderSetting", QJsonObject{{"type", "string"}, {"description", "Grinder setting"}}},
                 {"barista", QJsonObject{{"type", "string"}, {"description", "Barista name"}}},
+                {"beverageType", QJsonObject{{"type", "string"}, {"description", "Beverage type (e.g. 'espresso', 'lungo'). Saved locally; the Visualizer shot schema carries beverage type via the profile, not the shot, so editing it here does not propagate to visualizer.coffee."}}},
                 {"drinkTds", QJsonObject{{"type", "number"}, {"description", "TDS measurement"}}},
                 {"drinkEy", QJsonObject{{"type", "number"}, {"description", "Extraction yield percentage"}}}
             }},
             {"required", QJsonArray{"shotId"}}
         },
-        [shotHistory](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [shotHistory, settings, visualizerUploader](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Shot history not available"}});
                 return;
@@ -106,6 +111,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 metadata["grinderSetting"] = args["grinderSetting"].toString();
             if (args.contains("barista"))
                 metadata["barista"] = args["barista"].toString();
+            if (args.contains("beverageType"))
+                metadata["beverageType"] = args["beverageType"].toString();
             if (args.contains("drinkTds"))
                 metadata["drinkTds"] = args["drinkTds"].toDouble();
             if (args.contains("drinkEy"))
@@ -116,12 +123,68 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 return;
             }
 
+            // Build ShotProjection-keyed overrides for visualizer PATCH (field names differ from DB keys).
+            QVariantMap vizOverrides;
+            if (args.contains("enjoyment"))
+                vizOverrides["enjoyment0to100"] = qBound(0, args["enjoyment"].toInt(), 100);
+            if (args.contains("notes"))
+                vizOverrides["espressoNotes"] = args["notes"].toString();
+            if (args.contains("doseWeight"))
+                vizOverrides["doseWeightG"] = args["doseWeight"].toDouble();
+            if (args.contains("drinkWeight"))
+                vizOverrides["finalWeightG"] = args["drinkWeight"].toDouble();
+            if (args.contains("beanBrand"))
+                vizOverrides["beanBrand"] = args["beanBrand"].toString();
+            if (args.contains("beanType"))
+                vizOverrides["beanType"] = args["beanType"].toString();
+            if (args.contains("roastLevel"))
+                vizOverrides["roastLevel"] = args["roastLevel"].toString();
+            if (args.contains("roastDate"))
+                vizOverrides["roastDate"] = args["roastDate"].toString();
+            if (args.contains("grinderBrand"))
+                vizOverrides["grinderBrand"] = args["grinderBrand"].toString();
+            if (args.contains("grinderModel"))
+                vizOverrides["grinderModel"] = args["grinderModel"].toString();
+            // grinderBurrs intentionally omitted from vizOverrides — Visualizer API
+            // has no separate burrs field (only combined grinder_model). The burrs
+            // value is still persisted to the local DB via the metadata map above.
+            if (args.contains("grinderSetting"))
+                vizOverrides["grinderSetting"] = args["grinderSetting"].toString();
+            if (args.contains("barista"))
+                vizOverrides["barista"] = args["barista"].toString();
+            // beverageType intentionally omitted from vizOverrides — Visualizer's
+            // shot PATCH schema has no beverage_type field. Still persisted to
+            // local DB via the metadata map above.
+            if (args.contains("drinkTds"))
+                vizOverrides["drinkTdsPct"] = args["drinkTds"].toDouble();
+            if (args.contains("drinkEy"))
+                vizOverrides["drinkEyPct"] = args["drinkEy"].toDouble();
+
             const QString dbPath = shotHistory->databasePath();
 
-            QThread* thread = QThread::create([dbPath, shotId, metadata, respond, shotHistory]() {
+            QThread* thread = QThread::create([dbPath, shotId, metadata, vizOverrides,
+                                               respond, shotHistory, settings, visualizerUploader]() {
                 bool ok = false;
+                QString visualizerId;
+                ShotProjection vizShot;
                 withTempDb(dbPath, "mcp_update", [&](QSqlDatabase& db) {
                     ok = ShotHistoryStorage::updateShotMetadataStatic(db, shotId, metadata);
+                    if (ok) {
+                        QSqlQuery idQuery(db);
+                        idQuery.prepare("SELECT visualizer_id FROM shots WHERE id = :id");
+                        idQuery.bindValue(":id", shotId);
+                        if (idQuery.exec()) {
+                            if (idQuery.next())
+                                visualizerId = idQuery.value(0).toString();
+                        } else {
+                            qWarning() << "MCP shots_update: failed to query visualizer_id for shot"
+                                       << shotId << ":" << idQuery.lastError().text();
+                        }
+                        if (!visualizerId.isEmpty()) {
+                            ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr);
+                            vizShot = ShotHistoryStorage::convertShotRecord(record);
+                        }
+                    }
                 });
 
                 QJsonObject result;
@@ -136,10 +199,36 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     result["error"] = "Failed to update shot " + QString::number(shotId);
                 }
 
-                QMetaObject::invokeMethod(qApp, [respond, result, shotHistory, shotId, ok]() {
+                QMetaObject::invokeMethod(qApp, [respond, result, shotHistory, shotId, ok,
+                                                  visualizerId, vizShot, vizOverrides, settings, visualizerUploader]() mutable {
                     if (ok) {
                         shotHistory->invalidateDistinctCache();
                         emit shotHistory->shotMetadataUpdated(shotId, true);
+                    }
+
+                    bool willAutoUpdate = false;
+                    QString skipReason;
+                    if (ok && visualizerUploader && !visualizerId.isEmpty()
+                            && settings && settings->visualizer()->visualizerAutoUpdate()) {
+                        if (vizShot.isValid()) {
+                            willAutoUpdate = true;
+                            qInfo() << "MCP shots_update: auto-updating visualizer shot" << visualizerId
+                                    << "for local shot id" << shotId;
+                            visualizerUploader->updateShotOnVisualizerWithOverrides(
+                                visualizerId, vizShot, vizOverrides);
+                        } else {
+                            skipReason = QString("failed to reload shot %1 for visualizer PATCH").arg(shotId);
+                            qWarning() << "MCP shots_update:" << skipReason;
+                        }
+                    }
+
+                    // Only surface visualizer-update status on the success path —
+                    // a DB update failure produces an error response, and tacking
+                    // a status field onto it is semantically confusing for LLM callers.
+                    if (ok) {
+                        result["visualizerUpdateTriggered"] = willAutoUpdate;
+                        if (!skipReason.isEmpty())
+                            result["visualizerUpdateSkippedReason"] = skipReason;
                     }
                     respond(result);
                 }, Qt::QueuedConnection);
@@ -342,6 +431,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"activeShader", QJsonObject{{"type", "string"}, {"description", "Active screen shader (empty for none, 'crt' for CRT)"}}},
                 // Visualizer
                 {"visualizerAutoUpload", QJsonObject{{"type", "boolean"}, {"description", "Auto-upload shots to visualizer.coffee"}}},
+                {"visualizerAutoUpdate", QJsonObject{{"type", "boolean"}, {"description", "Auto-update shot metadata on visualizer.coffee after editing"}}},
                 {"visualizerMinDuration", QJsonObject{{"type", "number"}, {"description", "Minimum shot duration for upload (seconds)"}}},
                 {"visualizerExtendedMetadata", QJsonObject{{"type", "boolean"}, {"description", "Upload extended metadata"}}},
                 {"visualizerShowAfterShot", QJsonObject{{"type", "boolean"}, {"description", "Show visualizer after shot"}}},
@@ -964,6 +1054,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 bool v = args["visualizerAutoUpload"].toBool();
                 addSetter([settings, v]() { settings->visualizer()->setVisualizerAutoUpload(v); });
                 updated << "visualizerAutoUpload";
+            }
+            if (args.contains("visualizerAutoUpdate")) {
+                bool v = args["visualizerAutoUpdate"].toBool();
+                addSetter([settings, v]() { settings->visualizer()->setVisualizerAutoUpdate(v); });
+                updated << "visualizerAutoUpdate";
             }
             if (args.contains("visualizerMinDuration")) {
                 double v = args["visualizerMinDuration"].toDouble();

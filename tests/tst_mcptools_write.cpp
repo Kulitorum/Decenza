@@ -6,6 +6,7 @@
 
 #include "mocks/McpTestFixture.h"
 #include "ble/protocol/de1characteristics.h"
+#include "core/settings_visualizer.h"
 #include "profile/recipeparams.h"
 
 using namespace DE1::Characteristic;
@@ -15,12 +16,14 @@ class ProfileManager;
 class McpToolRegistry;
 class ShotHistoryStorage;
 class Settings;
+class VisualizerUploader;
 class AccessibilityManager;
 class ScreensaverVideoManager;
 class TranslationManager;
 class BatteryManager;
 void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
+                        VisualizerUploader* visualizerUploader,
                         AccessibilityManager* accessibility,
                         ScreensaverVideoManager* screensaver,
                         TranslationManager* translation,
@@ -135,7 +138,7 @@ private:
     {
         // Pass nullptr for dependencies not needed by the profile paths under test
         registerWriteTools(&f.registry, &f.profileManager, nullptr, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr);
     }
 
 private slots:
@@ -216,6 +219,35 @@ private slots:
             if (v.toString() == "steamTemperature") found = true;
         }
         QVERIFY2(found, "steamTemperature should be in updated list");
+    }
+
+    // Verifies that settings_set persists visualizerAutoUpdate through the MCP
+    // tool surface. Does NOT exercise the shots_update auto-update gate inside
+    // the QMetaObject::invokeMethod lambda in registerWriteTools — that path
+    // requires a real VisualizerUploader, and registerTools passes nullptr here.
+    // The gate currently has no automated test coverage; adding it would require
+    // either a mock VisualizerUploader or a live-network integration harness.
+    void settingsSetVisualizerAutoUpdateRoundTrip()
+    {
+        McpTestFixture f;
+        registerTools(f);
+
+        bool orig = f.settings.visualizer()->visualizerAutoUpdate();
+        QJsonObject args;
+        args["visualizerAutoUpdate"] = !orig;
+        QJsonObject result = f.callAsyncTool("settings_set", args);
+
+        QVERIFY(result.contains("updated"));
+        QJsonArray updated = result["updated"].toArray();
+        bool found = false;
+        for (const auto& v : updated) {
+            if (v.toString() == "visualizerAutoUpdate") found = true;
+        }
+        QVERIFY2(found, "visualizerAutoUpdate should be in updated list");
+        QCOMPARE(f.settings.visualizer()->visualizerAutoUpdate(), !orig);
+
+        // Restore
+        f.settings.visualizer()->setVisualizerAutoUpdate(orig);
     }
 };
 

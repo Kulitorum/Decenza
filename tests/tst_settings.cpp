@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QSettings>
 #include <QSignalSpy>
 
 #include "core/settings.h"
@@ -29,6 +30,7 @@ private:
     QString m_origThemeMode;
     int m_origShotRating;
     bool m_origIgnoreVolume;
+    bool m_origAutoUpdate;
     QString m_origDyeBeanBrand;
     QString m_origAutoLoadFilename;
     int m_origAutoLoadRevertMinutes;
@@ -43,6 +45,7 @@ private slots:
         m_origThemeMode = m_settings.theme()->themeMode();
         m_origShotRating = m_settings.visualizer()->defaultShotRating();
         m_origIgnoreVolume = m_settings.brew()->ignoreVolumeWithScale();
+        m_origAutoUpdate = m_settings.visualizer()->visualizerAutoUpdate();
         m_origDyeBeanBrand = m_settings.dye()->dyeBeanBrand();
         m_origAutoLoadFilename = m_settings.app()->autoLoadProfileFilename();
         m_origAutoLoadRevertMinutes = m_settings.app()->autoLoadRevertMinutes();
@@ -56,6 +59,7 @@ private slots:
         m_settings.theme()->setThemeMode(m_origThemeMode);
         m_settings.visualizer()->setDefaultShotRating(m_origShotRating);
         m_settings.brew()->setIgnoreVolumeWithScale(m_origIgnoreVolume);
+        m_settings.visualizer()->setVisualizerAutoUpdate(m_origAutoUpdate);
         m_settings.dye()->setDyeBeanBrand(m_origDyeBeanBrand);
         m_settings.app()->setAutoLoadProfileFilename(m_origAutoLoadFilename);
         m_settings.app()->setAutoLoadRevertMinutes(m_origAutoLoadRevertMinutes);
@@ -90,6 +94,28 @@ private slots:
         QCOMPARE(m_settings.visualizer()->defaultShotRating(), 50);
     }
 
+    void visualizerAutoUpdateDefaultIsTrue() {
+        // Default value is true — auto-update is opt-out, not opt-in.
+        // Strategy: write the opposite (false) so any per-instance or NSUserDefaults
+        // cache holds false, then remove the disk key and read through a fresh
+        // Settings instance. If the result is true, the hardcoded default actually
+        // ran (a stale cache would have returned false).
+        m_settings.visualizer()->setVisualizerAutoUpdate(false);
+        QVERIFY(!m_settings.visualizer()->visualizerAutoUpdate());
+        QSettings raw("DecentEspresso", "DE1Qt");
+        raw.remove("visualizer/autoUpdate");
+        raw.sync();
+        Settings fresh;
+        QVERIFY(fresh.visualizer()->visualizerAutoUpdate());
+    }
+
+    void visualizerAutoUpdateRoundTrip() {
+        m_settings.visualizer()->setVisualizerAutoUpdate(false);
+        QCOMPARE(m_settings.visualizer()->visualizerAutoUpdate(), false);
+        m_settings.visualizer()->setVisualizerAutoUpdate(true);
+        QCOMPARE(m_settings.visualizer()->visualizerAutoUpdate(), true);
+    }
+
     void ignoreVolumeWithScaleRoundTrip() {
         bool original = m_settings.brew()->ignoreVolumeWithScale();
         m_settings.brew()->setIgnoreVolumeWithScale(!original);
@@ -119,6 +145,12 @@ private slots:
         QString newMode = (m_origThemeMode == "dark") ? "light" : "dark";
         QSignalSpy spy(m_settings.theme(), &SettingsTheme::themeModeChanged);
         m_settings.theme()->setThemeMode(newMode);
+        QVERIFY(spy.count() >= 1);
+    }
+
+    void visualizerAutoUpdateSignalEmitted() {
+        QSignalSpy spy(m_settings.visualizer(), &SettingsVisualizer::visualizerAutoUpdateChanged);
+        m_settings.visualizer()->setVisualizerAutoUpdate(!m_origAutoUpdate);
         QVERIFY(spy.count() >= 1);
     }
 

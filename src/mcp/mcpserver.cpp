@@ -45,6 +45,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                           Settings* settings);
 void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
+                        VisualizerUploader* visualizerUploader,
                         AccessibilityManager* accessibility,
                         ScreensaverVideoManager* screensaver,
                         TranslationManager* translation,
@@ -155,6 +156,7 @@ void McpServer::registerAllTools()
     registerControlTools(m_toolRegistry, m_device, m_machineState, m_profileManager,
                          m_mainController, m_settings);
     registerWriteTools(m_toolRegistry, m_profileManager, m_shotHistory, m_settings,
+                       m_mainController ? m_mainController->visualizer() : nullptr,
                        m_accessibilityManager, m_screensaverManager,
                        m_translationManager, m_batteryManager);
     registerScaleTools(m_toolRegistry, m_machineState);

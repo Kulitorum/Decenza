@@ -31,7 +31,7 @@ void registerProfileTools(McpToolRegistry*, ProfileManager*, Settings*) {}
 void registerSettingsReadTools(McpToolRegistry*, Settings*, AccessibilityManager*, ScreensaverVideoManager*, TranslationManager*, BatteryManager*) {}
 void registerDialingTools(McpToolRegistry*, MainController*, ProfileManager*, ShotHistoryStorage*, Settings*) {}
 void registerControlTools(McpToolRegistry*, DE1Device*, MachineState*, ProfileManager*, MainController*, Settings*) {}
-void registerWriteTools(McpToolRegistry*, ProfileManager*, ShotHistoryStorage*, Settings*, AccessibilityManager*, ScreensaverVideoManager*, TranslationManager*, BatteryManager*) {}
+void registerWriteTools(McpToolRegistry*, ProfileManager*, ShotHistoryStorage*, Settings*, VisualizerUploader*, AccessibilityManager*, ScreensaverVideoManager*, TranslationManager*, BatteryManager*) {}
 void registerScaleTools(McpToolRegistry*, MachineState*) {}
 void registerDeviceTools(McpToolRegistry*, BLEManager*, DE1Device*) {}
 void registerDebugTools(McpToolRegistry*, MemoryMonitor*) {}

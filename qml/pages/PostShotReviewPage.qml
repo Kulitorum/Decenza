@@ -35,6 +35,16 @@ Page {
         if (Refractometer && Refractometer.connected) {
             Refractometer.disconnectFromDevice()
         }
+        // If a pending edit has not yet been synced to visualizer, fire the PATCH
+        // now. maybeAutoUpdateVisualizer() requires four conditions: pendingVisualizerUpdate
+        // set, Settings.visualizer.visualizerAutoUpdate on, MainController.visualizer
+        // present, and a captured _visualizerId (i.e. the shot was previously uploaded).
+        // Safe here because maybeAutoUpdateVisualizer() only dispatches a network call —
+        // no DB writes or Qt.inputMethod.commit(), which are the operations flagged as
+        // unsafe during destruction. Note: any failure response arrives after this page
+        // is fully destroyed, so errors are logged by the C++ uploader but cannot be
+        // surfaced to the user from here.
+        maybeAutoUpdateVisualizer()
     }
 
     // Flush whenever the page loses the foreground (back, a child page pushed
@@ -64,6 +74,30 @@ Page {
     property bool autoClose: true  // false when user opens manually (no auto-dismiss)
     property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
     property string uploadError: ""
+    // Reason a policy-based skip rejected the upload (maintenance profile,
+    // too-short shot). Surfaced as informational text — not red error styling —
+    // because the system intentionally chose not to upload.
+    property string uploadSkipReason: ""
+    property bool pendingVisualizerUpdate: false  // set when a metadata edit has been saved locally but not yet PATCHed to visualizer
+    // profileName from DB — captured once in onShotReady before any Object.assign strips Q_GADGET
+    // fields; held for the entire page lifetime so buildVisualizerOverrides() and manual upload
+    // can always include it without risk of it becoming empty after a save cycle.
+    property string _profileName: ""
+    // visualizerId from DB — same Q_GADGET-strip hazard as _profileName. Captured in onShotReady
+    // and refreshed in onUploadSucceededForShot (a fresh upload completed for THIS shot — from
+    // this page or from the shot-completion background uploader) so the "Re-Upload" button label,
+    // the auto-update PATCH gate, and the manual upload button all see a stable value after
+    // saveEditedShot replaces editShotData with a plain JS object.
+    property string _visualizerId: ""
+    // Track requests THIS page initiated so the shared VisualizerUploader signals
+    // (updateSuccess, uploadFailed) can be filtered. Without these guards an unrelated request
+    // (e.g. an MCP-triggered PATCH on the same visualizer record from a different session) would
+    // clear our uploadError and reset the in-flight flags for a foreign request, leaving the page
+    // in a spuriously clean state. updateSuccess carries a visualizerId string but no caller
+    // identity (the same cloud shot can be PATCHed concurrently from any session), and
+    // uploadFailed carries no identifier at all — the flags are the only reliable discriminator.
+    property bool _firstUploadInFlight: false
+    property bool _patchInFlight: false
 
     // Pick up toggle changes made on any other page sharing this setting
     // (Shot Detail, Shot Comparison, Espresso view selector).
@@ -123,6 +157,12 @@ Page {
         function onShotReady(shotId, shot) {
             if (shotId !== postShotReviewPage.editShotId) return
             editShotData = shot
+            _profileName = editShotData.profileName || ""
+            _visualizerId = editShotData.visualizerId || ""
+            // Reset upload status text when loading a new shot so stale
+            // error/skip messages from a previous shot don't carry over.
+            uploadError = ""
+            uploadSkipReason = ""
             if (editShotData.id) {
                 // Populate editing fields
                 editBeanBrand = editShotData.beanBrand || ""
@@ -186,7 +226,7 @@ Page {
             // No reload: a full loadShotForEditing() here would re-run
             // onShotReady, clobber an in-progress edit, and orphan the undo
             // stack (same race the metadata path avoids). The visualizer id is
-            // refreshed in place by onUploadSuccess / onUpdateSuccess below.
+            // refreshed in place by onUploadSucceededForShot / onUpdateSuccess below.
             if (!success)
                 console.warn("PostShotReviewPage: Failed to save visualizer info for shot", shotId)
         }
@@ -441,6 +481,7 @@ Page {
     function saveEditedShot() {
         Qt.inputMethod.commit()
         if (editShotId <= 0) return
+        pendingVisualizerUpdate = true
         var metadata = {
             "beanBrand": editBeanBrand,
             "beanType": editBeanType,
@@ -501,6 +542,52 @@ Page {
         editShotData = nb
     }
 
+    function buildVisualizerOverrides() {
+        // grinderBurrs and beverageType are intentionally omitted — the Visualizer
+        // PATCH body has no fields for them (only combined grinder_model for the
+        // grinder; beverage_type is not part of the PATCH schema). Both values still
+        // persist locally; they just don't propagate to visualizer.coffee.
+        var overrides = {
+            "beanBrand": editBeanBrand,
+            "beanType": editBeanType,
+            "roastDate": editRoastDate,
+            "roastLevel": editRoastLevel,
+            "grinderBrand": editGrinderBrand,
+            "grinderModel": editGrinderModel,
+            "grinderSetting": editGrinderSetting,
+            "barista": editBarista,
+            "doseWeightG": editDoseWeight,
+            "finalWeightG": editDrinkWeight,
+            "drinkTdsPct": editDrinkTds,
+            "drinkEyPct": editDrinkEy,
+            "espressoNotes": editNotes,
+            "enjoyment0to100": editEnjoyment
+        }
+        // Only include profileName when non-empty; an empty string would cause
+        // setStr to send null, clearing profile_title on visualizer.coffee.
+        if (_profileName)
+            overrides["profileName"] = _profileName
+        return overrides
+    }
+
+    function maybeAutoUpdateVisualizer() {
+        if (!pendingVisualizerUpdate) return
+        if (!Settings.visualizer.visualizerAutoUpdate) return
+        if (!MainController.visualizer) return
+        // Only PATCH already-uploaded shots. A first-POST path here is unsafe:
+        // by the time this runs, saveEditedShot has replaced editShotData via
+        // Object.assign, dropping Q_GADGET fields (id, durationSec, frame arrays)
+        // — uploadShotFromHistory would silently fail isValid() and the failure
+        // can't be surfaced because the page is destroyed. Initial uploads are
+        // owned by the shot-completion auto-upload flow and the manual button.
+        if (!_visualizerId) return
+        pendingVisualizerUpdate = false
+        _patchInFlight = true
+        console.log("PostShotReview: auto-updating visualizer shot", _visualizerId, "for shot id", editShotId)
+        MainController.visualizer.updateShotOnVisualizerWithOverrides(
+            _visualizerId, editShotData, buildVisualizerOverrides())
+    }
+
     // Handle upload status changes
     Connections {
         target: MainController.visualizer
@@ -516,28 +603,54 @@ Page {
                 AccessibilityManager.announce(MainController.visualizer.lastUploadStatus, true)
             }
         }
-        function onUploadSuccess(shotId, url) {
-            // Persistence of the Visualizer id is owned by MainController
-            // (VisualizerUploader::uploadSucceededForShot →
-            // requestUpdateVisualizerInfo), independent of this page. Refresh
-            // the id/url in place (so the button flips to "Re-Upload") instead
-            // of a full reload that would clobber edits / orphan undo.
+        function onUploadSucceededForShot(dbShotId, visualizerId, url) {
+            // Filter by local DB shot id so this page reacts only to uploads for the
+            // shot it is currently editing. This covers both uploads dispatched from
+            // this page (manual button) AND the shot-completion auto-upload that may
+            // finish while the user is already on this page — without this handler
+            // the new visualizer id would not be visible until the page reopens.
+            if (dbShotId !== postShotReviewPage.editShotId) return
+            if (_firstUploadInFlight)
+                _firstUploadInFlight = false
             uploadError = ""
-            if (shotId === postShotReviewPage.editShotId && url) {
-                var vid = ("" + url).split("/").pop()
+            uploadSkipReason = ""
+            if (url) {
                 editShotData = Object.assign({}, editShotData,
-                    { visualizerId: vid, visualizerUrl: url })
+                    { visualizerId: visualizerId, visualizerUrl: url })
+                _visualizerId = visualizerId
             }
         }
         function onUpdateSuccess(visualizerId) {
+            // updateSuccess carries no shot id. Filter on the in-flight flag we set
+            // before dispatching the PATCH; ignore PATCHes initiated elsewhere (MCP),
+            // which would otherwise clear uploadError and reset _patchInFlight for a
+            // request we did not dispatch — leaving the page spuriously "clean".
+            if (!_patchInFlight) return
+            _patchInFlight = false
             uploadError = ""
-            // Refresh the id in place — no reload (see onVisualizerInfoUpdated).
-            if (visualizerId)
-                editShotData = Object.assign({}, editShotData,
-                    { visualizerId: visualizerId })
+            uploadSkipReason = ""
         }
         function onUploadFailed(error) {
+            // Only surface and react when the failure belongs to a request we
+            // dispatched. Without this guard, an unrelated background upload failure
+            // would set uploadError on this page and leave our in-flight flag stuck.
+            if (!_firstUploadInFlight && !_patchInFlight) return
+            _firstUploadInFlight = false
+            _patchInFlight = false
             uploadError = error
+            // pendingVisualizerUpdate is already cleared by every dispatch site
+            // (manual upload button onClicked, maybeAutoUpdateVisualizer above) before
+            // the network request goes out, so there is nothing to roll back here.
+        }
+        function onUploadSkipped(reason) {
+            // Policy rejection (maintenance profile, too-short shot). Clear the
+            // in-flight flag the same way onUploadFailed does, but populate the
+            // informational uploadSkipReason instead of uploadError so the page
+            // doesn't surface a red "Upload failed" string for a deliberate skip.
+            if (!_firstUploadInFlight && !_patchInFlight) return
+            _firstUploadInFlight = false
+            _patchInFlight = false
+            uploadSkipReason = reason
         }
     }
 
@@ -1566,7 +1679,7 @@ Page {
             color: uploadArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
 
             Accessible.role: Accessible.Button
-            Accessible.name: editShotData.visualizerId
+            Accessible.name: _visualizerId
                 ? TranslationManager.translate("postshotreview.button.reupload", "Re-Upload to Visualizer")
                 : TranslationManager.translate("postshotreview.button.upload", "Upload to Visualizer")
             Accessible.focusable: true
@@ -1586,10 +1699,10 @@ Page {
                 }
 
                 Tr {
-                    key: editShotData.visualizerId
+                    key: _visualizerId
                          ? "postshotreview.button.reupload"
                          : "postshotreview.button.upload"
-                    fallback: editShotData.visualizerId
+                    fallback: _visualizerId
                               ? "Re-Upload to Visualizer"
                               : "Upload to Visualizer"
                     color: Theme.primaryContrastColor
@@ -1605,32 +1718,22 @@ Page {
                 onClicked: {
                     // Flush any pending edit before uploading
                     autosave()
+                    // Clear the pending flag before dispatching — auto-update on destruction
+                    // must not fire a second request while this one is in flight. On failure
+                    // pendingVisualizerUpdate remains false (it was cleared here), so
+                    // auto-update on close will not retry; the user must tap the button again.
+                    pendingVisualizerUpdate = false
 
                     uploadError = ""
-                    if (editShotData.visualizerId) {
-                        // Re-upload: PATCH metadata from current edit fields.
-                        // Pass editShotData as Q_GADGET base so profileName (and any
-                        // field not in patchOverrides) comes from the original shot record.
-                        var patchOverrides = {
-                            "beanBrand": editBeanBrand,
-                            "beanType": editBeanType,
-                            "roastDate": editRoastDate,
-                            "roastLevel": editRoastLevel,
-                            "grinderBrand": editGrinderBrand,
-                            "grinderModel": editGrinderModel,
-                            "grinderBurrs": editGrinderBurrs,
-                            "grinderSetting": editGrinderSetting,
-                            "barista": editBarista,
-                            "beverageType": editBeverageType,
-                            "doseWeightG": editDoseWeight,
-                            "finalWeightG": editDrinkWeight,
-                            "drinkTdsPct": editDrinkTds,
-                            "drinkEyPct": editDrinkEy,
-                            "espressoNotes": editNotes,
-                            "enjoyment0to100": editEnjoyment
-                        }
+                    uploadSkipReason = ""
+                    if (_visualizerId) {
+                        // Re-upload: PATCH metadata from current edit fields. Reuse
+                        // buildVisualizerOverrides() so the manual and auto-update paths
+                        // stay in sync as fields evolve.
+                        var patchOverrides = buildVisualizerOverrides()
+                        _patchInFlight = true
                         MainController.visualizer.updateShotOnVisualizerWithOverrides(
-                            editShotData.visualizerId, editShotData, patchOverrides)
+                            _visualizerId, editShotData, patchOverrides)
                     } else {
                         // First upload: pass editShotData directly (preserves id,
                         // durationSec, and frame arrays) and supply current edit-field
@@ -1638,24 +1741,8 @@ Page {
                         // not work here — Q_GADGET properties are non-enumerable in V4,
                         // so Object.assign silently drops them, leaving id=0 and causing
                         // isValid() to fail.
-                        var uploadOverrides = {
-                            "beanBrand": editBeanBrand,
-                            "beanType": editBeanType,
-                            "roastDate": editRoastDate,
-                            "roastLevel": editRoastLevel,
-                            "grinderBrand": editGrinderBrand,
-                            "grinderModel": editGrinderModel,
-                            "grinderBurrs": editGrinderBurrs,
-                            "grinderSetting": editGrinderSetting,
-                            "barista": editBarista,
-                            "beverageType": editBeverageType,
-                            "doseWeightG": editDoseWeight,
-                            "finalWeightG": editDrinkWeight,
-                            "drinkTdsPct": editDrinkTds,
-                            "drinkEyPct": editDrinkEy,
-                            "espressoNotes": editNotes,
-                            "enjoyment0to100": editEnjoyment
-                        }
+                        var uploadOverrides = buildVisualizerOverrides()
+                        _firstUploadInFlight = true
                         MainController.visualizer.uploadShotFromHistoryWithOverrides(
                             editShotData, uploadOverrides)
                     }
@@ -1666,10 +1753,10 @@ Page {
         // Uploading/Updating indicator
         Tr {
             visible: MainController.visualizer.uploading
-            key: editShotData.visualizerId
+            key: _visualizerId
                  ? "postshotreview.status.updating"
                  : "postshotreview.status.uploading"
-            fallback: editShotData.visualizerId ? "Updating..." : "Uploading..."
+            fallback: _visualizerId ? "Updating..." : "Uploading..."
             color: Theme.textSecondaryColor
             font: Theme.labelFont
         }
@@ -1678,6 +1765,15 @@ Page {
             visible: uploadError.length > 0 && !MainController.visualizer.uploading
             text: TranslationManager.translate("postshotreview.upload.failed", "Upload failed") + ": " + uploadError
             color: Theme.errorColor
+            font: Theme.labelFont
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
+        Text {
+            visible: uploadSkipReason.length > 0 && !MainController.visualizer.uploading
+            text: TranslationManager.translate("postshotreview.upload.skipped", "Upload skipped") + ": " + uploadSkipReason
+            color: Theme.textSecondaryColor
             font: Theme.labelFont
             wrapMode: Text.WordWrap
             Layout.fillWidth: true

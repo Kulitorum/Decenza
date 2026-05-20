@@ -204,7 +204,44 @@ KeyboardAwareContainer {
                     StyledSwitch {
                         checked: Settings.visualizer.visualizerAutoUpload
                         accessibleName: TranslationManager.translate("settings.visualizer.autoUpload", "Auto-upload shots")
-                        onCheckedChanged: Settings.visualizer.visualizerAutoUpload = checked
+                        onToggled: Settings.visualizer.visualizerAutoUpload = checked
+                    }
+                }
+
+                // Auto-update shots toggle
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(15)
+                    enabled: Settings.visualizer.visualizerAutoUpload
+                    opacity: Settings.visualizer.visualizerAutoUpload ? 1.0 : 0.4
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+
+                        Tr {
+                            key: "settings.visualizer.autoUpdate"
+                            fallback: "Auto-Update Shots"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Tr {
+                            Layout.fillWidth: true
+                            key: "settings.visualizer.autoUpdateDesc"
+                            fallback: "Automatically sync shot edits back to Visualizer"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    StyledSwitch {
+                        checked: Settings.visualizer.visualizerAutoUpdate
+                        accessibleName: TranslationManager.translate("settings.visualizer.autoUpdate", "Auto-update shots")
+                        onToggled: Settings.visualizer.visualizerAutoUpdate = checked
                     }
                 }
 
@@ -284,7 +321,7 @@ KeyboardAwareContainer {
                     StyledSwitch {
                         checked: Settings.visualizer.visualizerShowAfterShot
                         accessibleName: TranslationManager.translate("settings.visualizer.editAfterShot", "Edit After Shot")
-                        onCheckedChanged: Settings.visualizer.visualizerShowAfterShot = checked
+                        onToggled: Settings.visualizer.visualizerShowAfterShot = checked
                     }
                 }
 
@@ -319,7 +356,7 @@ KeyboardAwareContainer {
                     StyledSwitch {
                         checked: Settings.visualizer.visualizerClearNotesOnStart
                         accessibleName: TranslationManager.translate("settings.visualizer.clearNotesOnStart", "Clear Notes on Start")
-                        onCheckedChanged: Settings.visualizer.visualizerClearNotesOnStart = checked
+                        onToggled: Settings.visualizer.visualizerClearNotesOnStart = checked
                     }
                 }
 

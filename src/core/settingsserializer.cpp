@@ -250,6 +250,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         visualizer["password"] = settings->visualizer()->visualizerPassword();
     }
     visualizer["autoUpload"] = settings->visualizer()->visualizerAutoUpload();
+    visualizer["autoUpdate"] = settings->visualizer()->visualizerAutoUpdate();
     visualizer["minDuration"] = settings->visualizer()->visualizerMinDuration();
     visualizer["extendedMetadata"] = settings->visualizer()->visualizerExtendedMetadata();
     visualizer["showAfterShot"] = settings->visualizer()->visualizerShowAfterShot();
@@ -663,6 +664,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             settings->visualizer()->setVisualizerPassword(visualizer["password"].toString());
         }
         if (visualizer.contains("autoUpload")) settings->visualizer()->setVisualizerAutoUpload(visualizer["autoUpload"].toBool());
+        if (visualizer.contains("autoUpdate")) settings->visualizer()->setVisualizerAutoUpdate(visualizer["autoUpdate"].toBool());
         if (visualizer.contains("minDuration")) settings->visualizer()->setVisualizerMinDuration(visualizer["minDuration"].toDouble());
         if (visualizer.contains("extendedMetadata")) settings->visualizer()->setVisualizerExtendedMetadata(visualizer["extendedMetadata"].toBool());
         if (visualizer.contains("showAfterShot")) settings->visualizer()->setVisualizerShowAfterShot(visualizer["showAfterShot"].toBool());

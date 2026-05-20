@@ -259,6 +259,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
 
             // === Visualizer ===
             if (include("visualizerAutoUpload", "visualizer")) result["visualizerAutoUpload"] = settings->visualizer()->visualizerAutoUpload();
+            if (include("visualizerAutoUpdate", "visualizer")) result["visualizerAutoUpdate"] = settings->visualizer()->visualizerAutoUpdate();
             if (include("visualizerMinDuration", "visualizer")) result["visualizerMinDuration"] = settings->visualizer()->visualizerMinDuration();
             if (include("visualizerExtendedMetadata", "visualizer")) result["visualizerExtendedMetadata"] = settings->visualizer()->visualizerExtendedMetadata();
             if (include("visualizerShowAfterShot", "visualizer")) result["visualizerShowAfterShot"] = settings->visualizer()->visualizerShowAfterShot();
