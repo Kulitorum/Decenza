@@ -87,10 +87,11 @@ Page {
     property string _visualizerId: ""
     // Track requests THIS page initiated so the shared VisualizerUploader signals
     // (updateSuccess, uploadFailed) can be filtered. Without these guards an unrelated request
-    // (e.g. an MCP-triggered PATCH on a different shot) would clear our uploadError and reset
-    // the in-flight flags for a foreign request, leaving the page in a spuriously clean state.
-    // The updateSuccess signal carries no shot id and uploadFailed carries no shot id at all,
-    // so direct comparison is impossible; the flags fill in for the missing identifier.
+    // (e.g. an MCP-triggered PATCH on the same visualizer record from a different session) would
+    // clear our uploadError and reset the in-flight flags for a foreign request, leaving the page
+    // in a spuriously clean state. updateSuccess carries a visualizerId string but no caller
+    // identity (the same cloud shot can be PATCHed concurrently from any session), and
+    // uploadFailed carries no identifier at all — the flags are the only reliable discriminator.
     property bool _firstUploadInFlight: false
     property bool _patchInFlight: false
 
@@ -217,7 +218,7 @@ Page {
             // No reload: a full loadShotForEditing() here would re-run
             // onShotReady, clobber an in-progress edit, and orphan the undo
             // stack (same race the metadata path avoids). The visualizer id is
-            // refreshed in place by onUploadSuccess / onUpdateSuccess below.
+            // refreshed in place by onUploadSucceededForShot / onUpdateSuccess below.
             if (!success)
                 console.warn("PostShotReviewPage: Failed to save visualizer info for shot", shotId)
         }
