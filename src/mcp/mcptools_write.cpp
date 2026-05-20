@@ -62,10 +62,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"roastDate", QJsonObject{{"type", "string"}, {"description", "Roast date (YYYY-MM-DD)"}}},
                 {"grinderBrand", QJsonObject{{"type", "string"}, {"description", "Grinder brand"}}},
                 {"grinderModel", QJsonObject{{"type", "string"}, {"description", "Grinder model"}}},
-                {"grinderBurrs", QJsonObject{{"type", "string"}, {"description", "Grinder burrs"}}},
+                {"grinderBurrs", QJsonObject{{"type", "string"}, {"description", "Grinder burrs (saved locally; the Visualizer shot schema has no burrs field, so this does not propagate to visualizer.coffee)"}}},
                 {"grinderSetting", QJsonObject{{"type", "string"}, {"description", "Grinder setting"}}},
                 {"barista", QJsonObject{{"type", "string"}, {"description", "Barista name"}}},
-                {"beverageType", QJsonObject{{"type", "string"}, {"description", "Beverage type (e.g. 'espresso', 'lungo')"}}},
+                {"beverageType", QJsonObject{{"type", "string"}, {"description", "Beverage type (e.g. 'espresso', 'lungo'). Saved locally; the Visualizer shot schema carries beverage type via the profile, not the shot, so editing it here does not propagate to visualizer.coffee."}}},
                 {"drinkTds", QJsonObject{{"type", "number"}, {"description", "TDS measurement"}}},
                 {"drinkEy", QJsonObject{{"type", "number"}, {"description", "Extraction yield percentage"}}}
             }},

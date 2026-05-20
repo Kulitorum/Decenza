@@ -80,16 +80,17 @@ Page {
     // can always include it without risk of it becoming empty after a save cycle.
     property string _profileName: ""
     // visualizerId from DB — same Q_GADGET-strip hazard as _profileName. Captured in onShotReady
-    // and refreshed in onUploadSuccess (first POST completed) so the "Re-Upload" button label,
+    // and refreshed in onUploadSucceededForShot (a fresh upload completed for THIS shot — from
+    // this page or from the shot-completion background uploader) so the "Re-Upload" button label,
     // the auto-update PATCH gate, and the manual upload button all see a stable value after
     // saveEditedShot replaces editShotData with a plain JS object.
     property string _visualizerId: ""
-    // Track which upload/PATCH this page initiated so the shared VisualizerUploader signals
-    // (uploadSuccess, updateSuccess, uploadFailed) can be filtered. Without these guards, an
-    // MCP-triggered PATCH on a different shot would clear our pendingVisualizerUpdate and
-    // potentially overwrite _visualizerId — corrupting the page state. The uploadSuccess
-    // signal carries a Visualizer cloud id (string) that can't be compared to editShotId (int),
-    // and updateSuccess carries no shot id at all, so we use these flags instead.
+    // Track requests THIS page initiated so the shared VisualizerUploader signals
+    // (updateSuccess, uploadFailed) can be filtered. Without these guards an unrelated request
+    // (e.g. an MCP-triggered PATCH on a different shot) would clear our uploadError and reset
+    // the in-flight flags for a foreign request, leaving the page in a spuriously clean state.
+    // The updateSuccess signal carries no shot id and uploadFailed carries no shot id at all,
+    // so direct comparison is impossible; the flags fill in for the missing identifier.
     property bool _firstUploadInFlight: false
     property bool _patchInFlight: false
 
@@ -593,25 +594,27 @@ Page {
                 AccessibilityManager.announce(MainController.visualizer.lastUploadStatus, true)
             }
         }
-        function onUploadSuccess(shotId, url) {
-            // uploadSuccess fires for any shot uploaded via the shared singleton.
-            // shotId here is the Visualizer cloud string id (not the local DB row id),
-            // so it can't be compared to editShotId. Filter on the in-flight flag we
-            // set before dispatch from this page; ignore other callers (MCP, etc.).
-            if (!_firstUploadInFlight) return
-            _firstUploadInFlight = false
+        function onUploadSucceededForShot(dbShotId, visualizerId, url) {
+            // Filter by local DB shot id so this page reacts only to uploads for the
+            // shot it is currently editing. This covers both uploads dispatched from
+            // this page (manual button) AND the shot-completion auto-upload that may
+            // finish while the user is already on this page — without this handler
+            // the new visualizer id would not be visible until the page reopens.
+            if (dbShotId !== postShotReviewPage.editShotId) return
+            if (_firstUploadInFlight)
+                _firstUploadInFlight = false
             uploadError = ""
             if (url) {
-                var vid = ("" + url).split("/").pop()
                 editShotData = Object.assign({}, editShotData,
-                    { visualizerId: vid, visualizerUrl: url })
-                _visualizerId = vid
+                    { visualizerId: visualizerId, visualizerUrl: url })
+                _visualizerId = visualizerId
             }
         }
         function onUpdateSuccess(visualizerId) {
             // updateSuccess carries no shot id. Filter on the in-flight flag we set
             // before dispatching the PATCH; ignore PATCHes initiated elsewhere (MCP),
-            // which would otherwise clobber _visualizerId with another shot's cloud id.
+            // which would otherwise clear uploadError and reset _patchInFlight for a
+            // request we did not dispatch — leaving the page spuriously "clean".
             if (!_patchInFlight) return
             _patchInFlight = false
             uploadError = ""
@@ -1696,35 +1699,16 @@ Page {
                     autosave()
                     // Clear the pending flag before dispatching — auto-update on destruction
                     // must not fire a second request while this one is in flight. On failure
-                    // the flag is intentionally left as-is (see onUploadFailed) so the page
-                    // can still retry via auto-update or manual re-upload.
+                    // pendingVisualizerUpdate remains false (it was cleared here), so
+                    // auto-update on close will not retry; the user must tap the button again.
                     pendingVisualizerUpdate = false
 
                     uploadError = ""
                     if (_visualizerId) {
-                        // Re-upload: PATCH metadata from current edit fields.
-                        // grinderBurrs and beverageType intentionally omitted —
-                        // the Visualizer PATCH body has no fields for them (only
-                        // combined grinder_model for the grinder; beverage_type
-                        // is not present in the PATCH schema).
-                        var patchOverrides = {
-                            "beanBrand": editBeanBrand,
-                            "beanType": editBeanType,
-                            "roastDate": editRoastDate,
-                            "roastLevel": editRoastLevel,
-                            "grinderBrand": editGrinderBrand,
-                            "grinderModel": editGrinderModel,
-                            "grinderSetting": editGrinderSetting,
-                            "barista": editBarista,
-                            "doseWeightG": editDoseWeight,
-                            "finalWeightG": editDrinkWeight,
-                            "drinkTdsPct": editDrinkTds,
-                            "drinkEyPct": editDrinkEy,
-                            "espressoNotes": editNotes,
-                            "enjoyment0to100": editEnjoyment
-                        }
-                        if (_profileName)
-                            patchOverrides["profileName"] = _profileName
+                        // Re-upload: PATCH metadata from current edit fields. Reuse
+                        // buildVisualizerOverrides() so the manual and auto-update paths
+                        // stay in sync as fields evolve.
+                        var patchOverrides = buildVisualizerOverrides()
                         _patchInFlight = true
                         MainController.visualizer.updateShotOnVisualizerWithOverrides(
                             _visualizerId, editShotData, patchOverrides)
@@ -1735,24 +1719,7 @@ Page {
                         // not work here — Q_GADGET properties are non-enumerable in V4,
                         // so Object.assign silently drops them, leaving id=0 and causing
                         // isValid() to fail.
-                        // grinderBurrs and beverageType intentionally omitted —
-                        // the Visualizer shot JSON has no fields for them.
-                        var uploadOverrides = {
-                            "beanBrand": editBeanBrand,
-                            "beanType": editBeanType,
-                            "roastDate": editRoastDate,
-                            "roastLevel": editRoastLevel,
-                            "grinderBrand": editGrinderBrand,
-                            "grinderModel": editGrinderModel,
-                            "grinderSetting": editGrinderSetting,
-                            "barista": editBarista,
-                            "doseWeightG": editDoseWeight,
-                            "finalWeightG": editDrinkWeight,
-                            "drinkTdsPct": editDrinkTds,
-                            "drinkEyPct": editDrinkEy,
-                            "espressoNotes": editNotes,
-                            "enjoyment0to100": editEnjoyment
-                        }
+                        var uploadOverrides = buildVisualizerOverrides()
                         _firstUploadInFlight = true
                         MainController.visualizer.uploadShotFromHistoryWithOverrides(
                             editShotData, uploadOverrides)

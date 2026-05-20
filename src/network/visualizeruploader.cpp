@@ -1121,6 +1121,7 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
     if (beverageType == "cleaning" || beverageType == "calibrate" || beverageType == "descale") {
         m_lastUploadStatus = QString("Skipped: maintenance profile (%1)").arg(beverageType);
         emit lastUploadStatusChanged();
+        emit uploadFailed(m_lastUploadStatus);
         qDebug() << "Visualizer: Skipping upload for maintenance profile:" << beverageType;
         return false;
     }
