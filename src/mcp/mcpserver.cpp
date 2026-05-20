@@ -43,7 +43,6 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
 void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineState* machineState,
                           ProfileManager* profileManager, MainController* mainController,
                           Settings* settings);
-class VisualizerUploader;
 void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
                         VisualizerUploader* visualizerUploader,
