@@ -69,6 +69,10 @@ void DecentScale::onTransportDisconnected() {
     }
     m_consecutiveChecksumFailures = 0;
     m_checksumDisabled = false;
+    // Re-log the firmware version on the next connect — the LED-response
+    // packet only arrives periodically, but capturing it fresh per connect
+    // is what makes the line useful for triage.
+    m_firmwareVersion.clear();
     setConnected(false);
 }
 
@@ -211,6 +215,30 @@ void DecentScale::parseWeightData(const QByteArray& data) {
             setBatteryLevel(battByte);
         } else if (battByte == 0xFF) {
             setBatteryLevel(100);  // Charging — report as full
+        }
+        // Firmware version: bytes [5-6], encoded per openscale (HDS)
+        // include/ble.h:730-731 — byte [5] is BCD-packed major (00..99),
+        // byte [6] is (minor << 4) | patch where minor and patch are
+        // each a nibble (0..15). Source `FW: 3.0.9` → wire 0x03 0x09.
+        // Log the parsed triple plus raw bytes for unambiguous triage.
+        // Log once per connect; a subsequent packet reporting a different
+        // value warn-logs the transition (shouldn't happen on a live
+        // scale — a change would itself be diagnostic).
+        const int major = ((d[5] >> 4) & 0x0F) * 10 + (d[5] & 0x0F);
+        const int minor = (d[6] >> 4) & 0x0F;
+        const int patch = d[6] & 0x0F;
+        const QString version = QStringLiteral("%1.%2.%3 (raw 0x%4 0x%5)")
+            .arg(major).arg(minor).arg(patch)
+            .arg(d[5], 2, 16, QLatin1Char('0'))
+            .arg(d[6], 2, 16, QLatin1Char('0'));
+        if (m_firmwareVersion != version) {
+            if (m_firmwareVersion.isEmpty()) {
+                DECENT_LOG(QString("Firmware version: %1").arg(version));
+            } else {
+                DECENT_WARN(QString("Firmware version changed mid-connect: %1 -> %2")
+                            .arg(m_firmwareVersion, version));
+            }
+            m_firmwareVersion = version;
         }
     } else if (command == 0xAA) {
         // Button pressed

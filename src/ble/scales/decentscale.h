@@ -64,6 +64,10 @@ private:
     int m_watchdogRetries = 0;
     int m_consecutiveChecksumFailures = 0;
     bool m_checksumDisabled = false;
+    // Firmware version captured from the first LED-response packet of each
+    // connect (bytes [5-6] of cmd=0x0A, header=0x03). Empty until captured;
+    // cleared in onTransportDisconnected so the next connect re-logs it.
+    QString m_firmwareVersion;
     QTimer* m_heartbeatTimer = nullptr;
     QTimer* m_watchdogTimer = nullptr;
 };
