@@ -1011,6 +1011,7 @@ Page {
                     fallback: "How was this shot?"
                     color: Theme.textColor
                     font: Theme.bodyFont
+                    Layout.preferredWidth: Math.min(implicitWidth, parent.width * 0.45)
                     Accessible.ignored: true
                 }
 
@@ -1028,7 +1029,7 @@ Page {
                         anchors.fill: parent
                         anchors.margins: Theme.scaled(4)
                         value: editEnjoyment
-                        accessibleName: TranslationManager.translate("rating.quick.prompt", "How was this shot?") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
+                        accessibleName: TranslationManager.translate("rating.quick.prompt", "How was this shot?")
                         onValueModified: function(newValue) {
                             editEnjoyment = newValue
                             postShotReviewPage.autosave("rating")
