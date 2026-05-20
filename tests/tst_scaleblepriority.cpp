@@ -46,6 +46,21 @@ private slots:
         QVERIFY(!d.skipHighPriority());
     }
 
+    void doubleFaultAtSameInstantTrips_cascadeContract() {
+        // QtScaleBleTransport calls onDe1Fault(nowMs()) TWICE for a
+        // "write-failed" cascade. This test pins the same-instant semantics
+        // that makes it work: nowMs - m_windowStartMs == 0 is NOT > window,
+        // so the second call increments (not re-anchors) and fires.
+        // If the boundary ever changes to >= this test catches the regression.
+        BlePriorityDetector d;
+        d.armWindow(0);
+        const int64_t t = 12345;
+        QVERIFY(!d.onDe1Fault(t));   // first: anchors window, count=1
+        QVERIFY(d.onDe1Fault(t));    // second at same instant: count=2, fires
+        QVERIFY(d.backoffTriggered());
+        QVERIFY(d.skipHighPriority());
+    }
+
     void regression1238_faultsJustOutsidePriorWindowNowTrip() {
         // #1238 (P80X Android 9): scale requested HIGH; the DE1 emitted a
         // write-failed at t≈10571.6 s and a controller-error at t≈10591.7 s
