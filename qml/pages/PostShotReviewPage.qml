@@ -1001,40 +1001,22 @@ Page {
                 visible: postShotReviewPage.advancedMode && (editShotData.phaseSummaries || []).length > 0
             }
 
-            // Rating (moved to top, right after graph)
-            // QuickRatingRow — issue #1055 Layer 2. Three-icon one-tap
-            // rating row, visible when the user hasn't rated this shot
-            // yet. The precision slider below is the fine-tuning surface.
-            QuickRatingRow {
+            RowLayout {
                 Layout.fillWidth: true
-                visible: postShotReviewPage.isEditMode && editEnjoyment === 0
-                onRateClicked: function(score) {
-                    editEnjoyment = score
-                    postShotReviewPage.autosave("rating", true)
-                }
-            }
-
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: ratingLabel.height + ratingBox.height + Theme.scaled(2)
+                spacing: Theme.spacingMedium
 
                 Tr {
                     id: ratingLabel
-                    anchors.left: parent.left
-                    anchors.top: parent.top
-                    key: "postshotreview.label.rating"
-                    fallback: "Rating"
+                    key: "rating.quick.prompt"
+                    fallback: "How was this shot?"
                     color: Theme.textColor
-                    font.pixelSize: Theme.scaled(11)
+                    font: Theme.bodyFont
                     Accessible.ignored: true
                 }
 
                 Rectangle {
                     id: ratingBox
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: ratingLabel.bottom
-                    anchors.topMargin: Theme.scaled(2)
+                    Layout.fillWidth: true
                     height: Theme.scaled(44)
                     radius: Theme.scaled(12)
                     color: Theme.surfaceColor
@@ -1046,7 +1028,7 @@ Page {
                         anchors.fill: parent
                         anchors.margins: Theme.scaled(4)
                         value: editEnjoyment
-                        accessibleName: TranslationManager.translate("postshotreview.label.rating", "Rating") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
+                        accessibleName: TranslationManager.translate("rating.quick.prompt", "How was this shot?") + " " + value + " " + TranslationManager.translate("postshotreview.unit.percent", "percent")
                         onValueModified: function(newValue) {
                             editEnjoyment = newValue
                             postShotReviewPage.autosave("rating")
