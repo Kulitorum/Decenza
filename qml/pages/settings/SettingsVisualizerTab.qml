@@ -204,7 +204,7 @@ KeyboardAwareContainer {
                     StyledSwitch {
                         checked: Settings.visualizer.visualizerAutoUpload
                         accessibleName: TranslationManager.translate("settings.visualizer.autoUpload", "Auto-upload shots")
-                        onCheckedChanged: Settings.visualizer.visualizerAutoUpload = checked
+                        onToggled: Settings.visualizer.visualizerAutoUpload = checked
                     }
                 }
 
@@ -241,7 +241,7 @@ KeyboardAwareContainer {
                     StyledSwitch {
                         checked: Settings.visualizer.visualizerAutoUpdate
                         accessibleName: TranslationManager.translate("settings.visualizer.autoUpdate", "Auto-update shots")
-                        onCheckedChanged: Settings.visualizer.visualizerAutoUpdate = checked
+                        onToggled: Settings.visualizer.visualizerAutoUpdate = checked
                     }
                 }
 
@@ -321,7 +321,7 @@ KeyboardAwareContainer {
                     StyledSwitch {
                         checked: Settings.visualizer.visualizerShowAfterShot
                         accessibleName: TranslationManager.translate("settings.visualizer.editAfterShot", "Edit After Shot")
-                        onCheckedChanged: Settings.visualizer.visualizerShowAfterShot = checked
+                        onToggled: Settings.visualizer.visualizerShowAfterShot = checked
                     }
                 }
 
@@ -356,7 +356,7 @@ KeyboardAwareContainer {
                     StyledSwitch {
                         checked: Settings.visualizer.visualizerClearNotesOnStart
                         accessibleName: TranslationManager.translate("settings.visualizer.clearNotesOnStart", "Clear Notes on Start")
-                        onCheckedChanged: Settings.visualizer.visualizerClearNotesOnStart = checked
+                        onToggled: Settings.visualizer.visualizerClearNotesOnStart = checked
                     }
                 }
 

@@ -229,6 +229,7 @@ void VisualizerUploader::updateShotOnVisualizerWithOverrides(
         if (it != overrides.end()) shot.*f = it->toInt();
     };
 
+    applyStr   (&ShotProjection::profileName,     "profileName");
     applyStr   (&ShotProjection::beanBrand,       "beanBrand");
     applyStr   (&ShotProjection::beanType,        "beanType");
     applyStr   (&ShotProjection::roastDate,       "roastDate");

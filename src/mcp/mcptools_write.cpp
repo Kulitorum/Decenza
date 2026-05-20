@@ -159,6 +159,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                                                respond, shotHistory, settings, visualizerUploader]() {
                 bool ok = false;
                 QString visualizerId;
+                ShotProjection vizShot;
                 withTempDb(dbPath, "mcp_update", [&](QSqlDatabase& db) {
                     ok = ShotHistoryStorage::updateShotMetadataStatic(db, shotId, metadata);
                     if (ok) {
@@ -167,6 +168,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         idQuery.bindValue(":id", shotId);
                         if (idQuery.exec() && idQuery.next())
                             visualizerId = idQuery.value(0).toString();
+                        if (!visualizerId.isEmpty()) {
+                            ShotRecord record = ShotHistoryStorage::loadShotRecordStatic(db, shotId, nullptr);
+                            vizShot = ShotHistoryStorage::convertShotRecord(record);
+                        }
                     }
                 });
 
@@ -183,7 +188,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 }
 
                 QMetaObject::invokeMethod(qApp, [respond, result, shotHistory, shotId, ok,
-                                                  visualizerId, vizOverrides, settings, visualizerUploader]() mutable {
+                                                  visualizerId, vizShot, vizOverrides, settings, visualizerUploader]() mutable {
                     if (ok) {
                         shotHistory->invalidateDistinctCache();
                         emit shotHistory->shotMetadataUpdated(shotId, true);
@@ -192,22 +197,19 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     bool willAutoUpdate = false;
                     if (ok && visualizerUploader && !visualizerId.isEmpty()
                             && settings && settings->visualizer()->visualizerAutoUpdate()) {
-                        willAutoUpdate = true;
-                        qDebug() << "MCP shots_update: auto-updating visualizer shot" << visualizerId
-                                 << "for local shot id" << shotId;
-                        auto conn = std::make_shared<QMetaObject::Connection>();
-                        *conn = QObject::connect(shotHistory, &ShotHistoryStorage::shotReady,
-                            shotHistory, [visualizerUploader, shotId, visualizerId, vizOverrides, conn]
-                            (qint64 readyShotId, const ShotProjection& shot) {
-                                if (readyShotId != shotId) return;
-                                QObject::disconnect(*conn);
-                                visualizerUploader->updateShotOnVisualizerWithOverrides(
-                                    visualizerId, shot, vizOverrides);
-                            });
-                        shotHistory->requestShot(shotId);
+                        if (vizShot.isValid()) {
+                            willAutoUpdate = true;
+                            qDebug() << "MCP shots_update: auto-updating visualizer shot" << visualizerId
+                                     << "for local shot id" << shotId;
+                            visualizerUploader->updateShotOnVisualizerWithOverrides(
+                                visualizerId, vizShot, vizOverrides);
+                        } else {
+                            qWarning() << "MCP shots_update: shot" << shotId
+                                       << "no longer exists after update; skipping visualizer PATCH";
+                        }
                     }
 
-                    result["visualizerUpdateTriggered"] = willAutoUpdate;
+                    result["visualizerUpdateQueued"] = willAutoUpdate;
                     respond(result);
                 }, Qt::QueuedConnection);
             });

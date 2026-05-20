@@ -35,11 +35,11 @@ Page {
         if (Refractometer && Refractometer.connected) {
             Refractometer.disconnectFromDevice()
         }
-        // Fire deferred visualizer PATCH exactly once, when the page is truly
-        // being removed (not when a sub-page covers it).  Safe here because
-        // maybeAutoUpdateVisualizer() only dispatches a network call — no DB
-        // writes or Qt.inputMethod.commit(), which are the operations flagged
-        // as unsafe during destruction.
+        // If a pending edit has not yet been synced to visualizer, fire the
+        // PATCH now (only when pendingVisualizerUpdate && visualizerAutoUpdate
+        // are both true). Safe here because maybeAutoUpdateVisualizer() only
+        // dispatches a network call — no DB writes or Qt.inputMethod.commit(),
+        // which are the operations flagged as unsafe during destruction.
         maybeAutoUpdateVisualizer()
     }
 
@@ -71,6 +71,7 @@ Page {
     property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
     property string uploadError: ""
     property bool pendingVisualizerUpdate: false  // set when a metadata edit has been saved locally but not yet PATCHed to visualizer
+    property string _profileName: ""              // profileName from DB — captured in onShotReady before Object.assign strips Q_GADGET fields
 
     // Pick up toggle changes made on any other page sharing this setting
     // (Shot Detail, Shot Comparison, Espresso view selector).
@@ -130,6 +131,7 @@ Page {
         function onShotReady(shotId, shot) {
             if (shotId !== postShotReviewPage.editShotId) return
             editShotData = shot
+            _profileName = editShotData.profileName || ""
             if (editShotData.id) {
                 // Populate editing fields
                 editBeanBrand = editShotData.beanBrand || ""
@@ -511,6 +513,7 @@ Page {
 
     function buildVisualizerOverrides() {
         return {
+            "profileName": _profileName,
             "beanBrand": editBeanBrand,
             "beanType": editBeanType,
             "roastDate": editRoastDate,
@@ -585,6 +588,7 @@ Page {
         }
         function onUploadFailed(error) {
             uploadError = error
+            pendingVisualizerUpdate = false
         }
     }
 
@@ -1652,13 +1656,15 @@ Page {
                 onClicked: {
                     // Flush any pending edit before uploading
                     autosave()
+                    // Manual upload takes ownership — auto-update on destruction
+                    // must not fire a second request for the same edits.
+                    pendingVisualizerUpdate = false
 
                     uploadError = ""
                     if (editShotData.visualizerId) {
                         // Re-upload: PATCH metadata from current edit fields.
-                        // Pass editShotData as Q_GADGET base so profileName (and any
-                        // field not in patchOverrides) comes from the original shot record.
                         var patchOverrides = {
+                            "profileName": _profileName,
                             "beanBrand": editBeanBrand,
                             "beanType": editBeanType,
                             "roastDate": editRoastDate,
