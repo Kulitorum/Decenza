@@ -74,6 +74,10 @@ Page {
     property bool autoClose: true  // false when user opens manually (no auto-dismiss)
     property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
     property string uploadError: ""
+    // Reason a policy-based skip rejected the upload (maintenance profile,
+    // too-short shot). Surfaced as informational text — not red error styling —
+    // because the system intentionally chose not to upload.
+    property string uploadSkipReason: ""
     property bool pendingVisualizerUpdate: false  // set when a metadata edit has been saved locally but not yet PATCHed to visualizer
     // profileName from DB — captured once in onShotReady before any Object.assign strips Q_GADGET
     // fields; held for the entire page lifetime so buildVisualizerOverrides() and manual upload
@@ -631,6 +635,16 @@ Page {
             // pendingVisualizerUpdate is already cleared by every dispatch site
             // (manual upload button onClicked, maybeAutoUpdateVisualizer above) before
             // the network request goes out, so there is nothing to roll back here.
+        }
+        function onUploadSkipped(reason) {
+            // Policy rejection (maintenance profile, too-short shot). Clear the
+            // in-flight flag the same way onUploadFailed does, but populate the
+            // informational uploadSkipReason instead of uploadError so the page
+            // doesn't surface a red "Upload failed" string for a deliberate skip.
+            if (!_firstUploadInFlight && !_patchInFlight) return
+            _firstUploadInFlight = false
+            _patchInFlight = false
+            uploadSkipReason = reason
         }
     }
 
@@ -1705,6 +1719,7 @@ Page {
                     pendingVisualizerUpdate = false
 
                     uploadError = ""
+                    uploadSkipReason = ""
                     if (_visualizerId) {
                         // Re-upload: PATCH metadata from current edit fields. Reuse
                         // buildVisualizerOverrides() so the manual and auto-update paths
@@ -1744,6 +1759,15 @@ Page {
             visible: uploadError.length > 0 && !MainController.visualizer.uploading
             text: TranslationManager.translate("postshotreview.upload.failed", "Upload failed") + ": " + uploadError
             color: Theme.errorColor
+            font: Theme.labelFont
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
+        Text {
+            visible: uploadSkipReason.length > 0 && !MainController.visualizer.uploading
+            text: uploadSkipReason
+            color: Theme.textSecondaryColor
             font: Theme.labelFont
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
