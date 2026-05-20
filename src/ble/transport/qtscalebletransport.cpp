@@ -336,11 +336,26 @@ void QtScaleBleTransport::onDe1LinkFault(const QString& kind) {
     if (!m_connectionPriorityManaged) return;  // non-scale link, no detection
     // Primary signal: a DE1-link fault clustered shortly after the scale
     // requested HIGH is the dual-HIGH contention signature (#1093/#1176).
-    const bool fired = m_priority.onDe1Fault(nowMs());
+    //
+    // A "write-failed" kind represents a 10-retry GATT-write cascade — ~5s
+    // of sustained write starvation, not a single transient blip — so it
+    // counts as 2 faults: a cascade alone is sufficient evidence of dual-HIGH
+    // starvation; we must not require a follow-on fault that may never arrive
+    // on devices where the controller subsequently recovers (#1238: the P80X
+    // emitted only one controller-error, 20.034s after the cascade). Transient
+    // single-write retries that recover are not signaled at the source (see
+    // bletransport.cpp ~538), so capable hardware does not false-positive.
+    const bool isCascade = (kind == QLatin1String("write-failed"));
+    bool fired = m_priority.onDe1Fault(nowMs());
+    if (!fired && isCascade) fired = m_priority.onDe1Fault(nowMs());
     const QString reason = QStringLiteral(
         "DE1-link fault cluster (last kind=%1) within scale-HIGH window")
         .arg(kind);
     if (fired) {
+        // Consume any stale subsided flag: a cascade double-call can set
+        // observeClusterSubsided on the first call (window re-anchor) and
+        // immediately fire on the second. The cluster escalated — not subsided.
+        m_priority.takeObserveClusterSubsided();
         if (m_priority.observing())
             logWouldBackoff(reason, QStringLiteral("de1-fault-cluster"), -1.0);
         else

@@ -30,7 +30,7 @@
 class BlePriorityDetector {
 public:
     static constexpr int kDe1FaultThreshold = 2;         // ≥2 DE1 faults in-window (#1176 ConnectionError pattern)
-    static constexpr int64_t kDe1FaultWindowMs = 20000;  // covers #1093 ~13s and #1176 ~0.8–15s post scale-HIGH
+    static constexpr int64_t kDe1FaultWindowMs = 60000;  // covers #1093 ~13s, #1176 ~0.8–15s, and #1238 ~20s (write-failed → AuthorizationError) post scale-HIGH
 
     // Scale connected and requested HIGH: start watching. No-op (stays
     // disarmed) if a prior backoff already latched skip-HIGH (per-transport,

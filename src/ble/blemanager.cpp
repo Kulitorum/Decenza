@@ -19,6 +19,7 @@
 #include <QDateTime>
 
 #ifdef Q_OS_ANDROID
+#include <QJniEnvironment>
 #include <QJniObject>
 #endif
 
@@ -151,7 +152,54 @@ void BLEManager::setSettings(SettingsHardware* settings)
                "Set enforce via MCP to restore the dual-HIGH backoff.";
     }
 
-    if (!m_settings->cpLatched()) return;
+    if (!m_settings->cpLatched()) {
+#ifdef Q_OS_ANDROID
+        // First-launch seed for the dual-HIGH-incapable cohort (#1238).
+        //
+        // The runtime detector (#1185) does eventually catch these devices,
+        // but only after one full DE1-outage detection window (~minutes of
+        // broken scale discovery on the P80X chipset, then a ~70s DE1 GATT
+        // collapse). Seeding the latch up front on the population that the
+        // retired #1097 SDK<30 gate used to cover (Android < 11) bypasses
+        // that first-launch pain.
+        //
+        // This is a SEED, not a gate: the runtime detector continues to
+        // handle SDK≥30 devices on weak chipsets (the #1176 Galaxy Tab A8 /
+        // T618 case that motivated #1185), unchanged.
+        //
+        // Sticky by design: SDK_INT is a permanent OS characteristic, so the
+        // seed re-evaluates on every launch where the latch is absent (e.g.,
+        // after an MCP clear or epoch bump that wiped the record). While the
+        // latch persists, subsequent launches rehydrate it without re-running
+        // this block. There is no in-app way to permanently restore HIGH on
+        // SDK<30 hardware — the only exit is an OS upgrade to SDK≥30.
+        constexpr int kSeedSdkBelow = 30;  // #1097's predicate, now reused as a seed
+        QJniEnvironment jniEnv;
+        const jint sdkInt = QJniObject::getStaticField<jint>(
+            "android/os/Build$VERSION", "SDK_INT");
+        const bool jniFailed = jniEnv.checkAndClearExceptions();
+        if (jniFailed || sdkInt <= 0) {
+            qWarning().noquote()
+                << QStringLiteral("[BLE] First-launch seed: failed to read "
+                      "Android SDK_INT via JNI (sdkInt=%1, jni_exception=%2) "
+                      "— seed skipped, runtime detector will arm normally.")
+                       .arg(sdkInt).arg(jniFailed ? "yes" : "no");
+        } else if (sdkInt < kSeedSdkBelow) {
+            const QString kind = QStringLiteral("seed:sdk<%1").arg(kSeedSdkBelow);
+            latchScaleSkipHighPriority(kind);
+            qWarning().noquote()
+                << QStringLiteral("[BLE] First-launch seed: Android SDK %1 < "
+                      "%2 (dual-HIGH-incapable cohort, ex-#1097) — skip-HIGH "
+                      "latch SET without running the detection window. "
+                      "Persisted under epoch %3; both BLE links start at "
+                      "BALANCED. Seed re-applies on every launch where the "
+                      "latch is absent (SDK_INT is permanent — no in-app "
+                      "escape hatch on this SDK cohort).")
+                       .arg(sdkInt).arg(kSeedSdkBelow).arg(kBleDetectionEpoch);
+        }
+#endif
+        return;
+    }
 
     const int storedEpoch = m_settings->cpEpoch();   // -1 ⇒ legacy (no key)
     const int storedBuild = m_settings->cpBuildCode(); // diagnostic only now
