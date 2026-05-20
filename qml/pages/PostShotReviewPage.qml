@@ -35,16 +35,15 @@ Page {
         if (Refractometer && Refractometer.connected) {
             Refractometer.disconnectFromDevice()
         }
-        // If a pending edit has not yet been synced to visualizer, fire the
-        // network call now. maybeAutoUpdateVisualizer() requires three conditions
-        // to dispatch: pendingVisualizerUpdate set, Settings.visualizer.visualizerAutoUpdate
-        // on, and MainController.visualizer present. With a captured _visualizerId it
-        // PATCHes the existing shot; otherwise — if visualizerAutoUpload is also on —
-        // it issues a first POST. Safe here because maybeAutoUpdateVisualizer() only
-        // dispatches a network call — no DB writes or Qt.inputMethod.commit(), which
-        // are the operations flagged as unsafe during destruction. Note: any failure
-        // response arrives after this page is fully destroyed, so errors are logged by
-        // the C++ uploader but cannot be surfaced to the user from here.
+        // If a pending edit has not yet been synced to visualizer, fire the PATCH
+        // now. maybeAutoUpdateVisualizer() requires four conditions: pendingVisualizerUpdate
+        // set, Settings.visualizer.visualizerAutoUpdate on, MainController.visualizer
+        // present, and a captured _visualizerId (i.e. the shot was previously uploaded).
+        // Safe here because maybeAutoUpdateVisualizer() only dispatches a network call —
+        // no DB writes or Qt.inputMethod.commit(), which are the operations flagged as
+        // unsafe during destruction. Note: any failure response arrives after this page
+        // is fully destroyed, so errors are logged by the C++ uploader but cannot be
+        // surfaced to the user from here.
         maybeAutoUpdateVisualizer()
     }
 
@@ -81,9 +80,9 @@ Page {
     // can always include it without risk of it becoming empty after a save cycle.
     property string _profileName: ""
     // visualizerId from DB — same Q_GADGET-strip hazard as _profileName. Captured in onShotReady
-    // and refreshed in onVisualizerInfoUpdated/onUpdateSuccess so the "Re-Upload" button label,
-    // the auto-update PATCH-vs-POST branch, and the manual upload button all see a stable value
-    // after saveEditedShot replaces editShotData with a plain JS object.
+    // and refreshed in onUploadSuccess/onUpdateSuccess so the "Re-Upload" button label, the
+    // auto-update PATCH gate, and the manual upload button all see a stable value after
+    // saveEditedShot replaces editShotData with a plain JS object.
     property string _visualizerId: ""
 
     // Pick up toggle changes made on any other page sharing this setting
@@ -557,16 +556,17 @@ Page {
         if (!pendingVisualizerUpdate) return
         if (!Settings.visualizer.visualizerAutoUpdate) return
         if (!MainController.visualizer) return
+        // Only PATCH already-uploaded shots. A first-POST path here is unsafe:
+        // by the time this runs, saveEditedShot has replaced editShotData via
+        // Object.assign, dropping Q_GADGET fields (id, durationSec, frame arrays)
+        // — uploadShotFromHistory would silently fail isValid() and the failure
+        // can't be surfaced because the page is destroyed. Initial uploads are
+        // owned by the shot-completion auto-upload flow and the manual button.
+        if (!_visualizerId) return
         pendingVisualizerUpdate = false
-        if (_visualizerId) {
-            console.log("PostShotReview: auto-updating visualizer shot", _visualizerId, "for shot id", editShotId)
-            MainController.visualizer.updateShotOnVisualizerWithOverrides(
-                _visualizerId, editShotData, buildVisualizerOverrides())
-        } else if (Settings.visualizer.visualizerAutoUpload) {
-            console.log("PostShotReview: auto-uploading to visualizer (no existing id) for shot id", editShotId)
-            MainController.visualizer.uploadShotFromHistoryWithOverrides(
-                editShotData, buildVisualizerOverrides())
-        }
+        console.log("PostShotReview: auto-updating visualizer shot", _visualizerId, "for shot id", editShotId)
+        MainController.visualizer.updateShotOnVisualizerWithOverrides(
+            _visualizerId, editShotData, buildVisualizerOverrides())
     }
 
     // Handle upload status changes
@@ -611,7 +611,11 @@ Page {
         }
         function onUploadFailed(error) {
             uploadError = error
-            pendingVisualizerUpdate = false
+            // Do NOT clear pendingVisualizerUpdate here — the signal carries no shot id,
+            // and an unrelated background upload failure would suppress the auto-update
+            // for the shot the user is editing. The flag is already cleared before every
+            // dispatch (manual button before invocation, maybeAutoUpdateVisualizer at
+            // line 561), so leaving it set on failure preserves the user's intent.
         }
     }
 

@@ -222,10 +222,11 @@ private slots:
     }
 
     // Verifies that settings_set persists visualizerAutoUpdate through the MCP
-    // tool surface. Does NOT exercise the shots_update auto-update gate at
-    // mcptools_write.cpp lines 207-221 — that path requires a real
-    // VisualizerUploader, and registerTools passes nullptr here. Gate coverage
-    // is provided by the MCP integration test in scripts/test_mcp.sh.
+    // tool surface. Does NOT exercise the shots_update auto-update gate inside
+    // the QMetaObject::invokeMethod lambda in registerWriteTools — that path
+    // requires a real VisualizerUploader, and registerTools passes nullptr
+    // here. Gate behavior is exercised by the MCP integration test in
+    // scripts/test_mcp.sh.
     void settingsSetVisualizerAutoUpdateRoundTrip()
     {
         McpTestFixture f;

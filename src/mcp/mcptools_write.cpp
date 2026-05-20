@@ -221,9 +221,14 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         }
                     }
 
-                    result["visualizerUpdateTriggered"] = willAutoUpdate;
-                    if (!skipReason.isEmpty())
-                        result["visualizerUpdateSkippedReason"] = skipReason;
+                    // Only surface visualizer-update status on the success path —
+                    // a DB update failure produces an error response, and tacking
+                    // a status field onto it is semantically confusing for LLM callers.
+                    if (ok) {
+                        result["visualizerUpdateTriggered"] = willAutoUpdate;
+                        if (!skipReason.isEmpty())
+                            result["visualizerUpdateSkippedReason"] = skipReason;
+                    }
                     respond(result);
                 }, Qt::QueuedConnection);
             });

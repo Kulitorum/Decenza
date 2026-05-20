@@ -95,13 +95,18 @@ private slots:
     }
 
     void visualizerAutoUpdateDefaultIsTrue() {
-        // Default value is true — auto-update is opt-out, not opt-in. Remove the
-        // stored key so the getter falls back to its hardcoded default argument.
-        // cleanup() restores m_origAutoUpdate via setVisualizerAutoUpdate after.
+        // Default value is true — auto-update is opt-out, not opt-in.
+        // Strategy: write the opposite (false) so any per-instance or NSUserDefaults
+        // cache holds false, then remove the disk key and read through a fresh
+        // Settings instance. If the result is true, the hardcoded default actually
+        // ran (a stale cache would have returned false).
+        m_settings.visualizer()->setVisualizerAutoUpdate(false);
+        QVERIFY(!m_settings.visualizer()->visualizerAutoUpdate());
         QSettings raw("DecentEspresso", "DE1Qt");
         raw.remove("visualizer/autoUpdate");
         raw.sync();
-        QCOMPARE(m_settings.visualizer()->visualizerAutoUpdate(), true);
+        Settings fresh;
+        QVERIFY(fresh.visualizer()->visualizerAutoUpdate());
     }
 
     void visualizerAutoUpdateRoundTrip() {
