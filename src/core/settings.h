@@ -132,6 +132,12 @@ public:
     Q_INVOKABLE QString primaryScaleAddress() const;
     Q_INVOKABLE bool isKnownScale(const QString& address) const;
 
+    // WiFi scale IP cache (mDNS resilience). Keyed by bare hostname
+    // (no "wifi:" prefix). Empty string means "no entry — go straight
+    // to hostname resolution".
+    Q_INVOKABLE QString wifiScaleIp(const QString& hostname) const;
+    Q_INVOKABLE void setWifiScaleIp(const QString& hostname, const QString& ip);
+
     // FlowScale
     bool useFlowScale() const;
     void setUseFlowScale(bool enabled);

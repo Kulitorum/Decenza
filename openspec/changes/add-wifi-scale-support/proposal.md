@@ -10,6 +10,11 @@ The shot-tracking pipeline already auto-calibrates to the scale's actual sample 
 
 ## What Changes
 
+### mDNS resilience
+
+- **NEW** `Settings::wifiScaleIp(hostname)` / `setWifiScaleIp(hostname, ip)` accessor pair backed by a persisted `QMap<QString,QString>` — hostname → last-known-good IP. Additive; no schema migration.
+- **`DecentScaleWifi` connects by cached IP first, falls back to hostname.** A 5 s recognition timer guards the WebSocket: the first snapshot or `status` frame must arrive within the window or the driver closes the socket and retries via hostname. After a successful hostname connect, the driver caches `QWebSocket::peerAddress()` so the next connect skips mDNS entirely. Self-healing: a stale cached IP that fails validation is replaced by the next successful hostname resolve.
+
 ### Discovery
 
 - **NEW** `WifiScaleDiscovery` service (`src/network/wifiscalediscovery.{h,cpp}`) — performs an on-demand `QHostInfo::lookupHost("hds.local")` with a short timeout (~2 s) when triggered. If the host resolves to an address, emits a synthetic scale entry to be merged into `BLEManager::discoveredScales`. Does nothing on app startup; runs only when the user-initiated scan fires.

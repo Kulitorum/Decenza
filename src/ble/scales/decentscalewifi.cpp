@@ -7,6 +7,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QAbstractSocket>
+#include <QHostAddress>
 #include <algorithm>
 
 #define WIFI_LOG(msg)  SCALE_LOG("DecentScaleWifi", msg)
@@ -15,7 +16,12 @@
 DecentScaleWifi::DecentScaleWifi(QObject* parent)
     : ScaleDevice(parent)
     , m_socket(new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this))
+    , m_recognitionTimer(new QTimer(this))
 {
+    m_recognitionTimer->setSingleShot(true);
+    connect(m_recognitionTimer, &QTimer::timeout,
+            this, &DecentScaleWifi::onRecognitionTimeout);
+
     connect(m_socket, &QWebSocket::connected,
             this, &DecentScaleWifi::onConnected);
     connect(m_socket, &QWebSocket::disconnected,
@@ -44,10 +50,31 @@ void DecentScaleWifi::connectToHost(const QString& hostname) {
     m_hostname = hostname;
     m_userInitiatedShutdown = false;
     m_reconnectAttempted = false;
+    m_triedHostnameFallback = false;
 
-    const QUrl url(QStringLiteral("ws://%1/snapshot").arg(hostname));
-    WIFI_LOG(QString("Connecting to %1").arg(url.toString()));
+    // Try the cached IP first if we have one. The recognition-timer guard
+    // catches the case where DHCP has reassigned the IP and we're connecting
+    // to the wrong device.
+    const QString cachedIp = m_ipResolver ? m_ipResolver(hostname) : QString();
+    if (!cachedIp.isEmpty() && cachedIp != hostname) {
+        WIFI_LOG(QString("Trying cached IP %1 for %2").arg(cachedIp, hostname));
+        attemptTarget(cachedIp, /*isHostname=*/false);
+    } else {
+        attemptTarget(hostname, /*isHostname=*/true);
+    }
+}
+
+void DecentScaleWifi::attemptTarget(const QString& target, bool isHostname) {
+    m_currentTarget = target;
+    m_currentTargetIsHostname = isHostname;
+    m_recognized = false;
+    if (isHostname) m_triedHostnameFallback = true;
+
+    const QUrl url(QStringLiteral("ws://%1/snapshot").arg(target));
+    WIFI_LOG(QString("Connecting to %1 (%2)").arg(
+        url.toString(), isHostname ? QStringLiteral("hostname") : QStringLiteral("cached IP")));
     m_socket->open(url);
+    m_recognitionTimer->start(kRecognitionTimeoutMs);
 }
 
 void DecentScaleWifi::disconnectFromScale() {
@@ -71,6 +98,7 @@ void DecentScaleWifi::onConnected() {
 }
 
 void DecentScaleWifi::onDisconnected() {
+    if (m_recognitionTimer) m_recognitionTimer->stop();
     const QString disconnectLog = m_userInitiatedShutdown
         ? QString("WebSocket disconnected (expected: %1)").arg(m_lastPowerEventReason)
         : QStringLiteral("WebSocket disconnected (unexpected)");
@@ -134,10 +162,13 @@ void DecentScaleWifi::onTextMessageReceived(const QString& message) {
 void DecentScaleWifi::handleSnapshotFrame(const QJsonObject& obj) {
     const QJsonValue grams = obj.value(QStringLiteral("grams"));
     if (!grams.isDouble()) return;
+    onRecognizedAsHds();
     setWeight(grams.toDouble());
 }
 
 void DecentScaleWifi::handleStatusFrame(const QJsonObject& obj) {
+    onRecognizedAsHds();
+
     // Battery + charging — independent fields per protocol.
     const QJsonValue batt = obj.value(QStringLiteral("battery_percent"));
     if (batt.isDouble()) {
@@ -202,6 +233,51 @@ void DecentScaleWifi::handleRateFrame(const QJsonObject& obj) {
     const int hz = obj.value(QStringLiteral("hz")).toInt(0);
     const int intervalMs = obj.value(QStringLiteral("interval_ms")).toInt(0);
     WIFI_LOG(QString("Rate acknowledged: %1 Hz (interval %2 ms)").arg(hz).arg(intervalMs));
+}
+
+void DecentScaleWifi::onRecognizedAsHds() {
+    if (m_recognized) return;
+    m_recognized = true;
+    m_recognitionTimer->stop();
+
+    // Cache the peer IP after a hostname connect succeeds, so the next
+    // connect can skip the OS resolver entirely.
+    if (m_currentTargetIsHostname && m_ipCacheUpdate) {
+        const QString peerIp = m_socket ? m_socket->peerAddress().toString() : QString();
+        if (!peerIp.isEmpty() && peerIp != m_hostname) {
+            WIFI_LOG(QString("Caching peer IP %1 for %2").arg(peerIp, m_hostname));
+            m_ipCacheUpdate(m_hostname, peerIp);
+        }
+    }
+}
+
+void DecentScaleWifi::onRecognitionTimeout() {
+    WIFI_WARN(QString("No recognizable HDS frame within %1 ms from %2")
+              .arg(kRecognitionTimeoutMs).arg(m_currentTarget));
+
+    // Cached-IP attempt failed validation → fall back to the hostname.
+    // (If we were already on the hostname, we've exhausted options.)
+    if (!m_currentTargetIsHostname && !m_triedHostnameFallback) {
+        WIFI_LOG(QString("Cached IP %1 didn't validate as HDS — falling back to hostname %2")
+                 .arg(m_currentTarget, m_hostname));
+        // Mark this disconnect as expected so onDisconnected doesn't queue
+        // the 3 s reconnect attempt. We're going to re-open immediately.
+        m_userInitiatedShutdown = true;
+        m_socket->close();
+        // Re-attempt via hostname on the next event-loop turn so the close
+        // settles before we open again.
+        const QString hostname = m_hostname;
+        QTimer::singleShot(0, this, [this, hostname]() {
+            m_userInitiatedShutdown = false;
+            attemptTarget(hostname, /*isHostname=*/true);
+        });
+        return;
+    }
+
+    // Hostname attempt also failed recognition — give up.
+    emit errorOccurred(QStringLiteral("WiFi scale did not respond as HDS"));
+    m_userInitiatedShutdown = true;  // Suppress reconnect attempt.
+    m_socket->close();
 }
 
 int DecentScaleWifi::encodeButton(int buttonNumber, int pressCode) {

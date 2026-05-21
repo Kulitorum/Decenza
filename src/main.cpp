@@ -1403,6 +1403,14 @@ int main(int argc, char *argv[])
                 engine.rootContext()->setContextProperty("ScaleDevice", physicalScale.get());
                 if (type == QStringLiteral("decent-wifi")) {
                     if (auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get())) {
+                        // (Re-wire the cache callbacks each time — cheap, and
+                        // ensures they reference the live Settings instance.)
+                        wifi->setIpResolver([&settings](const QString& host) {
+                            return settings.wifiScaleIp(host);
+                        });
+                        wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
+                            settings.setWifiScaleIp(host, ip);
+                        });
                         wifi->connectToHost(bleManager.pendingWifiHostname());
                     }
                 } else {
@@ -1576,6 +1584,14 @@ int main(int argc, char *argv[])
         // Connect to the scale. WiFi takes a hostname; BLE takes the device info.
         if (isWifi) {
             if (auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get())) {
+                // Wire the mDNS-resilience cache to Settings so a successful
+                // hostname connect persists the peer IP for next time.
+                wifi->setIpResolver([&settings](const QString& host) {
+                    return settings.wifiScaleIp(host);
+                });
+                wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
+                    settings.setWifiScaleIp(host, ip);
+                });
                 wifi->connectToHost(hostname);
             }
         } else {

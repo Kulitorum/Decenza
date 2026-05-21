@@ -228,6 +228,34 @@ The WiFi driver SHALL handle `type: "power"` events as expected disconnects, log
 - **WHEN** the WebSocket disconnects without a preceding power event
 - **THEN** the driver schedules exactly one reconnect attempt approximately 3 seconds later
 
+### Requirement: WiFi connect tries cached IP first with hostname fallback
+
+To make WiFi reconnect robust against unreliable mDNS resolution, the WiFi driver SHALL cache the resolved peer IP after each successful connection, attempt the cached IP on subsequent connects, and fall back to the hostname when the cached IP does not deliver a recognizable HDS frame within a short window.
+
+#### Scenario: First connect by hostname caches the peer IP
+- **WHEN** the driver opens a WebSocket using the hostname (no cached IP available) and receives the first snapshot or status frame within the recognition window
+- **THEN** the driver writes the WebSocket peer address into the IP cache, keyed by hostname, so subsequent connects can skip mDNS
+
+#### Scenario: Subsequent connect tries the cached IP first
+- **WHEN** a previously cached IP exists for the saved hostname and the driver is asked to connect
+- **THEN** the driver opens the WebSocket against `ws://<cached-ip>/snapshot` first, without performing a hostname resolution
+
+#### Scenario: Cached IP succeeds — no mDNS lookup performed
+- **WHEN** the cached IP responds with a recognizable HDS frame (snapshot or `type:"status"`) within the 5 s recognition window
+- **THEN** the driver treats the connection as established and does not attempt to resolve the hostname
+
+#### Scenario: Cached IP fails recognition — fall back to hostname
+- **WHEN** the cached IP attempt opens the WebSocket but no recognizable HDS frame arrives within 5 s (e.g., DHCP reassigned the IP to a different host running a WebSocket server)
+- **THEN** the driver closes the cached-IP socket and retries via `ws://<hostname>/snapshot`; on success, the cache is overwritten with the new peer IP
+
+#### Scenario: Cached IP refuses connection — fall back to hostname
+- **WHEN** the cached IP attempt fails at the TCP layer (refused / unreachable / timed out before WS upgrade)
+- **THEN** the driver retries via the hostname, same as the recognition-timeout fallback
+
+#### Scenario: Both cached IP and hostname fail
+- **WHEN** both attempts time out their recognition windows or fail to connect
+- **THEN** the driver emits `errorOccurred("WiFi scale did not respond as HDS")` and stops; no further retries on this connect cycle. The user can rescan to retry.
+
 ### Requirement: Rate command behavior under weak WiFi is opaque to the driver
 
 The driver SHALL request `rate 10k` on connect and SHALL NOT attempt to downgrade the requested rate if frames arrive less frequently than expected. The firmware drops frames it cannot send rather than queueing them, so the weight pipeline's existing inter-arrival EMA absorbs any variance.

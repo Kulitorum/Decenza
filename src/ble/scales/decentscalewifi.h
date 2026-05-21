@@ -4,6 +4,7 @@
 #include <QUrl>
 #include <QString>
 #include <QTimer>
+#include <functional>
 
 class QWebSocket;
 
@@ -29,11 +30,22 @@ public:
     void connectToDevice(const QBluetoothDeviceInfo& device) override;
 
     // Convenience overload: connect to a known hostname (e.g. "hds.local").
+    // Will try the cached IP for this hostname first (if `ipResolver` returns
+    // a non-empty string), validate via the recognition window, and fall back
+    // to the hostname on failure.
     void connectToHost(const QString& hostname);
 
     QString name() const override { return m_name; }
     QString type() const override { return QStringLiteral("decent"); }
     QString transportType() const { return QStringLiteral("wifi"); }
+
+    // mDNS-resilience hooks. Production wires these to Settings::wifiScaleIp.
+    // Tests inject mock callbacks. Both default to no-ops (driver works
+    // standalone — no cache, plain hostname connect).
+    using IpResolver = std::function<QString(const QString& hostname)>;
+    using IpCacheUpdate = std::function<void(const QString& hostname, const QString& ip)>;
+    void setIpResolver(IpResolver resolver) { m_ipResolver = std::move(resolver); }
+    void setIpCacheUpdate(IpCacheUpdate cb) { m_ipCacheUpdate = std::move(cb); }
 
 public slots:
     void tare() override;
@@ -53,6 +65,9 @@ private slots:
     void onTextMessageReceived(const QString& message);
     void onError();
 
+private slots:
+    void onRecognitionTimeout();
+
 private:
     void send(const QString& text);
     void handleSnapshotFrame(const QJsonObject& obj);
@@ -61,19 +76,36 @@ private:
     void handlePowerFrame(const QJsonObject& obj);
     void handleRateFrame(const QJsonObject& obj);
 
+    // Open the WebSocket against `target` (either a cached IP or the bare
+    // hostname). Starts the recognition timer; on first valid HDS frame the
+    // timer is cancelled and (if isHostname) the peer IP is cached.
+    void attemptTarget(const QString& target, bool isHostname);
+    // First snapshot or status frame — confirms we're talking to the HDS.
+    void onRecognizedAsHds();
+
     // Button encoding: 0x1000 high bit flags WiFi-encoded buttons so they
     // cannot collide with the BLE driver's 0..0xFF single-byte values.
     static int encodeButton(int buttonNumber, int pressCode);
 
     static constexpr int kReconnectDelayMs = 3000;
+    static constexpr int kRecognitionTimeoutMs = 5000;
     static constexpr int kWifiButtonFlag = 0x1000;
 
     QWebSocket* m_socket = nullptr;
-    QString m_hostname;          // e.g. "hds.local"
+    QTimer* m_recognitionTimer = nullptr;
+    QString m_hostname;             // The canonical hostname (no "wifi:" prefix). Stable across fallback.
+    QString m_currentTarget;        // Whatever we're currently dialing — IP or hostname.
+    bool m_currentTargetIsHostname = false;
+    bool m_recognized = false;      // Set on first valid HDS frame; resets on each attempt.
+    bool m_triedHostnameFallback = false;  // Prevents looping if hostname fallback also fails.
+
     QString m_name = QStringLiteral("Decent Scale (WiFi)");
     QString m_firmwareVersion;   // cached per-connect; cleared on disconnect
     QString m_lastPowerEventReason;
     int m_lastPowerEventCode = -1;
     bool m_userInitiatedShutdown = false;  // Set by power-frame handler; suppresses reconnect
     bool m_reconnectAttempted = false;     // Single-attempt reconnect (no exponential backoff)
+
+    IpResolver m_ipResolver;     // hostname → cached IP (or empty)
+    IpCacheUpdate m_ipCacheUpdate;  // hostname, ip → side-effect
 };

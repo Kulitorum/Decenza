@@ -63,6 +63,32 @@ private:
     QStringList m_received;
 };
 
+// Accepts a WS upgrade but never sends any frame — simulates a non-HDS
+// WebSocket server sitting at a cached IP after DHCP reassignment.
+class SilentServer : public QObject {
+    Q_OBJECT
+public:
+    SilentServer() : m_server(new QWebSocketServer(QStringLiteral("Silent"),
+                                                   QWebSocketServer::NonSecureMode, this))
+    {
+        m_server->listen(QHostAddress::LocalHost, 0);
+        connect(m_server, &QWebSocketServer::newConnection, this, [this]() {
+            while (m_server->hasPendingConnections()) {
+                auto* c = m_server->nextPendingConnection();
+                c->setParent(this);
+                emit clientConnected();
+            }
+        });
+    }
+    QString host() const {
+        return QStringLiteral("127.0.0.1:%1").arg(m_server->serverPort());
+    }
+signals:
+    void clientConnected();
+private:
+    QWebSocketServer* m_server = nullptr;
+};
+
 class tst_DecentScaleWifi : public QObject {
     Q_OBJECT
 
@@ -273,6 +299,96 @@ private slots:
         });
         QTRY_COMPARE(buttonSpy.count(), 2);
         QCOMPARE(buttonSpy.last().at(0).toInt(), 0x1202);  // square-long
+    }
+
+    // ==========================================
+    // mDNS resilience: cache + hostname fallback
+    // ==========================================
+
+    void successfulHostnameConnectCachesPeerIp() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        QString cachedKey, cachedIp;
+        driver.setIpResolver([](const QString&) { return QString(); });
+        driver.setIpCacheUpdate([&](const QString& host, const QString& ip) {
+            cachedKey = host; cachedIp = ip;
+        });
+
+        connectAndHandshake(driver, server);  // Connects via the host arg (acts like a hostname here).
+
+        // Recognition fires on inbound frames — send a snapshot to validate.
+        server.sendJson({{ "grams", 25.66 }, { "ms", 12345 }});
+        QTRY_VERIFY_WITH_TIMEOUT(!cachedKey.isEmpty(), 1000);
+        QCOMPARE(cachedKey, server.host());
+        // Peer IP is whatever 127.0.0.1 resolves to from the WS — non-empty.
+        QVERIFY(!cachedIp.isEmpty());
+    }
+
+    void cachedIpHitConnectsDirectly() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        // Resolver returns the server's host directly so attemptTarget uses
+        // the "cached IP" branch (isHostname=false). No update should fire
+        // because we used the cache, not the hostname.
+        bool updateCalled = false;
+        driver.setIpResolver([&](const QString& host) {
+            // Pretend the cache hit is the same host:port the test server uses.
+            return host == QStringLiteral("hds.local") ? server.host() : QString();
+        });
+        driver.setIpCacheUpdate([&](const QString&, const QString&) { updateCalled = true; });
+
+        QSignalSpy connectedSpy(&server, &FakeHdsServer::clientConnected);
+        driver.connectToHost(QStringLiteral("hds.local"));
+        QVERIFY(connectedSpy.wait(2000));
+        QTRY_VERIFY_WITH_TIMEOUT(server.received().size() >= 3, 2000);
+
+        // Send a snapshot so recognition fires.
+        server.sendJson({{ "grams", 25.66 }, { "ms", 12345 }});
+        QSignalSpy weightSpy(&driver, &ScaleDevice::weightChanged);
+        QVERIFY(weightSpy.wait(500));
+
+        // Cache used as-is; no update should be written (cache was already correct).
+        QTest::qWait(100);
+        QCOMPARE(updateCalled, false);
+    }
+
+    void cachedIpValidationTimeoutFallsBackToHostname() {
+        // The "cached IP" resolves to a silent server; the "hostname" resolves
+        // to a real fake HDS. Driver should validate-time-out on the silent
+        // server and fall back to the hostname, where it succeeds.
+        SilentServer silent;
+        FakeHdsServer real;
+        DecentScaleWifi driver;
+        driver.setIpResolver([&](const QString& host) {
+            return host == real.host() ? silent.host() : QString();
+        });
+        QString cachedIpAfter;
+        driver.setIpCacheUpdate([&](const QString&, const QString& ip) {
+            cachedIpAfter = ip;
+        });
+
+        // Override the recognition timeout to make the test fast.
+        // (Driver uses 5 s; we can't reduce it from outside without an API.
+        //  Instead just wait — the test costs 5 s, which is acceptable for the
+        //  one path that genuinely exercises the timeout-and-fallback flow.)
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(".*No recognizable HDS frame within.*"));
+
+        QSignalSpy realConnectedSpy(&real, &FakeHdsServer::clientConnected);
+        driver.connectToHost(real.host());
+
+        // Wait for the silent server to receive the upgrade attempt, then for
+        // the 5 s recognition timeout to fire and the driver to fall back.
+        QVERIFY(realConnectedSpy.wait(8000));  // 5s timeout + fallback margin
+
+        // Now the fallback (hostname) is active — send a snapshot so it validates.
+        QTRY_VERIFY_WITH_TIMEOUT(real.received().size() >= 3, 2000);
+        real.sendJson({{ "grams", 12.34 }, { "ms", 1000 }});
+        QSignalSpy weightSpy(&driver, &ScaleDevice::weightChanged);
+        QVERIFY(weightSpy.wait(500));
+
+        // Cache update fired with the real peer IP (not the silent server).
+        QVERIFY(!cachedIpAfter.isEmpty());
     }
 
     // ==========================================

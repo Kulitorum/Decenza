@@ -224,7 +224,40 @@ Driver behavior:
 
 This is the only base-class change. Everything else is encapsulated in `DecentScaleWifi`.
 
-### 14. Button event encoding
+### 14. mDNS resilience: IP cache with hostname fallback
+
+mDNS resolution of `.local` names is unreliable in practice — Android's libc resolver doesn't handle it, multicast traffic is filtered on some APs, and the scale's mDNS responder may not answer when waking from power-save. To make WiFi reconnect robust:
+
+- **The driver caches the WebSocket peer IP** after each successful connection (read via `QWebSocket::peerAddress()`). Cache is keyed by hostname and persisted to Settings (`wifiScaleIp(hostname)` accessor pair). One entry per WiFi scale.
+- **Connect attempts try the cached IP first**, then fall back to the hostname. If both fail validation, give up; the user can rescan.
+- **Validation**: a "recognizable HDS frame" must arrive within 5 s of the WS upgrade — either a snapshot (`contains("grams")`) or a typed `status` frame. Anything else (no frame, malformed frames, WS server that isn't an HDS) trips the recognition timeout and the driver closes the socket. This guards against DHCP reassignment putting a non-HDS WebSocket server at the cached IP.
+- **Cache invalidation**: failure to validate via cached IP triggers fallback to hostname; the next successful connect (via hostname) writes a fresh IP into the cache. So the cache is self-healing — there's no explicit TTL or manual clear.
+- **No on-disk schema migration**: the cache is a `QMap<QString,QString>` in Settings, additive only. Absence of an entry means "no cache yet, go straight to hostname."
+
+The orchestration lives **inside `DecentScaleWifi`** rather than in BLEManager — the driver knows the hostname, owns the socket, sees the recognition signal, and reads `peerAddress()` after connect. BLEManager just hands it a hostname as before. The driver takes two test-friendly callbacks (`m_ipResolver`, `m_ipCacheUpdate`) so tests inject mocks and production code wires to Settings.
+
+```
+   connectToHost("hds.local")
+     │
+     ├─ cachedIp = m_ipResolver("hds.local")
+     ├─ if cachedIp:  attemptTarget(cachedIp,  isHostname=false)
+     ├─ else:         attemptTarget("hds.local", isHostname=true)
+     │
+   attemptTarget(target, isHostname)
+     │
+     ├─ open ws://<target>/snapshot
+     ├─ start 5 s recognition timer
+     │
+     ├─ first snapshot/status frame arrives:
+     │    cancel timer; if isHostname: cache m_socket->peerAddress()
+     │
+     └─ recognition timer fires:
+          close socket
+          if cached-IP attempt:    attemptTarget(hostname, isHostname=true)
+          else (hostname failed):  emit errorOccurred("WiFi scale did not respond as HDS")
+```
+
+### 15. Button event encoding
 
 BLE `buttonPressed(int button)` emits a single int — the byte from `command 0xAA` byte `[2]` ([decentscale.cpp:243-247](src/ble/scales/decentscale.cpp:243)). The valid BLE values are in `0..0xFF`.
 

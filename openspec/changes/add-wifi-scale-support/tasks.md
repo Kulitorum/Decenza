@@ -115,6 +115,22 @@
 - [ ] 10.2 Older HDS firmware that only ships `tare` + 2 Hz snapshot stream still works (the JSON `rate` / `events` / `timer` / `led` / `soft_sleep` / `display` text commands will be silently ignored by the firmware's unknown-command path). Confirm by testing against the oldest firmware we expect users to be on. Decenza-side: log a warning on connect if no `status` frame arrives within ~10 s of `"events on"` (likely-old firmware), but do not refuse to operate.
 - [ ] 10.3 No firmware PR required from this change. The firmware-side work is upstream of Decenza.
 
+## 12. mDNS resilience: IP cache + hostname fallback
+
+- [x] 12.1 Add `Settings::wifiScaleIp(const QString& hostname) const` getter and `setWifiScaleIp(const QString& hostname, const QString& ip)` setter on `src/core/settings.{h,cpp}`. Backed by a private `QMap<QString,QString> m_wifiScaleIpCache` member; serialized alongside other scale settings.
+- [x] 12.2 Extend `DecentScaleWifi` with two settable callbacks (`std::function`): `setIpResolver(hostname → ip)` and `setIpCacheUpdate(hostname, ip → void)`. Default: no-ops (driver works standalone in tests).
+- [x] 12.3 Add a `QTimer m_recognitionTimer` (single-shot, 5 s) to `DecentScaleWifi`. Started on `onConnected`. Stopped when the first snapshot frame or `type:"status"` frame arrives. On timeout: close socket and trigger fallback (or fail if already at fallback).
+- [x] 12.4 In `DecentScaleWifi::connectToHost(hostname)`: call `m_ipResolver(hostname)`; if it returns a non-empty IP, call `attemptTarget(ip, isHostname=false)`; otherwise `attemptTarget(hostname, isHostname=true)`.
+- [x] 12.5 In `attemptTarget`: record target + isHostname, open `ws://<target>/snapshot`, start recognition timer. Maintain `m_currentTarget` and `m_currentTargetIsHostname` members.
+- [x] 12.6 In the first valid frame handler (snapshot or status): stop recognition timer, set `m_recognized = true`. If the target was a hostname, read `m_socket->peerAddress().toString()` and call `m_ipCacheUpdate(m_hostname, peerIp)` (skip if peer IP is empty or equals the hostname).
+- [x] 12.7 In `onRecognitionTimeout`: log a warning; if the current attempt was the cached IP, close the socket and re-attempt via the hostname (`attemptTarget(m_hostname, true)`). If the hostname attempt also timed out, emit `errorOccurred("WiFi scale did not respond as HDS")` and stop — no further retries.
+- [x] 12.8 Wire the callbacks in `main.cpp` after creating the WiFi driver: `wifi->setIpResolver([&](auto h){ return settings.wifiScaleIp(h); })` and `wifi->setIpCacheUpdate([&](auto h, auto ip){ settings.setWifiScaleIp(h, ip); })`.
+- [x] 12.9 Tests for the cache + fallback in `tst_decentscalewifi.cpp`:
+  - Cache hit: driver connects, receives first frame, calls `ipCacheUpdate` with the peer IP.
+  - Cache miss: no resolver callback (or empty return) → driver connects via the supplied hostname; cache update fires.
+  - Validation timeout from cached IP: server accepts WS upgrade but sends no recognizable frame within 5 s → driver closes, retries via hostname, succeeds.
+  - Hostname also fails recognition: emits `errorOccurred` and does not loop.
+
 ## 11. Validate and PR
 
 - [x] 11.1 `openspec validate add-wifi-scale-support --strict --no-interactive`.
@@ -131,5 +147,5 @@
   - [ ] Android: per spike result, mDNS resolves either via Qt or via the JNI bridge.
   - [ ] Server-busy: open a second WS client to the scale, scan from Decenza, observe clean 503 error.
   - [ ] Charging-state parity: BLE-connected scale on USB-C → `charging` property reads `true` (new behavior — verify previously-broken path is now correct).
-- [ ] 11.4 Open PR; run `/review`; address any 75%+-confidence issues.
-- [ ] 11.5 PR description references the openscale firmware PR (#10.1) and notes that the firmware bump is optional (Decenza works against current 2 Hz firmware).
+- [x] 11.4 Open PR; run `/review`; address any 75%+-confidence issues. **(PR opened: [Kulitorum/Decenza#1246](https://github.com/Kulitorum/Decenza/pull/1246). `/review` to follow.)**
+- [x] 11.5 PR description references the openscale firmware PR (#10.1) and notes that the firmware bump is optional (Decenza works against current 2 Hz firmware). **(N/A — firmware already ships the full command surface per README; minimum-version note moved to section 10.)**
