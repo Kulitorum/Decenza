@@ -145,7 +145,7 @@
   - [ ] Saved scale rehydration: save WiFi entry → restart app → auto-reconnect → weight streams.
   - [ ] iOS: first scan prompts local-network permission; deny path is graceful.
   - [ ] Android: per spike result, mDNS resolves either via Qt or via the JNI bridge.
-  - [ ] Server-busy: open a second WS client to the scale, scan from Decenza, observe clean 503 error.
+  - [ ] Server-busy: open 5 WS clients to the scale (past the firmware's concurrent-client cap), scan from Decenza, observe clean 503 error with toast. NOTE: with the cap raised from 1 to 5 in the firmware, this is now a rare-case verification rather than a common-path test.
   - [ ] Charging-state parity: BLE-connected scale on USB-C → `charging` property reads `true` (new behavior — verify previously-broken path is now correct).
 - [x] 11.4 Open PR; run `/review`; address any 75%+-confidence issues. **(PR opened: [Kulitorum/Decenza#1246](https://github.com/Kulitorum/Decenza/pull/1246). `/review` to follow.)**
 - [x] 11.5 PR description references the openscale firmware PR (#10.1) and notes that the firmware bump is optional (Decenza works against current 2 Hz firmware). **(N/A — firmware already ships the full command surface per README; minimum-version note moved to section 10.)**

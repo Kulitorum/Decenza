@@ -9,7 +9,7 @@ The HDS firmware (`Kulitorum/openscale`) exposes:
 - mDNS hostname `hds.local` once joined to the network.
 - WebSocket at `/snapshot` pushing JSON `{"grams": <float>, "ms": <millis>}`. Current firmware throttles to 2 Hz (`hds.ino:1411` — `current - lastUpdate > 500`); the same code path can do 10+ Hz by lowering the threshold.
 - Single text command `"tare"`. No timer, LED, sleep, battery, button-event, or firmware-version surface over WS.
-- One client maximum (server returns HTTP 503 to additional clients).
+- Up to 5 concurrent WebSocket clients (server returns HTTP 503 only past that cap). Earlier firmware revisions enforced a 1-client limit; the cap was raised so Decenza, a browser tab, and other consumers can run simultaneously.
 - AP-fallback for credential provisioning (SSID `DecentScale` / pass `12345678`, web form at `192.168.1.1`). Out of scope for this change.
 
 ## Goals / Non-Goals
@@ -154,7 +154,7 @@ Spike result determines task 6.
 
 Reconnect strategy: on `disconnected` while we still have a saved WiFi scale, schedule a single reconnect attempt after 3 s. If that fails, the user can rescan. **No exponential backoff loop** — matches the BLE retry stance (don't fight the link; surface and stop).
 
-Server-busy handling: if the WS upgrade fails with HTTP 503 (firmware-side one-client guard, see `webserver.h:42-48`), emit a specific error message ("Another client is connected to the scale") so the toast is clear.
+Server-busy handling: if the WS upgrade fails with HTTP 503 (firmware-side 5-client cap exceeded, see `webserver.h`), emit a specific error message ("Another client is connected to the scale") so the toast is clear. With the 5-client cap this should be very rare in practice; the path is kept as defensive code.
 
 ### 10. What about the dual-HIGH-priority / scale-stall backoff?
 

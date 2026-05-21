@@ -114,9 +114,9 @@ The saved primary scale address SHALL encode the transport so that BLE and WiFi 
 
 ### Requirement: One-client server-busy condition surfaces clearly
 
-When the scale's firmware refuses a WebSocket upgrade because another client is already connected (HTTP 503 per the firmware behavior in `webserver.h`), the app SHALL surface a specific, user-readable error and NOT loop retry attempts.
+When the scale's firmware refuses a WebSocket upgrade because the concurrent-client cap is exceeded (HTTP 503 per the firmware behavior in `webserver.h` — current cap is 5 clients), the app SHALL surface a specific, user-readable error and NOT loop retry attempts.
 
-#### Scenario: Scale is busy with another client
+#### Scenario: Scale is at the concurrent-client cap
 - **WHEN** the WiFi scale driver attempts to open the WebSocket and the server returns 503
 - **THEN** the driver emits the error message "Another client is connected to the scale" and stops attempting to connect
 
