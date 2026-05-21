@@ -103,33 +103,18 @@ namespace MdnsResolver {
 
 QString resolveHostname(const QString& hostname, int timeoutMs)
 {
-    // Bind the query socket to the mDNS port (5353), not an ephemeral port.
-    //
-    // Why: the ESP32 mDNS responder (openscale firmware on the Half Decent
-    // Scale) only MULTICASTS its reply when the query's source port is 5353;
-    // for queries from an ephemeral port it UNICASTS the reply, which Android
-    // does not reliably deliver to our socket. Binding to 5353 routes the reply
-    // through the multicast group we've joined — the same path that already
-    // resolves standards-compliant responders (e.g. the avahi-backed MQTT
-    // broker). This is exactly what Bonjour/avahi do, which is why the scale
-    // resolves from a Mac but not from our ephemeral-port query.
-    // See espressif/esp-idf#7124. mjansson sets SO_REUSEADDR/SO_REUSEPORT, so
-    // sharing 5353 with the OS mDNS daemon is fine.
+    // Bind the query socket to an ephemeral port (NOT 5353). Binding to 5353
+    // on Android collides with the system mDNS daemon: even with SO_REUSEPORT,
+    // inbound multicast is delivered to the OS daemon's socket and our socket
+    // receives nothing (verified on-device: records=0 for ALL hosts when bound
+    // to 5353, including ones that resolve fine from an ephemeral port).
+    // An ephemeral source port is also what the esp-idf#7124 workaround
+    // recommends — it makes the ESP32 unicast its reply back to us.
     struct sockaddr_in bindAddr;
     memset(&bindAddr, 0, sizeof(bindAddr));
     bindAddr.sin_family = AF_INET;
     bindAddr.sin_addr.s_addr = INADDR_ANY;
-    bindAddr.sin_port = htons(5353);
     int sock = mdns_socket_open_ipv4(&bindAddr);
-    if (sock < 0) {
-        // 5353 unavailable (e.g. a peer mDNS socket without SO_REUSEPORT).
-        // Fall back to an ephemeral port: still resolves multicast-replying
-        // responders, just not the ESP32 unicast-only case.
-        qWarning() << "[MdnsResolver] bind :5353 failed (errno=" << errno
-                   << ") — falling back to ephemeral port";
-        bindAddr.sin_port = 0;
-        sock = mdns_socket_open_ipv4(&bindAddr);
-    }
     if (sock < 0) {
         qWarning() << "[MdnsResolver] socket open FAILED for" << hostname
                    << "errno=" << errno;
