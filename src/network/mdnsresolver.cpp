@@ -16,11 +16,14 @@
 
 #include <cstring>
 #include <cerrno>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 namespace {
 
 struct MdnsResolveContext {
-    QByteArray hostname;   // lowercased, no trailing dot
+    QByteArray hostname;   // no trailing dot
     QString resolvedIp;
     // Diagnostics: distinguish "no packets arrived" from "packets arrived but
     // the wanted A record never did / was filtered". See resolveHostname().
@@ -44,7 +47,9 @@ const char* rtypeName(uint16_t rtype)
 
 // mjansson/mdns record callback. Fires once per record in each response packet,
 // for records from ALL responders on the network (not just our target). We
-// match A-record entries whose name equals the queried hostname.
+// match A-record entries whose name equals the queried hostname. When bound to
+// port 5353 we see every mDNS packet on the LAN, so this is called a lot — the
+// name match is what isolates our answer.
 int mdnsResolveCallback(int sock, const struct sockaddr* from, size_t addrlen,
                         mdns_entry_type_t entry, uint16_t query_id,
                         uint16_t rtype, uint16_t rclass, uint32_t ttl,
@@ -97,24 +102,85 @@ int mdnsResolveCallback(int sock, const struct sockaddr* from, size_t addrlen,
     return 0;
 }
 
+// Build a Multicast DNS query for the host's A record with the QU
+// (unicast-response-requested) bit CLEARED, so the responder answers via
+// MULTICAST rather than unicast. This is the crux of the Android fix:
+//
+//   * mjansson's mdns_query_send() always sets the QU bit (it hardcodes
+//     class = MDNS_UNICAST_RESPONSE | MDNS_CLASS_IN). Combined with our socket
+//     being bound to port 5353, a QU query makes the responder send a *unicast*
+//     reply to <our-ip>:5353. On Android the system mDNS daemon ALSO holds
+//     port 5353, and the kernel's SO_REUSEPORT load-balancer hands each
+//     *unicast* datagram to exactly ONE of the sharing sockets — in practice
+//     the daemon, never us. Result: records=0 (this is what the earlier
+//     port-5353 attempt hit).
+//   * A QM query (QU bit clear) sent from source port 5353 makes the responder
+//     MULTICAST its reply to 224.0.0.251:5353. Multicast is delivered to ALL
+//     sockets that joined the group on that port, so our socket gets a copy
+//     alongside the daemon. Verified on-wire against both the HDS (ESP-IDF
+//     mDNS) and a Linux/avahi host: ephemeral/QU -> unicast reply; 5353/QM ->
+//     multicast reply.
+//
+// The packet is a standard DNS query: 12-byte header (txid 0, one question) +
+// QNAME (length-prefixed labels) + QTYPE=A + QCLASS=IN.
+QByteArray buildQueryQM(const QByteArray& host)
+{
+    QByteArray pkt;
+    auto put16 = [&pkt](uint16_t v) {
+        pkt.append(static_cast<char>((v >> 8) & 0xFF));
+        pkt.append(static_cast<char>(v & 0xFF));
+    };
+    put16(0);  // transaction id (0 for mDNS)
+    put16(0);  // flags (standard query)
+    put16(1);  // QDCOUNT
+    put16(0);  // ANCOUNT
+    put16(0);  // NSCOUNT
+    put16(0);  // ARCOUNT
+    for (const QByteArray& label : host.split('.')) {
+        if (label.isEmpty()) continue;  // skip empties (e.g. a trailing dot)
+        pkt.append(static_cast<char>(label.size() & 0xFF));
+        pkt.append(label);
+    }
+    pkt.append('\0');  // root label terminates QNAME
+    put16(1);  // QTYPE  = A
+    put16(1);  // QCLASS = IN  (QU bit 0x8000 cleared => multicast reply)
+    return pkt;
+}
+
 }  // namespace
 
 namespace MdnsResolver {
 
 QString resolveHostname(const QString& hostname, int timeoutMs)
 {
-    // Bind the query socket to an ephemeral port (NOT 5353). Binding to 5353
-    // on Android collides with the system mDNS daemon: even with SO_REUSEPORT,
-    // inbound multicast is delivered to the OS daemon's socket and our socket
-    // receives nothing (verified on-device: records=0 for ALL hosts when bound
-    // to 5353, including ones that resolve fine from an ephemeral port).
-    // An ephemeral source port is also what the esp-idf#7124 workaround
-    // recommends — it makes the ESP32 unicast its reply back to us.
+    // Bind the query socket to port 5353 (with SO_REUSEADDR/SO_REUSEPORT, set by
+    // mdns_socket_open_ipv4). The source port MUST be 5353 for two reasons:
+    //   1. A query whose source port is 5353 is a real mDNS query, which
+    //      responders answer via MULTICAST. A query from an ephemeral port is
+    //      treated as a legacy unicast query (RFC 6762 §6.7) and answered via
+    //      UNICAST — which Android does not reliably deliver to an app socket
+    //      (observed: ephemeral-port queries are sent fine but the reply never
+    //      arrives, records=0).
+    //   2. mdns_socket_open_ipv4 joins 224.0.0.251 on the bound port, so a
+    //      socket bound to 5353 receives the multicast reply alongside the OS
+    //      mDNS daemon.
+    // We also send QM (not QU) queries — see buildQueryQM() for why clearing the
+    // QU bit is required even when querying from 5353.
     struct sockaddr_in bindAddr;
     memset(&bindAddr, 0, sizeof(bindAddr));
     bindAddr.sin_family = AF_INET;
     bindAddr.sin_addr.s_addr = INADDR_ANY;
+    bindAddr.sin_port = htons(5353);
     int sock = mdns_socket_open_ipv4(&bindAddr);
+    if (sock < 0) {
+        // Very unlikely with SO_REUSEPORT, but if the 5353 bind is refused fall
+        // back to an ephemeral port so we at least send the query. (The reply
+        // would then be unicast and likely missed — degraded, not a real fix.)
+        qWarning() << "[MdnsResolver] 5353 bind failed for" << hostname
+                   << "errno=" << errno << "- retrying on ephemeral port";
+        bindAddr.sin_port = 0;
+        sock = mdns_socket_open_ipv4(&bindAddr);
+    }
     if (sock < 0) {
         qWarning() << "[MdnsResolver] socket open FAILED for" << hostname
                    << "errno=" << errno;
@@ -122,16 +188,25 @@ QString resolveHostname(const QString& hostname, int timeoutMs)
     }
 
     char buffer[2048];
-    QByteArray hostBytes = hostname.toUtf8();
 
     MdnsResolveContext ctx;
-    ctx.hostname = hostBytes;
+    ctx.hostname = hostname.toUtf8();
     if (ctx.hostname.endsWith('.'))
         ctx.hostname.chop(1);
     ctx.verbose = true;  // diagnostic: log every record seen during the probe
 
+    // mDNS multicast destination: 224.0.0.251:5353.
+    struct sockaddr_in mcast;
+    memset(&mcast, 0, sizeof(mcast));
+    mcast.sin_family = AF_INET;
+    mcast.sin_addr.s_addr = htonl((static_cast<uint32_t>(224) << 24) | 251U);
+    mcast.sin_port = htons(5353);
+
+    const QByteArray queryPacket = buildQueryQM(ctx.hostname);
+
     qDebug().noquote() << "[MdnsResolver] start host=" << hostname
-                       << "timeout=" << timeoutMs << "ms sock=" << sock;
+                       << "timeout=" << timeoutMs << "ms sock=" << sock
+                       << "(port 5353, QM)";
 
     int sendCount = 0;
 
@@ -140,9 +215,8 @@ QString resolveHostname(const QString& hostname, int timeoutMs)
     // busy responder may miss it entirely. This matters acutely for the Half
     // Decent Scale — its ESP32 shares one radio between BLE and WiFi, so while
     // it's BLE-connected (heartbeats every ~2 s) incoming multicast is often
-    // missed. A single query frequently goes unanswered even though the scale
-    // resolves fine for `dns-sd`/Bonjour, which re-ask. So we re-send the query
-    // every kRetransmitMs until we get an answer or the deadline passes.
+    // missed. So we re-send the query every kRetransmitMs until we get an answer
+    // or the deadline passes.
     constexpr int kRetransmitMs = 750;
 
     QElapsedTimer deadline;
@@ -153,13 +227,14 @@ QString resolveHostname(const QString& hostname, int timeoutMs)
         if (deadline.elapsed() >= nextSendAt) {
             // Best-effort: a failed send is not fatal (transient ENOBUFS on a
             // congested interface) — keep polling and retry on the next tick.
-            int sendRet = mdns_query_send(sock, MDNS_RECORDTYPE_A, hostBytes.constData(),
-                                          static_cast<size_t>(hostBytes.size()),
-                                          buffer, sizeof(buffer), 0);
+            const ssize_t sret = sendto(sock, queryPacket.constData(),
+                                        static_cast<size_t>(queryPacket.size()), 0,
+                                        reinterpret_cast<struct sockaddr*>(&mcast),
+                                        sizeof(mcast));
             ++sendCount;
             qDebug().noquote() << "[MdnsResolver]   query #" << sendCount
-                               << "sent ret=" << sendRet
-                               << (sendRet < 0 ? QString(" errno=%1").arg(errno) : QString());
+                               << "sent ret=" << static_cast<int>(sret)
+                               << (sret < 0 ? QString(" errno=%1").arg(errno) : QString());
             nextSendAt = deadline.elapsed() + kRetransmitMs;
         }
 
@@ -183,6 +258,10 @@ QString resolveHostname(const QString& hostname, int timeoutMs)
         }
         if (ret == 0) continue;  // slice elapsed with no data — retransmit
 
+        // Receive one packet. Bound to 5353 we see all LAN mDNS traffic, but
+        // when packets are queued select() returns immediately on the next pass
+        // (the retransmit timer only gates sends), so the outer loop drains the
+        // queue at full speed.
         mdns_query_recv(sock, buffer, sizeof(buffer),
                         mdnsResolveCallback, &ctx, 0);
     }
@@ -190,13 +269,12 @@ QString resolveHostname(const QString& hostname, int timeoutMs)
     mdns_socket_close(sock);
 
     // Summary fork for diagnosis:
-    //  - records=0           → NO multicast responses reached our socket at all
-    //                          (interface/multicast-lock/routing problem).
-    //  - records>0, aRecs=0  → responses arrive but no A records (unexpected).
-    //  - records>0, aRecs>0, result empty → A records arrive but none named
-    //                          like our host → the scale isn't answering THIS
-    //                          query (responder/name issue), even though other
-    //                          hosts on the LAN are.
+    //  - records=0           → NO mDNS packets reached our socket at all
+    //                          (multicast-lock / interface / routing problem,
+    //                          since bound to 5353 we should see LAN-wide mDNS).
+    //  - records>0, aRecs=0  → packets arrive but no A records (unexpected).
+    //  - records>0, aRecs>0, result empty → A records arrive but none named like
+    //                          our host → the scale isn't answering THIS query.
     //  - result set          → success.
     qDebug().noquote() << "[MdnsResolver] done host=" << hostname
                        << "result=" << (ctx.resolvedIp.isEmpty() ? QString("(none)") : ctx.resolvedIp)
