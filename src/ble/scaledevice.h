@@ -16,6 +16,7 @@ class ScaleDevice : public QObject {
     Q_PROPERTY(double weight READ weight NOTIFY weightChanged)
     Q_PROPERTY(double flowRate READ flowRate NOTIFY flowRateChanged)
     Q_PROPERTY(int batteryLevel READ batteryLevel NOTIFY batteryLevelChanged)
+    Q_PROPERTY(bool charging READ charging NOTIFY chargingChanged)
     Q_PROPERTY(QString name READ name CONSTANT)
     Q_PROPERTY(bool isFlowScale READ isFlowScale CONSTANT)
     Q_PROPERTY(bool isSimulated READ isSimulated CONSTANT)
@@ -30,6 +31,7 @@ public:
     double weight() const { return m_weight; }
     double flowRate() const { return m_flowRate; }
     int batteryLevel() const { return m_batteryLevel; }
+    bool charging() const { return m_charging; }
     virtual QString name() const { return QString(); }
     virtual QString type() const { return QString(); }
     virtual bool isFlowScale() const { return false; }
@@ -39,7 +41,7 @@ public:
     void setSimulationMode(bool enabled);
 
     // The underlying BLE transport, when this scale is BLE-backed (null for
-    // FlowScale / USB / simulated). Set once by ScaleFactory at creation —
+    // FlowScale / USB / WiFi / simulated). Set once by ScaleFactory at creation —
     // the single scale-agnostic chokepoint, so no per-driver code is needed.
     // Lets the connection-priority detection (wired in main.cpp) reach the
     // shared transport without exposing each driver's private member.
@@ -84,6 +86,7 @@ signals:
     void weightSampleReceived(double weight);
     void flowRateChanged(double rate);
     void batteryLevelChanged(int level);
+    void chargingChanged(bool charging);
     void buttonPressed(int button);
     void errorOccurred(const QString& error);
     void simulationModeChanged();
@@ -95,6 +98,7 @@ protected:
     void setWeight(double weight);
     void setFlowRate(double rate);
     void setBatteryLevel(int level);
+    void setCharging(bool charging);
 
     QLowEnergyController* m_controller = nullptr;
     QLowEnergyService* m_service = nullptr;
@@ -106,5 +110,6 @@ private:
     double m_weight = 0.0;
     double m_flowRate = 0.0;
     int m_batteryLevel = -1;  // -1 = not reported by this scale
+    bool m_charging = false;
     QTimer m_keepAliveTimer;
 };

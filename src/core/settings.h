@@ -132,6 +132,7 @@ public:
     Q_INVOKABLE QString primaryScaleAddress() const;
     Q_INVOKABLE bool isKnownScale(const QString& address) const;
 
+
     // FlowScale
     bool useFlowScale() const;
     void setUseFlowScale(bool enabled);

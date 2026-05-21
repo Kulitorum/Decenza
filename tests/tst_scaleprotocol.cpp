@@ -173,15 +173,39 @@ private slots:
 
     void decentBatteryCharging() {
         DecentScale scale(nullptr);
-        QSignalSpy spy(&scale, &ScaleDevice::batteryLevelChanged);
+        QSignalSpy battSpy(&scale, &ScaleDevice::batteryLevelChanged);
+        QSignalSpy chargeSpy(&scale, &ScaleDevice::chargingChanged);
 
-        // Battery charging: d4=0xFF -> 100%.
+        // Battery charging: d4=0xFF -> batteryLevel=100 AND charging=true.
+        // The "battery=100" reporting is preserved so existing UI that reads
+        // batteryLevel == 100 keeps working; charging is the new first-class
+        // signal that surfaces the underlying state.
         QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
         auto pkt = buildDecentLedResponse(0xFF, 0, 0, 0);
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
 
-        QVERIFY(spy.count() >= 1);
-        QCOMPARE(spy.last().at(0).toInt(), 100);
+        QVERIFY(battSpy.count() >= 1);
+        QCOMPARE(battSpy.last().at(0).toInt(), 100);
+        QVERIFY(chargeSpy.count() >= 1);
+        QCOMPARE(chargeSpy.last().at(0).toBool(), true);
+        QCOMPARE(scale.charging(), true);
+    }
+
+    void decentChargingClearedWhenBatteryByteIsPercent() {
+        DecentScale scale(nullptr);
+        QSignalSpy chargeSpy(&scale, &ScaleDevice::chargingChanged);
+
+        // First a charging response, then a normal battery percent — should
+        // flip charging back to false. Firmware version is logged once per
+        // connect (same value on both packets → no second log to ignore).
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
+        scale.onCharacteristicChanged(Scale::Decent::READ, buildDecentLedResponse(0xFF, 0, 0, 0));
+        scale.onCharacteristicChanged(Scale::Decent::READ, buildDecentLedResponse(60, 0, 0, 0));
+
+        // Two flips: false→true, then true→false.
+        QCOMPARE(chargeSpy.count(), 2);
+        QCOMPARE(chargeSpy.last().at(0).toBool(), false);
+        QCOMPARE(scale.charging(), false);
     }
 
     // ==========================================

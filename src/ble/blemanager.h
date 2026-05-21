@@ -19,9 +19,23 @@
 class ScaleDevice;
 class DiFluidR2;
 class SettingsHardware;
+class WifiScaleDiscovery;
+class TranslationManager;
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
 class AppleBtState;
 #endif
+
+// Per-discovered-scale record. Carries the BLE device info for BLE entries
+// (default-constructed for WiFi entries — no QBluetoothDeviceInfo exists for
+// a WS endpoint) plus canonical `name`/`address` fields so iteration sites
+// don't need to branch on transport just to render the row.
+struct ScaleEntry {
+    QBluetoothDeviceInfo device;  // Valid for BLE; default-constructed for WiFi.
+    QString type;                 // e.g. "decent", "acaia", "decent-wifi"
+    QString transport;            // "ble" or "wifi"
+    QString name;                 // Display name (carries " (WiFi)" suffix for WiFi entries)
+    QString address;              // Routing handle: BLE MAC/UUID, or "wifi:<hostname>"
+};
 
 // Helper to get device identifier - iOS uses UUID, others use MAC address
 inline QString getDeviceIdentifier(const QBluetoothDeviceInfo& device) {
@@ -70,6 +84,23 @@ public:
     QVariantList discoveredScales() const;
     bool scaleConnectionFailed() const { return m_scaleConnectionFailed; }
     bool hasSavedScale() const { return !m_savedScaleAddress.isEmpty(); }
+
+    // Optional TranslationManager — when set, user-visible error strings
+    // (those emitted via errorOccurred) are run through translate() with
+    // a stable i18n key + the existing English text as fallback. Scale
+    // debug-log lines stay in English regardless (they're diagnostic).
+    void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
+    // For WiFi scale selections: the hostname to dial. Set by connectToScale()
+    // and tryDirectConnectToScale() immediately before emitting scaleDiscovered()
+    // with a default-constructed device + type=="decent-wifi". The main.cpp
+    // handler reads this after the factory creates the DecentScaleWifi driver.
+    QString pendingWifiHostname() const { return m_pendingWifiHostname; }
+    // True between beginWifiFallbackToBleScan and the next successful connect.
+    // main.cpp reads this when a BLE Decent scale connects during the fallback
+    // window — in that case the user's saved WiFi primary address is preserved
+    // (the BLE connect is treated as a temporary substitute, not a permanent
+    // primary-scale change).
+    bool isWifiFallbackToBleActive() const { return m_wifiFallbackToBleActive; }
     bool hasSavedDE1() const { return !m_savedDE1Address.isEmpty(); }
     bool linuxBleCapabilityMissing() const { return BleCapability::linuxMissing(); }
     QString linuxBleSetcapCommand() const { return BleCapability::linuxSetcapCommand(); }
@@ -332,6 +363,10 @@ signals:
     void scalesChanged();
     void scaleConnectionFailedChanged();
     void de1Discovered(const QBluetoothDeviceInfo& device);
+    // For BLE entries `device` carries the real QBluetoothDeviceInfo. For
+    // WiFi entries (type == "decent-wifi") `device` is default-constructed
+    // and the routing hostname lives in pendingWifiHostname() — the main.cpp
+    // handler reads it after the factory creates the scale.
     void scaleDiscovered(const QBluetoothDeviceInfo& device, const QString& type);
     void errorOccurred(const QString& error);
     void de1LogMessage(const QString& message);
@@ -339,6 +374,10 @@ signals:
     void flowScaleFallback();  // Emitted when no physical scale found, using FlowScale
     void scaleDisconnected();  // Emitted when physical scale disconnects
     void scanStarted();  // Emitted when BLE scan actually begins
+    // Emitted when a saved WiFi scale fails to connect within the connection
+    // timeout and BLEManager has started a BLE scan as a fallback. UI binds
+    // this to a toast/banner so the user knows what's happening.
+    void wifiUnreachableFallingBackToBle(const QString& hostname);
     void disabledChanged();
     void disconnectScaleRequested();  // Emitted when switching to a different scale, BLE is disabled, or saved scale is cleared
     void refractometersChanged();
@@ -362,6 +401,18 @@ private:
     void requestBluetoothPermission();
     void doStartScan();
     void ensureDiscoveryAgent();
+    // Lazy-create m_wifiDiscovery once with a single unified scaleFound
+    // handler. Both scan-for-devices and try-direct-connect paths call this
+    // before invoking probe(); registering the lambda only on first call
+    // (previously done at TWO sites with DIFFERENT lambdas — whichever ran
+    // first wiped out the other, breaking either the list-populate path or
+    // the auto-reconnect path depending on order).
+    void ensureWifiDiscovery();
+    // WiFi-saved-scale fallback: when the WiFi connection timer fires without
+    // a successful connect, kick off a BLE scan that auto-connects to the
+    // first Decent-family scale found. Toast surfaces the fallback to the
+    // user. Cleared on the next successful scale connect.
+    void beginWifiFallbackToBleScan();
 
 #ifndef Q_OS_IOS
     QBluetoothLocalDevice* m_localDevice = nullptr;
@@ -374,7 +425,32 @@ private:
 #endif
     QBluetoothDeviceDiscoveryAgent* m_discoveryAgent = nullptr;
     QList<QBluetoothDeviceInfo> m_de1Devices;
-    QList<QPair<QBluetoothDeviceInfo, QString>> m_scales;  // device, type
+    QList<ScaleEntry> m_scales;
+    WifiScaleDiscovery* m_wifiDiscovery = nullptr;  // Lazy-created on first scanForDevices
+    TranslationManager* m_translationManager = nullptr;  // For i18n of user-visible error strings
+    // Helper: translate `key` with `fallback`, or just return `fallback` if no
+    // TranslationManager has been wired. Use ONLY for user-visible strings
+    // (errorOccurred payloads, dialog text). Diagnostic logs stay in English.
+    QString translateUiString(const QString& key, const QString& fallback) const;
+    // WiFi-to-BLE fallback: set when m_scaleConnectionTimer fires for a saved
+    // WiFi scale and we start a BLE scan as a fallback. Lets onDeviceDiscovered
+    // auto-connect to a discovered Decent BLE scale even though the saved
+    // address is a WiFi one. Cleared once a scale connects.
+    bool m_wifiFallbackToBleActive = false;
+    // Debounces user-visible scan-error popups. Without this, repeated scan
+    // attempts (refractometer auto-reconnect ticks, scale reconnect retries)
+    // would re-fire the same error toast indefinitely. We pop a given error
+    // string at most once between successful connects.
+    QString m_lastScanErrorShown;
+    // True once ANY BLE device (DE1 or scale) has been successfully seen this
+    // session. Used to suppress transient QBluetoothDeviceDiscoveryAgent
+    // MissingPermissionsError reports that fire on macOS Tahoe + Qt 6.11
+    // after app-resume — CoreBluetooth's permission grant takes a moment to
+    // re-establish post-suspend, even though the user-level grant is intact.
+    // If we've ever had BLE success this session, treat MissingPermissionsError
+    // as a transient hiccup (log only). If BLE has NEVER worked, it might be
+    // a real permission denial → still pop the dialog (existing behavior).
+    bool m_anyBleSuccessThisSession = false;
     bool m_scanning = false;
     bool m_permissionRequested = false;
     bool m_scanningForScales = false;  // True when scanning for scales (user or auto-reconnect)
@@ -387,6 +463,11 @@ private:
     QString m_savedScaleAddress;
     QString m_savedScaleType;
     QString m_savedScaleName;
+
+    // Hostname carried with the most recent scaleDiscovered emission for a
+    // WiFi scale (so main.cpp can route the connect after the factory creates
+    // the driver). Set immediately before emitting, read immediately after.
+    QString m_pendingWifiHostname;
 
     // Saved DE1 for direct wake connection
     QString m_savedDE1Address;

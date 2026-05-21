@@ -80,7 +80,8 @@ void ScaleDevice::setConnected(bool connected) {
         } else {
             qWarning() << "[Scale]" << name() << "DISCONNECTED";
             m_keepAliveTimer.stop();
-            setBatteryLevel(-1);  // Clear stale reading for reconnect
+            setBatteryLevel(-1);   // Clear stale reading for reconnect
+            setCharging(false);    // Mirror — the next status frame will re-assert if still charging
         }
         emit connectedChanged();
     }
@@ -110,6 +111,13 @@ void ScaleDevice::setBatteryLevel(int level) {
     if (m_batteryLevel != level) {
         m_batteryLevel = level;
         emit batteryLevelChanged(level);
+    }
+}
+
+void ScaleDevice::setCharging(bool charging) {
+    if (m_charging != charging) {
+        m_charging = charging;
+        emit chargingChanged(charging);
     }
 }
 

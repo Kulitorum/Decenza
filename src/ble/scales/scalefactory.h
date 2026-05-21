@@ -10,6 +10,7 @@ class ScaleDevice;
 enum class ScaleType {
     Unknown,
     DecentScale,
+    DecentScaleWifi,  // Same physical product as DecentScale, WiFi transport
     Acaia,
     AcaiaPyxis,
     Felicita,

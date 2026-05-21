@@ -71,6 +71,7 @@
 #include "ble/scaledevice.h"
 #include "ble/scales/scalefactory.h"
 #include "ble/scales/flowscale.h"
+#include "ble/scales/decentscalewifi.h"
 #include "ble/refractometers/difluidr2.h"
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
 #include "ble/transport/corebluetooth/corebluetoothscalebletransport.h" // IWYU pragma: keep
@@ -499,6 +500,9 @@ int main(int argc, char *argv[])
     // at BALANCED on the first connect (no detection window) — and a record
     // from a different build is auto-discarded (re-detect every new build).
     bleManager.setSettings(settings.hardware());
+    // Wire TranslationManager so user-visible BLE error strings get i18n
+    // (scale debug-log lines stay in English regardless — they're diagnostic).
+    bleManager.setTranslationManager(&translationManager);
     qDebug() << "Simulation mode:" << (settings.app()->simulationMode() ? "ON" : "off");
     de1Device.setSimulationMode(settings.app()->simulationMode());  // Restore simulation mode from settings
     std::unique_ptr<ScaleDevice> physicalScale;  // Physical BLE scale (when connected)
@@ -1357,7 +1361,7 @@ int main(int argc, char *argv[])
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed](const QBluetoothDeviceInfo& device, const QString& type) {
+                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &translationManager](const QBluetoothDeviceInfo& device, const QString& type) {
         // Single-scale invariant: at most one physical scale is connected at a
         // time (a different scale type replaces the old one below, never runs
         // alongside it). This caps concurrent forced-HIGH BLE links at two —
@@ -1400,7 +1404,24 @@ int main(int argc, char *argv[])
                 machineState.setScale(physicalScale.get());
                 timingController.setScale(physicalScale.get());
                 engine.rootContext()->setContextProperty("ScaleDevice", physicalScale.get());
-                physicalScale->connectToDevice(device);
+                if (type == QStringLiteral("decent-wifi")) {
+                    if (auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get())) {
+                        // (Re-wire the cache callbacks each time — cheap, and
+                        // ensures they reference the live Settings instance.)
+                        wifi->setIpResolver([&settings](const QString& host) {
+                            return settings.network()->wifiScaleIp(host);
+                        });
+                        wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
+                            settings.network()->setWifiScaleIp(host, ip);
+                        });
+                        wifi->setUiTranslator([&translationManager](const QString& key, const QString& fallback) {
+                            return translationManager.translate(key, fallback);
+                        });
+                        wifi->connectToHost(bleManager.pendingWifiHostname());
+                    }
+                } else {
+                    physicalScale->connectToDevice(device);
+                }
                 return;
             }
         }
@@ -1412,11 +1433,34 @@ int main(int argc, char *argv[])
             return;
         }
 
-        // Save scale to known scales and set as primary
-        QString deviceId = getDeviceIdentifier(device);
-        settings.addKnownScale(deviceId, type, device.name());
-        settings.setPrimaryScale(deviceId);
-        bleManager.setSavedScaleAddress(deviceId, type, device.name());
+        // Save scale to known scales and set as primary. For WiFi entries the
+        // identifier is the prefixed hostname; for BLE it's the MAC/UUID.
+        const bool isWifi = (type == QStringLiteral("decent-wifi"));
+        const QString hostname = isWifi ? bleManager.pendingWifiHostname() : QString();
+        const QString deviceId = isWifi ? (QStringLiteral("wifi:") + hostname)
+                                         : getDeviceIdentifier(device);
+        const QString displayName = isWifi ? QStringLiteral("Decent Scale (WiFi)")
+                                            : device.name();
+        // Always track this scale in the known-scales list (useful for the
+        // multi-scale picker and per-scale state).
+        settings.addKnownScale(deviceId, type, displayName);
+        // BUT preserve the user's chosen primary when this connect is a
+        // temporary WiFi→BLE fallback: BLEManager's m_wifiFallbackToBleActive
+        // is true only between the WiFi-timeout fallback trigger and the next
+        // successful connect. In that window we connect to the discovered BLE
+        // Decent scale but DON'T rewrite the saved primary address — the user
+        // explicitly chose WiFi and the fallback is meant to be temporary, so
+        // the next app launch should retry WiFi first.
+        const bool isFallbackConnect = !isWifi && bleManager.isWifiFallbackToBleActive();
+        if (!isFallbackConnect) {
+            settings.setPrimaryScale(deviceId);
+            bleManager.setSavedScaleAddress(deviceId, type, displayName);
+        } else {
+            qDebug() << "Scale connected via WiFi-to-BLE fallback — preserving saved WiFi primary"
+                     << settings.scaleAddress();
+            bleManager.appendScaleLog(
+                QString("WiFi fallback connected to %1 — saved WiFi primary preserved").arg(displayName));
+        }
 
         // Switch MachineState and TimingController to use physical scale instead of FlowScale
         machineState.setScale(physicalScale.get());
@@ -1424,6 +1468,14 @@ int main(int argc, char *argv[])
 
         // Connect scale to BLEManager for auto-scan control
         bleManager.setScaleDevice(physicalScale.get());
+
+        // Forward scale-level error messages (e.g. WiFi 503 "Another client is
+        // connected to the scale") to BLEManager::errorOccurred, which main.qml
+        // already wires to bleErrorDialog. Without this re-emit, the per-scale
+        // errorOccurred signal lands nowhere visible and the user has no
+        // feedback on a failed connect.
+        QObject::connect(physicalScale.get(), &ScaleDevice::errorOccurred,
+                         &bleManager, &BLEManager::errorOccurred);
 
         // Disconnect FlowScale from graph and weight processor
         QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
@@ -1560,8 +1612,25 @@ int main(int argc, char *argv[])
         QQmlContext* context = engine.rootContext();
         context->setContextProperty("ScaleDevice", physicalScale.get());
 
-        // Connect to the scale
-        physicalScale->connectToDevice(device);
+        // Connect to the scale. WiFi takes a hostname; BLE takes the device info.
+        if (isWifi) {
+            if (auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get())) {
+                // Wire the mDNS-resilience cache to Settings so a successful
+                // hostname connect persists the peer IP for next time.
+                wifi->setIpResolver([&settings](const QString& host) {
+                    return settings.network()->wifiScaleIp(host);
+                });
+                wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
+                    settings.network()->setWifiScaleIp(host, ip);
+                });
+                wifi->setUiTranslator([&translationManager](const QString& key, const QString& fallback) {
+                    return translationManager.translate(key, fallback);
+                });
+                wifi->connectToHost(hostname);
+            }
+        } else {
+            physicalScale->connectToDevice(device);
+        }
     });
 
     // Handle disconnect request when starting a new scan

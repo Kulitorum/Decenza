@@ -245,6 +245,7 @@ set(SOURCES
     src/ble/scaledevice.cpp
     src/ble/scales/scalefactory.cpp
     src/ble/scales/decentscale.cpp
+    src/ble/scales/decentscalewifi.cpp
     src/ble/scales/acaiascale.cpp
     src/ble/scales/felicitascale.cpp
     src/ble/scales/skalescale.cpp
@@ -337,6 +338,7 @@ set(SOURCES
     src/network/librarysharing.cpp
     src/network/relayclient.cpp
     src/network/screencaptureservice.cpp
+    src/network/wifiscalediscovery.cpp
     src/core/settingsserializer.cpp
     src/core/datamigrationclient.cpp
     src/core/databasebackupmanager.cpp

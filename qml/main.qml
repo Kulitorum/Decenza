@@ -1285,8 +1285,21 @@ ApplicationWindow {
             border.color: Theme.primaryContrastColor
         }
 
-        Tr { id: trEnableLocation; key: "main.dialog.enableLocation.title"; fallback: "Enable Location"; visible: false }
-        Tr { id: trErrorPrefix; key: "common.accessibility.errorPrefix"; fallback: "Error:"; visible: false }
+        // Title is dynamic per error type AND platform. On Android, the BLE
+        // discovery agent requires Location permission for any kind of BLE
+        // scanning, so "Enable Location" is the right call-to-action even
+        // when the error string mentions Bluetooth. On macOS / iOS / Windows
+        // / Linux, Bluetooth has its own permission separate from Location,
+        // so we should distinguish — e.g. macOS Tahoe occasionally reports
+        // MissingPermissionsError from QBluetoothDeviceDiscoveryAgent after
+        // sleep/wake, which routes here, and "Enable Location" would be the
+        // wrong instruction.
+        Tr { id: trEnableLocation;     key: "main.dialog.enableLocation.title";  fallback: "Enable Location";    visible: false }
+        Tr { id: trEnableBluetooth;    key: "main.dialog.enableBluetooth.title"; fallback: "Enable Bluetooth";   visible: false }
+        Tr { id: trBleErrorGeneric;    key: "main.dialog.bleError.title";        fallback: "Bluetooth Error";    visible: false }
+        Tr { id: trErrorPrefix;        key: "common.accessibility.errorPrefix";  fallback: "Error:";             visible: false }
+
+        readonly property bool isAndroidPlatform: Qt.platform.os === "android"
 
         onOpened: {
             if (AccessibilityManager.enabled) {
@@ -1298,7 +1311,18 @@ ApplicationWindow {
             spacing: Theme.spacingMedium
 
             Text {
-                text: trEnableLocation.text
+                text: {
+                    if (bleErrorDialog.isLocationError) return trEnableLocation.text
+                    if (bleErrorDialog.isBluetoothError) {
+                        // On Android, Bluetooth scanning needs Location → keep
+                        // the call-to-action pointing at Location. Elsewhere,
+                        // Bluetooth has its own permission.
+                        return bleErrorDialog.isAndroidPlatform
+                               ? trEnableLocation.text
+                               : trEnableBluetooth.text
+                    }
+                    return trBleErrorGeneric.text
+                }
                 font: Theme.subtitleFont
                 color: Theme.textColor
                 anchors.horizontalCenter: parent.horizontalCenter

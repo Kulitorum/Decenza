@@ -1,4 +1,4 @@
-find_package(Qt6 REQUIRED COMPONENTS Test Core Bluetooth Sql Network)
+find_package(Qt6 REQUIRED COMPONENTS Test Core Bluetooth Sql Network WebSockets)
 
 # Disable AUTOMOC path prefix so MOC includes use plain filenames
 # instead of relative paths that break for out-of-tree builds.
@@ -482,6 +482,20 @@ add_decenza_test(tst_scaleprotocol
     ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/decentscale.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/bookooscale.cpp
+)
+
+# --- tst_decentscalewifi: WiFi scale driver (WebSocket protocol) ---
+add_decenza_test(tst_decentscalewifi
+    tst_decentscalewifi.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/scales/decentscalewifi.cpp
+)
+target_link_libraries(tst_decentscalewifi PRIVATE Qt6::WebSockets)
+
+# --- tst_wifiscalediscovery: mDNS probe service ---
+add_decenza_test(tst_wifiscalediscovery
+    tst_wifiscalediscovery.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/wifiscalediscovery.cpp
 )
 
 # --- tst_difluidr2: DiFluid R2 refractometer packet parsing and name matching ---

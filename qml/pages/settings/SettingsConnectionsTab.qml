@@ -943,14 +943,16 @@ Item {
 
                                     Text {
                                         text: {
+                                            // Show the human-readable name when present; fall back to
+                                            // the internal type code only when the saved scale has no
+                                            // name (older entries from before user-friendly naming).
+                                            // The prior implementation appended "(<type>)" to the name
+                                            // whenever they differed, producing ugly "Decent Scale (WiFi)
+                                            // (decent-wifi)" labels for the WiFi variant.
                                             var scales = Settings.knownScales
                                             for (var i = 0; i < scales.length; i++) {
-                                                if (scales[i].isPrimary) {
-                                                    var label = scales[i].name || scales[i].type
-                                                    if (scales[i].name && scales[i].name !== scales[i].type)
-                                                        label += " (" + scales[i].type + ")"
-                                                    return label
-                                                }
+                                                if (scales[i].isPrimary)
+                                                    return scales[i].name || scales[i].type
                                             }
                                             return TranslationManager.translate("settings.bluetooth.noScale", "No scale selected")
                                         }
@@ -1211,29 +1213,95 @@ Item {
                         }
                     }
 
-                    // Unified discovered devices list (scales + refractometers)
+                    // Unified discovered devices list (scales + refractometers).
+                    // Height scales with the number of items so rows aren't
+                    // clipped below the fold (notably the WiFi-scale row when
+                    // both BLE and WiFi entries are present after a scan).
                     ListView {
+                        id: discoveredDevicesList
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.scaled(80)
+                        // Min 80px, grow up to ~160px so 3-4 rows fit without scrolling.
+                        Layout.preferredHeight: Math.max(Theme.scaled(80),
+                                                          Math.min(count, 4) * Theme.scaled(40))
                         clip: true
                         visible: !ScaleDevice || !ScaleDevice.connected || ScaleDevice.isFlowScale || !BLEManager.refractometerConnected
 
-                        // Combine scales and refractometers into a single model
-                        property var combinedModel: {
+                        // Combine scales + refractometers. The model is rebuilt
+                        // explicitly via Connections handlers below — relying on
+                        // QML binding tracking (`property var foo: { ...read... }`
+                        // or `: helper(BLEManager.discoveredScales)`) proved
+                        // unreliable for QVariantList properties in Qt 6.11:
+                        // scalesChanged fired (verified via appendScaleLog) but
+                        // the binding didn't re-evaluate and the list stayed
+                        // empty in the UI. Explicit assignment from a Connections
+                        // signal handler is the bulletproof path.
+                        function buildCombinedModel(scales, refractometers) {
+                            // Dedup against Known Devices: a scale or refractometer
+                            // that's already saved as known shouldn't appear in the
+                            // newly-discovered list — the user manages it from the
+                            // Known Devices section above. Keys by address (which
+                            // for WiFi is "wifi:hostname" — matches what we save).
+                            var known = {}
+                            var knownScales = Settings.knownScales
+                            for (var k = 0; k < knownScales.length; k++) {
+                                known[knownScales[k].address] = true
+                            }
+                            var savedRefAddr = Settings.savedRefractometerAddress || ""
+
                             var items = []
-                            var scales = BLEManager.discoveredScales
+                            var skippedScales = 0
                             for (var i = 0; i < scales.length; i++) {
+                                if (known[scales[i].address]) { skippedScales++; continue }
                                 items.push({ deviceName: scales[i].name, address: scales[i].address,
                                              deviceType: scales[i].type, deviceClass: "scale" })
                             }
-                            var refractometers = BLEManager.discoveredRefractometers
+                            var skippedRefs = 0
                             for (var j = 0; j < refractometers.length; j++) {
+                                if (savedRefAddr && refractometers[j].address === savedRefAddr) {
+                                    skippedRefs++; continue
+                                }
                                 items.push({ deviceName: refractometers[j].name, address: refractometers[j].address,
                                              deviceType: refractometers[j].type, deviceClass: "refractometer" })
                             }
+                            console.log("[QML] discoveredDevicesList combinedModel rebuilt:",
+                                        "scales=" + scales.length + "(-" + skippedScales + " known)",
+                                        "refractometers=" + refractometers.length + "(-" + skippedRefs + " known)",
+                                        "→ items=" + items.length)
                             return items
                         }
+                        property var combinedModel: []
                         model: combinedModel
+
+                        Component.onCompleted: {
+                            combinedModel = buildCombinedModel(BLEManager.discoveredScales,
+                                                               BLEManager.discoveredRefractometers)
+                        }
+
+                        Connections {
+                            target: BLEManager
+                            function onScalesChanged() {
+                                discoveredDevicesList.combinedModel =
+                                    discoveredDevicesList.buildCombinedModel(BLEManager.discoveredScales,
+                                                                              BLEManager.discoveredRefractometers)
+                            }
+                            function onRefractometersChanged() {
+                                discoveredDevicesList.combinedModel =
+                                    discoveredDevicesList.buildCombinedModel(BLEManager.discoveredScales,
+                                                                              BLEManager.discoveredRefractometers)
+                            }
+                        }
+
+                        // Rebuild when the Known Devices set changes — a scale
+                        // moving from discovered → known should disappear from
+                        // this list since it's now managed above.
+                        Connections {
+                            target: Settings
+                            function onKnownScalesChanged() {
+                                discoveredDevicesList.combinedModel =
+                                    discoveredDevicesList.buildCombinedModel(BLEManager.discoveredScales,
+                                                                              BLEManager.discoveredRefractometers)
+                            }
+                        }
 
                         delegate: ItemDelegate {
                             width: ListView.view.width
@@ -1379,13 +1447,15 @@ Item {
         id: knownScaleDialog
         title: TranslationManager.translate("settings.bluetooth.knownScales", "Known Scales")
         options: {
+            // Use human-readable name when present; fall back to type only
+            // when the saved scale has no name (older saved entries from
+            // before user-friendly naming). Don't append the type code to
+            // names that already convey the transport (e.g. avoid the
+            // "Decent Scale (WiFi) (decent-wifi)" double-paren label).
             var scales = Settings.knownScales
             var labels = []
             for (var i = 0; i < scales.length; i++) {
-                var label = scales[i].name || scales[i].type
-                if (scales[i].name && scales[i].name !== scales[i].type)
-                    label += " (" + scales[i].type + ")"
-                labels.push(label)
+                labels.push(scales[i].name || scales[i].type)
             }
             return labels
         }

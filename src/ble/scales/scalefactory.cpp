@@ -1,5 +1,6 @@
 #include "scalefactory.h"
 #include "decentscale.h"
+#include "decentscalewifi.h"
 #include "acaiascale.h"
 #include "felicitascale.h"
 #include "skalescale.h"
@@ -111,6 +112,7 @@ ScaleType ScaleFactory::resolveScaleType(const QString& name) {
     // (e.g., "decent" vs "decent scale", "solo_barista" vs "solo barista"),
     // so we check internal type codes first as exact matches.
     QString lower = name.toLower();
+    if (lower == "decent-wifi") return ScaleType::DecentScaleWifi;
     if (lower == "decent") return ScaleType::DecentScale;
     if (lower == "solo_barista") return ScaleType::SoloBarista;
     // Then fall through to is*() helpers for display names and BLE device names
@@ -142,6 +144,9 @@ std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInf
     switch (type) {
         case ScaleType::DecentScale:
             return makeScale<DecentScale>(parent);
+        case ScaleType::DecentScaleWifi:
+            // No BLE transport — WiFi driver uses QWebSocket directly.
+            return std::unique_ptr<ScaleDevice>(new DecentScaleWifi(parent));
         case ScaleType::Acaia:
         case ScaleType::AcaiaPyxis:
             // Unified AcaiaScale auto-detects IPS vs Pyxis protocol
@@ -176,6 +181,7 @@ std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInf
 QString ScaleFactory::scaleTypeName(ScaleType type) {
     switch (type) {
         case ScaleType::DecentScale: return "Decent Scale";
+        case ScaleType::DecentScaleWifi: return "Decent Scale (WiFi)";
         case ScaleType::Acaia: return "Acaia";
         case ScaleType::AcaiaPyxis: return "Acaia Pyxis";
         case ScaleType::Felicita: return "Felicita";

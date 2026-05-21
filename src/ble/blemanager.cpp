@@ -5,6 +5,8 @@
 #include "scales/scalefactory.h"
 #include "refractometers/difluidr2.h"
 #include "../core/settings_hardware.h"
+#include "../core/translationmanager.h"
+#include "../network/wifiscalediscovery.h"
 #include "bleepochgate.h"
 #include "version.h"
 #include <QBluetoothLocalDevice>
@@ -387,47 +389,55 @@ QVariantList BLEManager::discoveredDevices() const {
 
 QVariantList BLEManager::discoveredScales() const {
     QVariantList result;
-    for (const auto& pair : m_scales) {
+    for (const auto& entry : m_scales) {
         QVariantMap map;
-        map["name"] = pair.first.name();
-        map["address"] = getDeviceIdentifier(pair.first);
-        map["type"] = pair.second;
+        map["name"] = entry.name;
+        map["address"] = entry.address;
+        map["type"] = entry.type;
+        map["transport"] = entry.transport;
         result.append(map);
     }
     return result;
 }
 
 QBluetoothDeviceInfo BLEManager::getScaleDeviceInfo(const QString& address) const {
-    for (const auto& pair : m_scales) {
-        if (deviceIdentifiersMatch(pair.first, address)) {
-            return pair.first;
+    for (const auto& entry : m_scales) {
+        if (entry.address.compare(address, Qt::CaseInsensitive) == 0) {
+            return entry.device;  // Default-constructed for WiFi entries.
         }
     }
     return QBluetoothDeviceInfo();
 }
 
 QString BLEManager::getScaleType(const QString& address) const {
-    for (const auto& pair : m_scales) {
-        if (deviceIdentifiersMatch(pair.first, address)) {
-            return pair.second;
+    for (const auto& entry : m_scales) {
+        if (entry.address.compare(address, Qt::CaseInsensitive) == 0) {
+            return entry.type;
         }
     }
     return QString();
 }
 
 void BLEManager::connectToScale(const QString& address) {
-    for (const auto& pair : m_scales) {
-        if (deviceIdentifiersMatch(pair.first, address)) {
-            appendScaleLog(QString("Connecting to %1...").arg(pair.first.name()));
-            // If already connected to a different scale, disconnect it first so
-            // the scaleDiscovered handler can connect to the new one.
-            if (m_scaleDevice && m_scaleDevice->isConnected()
-                    && address.compare(m_savedScaleAddress, Qt::CaseInsensitive) != 0) {
-                emit disconnectScaleRequested();
-            }
-            emit scaleDiscovered(pair.first, pair.second);
-            return;
+    for (const auto& entry : m_scales) {
+        if (entry.address.compare(address, Qt::CaseInsensitive) != 0) continue;
+
+        appendScaleLog(QString("Connecting to %1...").arg(entry.name));
+        // If already connected to a different scale, disconnect it first so
+        // the scaleDiscovered/wifiScaleSelected handler can connect to the new one.
+        if (m_scaleDevice && m_scaleDevice->isConnected()
+                && address.compare(m_savedScaleAddress, Qt::CaseInsensitive) != 0) {
+            emit disconnectScaleRequested();
         }
+
+        if (entry.transport == QStringLiteral("wifi")) {
+            // Strip the "wifi:" prefix to get the bare hostname.
+            m_pendingWifiHostname = address.mid(QStringLiteral("wifi:").size());
+            emit scaleDiscovered(QBluetoothDeviceInfo{}, entry.type);
+        } else {
+            emit scaleDiscovered(entry.device, entry.type);
+        }
+        return;
     }
     qWarning() << "Scale not found in discovered list:" << address;
 }
@@ -470,13 +480,15 @@ void BLEManager::requestBluetoothPermission() {
                 requestBluetoothPermission();  // Continue with Bluetooth permission
             } else {
                 emit de1LogMessage("Location permission denied");
-                emit errorOccurred("Location permission denied - required for Bluetooth scanning");
+                emit errorOccurred(translateUiString("ble.error.locationPermissionDeniedForBluetooth",
+                    "Location permission denied - required for Bluetooth scanning"));
             }
         });
         return;
     } else if (qApp->checkPermission(locationPermission) == Qt::PermissionStatus::Denied) {
         emit de1LogMessage("Location permission denied");
-        emit errorOccurred("Location permission required. Please enable in Settings.");
+        emit errorOccurred(translateUiString("ble.error.locationPermissionRequired",
+            "Location permission required. Please enable in Settings."));
         return;
     }
 #endif
@@ -501,13 +513,15 @@ void BLEManager::requestBluetoothPermission() {
                 // Transition Undetermined → Denied also flips isBluetoothAvailable()
                 // from true to false (via the hostMode() fall-through).
                 emit bluetoothAvailableChanged();
-                emit errorOccurred("Bluetooth permission denied");
+                emit errorOccurred(translateUiString("ble.error.bluetoothPermissionDenied",
+                    "Bluetooth permission denied"));
             }
         });
         return;
     case Qt::PermissionStatus::Denied:
         emit de1LogMessage("Bluetooth permission denied");
-        emit errorOccurred("Bluetooth permission required. Please enable in Settings.");
+        emit errorOccurred(translateUiString("ble.error.bluetoothPermissionRequired",
+            "Bluetooth permission required. Please enable in Settings."));
         return;
     case Qt::PermissionStatus::Granted:
         emit de1LogMessage("Permissions OK");
@@ -524,7 +538,16 @@ void BLEManager::doStartScan() {
     // Only clear scales/refractometers when the user explicitly asked to scan for them;
     // a DE1-only scan must not wipe the discovered scale list.
     if (m_scanningForScales) {
-        m_scales.clear();
+        // Clear only BLE-discovered scale entries. WiFi entries come from a
+        // separate mDNS path and shouldn't be wiped by an unrelated scan
+        // cycle — notably the periodic refractometer auto-reconnect tick,
+        // which calls startScan() every ~30 s and would otherwise erase a
+        // freshly-discovered WiFi-scale row before the user can tap it.
+        for (qsizetype i = m_scales.size() - 1; i >= 0; --i) {
+            if (m_scales[i].transport == QStringLiteral("ble")) {
+                m_scales.removeAt(i);
+            }
+        }
         m_refractometerDevices.clear();
         emit scalesChanged();
         emit refractometersChanged();
@@ -561,6 +584,9 @@ void BLEManager::clearDevices() {
 }
 
 void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
+    // BLE is actually delivering devices → permission is healthy.
+    m_anyBleSuccessThisSession = true;
+
     // Check if it's a DE1
     if (isDE1Device(device)) {
         // Avoid duplicates
@@ -622,12 +648,19 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
     QString scaleType = getScaleType(device);
     if (!scaleType.isEmpty()) {
         // Avoid duplicates
-        for (const auto& pair : m_scales) {
-            if (getDeviceIdentifier(pair.first) == getDeviceIdentifier(device)) {
+        const QString deviceId = getDeviceIdentifier(device);
+        for (const auto& entry : m_scales) {
+            if (entry.transport == QStringLiteral("ble") && entry.address == deviceId) {
                 return;
             }
         }
-        m_scales.append({device, scaleType});
+        ScaleEntry entry;
+        entry.device = device;
+        entry.type = scaleType;
+        entry.transport = QStringLiteral("ble");
+        entry.name = device.name();
+        entry.address = deviceId;
+        m_scales.append(entry);
         emit scalesChanged();
         qDebug() << "[BLE] Found scale:" << device.name() << "type:" << scaleType << "at" << getDeviceIdentifier(device);
         appendScaleLog(QString("Found %1: %2 (%3)").arg(scaleType).arg(device.name()).arg(getDeviceIdentifier(device)));
@@ -641,16 +674,32 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
             m_directConnectAddress.clear();
         }
 
+        // WiFi-to-BLE fallback: when the saved scale is a WiFi address but
+        // we've timed out reaching it, accept the first matching-family
+        // (Decent) BLE scale found as a substitute. This is the only path
+        // that intentionally violates the #440 "primary-only auto-reconnect"
+        // guarantee — explicitly user-visible via the toast emitted from
+        // beginWifiFallbackToBleScan().
+        const bool isFallbackCandidate = m_wifiFallbackToBleActive
+            && m_savedScaleType == QStringLiteral("decent-wifi")
+            && scaleType == QStringLiteral("decent");
+
         // During auto-reconnect (not user-initiated scan), only connect to primary scale.
         // This prevents #440: nearby non-primary scales hijacking the connection.
-        if (!m_userInitiatedScaleScan && !m_savedScaleAddress.isEmpty()) {
+        if (!m_userInitiatedScaleScan && !m_savedScaleAddress.isEmpty() && !isFallbackCandidate) {
             if (!deviceIdentifiersMatch(device, m_savedScaleAddress)) {
                 appendScaleLog(QString("Ignoring non-primary scale: %1 (%2)").arg(device.name(), getDeviceIdentifier(device)));
                 return;
             }
         }
 
-        // Emit for user-initiated scan (all scales) or primary match during auto-reconnect
+        if (isFallbackCandidate) {
+            appendScaleLog(QString("WiFi fallback: connecting to BLE Decent scale %1 (%2)")
+                           .arg(device.name(), getDeviceIdentifier(device)));
+        }
+
+        // Emit for user-initiated scan (all scales), primary match during
+        // auto-reconnect, or WiFi-fallback Decent BLE candidate.
         emit scaleDiscovered(device, scaleType);
     }
 }
@@ -671,37 +720,75 @@ void BLEManager::onScanError(QBluetoothDeviceDiscoveryAgent::Error error) {
         case QBluetoothDeviceDiscoveryAgent::NoError:
             return;  // No error, nothing to do
         case QBluetoothDeviceDiscoveryAgent::PoweredOffError:
-            errorMsg = "Bluetooth is powered off";
+            errorMsg = translateUiString("ble.error.bluetoothPoweredOff", "Bluetooth is powered off");
             break;
         case QBluetoothDeviceDiscoveryAgent::InputOutputError:
-            errorMsg = "Bluetooth I/O error";
+            errorMsg = translateUiString("ble.error.bluetoothIoError", "Bluetooth I/O error");
             break;
         case QBluetoothDeviceDiscoveryAgent::InvalidBluetoothAdapterError:
-            errorMsg = "Invalid Bluetooth adapter";
+            errorMsg = translateUiString("ble.error.invalidAdapter", "Invalid Bluetooth adapter");
             break;
         case QBluetoothDeviceDiscoveryAgent::UnsupportedPlatformError:
-            errorMsg = "Platform does not support Bluetooth LE";
+            errorMsg = translateUiString("ble.error.unsupportedPlatform", "Platform does not support Bluetooth LE");
             break;
         case QBluetoothDeviceDiscoveryAgent::UnsupportedDiscoveryMethod:
-            errorMsg = "Unsupported discovery method";
+            errorMsg = translateUiString("ble.error.unsupportedDiscoveryMethod", "Unsupported discovery method");
             break;
         case QBluetoothDeviceDiscoveryAgent::LocationServiceTurnedOffError:
-            errorMsg = "Location services are turned off";
+            errorMsg = translateUiString("ble.error.locationServicesOff", "Location services are turned off");
             break;
         case QBluetoothDeviceDiscoveryAgent::MissingPermissionsError:
-            errorMsg = "Bluetooth permission denied. Please allow Bluetooth access in Settings.";
+            // On macOS Tahoe + Qt 6.11, MissingPermissionsError fires
+            // transiently after app-resume even when the user's Bluetooth
+            // permission is still granted — CoreBluetooth's permission state
+            // takes a moment to re-establish post-suspend. If BLE has been
+            // working this session, treat the error as a transient hiccup:
+            // log it, suppress the popup, let the next scan tick retry.
+            if (m_anyBleSuccessThisSession) {
+                qWarning() << "[BLE] Transient MissingPermissionsError "
+                              "(permission previously OK this session — "
+                              "likely CoreBluetooth post-resume hiccup); "
+                              "not surfacing to user";
+                appendScaleLog("Bluetooth scan transient error (ignored — permission OK)");
+                m_scanning = false;
+                m_scanningForScales = false;
+                m_userInitiatedScaleScan = false;
+                emit scanningChanged();
+                return;  // Skip the user-visible errorOccurred path
+            }
+            // BLE has NEVER worked this session — could be a real permission
+            // denial. Fall through to the normal popup.
+            errorMsg = translateUiString("ble.error.bluetoothPermissionDeniedSettings",
+                "Bluetooth permission denied. Please allow Bluetooth access in Settings.");
             break;
         default:
-            errorMsg = QString("Bluetooth error (code %1)").arg(static_cast<int>(error));
+            errorMsg = translateUiString("ble.error.unknownCode",
+                "Bluetooth error (code %1)").arg(static_cast<int>(error));
             break;
     }
     qWarning() << "BLEManager scan error:" << errorMsg << "code:" << static_cast<int>(error);
     emit de1LogMessage(QString("Error: %1").arg(errorMsg));
     appendScaleLog(QString("Error: %1").arg(errorMsg));
-    emit errorOccurred(errorMsg);
+    // Debounce the user-visible popup: scan errors from the refractometer/
+    // scale auto-reconnect cycle would otherwise re-fire the same error toast
+    // every ~30 s (e.g. macOS Tahoe sometimes returns MissingPermissionsError
+    // for QBluetoothDeviceDiscoveryAgent after sleep/wake — the user shouldn't
+    // see the same dialog 20+ times in a row). Pop it once per distinct error
+    // message; reset when something successfully connects (handled in
+    // onScaleConnectedChanged + the DE1 connect path).
+    if (errorMsg != m_lastScanErrorShown) {
+        m_lastScanErrorShown = errorMsg;
+        emit errorOccurred(errorMsg);
+    }
     m_scanning = false;
     m_scanningForScales = false;
     m_userInitiatedScaleScan = false;
+    // Clear any in-flight WiFi-to-BLE fallback — the scan that was supposed
+    // to find a substitute BLE Decent scale just errored out, so the fallback
+    // attempt is over. Leaving the flag armed would silently demote the
+    // user's NEXT scale pick (BLE candidate would be classified as a
+    // "temporary fallback connect" by main.cpp).
+    m_wifiFallbackToBleActive = false;
     emit scanningChanged();
 }
 
@@ -754,6 +841,9 @@ void BLEManager::onScaleConnectedChanged() {
         m_scaleConnectionTimer->stop();
         m_directConnectInProgress = false;
         m_directConnectAddress.clear();
+        m_wifiFallbackToBleActive = false;  // Reset for the next saved-scale cycle
+        m_lastScanErrorShown.clear();       // Healthy state — allow a future fresh scan error to pop again
+        m_anyBleSuccessThisSession = true;  // Permission proven good (WiFi scales hit this too — see note below)
         m_flowScaleFallbackEmitted = false;  // Allow dialog again if scale disconnects and reconnect fails
         if (m_scaleConnectionFailed) {
             m_scaleConnectionFailed = false;
@@ -773,16 +863,70 @@ void BLEManager::onScaleConnectionTimeout() {
     m_directConnectInProgress = false;
     m_directConnectAddress.clear();
 
-    if (!m_scaleDevice || !m_scaleDevice->isConnected()) {
-        qWarning() << "BLEManager: Scale connection timeout - not found";
+    if (m_scaleDevice && m_scaleDevice->isConnected()) {
+        return;  // Connection raced in — nothing to do.
+    }
+
+    qWarning() << "BLEManager: Scale connection timeout - not found";
+
+    // WiFi-saved scale that didn't connect → fall back to a BLE scan for the
+    // same physical scale family. Don't go straight to FlowScale yet — we owe
+    // the user one more reasonable attempt before giving up. Only run the
+    // fallback once per saved-scale cycle (the `!m_wifiFallbackToBleActive`
+    // guard prevents a second fallback if the BLE scan itself times out).
+    if (!m_wifiFallbackToBleActive
+            && m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)) {
+        beginWifiFallbackToBleScan();
+        return;
+    }
+
+    m_scaleConnectionFailed = true;
+    emit scaleConnectionFailedChanged();
+
+    if (!m_flowScaleFallbackEmitted) {
+        m_flowScaleFallbackEmitted = true;
+        appendScaleLog("Scale not found - using FlowScale");
+        emit flowScaleFallback();
+    }
+}
+
+void BLEManager::beginWifiFallbackToBleScan() {
+    const QString hostname = m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)
+        ? m_savedScaleAddress.mid(QStringLiteral("wifi:").size())
+        : QString();
+
+    // Bail BEFORE arming the fallback state if Bluetooth is unavailable —
+    // otherwise m_wifiFallbackToBleActive would stay true and the next
+    // user-initiated scan could trip the isFallbackCandidate gate in
+    // onDeviceDiscovered, auto-connecting to any Decent BLE scale found.
+    if (!isBluetoothAvailable()) {
+        qWarning() << "BLEManager: WiFi fallback to BLE skipped - Bluetooth unavailable";
+        appendScaleLog(QString("WiFi scale %1 unreachable and Bluetooth unavailable").arg(hostname));
         m_scaleConnectionFailed = true;
         emit scaleConnectionFailedChanged();
-
         if (!m_flowScaleFallbackEmitted) {
             m_flowScaleFallbackEmitted = true;
-            appendScaleLog("Scale not found - using FlowScale");
             emit flowScaleFallback();
         }
+        return;
+    }
+
+    m_wifiFallbackToBleActive = true;
+    appendScaleLog(QString("WiFi scale %1 unreachable — trying Bluetooth").arg(hostname));
+    emit wifiUnreachableFallingBackToBle(hostname);
+
+    // Re-arm the connection timer so the fallback BLE scan has a bounded
+    // time budget — onScaleConnectionTimeout trips the FlowScale fallback
+    // on the second timeout (the m_wifiFallbackToBleActive guard prevents
+    // looping back into another WiFi-fallback cycle).
+    m_scaleConnectionTimer->start();
+
+    // Start scanning for BLE devices. onDeviceDiscovered sees a Decent BLE
+    // scale, observes m_wifiFallbackToBleActive, and emits scaleDiscovered
+    // even though the saved address (wifi:...) doesn't match this BLE device.
+    m_scanningForScales = true;
+    if (!m_scanning) {
+        startScan();
     }
 }
 
@@ -990,7 +1134,76 @@ void BLEManager::scanForDevices() {
     // Set flags AFTER stopScan (which clears them)
     m_scanningForScales = true;
     m_userInitiatedScaleScan = true;
+    // A user-initiated scan invalidates any in-flight WiFi-to-BLE fallback —
+    // the user is explicitly choosing what to connect to. If we left the flag
+    // armed, the next discovered Decent BLE scale would be silently treated
+    // as a "temporary fallback" and main.cpp would skip persisting it as the
+    // primary, demoting the user's explicit pick.
+    m_wifiFallbackToBleActive = false;
     startScan();
+
+    // Fire the WiFi mDNS probe in parallel with the BLE scan. On-demand only;
+    // no idle probing per the project requirement. 5 s timeout matches the
+    // saved-scale rehydration path — the HDS mDNS responder regularly takes
+    // 2-4 s to reply (likely the ESP32 being woken from a power-save state),
+    // and the BLE scan is running in parallel for ~10 s anyway so this
+    // doesn't slow down the user-perceived scan duration.
+    ensureWifiDiscovery();
+    m_wifiDiscovery->probe(QStringLiteral("hds.local"), 5000);
+}
+
+void BLEManager::ensureWifiDiscovery() {
+    if (m_wifiDiscovery) return;
+    m_wifiDiscovery = new WifiScaleDiscovery(this);
+    // Single unified handler that handles both code paths (user-initiated
+    // scan AND saved-scale direct-wake). Before this consolidation, each
+    // call site lazy-created the discovery object with a DIFFERENT lambda
+    // and the second registration was silently dropped by the
+    // `if (!m_wifiDiscovery)` guard — breaking whichever path ran second.
+    connect(m_wifiDiscovery, &WifiScaleDiscovery::scaleFound, this,
+        [this](const QString& hostname, const QString& resolvedAddress) {
+            const QString address = QStringLiteral("wifi:") + hostname;
+            qDebug() << "[BLE] WiFi scale found:" << hostname
+                     << "->" << resolvedAddress
+                     << "address=" << address
+                     << "userInitiatedScan=" << m_userInitiatedScaleScan
+                     << "saved=" << m_savedScaleAddress;
+            // Append to the discovered-scales list if not already present —
+            // useful for the user-initiated scan, harmless for the auto-
+            // reconnect path (the UI list is hidden during direct-wake).
+            bool alreadyListed = false;
+            for (const auto& entry : m_scales) {
+                if (entry.transport == QStringLiteral("wifi") && entry.address == address) {
+                    alreadyListed = true;
+                    break;
+                }
+            }
+            if (!alreadyListed) {
+                ScaleEntry entry;
+                entry.type = QStringLiteral("decent-wifi");
+                entry.transport = QStringLiteral("wifi");
+                entry.name = QStringLiteral("Decent Scale (WiFi)");
+                entry.address = address;
+                m_scales.append(entry);
+                qDebug() << "[BLE] Added WiFi scale to discovered list; m_scales count=" << m_scales.size();
+                appendScaleLog(QString("Found %1 (%2)").arg(entry.name, entry.address));
+                emit scalesChanged();
+            } else {
+                qDebug() << "[BLE] WiFi scale already in discovered list — not re-adding";
+            }
+
+            // Auto-connect when the discovered scale matches the saved primary
+            // AND we're not in a user-initiated scan (where the user is choosing
+            // explicitly — list only, don't auto-connect). Covers both paths:
+            // saved-scale direct-wake on app start AND a spontaneous scan that
+            // happens to find the saved scale.
+            if (!m_userInitiatedScaleScan
+                    && !m_savedScaleAddress.isEmpty()
+                    && address.compare(m_savedScaleAddress, Qt::CaseInsensitive) == 0) {
+                m_pendingWifiHostname = hostname;
+                emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
+            }
+        });
 }
 
 void BLEManager::tryDirectConnectToScale() {
@@ -1023,6 +1236,26 @@ void BLEManager::tryDirectConnectToScale() {
     // the device appears in scan results (bluetooth.tcl lines 2032 and 2252-2256)
 
     QString deviceName = m_savedScaleName.isEmpty() ? m_savedScaleType : m_savedScaleName;
+
+    // WiFi saved-scale path: do an mDNS probe + WS connect. If the connection
+    // doesn't establish before m_scaleConnectionTimer fires (~20 s), we fall
+    // back to a BLE scan that auto-connects to a discovered Decent scale (see
+    // onScaleConnectionTimeout and beginWifiFallbackToBleScan).
+    if (m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)) {
+        const QString hostname = m_savedScaleAddress.mid(QStringLiteral("wifi:").size());
+        qDebug() << "BLEManager: Direct wake (WiFi) - resolving" << hostname;
+        appendScaleLog(QString("Direct wake (WiFi): resolving %1").arg(hostname));
+
+        ensureWifiDiscovery();
+        m_wifiFallbackToBleActive = false;          // Reset per attempt
+        m_scaleConnectionTimer->start();            // Fires onScaleConnectionTimeout if WiFi doesn't connect
+        // 5 s mDNS timeout, matching the user-initiated scan path — empirically
+        // the HDS mDNS responder regularly takes 2-4 s on first contact (ESP32
+        // wake from power-save), and the 20 s connection timer above gives the
+        // probe a comfortable window before the WiFi-to-BLE fallback engages.
+        m_wifiDiscovery->probe(hostname, 5000);
+        return;
+    }
 
 #ifdef Q_OS_IOS
     // On iOS, we have a UUID, not a MAC address
@@ -1281,4 +1514,11 @@ void BLEManager::shareScaleLog() {
     emit scaleLogMessage("Log saved to: " + m_scaleLogFilePath);
     qDebug() << "Scale log saved to:" << m_scaleLogFilePath;
 #endif
+}
+
+QString BLEManager::translateUiString(const QString& key, const QString& fallback) const {
+    if (m_translationManager) {
+        return m_translationManager->translate(key, fallback);
+    }
+    return fallback;
 }
