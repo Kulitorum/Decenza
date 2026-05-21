@@ -6,8 +6,6 @@ import android.net.nsd.NsdServiceInfo;
 import android.net.wifi.WifiManager;
 import android.util.Log;
 
-import org.qtproject.qt.android.QtNative;
-
 import java.net.InetAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -99,12 +97,15 @@ public class WifiScaleNsdHelper {
      * exactly one release. Returns true on success, false if the WifiManager is
      * unavailable (the caller can still try discovery — sometimes works, but
      * usually returns nothing).
+     *
+     * The Android Context is passed in from C++ via
+     * QNativeInterface::QAndroidApplication::context() — Qt's QtNative.getContext()
+     * is package-private and not accessible from this package.
      */
-    public static synchronized boolean acquireMulticastLock() {
+    public static synchronized boolean acquireMulticastLock(Context ctx) {
         try {
-            Context ctx = QtNative.getContext();
             if (ctx == null) {
-                Log.w(TAG, "acquireMulticastLock: no QtNative context");
+                Log.w(TAG, "acquireMulticastLock: null context");
                 return false;
             }
             if (sMulticastLock == null) {
@@ -148,14 +149,15 @@ public class WifiScaleNsdHelper {
      *
      * Caller must be off the Android main thread (this blocks).
      *
+     * @param ctx           Android Context (from QAndroidApplication::context())
      * @param hostnameStem  bare hostname without ".local" (e.g. "hds")
      * @param timeoutMs     overall budget for discover + resolve
      * @return dotted-quad IP string, or "" on failure
      */
-    public static String discoverHdsBlocking(final String hostnameStem, final int timeoutMs) {
-        final Context ctx = QtNative.getContext();
+    public static String discoverHdsBlocking(final Context ctx, final String hostnameStem,
+                                             final int timeoutMs) {
         if (ctx == null) {
-            Log.w(TAG, "discoverHdsBlocking: no QtNative context");
+            Log.w(TAG, "discoverHdsBlocking: null context");
             return "";
         }
 
@@ -171,7 +173,7 @@ public class WifiScaleNsdHelper {
         // FAILURE_ALREADY_ACTIVE on our discoverServices() call.
         cancelDiscovery();
 
-        final boolean lockHeld = acquireMulticastLock();
+        final boolean lockHeld = acquireMulticastLock(ctx);
         final CountDownLatch done = new CountDownLatch(1);
         final AtomicReference<String> result = new AtomicReference<>("");
         // Strict single-flight gate around resolveService(). API 28-33's
@@ -193,7 +195,13 @@ public class WifiScaleNsdHelper {
                     Log.d(TAG, "onDiscoveryStarted: " + serviceType);
                 }
 
+                // Two-arg resolveService (called below) is deprecated in API 34
+                // in favour of a three-arg Executor variant, but we still target
+                // the two-arg form for compatibility with minSdk 28. Suppress on
+                // the whole method so it covers the resolveService() call site,
+                // not just a variable declaration.
                 @Override
+                @SuppressWarnings("deprecation")
                 public void onServiceFound(NsdServiceInfo serviceInfo) {
                     final String name = serviceInfo.getServiceName();
                     Log.d(TAG, "onServiceFound: " + name);
@@ -211,10 +219,6 @@ public class WifiScaleNsdHelper {
                         Log.d(TAG, "onServiceFound: resolve already in flight, deferring " + name);
                         return;
                     }
-                    // Two-arg resolveService is deprecated in API 34 in favour
-                    // of a three-arg Executor variant, but we still target the
-                    // two-arg form for compatibility with minSdk 28.
-                    @SuppressWarnings("deprecation")
                     final NsdManager.ResolveListener resolveListener = new NsdManager.ResolveListener() {
                         @Override
                         public void onResolveFailed(NsdServiceInfo info, int errorCode) {
