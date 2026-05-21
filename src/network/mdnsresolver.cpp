@@ -79,38 +79,55 @@ QString resolveHostname(const QString& hostname, int timeoutMs)
 
     char buffer[2048];
     QByteArray hostBytes = hostname.toUtf8();
-    if (mdns_query_send(sock, MDNS_RECORDTYPE_A, hostBytes.constData(),
-                        static_cast<size_t>(hostBytes.size()),
-                        buffer, sizeof(buffer), 0) < 0) {
-        mdns_socket_close(sock);
-        return {};
-    }
 
     MdnsResolveContext ctx;
     ctx.hostname = hostBytes;
     if (ctx.hostname.endsWith('.'))
         ctx.hostname.chop(1);
 
+    // mDNS clients MUST retransmit: a single multicast query can be silently
+    // dropped (WiFi multicast is unacknowledged and sent at a low rate), and a
+    // busy responder may miss it entirely. This matters acutely for the Half
+    // Decent Scale — its ESP32 shares one radio between BLE and WiFi, so while
+    // it's BLE-connected (heartbeats every ~2 s) incoming multicast is often
+    // missed. A single query frequently goes unanswered even though the scale
+    // resolves fine for `dns-sd`/Bonjour, which re-ask. So we re-send the query
+    // every kRetransmitMs until we get an answer or the deadline passes.
+    constexpr int kRetransmitMs = 750;
+
     QElapsedTimer deadline;
     deadline.start();
+    qint64 nextSendAt = 0;  // due immediately, then every kRetransmitMs
 
     while (deadline.elapsed() < timeoutMs && ctx.resolvedIp.isEmpty()) {
-        int remaining = static_cast<int>(timeoutMs - deadline.elapsed());
+        if (deadline.elapsed() >= nextSendAt) {
+            // Best-effort: a failed send is not fatal (transient ENOBUFS on a
+            // congested interface) — keep polling and retry on the next tick.
+            mdns_query_send(sock, MDNS_RECORDTYPE_A, hostBytes.constData(),
+                            static_cast<size_t>(hostBytes.size()),
+                            buffer, sizeof(buffer), 0);
+            nextSendAt = deadline.elapsed() + kRetransmitMs;
+        }
+
+        // Wake at least every kRetransmitMs so we can retransmit, but never
+        // sleep past the overall deadline.
+        const int remaining = static_cast<int>(timeoutMs - deadline.elapsed());
         if (remaining <= 0) break;
+        const int slice = qMin(remaining, kRetransmitMs);
 
         fd_set readfds;
         FD_ZERO(&readfds);
         FD_SET(sock, &readfds);
         struct timeval tv;
-        tv.tv_sec = remaining / 1000;
-        tv.tv_usec = (remaining % 1000) * 1000;
+        tv.tv_sec = slice / 1000;
+        tv.tv_usec = (slice % 1000) * 1000;
 
         int ret = select(sock + 1, &readfds, nullptr, nullptr, &tv);
         if (ret < 0) {
             if (errno == EINTR) continue;
             break;
         }
-        if (ret == 0) break;  // timeout slice elapsed with no data
+        if (ret == 0) continue;  // slice elapsed with no data — retransmit
 
         mdns_query_recv(sock, buffer, sizeof(buffer),
                         mdnsResolveCallback, &ctx, 0);
