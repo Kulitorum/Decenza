@@ -24,6 +24,12 @@
     <string>This app uses your location to show where your espresso shots were made on the shot map.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>This app uses your location to show where your espresso shots were made on the shot map.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>This app runs a local web server so you can edit themes and view shot data from a browser on the same network, and discovers the Half Decent Scale on your local network.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_http._tcp</string>
+    </array>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSAppSleepDisabled</key>
