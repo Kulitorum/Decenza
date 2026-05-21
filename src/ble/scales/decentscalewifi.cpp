@@ -279,14 +279,19 @@ void DecentScaleWifi::onRecognitionTimeout() {
         // runs attemptTarget(hostname) inline. No timer-as-guard.
         m_pendingHostnameFallback = true;
         m_userInitiatedShutdown = true;
-        m_socket->close();
+        // abort() (hard close), not close() (graceful), to avoid Qt warning
+        // "QNativeSocketEngine::write() was not called in ConnectedState" —
+        // the recognition window expired without the WS upgrade completing,
+        // so any in-flight handshake writes Qt has queued internally would
+        // try to flush against a half-open socket on the graceful path.
+        m_socket->abort();
         return;
     }
 
     // Hostname attempt also failed recognition — give up.
     emit errorOccurred(QStringLiteral("WiFi scale did not respond as HDS"));
     m_userInitiatedShutdown = true;  // Suppress reconnect attempt.
-    m_socket->close();
+    m_socket->abort();  // Same rationale as the fallback path above.
 }
 
 int DecentScaleWifi::encodeButton(int buttonNumber, int pressCode) {
