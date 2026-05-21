@@ -533,7 +533,16 @@ void BLEManager::doStartScan() {
     // Only clear scales/refractometers when the user explicitly asked to scan for them;
     // a DE1-only scan must not wipe the discovered scale list.
     if (m_scanningForScales) {
-        m_scales.clear();
+        // Clear only BLE-discovered scale entries. WiFi entries come from a
+        // separate mDNS path and shouldn't be wiped by an unrelated scan
+        // cycle — notably the periodic refractometer auto-reconnect tick,
+        // which calls startScan() every ~30 s and would otherwise erase a
+        // freshly-discovered WiFi-scale row before the user can tap it.
+        for (qsizetype i = m_scales.size() - 1; i >= 0; --i) {
+            if (m_scales[i].transport == QStringLiteral("ble")) {
+                m_scales.removeAt(i);
+            }
+        }
         m_refractometerDevices.clear();
         emit scalesChanged();
         emit refractometersChanged();

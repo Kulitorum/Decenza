@@ -99,9 +99,17 @@ void DecentScaleWifi::onConnected() {
 
 void DecentScaleWifi::onDisconnected() {
     if (m_recognitionTimer) m_recognitionTimer->stop();
-    const QString disconnectLog = m_userInitiatedShutdown
-        ? QString("WebSocket disconnected (expected: %1)").arg(m_lastPowerEventReason)
-        : QStringLiteral("WebSocket disconnected (unexpected)");
+    QString disconnectLog;
+    if (!m_userInitiatedShutdown) {
+        disconnectLog = QStringLiteral("WebSocket disconnected (unexpected)");
+    } else if (!m_lastPowerEventReason.isEmpty()) {
+        disconnectLog = QString("WebSocket disconnected (expected: %1)").arg(m_lastPowerEventReason);
+    } else {
+        // Expected shutdown without a power event — typically a 503 server-busy
+        // rejection, the recognition-timeout fallback, or a user-initiated
+        // disconnect via disconnectFromScale().
+        disconnectLog = QStringLiteral("WebSocket disconnected (expected)");
+    }
     WIFI_LOG(disconnectLog);
 
     // Pending hostname fallback (cached IP didn't validate): the recognition

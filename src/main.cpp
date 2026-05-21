@@ -1463,6 +1463,14 @@ int main(int argc, char *argv[])
         // Connect scale to BLEManager for auto-scan control
         bleManager.setScaleDevice(physicalScale.get());
 
+        // Forward scale-level error messages (e.g. WiFi 503 "Another client is
+        // connected to the scale") to BLEManager::errorOccurred, which main.qml
+        // already wires to bleErrorDialog. Without this re-emit, the per-scale
+        // errorOccurred signal lands nowhere visible and the user has no
+        // feedback on a failed connect.
+        QObject::connect(physicalScale.get(), &ScaleDevice::errorOccurred,
+                         &bleManager, &BLEManager::errorOccurred);
+
         // Disconnect FlowScale from graph and weight processor
         QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
                             &mainController, &MainController::onScaleWeightChanged);
