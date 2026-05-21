@@ -500,6 +500,9 @@ int main(int argc, char *argv[])
     // at BALANCED on the first connect (no detection window) — and a record
     // from a different build is auto-discarded (re-detect every new build).
     bleManager.setSettings(settings.hardware());
+    // Wire TranslationManager so user-visible BLE error strings get i18n
+    // (scale debug-log lines stay in English regardless — they're diagnostic).
+    bleManager.setTranslationManager(&translationManager);
     qDebug() << "Simulation mode:" << (settings.app()->simulationMode() ? "ON" : "off");
     de1Device.setSimulationMode(settings.app()->simulationMode());  // Restore simulation mode from settings
     std::unique_ptr<ScaleDevice> physicalScale;  // Physical BLE scale (when connected)
@@ -1358,7 +1361,7 @@ int main(int argc, char *argv[])
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed](const QBluetoothDeviceInfo& device, const QString& type) {
+                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &translationManager](const QBluetoothDeviceInfo& device, const QString& type) {
         // Single-scale invariant: at most one physical scale is connected at a
         // time (a different scale type replaces the old one below, never runs
         // alongside it). This caps concurrent forced-HIGH BLE links at two —
@@ -1410,6 +1413,9 @@ int main(int argc, char *argv[])
                         });
                         wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
                             settings.network()->setWifiScaleIp(host, ip);
+                        });
+                        wifi->setUiTranslator([&translationManager](const QString& key, const QString& fallback) {
+                            return translationManager.translate(key, fallback);
                         });
                         wifi->connectToHost(bleManager.pendingWifiHostname());
                     }
@@ -1616,6 +1622,9 @@ int main(int argc, char *argv[])
                 });
                 wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
                     settings.network()->setWifiScaleIp(host, ip);
+                });
+                wifi->setUiTranslator([&translationManager](const QString& key, const QString& fallback) {
+                    return translationManager.translate(key, fallback);
                 });
                 wifi->connectToHost(hostname);
             }

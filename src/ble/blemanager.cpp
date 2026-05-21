@@ -5,6 +5,7 @@
 #include "scales/scalefactory.h"
 #include "refractometers/difluidr2.h"
 #include "../core/settings_hardware.h"
+#include "../core/translationmanager.h"
 #include "../network/wifiscalediscovery.h"
 #include "bleepochgate.h"
 #include "version.h"
@@ -479,13 +480,15 @@ void BLEManager::requestBluetoothPermission() {
                 requestBluetoothPermission();  // Continue with Bluetooth permission
             } else {
                 emit de1LogMessage("Location permission denied");
-                emit errorOccurred("Location permission denied - required for Bluetooth scanning");
+                emit errorOccurred(translateUiString("ble.error.locationPermissionDeniedForBluetooth",
+                    "Location permission denied - required for Bluetooth scanning"));
             }
         });
         return;
     } else if (qApp->checkPermission(locationPermission) == Qt::PermissionStatus::Denied) {
         emit de1LogMessage("Location permission denied");
-        emit errorOccurred("Location permission required. Please enable in Settings.");
+        emit errorOccurred(translateUiString("ble.error.locationPermissionRequired",
+            "Location permission required. Please enable in Settings."));
         return;
     }
 #endif
@@ -510,13 +513,15 @@ void BLEManager::requestBluetoothPermission() {
                 // Transition Undetermined → Denied also flips isBluetoothAvailable()
                 // from true to false (via the hostMode() fall-through).
                 emit bluetoothAvailableChanged();
-                emit errorOccurred("Bluetooth permission denied");
+                emit errorOccurred(translateUiString("ble.error.bluetoothPermissionDenied",
+                    "Bluetooth permission denied"));
             }
         });
         return;
     case Qt::PermissionStatus::Denied:
         emit de1LogMessage("Bluetooth permission denied");
-        emit errorOccurred("Bluetooth permission required. Please enable in Settings.");
+        emit errorOccurred(translateUiString("ble.error.bluetoothPermissionRequired",
+            "Bluetooth permission required. Please enable in Settings."));
         return;
     case Qt::PermissionStatus::Granted:
         emit de1LogMessage("Permissions OK");
@@ -715,22 +720,22 @@ void BLEManager::onScanError(QBluetoothDeviceDiscoveryAgent::Error error) {
         case QBluetoothDeviceDiscoveryAgent::NoError:
             return;  // No error, nothing to do
         case QBluetoothDeviceDiscoveryAgent::PoweredOffError:
-            errorMsg = "Bluetooth is powered off";
+            errorMsg = translateUiString("ble.error.bluetoothPoweredOff", "Bluetooth is powered off");
             break;
         case QBluetoothDeviceDiscoveryAgent::InputOutputError:
-            errorMsg = "Bluetooth I/O error";
+            errorMsg = translateUiString("ble.error.bluetoothIoError", "Bluetooth I/O error");
             break;
         case QBluetoothDeviceDiscoveryAgent::InvalidBluetoothAdapterError:
-            errorMsg = "Invalid Bluetooth adapter";
+            errorMsg = translateUiString("ble.error.invalidAdapter", "Invalid Bluetooth adapter");
             break;
         case QBluetoothDeviceDiscoveryAgent::UnsupportedPlatformError:
-            errorMsg = "Platform does not support Bluetooth LE";
+            errorMsg = translateUiString("ble.error.unsupportedPlatform", "Platform does not support Bluetooth LE");
             break;
         case QBluetoothDeviceDiscoveryAgent::UnsupportedDiscoveryMethod:
-            errorMsg = "Unsupported discovery method";
+            errorMsg = translateUiString("ble.error.unsupportedDiscoveryMethod", "Unsupported discovery method");
             break;
         case QBluetoothDeviceDiscoveryAgent::LocationServiceTurnedOffError:
-            errorMsg = "Location services are turned off";
+            errorMsg = translateUiString("ble.error.locationServicesOff", "Location services are turned off");
             break;
         case QBluetoothDeviceDiscoveryAgent::MissingPermissionsError:
             // On macOS Tahoe + Qt 6.11, MissingPermissionsError fires
@@ -753,10 +758,12 @@ void BLEManager::onScanError(QBluetoothDeviceDiscoveryAgent::Error error) {
             }
             // BLE has NEVER worked this session — could be a real permission
             // denial. Fall through to the normal popup.
-            errorMsg = "Bluetooth permission denied. Please allow Bluetooth access in Settings.";
+            errorMsg = translateUiString("ble.error.bluetoothPermissionDeniedSettings",
+                "Bluetooth permission denied. Please allow Bluetooth access in Settings.");
             break;
         default:
-            errorMsg = QString("Bluetooth error (code %1)").arg(static_cast<int>(error));
+            errorMsg = translateUiString("ble.error.unknownCode",
+                "Bluetooth error (code %1)").arg(static_cast<int>(error));
             break;
     }
     qWarning() << "BLEManager scan error:" << errorMsg << "code:" << static_cast<int>(error);
@@ -1507,4 +1514,11 @@ void BLEManager::shareScaleLog() {
     emit scaleLogMessage("Log saved to: " + m_scaleLogFilePath);
     qDebug() << "Scale log saved to:" << m_scaleLogFilePath;
 #endif
+}
+
+QString BLEManager::translateUiString(const QString& key, const QString& fallback) const {
+    if (m_translationManager) {
+        return m_translationManager->translate(key, fallback);
+    }
+    return fallback;
 }

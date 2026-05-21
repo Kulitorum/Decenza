@@ -20,6 +20,7 @@ class ScaleDevice;
 class DiFluidR2;
 class SettingsHardware;
 class WifiScaleDiscovery;
+class TranslationManager;
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
 class AppleBtState;
 #endif
@@ -83,6 +84,12 @@ public:
     QVariantList discoveredScales() const;
     bool scaleConnectionFailed() const { return m_scaleConnectionFailed; }
     bool hasSavedScale() const { return !m_savedScaleAddress.isEmpty(); }
+
+    // Optional TranslationManager — when set, user-visible error strings
+    // (those emitted via errorOccurred) are run through translate() with
+    // a stable i18n key + the existing English text as fallback. Scale
+    // debug-log lines stay in English regardless (they're diagnostic).
+    void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
     // For WiFi scale selections: the hostname to dial. Set by connectToScale()
     // and tryDirectConnectToScale() immediately before emitting scaleDiscovered()
     // with a default-constructed device + type=="decent-wifi". The main.cpp
@@ -420,6 +427,11 @@ private:
     QList<QBluetoothDeviceInfo> m_de1Devices;
     QList<ScaleEntry> m_scales;
     WifiScaleDiscovery* m_wifiDiscovery = nullptr;  // Lazy-created on first scanForDevices
+    TranslationManager* m_translationManager = nullptr;  // For i18n of user-visible error strings
+    // Helper: translate `key` with `fallback`, or just return `fallback` if no
+    // TranslationManager has been wired. Use ONLY for user-visible strings
+    // (errorOccurred payloads, dialog text). Diagnostic logs stay in English.
+    QString translateUiString(const QString& key, const QString& fallback) const;
     // WiFi-to-BLE fallback: set when m_scaleConnectionTimer fires for a saved
     // WiFi scale and we start a BLE scan as a fallback. Lets onDeviceDiscovered
     // auto-connect to a discovered Decent BLE scale even though the saved

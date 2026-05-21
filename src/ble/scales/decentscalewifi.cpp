@@ -256,7 +256,8 @@ void DecentScaleWifi::handlePowerFrame(const QJsonObject& obj) {
         ? QString("code %1").arg(reasonCode)
         : reason;
     WIFI_WARN(QString("Scale shut down: %1 (code %2)").arg(reasonText).arg(reasonCode));
-    emit errorOccurred(QStringLiteral("Scale shut down: %1").arg(reasonText));
+    emit errorOccurred(translateUiString("wifi.scale.error.scaleShutdown",
+        "Scale shut down: %1").arg(reasonText));
 }
 
 void DecentScaleWifi::handleRateFrame(const QJsonObject& obj) {
@@ -305,7 +306,8 @@ void DecentScaleWifi::onRecognitionTimeout() {
     }
 
     // Hostname attempt also failed recognition — give up.
-    emit errorOccurred(QStringLiteral("WiFi scale did not respond as HDS"));
+    emit errorOccurred(translateUiString("wifi.scale.error.didNotRespond",
+        "WiFi scale did not respond as HDS"));
     m_userInitiatedShutdown = true;  // Suppress reconnect attempt.
     m_socket->abort();  // Same rationale as the fallback path above.
 }
@@ -361,7 +363,8 @@ void DecentScaleWifi::onError() {
     // 503 detection — firmware refuses additional clients past its cap. Qt's
     // WebSocket error path surfaces this in errorString().
     if (errStr.contains(QStringLiteral("503"))) {
-        emit errorOccurred(QStringLiteral("Another client is connected to the scale"));
+        emit errorOccurred(translateUiString("wifi.scale.error.serverBusy",
+            "Another client is connected to the scale"));
         m_userInitiatedShutdown = true;
         return;
     }
@@ -373,18 +376,20 @@ void DecentScaleWifi::onError() {
     // or DNS failure.
     switch (err) {
     case QAbstractSocket::HostNotFoundError:
-        emit errorOccurred(QStringLiteral("WiFi scale not found on the network "
-            "(mDNS resolution failed for ") + m_hostname + QStringLiteral(")"));
+        emit errorOccurred(translateUiString("wifi.scale.error.hostNotFound",
+            "WiFi scale not found on the network (mDNS resolution failed for %1)")
+            .arg(m_hostname));
         m_userInitiatedShutdown = true;
         break;
     case QAbstractSocket::ConnectionRefusedError:
-        emit errorOccurred(QStringLiteral("WiFi scale refused the connection — "
-            "is the scale powered on and on the same network?"));
+        emit errorOccurred(translateUiString("wifi.scale.error.connectionRefused",
+            "WiFi scale refused the connection — is the scale powered on and on the same network?"));
         m_userInitiatedShutdown = true;
         break;
     case QAbstractSocket::NetworkError:
     case QAbstractSocket::SocketTimeoutError:
-        emit errorOccurred(QStringLiteral("Network error while connecting to WiFi scale"));
+        emit errorOccurred(translateUiString("wifi.scale.error.networkError",
+            "Network error while connecting to WiFi scale"));
         m_userInitiatedShutdown = true;
         break;
     default:
@@ -392,4 +397,11 @@ void DecentScaleWifi::onError() {
         // case where the WS upgrade hangs without a clean socket error.
         break;
     }
+}
+
+QString DecentScaleWifi::translateUiString(const QString& key, const QString& fallback) const {
+    if (m_uiTranslator) {
+        return m_uiTranslator(key, fallback);
+    }
+    return fallback;
 }
