@@ -1080,9 +1080,13 @@ void BLEManager::scanForDevices() {
     startScan();
 
     // Fire the WiFi mDNS probe in parallel with the BLE scan. On-demand only;
-    // no idle probing per the project requirement.
+    // no idle probing per the project requirement. 5 s timeout matches the
+    // saved-scale rehydration path — the HDS mDNS responder regularly takes
+    // 2-4 s to reply (likely the ESP32 being woken from a power-save state),
+    // and the BLE scan is running in parallel for ~10 s anyway so this
+    // doesn't slow down the user-perceived scan duration.
     ensureWifiDiscovery();
-    m_wifiDiscovery->probe();
+    m_wifiDiscovery->probe(QStringLiteral("hds.local"), 5000);
 }
 
 void BLEManager::ensureWifiDiscovery() {
