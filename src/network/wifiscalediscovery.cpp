@@ -131,13 +131,21 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
 void WifiScaleDiscovery::cancelInFlight() {
 #ifdef Q_OS_ANDROID
     if (m_androidInFlight) {
-        // Best-effort cancel: bumping the generation makes the worker's
-        // posted result drop on arrival. We cannot synchronously interrupt
-        // the Java CountDownLatch, but Android will tear down the NSD
-        // discovery when stopServiceDiscovery() runs in the helper's
-        // finally block at the end of the timeout.
+        // Two-part cancel:
+        //  1. Bump the generation so any worker result that arrives on the
+        //     Qt thread after this point is discarded by the equality check
+        //     in the queued lambda.
+        //  2. Call into the Java helper to stop the active NsdManager
+        //     DiscoveryListener registration and count down the worker's
+        //     CountDownLatch immediately. Without this eager teardown,
+        //     a rapid second probe() would hit FAILURE_ALREADY_ACTIVE
+        //     because Android only permits one listener per service type
+        //     per NsdManager instance.
         ++m_androidGeneration;
         m_androidInFlight = false;
+        QJniObject::callStaticMethod<void>(
+            "io/github/kulitorum/decenza_de1/WifiScaleNsdHelper",
+            "cancelDiscovery", "()V");
     }
 #endif
     if (m_lookupId != -1) {

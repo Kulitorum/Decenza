@@ -36,14 +36,62 @@ import java.util.concurrent.atomic.AtomicReference;
 public class WifiScaleNsdHelper {
     private static final String TAG = "DecenzaWifiNsd";
 
-    // openscale firmware advertises an _http._tcp service. We compare the
-    // service instance name to the bare hostname stem (e.g. "hds" for
-    // "hds.local") case-insensitively.
+    // The Half Decent Scale (genuine Decent firmware — official thinner v2
+    // scale, NOT a third-party openscale/ESP32 clone) advertises an _http._tcp
+    // service. We compare the service instance name to the bare hostname stem
+    // (e.g. "hds" for "hds.local") case-insensitively.
     private static final String SERVICE_TYPE = "_http._tcp.";
 
     // Multicast lock is a single shared instance keyed by class — Android's
     // setReferenceCounted(true) means nested probes do the right thing.
     private static WifiManager.MulticastLock sMulticastLock = null;
+
+    // Tracks the in-flight discovery so subsequent probes (or a C++-driven
+    // cancel) can tear it down BEFORE issuing a new discoverServices() call.
+    // Android only permits one active DiscoveryListener per service type per
+    // NsdManager instance; a second concurrent discoverServices() with the
+    // same SERVICE_TYPE fires onStartDiscoveryFailed(FAILURE_ALREADY_ACTIVE)
+    // on the new listener, which would silently break rapid re-scans.
+    private static final Object sDiscoveryLock = new Object();
+    private static volatile ActiveDiscovery sActiveDiscovery = null;
+
+    private static final class ActiveDiscovery {
+        final NsdManager nsd;
+        final NsdManager.DiscoveryListener listener;
+        final CountDownLatch done;
+        ActiveDiscovery(NsdManager nsd, NsdManager.DiscoveryListener listener,
+                        CountDownLatch done) {
+            this.nsd = nsd;
+            this.listener = listener;
+            this.done = done;
+        }
+    }
+
+    /**
+     * Stop any in-flight NSD discovery started by this helper. Safe to call
+     * when no discovery is active. Used by the C++ side's cancelInFlight()
+     * (via JNI) to release the DiscoveryListener registration eagerly,
+     * preventing FAILURE_ALREADY_ACTIVE on the next probe.
+     */
+    public static void cancelDiscovery() {
+        final ActiveDiscovery active;
+        synchronized (sDiscoveryLock) {
+            active = sActiveDiscovery;
+            sActiveDiscovery = null;
+        }
+        if (active == null) return;
+        try {
+            active.nsd.stopServiceDiscovery(active.listener);
+            Log.d(TAG, "cancelDiscovery: stopped listener");
+        } catch (Exception e) {
+            // stopServiceDiscovery throws IllegalArgumentException if the
+            // listener was never successfully registered (e.g. discoverServices
+            // threw or onStartDiscoveryFailed already fired). Benign.
+            Log.d(TAG, "cancelDiscovery: stop threw (benign): " + e.getMessage());
+        }
+        // Unblock the worker so it returns promptly.
+        active.done.countDown();
+    }
 
     /**
      * Acquire (or re-acquire) the WiFi multicast lock. Idempotent: the underlying
@@ -118,10 +166,23 @@ public class WifiScaleNsdHelper {
             return "";
         }
 
+        // Any prior probe must surrender its DiscoveryListener before we
+        // register a new one for SERVICE_TYPE, otherwise Android emits
+        // FAILURE_ALREADY_ACTIVE on our discoverServices() call.
+        cancelDiscovery();
+
         final boolean lockHeld = acquireMulticastLock();
         final CountDownLatch done = new CountDownLatch(1);
         final AtomicReference<String> result = new AtomicReference<>("");
-        // Track outstanding resolves so we can short-circuit once we have one.
+        // Strict single-flight gate around resolveService(). API 28-33's
+        // NsdManager only permits ONE outstanding resolve per NsdManager
+        // instance — a concurrent call throws IllegalArgumentException
+        // ("listener already in use") and kills the binder thread. The
+        // three-arg Executor variant of resolveService that supports
+        // concurrent resolves was added in API 34, which is above our
+        // minSdk. Gating to one outstanding resolve at a time is the
+        // correct fix; we re-open the gate on each callback so a later
+        // onServiceFound match can still be resolved if the first one fails.
         final AtomicInteger resolvesInFlight = new AtomicInteger(0);
         final AtomicReference<NsdManager.DiscoveryListener> listenerRef = new AtomicReference<>();
 
@@ -143,17 +204,23 @@ public class WifiScaleNsdHelper {
                     if (!name.toLowerCase().startsWith(hostnameStem.toLowerCase())) {
                         return;
                     }
-                    resolvesInFlight.incrementAndGet();
-                    nsd.resolveService(serviceInfo, new NsdManager.ResolveListener() {
+                    // Single-flight gate: skip if a resolve is already
+                    // outstanding. The gate is re-opened on either callback
+                    // below so another match can be retried.
+                    if (!resolvesInFlight.compareAndSet(0, 1)) {
+                        Log.d(TAG, "onServiceFound: resolve already in flight, deferring " + name);
+                        return;
+                    }
+                    // Two-arg resolveService is deprecated in API 34 in favour
+                    // of a three-arg Executor variant, but we still target the
+                    // two-arg form for compatibility with minSdk 28.
+                    @SuppressWarnings("deprecation")
+                    final NsdManager.ResolveListener resolveListener = new NsdManager.ResolveListener() {
                         @Override
                         public void onResolveFailed(NsdServiceInfo info, int errorCode) {
                             Log.d(TAG, "onResolveFailed: " + info.getServiceName()
                                 + " errorCode=" + errorCode);
-                            if (resolvesInFlight.decrementAndGet() == 0
-                                && result.get().isEmpty()) {
-                                // No outstanding resolves and still no result;
-                                // discovery may still find more. Don't latch yet.
-                            }
+                            resolvesInFlight.set(0);  // re-open gate for a retry
                         }
 
                         @Override
@@ -161,19 +228,21 @@ public class WifiScaleNsdHelper {
                             final InetAddress host = info.getHost();
                             if (host == null) {
                                 Log.d(TAG, "onServiceResolved: null host");
-                                resolvesInFlight.decrementAndGet();
+                                resolvesInFlight.set(0);
                                 return;
                             }
                             final String ip = host.getHostAddress();
                             Log.d(TAG, "onServiceResolved: " + info.getServiceName()
                                 + " -> " + ip);
-                            // First winner takes it; latch the caller.
-                            if (result.compareAndSet("", ip == null ? "" : ip)) {
+                            // First non-empty winner takes it; latch the caller.
+                            if (ip != null && !ip.isEmpty()
+                                && result.compareAndSet("", ip)) {
                                 done.countDown();
                             }
-                            resolvesInFlight.decrementAndGet();
+                            resolvesInFlight.set(0);
                         }
-                    });
+                    };
+                    nsd.resolveService(serviceInfo, resolveListener);
                 }
 
                 @Override public void onServiceLost(NsdServiceInfo serviceInfo) {}
@@ -190,6 +259,12 @@ public class WifiScaleNsdHelper {
             };
             listenerRef.set(discoveryListener);
 
+            // Publish before discoverServices so a parallel cancelDiscovery()
+            // call can find and stop us. The order matters: register first,
+            // then start — never the reverse.
+            synchronized (sDiscoveryLock) {
+                sActiveDiscovery = new ActiveDiscovery(nsd, discoveryListener, done);
+            }
             nsd.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener);
 
             // Block up to timeoutMs for the first successful resolve.
@@ -197,6 +272,15 @@ public class WifiScaleNsdHelper {
         } catch (Exception e) {
             Log.w(TAG, "discoverHdsBlocking failed: " + e.getMessage());
         } finally {
+            // Clear our slot from the active-discovery tracker, but only if
+            // it's still pointing at OUR listener — a concurrent probe may
+            // have replaced it via cancelDiscovery + new ActiveDiscovery.
+            synchronized (sDiscoveryLock) {
+                if (sActiveDiscovery != null
+                    && sActiveDiscovery.listener == listenerRef.get()) {
+                    sActiveDiscovery = null;
+                }
+            }
             try {
                 if (listenerRef.get() != null) {
                     nsd.stopServiceDiscovery(listenerRef.get());

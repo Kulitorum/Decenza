@@ -12,8 +12,12 @@ class QTimer;
  *
  * On a successful resolution emits scaleFound(hostname, resolvedAddress)
  * followed by probeFinished(). On timeout / NotFound emits only
- * probeFinished(). Calling probe() while a lookup is in flight cancels
- * the previous lookup before starting a new one.
+ * probeFinished(). Calling probe() while a lookup is in flight starts a
+ * new lookup; the previous lookup's result will be dropped. On non-Android
+ * the previous QHostInfo lookup is also synchronously aborted; on Android
+ * the previous NSD discovery is torn down via WifiScaleNsdHelper.cancelDiscovery()
+ * (the Java worker thread is unblocked but cannot be synchronously joined —
+ * the result, when it eventually arrives, is dropped via a generation check).
  */
 class WifiScaleDiscovery : public QObject {
     Q_OBJECT
