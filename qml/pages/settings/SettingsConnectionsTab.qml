@@ -1211,10 +1211,16 @@ Item {
                         }
                     }
 
-                    // Unified discovered devices list (scales + refractometers)
+                    // Unified discovered devices list (scales + refractometers).
+                    // Height scales with the number of items so rows aren't
+                    // clipped below the fold (notably the WiFi-scale row when
+                    // both BLE and WiFi entries are present after a scan).
                     ListView {
+                        id: discoveredDevicesList
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Theme.scaled(80)
+                        // Min 80px, grow up to ~160px so 3-4 rows fit without scrolling.
+                        Layout.preferredHeight: Math.max(Theme.scaled(80),
+                                                          Math.min(count, 4) * Theme.scaled(40))
                         clip: true
                         visible: !ScaleDevice || !ScaleDevice.connected || ScaleDevice.isFlowScale || !BLEManager.refractometerConnected
 

@@ -1095,8 +1095,12 @@ void BLEManager::ensureWifiDiscovery() {
     // `if (!m_wifiDiscovery)` guard — breaking whichever path ran second.
     connect(m_wifiDiscovery, &WifiScaleDiscovery::scaleFound, this,
         [this](const QString& hostname, const QString& resolvedAddress) {
-            Q_UNUSED(resolvedAddress);
             const QString address = QStringLiteral("wifi:") + hostname;
+            qDebug() << "[BLE] WiFi scale found:" << hostname
+                     << "->" << resolvedAddress
+                     << "address=" << address
+                     << "userInitiatedScan=" << m_userInitiatedScaleScan
+                     << "saved=" << m_savedScaleAddress;
             // Append to the discovered-scales list if not already present —
             // useful for the user-initiated scan, harmless for the auto-
             // reconnect path (the UI list is hidden during direct-wake).
@@ -1114,8 +1118,11 @@ void BLEManager::ensureWifiDiscovery() {
                 entry.name = QStringLiteral("Decent Scale (WiFi)");
                 entry.address = address;
                 m_scales.append(entry);
+                qDebug() << "[BLE] Added WiFi scale to discovered list; m_scales count=" << m_scales.size();
                 appendScaleLog(QString("Found %1 (%2)").arg(entry.name, entry.address));
                 emit scalesChanged();
+            } else {
+                qDebug() << "[BLE] WiFi scale already in discovered list — not re-adding";
             }
 
             // Auto-connect when the discovered scale matches the saved primary
