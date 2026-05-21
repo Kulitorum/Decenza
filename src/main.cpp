@@ -71,6 +71,7 @@
 #include "ble/scaledevice.h"
 #include "ble/scales/scalefactory.h"
 #include "ble/scales/flowscale.h"
+#include "ble/scales/decentscalewifi.h"
 #include "ble/refractometers/difluidr2.h"
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
 #include "ble/transport/corebluetooth/corebluetoothscalebletransport.h" // IWYU pragma: keep
@@ -1400,7 +1401,13 @@ int main(int argc, char *argv[])
                 machineState.setScale(physicalScale.get());
                 timingController.setScale(physicalScale.get());
                 engine.rootContext()->setContextProperty("ScaleDevice", physicalScale.get());
-                physicalScale->connectToDevice(device);
+                if (type == QStringLiteral("decent-wifi")) {
+                    if (auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get())) {
+                        wifi->connectToHost(bleManager.pendingWifiHostname());
+                    }
+                } else {
+                    physicalScale->connectToDevice(device);
+                }
                 return;
             }
         }
@@ -1412,11 +1419,17 @@ int main(int argc, char *argv[])
             return;
         }
 
-        // Save scale to known scales and set as primary
-        QString deviceId = getDeviceIdentifier(device);
-        settings.addKnownScale(deviceId, type, device.name());
+        // Save scale to known scales and set as primary. For WiFi entries the
+        // identifier is the prefixed hostname; for BLE it's the MAC/UUID.
+        const bool isWifi = (type == QStringLiteral("decent-wifi"));
+        const QString hostname = isWifi ? bleManager.pendingWifiHostname() : QString();
+        const QString deviceId = isWifi ? (QStringLiteral("wifi:") + hostname)
+                                         : getDeviceIdentifier(device);
+        const QString displayName = isWifi ? QStringLiteral("Decent Scale (WiFi)")
+                                            : device.name();
+        settings.addKnownScale(deviceId, type, displayName);
         settings.setPrimaryScale(deviceId);
-        bleManager.setSavedScaleAddress(deviceId, type, device.name());
+        bleManager.setSavedScaleAddress(deviceId, type, displayName);
 
         // Switch MachineState and TimingController to use physical scale instead of FlowScale
         machineState.setScale(physicalScale.get());
@@ -1560,8 +1573,14 @@ int main(int argc, char *argv[])
         QQmlContext* context = engine.rootContext();
         context->setContextProperty("ScaleDevice", physicalScale.get());
 
-        // Connect to the scale
-        physicalScale->connectToDevice(device);
+        // Connect to the scale. WiFi takes a hostname; BLE takes the device info.
+        if (isWifi) {
+            if (auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get())) {
+                wifi->connectToHost(hostname);
+            }
+        } else {
+            physicalScale->connectToDevice(device);
+        }
     });
 
     // Handle disconnect request when starting a new scan

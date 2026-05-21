@@ -113,6 +113,13 @@ void ScaleDevice::setBatteryLevel(int level) {
     }
 }
 
+void ScaleDevice::setCharging(bool charging) {
+    if (m_charging != charging) {
+        m_charging = charging;
+        emit chargingChanged(charging);
+    }
+}
+
 void ScaleDevice::resetFlowCalculation() {
     // Flow rate is now computed centrally via LSLR in MachineState::smoothedScaleFlowRate().
     // This method is kept for callers that reset after tare.

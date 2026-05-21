@@ -212,9 +212,11 @@ void DecentScale::parseWeightData(const QByteArray& data) {
         // Battery: 0-100 = percentage, 0xFF = charging
         uint8_t battByte = d[4];
         if (battByte <= 100) {
+            setCharging(false);
             setBatteryLevel(battByte);
         } else if (battByte == 0xFF) {
-            setBatteryLevel(100);  // Charging — report as full
+            setCharging(true);
+            setBatteryLevel(100);  // Keep "100" reporting so existing UI bindings don't regress
         }
         // Firmware version: bytes [5-6], encoded per openscale (HDS)
         // include/ble.h:730-731 — byte [5] is BCD-packed major (00..99),

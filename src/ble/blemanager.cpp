@@ -5,6 +5,7 @@
 #include "scales/scalefactory.h"
 #include "refractometers/difluidr2.h"
 #include "../core/settings_hardware.h"
+#include "../network/wifiscalediscovery.h"
 #include "bleepochgate.h"
 #include "version.h"
 #include <QBluetoothLocalDevice>
@@ -387,47 +388,55 @@ QVariantList BLEManager::discoveredDevices() const {
 
 QVariantList BLEManager::discoveredScales() const {
     QVariantList result;
-    for (const auto& pair : m_scales) {
+    for (const auto& entry : m_scales) {
         QVariantMap map;
-        map["name"] = pair.first.name();
-        map["address"] = getDeviceIdentifier(pair.first);
-        map["type"] = pair.second;
+        map["name"] = entry.name;
+        map["address"] = entry.address;
+        map["type"] = entry.type;
+        map["transport"] = entry.transport;
         result.append(map);
     }
     return result;
 }
 
 QBluetoothDeviceInfo BLEManager::getScaleDeviceInfo(const QString& address) const {
-    for (const auto& pair : m_scales) {
-        if (deviceIdentifiersMatch(pair.first, address)) {
-            return pair.first;
+    for (const auto& entry : m_scales) {
+        if (entry.address.compare(address, Qt::CaseInsensitive) == 0) {
+            return entry.device;  // Default-constructed for WiFi entries.
         }
     }
     return QBluetoothDeviceInfo();
 }
 
 QString BLEManager::getScaleType(const QString& address) const {
-    for (const auto& pair : m_scales) {
-        if (deviceIdentifiersMatch(pair.first, address)) {
-            return pair.second;
+    for (const auto& entry : m_scales) {
+        if (entry.address.compare(address, Qt::CaseInsensitive) == 0) {
+            return entry.type;
         }
     }
     return QString();
 }
 
 void BLEManager::connectToScale(const QString& address) {
-    for (const auto& pair : m_scales) {
-        if (deviceIdentifiersMatch(pair.first, address)) {
-            appendScaleLog(QString("Connecting to %1...").arg(pair.first.name()));
-            // If already connected to a different scale, disconnect it first so
-            // the scaleDiscovered handler can connect to the new one.
-            if (m_scaleDevice && m_scaleDevice->isConnected()
-                    && address.compare(m_savedScaleAddress, Qt::CaseInsensitive) != 0) {
-                emit disconnectScaleRequested();
-            }
-            emit scaleDiscovered(pair.first, pair.second);
-            return;
+    for (const auto& entry : m_scales) {
+        if (entry.address.compare(address, Qt::CaseInsensitive) != 0) continue;
+
+        appendScaleLog(QString("Connecting to %1...").arg(entry.name));
+        // If already connected to a different scale, disconnect it first so
+        // the scaleDiscovered/wifiScaleSelected handler can connect to the new one.
+        if (m_scaleDevice && m_scaleDevice->isConnected()
+                && address.compare(m_savedScaleAddress, Qt::CaseInsensitive) != 0) {
+            emit disconnectScaleRequested();
         }
+
+        if (entry.transport == QStringLiteral("wifi")) {
+            // Strip the "wifi:" prefix to get the bare hostname.
+            m_pendingWifiHostname = address.mid(QStringLiteral("wifi:").size());
+            emit scaleDiscovered(QBluetoothDeviceInfo{}, entry.type);
+        } else {
+            emit scaleDiscovered(entry.device, entry.type);
+        }
+        return;
     }
     qWarning() << "Scale not found in discovered list:" << address;
 }
@@ -622,12 +631,19 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
     QString scaleType = getScaleType(device);
     if (!scaleType.isEmpty()) {
         // Avoid duplicates
-        for (const auto& pair : m_scales) {
-            if (getDeviceIdentifier(pair.first) == getDeviceIdentifier(device)) {
+        const QString deviceId = getDeviceIdentifier(device);
+        for (const auto& entry : m_scales) {
+            if (entry.transport == QStringLiteral("ble") && entry.address == deviceId) {
                 return;
             }
         }
-        m_scales.append({device, scaleType});
+        ScaleEntry entry;
+        entry.device = device;
+        entry.type = scaleType;
+        entry.transport = QStringLiteral("ble");
+        entry.name = device.name();
+        entry.address = deviceId;
+        m_scales.append(entry);
         emit scalesChanged();
         qDebug() << "[BLE] Found scale:" << device.name() << "type:" << scaleType << "at" << getDeviceIdentifier(device);
         appendScaleLog(QString("Found %1: %2 (%3)").arg(scaleType).arg(device.name()).arg(getDeviceIdentifier(device)));
@@ -991,6 +1007,41 @@ void BLEManager::scanForDevices() {
     m_scanningForScales = true;
     m_userInitiatedScaleScan = true;
     startScan();
+
+    // Fire the WiFi mDNS probe in parallel with the BLE scan. On-demand only;
+    // no idle probing per the project requirement.
+    if (!m_wifiDiscovery) {
+        m_wifiDiscovery = new WifiScaleDiscovery(this);
+        connect(m_wifiDiscovery, &WifiScaleDiscovery::scaleFound, this,
+            [this](const QString& hostname, const QString& resolvedAddress) {
+                Q_UNUSED(resolvedAddress);
+                const QString address = QStringLiteral("wifi:") + hostname;
+                // Avoid duplicates within a scan cycle.
+                for (const auto& entry : m_scales) {
+                    if (entry.transport == QStringLiteral("wifi") && entry.address == address) {
+                        return;
+                    }
+                }
+                ScaleEntry entry;
+                entry.type = QStringLiteral("decent-wifi");
+                entry.transport = QStringLiteral("wifi");
+                entry.name = QStringLiteral("Decent Scale (WiFi)");
+                entry.address = address;
+                m_scales.append(entry);
+                appendScaleLog(QString("Found %1 (%2)").arg(entry.name, entry.address));
+                emit scalesChanged();
+
+                // Mirror BLE auto-reconnect: if this WiFi entry matches the saved
+                // primary scale, drive the connect path. Otherwise, list-only.
+                if (!m_userInitiatedScaleScan
+                        && !m_savedScaleAddress.isEmpty()
+                        && address.compare(m_savedScaleAddress, Qt::CaseInsensitive) == 0) {
+                    m_pendingWifiHostname = hostname;
+                    emit scaleDiscovered(QBluetoothDeviceInfo{}, entry.type);
+                }
+            });
+    }
+    m_wifiDiscovery->probe();
 }
 
 void BLEManager::tryDirectConnectToScale() {
@@ -1023,6 +1074,33 @@ void BLEManager::tryDirectConnectToScale() {
     // the device appears in scan results (bluetooth.tcl lines 2032 and 2252-2256)
 
     QString deviceName = m_savedScaleName.isEmpty() ? m_savedScaleType : m_savedScaleName;
+
+    // WiFi saved-scale path: do an mDNS probe and connect via the WiFi route.
+    // No fallback to BLE if the WiFi scale is unreachable — symmetric with BLE
+    // behavior (#440 primary-only auto-reconnect).
+    if (m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)) {
+        const QString hostname = m_savedScaleAddress.mid(QStringLiteral("wifi:").size());
+        qDebug() << "BLEManager: Direct wake (WiFi) - resolving" << hostname;
+        appendScaleLog(QString("Direct wake (WiFi): resolving %1").arg(hostname));
+
+        if (!m_wifiDiscovery) {
+            m_wifiDiscovery = new WifiScaleDiscovery(this);
+            connect(m_wifiDiscovery, &WifiScaleDiscovery::scaleFound, this,
+                [this](const QString& hn, const QString& resolved) {
+                    Q_UNUSED(resolved);
+                    if (m_savedScaleAddress.compare(QStringLiteral("wifi:") + hn,
+                                                    Qt::CaseInsensitive) != 0) {
+                        return;
+                    }
+                    m_pendingWifiHostname = hn;
+                    emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
+                });
+        }
+        // Use a longer timeout for the saved-scale rehydration path (~5 s)
+        // than the user-initiated scan (~2 s).
+        m_wifiDiscovery->probe(hostname, 5000);
+        return;
+    }
 
 #ifdef Q_OS_IOS
     // On iOS, we have a UUID, not a MAC address

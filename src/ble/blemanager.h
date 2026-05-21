@@ -19,9 +19,22 @@
 class ScaleDevice;
 class DiFluidR2;
 class SettingsHardware;
+class WifiScaleDiscovery;
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
 class AppleBtState;
 #endif
+
+// Per-discovered-scale record. Carries the BLE device info for BLE entries
+// (default-constructed for WiFi entries — no QBluetoothDeviceInfo exists for
+// a WS endpoint) plus canonical `name`/`address` fields so iteration sites
+// don't need to branch on transport just to render the row.
+struct ScaleEntry {
+    QBluetoothDeviceInfo device;  // Valid for BLE; default-constructed for WiFi.
+    QString type;                 // e.g. "decent", "acaia", "decent-wifi"
+    QString transport;            // "ble" or "wifi"
+    QString name;                 // Display name (carries " (WiFi)" suffix for WiFi entries)
+    QString address;              // Routing handle: BLE MAC/UUID, or "wifi:<hostname>"
+};
 
 // Helper to get device identifier - iOS uses UUID, others use MAC address
 inline QString getDeviceIdentifier(const QBluetoothDeviceInfo& device) {
@@ -70,6 +83,11 @@ public:
     QVariantList discoveredScales() const;
     bool scaleConnectionFailed() const { return m_scaleConnectionFailed; }
     bool hasSavedScale() const { return !m_savedScaleAddress.isEmpty(); }
+    // For WiFi scale selections: the hostname to dial. Set by connectToScale()
+    // and tryDirectConnectToScale() immediately before emitting scaleDiscovered()
+    // with a default-constructed device + type=="decent-wifi". The main.cpp
+    // handler reads this after the factory creates the DecentScaleWifi driver.
+    QString pendingWifiHostname() const { return m_pendingWifiHostname; }
     bool hasSavedDE1() const { return !m_savedDE1Address.isEmpty(); }
     bool linuxBleCapabilityMissing() const { return BleCapability::linuxMissing(); }
     QString linuxBleSetcapCommand() const { return BleCapability::linuxSetcapCommand(); }
@@ -332,6 +350,10 @@ signals:
     void scalesChanged();
     void scaleConnectionFailedChanged();
     void de1Discovered(const QBluetoothDeviceInfo& device);
+    // For BLE entries `device` carries the real QBluetoothDeviceInfo. For
+    // WiFi entries (type == "decent-wifi") `device` is default-constructed
+    // and the routing hostname lives in pendingWifiHostname() — the main.cpp
+    // handler reads it after the factory creates the scale.
     void scaleDiscovered(const QBluetoothDeviceInfo& device, const QString& type);
     void errorOccurred(const QString& error);
     void de1LogMessage(const QString& message);
@@ -374,7 +396,8 @@ private:
 #endif
     QBluetoothDeviceDiscoveryAgent* m_discoveryAgent = nullptr;
     QList<QBluetoothDeviceInfo> m_de1Devices;
-    QList<QPair<QBluetoothDeviceInfo, QString>> m_scales;  // device, type
+    QList<ScaleEntry> m_scales;
+    WifiScaleDiscovery* m_wifiDiscovery = nullptr;  // Lazy-created on first scanForDevices
     bool m_scanning = false;
     bool m_permissionRequested = false;
     bool m_scanningForScales = false;  // True when scanning for scales (user or auto-reconnect)
@@ -387,6 +410,11 @@ private:
     QString m_savedScaleAddress;
     QString m_savedScaleType;
     QString m_savedScaleName;
+
+    // Hostname carried with the most recent scaleDiscovered emission for a
+    // WiFi scale (so main.cpp can route the connect after the factory creates
+    // the driver). Set immediately before emitting, read immediately after.
+    QString m_pendingWifiHostname;
 
     // Saved DE1 for direct wake connection
     QString m_savedDE1Address;

@@ -63,7 +63,11 @@
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>This app runs a local web server so you can edit themes and view shot data from a browser on the same network.</string>
+    <string>This app runs a local web server so you can edit themes and view shot data from a browser on the same network, and discovers the Half Decent Scale on your local network.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_http._tcp</string>
+    </array>
     <key>UIBackgroundModes</key>
     <array>
         <string>bluetooth-central</string>
