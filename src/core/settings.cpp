@@ -317,21 +317,6 @@ QString Settings::scaleType() const {
     return m_settings.value("scale/type", "decent").toString();
 }
 
-QString Settings::wifiScaleIp(const QString& hostname) const {
-    if (hostname.isEmpty()) return QString();
-    return m_settings.value(QStringLiteral("scale/wifiIp/") + hostname, QString()).toString();
-}
-
-void Settings::setWifiScaleIp(const QString& hostname, const QString& ip) {
-    if (hostname.isEmpty()) return;
-    const QString key = QStringLiteral("scale/wifiIp/") + hostname;
-    if (ip.isEmpty()) {
-        m_settings.remove(key);
-    } else if (m_settings.value(key).toString() != ip) {
-        m_settings.setValue(key, ip);
-    }
-}
-
 void Settings::setScaleType(const QString& type) {
     if (scaleType() != type) {
         m_settings.setValue("scale/type", type);

@@ -15,10 +15,14 @@ class QWebSocket;
  * objects { "grams": <number>, "ms": <number> } emitted by the firmware.
  * Typed frames (status / button / power / rate) opt-in via "events on".
  *
- * Reports type() == "decent" so downstream code that branches on scale
- * type treats this driver and DecentScale (BLE) as the same physical
- * product. transportType() returns "wifi" for paths that need to
- * distinguish.
+ * Reports type() == "decent-wifi" so the scale-creation hot-swap path in
+ * main.cpp correctly distinguishes a BLE Decent reconnect from a WiFi one
+ * (otherwise the type-change guard would always recreate the driver, see
+ * #1246 review #6). Downstream code that treats the WiFi and BLE drivers
+ * as the same physical product should resolve via ScaleFactory::resolveScaleType
+ * or branch on the "decent" prefix (e.g., grinder-calibration baseline in
+ * settings_calibration.cpp accepts both). transportType() returns "wifi"
+ * for paths that need to distinguish explicitly.
  */
 class DecentScaleWifi : public ScaleDevice {
     Q_OBJECT
@@ -36,7 +40,7 @@ public:
     void connectToHost(const QString& hostname);
 
     QString name() const override { return m_name; }
-    QString type() const override { return QStringLiteral("decent"); }
+    QString type() const override { return QStringLiteral("decent-wifi"); }
     QString transportType() const { return QStringLiteral("wifi"); }
 
     // mDNS-resilience hooks. Production wires these to Settings::wifiScaleIp.
@@ -98,6 +102,7 @@ private:
     bool m_currentTargetIsHostname = false;
     bool m_recognized = false;      // Set on first valid HDS frame; resets on each attempt.
     bool m_triedHostnameFallback = false;  // Prevents looping if hostname fallback also fails.
+    bool m_pendingHostnameFallback = false;  // Set in onRecognitionTimeout; consumed by onDisconnected.
 
     QString m_name = QStringLiteral("Decent Scale (WiFi)");
     QString m_firmwareVersion;   // cached per-connect; cleared on disconnect

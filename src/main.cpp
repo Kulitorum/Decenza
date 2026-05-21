@@ -1406,10 +1406,10 @@ int main(int argc, char *argv[])
                         // (Re-wire the cache callbacks each time — cheap, and
                         // ensures they reference the live Settings instance.)
                         wifi->setIpResolver([&settings](const QString& host) {
-                            return settings.wifiScaleIp(host);
+                            return settings.network()->wifiScaleIp(host);
                         });
                         wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
-                            settings.setWifiScaleIp(host, ip);
+                            settings.network()->setWifiScaleIp(host, ip);
                         });
                         wifi->connectToHost(bleManager.pendingWifiHostname());
                     }
@@ -1587,10 +1587,10 @@ int main(int argc, char *argv[])
                 // Wire the mDNS-resilience cache to Settings so a successful
                 // hostname connect persists the peer IP for next time.
                 wifi->setIpResolver([&settings](const QString& host) {
-                    return settings.wifiScaleIp(host);
+                    return settings.network()->wifiScaleIp(host);
                 });
                 wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
-                    settings.setWifiScaleIp(host, ip);
+                    settings.network()->setWifiScaleIp(host, ip);
                 });
                 wifi->connectToHost(hostname);
             }

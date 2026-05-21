@@ -421,6 +421,7 @@ double SettingsCalibration::sensorLag(const QString& scaleType)
     if (scaleType == "Decent Scale")     return 0.38;
     if (scaleType == "Skale")            return 0.38;
     if (scaleType == "decent")           return 0.38;  // QSettings default before any scale is paired
+    if (scaleType == "decent-wifi")      return 0.38;  // WiFi variant of the same physical scale
     qWarning() << "[SAW] Unknown scale type for sensorLag:" << scaleType << "- using default 0.38s";
     return 0.38;  // de1app default for unknown/unlisted scales
 }

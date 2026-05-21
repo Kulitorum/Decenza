@@ -41,7 +41,7 @@ public:
     void setSimulationMode(bool enabled);
 
     // The underlying BLE transport, when this scale is BLE-backed (null for
-    // FlowScale / USB / simulated). Set once by ScaleFactory at creation —
+    // FlowScale / USB / WiFi / simulated). Set once by ScaleFactory at creation —
     // the single scale-agnostic chokepoint, so no per-driver code is needed.
     // Lets the connection-priority detection (wired in main.cpp) reach the
     // shared transport without exposing each driver's private member.

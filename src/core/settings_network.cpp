@@ -587,3 +587,18 @@ QVariantMap SettingsNetwork::getItemProperties(const QString& itemId) const {
     }
     return QVariantMap();
 }
+
+QString SettingsNetwork::wifiScaleIp(const QString& hostname) const {
+    if (hostname.isEmpty()) return QString();
+    return m_settings.value(QStringLiteral("scale/wifiIp/") + hostname, QString()).toString();
+}
+
+void SettingsNetwork::setWifiScaleIp(const QString& hostname, const QString& ip) {
+    if (hostname.isEmpty()) return;
+    const QString key = QStringLiteral("scale/wifiIp/") + hostname;
+    if (ip.isEmpty()) {
+        m_settings.remove(key);
+    } else if (m_settings.value(key).toString() != ip) {
+        m_settings.setValue(key, ip);
+    }
+}

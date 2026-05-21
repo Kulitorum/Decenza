@@ -98,6 +98,12 @@ public:
     Q_INVOKABLE void openDiscussUrl(const QString& url);
     Q_INVOKABLE void dismissDiscussOverlay();
 
+    // WiFi scale IP cache (mDNS resilience). Keyed by bare hostname
+    // (no "wifi:" prefix). Empty string means "no entry — go straight
+    // to hostname resolution".
+    Q_INVOKABLE QString wifiScaleIp(const QString& hostname) const;
+    Q_INVOKABLE void setWifiScaleIp(const QString& hostname, const QString& ip);
+
     // Layout configuration (dynamic IdlePage layout)
     QString layoutConfiguration() const;
     void setLayoutConfiguration(const QString& json);

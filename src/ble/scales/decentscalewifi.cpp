@@ -51,6 +51,7 @@ void DecentScaleWifi::connectToHost(const QString& hostname) {
     m_userInitiatedShutdown = false;
     m_reconnectAttempted = false;
     m_triedHostnameFallback = false;
+    m_pendingHostnameFallback = false;
 
     // Try the cached IP first if we have one. The recognition-timer guard
     // catches the case where DHCP has reassigned the IP and we're connecting
@@ -103,30 +104,35 @@ void DecentScaleWifi::onDisconnected() {
         ? QString("WebSocket disconnected (expected: %1)").arg(m_lastPowerEventReason)
         : QStringLiteral("WebSocket disconnected (unexpected)");
     WIFI_LOG(disconnectLog);
-    setConnected(false);
 
-    // Clear per-connect state so the next connect re-captures it fresh.
-    const bool wasExpected = m_userInitiatedShutdown;
-    m_firmwareVersion.clear();
-    m_lastPowerEventReason.clear();
-    m_lastPowerEventCode = -1;
-
-    // Skip reconnect if the user closed us, or the scale told us it was
-    // going down, or we already retried once this cycle.
-    if (wasExpected || m_reconnectAttempted) {
+    // Pending hostname fallback (cached IP didn't validate): the recognition
+    // timer marked this disconnect as the one we were waiting for. Run the
+    // fallback inline now that the socket has fully closed — event-driven,
+    // no zero-delay timer needed.
+    if (m_pendingHostnameFallback) {
+        m_pendingHostnameFallback = false;
         m_userInitiatedShutdown = false;
+        // Don't propagate the brief intermediate disconnect to consumers —
+        // the connection cycle is still in progress. setConnected(false) is
+        // skipped here; it will fire only if the hostname attempt also fails.
+        attemptTarget(m_hostname, /*isHostname=*/true);
         return;
     }
 
-    m_reconnectAttempted = true;
-    WIFI_LOG(QString("Scheduling single reconnect attempt in %1 ms").arg(kReconnectDelayMs));
-    QTimer::singleShot(kReconnectDelayMs, this, [this]() {
-        if (!m_hostname.isEmpty() && m_socket->state() == QAbstractSocket::UnconnectedState) {
-            const QUrl url(QStringLiteral("ws://%1/snapshot").arg(m_hostname));
-            WIFI_LOG(QString("Reconnect attempt: %1").arg(url.toString()));
-            m_socket->open(url);
-        }
-    });
+    setConnected(false);
+
+    // Clear per-connect state so the next connect re-captures it fresh.
+    m_firmwareVersion.clear();
+    m_lastPowerEventReason.clear();
+    m_lastPowerEventCode = -1;
+    m_userInitiatedShutdown = false;
+
+    // Reconnect is owned by main.cpp's scaleReconnectTimer (it already runs
+    // an exponential-backoff loop against settings.scaleAddress() and will
+    // re-fire BLEManager::tryDirectConnectToScale, which routes back through
+    // this driver). Keeping a second reconnect path inside the driver would
+    // race with that timer and require a debounce-style delay — neither is
+    // appropriate per the project's "no timer-as-guard" rule.
 }
 
 void DecentScaleWifi::onTextMessageReceived(const QString& message) {
@@ -260,17 +266,12 @@ void DecentScaleWifi::onRecognitionTimeout() {
     if (!m_currentTargetIsHostname && !m_triedHostnameFallback) {
         WIFI_LOG(QString("Cached IP %1 didn't validate as HDS — falling back to hostname %2")
                  .arg(m_currentTarget, m_hostname));
-        // Mark this disconnect as expected so onDisconnected doesn't queue
-        // the 3 s reconnect attempt. We're going to re-open immediately.
+        // Hand the fallback off to onDisconnected via an event-driven flag:
+        // when the socket-close completes, onDisconnected sees the flag and
+        // runs attemptTarget(hostname) inline. No timer-as-guard.
+        m_pendingHostnameFallback = true;
         m_userInitiatedShutdown = true;
         m_socket->close();
-        // Re-attempt via hostname on the next event-loop turn so the close
-        // settles before we open again.
-        const QString hostname = m_hostname;
-        QTimer::singleShot(0, this, [this, hostname]() {
-            m_userInitiatedShutdown = false;
-            attemptTarget(hostname, /*isHostname=*/true);
-        });
         return;
     }
 

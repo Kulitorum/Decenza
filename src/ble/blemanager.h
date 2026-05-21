@@ -361,6 +361,10 @@ signals:
     void flowScaleFallback();  // Emitted when no physical scale found, using FlowScale
     void scaleDisconnected();  // Emitted when physical scale disconnects
     void scanStarted();  // Emitted when BLE scan actually begins
+    // Emitted when a saved WiFi scale fails to connect within the connection
+    // timeout and BLEManager has started a BLE scan as a fallback. UI binds
+    // this to a toast/banner so the user knows what's happening.
+    void wifiUnreachableFallingBackToBle(const QString& hostname);
     void disabledChanged();
     void disconnectScaleRequested();  // Emitted when switching to a different scale, BLE is disabled, or saved scale is cleared
     void refractometersChanged();
@@ -384,6 +388,18 @@ private:
     void requestBluetoothPermission();
     void doStartScan();
     void ensureDiscoveryAgent();
+    // Lazy-create m_wifiDiscovery once with a single unified scaleFound
+    // handler. Both scan-for-devices and try-direct-connect paths call this
+    // before invoking probe(); registering the lambda only on first call
+    // (previously done at TWO sites with DIFFERENT lambdas — whichever ran
+    // first wiped out the other, breaking either the list-populate path or
+    // the auto-reconnect path depending on order).
+    void ensureWifiDiscovery();
+    // WiFi-saved-scale fallback: when the WiFi connection timer fires without
+    // a successful connect, kick off a BLE scan that auto-connects to the
+    // first Decent-family scale found. Toast surfaces the fallback to the
+    // user. Cleared on the next successful scale connect.
+    void beginWifiFallbackToBleScan();
 
 #ifndef Q_OS_IOS
     QBluetoothLocalDevice* m_localDevice = nullptr;
@@ -398,6 +414,11 @@ private:
     QList<QBluetoothDeviceInfo> m_de1Devices;
     QList<ScaleEntry> m_scales;
     WifiScaleDiscovery* m_wifiDiscovery = nullptr;  // Lazy-created on first scanForDevices
+    // WiFi-to-BLE fallback: set when m_scaleConnectionTimer fires for a saved
+    // WiFi scale and we start a BLE scan as a fallback. Lets onDeviceDiscovered
+    // auto-connect to a discovered Decent BLE scale even though the saved
+    // address is a WiFi one. Cleared once a scale connects.
+    bool m_wifiFallbackToBleActive = false;
     bool m_scanning = false;
     bool m_permissionRequested = false;
     bool m_scanningForScales = false;  // True when scanning for scales (user or auto-reconnect)
