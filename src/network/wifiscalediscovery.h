@@ -36,7 +36,13 @@ public:
     /**
      * True iff a probe is currently in flight.
      */
-    bool isProbing() const { return m_lookupId != -1; }
+    bool isProbing() const {
+#ifdef Q_OS_ANDROID
+        return m_androidInFlight;
+#else
+        return m_lookupId != -1;
+#endif
+    }
 
 signals:
     void scaleFound(const QString& hostname, const QString& resolvedAddress);
@@ -45,7 +51,15 @@ signals:
 private:
     void cancelInFlight();
 
-    int m_lookupId = -1;
+    int m_lookupId = -1;  // QHostInfo lookup id on non-Android paths
     QString m_currentHostname;
     QTimer* m_timeoutTimer = nullptr;
+
+#ifdef Q_OS_ANDROID
+    // Android uses NsdManager via a JNI helper on a worker thread instead of
+    // QHostInfo (the stock resolver doesn't do mDNS). A monotonically
+    // increasing generation lets us drop late callbacks after cancel/timeout.
+    bool m_androidInFlight = false;
+    int m_androidGeneration = 0;
+#endif
 };
