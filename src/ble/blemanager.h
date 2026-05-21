@@ -88,6 +88,12 @@ public:
     // with a default-constructed device + type=="decent-wifi". The main.cpp
     // handler reads this after the factory creates the DecentScaleWifi driver.
     QString pendingWifiHostname() const { return m_pendingWifiHostname; }
+    // True between beginWifiFallbackToBleScan and the next successful connect.
+    // main.cpp reads this when a BLE Decent scale connects during the fallback
+    // window — in that case the user's saved WiFi primary address is preserved
+    // (the BLE connect is treated as a temporary substitute, not a permanent
+    // primary-scale change).
+    bool isWifiFallbackToBleActive() const { return m_wifiFallbackToBleActive; }
     bool hasSavedDE1() const { return !m_savedDE1Address.isEmpty(); }
     bool linuxBleCapabilityMissing() const { return BleCapability::linuxMissing(); }
     QString linuxBleSetcapCommand() const { return BleCapability::linuxSetcapCommand(); }

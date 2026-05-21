@@ -56,5 +56,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(tst_WifiScaleDiscovery)
+QTEST_GUILESS_MAIN(tst_WifiScaleDiscovery)
 #include "tst_wifiscalediscovery.moc"

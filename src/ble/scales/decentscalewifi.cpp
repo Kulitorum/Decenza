@@ -49,7 +49,6 @@ void DecentScaleWifi::connectToDevice(const QBluetoothDeviceInfo& device) {
 void DecentScaleWifi::connectToHost(const QString& hostname) {
     m_hostname = hostname;
     m_userInitiatedShutdown = false;
-    m_reconnectAttempted = false;
     m_triedHostnameFallback = false;
     m_pendingHostnameFallback = false;
 
@@ -228,8 +227,9 @@ void DecentScaleWifi::handlePowerFrame(const QJsonObject& obj) {
 
     m_lastPowerEventReason = reason;
     m_lastPowerEventCode = reasonCode;
-    // Tag this disconnect as expected so onDisconnected suppresses the
-    // 3 s reconnect attempt — the scale told us it's going down.
+    // Mark the imminent disconnect as expected so onDisconnected logs it
+    // accordingly instead of as an unexpected drop. Reconnect itself is
+    // owned by main.cpp's scaleReconnectTimer.
     m_userInitiatedShutdown = true;
     WIFI_WARN(QString("Scale shut down: %1 (code %2)").arg(reason).arg(reasonCode));
     emit errorOccurred(QStringLiteral("Scale shut down: %1").arg(reason));

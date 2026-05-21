@@ -834,30 +834,40 @@ void BLEManager::onScaleConnectionTimeout() {
 }
 
 void BLEManager::beginWifiFallbackToBleScan() {
-    m_wifiFallbackToBleActive = true;
     const QString hostname = m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)
         ? m_savedScaleAddress.mid(QStringLiteral("wifi:").size())
         : QString();
+
+    // Bail BEFORE arming the fallback state if Bluetooth is unavailable —
+    // otherwise m_wifiFallbackToBleActive would stay true and the next
+    // user-initiated scan could trip the isFallbackCandidate gate in
+    // onDeviceDiscovered, auto-connecting to any Decent BLE scale found.
+    if (!isBluetoothAvailable()) {
+        qWarning() << "BLEManager: WiFi fallback to BLE skipped - Bluetooth unavailable";
+        appendScaleLog(QString("WiFi scale %1 unreachable and Bluetooth unavailable").arg(hostname));
+        m_scaleConnectionFailed = true;
+        emit scaleConnectionFailedChanged();
+        if (!m_flowScaleFallbackEmitted) {
+            m_flowScaleFallbackEmitted = true;
+            emit flowScaleFallback();
+        }
+        return;
+    }
+
+    m_wifiFallbackToBleActive = true;
     appendScaleLog(QString("WiFi scale %1 unreachable — trying Bluetooth").arg(hostname));
     emit wifiUnreachableFallingBackToBle(hostname);
 
     // Re-arm the connection timer so the fallback BLE scan has a bounded
-    // time budget too — onScaleConnectionTimeout will trip the FlowScale
-    // fallback on the second timeout (the guard above ensures we don't
-    // loop back into another WiFi-fallback cycle).
+    // time budget — onScaleConnectionTimeout trips the FlowScale fallback
+    // on the second timeout (the m_wifiFallbackToBleActive guard prevents
+    // looping back into another WiFi-fallback cycle).
     m_scaleConnectionTimer->start();
 
-    // Start scanning for BLE devices. onDeviceDiscovered will see a Decent
-    // BLE scale, observe m_wifiFallbackToBleActive, and emit scaleDiscovered
+    // Start scanning for BLE devices. onDeviceDiscovered sees a Decent BLE
+    // scale, observes m_wifiFallbackToBleActive, and emits scaleDiscovered
     // even though the saved address (wifi:...) doesn't match this BLE device.
     m_scanningForScales = true;
-    if (!isBluetoothAvailable()) {
-        qWarning() << "BLEManager: WiFi fallback to BLE skipped - Bluetooth unavailable";
-        appendScaleLog("Bluetooth unavailable — cannot fall back from WiFi");
-        // No further attempt; let the next onScaleConnectionTimeout cycle
-        // run the FlowScale fallback.
-        return;
-    }
     if (!m_scanning) {
         startScan();
     }

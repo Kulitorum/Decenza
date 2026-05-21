@@ -1435,9 +1435,26 @@ int main(int argc, char *argv[])
                                          : getDeviceIdentifier(device);
         const QString displayName = isWifi ? QStringLiteral("Decent Scale (WiFi)")
                                             : device.name();
+        // Always track this scale in the known-scales list (useful for the
+        // multi-scale picker and per-scale state).
         settings.addKnownScale(deviceId, type, displayName);
-        settings.setPrimaryScale(deviceId);
-        bleManager.setSavedScaleAddress(deviceId, type, displayName);
+        // BUT preserve the user's chosen primary when this connect is a
+        // temporary WiFi→BLE fallback: BLEManager's m_wifiFallbackToBleActive
+        // is true only between the WiFi-timeout fallback trigger and the next
+        // successful connect. In that window we connect to the discovered BLE
+        // Decent scale but DON'T rewrite the saved primary address — the user
+        // explicitly chose WiFi and the fallback is meant to be temporary, so
+        // the next app launch should retry WiFi first.
+        const bool isFallbackConnect = !isWifi && bleManager.isWifiFallbackToBleActive();
+        if (!isFallbackConnect) {
+            settings.setPrimaryScale(deviceId);
+            bleManager.setSavedScaleAddress(deviceId, type, displayName);
+        } else {
+            qDebug() << "Scale connected via WiFi-to-BLE fallback — preserving saved WiFi primary"
+                     << settings.scaleAddress();
+            bleManager.appendScaleLog(
+                QString("WiFi fallback connected to %1 — saved WiFi primary preserved").arg(displayName));
+        }
 
         // Switch MachineState and TimingController to use physical scale instead of FlowScale
         machineState.setScale(physicalScale.get());

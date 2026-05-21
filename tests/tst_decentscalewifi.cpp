@@ -422,5 +422,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(tst_DecentScaleWifi)
+QTEST_GUILESS_MAIN(tst_DecentScaleWifi)
 #include "tst_decentscalewifi.moc"

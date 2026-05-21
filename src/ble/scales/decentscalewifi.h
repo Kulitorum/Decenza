@@ -18,11 +18,13 @@ class QWebSocket;
  * Reports type() == "decent-wifi" so the scale-creation hot-swap path in
  * main.cpp correctly distinguishes a BLE Decent reconnect from a WiFi one
  * (otherwise the type-change guard would always recreate the driver, see
- * #1246 review #6). Downstream code that treats the WiFi and BLE drivers
- * as the same physical product should resolve via ScaleFactory::resolveScaleType
- * or branch on the "decent" prefix (e.g., grinder-calibration baseline in
- * settings_calibration.cpp accepts both). transportType() returns "wifi"
- * for paths that need to distinguish explicitly.
+ * #1246 review #6). NOTE: ScaleFactory::resolveScaleType maps "decent" and
+ * "decent-wifi" to DIFFERENT enum values (DecentScale vs DecentScaleWifi),
+ * so it cannot be used to unify the two transports — downstream code that
+ * wants "same physical product" semantics must branch on the string with
+ * explicit cases for both (e.g., grinder-calibration baseline in
+ * settings_calibration.cpp:423-424). transportType() returns "wifi" for
+ * paths that need to distinguish transport explicitly.
  */
 class DecentScaleWifi : public ScaleDevice {
     Q_OBJECT
@@ -43,9 +45,10 @@ public:
     QString type() const override { return QStringLiteral("decent-wifi"); }
     QString transportType() const { return QStringLiteral("wifi"); }
 
-    // mDNS-resilience hooks. Production wires these to Settings::wifiScaleIp.
-    // Tests inject mock callbacks. Both default to no-ops (driver works
-    // standalone — no cache, plain hostname connect).
+    // mDNS-resilience hooks. Production wires these to
+    // SettingsNetwork::wifiScaleIp via `settings.network()->wifiScaleIp(...)`
+    // (see main.cpp). Tests inject mock callbacks. Both default to no-ops
+    // (driver works standalone — no cache, plain hostname connect).
     using IpResolver = std::function<QString(const QString& hostname)>;
     using IpCacheUpdate = std::function<void(const QString& hostname, const QString& ip)>;
     void setIpResolver(IpResolver resolver) { m_ipResolver = std::move(resolver); }
@@ -91,7 +94,6 @@ private:
     // cannot collide with the BLE driver's 0..0xFF single-byte values.
     static int encodeButton(int buttonNumber, int pressCode);
 
-    static constexpr int kReconnectDelayMs = 3000;
     static constexpr int kRecognitionTimeoutMs = 5000;
     static constexpr int kWifiButtonFlag = 0x1000;
 
@@ -108,8 +110,12 @@ private:
     QString m_firmwareVersion;   // cached per-connect; cleared on disconnect
     QString m_lastPowerEventReason;
     int m_lastPowerEventCode = -1;
-    bool m_userInitiatedShutdown = false;  // Set by power-frame handler; suppresses reconnect
-    bool m_reconnectAttempted = false;     // Single-attempt reconnect (no exponential backoff)
+    // Set on intentional shutdown paths (handlePowerFrame, recognition-timeout
+    // fallback, disconnectFromScale, 503 server-busy). Lets onDisconnected
+    // recognise the close as expected — currently used only for the log line
+    // and to drive the m_pendingHostnameFallback path; reconnect itself is
+    // owned by main.cpp's scaleReconnectTimer.
+    bool m_userInitiatedShutdown = false;
 
     IpResolver m_ipResolver;     // hostname → cached IP (or empty)
     IpCacheUpdate m_ipCacheUpdate;  // hostname, ip → side-effect
