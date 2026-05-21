@@ -331,6 +331,7 @@ set(SOURCES
     src/mcp/mcptools_agent.cpp
     src/mcp/mcptools_ai.cpp
     src/network/mqttclient.cpp
+    src/network/mdnsresolver.cpp
     src/network/webdebuglogger.cpp
     src/network/locationprovider.cpp
     src/network/shotreporter.cpp
@@ -484,6 +485,7 @@ set(HEADERS
     src/models/flowcalibrationmodel.h
     src/network/shotserver.h
     src/network/mqttclient.h
+    src/network/mdnsresolver.h
     src/network/webdebuglogger.h
     src/network/locationprovider.h
     src/network/shotreporter.h
