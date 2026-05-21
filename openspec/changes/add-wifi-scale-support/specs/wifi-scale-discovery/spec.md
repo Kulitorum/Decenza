@@ -112,7 +112,7 @@ The saved primary scale address SHALL encode the transport so that BLE and WiFi 
 - **WHEN** the saved primary scale address is `"wifi:hds.local"` and a BLE scan discovers a Decent Scale at a MAC address
 - **THEN** the BLE entry does not auto-connect (the saved address does not match)
 
-### Requirement: One-client server-busy condition surfaces clearly
+### Requirement: Concurrent-client-cap server-busy condition surfaces clearly
 
 When the scale's firmware refuses a WebSocket upgrade because the concurrent-client cap is exceeded (HTTP 503 per the firmware behavior in `webserver.h` — current cap is 5 clients), the app SHALL surface a specific, user-readable error and NOT loop retry attempts.
 
@@ -120,17 +120,17 @@ When the scale's firmware refuses a WebSocket upgrade because the concurrent-cli
 - **WHEN** the WiFi scale driver attempts to open the WebSocket and the server returns 503
 - **THEN** the driver emits the error message "Another client is connected to the scale" and stops attempting to connect
 
-### Requirement: Reconnect on transient drop is single-attempt
+### Requirement: Reconnect on transient drop is owned by the app-level reconnect loop
 
-When an established WiFi WebSocket disconnects unexpectedly, the driver SHALL attempt one reconnect after a short delay and then stop, allowing the user to manually rescan.
+The WiFi driver SHALL NOT schedule reconnect attempts internally. On WebSocket `disconnected`, the driver calls `setConnected(false)` and returns. The app-level reconnect loop in `main.cpp` (the `scaleReconnectTimer`, gated on `settings.scaleAddress()` being non-empty) owns retry orchestration via `BLEManager::tryDirectConnectToScale()` → `DecentScaleWifi::connectToHost()`.
 
 #### Scenario: WebSocket disconnects mid-stream
 - **WHEN** the WiFi WebSocket emits `disconnected` after having been connected
-- **THEN** the driver schedules a single reconnect attempt approximately 3 seconds later
+- **THEN** the driver propagates the disconnect via `setConnected(false)` and does NOT schedule its own reconnect; the app-level `scaleReconnectTimer` schedules the retry
 
 #### Scenario: Reconnect also fails
-- **WHEN** the single scheduled reconnect attempt also disconnects or fails
-- **THEN** the driver does not schedule further attempts; the user can recover by rescanning
+- **WHEN** the app-level reconnect re-fires `connectToHost()` and that attempt also disconnects
+- **THEN** the driver again propagates `setConnected(false)`; the app-level retry loop applies its exponential-backoff schedule (5 s / 30 s / 60 s) before the next attempt
 
 ### Requirement: Weight pipeline auto-adapts to WiFi cadence
 

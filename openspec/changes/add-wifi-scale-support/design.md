@@ -152,7 +152,7 @@ Spike result determines task 6.
 - `disconnected` → `setConnected(false)`. The hot-swap path in `main.cpp` already handles reconnection via the normal scale-swap machinery.
 - `error` → log via `logMessage`, surface via `errorOccurred`.
 
-Reconnect strategy: on `disconnected` while we still have a saved WiFi scale, schedule a single reconnect attempt after 3 s. If that fails, the user can rescan. **No exponential backoff loop** — matches the BLE retry stance (don't fight the link; surface and stop).
+Reconnect strategy: the driver itself does **not** schedule any reconnect — on `disconnected` it just calls `setConnected(false)` and exits. Reconnect is owned by `main.cpp`'s `scaleReconnectTimer` (a 5 s / 30 s / 60 s exponential-backoff loop, gated on `settings.scaleAddress()` being non-empty), which re-fires `BLEManager::tryDirectConnectToScale()` → `DecentScaleWifi::connectToHost()`. Keeping the reconnect path inside the driver would have required a debounce timer (forbidden by the project's "no timer-as-guard" rule) and would race with the main.cpp retry loop. The earlier in-driver 3 s reconnect was removed for these reasons.
 
 Server-busy handling: if the WS upgrade fails with HTTP 503 (firmware-side 5-client cap exceeded, see `webserver.h`), emit a specific error message ("Another client is connected to the scale") so the toast is clear. With the 5-client cap this should be very rare in practice; the path is kept as defensive code.
 

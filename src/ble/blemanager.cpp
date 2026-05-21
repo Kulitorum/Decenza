@@ -579,6 +579,9 @@ void BLEManager::clearDevices() {
 }
 
 void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
+    // BLE is actually delivering devices → permission is healthy.
+    m_anyBleSuccessThisSession = true;
+
     // Check if it's a DE1
     if (isDE1Device(device)) {
         // Avoid duplicates
@@ -730,6 +733,26 @@ void BLEManager::onScanError(QBluetoothDeviceDiscoveryAgent::Error error) {
             errorMsg = "Location services are turned off";
             break;
         case QBluetoothDeviceDiscoveryAgent::MissingPermissionsError:
+            // On macOS Tahoe + Qt 6.11, MissingPermissionsError fires
+            // transiently after app-resume even when the user's Bluetooth
+            // permission is still granted — CoreBluetooth's permission state
+            // takes a moment to re-establish post-suspend. If BLE has been
+            // working this session, treat the error as a transient hiccup:
+            // log it, suppress the popup, let the next scan tick retry.
+            if (m_anyBleSuccessThisSession) {
+                qWarning() << "[BLE] Transient MissingPermissionsError "
+                              "(permission previously OK this session — "
+                              "likely CoreBluetooth post-resume hiccup); "
+                              "not surfacing to user";
+                appendScaleLog("Bluetooth scan transient error (ignored — permission OK)");
+                m_scanning = false;
+                m_scanningForScales = false;
+                m_userInitiatedScaleScan = false;
+                emit scanningChanged();
+                return;  // Skip the user-visible errorOccurred path
+            }
+            // BLE has NEVER worked this session — could be a real permission
+            // denial. Fall through to the normal popup.
             errorMsg = "Bluetooth permission denied. Please allow Bluetooth access in Settings.";
             break;
         default:
@@ -739,10 +762,26 @@ void BLEManager::onScanError(QBluetoothDeviceDiscoveryAgent::Error error) {
     qWarning() << "BLEManager scan error:" << errorMsg << "code:" << static_cast<int>(error);
     emit de1LogMessage(QString("Error: %1").arg(errorMsg));
     appendScaleLog(QString("Error: %1").arg(errorMsg));
-    emit errorOccurred(errorMsg);
+    // Debounce the user-visible popup: scan errors from the refractometer/
+    // scale auto-reconnect cycle would otherwise re-fire the same error toast
+    // every ~30 s (e.g. macOS Tahoe sometimes returns MissingPermissionsError
+    // for QBluetoothDeviceDiscoveryAgent after sleep/wake — the user shouldn't
+    // see the same dialog 20+ times in a row). Pop it once per distinct error
+    // message; reset when something successfully connects (handled in
+    // onScaleConnectedChanged + the DE1 connect path).
+    if (errorMsg != m_lastScanErrorShown) {
+        m_lastScanErrorShown = errorMsg;
+        emit errorOccurred(errorMsg);
+    }
     m_scanning = false;
     m_scanningForScales = false;
     m_userInitiatedScaleScan = false;
+    // Clear any in-flight WiFi-to-BLE fallback — the scan that was supposed
+    // to find a substitute BLE Decent scale just errored out, so the fallback
+    // attempt is over. Leaving the flag armed would silently demote the
+    // user's NEXT scale pick (BLE candidate would be classified as a
+    // "temporary fallback connect" by main.cpp).
+    m_wifiFallbackToBleActive = false;
     emit scanningChanged();
 }
 
@@ -796,6 +835,8 @@ void BLEManager::onScaleConnectedChanged() {
         m_directConnectInProgress = false;
         m_directConnectAddress.clear();
         m_wifiFallbackToBleActive = false;  // Reset for the next saved-scale cycle
+        m_lastScanErrorShown.clear();       // Healthy state — allow a future fresh scan error to pop again
+        m_anyBleSuccessThisSession = true;  // Permission proven good (WiFi scales hit this too — see note below)
         m_flowScaleFallbackEmitted = false;  // Allow dialog again if scale disconnects and reconnect fails
         if (m_scaleConnectionFailed) {
             m_scaleConnectionFailed = false;
@@ -1086,6 +1127,12 @@ void BLEManager::scanForDevices() {
     // Set flags AFTER stopScan (which clears them)
     m_scanningForScales = true;
     m_userInitiatedScaleScan = true;
+    // A user-initiated scan invalidates any in-flight WiFi-to-BLE fallback —
+    // the user is explicitly choosing what to connect to. If we left the flag
+    // armed, the next discovered Decent BLE scale would be silently treated
+    // as a "temporary fallback" and main.cpp would skip persisting it as the
+    // primary, demoting the user's explicit pick.
+    m_wifiFallbackToBleActive = false;
     startScan();
 
     // Fire the WiFi mDNS probe in parallel with the BLE scan. On-demand only;
@@ -1195,9 +1242,10 @@ void BLEManager::tryDirectConnectToScale() {
         ensureWifiDiscovery();
         m_wifiFallbackToBleActive = false;          // Reset per attempt
         m_scaleConnectionTimer->start();            // Fires onScaleConnectionTimeout if WiFi doesn't connect
-        // Longer mDNS timeout on the saved-scale path (~5 s) than the user
-        // scan (~2 s) so a slightly slow resolver still wins before the
-        // 20-second connection timer fires.
+        // 5 s mDNS timeout, matching the user-initiated scan path — empirically
+        // the HDS mDNS responder regularly takes 2-4 s on first contact (ESP32
+        // wake from power-save), and the 20 s connection timer above gives the
+        // probe a comfortable window before the WiFi-to-BLE fallback engages.
         m_wifiDiscovery->probe(hostname, 5000);
         return;
     }

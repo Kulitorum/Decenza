@@ -110,11 +110,14 @@ private:
     QString m_firmwareVersion;   // cached per-connect; cleared on disconnect
     QString m_lastPowerEventReason;
     int m_lastPowerEventCode = -1;
-    // Set on intentional shutdown paths (handlePowerFrame, recognition-timeout
-    // fallback, disconnectFromScale, 503 server-busy). Lets onDisconnected
-    // recognise the close as expected — currently used only for the log line
-    // and to drive the m_pendingHostnameFallback path; reconnect itself is
-    // owned by main.cpp's scaleReconnectTimer.
+    // Set on intentional shutdown paths so onDisconnected logs the close as
+    // expected and skips noisy follow-up handling. Five sites set this to
+    // true: disconnectFromScale (user close), handlePowerFrame (scale told
+    // us it's powering down), onRecognitionTimeout fallback branch (cached
+    // IP didn't validate → switching to hostname), onRecognitionTimeout
+    // give-up branch (hostname also failed), and onError (503 server-busy
+    // and the mapped socket-error paths). Reconnect itself is owned by
+    // main.cpp's scaleReconnectTimer — this flag does not gate reconnect.
     bool m_userInitiatedShutdown = false;
 
     IpResolver m_ipResolver;     // hostname → cached IP (or empty)

@@ -425,6 +425,20 @@ private:
     // auto-connect to a discovered Decent BLE scale even though the saved
     // address is a WiFi one. Cleared once a scale connects.
     bool m_wifiFallbackToBleActive = false;
+    // Debounces user-visible scan-error popups. Without this, repeated scan
+    // attempts (refractometer auto-reconnect ticks, scale reconnect retries)
+    // would re-fire the same error toast indefinitely. We pop a given error
+    // string at most once between successful connects.
+    QString m_lastScanErrorShown;
+    // True once ANY BLE device (DE1 or scale) has been successfully seen this
+    // session. Used to suppress transient QBluetoothDeviceDiscoveryAgent
+    // MissingPermissionsError reports that fire on macOS Tahoe + Qt 6.11
+    // after app-resume — CoreBluetooth's permission grant takes a moment to
+    // re-establish post-suspend, even though the user-level grant is intact.
+    // If we've ever had BLE success this session, treat MissingPermissionsError
+    // as a transient hiccup (log only). If BLE has NEVER worked, it might be
+    // a real permission denial → still pop the dialog (existing behavior).
+    bool m_anyBleSuccessThisSession = false;
     bool m_scanning = false;
     bool m_permissionRequested = false;
     bool m_scanningForScales = false;  // True when scanning for scales (user or auto-reconnect)

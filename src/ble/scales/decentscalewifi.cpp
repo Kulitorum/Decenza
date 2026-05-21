@@ -78,7 +78,9 @@ void DecentScaleWifi::attemptTarget(const QString& target, bool isHostname) {
 }
 
 void DecentScaleWifi::disconnectFromScale() {
-    // User-initiated close. Mark so onDisconnected does NOT schedule reconnect.
+    // User-initiated close. Mark so onDisconnected logs it as expected.
+    // (Reconnect is owned by main.cpp's scaleReconnectTimer — this flag
+    // does not gate reconnect anymore; it just controls the log line.)
     m_userInitiatedShutdown = true;
     if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState) {
         m_socket->close();
@@ -233,14 +235,28 @@ void DecentScaleWifi::handlePowerFrame(const QJsonObject& obj) {
     const int reasonCode  = obj.value(QStringLiteral("reason_code")).toInt(-1);
     if (event != QStringLiteral("power_off")) return;
 
+    // Reject malformed power_off frames that omit BOTH the reason string and
+    // the numeric reason code — without either, we can't tell the user why
+    // the scale is going down, and marking the disconnect as "expected" would
+    // hide a potentially-real failure. Let the following unexpected disconnect
+    // log surface so it's diagnosable.
+    if (reason.isEmpty() && reasonCode == -1) {
+        WIFI_WARN("Malformed power_off frame (no reason or reason_code) — "
+                  "treating as unexpected disconnect");
+        return;
+    }
+
     m_lastPowerEventReason = reason;
     m_lastPowerEventCode = reasonCode;
     // Mark the imminent disconnect as expected so onDisconnected logs it
     // accordingly instead of as an unexpected drop. Reconnect itself is
     // owned by main.cpp's scaleReconnectTimer.
     m_userInitiatedShutdown = true;
-    WIFI_WARN(QString("Scale shut down: %1 (code %2)").arg(reason).arg(reasonCode));
-    emit errorOccurred(QStringLiteral("Scale shut down: %1").arg(reason));
+    const QString reasonText = reason.isEmpty()
+        ? QString("code %1").arg(reasonCode)
+        : reason;
+    WIFI_WARN(QString("Scale shut down: %1 (code %2)").arg(reasonText).arg(reasonCode));
+    emit errorOccurred(QStringLiteral("Scale shut down: %1").arg(reasonText));
 }
 
 void DecentScaleWifi::handleRateFrame(const QJsonObject& obj) {
@@ -337,14 +353,43 @@ void DecentScaleWifi::sendKeepAlive() {
 }
 
 void DecentScaleWifi::onError() {
+    const QAbstractSocket::SocketError err = m_socket
+        ? m_socket->error() : QAbstractSocket::UnknownSocketError;
     const QString errStr = m_socket ? m_socket->errorString() : QStringLiteral("<no socket>");
-    WIFI_WARN(QString("WebSocket error: %1").arg(errStr));
+    WIFI_WARN(QString("WebSocket error: %1 (code %2)").arg(errStr).arg(static_cast<int>(err)));
 
-    // 503 detection — firmware refuses additional clients per webserver.h.
-    // Qt's WebSocket error path may surface this in errorString().
+    // 503 detection — firmware refuses additional clients past its cap. Qt's
+    // WebSocket error path surfaces this in errorString().
     if (errStr.contains(QStringLiteral("503"))) {
         emit errorOccurred(QStringLiteral("Another client is connected to the scale"));
-        // Suppress reconnect on 503; don't fight for the slot.
         m_userInitiatedShutdown = true;
+        return;
+    }
+
+    // Map common socket-level failures to specific user-facing errors so the
+    // user gets actionable feedback within a second, instead of waiting for
+    // the 5 s recognition timeout to land on a misleading "scale did not
+    // respond as HDS" message when the real cause was network unreachable
+    // or DNS failure.
+    switch (err) {
+    case QAbstractSocket::HostNotFoundError:
+        emit errorOccurred(QStringLiteral("WiFi scale not found on the network "
+            "(mDNS resolution failed for ") + m_hostname + QStringLiteral(")"));
+        m_userInitiatedShutdown = true;
+        break;
+    case QAbstractSocket::ConnectionRefusedError:
+        emit errorOccurred(QStringLiteral("WiFi scale refused the connection — "
+            "is the scale powered on and on the same network?"));
+        m_userInitiatedShutdown = true;
+        break;
+    case QAbstractSocket::NetworkError:
+    case QAbstractSocket::SocketTimeoutError:
+        emit errorOccurred(QStringLiteral("Network error while connecting to WiFi scale"));
+        m_userInitiatedShutdown = true;
+        break;
+    default:
+        // Other errors fall through — the recognition timeout will catch the
+        // case where the WS upgrade hangs without a clean socket error.
+        break;
     }
 }
