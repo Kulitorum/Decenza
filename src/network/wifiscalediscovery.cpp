@@ -66,11 +66,15 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
                                        timeoutForWorker, generation]() {
         // Runs on a QThreadPool worker thread — JNI calls are allowed off the
         // main thread, and the Java helper blocks on a CountDownLatch.
+        // The Android Context is passed in because Qt's QtNative.getContext()
+        // is package-private and unavailable from our Java package.
+        QJniObject context = QNativeInterface::QAndroidApplication::context();
         QJniObject stemJ = QJniObject::fromString(stemForWorker);
         QJniObject ipJ = QJniObject::callStaticObjectMethod(
             "io/github/kulitorum/decenza_de1/WifiScaleNsdHelper",
             "discoverHdsBlocking",
-            "(Ljava/lang/String;I)Ljava/lang/String;",
+            "(Landroid/content/Context;Ljava/lang/String;I)Ljava/lang/String;",
+            context.object(),
             stemJ.object<jstring>(),
             jint(timeoutForWorker));
         const QString ip = ipJ.isValid() ? ipJ.toString() : QString();
