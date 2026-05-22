@@ -1284,9 +1284,10 @@ int main(int argc, char *argv[])
 
     // Armed only on the WiFi-primary / BLE-backup combination AND while the
     // machine is in a non-brewing phase. "Non-brewing" = Disconnected (no DE1,
-    // i.e. scale-only debugging), Sleep, Idle, Ready; any active phase
-    // (preheat/preinfusion/pour/steam/hot-water/flush/clean/descale) blocks the
-    // switch so the scale is never disrupted mid-operation.
+    // i.e. scale-only debugging), Sleep, Idle, Ready; ANY other phase (Heating,
+    // EspressoPreheating, Preinfusion, Pouring, Ending, Steaming, HotWater,
+    // Flushing, Refill, Descaling, Cleaning) blocks the switch so the scale is
+    // never disrupted mid-operation.
     auto onWifiBackupAndIdle = [&settings, &physicalScale, &machineState]() -> bool {
         if (!settings.scaleAddress().startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive))
             return false;                                  // primary isn't WiFi

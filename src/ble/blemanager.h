@@ -108,10 +108,14 @@ public:
     //  - probeWifiPrimaryReachable() does a NON-disruptive TCP liveness check of
     //    the WiFi scale's cached IP:80 (the HDS web/WS port). It never touches the
     //    live BLE link, so a failed probe leaves the working backup untouched.
-    //    Reports the outcome exactly once via wifiPrimaryReachable().
+    //    Reports the outcome via wifiPrimaryReachable() at most once per probe (a
+    //    probe superseded by a later call is cancelled without emitting).
     //  - switchToWifiPrimary() drops the current backup scale and connects the
     //    saved WiFi primary via the cached-IP fast path. Call only after a
     //    reachable probe (and a re-check that we're still idle on the backup).
+    //    Side effects: clears m_wifiFallbackToBleActive and starts
+    //    m_scaleConnectionTimer, so a failed reconnect routes back through the
+    //    WiFi->BLE fallback path.
     void probeWifiPrimaryReachable(const QString& ip);
     void switchToWifiPrimary();
 
@@ -397,8 +401,9 @@ signals:
     // timeout and BLEManager has started a BLE scan as a fallback. UI binds
     // this to a toast/banner so the user knows what's happening.
     void wifiUnreachableFallingBackToBle(const QString& hostname);
-    // Result of a probeWifiPrimaryReachable() call (emitted exactly once per
-    // probe). main.cpp switches back to the WiFi primary when reachable==true.
+    // Result of a probeWifiPrimaryReachable() call (emitted at most once per
+    // probe — zero times if a later probeWifiPrimaryReachable() supersedes it
+    // via cancelWifiProbe()). main.cpp switches to the WiFi primary when reachable.
     void wifiPrimaryReachable(bool reachable);
     void disabledChanged();
     void disconnectScaleRequested();  // Emitted when switching to a different scale, BLE is disabled, or saved scale is cleared

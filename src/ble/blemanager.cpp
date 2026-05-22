@@ -151,6 +151,7 @@ BLEManager::~BLEManager() {
     if (m_scanning) {
         stopScan();
     }
+    cancelWifiProbe();  // tear down any in-flight WiFi-primary reachability probe
     if (s_instance == this) s_instance = nullptr;
 }
 
@@ -1057,8 +1058,10 @@ void BLEManager::switchToWifiPrimary() {
     // scaleDiscovered emission then (re)creates the WiFi driver and connects via
     // connectToHost()'s cached-IP fast path (the IP we just probed reachable).
     // Arm the connection timer so a surprise failure (e.g. the cached IP was
-    // reassigned between probe and dial) still falls back to BLE via
-    // onScaleConnectionTimeout instead of leaving us on FlowScale.
+    // reassigned between probe and dial) is recovered: onScaleConnectionTimeout
+    // routes into beginWifiFallbackToBleScan() (a BLE scan) rather than leaving
+    // the scale stranded on FlowScale; FlowScale is reached only if that BLE
+    // scan also times out.
     m_wifiFallbackToBleActive = false;
     m_scaleConnectionTimer->start();
     emit disconnectScaleRequested();
