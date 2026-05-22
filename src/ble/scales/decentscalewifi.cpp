@@ -121,10 +121,11 @@ void DecentScaleWifi::attemptHostname() {
                     // ws://<host> (it would fail later with a misleading generic
                     // HostNotFound). This is a TRANSIENT connect failure — e.g. a
                     // power-cycled scale still booting/rejoining WiFi — so log it
-                    // but do NOT pop a modal: the auto-reconnect retries and
-                    // succeeds once the scale is back, and a genuinely-gone scale
-                    // is surfaced by the FlowScale-fallback notice once the connect
-                    // attempts give up. (See #1253.)
+                    // but do NOT pop a modal. The connect isn't abandoned —
+                    // BLEManager's connection timer (onScaleConnectionTimeout) is
+                    // the backstop: it retries, recovers a still-booting scale, and
+                    // for a genuinely-gone scale emits the FlowScale-fallback notice
+                    // that informs the user. (See #1253.)
                     WIFI_WARN(QString("mDNS resolution failed for %1 — no responder; "
                                       "not dialing (transient; auto-reconnect will retry)").arg(host));
                     m_userInitiatedShutdown = true;  // mark expected; reconnect owned by main.cpp
@@ -377,8 +378,9 @@ void DecentScaleWifi::onRecognitionTimeout() {
     }
 
     // Hostname attempt also failed recognition — give up THIS attempt. Transient
-    // connect failure: log it but don't pop a modal (the auto-reconnect retries;
-    // a genuinely-gone scale is surfaced by the FlowScale-fallback notice). #1253
+    // connect failure: log it but don't pop a modal. BLEManager's connection timer
+    // (onScaleConnectionTimeout) is the backstop — it retries, and a genuinely-gone
+    // scale is surfaced by the FlowScale-fallback notice. #1253
     WIFI_WARN(QStringLiteral("WiFi scale did not respond as HDS — giving up this attempt"));
     m_userInitiatedShutdown = true;  // mark expected; reconnect owned by main.cpp
     m_socket->abort();  // Same rationale as the fallback path above.
@@ -441,22 +443,20 @@ void DecentScaleWifi::onError() {
         return;
     }
 
-    // Map common socket-level failures to specific user-facing errors so the
-    // user gets actionable feedback within a second, instead of waiting for
-    // the 5 s recognition timeout to land on a misleading "scale did not
-    // respond as HDS" message when the real cause was network unreachable
-    // or DNS failure.
+    // Classify common socket-level failures. These are all TRANSIENT connect
+    // failures (scale unreachable / refusing / still booting after a power-cycle):
+    // we log them via WIFI_WARN above but do NOT pop a modal. The connect isn't
+    // abandoned — BLEManager's per-connect connection timer (onScaleConnectionTimeout)
+    // is the backstop: it retries, recovers a still-booting scale, and for a
+    // genuinely-gone scale emits the FlowScale-fallback notice that informs the
+    // user. The 503 "another client connected" case handled above is the one
+    // socket error we DO surface here, because the retry loop can never resolve it.
+    // #1253
     switch (err) {
     case QAbstractSocket::HostNotFoundError:
     case QAbstractSocket::ConnectionRefusedError:
     case QAbstractSocket::NetworkError:
     case QAbstractSocket::SocketTimeoutError:
-        // Transient connect failures (scale unreachable / refusing / still
-        // booting). Already logged via WIFI_WARN above; we do NOT pop a modal —
-        // the auto-reconnect retries and recovers a power-cycled scale, and a
-        // genuinely-gone scale is surfaced by the FlowScale-fallback notice once
-        // attempts give up. (The 503 "another client connected" case above is the
-        // one error we DO surface, because the retry loop can't resolve it.) #1253
         m_userInitiatedShutdown = true;
         break;
     default:
