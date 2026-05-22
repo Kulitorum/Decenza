@@ -718,7 +718,23 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
         // Auto-reconnect path: only connect to the saved primary scale — #440:
         // don't let a nearby non-primary scale hijack auto-reconnect — unless
         // this is the WiFi-to-BLE fallback accepting a Decent BLE substitute.
-        if (!m_savedScaleAddress.isEmpty() && !isFallbackCandidate) {
+        if (!isFallbackCandidate) {
+            // With no saved primary (e.g. the user just forgot the scale) there
+            // is nothing to auto-reconnect to. Leave the scale in the discovered
+            // list (appended above) for explicit selection, but do NOT emit —
+            // emitting auto-connects and, via the scaleDiscovered handler's
+            // addKnownScale()/setPrimaryScale(), silently re-saves the scale the
+            // user just forgot. It would then reappear as a Known Device on the
+            // next *background* scan (refractometer/DE1 scan, startup probe) and,
+            // because buildCombinedModel filters Known Devices out of the
+            // discovered list, never show up there again — so "Forget" appears
+            // not to stick. Explicit selection from the list goes through
+            // connectToScale(), which emits its own scaleDiscovered.
+            if (m_savedScaleAddress.isEmpty()) {
+                appendScaleLog(QString("No saved scale — listing %1 for manual selection (no auto-connect)")
+                               .arg(device.name()));
+                return;
+            }
             if (!deviceIdentifiersMatch(device, m_savedScaleAddress)) {
                 appendScaleLog(QString("Ignoring non-primary scale: %1 (%2)").arg(device.name(), getDeviceIdentifier(device)));
                 return;
