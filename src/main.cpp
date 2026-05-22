@@ -1537,8 +1537,22 @@ int main(int argc, char *argv[])
         // already wires to bleErrorDialog. Without this re-emit, the per-scale
         // errorOccurred signal lands nowhere visible and the user has no
         // feedback on a failed connect.
-        QObject::connect(physicalScale.get(), &ScaleDevice::errorOccurred,
-                         &bleManager, &BLEManager::errorOccurred);
+        QObject::connect(physicalScale.get(), &ScaleDevice::errorOccurred, &bleManager,
+                         [&bleManager, &scaleReconnectTimer](const QString& error) {
+            // Suppress scale-error dialogs while an auto-reconnect is in flight: the
+            // retry loop recovers transient failures (e.g. a power-cycled WiFi scale
+            // still booting → "no mDNS response"), so popping a modal on a miss the
+            // next attempt will fix is premature. The reconnect timer is active only
+            // during auto-reconnect; a user-initiated connect stops it (via
+            // disconnectScaleRequested), so its errors still surface immediately. A
+            // genuinely-gone scale is reported by the FlowScale-fallback notice once
+            // the retries give up.
+            if (scaleReconnectTimer.isActive()) {
+                bleManager.appendScaleLog(QStringLiteral("Scale error during reconnect (suppressed): ") + error);
+                return;
+            }
+            emit bleManager.errorOccurred(error);
+        });
 
         // Disconnect FlowScale from graph and weight processor
         QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
