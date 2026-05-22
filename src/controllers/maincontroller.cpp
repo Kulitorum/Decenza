@@ -95,12 +95,18 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                 this, &MainController::applyWaterRefillLevel);
     }
 
-    // Apply refill kit override when setting changes or when kit detection completes
+    // Apply refill kit override when setting changes or when kit detection completes.
+    // Kit state also gates the effective refill level (see applyWaterRefillLevel), so
+    // re-send the refill level on those transitions too.
     if (m_settings && m_device) {
         connect(m_settings->app(), &SettingsApp::refillKitOverrideChanged,
                 this, &MainController::applyRefillKitOverride);
+        connect(m_settings->app(), &SettingsApp::refillKitOverrideChanged,
+                this, &MainController::applyWaterRefillLevel);
         connect(m_device, &DE1Device::refillKitDetectedChanged,
                 this, &MainController::applyRefillKitOverride);
+        connect(m_device, &DE1Device::refillKitDetectedChanged,
+                this, &MainController::applyWaterRefillLevel);
     }
 
     // Apply flow calibration multiplier when setting changes
@@ -914,7 +920,17 @@ void MainController::applyAllSettings() {
 void MainController::applyWaterRefillLevel() {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
-    m_device->setWaterRefillLevel(m_settings->app()->waterRefillPoint());
+    // When the refill kit is active (forced on, or auto-detected), the kit keeps the
+    // reservoir topped up — so suppress the firmware-side "Refill" phase by sending the
+    // slider's floor value (3mm). Stays low enough that an actual kit failure still
+    // triggers Refill phase as a fallback. The user's stored waterRefillPoint is
+    // preserved untouched and resumes whenever the kit is forced off.
+    const int override = m_settings->app()->refillKitOverride();
+    const bool kitActive = (override == 1) ||
+                           (override == 2 && m_device->refillKitDetected() == 1);
+    const int effective = kitActive ? 3 : m_settings->app()->waterRefillPoint();
+
+    m_device->setWaterRefillLevel(effective);
 }
 
 void MainController::applyRefillKitOverride() {
