@@ -1323,7 +1323,7 @@ int main(int argc, char *argv[])
     // (connecting→failed without ever reaching connected) also arm the retry
     // timer while spurious inactive→inactive emissions are still suppressed.
     QObject::connect(&de1Device, &DE1Device::connectedChanged,
-                     [&de1Device, &de1ReconnectTimer, &de1ReconnectAttempt, &settings, &de1WasActive
+                     [&de1Device, &de1ReconnectTimer, &de1ReconnectAttempt, &settings, &de1WasActive, &bleManager
 #ifndef Q_OS_IOS
                      , &usbManager
 #endif
@@ -1335,6 +1335,14 @@ int main(int argc, char *argv[])
         }
         const bool wasActive = de1WasActive;
         de1WasActive = isActive;
+
+        // Release a scale direct-connect that was deferred behind the DE1's BLE
+        // connect, once the DE1's connect resolves (connected, or the attempt
+        // ended without success). Prevents the concurrent-GATT-connect collision
+        // that made the scale fail + sit out its 20 s timeout at startup.
+        if (isConnected || (wasActive && !isActive)) {
+            bleManager.onDe1ConnectionSettled();
+        }
 
         if (isConnected) {
             // Just transitioned to connected: stop any pending reconnect attempts.

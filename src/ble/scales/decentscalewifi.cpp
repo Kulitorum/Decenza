@@ -8,7 +8,11 @@
 #include <QUrl>
 #include <QAbstractSocket>
 #include <QHostAddress>
+#include <QThread>
+#include <QPointer>
 #include <algorithm>
+
+#include "../../network/mdnsresolver.h"
 
 #define WIFI_LOG(msg)  SCALE_LOG("DecentScaleWifi", msg)
 #define WIFI_WARN(msg) SCALE_WARN("DecentScaleWifi", msg)
@@ -51,6 +55,8 @@ void DecentScaleWifi::connectToHost(const QString& hostname) {
     m_userInitiatedShutdown = false;
     m_triedHostnameFallback = false;
     m_pendingHostnameFallback = false;
+    // New connection cycle — invalidate any in-flight resolve from a prior call.
+    ++m_resolveGeneration;
 
     // Try the cached IP first if we have one. The recognition-timer guard
     // catches the case where DHCP has reassigned the IP and we're connecting
@@ -60,7 +66,7 @@ void DecentScaleWifi::connectToHost(const QString& hostname) {
         WIFI_LOG(QString("Trying cached IP %1 for %2").arg(cachedIp, hostname));
         attemptTarget(cachedIp, /*isHostname=*/false);
     } else {
-        attemptTarget(hostname, /*isHostname=*/true);
+        attemptHostname();
     }
 }
 
@@ -77,11 +83,70 @@ void DecentScaleWifi::attemptTarget(const QString& target, bool isHostname) {
     m_recognitionTimer->start(kRecognitionTimeoutMs);
 }
 
+void DecentScaleWifi::attemptHostname() {
+    // We've moved past any cached-IP attempt to our best hostname-based
+    // resolution — don't loop back to another raw-hostname fallback after this.
+    m_triedHostnameFallback = true;
+
+#ifdef Q_OS_ANDROID
+    // Qt's resolver (getaddrinfo) doesn't speak mDNS on Android, so opening
+    // ws://<name>.local fails with HostNotFoundError. Resolve the ".local"
+    // name to an IP via a direct mDNS A-query — the same MdnsResolver path
+    // MqttClient uses — on a worker thread (resolveHostname blocks), then dial
+    // the IP. The generation guard drops a stale result if a newer connect or
+    // disconnect superseded this attempt while the worker was in flight.
+    if (m_hostname.endsWith(QStringLiteral(".local"), Qt::CaseInsensitive)) {
+        const QString host = m_hostname;
+        const int generation = ++m_resolveGeneration;
+        QPointer<DecentScaleWifi> guard(this);
+        QThread* thread = QThread::create([this, guard, host, generation]() {
+            const QString ip = MdnsResolver::resolveHostname(host);
+            // Back on the object's thread. `guard` gates liveness — the object
+            // may have been destroyed during the blocking resolve. The `!guard`
+            // check runs first (short-circuit), so member access via `this`
+            // (incl. the WIFI_LOG macro's `emit logMessage`) only happens once
+            // the object is confirmed alive.
+            QMetaObject::invokeMethod(guard.data(), [this, guard, ip, host, generation]() {
+                if (!guard || generation != m_resolveGeneration) return;
+                if (!ip.isEmpty()) {
+                    WIFI_LOG(QString("Resolved %1 to %2 via mDNS").arg(host, ip));
+                    // Persist the peer IP so the next connect skips resolution.
+                    // A stale answer self-heals: the cached-IP attempt fails the
+                    // recognition window and falls back here to re-resolve.
+                    if (m_ipCacheUpdate) m_ipCacheUpdate(host, ip);
+                    attemptTarget(ip, /*isHostname=*/false);
+                } else {
+                    // The mDNS A-query found no responder. On Android the OS
+                    // resolver can't resolve ".local" either, so dialing
+                    // ws://<host> would only fail later with a misleading generic
+                    // HostNotFound — surface the real cause and stop instead.
+                    WIFI_WARN(QString("mDNS resolution failed for %1 — no responder; "
+                                      "not dialing (Android can't resolve .local directly)").arg(host));
+                    emit errorOccurred(translateUiString("wifi.scale.error.mdnsNotFound",
+                        "WiFi scale not found: no mDNS response for %1").arg(host));
+                    m_userInitiatedShutdown = true;  // failure surfaced; suppress reconnect churn
+                }
+            }, Qt::QueuedConnection);
+        });
+        connect(thread, &QThread::finished, thread, &QThread::deleteLater);
+        thread->start();
+        return;
+    }
+#endif
+
+    // Non-Android (OS resolver speaks mDNS), or a non-".local" name: let Qt
+    // resolve the hostname directly.
+    attemptTarget(m_hostname, /*isHostname=*/true);
+}
+
 void DecentScaleWifi::disconnectFromScale() {
     // User-initiated close. Mark so onDisconnected logs it as expected.
     // (Reconnect is owned by main.cpp's scaleReconnectTimer — this flag
     // does not gate reconnect anymore; it just controls the log line.)
     m_userInitiatedShutdown = true;
+    // Invalidate any in-flight mDNS resolve so its late callback can't reopen
+    // the socket after the user has asked to disconnect.
+    ++m_resolveGeneration;
     if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState) {
         m_socket->close();
     }
@@ -124,7 +189,10 @@ void DecentScaleWifi::onDisconnected() {
         // Don't propagate the brief intermediate disconnect to consumers —
         // the connection cycle is still in progress. setConnected(false) is
         // skipped here; it will fire only if the hostname attempt also fails.
-        attemptTarget(m_hostname, /*isHostname=*/true);
+        // Re-resolve via attemptHostname() (mDNS on Android) rather than dialing
+        // the bare ".local" name, which Qt can't resolve there. This also picks
+        // up a new IP if DHCP moved the scale since the cached entry.
+        attemptHostname();
         return;
     }
 

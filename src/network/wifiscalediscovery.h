@@ -14,10 +14,11 @@ class QTimer;
  * followed by probeFinished(). On timeout / NotFound emits only
  * probeFinished(). Calling probe() while a lookup is in flight starts a
  * new lookup; the previous lookup's result will be dropped. On non-Android
- * the previous QHostInfo lookup is also synchronously aborted; on Android
- * the previous NSD discovery is torn down via WifiScaleNsdHelper.cancelDiscovery()
- * (the Java worker thread is unblocked but cannot be synchronously joined —
- * the result, when it eventually arrives, is dropped via a generation check).
+ * the previous QHostInfo lookup is synchronously aborted. On Android the
+ * lookup runs on a worker thread via MdnsResolver — a direct mDNS A-record
+ * query, since the OS resolver doesn't handle ".local" there. The blocking
+ * worker cannot be synchronously joined, so its late result is dropped via a
+ * generation check.
  */
 class WifiScaleDiscovery : public QObject {
     Q_OBJECT
@@ -60,9 +61,9 @@ private:
     QTimer* m_timeoutTimer = nullptr;
 
 #ifdef Q_OS_ANDROID
-    // Android uses NsdManager via a JNI helper on a worker thread instead of
-    // QHostInfo (the stock resolver doesn't do mDNS). A monotonically
-    // increasing generation lets us drop late callbacks after cancel/timeout.
+    // Android resolves via MdnsResolver on a worker thread instead of QHostInfo
+    // (the stock resolver doesn't do mDNS ".local"). A monotonically increasing
+    // generation lets us drop late callbacks after cancel/timeout.
     bool m_androidInFlight = false;
     int m_androidGeneration = 0;
 #endif

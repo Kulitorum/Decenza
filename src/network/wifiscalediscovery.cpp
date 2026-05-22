@@ -6,11 +6,11 @@
 
 #ifdef Q_OS_ANDROID
 #include <QCoreApplication>
-#include <QJniObject>
 #include <QMetaObject>
 #include <QPointer>
 #include <QRunnable>
 #include <QThreadPool>
+#include "mdnsresolver.h"
 #endif
 
 WifiScaleDiscovery::WifiScaleDiscovery(QObject* parent)
@@ -20,8 +20,12 @@ WifiScaleDiscovery::WifiScaleDiscovery(QObject* parent)
     m_timeoutTimer->setSingleShot(true);
     connect(m_timeoutTimer, &QTimer::timeout, this, [this]() {
 #ifdef Q_OS_ANDROID
+        // Watchdog only: the worker's MdnsResolver query has its own deadline
+        // (timeoutMs) and normally posts a result before this fires. This covers
+        // the rare case where the thread-pool worker is starved and never runs.
+        // The generation bump in cancelInFlight() drops any late worker result.
         if (!m_androidInFlight) return;
-        qDebug() << "[WifiScaleDiscovery] NSD probe timed out for" << m_currentHostname;
+        qDebug() << "[WifiScaleDiscovery] mDNS probe watchdog fired for" << m_currentHostname;
         cancelInFlight();
         emit probeFinished();
 #else
@@ -45,44 +49,28 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
              << "(timeout" << timeoutMs << "ms)";
 
 #ifdef Q_OS_ANDROID
-    // Android's stock resolver (getaddrinfo) does NOT do mDNS for .local
-    // names. Use the NsdManager JNI helper instead, on a worker thread so
-    // we don't block the Qt event loop while it sits in a CountDownLatch.
+    // Android's stock resolver (getaddrinfo / QHostInfo) does NOT resolve
+    // ".local" mDNS names. Resolve via a direct mDNS A-record query
+    // (MdnsResolver — the same primitive MqttClient and the WiFi-scale connect
+    // use). resolveHostname() blocks up to timeoutMs, so run it on a worker
+    // thread to keep the Qt event loop responsive. Multicast reception relies on
+    // the process-wide WifiManager.MulticastLock that ShotServer holds for the
+    // app lifetime.
     m_androidInFlight = true;
     const int generation = ++m_androidGeneration;
 
-    // Strip ".local" for the service-instance match in Java.
-    QString stem = hostname;
-    if (stem.endsWith(QStringLiteral(".local"), Qt::CaseInsensitive)) {
-        stem.chop(QStringLiteral(".local").size());
-    }
-
     QPointer<WifiScaleDiscovery> self(this);
-    const QString stemForWorker = stem;
     const QString hostnameForWorker = hostname;
     const int timeoutForWorker = timeoutMs;
 
-    auto runnable = QRunnable::create([self, stemForWorker, hostnameForWorker,
+    auto runnable = QRunnable::create([self, hostnameForWorker,
                                        timeoutForWorker, generation]() {
-        // Runs on a QThreadPool worker thread — JNI calls are allowed off the
-        // main thread, and the Java helper blocks on a CountDownLatch.
-        // The Android Context is passed in because Qt's QtNative.getContext()
-        // is package-private and unavailable from our Java package.
-        QJniObject context = QNativeInterface::QAndroidApplication::context();
-        QJniObject stemJ = QJniObject::fromString(stemForWorker);
-        QJniObject ipJ = QJniObject::callStaticObjectMethod(
-            "io/github/kulitorum/decenza_de1/WifiScaleNsdHelper",
-            "discoverHdsBlocking",
-            "(Landroid/content/Context;Ljava/lang/String;I)Ljava/lang/String;",
-            context.object(),
-            stemJ.object<jstring>(),
-            jint(timeoutForWorker));
-        const QString ip = ipJ.isValid() ? ipJ.toString() : QString();
+        // Runs on a QThreadPool worker thread (resolveHostname blocks).
+        const QString ip = MdnsResolver::resolveHostname(hostnameForWorker, timeoutForWorker);
 
-        // Post the result back to the Qt thread that owns this object. If the
-        // object was destroyed in the meantime, the lambda is a no-op (the
-        // QPointer is null). If the probe was cancelled/timed out, generation
-        // won't match and we drop the result.
+        // Post the result back to the object's thread. If it was destroyed the
+        // QPointer is null and the lambda no-ops; if the probe was cancelled or
+        // timed out, the generation won't match and the result is dropped.
         QMetaObject::invokeMethod(qApp, [self, hostnameForWorker, ip, generation]() {
             if (!self) return;
             if (generation != self->m_androidGeneration) return;
@@ -92,11 +80,11 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
             self->m_timeoutTimer->stop();
 
             if (ip.isEmpty()) {
-                qDebug() << "[WifiScaleDiscovery] NSD lookup failed for" << hostnameForWorker;
+                qDebug() << "[WifiScaleDiscovery] mDNS lookup failed for" << hostnameForWorker;
                 emit self->probeFinished();
                 return;
             }
-            qDebug() << "[WifiScaleDiscovery] NSD found" << hostnameForWorker
+            qDebug() << "[WifiScaleDiscovery] mDNS found" << hostnameForWorker
                      << "->" << ip;
             emit self->scaleFound(hostnameForWorker, ip);
             emit self->probeFinished();
@@ -105,7 +93,10 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
     runnable->setAutoDelete(true);
     QThreadPool::globalInstance()->start(runnable);
 
-    m_timeoutTimer->start(timeoutMs);
+    // Watchdog backstop with a small margin over the worker's own timeout, so
+    // the worker reports first in the normal case; this only fires if the
+    // thread-pool worker is starved and never runs.
+    m_timeoutTimer->start(timeoutMs + 1000);
 #else
     m_lookupId = QHostInfo::lookupHost(hostname, this,
         [this](const QHostInfo& info) {
@@ -135,21 +126,12 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
 void WifiScaleDiscovery::cancelInFlight() {
 #ifdef Q_OS_ANDROID
     if (m_androidInFlight) {
-        // Two-part cancel:
-        //  1. Bump the generation so any worker result that arrives on the
-        //     Qt thread after this point is discarded by the equality check
-        //     in the queued lambda.
-        //  2. Call into the Java helper to stop the active NsdManager
-        //     DiscoveryListener registration and count down the worker's
-        //     CountDownLatch immediately. Without this eager teardown,
-        //     a rapid second probe() would hit FAILURE_ALREADY_ACTIVE
-        //     because Android only permits one listener per service type
-        //     per NsdManager instance.
+        // Bump the generation so any worker result arriving on the Qt thread
+        // after this point is discarded by the equality check in the queued
+        // lambda. The MdnsResolver worker can't be interrupted mid-query, but it
+        // finishes on its own at timeoutMs and its late result is then dropped.
         ++m_androidGeneration;
         m_androidInFlight = false;
-        QJniObject::callStaticMethod<void>(
-            "io/github/kulitorum/decenza_de1/WifiScaleNsdHelper",
-            "cancelDiscovery", "()V");
     }
 #endif
     if (m_lookupId != -1) {

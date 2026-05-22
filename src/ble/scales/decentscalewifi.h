@@ -23,7 +23,7 @@ class QWebSocket;
  * so it cannot be used to unify the two transports — downstream code that
  * wants "same physical product" semantics must branch on the string with
  * explicit cases for both (e.g., grinder-calibration baseline in
- * settings_calibration.cpp:423-424). transportType() returns "wifi" for
+ * src/core/settings_calibration.cpp). transportType() returns "wifi" for
  * paths that need to distinguish transport explicitly.
  */
 class DecentScaleWifi : public ScaleDevice {
@@ -36,9 +36,10 @@ public:
     void connectToDevice(const QBluetoothDeviceInfo& device) override;
 
     // Convenience overload: connect to a known hostname (e.g. "hds.local").
-    // Will try the cached IP for this hostname first (if `ipResolver` returns
-    // a non-empty string), validate via the recognition window, and fall back
-    // to the hostname on failure.
+    // Tries the cached IP for this hostname first (if `ipResolver` returns a
+    // non-empty string), validated via the recognition window. With no cached
+    // IP (or if it fails validation) it resolves the hostname — on Android via
+    // a direct mDNS A-query, since Qt's resolver can't resolve ".local".
     void connectToHost(const QString& hostname);
 
     QString name() const override { return m_name; }
@@ -97,6 +98,11 @@ private:
     // hostname). Starts the recognition timer; on first valid HDS frame the
     // timer is cancelled and (if isHostname) the peer IP is cached.
     void attemptTarget(const QString& target, bool isHostname);
+    // Resolve m_hostname and dial it. On Android this runs a direct mDNS
+    // A-query (MdnsResolver) on a worker thread because Qt's resolver can't
+    // resolve ".local"; on other platforms it dials the hostname and lets the
+    // OS resolver (Bonjour / nss-mdns) handle mDNS.
+    void attemptHostname();
     // First snapshot or status frame — confirms we're talking to the HDS.
     void onRecognizedAsHds();
 
@@ -115,6 +121,10 @@ private:
     bool m_recognized = false;      // Set on first valid HDS frame; resets on each attempt.
     bool m_triedHostnameFallback = false;  // Prevents looping if hostname fallback also fails.
     bool m_pendingHostnameFallback = false;  // Set in onRecognitionTimeout; consumed by onDisconnected.
+    // Bumped each time we kick off an async mDNS resolve. A resolve result
+    // whose generation no longer matches is dropped — a newer connectToHost()
+    // or disconnect superseded it while the worker thread was in flight.
+    int m_resolveGeneration = 0;
 
     QString m_name = QStringLiteral("Decent Scale (WiFi)");
     QString m_firmwareVersion;   // cached per-connect; cleared on disconnect

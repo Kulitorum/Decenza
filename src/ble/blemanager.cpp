@@ -64,6 +64,24 @@ BLEManager::BLEManager(QObject* parent)
     m_scaleConnectionTimer->setInterval(20000);
     connect(m_scaleConnectionTimer, &QTimer::timeout, this, &BLEManager::onScaleConnectionTimeout);
 
+    // Backstop for serializing the scale's BLE connect behind the DE1's: if the
+    // DE1 never finishes connecting (e.g. no DE1 present while debugging),
+    // connect the scale anyway after 15 s rather than waiting forever.
+    m_de1WaitTimer = new QTimer(this);
+    m_de1WaitTimer->setSingleShot(true);
+    m_de1WaitTimer->setInterval(15000);
+    connect(m_de1WaitTimer, &QTimer::timeout, this, [this]() {
+        // Cap reached: stop gating the scale behind the DE1 unconditionally, so
+        // m_de1DirectConnectInFlight can't stick if the DE1 never resolves and no
+        // scale was waiting. If one is waiting, connect it now.
+        m_de1DirectConnectInFlight = false;
+        if (m_scaleConnectDeferred) {
+            m_scaleConnectDeferred = false;
+            appendScaleLog("DE1 did not connect within 15 s — connecting scale anyway");
+            tryDirectConnectToScale();
+        }
+    });
+
     // Eagerly run the Linux capability check so any qWarning lands early in
     // startup logs; subsequent calls hit the cached result.
     (void) BleCapability::linuxMissing();
@@ -684,9 +702,39 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
             && m_savedScaleType == QStringLiteral("decent-wifi")
             && scaleType == QStringLiteral("decent");
 
-        // During auto-reconnect (not user-initiated scan), only connect to primary scale.
-        // This prevents #440: nearby non-primary scales hijacking the connection.
-        if (!m_userInitiatedScaleScan && !m_savedScaleAddress.isEmpty() && !isFallbackCandidate) {
+        // A user-initiated scan only POPULATES the discovered list (m_scales,
+        // above) for the user to choose from — it must NOT auto-connect. Auto-
+        // connecting here would grab the first scale found (hijacking the user's
+        // pick — e.g. connecting the BLE Decent scale when the user wants the
+        // WiFi one) and, via the scaleDiscovered handler's unconditional
+        // addKnownScale(), silently re-save a scale the user just forgot. So a
+        // forgotten scale would reappear on the next scan. Explicit selection
+        // from the list goes through connectToScale(), which emits its own
+        // scaleDiscovered.
+        if (m_userInitiatedScaleScan) {
+            return;
+        }
+
+        // Auto-reconnect path: only connect to the saved primary scale — #440:
+        // don't let a nearby non-primary scale hijack auto-reconnect — unless
+        // this is the WiFi-to-BLE fallback accepting a Decent BLE substitute.
+        if (!isFallbackCandidate) {
+            // With no saved primary (e.g. the user just forgot the scale) there
+            // is nothing to auto-reconnect to. Leave the scale in the discovered
+            // list (appended above) for explicit selection, but do NOT emit —
+            // emitting auto-connects and, via the scaleDiscovered handler's
+            // addKnownScale()/setPrimaryScale(), silently re-saves the scale the
+            // user just forgot. It would then reappear as a Known Device on the
+            // next *background* scan (refractometer/DE1 scan, startup probe) and,
+            // because buildCombinedModel filters Known Devices out of the
+            // discovered list, never show up there again — so "Forget" appears
+            // not to stick. Explicit selection from the list goes through
+            // connectToScale(), which emits its own scaleDiscovered.
+            if (m_savedScaleAddress.isEmpty()) {
+                appendScaleLog(QString("No saved scale — listing %1 for manual selection (no auto-connect)")
+                               .arg(device.name()));
+                return;
+            }
             if (!deviceIdentifiersMatch(device, m_savedScaleAddress)) {
                 appendScaleLog(QString("Ignoring non-primary scale: %1 (%2)").arg(device.name(), getDeviceIdentifier(device)));
                 return;
@@ -698,8 +746,9 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
                            .arg(device.name(), getDeviceIdentifier(device)));
         }
 
-        // Emit for user-initiated scan (all scales), primary match during
-        // auto-reconnect, or WiFi-fallback Decent BLE candidate.
+        // Auto-reconnect to the saved primary, or the WiFi-fallback Decent BLE
+        // candidate. (User-scan discoveries returned above; manual selection
+        // emits scaleDiscovered via connectToScale().)
         emit scaleDiscovered(device, scaleType);
     }
 }
@@ -1099,6 +1148,15 @@ void BLEManager::tryDirectConnectToDE1() {
     qDebug() << "BLEManager: DE1 direct wake - connecting to" << deviceName << "at" << upperAddress;
     emit de1LogMessage(QString("Direct wake: connecting to %1 at %2").arg(deviceName, upperAddress));
 
+    // A DE1 direct-wake connect is now being initiated — gate the scale's BLE
+    // direct-connect behind it (two concurrent GATT connects collide on the
+    // Android stack). Arm the 15 s cap here so the gate is always bounded even if
+    // the DE1 connect never resolves (no DE1 present); it's cleared in
+    // onDe1ConnectionSettled() on success/failure, or by the cap timer. Set only
+    // at the point of an actual connect — early-returns above must not gate.
+    m_de1DirectConnectInFlight = true;
+    if (!m_de1WaitTimer->isActive()) m_de1WaitTimer->start();
+
     // Emit de1Discovered so main.cpp's handler connects to the device
     emit de1Discovered(deviceInfo);
 
@@ -1237,23 +1295,32 @@ void BLEManager::tryDirectConnectToScale() {
 
     QString deviceName = m_savedScaleName.isEmpty() ? m_savedScaleType : m_savedScaleName;
 
-    // WiFi saved-scale path: do an mDNS probe + WS connect. If the connection
-    // doesn't establish before m_scaleConnectionTimer fires (~20 s), we fall
-    // back to a BLE scan that auto-connects to a discovered Decent scale (see
-    // onScaleConnectionTimeout and beginWifiFallbackToBleScan).
+    // WiFi saved-scale path: hand off to the scale driver's connect (cached IP
+    // first, mDNS only as fallback) — see the detailed note inside the branch.
+    // If the connection doesn't establish before m_scaleConnectionTimer fires
+    // (~20 s), we fall back to a BLE scan that auto-connects to a discovered
+    // Decent scale (see onScaleConnectionTimeout and beginWifiFallbackToBleScan).
     if (m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)) {
         const QString hostname = m_savedScaleAddress.mid(QStringLiteral("wifi:").size());
-        qDebug() << "BLEManager: Direct wake (WiFi) - resolving" << hostname;
-        appendScaleLog(QString("Direct wake (WiFi): resolving %1").arg(hostname));
+        qDebug() << "BLEManager: Direct wake (WiFi) - connecting to" << hostname
+                 << "(cached IP first, mDNS fallback)";
+        appendScaleLog(QString("Direct wake (WiFi): connecting to %1").arg(hostname));
 
-        ensureWifiDiscovery();
+        // Reconnect through the scale driver's own connect path instead of
+        // gating on a fresh mDNS probe. DecentScaleWifi::connectToHost() tries
+        // the persisted peer IP first (settings key scale/wifiIp/<hostname>) and
+        // dials ws://<ip>/snapshot directly — no multicast — falling back to an
+        // mDNS resolve only if that cached IP fails the recognition window (DHCP
+        // moved it). This makes reconnect resilient to the tablet's mDNS going
+        // deaf under BLE-coexistence load: when we already know the scale's IP we
+        // don't need to hear a multicast reply to reconnect. With no cached IP it
+        // behaves as before (connectToHost falls through to an mDNS resolve). The
+        // 20 s connection timer still arms the WiFi->BLE fallback if the cached
+        // IP is genuinely unreachable (onScaleConnectionTimeout).
         m_wifiFallbackToBleActive = false;          // Reset per attempt
         m_scaleConnectionTimer->start();            // Fires onScaleConnectionTimeout if WiFi doesn't connect
-        // 5 s mDNS timeout, matching the user-initiated scan path — empirically
-        // the HDS mDNS responder regularly takes 2-4 s on first contact (ESP32
-        // wake from power-save), and the 20 s connection timer above gives the
-        // probe a comfortable window before the WiFi-to-BLE fallback engages.
-        m_wifiDiscovery->probe(hostname, 5000);
+        m_pendingWifiHostname = hostname;
+        emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
         return;
     }
 
@@ -1276,6 +1343,19 @@ void BLEManager::tryDirectConnectToScale() {
         startScan();
     }
 #else
+    // Serialize behind the DE1's direct-wake connect: a second BLE GATT connect
+    // while the DE1's is in flight collides on the Android stack — the scale
+    // connect dies the instant the DE1 finishes, then sits out the 20 s timeout
+    // before retrying. Defer until the DE1 settles (onDe1ConnectionSettled) or a
+    // 15 s cap (m_de1WaitTimer), which still connects the scale with no DE1.
+    if (m_de1DirectConnectInFlight) {
+        m_scaleConnectDeferred = true;
+        if (!m_de1WaitTimer->isActive()) m_de1WaitTimer->start();
+        qDebug() << "BLEManager: deferring scale direct-connect until DE1 settles (15 s cap)";
+        appendScaleLog("Waiting for the DE1 to finish connecting before connecting the scale (15 s cap)");
+        return;
+    }
+
     // On Android/desktop, we have a MAC address - try direct connect
     QString upperAddress = m_savedScaleAddress.toUpper();
     QBluetoothAddress address(upperAddress);
@@ -1302,6 +1382,19 @@ void BLEManager::tryDirectConnectToScale() {
         startScan();
     }
 #endif
+}
+
+void BLEManager::onDe1ConnectionSettled() {
+    // The DE1's direct-wake connect has resolved (connected, or the attempt
+    // ended) — drop the gate and run any scale direct-connect that was deferred
+    // behind it to avoid a concurrent-GATT-connect collision on Android.
+    m_de1DirectConnectInFlight = false;
+    m_de1WaitTimer->stop();
+    if (m_scaleConnectDeferred) {
+        m_scaleConnectDeferred = false;
+        appendScaleLog("DE1 connect settled — starting deferred scale connect");
+        tryDirectConnectToScale();
+    }
 }
 
 void BLEManager::openLocationSettings()
