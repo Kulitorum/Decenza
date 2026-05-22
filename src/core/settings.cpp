@@ -443,20 +443,22 @@ void Settings::removeKnownScale(const QString& address) {
     writeKnownScales(scales);
 
     if (wasPrimary) {
-        if (!scales.isEmpty()) {
-            // Auto-promote so knownScales never holds an unreachable orphan.
-            QVariantMap next = scales.first().toMap();
-            const QString nextAddr = next["address"].toString();
-            m_settings.setValue("knownScales/primaryAddress", nextAddr);
-            setScaleAddress(nextAddr);
-            setScaleType(next["type"].toString());
-            setScaleName(next["name"].toString());
-        } else {
-            m_settings.setValue("knownScales/primaryAddress", QString());
-            setScaleAddress(QString());
-            setScaleType(QString());
-            setScaleName(QString());
+        // Auto-promote the first remaining entry with a non-empty address so
+        // knownScales never holds an unreachable orphan.
+        QString nextAddr, nextType, nextName;
+        for (const QVariant& v : scales) {
+            QVariantMap s = v.toMap();
+            const QString a = s["address"].toString();
+            if (a.isEmpty()) continue;
+            nextAddr = a;
+            nextType = s["type"].toString();
+            nextName = s["name"].toString();
+            break;
         }
+        m_settings.setValue("knownScales/primaryAddress", nextAddr);
+        setScaleAddress(nextAddr);
+        setScaleType(nextType);
+        setScaleName(nextName);
         emit knownScalesChanged();
     }
 }
