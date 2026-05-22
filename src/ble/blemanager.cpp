@@ -901,6 +901,7 @@ void BLEManager::onScaleConnectedChanged() {
             emit scaleConnectionFailedChanged();
         }
         qDebug() << "BLEManager: Scale connected";
+        emit scaleConnected();  // UI auto-dismisses the scale-disconnect / no-scale notice on reconnect
     } else {
         // Scale disconnected - notify UI immediately
         qDebug() << "BLEManager: Scale disconnected";

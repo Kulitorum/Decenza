@@ -615,6 +615,11 @@ ApplicationWindow {
 
     // Defer scale dialogs until machine reaches Ready (event-driven, not timer-based)
     property bool scaleDialogDeferred: false
+    // True while a previously-connected scale is disconnected (a mid-session
+    // drop). Set on scaleDisconnected, cleared on scaleConnected. Lets us defer
+    // the "Scale Disconnected" notice until a reconnect actually FAILS
+    // (flowScaleFallback), so a transient drop that auto-reconnects never nags.
+    property bool scaleDropPending: false
 
     // Shared translation strings for dialog buttons
     Tr { id: trCommonOk; key: "common.button.ok"; fallback: "OK"; visible: false }
@@ -1393,15 +1398,40 @@ ApplicationWindow {
             if (!Settings.showScaleDialogs) return
             // Don't nag if a USB scale is connected — it satisfies the requirement (not available on iOS)
             if (Qt.platform.os !== "ios" && UsbScaleManager.scaleConnected) return
-            if (screensaverActive) { queuePopup("flowScale"); return }
-            if (root.scaleDialogDeferred) { queuePopup("flowScale"); return }
-            flowScaleDialog.open()
+            // This fires only after a (re)connect attempt has actually given up,
+            // so it's the right moment to notify. A mid-session drop
+            // (scaleDropPending) shows the "Scale Disconnected" notice; a
+            // never-connected startup shows "No scale detected".
+            var popupId = root.scaleDropPending ? "scaleDisconnected" : "flowScale"
+            var dialog = root.scaleDropPending ? scaleDisconnectedDialog : flowScaleDialog
+            if (screensaverActive) { queuePopup(popupId); return }
+            if (root.scaleDialogDeferred) { queuePopup(popupId); return }
+            dialog.open()
         }
         function onScaleDisconnected() {
-            if (!Settings.showScaleDialogs) return
-            if (screensaverActive) { queuePopup("scaleDisconnected"); return }
-            if (root.scaleDialogDeferred) { queuePopup("scaleDisconnected"); return }
-            scaleDisconnectedDialog.open()
+            // Don't nag on the disconnect itself — a transient drop (e.g. the
+            // WiFi WebSocket dropping on screensaver wake) auto-reconnects within
+            // seconds. Just record it; onFlowScaleFallback() surfaces the notice
+            // only if the reconnect actually gives up, and onScaleConnected()
+            // clears this + dismisses the notice once the scale is back.
+            root.scaleDropPending = true
+        }
+        function onScaleConnected() {
+            // Scale (re)connected — clear the pending-drop state and dismiss the
+            // open scale-disconnect / no-scale notice so a recovered drop leaves no
+            // trace. Queued-but-unshown popups are purged by the ScaleDevice
+            // reconnect handler ("Discard stale scale popups…" below), so we don't
+            // duplicate removeQueuedScalePopups() here.
+            root.scaleDropPending = false
+            if (scaleDisconnectedDialog.opened) scaleDisconnectedDialog.close()
+            if (flowScaleDialog.opened) flowScaleDialog.close()
+        }
+        function onDisconnectScaleRequested() {
+            // A deliberate scale switch/forget ends the mid-session-drop context, so
+            // the next FlowScale fallback isn't mislabeled "Scale Disconnected" for a
+            // freshly-selected (never-connected) scale. disconnectScaleRequested
+            // fires from connectToScale / clearSavedScale / setDisabled.
+            root.scaleDropPending = false
         }
     }
 
@@ -1424,7 +1454,7 @@ ApplicationWindow {
         }
 
         Tr { id: trNoScaleFoundTitle; key: "main.dialog.noScaleFound.title"; fallback: "No Scale Found"; visible: false }
-        Tr { id: trNoScaleFoundAnnounce; key: "main.dialog.noScaleFound.announce"; fallback: "No Bluetooth scale detected. Using estimated weight from flow measurement."; visible: false }
+        Tr { id: trNoScaleFoundAnnounce; key: "main.dialog.noScaleFound.announce"; fallback: "No scale detected. Using estimated weight from flow measurement."; visible: false }
 
         onOpened: {
             if (AccessibilityManager.enabled) {
@@ -1444,7 +1474,7 @@ ApplicationWindow {
 
             Tr {
                 key: "main.dialog.noScaleFound.message"
-                fallback: "No Bluetooth scale was detected.\n\nUsing estimated weight from DE1 flow measurement instead.\n\nYou can search for your scale in Settings → Connections."
+                fallback: "No scale was detected.\n\nUsing estimated weight from DE1 flow measurement instead.\n\nYou can search for your scale in Settings → Connections."
                 wrapMode: Text.Wrap
                 width: parent.width
                 font: Theme.bodyFont
@@ -1498,7 +1528,7 @@ ApplicationWindow {
 
             Tr {
                 key: "main.dialog.scaleDisconnected.message"
-                fallback: "Your Bluetooth scale has disconnected.\n\nUsing estimated weight from DE1 flow measurement until the scale reconnects.\n\nCheck that your scale is powered on and in range."
+                fallback: "Your scale has disconnected.\n\nUsing estimated weight from DE1 flow measurement until the scale reconnects.\n\nCheck that your scale is powered on and in range."
                 wrapMode: Text.Wrap
                 width: parent.width
                 font: Theme.bodyFont
