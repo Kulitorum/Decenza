@@ -19,6 +19,7 @@
 #include <QDir>
 #include <QTextStream>
 #include <QDateTime>
+#include <QTcpSocket>
 
 #ifdef Q_OS_ANDROID
 #include <QJniEnvironment>
@@ -977,6 +978,92 @@ void BLEManager::beginWifiFallbackToBleScan() {
     if (!m_scanning) {
         startScan();
     }
+}
+
+void BLEManager::probeWifiPrimaryReachable(const QString& ip) {
+    // Lightweight, NON-disruptive liveness check: a plain TCP connect to the
+    // WiFi scale's cached IP on the HDS web/WS port. It deliberately does NOT
+    // touch the live (BLE backup) scale, so a negative result costs the user
+    // nothing. This is the gate before switchToWifiPrimary(): only drop a working
+    // backup once we know the primary actually answers. (mDNS is the unreliable
+    // path under BLE-coex load, so we dial the cached IP directly.)
+    constexpr int kProbePort = 80;          // HDS serves its web page + WS here
+    constexpr int kProbeTimeoutMs = 3000;
+
+    cancelWifiProbe();  // at most one probe in flight
+
+    if (ip.isEmpty()) {
+        emit wifiPrimaryReachable(false);
+        return;
+    }
+
+    m_wifiProbeSocket = new QTcpSocket(this);
+    m_wifiProbeTimer = new QTimer(this);
+    m_wifiProbeTimer->setSingleShot(true);
+
+    // Resolve the probe exactly once: the first of connect / error / timeout
+    // wins. Members are nulled up front so any later signal (e.g. an error
+    // delivered during abort()) short-circuits instead of emitting twice.
+    auto finish = [this](bool reachable) {
+        if (!m_wifiProbeSocket) return;  // already resolved
+        QTcpSocket* sock = m_wifiProbeSocket;
+        QTimer* timer = m_wifiProbeTimer;
+        m_wifiProbeSocket = nullptr;
+        m_wifiProbeTimer = nullptr;
+        timer->stop();
+        timer->deleteLater();
+        sock->disconnect();   // drop our slots before abort()
+        sock->abort();
+        sock->deleteLater();
+        emit wifiPrimaryReachable(reachable);
+    };
+
+    connect(m_wifiProbeSocket, &QAbstractSocket::connected, this,
+            [finish]() { finish(true); });
+    connect(m_wifiProbeSocket, &QAbstractSocket::errorOccurred, this,
+            [finish](QAbstractSocket::SocketError) { finish(false); });
+    connect(m_wifiProbeTimer, &QTimer::timeout, this, [finish]() { finish(false); });
+
+    appendScaleLog(QString("Probing WiFi primary at %1:%2 (%3 ms)")
+                       .arg(ip).arg(kProbePort).arg(kProbeTimeoutMs));
+    m_wifiProbeTimer->start(kProbeTimeoutMs);
+    m_wifiProbeSocket->connectToHost(ip, static_cast<quint16>(kProbePort));
+}
+
+void BLEManager::cancelWifiProbe() {
+    if (m_wifiProbeTimer) {
+        m_wifiProbeTimer->stop();
+        m_wifiProbeTimer->deleteLater();
+        m_wifiProbeTimer = nullptr;
+    }
+    if (m_wifiProbeSocket) {
+        m_wifiProbeSocket->disconnect();
+        m_wifiProbeSocket->abort();
+        m_wifiProbeSocket->deleteLater();
+        m_wifiProbeSocket = nullptr;
+    }
+}
+
+void BLEManager::switchToWifiPrimary() {
+    if (!m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)) {
+        return;  // primary isn't a WiFi scale — nothing to switch back to
+    }
+    const QString hostname = m_savedScaleAddress.mid(QStringLiteral("wifi:").size());
+    qDebug() << "BLEManager: WiFi primary reachable again — switching back from backup to" << hostname;
+    appendScaleLog(QString("WiFi primary %1 reachable — switching back from backup").arg(hostname));
+
+    // Drop the current backup scale, then connect the WiFi primary. main.cpp's
+    // disconnectScaleRequested handler tears down the live scale; the
+    // scaleDiscovered emission then (re)creates the WiFi driver and connects via
+    // connectToHost()'s cached-IP fast path (the IP we just probed reachable).
+    // Arm the connection timer so a surprise failure (e.g. the cached IP was
+    // reassigned between probe and dial) still falls back to BLE via
+    // onScaleConnectionTimeout instead of leaving us on FlowScale.
+    m_wifiFallbackToBleActive = false;
+    m_scaleConnectionTimer->start();
+    emit disconnectScaleRequested();
+    m_pendingWifiHostname = hostname;
+    emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
 }
 
 void BLEManager::setSavedScaleAddress(const QString& address, const QString& type, const QString& name) {
