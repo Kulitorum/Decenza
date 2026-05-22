@@ -396,6 +396,7 @@ signals:
     void scaleLogMessage(const QString& message);
     void flowScaleFallback();  // Emitted when no physical scale found, using FlowScale
     void scaleDisconnected();  // Emitted when physical scale disconnects
+    void scaleConnected();     // Emitted when a physical scale (re)connects — lets the UI dismiss a FlowScale notice
     void scanStarted();  // Emitted when BLE scan actually begins
     // Emitted when a saved WiFi scale fails to connect within the connection
     // timeout and BLEManager has started a BLE scan as a fallback. UI binds
