@@ -1270,6 +1270,61 @@ int main(int argc, char *argv[])
         qDebug() << "Scale reconnect: scheduled first retry in" << reconnectDelays[0] << "ms (startup failure)";
     });
 
+    // === Proactive switch-back to the WiFi primary scale ===
+    // When the saved primary is a WiFi scale but we're currently on the BLE
+    // backup (the WiFi->BLE fallback connected after WiFi was unreachable),
+    // periodically check — only while the machine is idle (idle page, never
+    // mid-shot) — whether the WiFi scale is reachable again, and hop back if so.
+    // The check (BLEManager::probeWifiPrimaryReachable → a TCP dial of the cached
+    // IP) is non-disruptive: it never touches the live BLE link, so a failed
+    // check leaves the working backup untouched. This is genuine periodic polling
+    // (for an external availability change), not a timer-as-guard.
+    QTimer wifiPreferTimer;
+    constexpr int kWifiPreferIntervalMs = 30000;  // re-check every 30 s while armed
+
+    // Armed only on the WiFi-primary / BLE-backup combination AND while the
+    // machine is in a non-brewing phase. "Non-brewing" = Disconnected (no DE1,
+    // i.e. scale-only debugging), Sleep, Idle, Ready; ANY other phase (Heating,
+    // EspressoPreheating, Preinfusion, Pouring, Ending, Steaming, HotWater,
+    // Flushing, Refill, Descaling, Cleaning) blocks the switch so the scale is
+    // never disrupted mid-operation.
+    auto onWifiBackupAndIdle = [&settings, &physicalScale, &machineState]() -> bool {
+        if (!settings.scaleAddress().startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive))
+            return false;                                  // primary isn't WiFi
+        if (!physicalScale || !physicalScale->isConnected())
+            return false;                                  // nothing connected → reconnect machinery owns it
+        if (physicalScale->type() == QStringLiteral("decent-wifi"))
+            return false;                                  // already on the WiFi primary
+        switch (machineState.phase()) {
+        case MachineState::Phase::Disconnected:
+        case MachineState::Phase::Sleep:
+        case MachineState::Phase::Idle:
+        case MachineState::Phase::Ready:
+            return true;
+        default:
+            return false;                                  // brewing / active — don't switch
+        }
+    };
+
+    QObject::connect(&wifiPreferTimer, &QTimer::timeout,
+                     [&settings, &bleManager, onWifiBackupAndIdle]() {
+        if (!onWifiBackupAndIdle()) return;
+        const QString hostname = settings.scaleAddress().mid(QStringLiteral("wifi:").size());
+        const QString cachedIp = settings.network()->wifiScaleIp(hostname);
+        if (cachedIp.isEmpty()) return;  // no cheap probe target (mDNS is unreliable here) — skip this cycle
+        bleManager.probeWifiPrimaryReachable(cachedIp);
+    });
+    wifiPreferTimer.start(kWifiPreferIntervalMs);
+
+    QObject::connect(&bleManager, &BLEManager::wifiPrimaryReachable,
+                     [&bleManager, onWifiBackupAndIdle](bool reachable) {
+        if (!reachable) return;
+        // Re-validate: up to ~3 s elapsed during the probe, so state may have
+        // changed (a shot started, the user picked a scale, WiFi already back…).
+        if (!onWifiBackupAndIdle()) return;
+        bleManager.switchToWifiPrimary();
+    });
+
     // DE1 auto-reconnect after disconnect. Matches de1app behaviour: on Android it
     // retries essentially forever (99999999 attempts) because the DE1 may be in deep
     // sleep and take a while to become reachable. We use backoff: 5s, 30s, then 60s

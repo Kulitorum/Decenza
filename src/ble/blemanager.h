@@ -21,6 +21,7 @@ class DiFluidR2;
 class SettingsHardware;
 class WifiScaleDiscovery;
 class TranslationManager;
+class QTcpSocket;
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
 class AppleBtState;
 #endif
@@ -101,6 +102,23 @@ public:
     // (the BLE connect is treated as a temporary substitute, not a permanent
     // primary-scale change).
     bool isWifiFallbackToBleActive() const { return m_wifiFallbackToBleActive; }
+
+    // Proactive WiFi-primary switch-back (driven by main.cpp's idle poll when
+    // we're on the BLE backup but the saved primary is a WiFi scale):
+    //  - probeWifiPrimaryReachable() does a NON-disruptive TCP liveness check of
+    //    the WiFi scale's cached IP:80 (the HDS web/WS port). It never touches the
+    //    live BLE link, so a failed probe leaves the working backup untouched.
+    //    Reports the outcome via wifiPrimaryReachable() at most once per probe (a
+    //    probe superseded by a later call is cancelled without emitting).
+    //  - switchToWifiPrimary() drops the current backup scale and connects the
+    //    saved WiFi primary via the cached-IP fast path. Call only after a
+    //    reachable probe (and a re-check that we're still idle on the backup).
+    //    Side effects: clears m_wifiFallbackToBleActive and starts
+    //    m_scaleConnectionTimer, so a failed reconnect routes back through the
+    //    WiFi->BLE fallback path.
+    void probeWifiPrimaryReachable(const QString& ip);
+    void switchToWifiPrimary();
+
     bool hasSavedDE1() const { return !m_savedDE1Address.isEmpty(); }
     bool linuxBleCapabilityMissing() const { return BleCapability::linuxMissing(); }
     QString linuxBleSetcapCommand() const { return BleCapability::linuxSetcapCommand(); }
@@ -383,6 +401,10 @@ signals:
     // timeout and BLEManager has started a BLE scan as a fallback. UI binds
     // this to a toast/banner so the user knows what's happening.
     void wifiUnreachableFallingBackToBle(const QString& hostname);
+    // Result of a probeWifiPrimaryReachable() call (emitted at most once per
+    // probe — zero times if a later probeWifiPrimaryReachable() supersedes it
+    // via cancelWifiProbe()). main.cpp switches to the WiFi primary when reachable.
+    void wifiPrimaryReachable(bool reachable);
     void disabledChanged();
     void disconnectScaleRequested();  // Emitted when switching to a different scale, BLE is disabled, or saved scale is cleared
     void refractometersChanged();
@@ -418,6 +440,9 @@ private:
     // first Decent-family scale found. Toast surfaces the fallback to the
     // user. Cleared on the next successful scale connect.
     void beginWifiFallbackToBleScan();
+    // Tear down any in-flight WiFi-primary reachability probe (socket + timeout
+    // timer) without emitting a result. Safe to call when no probe is active.
+    void cancelWifiProbe();
 
 #ifndef Q_OS_IOS
     QBluetoothLocalDevice* m_localDevice = nullptr;
@@ -432,6 +457,11 @@ private:
     QList<QBluetoothDeviceInfo> m_de1Devices;
     QList<ScaleEntry> m_scales;
     WifiScaleDiscovery* m_wifiDiscovery = nullptr;  // Lazy-created on first scanForDevices
+    // Non-disruptive WiFi-primary reachability probe: a per-probe TCP socket +
+    // timeout timer (both owned, recreated each probe and torn down on the first
+    // of connect/error/timeout so exactly one wifiPrimaryReachable() is emitted).
+    QTcpSocket* m_wifiProbeSocket = nullptr;
+    QTimer* m_wifiProbeTimer = nullptr;
     TranslationManager* m_translationManager = nullptr;  // For i18n of user-visible error strings
     // Helper: translate `key` with `fallback`, or just return `fallback` if no
     // TranslationManager has been wired. Use ONLY for user-visible strings
