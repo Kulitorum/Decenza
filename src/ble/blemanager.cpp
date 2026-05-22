@@ -684,9 +684,23 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
             && m_savedScaleType == QStringLiteral("decent-wifi")
             && scaleType == QStringLiteral("decent");
 
-        // During auto-reconnect (not user-initiated scan), only connect to primary scale.
-        // This prevents #440: nearby non-primary scales hijacking the connection.
-        if (!m_userInitiatedScaleScan && !m_savedScaleAddress.isEmpty() && !isFallbackCandidate) {
+        // A user-initiated scan only POPULATES the discovered list (m_scales,
+        // above) for the user to choose from — it must NOT auto-connect. Auto-
+        // connecting here would grab the first scale found (hijacking the user's
+        // pick — e.g. connecting the BLE Decent scale when the user wants the
+        // WiFi one) and, via the scaleDiscovered handler's unconditional
+        // addKnownScale(), silently re-save a scale the user just forgot. So a
+        // forgotten scale would reappear on the next scan. Explicit selection
+        // from the list goes through connectToScale(), which emits its own
+        // scaleDiscovered.
+        if (m_userInitiatedScaleScan) {
+            return;
+        }
+
+        // Auto-reconnect path: only connect to the saved primary scale — #440:
+        // don't let a nearby non-primary scale hijack auto-reconnect — unless
+        // this is the WiFi-to-BLE fallback accepting a Decent BLE substitute.
+        if (!m_savedScaleAddress.isEmpty() && !isFallbackCandidate) {
             if (!deviceIdentifiersMatch(device, m_savedScaleAddress)) {
                 appendScaleLog(QString("Ignoring non-primary scale: %1 (%2)").arg(device.name(), getDeviceIdentifier(device)));
                 return;
@@ -698,8 +712,9 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
                            .arg(device.name(), getDeviceIdentifier(device)));
         }
 
-        // Emit for user-initiated scan (all scales), primary match during
-        // auto-reconnect, or WiFi-fallback Decent BLE candidate.
+        // Auto-reconnect to the saved primary, or the WiFi-fallback Decent BLE
+        // candidate. (User-scan discoveries returned above; manual selection
+        // emits scaleDiscovered via connectToScale().)
         emit scaleDiscovered(device, scaleType);
     }
 }
