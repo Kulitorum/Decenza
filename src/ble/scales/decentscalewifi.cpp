@@ -99,20 +99,25 @@ void DecentScaleWifi::attemptHostname() {
         const QString host = m_hostname;
         const int generation = ++m_resolveGeneration;
         QPointer<DecentScaleWifi> guard(this);
-        QThread* thread = QThread::create([guard, host, generation]() {
+        QThread* thread = QThread::create([this, guard, host, generation]() {
             const QString ip = MdnsResolver::resolveHostname(host);
-            QMetaObject::invokeMethod(guard.data(), [guard, ip, host, generation]() {
-                if (!guard || generation != guard->m_resolveGeneration) return;
+            // Back on the object's thread. `guard` gates liveness — the object
+            // may have been destroyed during the blocking resolve. The `!guard`
+            // check runs first (short-circuit), so member access via `this`
+            // (incl. the WIFI_LOG macro's `emit logMessage`) only happens once
+            // the object is confirmed alive.
+            QMetaObject::invokeMethod(guard.data(), [this, guard, ip, host, generation]() {
+                if (!guard || generation != m_resolveGeneration) return;
                 if (!ip.isEmpty()) {
                     WIFI_LOG(QString("Resolved %1 to %2 via mDNS").arg(host, ip));
                     // Persist the peer IP so the next connect skips resolution.
                     // A stale answer self-heals: the cached-IP attempt fails the
                     // recognition window and falls back here to re-resolve.
-                    if (guard->m_ipCacheUpdate) guard->m_ipCacheUpdate(host, ip);
-                    guard->attemptTarget(ip, /*isHostname=*/false);
+                    if (m_ipCacheUpdate) m_ipCacheUpdate(host, ip);
+                    attemptTarget(ip, /*isHostname=*/false);
                 } else {
                     WIFI_WARN(QString("mDNS resolution failed for %1 — trying direct").arg(host));
-                    guard->attemptTarget(host, /*isHostname=*/true);
+                    attemptTarget(host, /*isHostname=*/true);
                 }
             }, Qt::QueuedConnection);
         });
