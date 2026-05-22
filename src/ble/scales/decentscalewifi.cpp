@@ -117,14 +117,17 @@ void DecentScaleWifi::attemptHostname() {
                     attemptTarget(ip, /*isHostname=*/false);
                 } else {
                     // The mDNS A-query found no responder. On Android the OS
-                    // resolver can't resolve ".local" either, so dialing
-                    // ws://<host> would only fail later with a misleading generic
-                    // HostNotFound — surface the real cause and stop instead.
+                    // resolver can't resolve ".local" either, so we don't dial
+                    // ws://<host> (it would fail later with a misleading generic
+                    // HostNotFound). This is a TRANSIENT connect failure — e.g. a
+                    // power-cycled scale still booting/rejoining WiFi — so log it
+                    // but do NOT pop a modal: the auto-reconnect retries and
+                    // succeeds once the scale is back, and a genuinely-gone scale
+                    // is surfaced by the FlowScale-fallback notice once the connect
+                    // attempts give up. (See #1253.)
                     WIFI_WARN(QString("mDNS resolution failed for %1 — no responder; "
-                                      "not dialing (Android can't resolve .local directly)").arg(host));
-                    emit errorOccurred(translateUiString("wifi.scale.error.mdnsNotFound",
-                        "WiFi scale not found: no mDNS response for %1").arg(host));
-                    m_userInitiatedShutdown = true;  // failure surfaced; suppress reconnect churn
+                                      "not dialing (transient; auto-reconnect will retry)").arg(host));
+                    m_userInitiatedShutdown = true;  // mark expected; reconnect owned by main.cpp
                 }
             }, Qt::QueuedConnection);
         });
@@ -373,10 +376,11 @@ void DecentScaleWifi::onRecognitionTimeout() {
         return;
     }
 
-    // Hostname attempt also failed recognition — give up.
-    emit errorOccurred(translateUiString("wifi.scale.error.didNotRespond",
-        "WiFi scale did not respond as HDS"));
-    m_userInitiatedShutdown = true;  // Suppress reconnect attempt.
+    // Hostname attempt also failed recognition — give up THIS attempt. Transient
+    // connect failure: log it but don't pop a modal (the auto-reconnect retries;
+    // a genuinely-gone scale is surfaced by the FlowScale-fallback notice). #1253
+    WIFI_WARN(QStringLiteral("WiFi scale did not respond as HDS — giving up this attempt"));
+    m_userInitiatedShutdown = true;  // mark expected; reconnect owned by main.cpp
     m_socket->abort();  // Same rationale as the fallback path above.
 }
 
@@ -444,20 +448,15 @@ void DecentScaleWifi::onError() {
     // or DNS failure.
     switch (err) {
     case QAbstractSocket::HostNotFoundError:
-        emit errorOccurred(translateUiString("wifi.scale.error.hostNotFound",
-            "WiFi scale not found on the network (mDNS resolution failed for %1)")
-            .arg(m_hostname));
-        m_userInitiatedShutdown = true;
-        break;
     case QAbstractSocket::ConnectionRefusedError:
-        emit errorOccurred(translateUiString("wifi.scale.error.connectionRefused",
-            "WiFi scale refused the connection — is the scale powered on and on the same network?"));
-        m_userInitiatedShutdown = true;
-        break;
     case QAbstractSocket::NetworkError:
     case QAbstractSocket::SocketTimeoutError:
-        emit errorOccurred(translateUiString("wifi.scale.error.networkError",
-            "Network error while connecting to WiFi scale"));
+        // Transient connect failures (scale unreachable / refusing / still
+        // booting). Already logged via WIFI_WARN above; we do NOT pop a modal —
+        // the auto-reconnect retries and recovers a power-cycled scale, and a
+        // genuinely-gone scale is surfaced by the FlowScale-fallback notice once
+        // attempts give up. (The 503 "another client connected" case above is the
+        // one error we DO surface, because the retry loop can't resolve it.) #1253
         m_userInitiatedShutdown = true;
         break;
     default:

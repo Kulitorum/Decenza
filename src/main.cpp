@@ -1532,27 +1532,14 @@ int main(int argc, char *argv[])
         // Connect scale to BLEManager for auto-scan control
         bleManager.setScaleDevice(physicalScale.get());
 
-        // Forward scale-level error messages (e.g. WiFi 503 "Another client is
-        // connected to the scale") to BLEManager::errorOccurred, which main.qml
-        // already wires to bleErrorDialog. Without this re-emit, the per-scale
-        // errorOccurred signal lands nowhere visible and the user has no
-        // feedback on a failed connect.
-        QObject::connect(physicalScale.get(), &ScaleDevice::errorOccurred, &bleManager,
-                         [&bleManager, &scaleReconnectTimer](const QString& error) {
-            // Suppress scale-error dialogs while an auto-reconnect is in flight: the
-            // retry loop recovers transient failures (e.g. a power-cycled WiFi scale
-            // still booting → "no mDNS response"), so popping a modal on a miss the
-            // next attempt will fix is premature. The reconnect timer is active only
-            // during auto-reconnect; a user-initiated connect stops it (via
-            // disconnectScaleRequested), so its errors still surface immediately. A
-            // genuinely-gone scale is reported by the FlowScale-fallback notice once
-            // the retries give up.
-            if (scaleReconnectTimer.isActive()) {
-                bleManager.appendScaleLog(QStringLiteral("Scale error during reconnect (suppressed): ") + error);
-                return;
-            }
-            emit bleManager.errorOccurred(error);
-        });
+        // Forward scale-level error messages to BLEManager::errorOccurred, which
+        // main.qml wires to the error dialog. Transient WiFi connect-failures (mDNS
+        // miss, host-not-found, connection-refused — the scale is just booting) are
+        // log-only inside DecentScaleWifi (see #1253), so what reaches here is an
+        // ACTIONABLE error worth showing unconditionally — e.g. WiFi 503 "Another
+        // client is connected to the scale", which the retry loop can't resolve.
+        QObject::connect(physicalScale.get(), &ScaleDevice::errorOccurred,
+                         &bleManager, &BLEManager::errorOccurred);
 
         // Disconnect FlowScale from graph and weight processor
         QObject::disconnect(&flowScale, &ScaleDevice::weightChanged,
