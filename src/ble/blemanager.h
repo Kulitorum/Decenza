@@ -332,6 +332,14 @@ public:
     Q_INVOKABLE QBluetoothDeviceInfo getScaleDeviceInfo(const QString& address) const;
     Q_INVOKABLE QString getScaleType(const QString& address) const;
     Q_INVOKABLE void connectToScale(const QString& address);  // Manual scale selection
+    // Connect to a WiFi scale by a manually-entered IP or mDNS name (the "Add
+    // WiFi Scale" dialog), without requiring it to be in the discovered list. A
+    // bare name with no dot gets ".local" appended (matching the discovery
+    // default "hds.local"); IPs and dotted names pass through. Drives the same
+    // path discovered WiFi scales use — on a successful connect main.cpp saves it
+    // to Known Devices and as the primary scale; a failed connect surfaces an
+    // error and saves nothing.
+    Q_INVOKABLE void connectToWifiScale(const QString& hostnameOrIp);
     // Switch the LIVE connection to the current saved primary scale (set via
     // setSavedScaleAddress just before calling). If a scale is connected it is
     // disconnected first, then the saved primary is direct-woken (BLE) /

@@ -462,6 +462,33 @@ void BLEManager::connectToScale(const QString& address) {
     qWarning() << "Scale not found in discovered list:" << address;
 }
 
+void BLEManager::connectToWifiScale(const QString& hostnameOrIp) {
+    QString host = hostnameOrIp.trimmed();
+    if (host.isEmpty()) return;
+
+    // A bare name with no dot is an mDNS hostname missing its suffix — append
+    // ".local" so it resolves (matches the discovery default "hds.local"). IPs
+    // and already-dotted/qualified names pass through unchanged.
+    if (!host.contains(QLatin1Char('.')))
+        host += QStringLiteral(".local");
+
+    appendScaleLog(QString("Connecting to WiFi scale at %1...").arg(host));
+
+    // Drop any currently-connected scale first: main.cpp's scaleDiscovered
+    // handler early-returns while a scale is connected. Its disconnectScaleRequested
+    // handler runs synchronously and clears m_scaleDevice before we emit below.
+    if (m_scaleDevice && m_scaleDevice->isConnected())
+        emit disconnectScaleRequested();
+
+    // Same connect path as a discovered WiFi scale (connectToScale's wifi branch),
+    // minus the discovered-list lookup: set the pending hostname and emit
+    // scaleDiscovered with the WiFi type. main.cpp creates the DecentScaleWifi
+    // driver, wires the IP-cache callbacks, dials connectToHost(host), and on a
+    // successful connect saves it to Known Devices + as the primary scale.
+    m_pendingWifiHostname = host;
+    emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
+}
+
 void BLEManager::connectToSavedScale() {
     // Switch the live connection to the current saved primary (the caller sets it
     // via setSavedScaleAddress immediately before). The Known Devices picker uses
