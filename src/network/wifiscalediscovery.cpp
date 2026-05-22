@@ -20,13 +20,12 @@ WifiScaleDiscovery::WifiScaleDiscovery(QObject* parent)
     m_timeoutTimer->setSingleShot(true);
     connect(m_timeoutTimer, &QTimer::timeout, this, [this]() {
 #ifdef Q_OS_ANDROID
-        // Watchdog only: the worker's NsdManager discovery has its own deadline
-        // (the CountDownLatch await) and normally posts a result before this
-        // fires. This covers the rare case where the thread-pool worker is
-        // starved and never runs. The generation bump in cancelInFlight() drops
-        // any late worker result.
+        // Watchdog only: the worker's MdnsResolver query has its own deadline
+        // (timeoutMs) and normally posts a result before this fires. This covers
+        // the rare case where the thread-pool worker is starved and never runs.
+        // The generation bump in cancelInFlight() drops any late worker result.
         if (!m_androidInFlight) return;
-        qDebug() << "[WifiScaleDiscovery] NSD probe watchdog fired for" << m_currentHostname;
+        qDebug() << "[WifiScaleDiscovery] mDNS probe watchdog fired for" << m_currentHostname;
         cancelInFlight();
         emit probeFinished();
 #else
@@ -52,11 +51,11 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
 #ifdef Q_OS_ANDROID
     // Android's stock resolver (getaddrinfo / QHostInfo) does NOT resolve
     // ".local" mDNS names. Resolve via a direct mDNS A-record query
-    // (MdnsResolver — the same path MqttClient and the WiFi-scale connect use);
-    // NsdManager DNS-SD browsing proved flaky on-device. resolveHostname()
-    // blocks up to timeoutMs, so run it on a worker thread to keep the Qt event
-    // loop responsive. Multicast reception relies on the process-wide
-    // WifiManager.MulticastLock that ShotServer holds for the app lifetime.
+    // (MdnsResolver — the same primitive MqttClient and the WiFi-scale connect
+    // use). resolveHostname() blocks up to timeoutMs, so run it on a worker
+    // thread to keep the Qt event loop responsive. Multicast reception relies on
+    // the process-wide WifiManager.MulticastLock that ShotServer holds for the
+    // app lifetime.
     m_androidInFlight = true;
     const int generation = ++m_androidGeneration;
 
@@ -129,9 +128,8 @@ void WifiScaleDiscovery::cancelInFlight() {
     if (m_androidInFlight) {
         // Bump the generation so any worker result arriving on the Qt thread
         // after this point is discarded by the equality check in the queued
-        // lambda. The MdnsResolver worker can't be interrupted mid-query, but
-        // it finishes on its own at timeoutMs and its late result is dropped —
-        // no JNI teardown needed (unlike the old NsdManager listener).
+        // lambda. The MdnsResolver worker can't be interrupted mid-query, but it
+        // finishes on its own at timeoutMs and its late result is then dropped.
         ++m_androidGeneration;
         m_androidInFlight = false;
     }

@@ -61,9 +61,9 @@ private:
     QTimer* m_timeoutTimer = nullptr;
 
 #ifdef Q_OS_ANDROID
-    // Android uses NsdManager via a JNI helper on a worker thread instead of
-    // QHostInfo (the stock resolver doesn't do mDNS). A monotonically
-    // increasing generation lets us drop late callbacks after cancel/timeout.
+    // Android resolves via MdnsResolver on a worker thread instead of QHostInfo
+    // (the stock resolver doesn't do mDNS ".local"). A monotonically increasing
+    // generation lets us drop late callbacks after cancel/timeout.
     bool m_androidInFlight = false;
     int m_androidGeneration = 0;
 #endif
