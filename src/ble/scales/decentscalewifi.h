@@ -23,7 +23,7 @@ class QWebSocket;
  * so it cannot be used to unify the two transports — downstream code that
  * wants "same physical product" semantics must branch on the string with
  * explicit cases for both (e.g., grinder-calibration baseline in
- * settings_calibration.cpp:423-424). transportType() returns "wifi" for
+ * src/core/settings_calibration.cpp). transportType() returns "wifi" for
  * paths that need to distinguish transport explicitly.
  */
 class DecentScaleWifi : public ScaleDevice {

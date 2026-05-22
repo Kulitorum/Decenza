@@ -128,12 +128,13 @@ QString resolveHostname(const QString& hostname, int timeoutMs)
     ctx.hostname = hostBytes;
     if (ctx.hostname.endsWith('.'))
         ctx.hostname.chop(1);
-    ctx.verbose = true;  // diagnostic: log every record seen during the probe
+    ctx.verbose = false;  // flip to true to log every record seen (verbose probe diagnostics)
 
     qDebug().noquote() << "[MdnsResolver] start host=" << hostname
                        << "timeout=" << timeoutMs << "ms sock=" << sock;
 
     int sendCount = 0;
+    int sendOk = 0;  // successful sends — distinguishes "no responder" from "couldn't send"
 
     // mDNS clients MUST retransmit: a single multicast query can be silently
     // dropped (WiFi multicast is unacknowledged and sent at a low rate), and a
@@ -157,6 +158,7 @@ QString resolveHostname(const QString& hostname, int timeoutMs)
                                           static_cast<size_t>(hostBytes.size()),
                                           buffer, sizeof(buffer), 0);
             ++sendCount;
+            if (sendRet >= 0) ++sendOk;
             qDebug().noquote() << "[MdnsResolver]   query #" << sendCount
                                << "sent ret=" << sendRet
                                << (sendRet < 0 ? QString(" errno=%1").arg(errno) : QString());
@@ -204,6 +206,14 @@ QString resolveHostname(const QString& hostname, int timeoutMs)
                        << "records=" << ctx.recordsSeen
                        << "aRecords=" << ctx.aRecordsSeen
                        << "elapsed=" << deadline.elapsed() << "ms";
+
+    // Distinguish a transport failure (every query send failed — e.g. no
+    // multicast route / persistent ENOBUFS) from a silent responder, so triage
+    // doesn't conflate "couldn't ask" with "asked but got no answer".
+    if (sendCount > 0 && sendOk == 0)
+        qWarning().noquote() << "[MdnsResolver] all" << sendCount
+                             << "query sends FAILED for" << hostname
+                             << "— transport problem, not necessarily an absent responder";
 
     return ctx.resolvedIp;
 }

@@ -14,9 +14,9 @@
  *
  * NOTE: this is DNS hostname resolution, NOT DNS-SD service discovery. The
  * Half Decent Scale (and the MQTT broker, etc.) publish a plain ".local"
- * hostname, not necessarily a "_http._tcp" service record — so NsdManager's
- * discoverServices() is the wrong tool and finds nothing. An A-record query
- * is the correct approach.
+ * hostname rather than a discoverable "_http._tcp" service record, so a
+ * service-discovery API like NsdManager is the wrong primitive here — a direct
+ * A-record query is what's needed.
  *
  * On non-Android platforms resolveHostname() is a no-op stub returning "" —
  * callers there should use QHostInfo::lookupHost directly.

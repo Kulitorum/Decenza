@@ -71,11 +71,15 @@ BLEManager::BLEManager(QObject* parent)
     m_de1WaitTimer->setSingleShot(true);
     m_de1WaitTimer->setInterval(15000);
     connect(m_de1WaitTimer, &QTimer::timeout, this, [this]() {
-        if (!m_scaleConnectDeferred) return;
-        m_scaleConnectDeferred = false;
-        m_de1DirectConnectInFlight = false;  // give up waiting for the DE1
-        appendScaleLog("DE1 did not connect within 15 s — connecting scale anyway");
-        tryDirectConnectToScale();
+        // Cap reached: stop gating the scale behind the DE1 unconditionally, so
+        // m_de1DirectConnectInFlight can't stick if the DE1 never resolves and no
+        // scale was waiting. If one is waiting, connect it now.
+        m_de1DirectConnectInFlight = false;
+        if (m_scaleConnectDeferred) {
+            m_scaleConnectDeferred = false;
+            appendScaleLog("DE1 did not connect within 15 s — connecting scale anyway");
+            tryDirectConnectToScale();
+        }
     });
 
     // Eagerly run the Linux capability check so any qWarning lands early in
@@ -1099,11 +1103,6 @@ void BLEManager::tryDirectConnectToDE1() {
         return;
     }
 
-    // A DE1 direct-wake connect is now in flight — the scale's BLE direct-connect
-    // defers behind it (see tryDirectConnectToScale) so the two GATT connects
-    // don't collide on the Android stack; cleared in onDe1ConnectionSettled().
-    m_de1DirectConnectInFlight = true;
-
     // Don't attempt if already connected or connecting
     // (the de1Discovered handler in main.cpp checks this before connecting)
 
@@ -1132,6 +1131,15 @@ void BLEManager::tryDirectConnectToDE1() {
 
     qDebug() << "BLEManager: DE1 direct wake - connecting to" << deviceName << "at" << upperAddress;
     emit de1LogMessage(QString("Direct wake: connecting to %1 at %2").arg(deviceName, upperAddress));
+
+    // A DE1 direct-wake connect is now being initiated — gate the scale's BLE
+    // direct-connect behind it (two concurrent GATT connects collide on the
+    // Android stack). Arm the 15 s cap here so the gate is always bounded even if
+    // the DE1 connect never resolves (no DE1 present); it's cleared in
+    // onDe1ConnectionSettled() on success/failure, or by the cap timer. Set only
+    // at the point of an actual connect — early-returns above must not gate.
+    m_de1DirectConnectInFlight = true;
+    if (!m_de1WaitTimer->isActive()) m_de1WaitTimer->start();
 
     // Emit de1Discovered so main.cpp's handler connects to the device
     emit de1Discovered(deviceInfo);
@@ -1356,9 +1364,9 @@ void BLEManager::onDe1ConnectionSettled() {
     // ended) — drop the gate and run any scale direct-connect that was deferred
     // behind it to avoid a concurrent-GATT-connect collision on Android.
     m_de1DirectConnectInFlight = false;
+    m_de1WaitTimer->stop();
     if (m_scaleConnectDeferred) {
         m_scaleConnectDeferred = false;
-        m_de1WaitTimer->stop();
         appendScaleLog("DE1 connect settled — starting deferred scale connect");
         tryDirectConnectToScale();
     }

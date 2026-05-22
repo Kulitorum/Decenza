@@ -116,8 +116,15 @@ void DecentScaleWifi::attemptHostname() {
                     if (m_ipCacheUpdate) m_ipCacheUpdate(host, ip);
                     attemptTarget(ip, /*isHostname=*/false);
                 } else {
-                    WIFI_WARN(QString("mDNS resolution failed for %1 — trying direct").arg(host));
-                    attemptTarget(host, /*isHostname=*/true);
+                    // The mDNS A-query found no responder. On Android the OS
+                    // resolver can't resolve ".local" either, so dialing
+                    // ws://<host> would only fail later with a misleading generic
+                    // HostNotFound — surface the real cause and stop instead.
+                    WIFI_WARN(QString("mDNS resolution failed for %1 — no responder; "
+                                      "not dialing (Android can't resolve .local directly)").arg(host));
+                    emit errorOccurred(translateUiString("wifi.scale.error.mdnsNotFound",
+                        "WiFi scale not found: no mDNS response for %1").arg(host));
+                    m_userInitiatedShutdown = true;  // failure surfaced; suppress reconnect churn
                 }
             }, Qt::QueuedConnection);
         });
