@@ -15,12 +15,10 @@ class QTimer;
  * probeFinished(). Calling probe() while a lookup is in flight starts a
  * new lookup; the previous lookup's result will be dropped. On non-Android
  * the previous QHostInfo lookup is synchronously aborted. On Android the
- * lookup runs on a worker thread via the NsdManager JNI helper
- * (WifiScaleNsdHelper) which discovers the scale's _decentscale._tcp DNS-SD
- * service through the OS mDNS daemon — the only path that reliably receives
- * mDNS on Android. The blocking worker cannot be synchronously joined, so its
- * late result is dropped via a generation check, and cancelInFlight() also
- * tells the helper to stop its NsdManager listener eagerly.
+ * lookup runs on a worker thread via MdnsResolver — a direct mDNS A-record
+ * query, since the OS resolver doesn't handle ".local" there. The blocking
+ * worker cannot be synchronously joined, so its late result is dropped via a
+ * generation check.
  */
 class WifiScaleDiscovery : public QObject {
     Q_OBJECT

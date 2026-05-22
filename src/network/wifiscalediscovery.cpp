@@ -6,11 +6,11 @@
 
 #ifdef Q_OS_ANDROID
 #include <QCoreApplication>
-#include <QJniObject>
 #include <QMetaObject>
 #include <QPointer>
 #include <QRunnable>
 #include <QThreadPool>
+#include "mdnsresolver.h"
 #endif
 
 WifiScaleDiscovery::WifiScaleDiscovery(QObject* parent)
@@ -50,45 +50,24 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
              << "(timeout" << timeoutMs << "ms)";
 
 #ifdef Q_OS_ANDROID
-    // Android's stock resolver (getaddrinfo) does NOT do mDNS for .local names,
-    // and a direct app-socket mDNS query can't receive the reply (the OS mDNS
-    // daemon monopolizes port-5353 multicast; unicast replies get dropped).
-    // The scale firmware advertises a _decentscale._tcp DNS-SD service, so we
-    // discover it via NsdManager (which runs inside the OS mDNS daemon — the
-    // only path that reliably receives mDNS on Android). The JNI helper blocks
-    // on a CountDownLatch, so run it on a worker thread to keep the Qt event
-    // loop responsive.
+    // Android's stock resolver (getaddrinfo / QHostInfo) does NOT resolve
+    // ".local" mDNS names. Resolve via a direct mDNS A-record query
+    // (MdnsResolver — the same path MqttClient and the WiFi-scale connect use);
+    // NsdManager DNS-SD browsing proved flaky on-device. resolveHostname()
+    // blocks up to timeoutMs, so run it on a worker thread to keep the Qt event
+    // loop responsive. Multicast reception relies on the process-wide
+    // WifiManager.MulticastLock that ShotServer holds for the app lifetime.
     m_androidInFlight = true;
     const int generation = ++m_androidGeneration;
 
-    // Strip ".local" — passed to the helper for logging only; the dedicated
-    // _decentscale._tcp service type is the actual match.
-    QString stem = hostname;
-    if (stem.endsWith(QStringLiteral(".local"), Qt::CaseInsensitive)) {
-        stem.chop(QStringLiteral(".local").size());
-    }
-
     QPointer<WifiScaleDiscovery> self(this);
-    const QString stemForWorker = stem;
     const QString hostnameForWorker = hostname;
     const int timeoutForWorker = timeoutMs;
 
-    auto runnable = QRunnable::create([self, stemForWorker, hostnameForWorker,
+    auto runnable = QRunnable::create([self, hostnameForWorker,
                                        timeoutForWorker, generation]() {
-        // Runs on a QThreadPool worker thread — JNI calls are allowed off the
-        // main thread, and the Java helper blocks on a CountDownLatch. The
-        // Android Context is passed in because Qt's QtNative.getContext() is
-        // package-private and unavailable from our Java package.
-        QJniObject context = QNativeInterface::QAndroidApplication::context();
-        QJniObject stemJ = QJniObject::fromString(stemForWorker);
-        QJniObject ipJ = QJniObject::callStaticObjectMethod(
-            "io/github/kulitorum/decenza_de1/WifiScaleNsdHelper",
-            "discoverHdsBlocking",
-            "(Landroid/content/Context;Ljava/lang/String;I)Ljava/lang/String;",
-            context.object(),
-            stemJ.object<jstring>(),
-            jint(timeoutForWorker));
-        const QString ip = ipJ.isValid() ? ipJ.toString() : QString();
+        // Runs on a QThreadPool worker thread (resolveHostname blocks).
+        const QString ip = MdnsResolver::resolveHostname(hostnameForWorker, timeoutForWorker);
 
         // Post the result back to the object's thread. If it was destroyed the
         // QPointer is null and the lambda no-ops; if the probe was cancelled or
@@ -102,11 +81,11 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
             self->m_timeoutTimer->stop();
 
             if (ip.isEmpty()) {
-                qDebug() << "[WifiScaleDiscovery] NSD lookup failed for" << hostnameForWorker;
+                qDebug() << "[WifiScaleDiscovery] mDNS lookup failed for" << hostnameForWorker;
                 emit self->probeFinished();
                 return;
             }
-            qDebug() << "[WifiScaleDiscovery] NSD found" << hostnameForWorker
+            qDebug() << "[WifiScaleDiscovery] mDNS found" << hostnameForWorker
                      << "->" << ip;
             emit self->scaleFound(hostnameForWorker, ip);
             emit self->probeFinished();
@@ -115,7 +94,10 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
     runnable->setAutoDelete(true);
     QThreadPool::globalInstance()->start(runnable);
 
-    m_timeoutTimer->start(timeoutMs);
+    // Watchdog backstop with a small margin over the worker's own timeout, so
+    // the worker reports first in the normal case; this only fires if the
+    // thread-pool worker is starved and never runs.
+    m_timeoutTimer->start(timeoutMs + 1000);
 #else
     m_lookupId = QHostInfo::lookupHost(hostname, this,
         [this](const QHostInfo& info) {
@@ -145,20 +127,13 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
 void WifiScaleDiscovery::cancelInFlight() {
 #ifdef Q_OS_ANDROID
     if (m_androidInFlight) {
-        // Two-part cancel:
-        //  1. Bump the generation so any worker result that arrives on the Qt
-        //     thread after this point is discarded by the equality check in the
-        //     queued lambda.
-        //  2. Call into the Java helper to stop the active NsdManager
-        //     DiscoveryListener registration and count down the worker's
-        //     CountDownLatch immediately. Without this eager teardown, a rapid
-        //     second probe() would hit FAILURE_ALREADY_ACTIVE because Android
-        //     only permits one listener per service type per NsdManager instance.
+        // Bump the generation so any worker result arriving on the Qt thread
+        // after this point is discarded by the equality check in the queued
+        // lambda. The MdnsResolver worker can't be interrupted mid-query, but
+        // it finishes on its own at timeoutMs and its late result is dropped —
+        // no JNI teardown needed (unlike the old NsdManager listener).
         ++m_androidGeneration;
         m_androidInFlight = false;
-        QJniObject::callStaticMethod<void>(
-            "io/github/kulitorum/decenza_de1/WifiScaleNsdHelper",
-            "cancelDiscovery", "()V");
     }
 #endif
     if (m_lookupId != -1) {
