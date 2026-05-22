@@ -1470,8 +1470,12 @@ Item {
             var scales = Settings.knownScales
             if (index >= 0 && index < scales.length) {
                 var scale = scales[index]
+                if (scale.isPrimary) return  // re-selected the current primary — nothing to switch
                 Settings.setPrimaryScale(scale.address)
                 BLEManager.setSavedScaleAddress(scale.address, scale.type, scale.name)
+                // Actually switch the live connection to the chosen scale, so the
+                // "Connected:" status updates instead of staying on the old one.
+                BLEManager.connectToSavedScale()
             }
         }
     }

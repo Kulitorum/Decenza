@@ -332,6 +332,13 @@ public:
     Q_INVOKABLE QBluetoothDeviceInfo getScaleDeviceInfo(const QString& address) const;
     Q_INVOKABLE QString getScaleType(const QString& address) const;
     Q_INVOKABLE void connectToScale(const QString& address);  // Manual scale selection
+    // Switch the LIVE connection to the current saved primary scale (set via
+    // setSavedScaleAddress just before calling). Drops any currently-connected
+    // scale, then direct-wakes the saved primary (BLE) / cached-IP-connects it
+    // (WiFi) via tryDirectConnectToScale(). Unlike connectToScale() this does
+    // NOT require the scale to be in the discovered list, so the Known Devices
+    // picker can switch to a known scale that isn't currently being scanned.
+    Q_INVOKABLE void connectToSavedScale();
 
     ScaleDevice* scaleDevice() const { return m_scaleDevice; }
     void setScaleDevice(ScaleDevice* scale);

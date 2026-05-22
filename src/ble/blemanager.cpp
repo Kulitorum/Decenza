@@ -462,6 +462,28 @@ void BLEManager::connectToScale(const QString& address) {
     qWarning() << "Scale not found in discovered list:" << address;
 }
 
+void BLEManager::connectToSavedScale() {
+    // Switch the live connection to the current saved primary (the caller sets it
+    // via setSavedScaleAddress immediately before). The Known Devices picker uses
+    // this so selecting a scale actually CONNECTS to it rather than only relabeling
+    // the saved primary. Goes through the direct-wake path so it works even when
+    // the chosen scale isn't in the discovered list.
+    if (m_savedScaleAddress.isEmpty()) return;
+
+    // Drop the currently-connected scale first (single-scale invariant) so the new
+    // primary can take over. main.cpp's disconnectScaleRequested handler tears down
+    // the live scale and clears m_scaleDevice, so tryDirectConnectToScale()'s
+    // "already connected" guard won't block the new dial.
+    if (m_scaleDevice && m_scaleDevice->isConnected()) {
+        appendScaleLog(QString("Switching scale to %1")
+                           .arg(m_savedScaleName.isEmpty() ? m_savedScaleAddress : m_savedScaleName));
+        emit disconnectScaleRequested();
+    }
+    m_wifiFallbackToBleActive = false;  // user explicitly chose this scale
+    resetScaleConnectionState();
+    tryDirectConnectToScale();
+}
+
 void BLEManager::startScan() {
     if (m_disabled && !m_scanningForScales) {
         // In simulator mode, suppress DE1 scanning but allow scale/refractometer scans
