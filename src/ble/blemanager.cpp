@@ -1295,23 +1295,32 @@ void BLEManager::tryDirectConnectToScale() {
 
     QString deviceName = m_savedScaleName.isEmpty() ? m_savedScaleType : m_savedScaleName;
 
-    // WiFi saved-scale path: do an mDNS probe + WS connect. If the connection
-    // doesn't establish before m_scaleConnectionTimer fires (~20 s), we fall
-    // back to a BLE scan that auto-connects to a discovered Decent scale (see
-    // onScaleConnectionTimeout and beginWifiFallbackToBleScan).
+    // WiFi saved-scale path: hand off to the scale driver's connect (cached IP
+    // first, mDNS only as fallback) — see the detailed note inside the branch.
+    // If the connection doesn't establish before m_scaleConnectionTimer fires
+    // (~20 s), we fall back to a BLE scan that auto-connects to a discovered
+    // Decent scale (see onScaleConnectionTimeout and beginWifiFallbackToBleScan).
     if (m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)) {
         const QString hostname = m_savedScaleAddress.mid(QStringLiteral("wifi:").size());
-        qDebug() << "BLEManager: Direct wake (WiFi) - resolving" << hostname;
-        appendScaleLog(QString("Direct wake (WiFi): resolving %1").arg(hostname));
+        qDebug() << "BLEManager: Direct wake (WiFi) - connecting to" << hostname
+                 << "(cached IP first, mDNS fallback)";
+        appendScaleLog(QString("Direct wake (WiFi): connecting to %1").arg(hostname));
 
-        ensureWifiDiscovery();
+        // Reconnect through the scale driver's own connect path instead of
+        // gating on a fresh mDNS probe. DecentScaleWifi::connectToHost() tries
+        // the persisted peer IP first (settings key scale/wifiIp/<hostname>) and
+        // dials ws://<ip>/snapshot directly — no multicast — falling back to an
+        // mDNS resolve only if that cached IP fails the recognition window (DHCP
+        // moved it). This makes reconnect resilient to the tablet's mDNS going
+        // deaf under BLE-coexistence load: when we already know the scale's IP we
+        // don't need to hear a multicast reply to reconnect. With no cached IP it
+        // behaves as before (connectToHost falls through to an mDNS resolve). The
+        // 20 s connection timer still arms the WiFi->BLE fallback if the cached
+        // IP is genuinely unreachable (onScaleConnectionTimeout).
         m_wifiFallbackToBleActive = false;          // Reset per attempt
         m_scaleConnectionTimer->start();            // Fires onScaleConnectionTimeout if WiFi doesn't connect
-        // 5 s mDNS timeout, matching the user-initiated scan path — empirically
-        // the HDS mDNS responder regularly takes 2-4 s on first contact (ESP32
-        // wake from power-save), and the 20 s connection timer above gives the
-        // probe a comfortable window before the WiFi-to-BLE fallback engages.
-        m_wifiDiscovery->probe(hostname, 5000);
+        m_pendingWifiHostname = hostname;
+        emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
         return;
     }
 
