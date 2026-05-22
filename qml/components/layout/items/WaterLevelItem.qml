@@ -10,13 +10,20 @@ Item {
 
     property bool showMl: Settings.app.waterLevelDisplayUnit === "ml"
 
-    // Margin = mm of water above the user's configured refill threshold.
+    // Margin = mm of water above the effective refill threshold.
     // waterLevelMm = rawSensorMm + 5mm offset (sensor mounted above intake).
     // waterRefillPoint is in raw sensor mm (sent to firmware as-is).
-    // So: margin = waterLevelMm - sensorOffset - waterRefillPoint = rawSensorMm - waterRefillPoint.
-    // "Refill" appears at margin <= 0, i.e. when raw water level reaches the user's setting.
+    // So: margin = waterLevelMm - sensorOffset - effectiveRefillPoint = rawSensorMm - effectiveRefillPoint.
+    // "Refill" appears at margin <= 0, i.e. when raw water level reaches the threshold.
+    //
+    // When the refill kit is active, the effective threshold drops to 3mm (the slider
+    // floor) so the kit's normal top-up cycle doesn't trip a spurious warning. Matches
+    // MainController::applyWaterRefillLevel().
     readonly property real sensorOffset: 5.0
-    readonly property real margin: DE1Device.waterLevelMm - sensorOffset - Settings.app.waterRefillPoint
+    readonly property bool refillKitActive: Settings.app.refillKitOverride === 1 ||
+                                            (Settings.app.refillKitOverride === 2 && DE1Device.refillKitDetected === 1)
+    readonly property real effectiveRefillPoint: refillKitActive ? 3 : Settings.app.waterRefillPoint
+    readonly property real margin: DE1Device.waterLevelMm - sensorOffset - effectiveRefillPoint
     readonly property string warningState: {
         // No warning when disconnected — waterLevelMm initializes to 0.0 which would
         // falsely trigger "critical" on every startup until the first BLE update arrives.
