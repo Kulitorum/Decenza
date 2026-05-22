@@ -193,6 +193,131 @@ Item {
         }
     }
 
+    // Add WiFi Scale Dialog — enter an IP address or mDNS name to connect a
+    // WiFi scale that isn't being advertised/discovered right now.
+    Dialog {
+        id: addWifiScaleDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+        width: Math.min((parent ? parent.width : Theme.scaled(420)) * 0.85, Theme.scaled(420))
+        padding: 0
+
+        onOpened: {
+            wifiScaleHostField.text = ""
+            wifiScaleHostField.forceActiveFocus()
+        }
+
+        function submitWifiScale() {
+            Qt.inputMethod.commit()  // flush in-progress IME word before reading text
+            var host = wifiScaleHostField.text.trim()
+            if (host.length === 0)
+                return
+            addWifiScaleDialog.close()
+            BLEManager.connectToWifiScale(host)
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.primaryContrastColor
+            border.width: 1
+        }
+
+        contentItem: KeyboardAwareContainer {
+            id: wifiScaleKbContainer
+            inOverlay: true
+            textFields: [wifiScaleHostField]
+            targetFlickable: wifiScaleFlick
+            implicitWidth: addWifiScaleDialog.availableWidth
+            implicitHeight: Math.min(wifiScaleCol.implicitHeight,
+                                     addWifiScaleDialog.parent ? addWifiScaleDialog.parent.height * 0.9
+                                                               : wifiScaleCol.implicitHeight)
+
+            Flickable {
+                id: wifiScaleFlick
+                anchors.fill: parent
+                contentHeight: wifiScaleCol.implicitHeight + wifiScaleKbContainer.estimatedKeyboardHeight
+                contentWidth: parent.width
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
+
+                ColumnLayout {
+                    id: wifiScaleCol
+                    width: parent.width
+                    spacing: 0
+
+                    // Title
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.scaled(20)
+                        Layout.bottomMargin: Theme.scaled(15)
+                        text: TranslationManager.translate("settings.bluetooth.addWifiScaleTitle", "Add WiFi Scale")
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    // Instructions
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.scaled(20)
+                        Layout.rightMargin: Theme.scaled(20)
+                        text: TranslationManager.translate("settings.bluetooth.addWifiScaleInstructions",
+                              "Enter the scale's IP address or name.")
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                        wrapMode: Text.Wrap
+                    }
+
+                    // IP / name input
+                    StyledTextField {
+                        id: wifiScaleHostField
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.scaled(20)
+                        Layout.rightMargin: Theme.scaled(20)
+                        Layout.topMargin: Theme.scaled(12)
+                        placeholder: TranslationManager.translate("settings.bluetooth.addWifiScalePlaceholder", "192.168.1.50 or hds.local")
+                        accessibleName: TranslationManager.translate("settings.bluetooth.addWifiScaleField", "WiFi scale IP address or name")
+                        inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
+                        Keys.onReturnPressed: addWifiScaleDialog.submitWifiScale()
+                        Keys.onEnterPressed: addWifiScaleDialog.submitWifiScale()
+                    }
+
+                    // Buttons row
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.scaled(20)
+                        Layout.bottomMargin: Theme.scaled(15)
+                        Layout.leftMargin: Theme.scaled(20)
+                        Layout.rightMargin: Theme.scaled(20)
+                        spacing: Theme.scaled(12)
+
+                        Item { Layout.fillWidth: true }
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("common.cancel", "Cancel")
+                            accessibleName: TranslationManager.translate("common.cancel", "Cancel")
+                            subtle: true
+                            onClicked: addWifiScaleDialog.close()
+                        }
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("settings.bluetooth.connect", "Connect")
+                            accessibleName: TranslationManager.translate("settings.bluetooth.addWifiScaleConnect", "Connect to WiFi scale")
+                            primary: true
+                            enabled: wifiScaleHostField.text.trim().length > 0
+                            onClicked: addWifiScaleDialog.submitWifiScale()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     RowLayout {
         anchors.fill: parent
         spacing: Theme.spacingMedium
@@ -1365,6 +1490,27 @@ Item {
                             fallback: "No devices found"
                             visible: parent.count === 0
                             color: Theme.textSecondaryColor
+                        }
+                    }
+
+                    // Manual WiFi-scale entry — a quiet fallback for when mDNS
+                    // discovery doesn't surface the scale. Rarely needed, so it's
+                    // a low-emphasis link rather than a button next to Scan.
+                    Tr {
+                        Layout.fillWidth: true
+                        key: "settings.bluetooth.addWifiScaleLink"
+                        fallback: "Scale not found? Add a WiFi scale by IP…"
+                        color: Theme.accentColor
+                        font.pixelSize: Theme.scaled(12)
+                        horizontalAlignment: Text.AlignHCenter
+                        topPadding: Theme.scaled(8)
+                        bottomPadding: Theme.scaled(4)
+                        Accessible.ignored: true  // AccessibleMouseArea carries the a11y node
+
+                        AccessibleMouseArea {
+                            anchors.fill: parent
+                            accessibleName: TranslationManager.translate("settings.bluetooth.addWifiScaleAccessible", "Add a WiFi scale by IP address or name")
+                            onAccessibleClicked: addWifiScaleDialog.open()
                         }
                     }
 

@@ -462,6 +462,42 @@ void BLEManager::connectToScale(const QString& address) {
     qWarning() << "Scale not found in discovered list:" << address;
 }
 
+void BLEManager::connectToWifiScale(const QString& hostnameOrIp) {
+    QString host = hostnameOrIp.trimmed();
+    if (host.isEmpty()) return;
+
+    // A bare name with no dot is an mDNS hostname missing its suffix — append
+    // ".local" so it resolves (matches the discovery default "hds.local"). IPs
+    // and already-dotted/qualified names pass through unchanged.
+    if (!host.contains(QLatin1Char('.')))
+        host += QStringLiteral(".local");
+
+    appendScaleLog(QString("Adding WiFi scale at %1...").arg(host));
+
+    // Drop any currently-connected scale first: main.cpp's scaleDiscovered
+    // handler early-returns while a scale is connected. Its disconnectScaleRequested
+    // handler runs synchronously and clears m_scaleDevice before we emit below.
+    if (m_scaleDevice && m_scaleDevice->isConnected())
+        emit disconnectScaleRequested();
+
+    // Arm the connection timer so a wrong/unreachable host is caught by
+    // onScaleConnectionTimeout. WiFi socket errors are otherwise log-only (#1253),
+    // so without this a bad address fails with NO user feedback. m_manualWifiConnect
+    // makes that timeout report "Not found" directly instead of starting a WiFi→BLE
+    // fallback scan — the user asked for a specific WiFi address, so we don't
+    // silently switch transports. Then take the same emit path as a discovered WiFi
+    // scale (connectToScale's wifi branch), minus the discovered-list lookup: set
+    // the pending hostname and emit scaleDiscovered with the WiFi type. main.cpp
+    // creates the DecentScaleWifi driver, wires the IP-cache callbacks, dials
+    // connectToHost(host), and records it in Known Devices + as primary when the
+    // connect starts (as with any scale connect — not gated on connect success).
+    m_manualWifiConnect = true;
+    m_wifiFallbackToBleActive = false;
+    m_scaleConnectionTimer->start();
+    m_pendingWifiHostname = host;
+    emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
+}
+
 void BLEManager::connectToSavedScale() {
     // Switch the live connection to the current saved primary (the caller sets it
     // via setSavedScaleAddress immediately before). The Known Devices picker uses
@@ -936,6 +972,7 @@ void BLEManager::onScaleConnectedChanged() {
         m_directConnectInProgress = false;
         m_directConnectAddress.clear();
         m_wifiFallbackToBleActive = false;  // Reset for the next saved-scale cycle
+        m_manualWifiConnect = false;        // Manual WiFi add resolved (connected)
         m_lastScanErrorShown.clear();       // Healthy state — allow a future fresh scan error to pop again
         m_anyBleSuccessThisSession = true;  // Permission proven good (WiFi scales hit this too — see note below)
         m_flowScaleFallbackEmitted = false;  // Allow dialog again if scale disconnects and reconnect fails
@@ -962,14 +999,20 @@ void BLEManager::onScaleConnectionTimeout() {
         return;  // Connection raced in — nothing to do.
     }
 
+    // Consume the manual-add marker: a manually-typed WiFi address reports
+    // "Not found" directly (below) rather than silently switching to a BLE scan.
+    const bool manualWifiAttempt = m_manualWifiConnect;
+    m_manualWifiConnect = false;
+
     qWarning() << "BLEManager: Scale connection timeout - not found";
 
     // WiFi-saved scale that didn't connect → fall back to a BLE scan for the
     // same physical scale family. Don't go straight to FlowScale yet — we owe
     // the user one more reasonable attempt before giving up. Only run the
     // fallback once per saved-scale cycle (the `!m_wifiFallbackToBleActive`
-    // guard prevents a second fallback if the BLE scan itself times out).
-    if (!m_wifiFallbackToBleActive
+    // guard prevents a second fallback if the BLE scan itself times out). A
+    // manual "Add WiFi Scale" attempt opts out — it surfaces "Not found" instead.
+    if (!manualWifiAttempt && !m_wifiFallbackToBleActive
             && m_savedScaleAddress.startsWith(QStringLiteral("wifi:"), Qt::CaseInsensitive)) {
         beginWifiFallbackToBleScan();
         return;
@@ -1418,6 +1461,10 @@ void BLEManager::tryDirectConnectToScale() {
         qDebug() << "BLEManager: tryDirectConnectToScale - scale already connected";
         return;
     }
+
+    // This is a saved-scale (re)connect, not a manual "Add WiFi Scale" attempt —
+    // so a timeout here should take the normal WiFi→BLE fallback path.
+    m_manualWifiConnect = false;
 
     // Direct wake strategy:
     // 1. Try direct connection to saved address (may wake sleeping scales that respond to connect requests)
