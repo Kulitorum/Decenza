@@ -335,10 +335,13 @@ public:
     // Connect to a WiFi scale by a manually-entered IP or mDNS name (the "Add
     // WiFi Scale" dialog), without requiring it to be in the discovered list. A
     // bare name with no dot gets ".local" appended (matching the discovery
-    // default "hds.local"); IPs and dotted names pass through. Drives the same
-    // path discovered WiFi scales use — on a successful connect main.cpp saves it
-    // to Known Devices and as the primary scale; a failed connect surfaces an
-    // error and saves nothing.
+    // default "hds.local"); IPs and dotted names pass through. Arms the connection
+    // timer so a wrong/unreachable host fails visibly ("Not found" + FlowScale
+    // notice) instead of silently — WiFi socket errors are otherwise log-only
+    // (#1253). Unlike a saved WiFi scale this does NOT fall back to a BLE scan on
+    // failure (the user asked for a specific WiFi address). As with any scale
+    // connect, main.cpp records it in Known Devices + as primary when the connect
+    // is initiated, not on success.
     Q_INVOKABLE void connectToWifiScale(const QString& hostnameOrIp);
     // Switch the LIVE connection to the current saved primary scale (set via
     // setSavedScaleAddress just before calling). If a scale is connected it is
@@ -491,6 +494,13 @@ private:
     // auto-connect to a discovered Decent BLE scale even though the saved
     // address is a WiFi one. Cleared once a scale connects.
     bool m_wifiFallbackToBleActive = false;
+    // True while a manually-entered WiFi scale (connectToWifiScale, the "Add WiFi
+    // Scale" dialog) connect attempt is pending. Tells onScaleConnectionTimeout to
+    // report "Not found" directly instead of starting a WiFi→BLE fallback scan —
+    // the user asked for a specific WiFi address, so we don't silently switch
+    // transports. Set when the attempt starts; cleared on connect success, on
+    // timeout (consumed), and reset when a non-manual reconnect begins.
+    bool m_manualWifiConnect = false;
     // Debounces user-visible scan-error popups. Without this, repeated scan
     // attempts (refractometer auto-reconnect ticks, scale reconnect retries)
     // would re-fire the same error toast indefinitely. We pop a given error
