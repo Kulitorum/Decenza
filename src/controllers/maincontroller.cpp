@@ -922,12 +922,18 @@ void MainController::applyWaterRefillLevel() {
 
     // When the refill kit is active (forced on, or auto-detected), the kit keeps the
     // reservoir topped up — so suppress the firmware-side "Refill" phase by sending the
-    // slider's floor value (3mm). Stays low enough that an actual kit failure still
-    // triggers Refill phase as a fallback. The user's stored waterRefillPoint is
-    // preserved untouched and resumes whenever the kit is forced off.
-    const int override = m_settings->app()->refillKitOverride();
-    const bool kitActive = (override == 1) ||
-                           (override == 2 && m_device->refillKitDetected() == 1);
+    // slider's floor value (3mm). If the reservoir does run nearly empty (e.g. kit
+    // failure), the firmware will still raise Refill once raw level reaches 3mm. The
+    // user's stored waterRefillPoint is preserved untouched and resumes whenever the
+    // kit is forced off.
+    //
+    // In auto-detect mode (override == 2), refillKitDetected starts at -1 until the
+    // MMR read completes, so the first apply on connect uses the user's stored value;
+    // a follow-up write fires from refillKitDetectedChanged once detection resolves.
+    // Don't try to gate this on `detected != -1` — that would break the Force-Off path.
+    const int kitOverride = m_settings->app()->refillKitOverride();
+    const bool kitActive = (kitOverride == 1) ||
+                           (kitOverride == 2 && m_device->refillKitDetected() == 1);
     const int effective = kitActive ? 3 : m_settings->app()->waterRefillPoint();
 
     m_device->setWaterRefillLevel(effective);
@@ -936,9 +942,9 @@ void MainController::applyWaterRefillLevel() {
 void MainController::applyRefillKitOverride() {
     if (!m_device || !m_device->isConnected() || !m_settings) return;
 
-    int override = m_settings->app()->refillKitOverride();
     // Values match de1app: 0=force off, 1=force on, 2=auto-detect
-    m_device->setRefillKitPresent(override);
+    int kitOverride = m_settings->app()->refillKitOverride();
+    m_device->setRefillKitPresent(kitOverride);
 }
 
 void MainController::applyFlowCalibration() {
