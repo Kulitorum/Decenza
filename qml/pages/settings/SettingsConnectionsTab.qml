@@ -1125,6 +1125,17 @@ Item {
                                         if (scales[i].isPrimary) {
                                             BLEManager.clearSavedScale()
                                             Settings.removeKnownScale(scales[i].address)
+                                            // Reconnect BLEManager to whichever scale is now primary.
+                                            var remaining = Settings.knownScales
+                                            for (var j = 0; j < remaining.length; j++) {
+                                                if (remaining[j].isPrimary) {
+                                                    BLEManager.setSavedScaleAddress(remaining[j].address,
+                                                                                    remaining[j].type,
+                                                                                    remaining[j].name)
+                                                    BLEManager.connectToSavedScale()
+                                                    break
+                                                }
+                                            }
                                             return
                                         }
                                     }

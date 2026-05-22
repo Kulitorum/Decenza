@@ -26,6 +26,7 @@
 #include <QGuiApplication>
 #include <QStyleHints>
 #include <QDesktopServices>
+#include <QSet>
 
 #ifdef Q_OS_IOS
 #include "screensaver/iosbrightness.h"
@@ -246,6 +247,40 @@ Settings::Settings(QObject* parent)
         m_settings.setValue("knownScales/migrated", true);
     }
 
+    // Invariant: if knownScales is non-empty, primaryAddress must match one
+    // of its entries. An orphan (stored entry with no matching primary) is
+    // invisible in the Known Devices picker AND filtered out of discovery,
+    // so the user can't reach it. Heal on launch.
+    {
+        const qsizetype scalesCount = m_settings.beginReadArray("knownScales/scales");
+        QString promoteAddress, promoteType, promoteName;
+        QSet<QString> addresses;
+        for (qsizetype i = 0; i < scalesCount; ++i) {
+            m_settings.setArrayIndex(static_cast<int>(i));
+            const QString a = m_settings.value("address").toString();
+            if (a.isEmpty()) continue;
+            addresses.insert(a.toLower());
+            if (promoteAddress.isEmpty()) {
+                promoteAddress = a;
+                promoteType = m_settings.value("type").toString();
+                promoteName = m_settings.value("name").toString();
+            }
+        }
+        m_settings.endArray();
+
+        if (!promoteAddress.isEmpty()) {
+            const QString primary = m_settings.value("knownScales/primaryAddress").toString();
+            if (primary.isEmpty() || !addresses.contains(primary.toLower())) {
+                m_settings.setValue("knownScales/primaryAddress", promoteAddress);
+                m_settings.setValue("scale/address", promoteAddress);
+                m_settings.setValue("scale/type", promoteType);
+                m_settings.setValue("scale/name", promoteName);
+                qDebug() << "Settings: Repaired orphaned known scale — promoted"
+                         << promoteName << promoteAddress << "to primary";
+            }
+        }
+    }
+
     // Theme initial state is now resolved inside SettingsTheme
 
     // Generate MCP API key on first run (avoids const_cast in the getter)
@@ -408,13 +443,22 @@ void Settings::removeKnownScale(const QString& address) {
     writeKnownScales(scales);
 
     if (wasPrimary) {
-        // Clear primary — if there are remaining scales, don't auto-promote
-        m_settings.setValue("knownScales/primaryAddress", QString());
-        // Also clear legacy scale/address so existing code stays in sync
-        setScaleAddress(QString());
-        setScaleType(QString());
-        setScaleName(QString());
-        // Re-emit so QML sees the cleared primaryScaleAddress
+        // Auto-promote the first remaining entry with a non-empty address so
+        // knownScales never holds an unreachable orphan.
+        QString nextAddr, nextType, nextName;
+        for (const QVariant& v : scales) {
+            QVariantMap s = v.toMap();
+            const QString a = s["address"].toString();
+            if (a.isEmpty()) continue;
+            nextAddr = a;
+            nextType = s["type"].toString();
+            nextName = s["name"].toString();
+            break;
+        }
+        m_settings.setValue("knownScales/primaryAddress", nextAddr);
+        setScaleAddress(nextAddr);
+        setScaleType(nextType);
+        setScaleName(nextName);
         emit knownScalesChanged();
     }
 }
