@@ -26,6 +26,7 @@
 #include <QGuiApplication>
 #include <QStyleHints>
 #include <QDesktopServices>
+#include <QSet>
 
 #ifdef Q_OS_IOS
 #include "screensaver/iosbrightness.h"
@@ -246,6 +247,41 @@ Settings::Settings(QObject* parent)
         m_settings.setValue("knownScales/migrated", true);
     }
 
+    // Orphan-scale invariant: every entry in knownScales must be selectable
+    // (i.e. exactly one is primary). An orphan — a stored scale with no
+    // matching primaryAddress — is invisible in the Known Devices picker AND
+    // filtered out of the discovery list, so the user can't reach it. Older
+    // versions could leave one behind by clearing primary on remove without
+    // promoting a replacement. Heal it here on launch.
+    {
+        const qsizetype scalesCount = m_settings.beginReadArray("knownScales/scales");
+        QString firstAddress, firstType, firstName;
+        QSet<QString> addresses;
+        for (qsizetype i = 0; i < scalesCount; ++i) {
+            m_settings.setArrayIndex(static_cast<int>(i));
+            const QString a = m_settings.value("address").toString();
+            addresses.insert(a.toLower());
+            if (i == 0) {
+                firstAddress = a;
+                firstType = m_settings.value("type").toString();
+                firstName = m_settings.value("name").toString();
+            }
+        }
+        m_settings.endArray();
+
+        if (scalesCount > 0) {
+            const QString primary = m_settings.value("knownScales/primaryAddress").toString();
+            if (primary.isEmpty() || !addresses.contains(primary.toLower())) {
+                m_settings.setValue("knownScales/primaryAddress", firstAddress);
+                m_settings.setValue("scale/address", firstAddress);
+                m_settings.setValue("scale/type", firstType);
+                m_settings.setValue("scale/name", firstName);
+                qDebug() << "Settings: Repaired orphaned known scale — promoted"
+                         << firstName << firstAddress << "to primary";
+            }
+        }
+    }
+
     // Theme initial state is now resolved inside SettingsTheme
 
     // Generate MCP API key on first run (avoids const_cast in the getter)
@@ -408,13 +444,23 @@ void Settings::removeKnownScale(const QString& address) {
     writeKnownScales(scales);
 
     if (wasPrimary) {
-        // Clear primary — if there are remaining scales, don't auto-promote
-        m_settings.setValue("knownScales/primaryAddress", QString());
-        // Also clear legacy scale/address so existing code stays in sync
-        setScaleAddress(QString());
-        setScaleType(QString());
-        setScaleName(QString());
-        // Re-emit so QML sees the cleared primaryScaleAddress
+        if (!scales.isEmpty()) {
+            // Auto-promote the first remaining scale. Every entry in
+            // knownScales must be selectable — otherwise the removed primary
+            // leaves an orphan that the picker can't reach and that the
+            // discovery list silently filters out.
+            QVariantMap next = scales.first().toMap();
+            const QString nextAddr = next["address"].toString();
+            m_settings.setValue("knownScales/primaryAddress", nextAddr);
+            setScaleAddress(nextAddr);
+            setScaleType(next["type"].toString());
+            setScaleName(next["name"].toString());
+        } else {
+            m_settings.setValue("knownScales/primaryAddress", QString());
+            setScaleAddress(QString());
+            setScaleType(QString());
+            setScaleName(QString());
+        }
         emit knownScalesChanged();
     }
 }
