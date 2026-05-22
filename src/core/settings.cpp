@@ -247,37 +247,36 @@ Settings::Settings(QObject* parent)
         m_settings.setValue("knownScales/migrated", true);
     }
 
-    // Orphan-scale invariant: every entry in knownScales must be selectable
-    // (i.e. exactly one is primary). An orphan — a stored scale with no
-    // matching primaryAddress — is invisible in the Known Devices picker AND
-    // filtered out of the discovery list, so the user can't reach it. Older
-    // versions could leave one behind by clearing primary on remove without
-    // promoting a replacement. Heal it here on launch.
+    // Invariant: if knownScales is non-empty, primaryAddress must match one
+    // of its entries. An orphan (stored entry with no matching primary) is
+    // invisible in the Known Devices picker AND filtered out of discovery,
+    // so the user can't reach it. Heal on launch.
     {
         const qsizetype scalesCount = m_settings.beginReadArray("knownScales/scales");
-        QString firstAddress, firstType, firstName;
+        QString promoteAddress, promoteType, promoteName;
         QSet<QString> addresses;
         for (qsizetype i = 0; i < scalesCount; ++i) {
             m_settings.setArrayIndex(static_cast<int>(i));
             const QString a = m_settings.value("address").toString();
+            if (a.isEmpty()) continue;
             addresses.insert(a.toLower());
-            if (i == 0) {
-                firstAddress = a;
-                firstType = m_settings.value("type").toString();
-                firstName = m_settings.value("name").toString();
+            if (promoteAddress.isEmpty()) {
+                promoteAddress = a;
+                promoteType = m_settings.value("type").toString();
+                promoteName = m_settings.value("name").toString();
             }
         }
         m_settings.endArray();
 
-        if (scalesCount > 0) {
+        if (!promoteAddress.isEmpty()) {
             const QString primary = m_settings.value("knownScales/primaryAddress").toString();
             if (primary.isEmpty() || !addresses.contains(primary.toLower())) {
-                m_settings.setValue("knownScales/primaryAddress", firstAddress);
-                m_settings.setValue("scale/address", firstAddress);
-                m_settings.setValue("scale/type", firstType);
-                m_settings.setValue("scale/name", firstName);
+                m_settings.setValue("knownScales/primaryAddress", promoteAddress);
+                m_settings.setValue("scale/address", promoteAddress);
+                m_settings.setValue("scale/type", promoteType);
+                m_settings.setValue("scale/name", promoteName);
                 qDebug() << "Settings: Repaired orphaned known scale — promoted"
-                         << firstName << firstAddress << "to primary";
+                         << promoteName << promoteAddress << "to primary";
             }
         }
     }
@@ -445,10 +444,7 @@ void Settings::removeKnownScale(const QString& address) {
 
     if (wasPrimary) {
         if (!scales.isEmpty()) {
-            // Auto-promote the first remaining scale. Every entry in
-            // knownScales must be selectable — otherwise the removed primary
-            // leaves an orphan that the picker can't reach and that the
-            // discovery list silently filters out.
+            // Auto-promote so knownScales never holds an unreachable orphan.
             QVariantMap next = scales.first().toMap();
             const QString nextAddr = next["address"].toString();
             m_settings.setValue("knownScales/primaryAddress", nextAddr);

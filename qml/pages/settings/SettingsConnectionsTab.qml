@@ -1125,9 +1125,7 @@ Item {
                                         if (scales[i].isPrimary) {
                                             BLEManager.clearSavedScale()
                                             Settings.removeKnownScale(scales[i].address)
-                                            // removeKnownScale auto-promotes the next
-                                            // remaining scale (if any) to primary. Sync
-                                            // BLEManager to the new primary and reconnect.
+                                            // Reconnect BLEManager to whichever scale is now primary.
                                             var remaining = Settings.knownScales
                                             for (var j = 0; j < remaining.length; j++) {
                                                 if (remaining[j].isPrimary) {
