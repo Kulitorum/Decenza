@@ -1417,12 +1417,21 @@ ApplicationWindow {
             root.scaleDropPending = true
         }
         function onScaleConnected() {
-            // Scale (re)connected — clear the pending-drop state and dismiss any
-            // FlowScale notice (open or queued) so a recovered drop leaves no trace.
+            // Scale (re)connected — clear the pending-drop state and dismiss the
+            // open scale-disconnect / no-scale notice so a recovered drop leaves no
+            // trace. Queued-but-unshown popups are purged by the ScaleDevice
+            // reconnect handler ("Discard stale scale popups…" below), so we don't
+            // duplicate removeQueuedScalePopups() here.
             root.scaleDropPending = false
             if (scaleDisconnectedDialog.opened) scaleDisconnectedDialog.close()
             if (flowScaleDialog.opened) flowScaleDialog.close()
-            removeQueuedScalePopups()
+        }
+        function onDisconnectScaleRequested() {
+            // A deliberate scale switch/forget ends the mid-session-drop context, so
+            // the next FlowScale fallback isn't mislabeled "Scale Disconnected" for a
+            // freshly-selected (never-connected) scale. disconnectScaleRequested
+            // fires from connectToScale / clearSavedScale / setDisabled.
+            root.scaleDropPending = false
         }
     }
 
@@ -1445,7 +1454,7 @@ ApplicationWindow {
         }
 
         Tr { id: trNoScaleFoundTitle; key: "main.dialog.noScaleFound.title"; fallback: "No Scale Found"; visible: false }
-        Tr { id: trNoScaleFoundAnnounce; key: "main.dialog.noScaleFound.announce"; fallback: "No Bluetooth scale detected. Using estimated weight from flow measurement."; visible: false }
+        Tr { id: trNoScaleFoundAnnounce; key: "main.dialog.noScaleFound.announce"; fallback: "No scale detected. Using estimated weight from flow measurement."; visible: false }
 
         onOpened: {
             if (AccessibilityManager.enabled) {
