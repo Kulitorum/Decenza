@@ -64,6 +64,20 @@ BLEManager::BLEManager(QObject* parent)
     m_scaleConnectionTimer->setInterval(20000);
     connect(m_scaleConnectionTimer, &QTimer::timeout, this, &BLEManager::onScaleConnectionTimeout);
 
+    // Backstop for serializing the scale's BLE connect behind the DE1's: if the
+    // DE1 never finishes connecting (e.g. no DE1 present while debugging),
+    // connect the scale anyway after 15 s rather than waiting forever.
+    m_de1WaitTimer = new QTimer(this);
+    m_de1WaitTimer->setSingleShot(true);
+    m_de1WaitTimer->setInterval(15000);
+    connect(m_de1WaitTimer, &QTimer::timeout, this, [this]() {
+        if (!m_scaleConnectDeferred) return;
+        m_scaleConnectDeferred = false;
+        m_de1DirectConnectInFlight = false;  // give up waiting for the DE1
+        appendScaleLog("DE1 did not connect within 15 s — connecting scale anyway");
+        tryDirectConnectToScale();
+    });
+
     // Eagerly run the Linux capability check so any qWarning lands early in
     // startup logs; subsequent calls hit the cached result.
     (void) BleCapability::linuxMissing();
@@ -1085,6 +1099,11 @@ void BLEManager::tryDirectConnectToDE1() {
         return;
     }
 
+    // A DE1 direct-wake connect is now in flight — the scale's BLE direct-connect
+    // defers behind it (see tryDirectConnectToScale) so the two GATT connects
+    // don't collide on the Android stack; cleared in onDe1ConnectionSettled().
+    m_de1DirectConnectInFlight = true;
+
     // Don't attempt if already connected or connecting
     // (the de1Discovered handler in main.cpp checks this before connecting)
 
@@ -1291,6 +1310,19 @@ void BLEManager::tryDirectConnectToScale() {
         startScan();
     }
 #else
+    // Serialize behind the DE1's direct-wake connect: a second BLE GATT connect
+    // while the DE1's is in flight collides on the Android stack — the scale
+    // connect dies the instant the DE1 finishes, then sits out the 20 s timeout
+    // before retrying. Defer until the DE1 settles (onDe1ConnectionSettled) or a
+    // 15 s cap (m_de1WaitTimer), which still connects the scale with no DE1.
+    if (m_de1DirectConnectInFlight) {
+        m_scaleConnectDeferred = true;
+        if (!m_de1WaitTimer->isActive()) m_de1WaitTimer->start();
+        qDebug() << "BLEManager: deferring scale direct-connect until DE1 settles (15 s cap)";
+        appendScaleLog("Waiting for the DE1 to finish connecting before connecting the scale (15 s cap)");
+        return;
+    }
+
     // On Android/desktop, we have a MAC address - try direct connect
     QString upperAddress = m_savedScaleAddress.toUpper();
     QBluetoothAddress address(upperAddress);
@@ -1317,6 +1349,19 @@ void BLEManager::tryDirectConnectToScale() {
         startScan();
     }
 #endif
+}
+
+void BLEManager::onDe1ConnectionSettled() {
+    // The DE1's direct-wake connect has resolved (connected, or the attempt
+    // ended) — drop the gate and run any scale direct-connect that was deferred
+    // behind it to avoid a concurrent-GATT-connect collision on Android.
+    m_de1DirectConnectInFlight = false;
+    if (m_scaleConnectDeferred) {
+        m_scaleConnectDeferred = false;
+        m_de1WaitTimer->stop();
+        appendScaleLog("DE1 connect settled — starting deferred scale connect");
+        tryDirectConnectToScale();
+    }
 }
 
 void BLEManager::openLocationSettings()

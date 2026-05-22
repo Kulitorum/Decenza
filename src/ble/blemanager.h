@@ -351,6 +351,11 @@ public:
 public slots:
     Q_INVOKABLE void tryDirectConnectToDE1();
     Q_INVOKABLE void tryDirectConnectToScale();
+    // Release a scale direct-connect that was deferred to avoid colliding with
+    // the DE1's BLE GATT connect (Android serializes concurrent connects badly).
+    // Called by main.cpp when the DE1's direct-wake connection resolves
+    // (connected, or the attempt ended).
+    void onDe1ConnectionSettled();
     Q_INVOKABLE void scanForDevices();  // User-initiated scan for DE1, scales, and refractometers
     Q_INVOKABLE void startScan();  // Start scanning for DE1 and scales
     void stopScan();
@@ -503,6 +508,15 @@ private:
     // Direct connect state - prevents duplicate connections from scan
     bool m_directConnectInProgress = false;
     QString m_directConnectAddress;
+
+    // Serialize the scale's BLE direct-connect behind the DE1's: two concurrent
+    // GATT connects collide on the Android stack (the scale connect dies when
+    // the DE1's completes). Set while a DE1 direct-wake is in flight; the scale
+    // connect defers until onDe1ConnectionSettled() or the 15 s cap below — the
+    // cap still connects the scale when no DE1 is present (debugging).
+    bool m_de1DirectConnectInFlight = false;
+    bool m_scaleConnectDeferred = false;
+    QTimer* m_de1WaitTimer = nullptr;
 
     // Refractometer
     QList<QBluetoothDeviceInfo> m_refractometerDevices;
