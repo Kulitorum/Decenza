@@ -1502,7 +1502,7 @@ int main(int argc, char *argv[])
         const QString hostname = isWifi ? bleManager.pendingWifiHostname() : QString();
         const QString deviceId = isWifi ? (QStringLiteral("wifi:") + hostname)
                                          : getDeviceIdentifier(device);
-        const QString displayName = isWifi ? QStringLiteral("Decent Scale (WiFi)")
+        const QString displayName = isWifi ? QStringLiteral("Half Decent Scale (WiFi)")
                                             : device.name();
         // Always track this scale in the known-scales list (useful for the
         // multi-scale picker and per-scale state).
