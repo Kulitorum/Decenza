@@ -130,7 +130,7 @@ private:
     // or disconnect superseded it while the worker thread was in flight.
     int m_resolveGeneration = 0;
 
-    QString m_name = QStringLiteral("Decent Scale (WiFi)");
+    QString m_name = QStringLiteral("Half Decent Scale (WiFi)");
     QString m_firmwareVersion;   // cached per-connect; cleared on disconnect
     int m_loggedProtoVersion = -1;  // protocol version last logged this connect; reset on disconnect
     // One sample of each distinct non-snapshot frame "type" is logged per

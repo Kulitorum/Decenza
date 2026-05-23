@@ -181,7 +181,7 @@ std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInf
 QString ScaleFactory::scaleTypeName(ScaleType type) {
     switch (type) {
         case ScaleType::DecentScale: return "Decent Scale";
-        case ScaleType::DecentScaleWifi: return "Decent Scale (WiFi)";
+        case ScaleType::DecentScaleWifi: return "Half Decent Scale (WiFi)";
         case ScaleType::Acaia: return "Acaia";
         case ScaleType::AcaiaPyxis: return "Acaia Pyxis";
         case ScaleType::Felicita: return "Felicita";

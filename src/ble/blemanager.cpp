@@ -1417,7 +1417,7 @@ void BLEManager::ensureWifiDiscovery() {
                 ScaleEntry entry;
                 entry.type = QStringLiteral("decent-wifi");
                 entry.transport = QStringLiteral("wifi");
-                entry.name = QStringLiteral("Decent Scale (WiFi)");
+                entry.name = QStringLiteral("Half Decent Scale (WiFi)");
                 entry.address = address;
                 m_scales.append(entry);
                 qDebug() << "[BLE] Added WiFi scale to discovered list; m_scales count=" << m_scales.size();
