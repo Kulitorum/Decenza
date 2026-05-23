@@ -1265,6 +1265,12 @@ int main(int argc, char *argv[])
             qDebug() << "Scale reconnect (startup): no saved address, skipping";
             return;
         }
+        // USB scales reconnect via UsbScaleManager (usbScaleAvailable), not this
+        // BLE/WiFi timer. Arming it would fire once and self-terminate at the
+        // timeout guard — skip arming entirely.
+        if (settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
+            return;
+        }
         if (scaleAutoReconnectSuppressed) {
             qDebug() << "Scale reconnect (startup): suppressed (keepScaleOn=false), skipping";
             return;
@@ -1689,7 +1695,9 @@ int main(int argc, char *argv[])
                 // re-arms the reconnect.
                 if (scaleAutoReconnectSuppressed) {
                     qDebug() << "Scale disconnect was deliberate (keepScaleOn=false) - auto-reconnect suppressed until DE1 wakes";
-                } else if (!settings.scaleAddress().isEmpty()) {
+                } else if (!settings.scaleAddress().isEmpty()
+                           && !settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
+                    // USB primary reconnects via UsbScaleManager, not this BLE/WiFi timer.
                     scaleReconnectAttempt = 0;
                     scaleReconnectTimer.start(reconnectDelays[0]);
                     qDebug() << "Scale reconnect: scheduled first retry in" << reconnectDelays[0] << "ms";
@@ -2638,8 +2646,10 @@ int main(int argc, char *argv[])
             scaleAutoReconnectSuppressed = false;
             if (physicalScale && physicalScale->isConnected()) {
                 qDebug() << "App resumed - scale still connected";
-            } else if (!settings.scaleAddress().isEmpty() && !scaleReconnectTimer.isActive()) {
-                // Scale disconnected while suspended - restart reconnect sequence
+            } else if (!settings.scaleAddress().isEmpty() && !scaleReconnectTimer.isActive()
+                       && !settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
+                // Scale disconnected while suspended - restart reconnect sequence.
+                // USB primary reconnects via UsbScaleManager, not this BLE/WiFi timer.
                 scaleReconnectAttempt = 0;
                 scaleReconnectTimer.start(reconnectDelays[0]);
                 qDebug() << "App resumed - starting scale reconnect sequence";
@@ -2717,7 +2727,9 @@ int main(int argc, char *argv[])
                 // sequence now that the DE1 is back.
                 qDebug() << "DE1 woke up - re-arming scale reconnect (keepScaleOn=false)";
                 scaleAutoReconnectSuppressed = false;
-                if (!scaleReconnectTimer.isActive()) {
+                // USB primary reconnects via UsbScaleManager, not this BLE/WiFi timer.
+                if (!scaleReconnectTimer.isActive()
+                    && !settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
                     scaleReconnectAttempt = 0;
                     scaleReconnectTimer.start(reconnectDelays[0]);
                 }
