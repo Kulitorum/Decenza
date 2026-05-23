@@ -132,6 +132,12 @@ bool UsbScaleManager::teardownConnectedScale()
 {
     if (!m_scale) return false;     // Already torn down — idempotent
 
+    // Drop the Android connectedChanged watchdog (wired in connectToScale) BEFORE
+    // close() below: close() emits connectedChanged synchronously, which would
+    // otherwise re-enter this function and double-free m_scale. No-op on desktop
+    // (no such connection exists there).
+    disconnect(m_scale, &ScaleDevice::connectedChanged, this, nullptr);
+
     // Emit scaleLost() FIRST, while m_scale is still valid: main.cpp's handler
     // calls scale() to unwire the weight signals. Nulling before the emit would
     // make those disconnects dead (the signals would keep feeding a stale scale).
@@ -143,7 +149,8 @@ bool UsbScaleManager::teardownConnectedScale()
 
 #ifdef Q_OS_ANDROID
     m_androidPermissionRequested = false;
-    // Close the JNI USB connection (UsbDecentScale::close() delegates this to us)
+    // Close the JNI USB connection — UsbDecentScale::close() deliberately does
+    // NOT (UsbScaleManager owns the JNI connection lifecycle).
     AndroidUsbScaleHelper::close();
 #else
     m_confirmedPortName.clear();
@@ -166,6 +173,11 @@ void UsbScaleManager::disconnectScale()
     // stays selectable; reselecting it calls connectToScale() again.
     qDebug() << "[USB Scale] Disconnecting (switching to another scale)";
     emit logMessage(QStringLiteral("[USB Scale] Disconnected (switched to another scale)"));
+
+    // Drop the Android connectedChanged watchdog before close() — same re-entrancy
+    // hazard as teardownConnectedScale(): close() emits connectedChanged, which the
+    // watchdog would turn into a teardownConnectedScale() re-entry. No-op on desktop.
+    disconnect(m_scale, &ScaleDevice::connectedChanged, this, nullptr);
 
     m_scale->close();
     m_scale->deleteLater();

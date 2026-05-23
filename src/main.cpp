@@ -1219,6 +1219,16 @@ int main(int argc, char *argv[])
             qDebug() << "Scale reconnect: no saved scale address, stopping retries";
             return;
         }
+        // USB scales are owned by UsbScaleManager and reconnect via its
+        // usbScaleAvailable handler — NOT this BLE/WiFi direct-wake timer.
+        // tryDirectConnectToScale() early-returns for "usb:" addresses, so
+        // re-arming here would spin forever (and resetScaleConnectionState()
+        // below would needlessly stop the BLE connection timer each tick).
+        // Stop the timer when the saved scale is USB.
+        if (settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
+            qDebug() << "Scale reconnect: saved scale is USB — handled by UsbScaleManager, stopping retries";
+            return;
+        }
         qDebug() << "Scale reconnect: attempt" << (scaleReconnectAttempt + 1);
         // Only surface the bounded ramp in the user-visible scale log; the
         // 60s tail repeats forever, so logging it there would grow unbounded
