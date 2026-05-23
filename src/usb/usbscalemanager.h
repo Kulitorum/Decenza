@@ -36,6 +36,11 @@ public:
 
     void startPolling();
     void stopPolling();
+    // Tear down a currently-connected USB scale (if any) and emit scaleLost so
+    // consumers fall back to BLE/WiFi/FlowScale. Used when USB serial is disabled
+    // mid-session; no-op if no scale is connected. (stopPolling only halts
+    // discovery — it does not release an already-connected scale.)
+    void disconnectScale();
 
 signals:
     void scaleConnectedChanged();

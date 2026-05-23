@@ -1081,17 +1081,26 @@ int main(int argc, char *argv[])
     checkpoint("Managers wired");
 
 #ifndef Q_OS_IOS
-    // USB serial polling for DE1 is opt-in (off by default) to avoid the 2 s polling
-    // battery drain on devices that never use a USB-C cable to connect to the DE1.
-    if (settings.usbSerialEnabled())
+    // USB serial is opt-in (off by default) to avoid the 2 s polling battery
+    // drain on devices that never use a USB-C cable. The toggle gates BOTH the
+    // DE1 (usbManager) and the Half Decent Scale (usbScaleManager): when off,
+    // neither polls, and a USB scale that is already connected is released so it
+    // falls back to BLE/WiFi/FlowScale — otherwise a USB-tethered scale would
+    // pre-empt testing the same scale over Bluetooth or WiFi.
+    if (settings.usbSerialEnabled()) {
         usbManager.startPolling();
+        usbScaleManager.startPolling();
+    }
     QObject::connect(&settings, &Settings::usbSerialEnabledChanged, [&]() {
-        if (settings.usbSerialEnabled())
+        if (settings.usbSerialEnabled()) {
             usbManager.startPolling();
-        else
+            usbScaleManager.startPolling();
+        } else {
             usbManager.stopPolling();
+            usbScaleManager.stopPolling();
+            usbScaleManager.disconnectScale();  // release a live USB scale → fall back to BLE/WiFi
+        }
     });
-    usbScaleManager.startPolling();
 #endif
 
     AccessibilityManager accessibilityManager;

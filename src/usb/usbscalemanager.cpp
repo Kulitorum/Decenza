@@ -58,6 +58,25 @@ void UsbScaleManager::stopPolling()
 #endif
 }
 
+void UsbScaleManager::disconnectScale()
+{
+    if (!m_scale) return;
+
+    qDebug() << "[USB Scale] Releasing connected scale (USB serial disabled)";
+    emit logMessage(QStringLiteral("[USB Scale] Released (USB serial disabled)"));
+
+    m_scale->close();
+    m_scale->deleteLater();
+    m_scale = nullptr;
+#ifdef Q_OS_ANDROID
+    m_androidPermissionRequested = false;
+    AndroidUsbScaleHelper::close();
+#endif
+
+    emit scaleLost();
+    emit scaleConnectedChanged();
+}
+
 // ---------------------------------------------------------------------------
 // Port polling — dispatches to platform-specific implementation
 // ---------------------------------------------------------------------------

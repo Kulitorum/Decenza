@@ -657,14 +657,14 @@ Item {
                         Layout.fillWidth: true
                         spacing: 0
                         Text {
-                            text: TranslationManager.translate("connections.usb.serialLabel", "Serial USB (DE1 USB-C)")
+                            text: TranslationManager.translate("connections.usb.serialLabel", "Serial USB (DE1 & Scale)")
                             font.pixelSize: Theme.scaled(14)
                             color: Theme.textColor
                             Accessible.ignored: true
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: TranslationManager.translate("connections.usb.serialDesc", "Poll for USB-connected DE1. Disable to save battery.")
+                            text: TranslationManager.translate("connections.usb.serialDesc", "Poll for a USB-connected DE1 or Half Decent Scale. Disable to save battery, or to use the scale over Bluetooth/WiFi instead.")
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
                             wrapMode: Text.WordWrap
@@ -676,7 +676,7 @@ Item {
 
                     StyledSwitch {
                         checked: Settings.usbSerialEnabled
-                        accessibleName: "Enable serial USB connection for DE1"
+                        accessibleName: "Enable serial USB connection for DE1 and scale"
                         onToggled: Settings.usbSerialEnabled = checked
                     }
                 }
