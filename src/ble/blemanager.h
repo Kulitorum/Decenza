@@ -357,6 +357,15 @@ public:
     ScaleDevice* scaleDevice() const { return m_scaleDevice; }
     void setScaleDevice(ScaleDevice* scale);
 
+    // Add (available==true) or remove (available==false) a synthetic USB scale
+    // entry in the discovered-scales list so it shows up as a selectable row,
+    // exactly like the WiFi synthetic entry. The entry uses the STABLE address
+    // "usb:decent" (transport "usb", type "decent-usb"). Selecting it routes
+    // through connectToScale()'s usb branch → usbConnectRequested(); the actual
+    // open is done by UsbScaleManager, not here. Driven by main.cpp from
+    // UsbScaleManager::usbScaleAvailable/Unavailable.
+    void setUsbScaleAvailable(bool available, const QString& name);
+
     // Scale address management
     Q_INVOKABLE void setSavedScaleAddress(const QString& address, const QString& type, const QString& name);
     Q_INVOKABLE void clearSavedScale();
@@ -412,6 +421,11 @@ signals:
     // and the routing hostname lives in pendingWifiHostname() — the main.cpp
     // handler reads it after the factory creates the scale.
     void scaleDiscovered(const QBluetoothDeviceInfo& device, const QString& type);
+    // Emitted when the user selects the synthetic USB scale entry (transport
+    // "usb") in the discovered list. Unlike BLE/WiFi this does NOT carry a
+    // device — the USB connect goes through UsbScaleManager::connectToScale(),
+    // which creates + opens the UsbDecentScale and emits its own scaleDiscovered.
+    void usbConnectRequested();
     void errorOccurred(const QString& error);
     void de1LogMessage(const QString& message);
     void scaleLogMessage(const QString& message);

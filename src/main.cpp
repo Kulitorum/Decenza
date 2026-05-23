@@ -1937,6 +1937,17 @@ int main(int argc, char *argv[])
         settings.setScaleType(usbScale->name());
         settings.setScaleName(usbScale->name());
 
+        // Register in the known-scales registry + as primary, exactly like BLE
+        // and WiFi, using the stable USB identifier "usb:decent". This makes the
+        // USB scale auto-reconnect on a future startup when it's still the saved
+        // primary (see the usbScaleAvailable handler below).
+        const QString kUsbScaleAddress = QStringLiteral("usb:decent");
+        const QString kUsbScaleType = QStringLiteral("decent-usb");
+        const QString kUsbScaleName = QStringLiteral("Half Decent Scale (USB)");
+        settings.addKnownScale(kUsbScaleAddress, kUsbScaleType, kUsbScaleName);
+        settings.setPrimaryScale(kUsbScaleAddress);
+        bleManager.setSavedScaleAddress(kUsbScaleAddress, kUsbScaleType, kUsbScaleName);
+
         // Notify MQTT
         if (mainController.mqttClient()) {
             mainController.mqttClient()->onScaleConnectedChanged(true);
@@ -1979,6 +1990,31 @@ int main(int argc, char *argv[])
         if (mainController.mqttClient()) {
             mainController.mqttClient()->onScaleConnectedChanged(false);
         }
+    });
+
+    // USB scale presence (probe-confirmed, NOT connected): list it as a
+    // selectable entry, exactly like a discovered BLE/WiFi scale. Auto-connect
+    // ONLY when the USB scale is the saved primary — otherwise just list it so
+    // the same scale can be tested over Bluetooth/WiFi.
+    QObject::connect(&usbScaleManager, &UsbScaleManager::usbScaleAvailable,
+                     [&bleManager, &usbScaleManager, &settings]() {
+        bleManager.setUsbScaleAvailable(true, QStringLiteral("Half Decent Scale (USB)"));
+        if (settings.scaleAddress() == QStringLiteral("usb:decent")) {
+            qDebug() << "[USB Scale] Available and is saved primary — auto-connecting";
+            usbScaleManager.connectToScale();
+        } else {
+            qDebug() << "[USB Scale] Available — listed as selectable (not auto-connecting)";
+        }
+    });
+    QObject::connect(&usbScaleManager, &UsbScaleManager::usbScaleUnavailable,
+                     [&bleManager]() {
+        bleManager.setUsbScaleAvailable(false, QStringLiteral("Half Decent Scale (USB)"));
+    });
+
+    // User selected the USB entry in the discovered list: connect it.
+    QObject::connect(&bleManager, &BLEManager::usbConnectRequested,
+                     [&usbScaleManager]() {
+        usbScaleManager.connectToScale();
     });
 
     // Forward USB scale manager log messages

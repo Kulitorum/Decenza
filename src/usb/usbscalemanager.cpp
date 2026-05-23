@@ -33,6 +33,63 @@ bool UsbScaleManager::isScaleConnected() const
     return m_scale != nullptr;
 }
 
+void UsbScaleManager::setScaleAvailable(bool available)
+{
+    if (m_scaleAvailable == available) return;
+    m_scaleAvailable = available;
+    if (available) {
+        emit usbScaleAvailable();
+    } else {
+        emit usbScaleUnavailable();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Connect on demand (selection / saved-primary auto-reconnect)
+// ---------------------------------------------------------------------------
+
+void UsbScaleManager::connectToScale()
+{
+    if (m_scale) return;            // Already connected
+    if (!m_scaleAvailable) {
+        qDebug() << "[USB Scale] connectToScale() called but no scale available";
+        return;
+    }
+
+#ifdef Q_OS_ANDROID
+    // Re-validate presence; the JNI side still owns the (probe-opened) connection.
+    if (!AndroidUsbScaleHelper::hasDevice()) {
+        qWarning() << "[USB Scale] connectToScale(): device no longer present";
+        setScaleAvailable(false);
+        return;
+    }
+    if (!AndroidUsbScaleHelper::hasPermission()) {
+        qWarning() << "[USB Scale] connectToScale(): no USB permission";
+        return;
+    }
+
+    qDebug() << "[USB Scale] Connecting (Android)";
+    emit logMessage(QStringLiteral("[USB Scale] Connecting"));
+
+    m_scale = new UsbDecentScale(this);
+    m_scale->open();
+#else
+    if (m_confirmedPortName.isEmpty()) {
+        qWarning() << "[USB Scale] connectToScale(): no confirmed port";
+        return;
+    }
+
+    qDebug() << "[USB Scale] Connecting on" << m_confirmedPortName;
+    emit logMessage(QStringLiteral("[USB Scale] Connecting on %1").arg(m_confirmedPortName));
+
+    m_scale = new UsbDecentScale(this);
+    m_scale->open(m_confirmedPortName);
+#endif
+
+    emit scaleConnectedChanged();
+    emit scaleDiscovered(m_scale);
+}
+
 // ---------------------------------------------------------------------------
 // Polling control
 // ---------------------------------------------------------------------------
@@ -102,8 +159,21 @@ void UsbScaleManager::onPollTimerTickAndroid()
         // Close the JNI USB connection (UsbDecentScale::close() delegates this to us)
         AndroidUsbScaleHelper::close();
 
+        setScaleAvailable(false);
         emit scaleLost();
         emit scaleConnectedChanged();
+        return;
+    }
+
+    // Available-but-not-connected scale unplugged: drop availability and release
+    // the JNI connection held open since the probe confirmed.
+    if (!m_scale && m_scaleAvailable && !devicePresent) {
+        qDebug() << "[USB Scale] Available scale unplugged before connect";
+        emit logMessage(QStringLiteral("[USB Scale] Scale unplugged"));
+        AndroidUsbScaleHelper::close();
+        m_androidPermissionRequested = false;
+        m_hasLoggedInitialPorts = false;
+        setScaleAvailable(false);
         return;
     }
 
@@ -114,8 +184,9 @@ void UsbScaleManager::onPollTimerTickAndroid()
         return;
     }
 
-    if (m_scale) return;           // Already connected
-    if (m_androidProbing) return;  // Already probing
+    if (m_scale) return;            // Already connected
+    if (m_scaleAvailable) return;   // Already confirmed + listed; awaiting selection
+    if (m_androidProbing) return;   // Already probing
     if (!devicePresent) {
         m_androidPermissionRequested = false;
         m_hasLoggedInitialPorts = false;
@@ -204,14 +275,13 @@ void UsbScaleManager::onAndroidProbeRead()
                 qDebug() << "[USB Scale] Scale confirmed! Got weight packet";
                 emit logMessage(QStringLiteral("[USB Scale] Half Decent Scale confirmed"));
 
-                // Stop probe timers but DON'T close — UsbDecentScale will use it
+                // Stop probe timers but DON'T close — connectToScale() reuses
+                // the JNI connection when the user selects the USB entry.
                 cleanupAndroidProbe(false);
 
-                m_scale = new UsbDecentScale(this);
-                m_scale->open();
-
-                emit scaleConnectedChanged();
-                emit scaleDiscovered(m_scale);
+                // Record availability only — do NOT auto-connect. main.cpp lists
+                // it as selectable and connects on selection / saved-primary.
+                setScaleAvailable(true);
                 return;
             }
         }
@@ -302,9 +372,21 @@ void UsbScaleManager::onPollTimerTickDesktop()
 
         m_scale->deleteLater();
         m_scale = nullptr;
+        m_confirmedPortName.clear();
 
+        setScaleAvailable(false);
         emit scaleLost();
         emit scaleConnectedChanged();
+    }
+
+    // Available-but-not-connected scale unplugged: its confirmed port is gone.
+    if (!m_scale && m_scaleAvailable && !m_confirmedPortName.isEmpty()
+        && !currentPorts.contains(m_confirmedPortName)) {
+        qDebug() << "[USB Scale] Available scale unplugged before connect:" << m_confirmedPortName;
+        emit logMessage(QStringLiteral("[USB Scale] Scale unplugged"));
+        m_confirmedPortName.clear();
+        m_hasLoggedInitialPorts = false;
+        setScaleAvailable(false);
     }
 
     // Check if probing port disappeared
@@ -316,8 +398,9 @@ void UsbScaleManager::onPollTimerTickDesktop()
 
     m_knownPorts = currentPorts;
 
-    // Probe new candidates (one at a time)
-    if (!m_probePort && !candidatePorts.isEmpty() && !m_scale) {
+    // Probe new candidates (one at a time). Skip while a scale is already
+    // connected OR available (single-scale invariant — don't grab a second).
+    if (!m_probePort && !candidatePorts.isEmpty() && !m_scale && !m_scaleAvailable) {
         probePort(candidatePorts.first());
     }
 }
@@ -394,13 +477,13 @@ void UsbScaleManager::onProbeReadyRead()
                 emit logMessage(QStringLiteral("[USB Scale] Half Decent Scale found on %1")
                                     .arg(confirmedPort));
 
+                // Close the probe port — connectToScale() reopens it on demand.
                 cleanupProbe();
 
-                m_scale = new UsbDecentScale(this);
-                m_scale->open(confirmedPort);
-
-                emit scaleConnectedChanged();
-                emit scaleDiscovered(m_scale);
+                // Record availability only — do NOT auto-connect. main.cpp lists
+                // it as selectable and connects on selection / saved-primary.
+                m_confirmedPortName = confirmedPort;
+                setScaleAvailable(true);
                 return;
             }
         }
