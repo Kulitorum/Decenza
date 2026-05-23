@@ -243,27 +243,28 @@ void DecentScaleWifi::onTextMessageReceived(const QString& message) {
     }
     const QJsonObject obj = doc.object();
 
-    // Diagnostic: log one sample of each distinct non-snapshot frame shape per
-    // connect, so the firmware's actual WS surface is visible — in particular
-    // whether it ever sends a status frame carrying firmware_version (the BLE
-    // link reports the version; over WiFi we have never observed it). Weight
-    // snapshots are excluded — they are the only high-rate frame.
-    if (!obj.contains(QStringLiteral("grams"))) {
-        const QString shape = obj.value(QStringLiteral("type")).toString(QStringLiteral("(untyped)"));
-        if (!m_loggedFrameShapes.contains(shape)) {
-            m_loggedFrameShapes.insert(shape);
-            WIFI_LOG(QString("First '%1' frame this connect: %2")
-                     .arg(shape, QString::fromUtf8(bytes.left(200))));
-        }
-    }
-
-    // Contract per protocol: absence of "type" means weight snapshot.
-    if (obj.contains(QStringLiteral("grams"))) {
+    // Frame routing (per the openscale WS README): a frame with NO "type" is a
+    // weight snapshot; every typed frame (status/button/power/rate/error)
+    // carries "type". A status frame ALSO carries a "grams" field, so snapshots
+    // must be discriminated by the ABSENCE of "type" — keying on the presence
+    // of "grams" (as we used to) swallowed every status frame as a snapshot,
+    // which is why firmware_version, battery, and charging were never seen over
+    // WiFi.
+    const QString type = obj.value(QStringLiteral("type")).toString();
+    if (type.isEmpty()) {
         handleSnapshotFrame(obj);
         return;
     }
 
-    const QString type = obj.value(QStringLiteral("type")).toString();
+    // Diagnostic: log one sample of each distinct typed frame per connect, so
+    // the firmware's actual WS surface is visible (frame types and, for status,
+    // its fields incl. firmware_version).
+    if (!m_loggedFrameShapes.contains(type)) {
+        m_loggedFrameShapes.insert(type);
+        WIFI_LOG(QString("First '%1' frame this connect: %2")
+                 .arg(type, QString::fromUtf8(bytes.left(200))));
+    }
+
     if (type == QStringLiteral("status")) {
         handleStatusFrame(obj);
     } else if (type == QStringLiteral("button")) {
@@ -273,7 +274,8 @@ void DecentScaleWifi::onTextMessageReceived(const QString& message) {
     } else if (type == QStringLiteral("rate")) {
         handleRateFrame(obj);
     }
-    // Unknown types are silently ignored (forward-compat).
+    // "error" frames and any unknown type are captured by the diagnostic log
+    // above; no further action.
 }
 
 void DecentScaleWifi::handleSnapshotFrame(const QJsonObject& obj) {
