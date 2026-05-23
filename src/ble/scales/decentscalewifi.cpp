@@ -170,6 +170,17 @@ void DecentScaleWifi::onConnected() {
 
 void DecentScaleWifi::onDisconnected() {
     if (m_recognitionTimer) m_recognitionTimer->stop();
+
+    // Capture the WebSocket close code/reason so an unexpected drop is
+    // self-diagnosing. The discriminator that matters when triaging a mid-shot
+    // drop:
+    //   1000/1001 (+reason) → the scale sent a clean close frame: firmware chose
+    //                         to drop us (watchdog, WiFi reassoc, sleep, client cap)
+    //   1006 (no reason)    → abnormal closure, no close frame → TCP/WiFi-layer
+    //                         loss (RF, BLE/WiFi coexistence, network path)
+    const int closeCode = m_socket ? static_cast<int>(m_socket->closeCode()) : -1;
+    const QString closeReason = m_socket ? m_socket->closeReason() : QString();
+
     QString disconnectLog;
     if (!m_userInitiatedShutdown) {
         disconnectLog = QStringLiteral("WebSocket disconnected (unexpected)");
@@ -181,6 +192,10 @@ void DecentScaleWifi::onDisconnected() {
         // disconnect via disconnectFromScale().
         disconnectLog = QStringLiteral("WebSocket disconnected (expected)");
     }
+    disconnectLog += QString(" [closeCode=%1").arg(closeCode);
+    if (!closeReason.isEmpty())
+        disconnectLog += QString(", reason=\"%1\"").arg(closeReason);
+    disconnectLog += QStringLiteral("]");
     WIFI_LOG(disconnectLog);
 
     // Pending hostname fallback (cached IP didn't validate): the recognition
