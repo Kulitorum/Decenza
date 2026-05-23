@@ -4,6 +4,7 @@
 #include <QUrl>
 #include <QString>
 #include <QTimer>
+#include <QSet>
 #include <functional>
 
 class QWebSocket;
@@ -128,6 +129,11 @@ private:
 
     QString m_name = QStringLiteral("Decent Scale (WiFi)");
     QString m_firmwareVersion;   // cached per-connect; cleared on disconnect
+    // One sample of each distinct non-snapshot frame "type" is logged per
+    // connect (see onTextMessageReceived) so the firmware's actual WS surface
+    // is visible — notably whether it ever sends a status frame carrying
+    // firmware_version. Cleared on disconnect.
+    QSet<QString> m_loggedFrameShapes;
     QString m_lastPowerEventReason;
     int m_lastPowerEventCode = -1;
     // Set on intentional shutdown paths so onDisconnected logs the close as

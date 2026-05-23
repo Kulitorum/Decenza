@@ -219,6 +219,7 @@ void DecentScaleWifi::onDisconnected() {
 
     // Clear per-connect state so the next connect re-captures it fresh.
     m_firmwareVersion.clear();
+    m_loggedFrameShapes.clear();
     m_lastPowerEventReason.clear();
     m_lastPowerEventCode = -1;
     m_userInitiatedShutdown = false;
@@ -241,6 +242,20 @@ void DecentScaleWifi::onTextMessageReceived(const QString& message) {
         return;
     }
     const QJsonObject obj = doc.object();
+
+    // Diagnostic: log one sample of each distinct non-snapshot frame shape per
+    // connect, so the firmware's actual WS surface is visible — in particular
+    // whether it ever sends a status frame carrying firmware_version (the BLE
+    // link reports the version; over WiFi we have never observed it). Weight
+    // snapshots are excluded — they are the only high-rate frame.
+    if (!obj.contains(QStringLiteral("grams"))) {
+        const QString shape = obj.value(QStringLiteral("type")).toString(QStringLiteral("(untyped)"));
+        if (!m_loggedFrameShapes.contains(shape)) {
+            m_loggedFrameShapes.insert(shape);
+            WIFI_LOG(QString("First '%1' frame this connect: %2")
+                     .arg(shape, QString::fromUtf8(bytes.left(200))));
+        }
+    }
 
     // Contract per protocol: absence of "type" means weight snapshot.
     if (obj.contains(QStringLiteral("grams"))) {
