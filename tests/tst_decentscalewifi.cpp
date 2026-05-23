@@ -273,6 +273,34 @@ private slots:
         QTest::qWait(50);
     }
 
+    // Regression: the real firmware's status frame ALSO carries a `grams` field
+    // (openscale README). Snapshots are distinguished by the ABSENCE of `type`,
+    // so a status-with-grams must still reach the status handler — keying on the
+    // presence of `grams` (the old bug) swallowed it as a weight snapshot, so
+    // battery / charging / firmware_version were never parsed over WiFi.
+    void statusFrameWithGramsIsNotMistakenForSnapshot() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        QSignalSpy battSpy(&driver, &ScaleDevice::batteryLevelChanged);
+        QSignalSpy weightSpy(&driver, &ScaleDevice::weightChanged);
+        connectAndHandshake(driver, server);
+
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Firmware version: FW: 3\\.0\\.9.*"));
+        server.sendJson({
+            { "type", "status" },
+            { "grams", 25.66 },
+            { "battery_percent", 77 },
+            { "firmware_version", "FW: 3.0.9" },
+        });
+
+        // Routed to the status handler: battery parses from the same frame...
+        QVERIFY(battSpy.wait(500));
+        QCOMPARE(battSpy.last().at(0).toInt(), 77);
+        // ...and it is NOT double-handled as a weight snapshot.
+        QCOMPARE(weightSpy.count(), 0);
+    }
+
     // ==========================================
     // Button event encoding
     // ==========================================
