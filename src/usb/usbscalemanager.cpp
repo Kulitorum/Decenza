@@ -86,8 +86,98 @@ void UsbScaleManager::connectToScale()
     m_scale->open(m_confirmedPortName);
 #endif
 
+    // open() can fail (port grabbed by another app, JNI open refused). If it did,
+    // the scale never connected — don't emit scaleDiscovered (that would wire a
+    // dead object and, on desktop, leave m_confirmedPortName/m_knownPorts pinned
+    // so polling never re-probes the still-plugged-in scale). Instead, tear the
+    // half-open scale down and re-enable recovery so the next poll re-confirms it.
+    if (!m_scale->isConnected()) {
+        qWarning() << "[USB Scale] open() failed — scale did not connect";
+        emit logMessage(QStringLiteral("[USB Scale] Connect failed — retrying discovery"));
+        m_scale->deleteLater();
+        m_scale = nullptr;
+#ifdef Q_OS_ANDROID
+        // Release the JNI connection so the next poll re-probes from scratch.
+        AndroidUsbScaleHelper::close();
+#else
+        // Drop the confirmed port from the known set so onPollTimerTickDesktop's
+        // candidate filter (!m_knownPorts.contains(port)) re-probes it next tick.
+        m_knownPorts.remove(m_confirmedPortName);
+        m_confirmedPortName.clear();
+#endif
+        setScaleAvailable(false);
+        return;
+    }
+
+#ifdef Q_OS_ANDROID
+    // Recover from a stale-but-enumerated connection: on Android the device can
+    // stay plugged in while its serial link silently dies (no port-disappear
+    // event for the poll to catch). Watch the scale's connected state and tear
+    // it down when it drops. Guarded on m_scale so it stays idempotent with the
+    // poll-based unplug detection in onPollTimerTickAndroid.
+    connect(m_scale, &ScaleDevice::connectedChanged, this, [this] {
+        if (m_scale && !m_scale->isConnected()) {
+            qWarning() << "[USB Scale] Connection dropped (device still enumerated)";
+            emit logMessage(QStringLiteral("[USB Scale] Connection lost"));
+            teardownConnectedScale();
+        }
+    });
+#endif
+
     emit scaleConnectedChanged();
     emit scaleDiscovered(m_scale);
+}
+
+bool UsbScaleManager::teardownConnectedScale()
+{
+    if (!m_scale) return false;     // Already torn down — idempotent
+
+    // Emit scaleLost() FIRST, while m_scale is still valid: main.cpp's handler
+    // calls scale() to unwire the weight signals. Nulling before the emit would
+    // make those disconnects dead (the signals would keep feeding a stale scale).
+    emit scaleLost();
+
+    m_scale->close();
+    m_scale->deleteLater();
+    m_scale = nullptr;
+
+#ifdef Q_OS_ANDROID
+    m_androidPermissionRequested = false;
+    // Close the JNI USB connection (UsbDecentScale::close() delegates this to us)
+    AndroidUsbScaleHelper::close();
+#else
+    m_confirmedPortName.clear();
+#endif
+    m_hasLoggedInitialPorts = false;
+
+    setScaleAvailable(false);
+    emit scaleConnectedChanged();
+    return true;
+}
+
+void UsbScaleManager::disconnectScale()
+{
+    if (!m_scale) return;           // Nothing connected — no-op
+
+    // Switching away to a BLE/WiFi scale: the USB scale is still physically
+    // plugged in, so this is NOT a loss. Deliberately do NOT emit scaleLost()
+    // and do NOT touch m_scaleAvailable — we only stop feeding the USB weight so
+    // the new primary scale doesn't double-feed WeightProcessor. The USB entry
+    // stays selectable; reselecting it calls connectToScale() again.
+    qDebug() << "[USB Scale] Disconnecting (switching to another scale)";
+    emit logMessage(QStringLiteral("[USB Scale] Disconnected (switched to another scale)"));
+
+    m_scale->close();
+    m_scale->deleteLater();
+    m_scale = nullptr;
+
+#ifdef Q_OS_ANDROID
+    // Release the JNI connection; the device stays enumerated, so the next poll
+    // re-probes and re-confirms availability without changing m_scaleAvailable here.
+    AndroidUsbScaleHelper::close();
+#endif
+
+    emit scaleConnectedChanged();
 }
 
 // ---------------------------------------------------------------------------
@@ -150,18 +240,10 @@ void UsbScaleManager::onPollTimerTickAndroid()
     if (m_scale && !devicePresent) {
         qWarning() << "[USB Scale] Connected scale disappeared";
         emit logMessage(QStringLiteral("[USB Scale] Scale disconnected"));
-
-        m_scale->close();
-        m_scale->deleteLater();
-        m_scale = nullptr;
-        m_androidPermissionRequested = false;
-
-        // Close the JNI USB connection (UsbDecentScale::close() delegates this to us)
-        AndroidUsbScaleHelper::close();
-
-        setScaleAvailable(false);
-        emit scaleLost();
-        emit scaleConnectedChanged();
+        // teardownConnectedScale() emits scaleLost() while m_scale is still
+        // valid (so main.cpp can unwire weight signals), then deletes + nulls
+        // it, releases the JNI connection, and clears availability.
+        teardownConnectedScale();
         return;
     }
 
@@ -369,14 +451,12 @@ void UsbScaleManager::onPollTimerTickDesktop()
         // Scale already disconnected itself (port error)
         qWarning() << "[USB Scale] Scale port lost";
         emit logMessage(QStringLiteral("[USB Scale] Scale disconnected"));
-
-        m_scale->deleteLater();
-        m_scale = nullptr;
-        m_confirmedPortName.clear();
-
-        setScaleAvailable(false);
-        emit scaleLost();
-        emit scaleConnectedChanged();
+        // teardownConnectedScale() emits scaleLost() while m_scale is still
+        // valid (so main.cpp can unwire weight signals), then deletes + nulls
+        // it, clears m_confirmedPortName + m_hasLoggedInitialPorts, and drops
+        // availability — matching the Android path and the available-unplugged
+        // branch below.
+        teardownConnectedScale();
     }
 
     // Available-but-not-connected scale unplugged: its confirmed port is gone.

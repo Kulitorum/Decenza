@@ -49,6 +49,13 @@ public:
     // on startup when the USB scale is the saved primary.
     Q_INVOKABLE void connectToScale();
 
+    // Tear down an active USB scale connection WITHOUT marking it lost. Used when
+    // the user switches to a BLE/WiFi scale: the USB scale is still plugged in
+    // (m_scaleAvailable stays true, no scaleLost()), we just stop feeding its
+    // weight so the new scale doesn't double-feed WeightProcessor. No-op if no
+    // scale is connected.
+    void disconnectScale();
+
 signals:
     void scaleConnectedChanged();
     void scaleDiscovered(UsbDecentScale* scale);
@@ -71,6 +78,15 @@ private:
     // NOT necessarily connected). Drives usbScaleAvailable/Unavailable.
     bool m_scaleAvailable = false;
     void setScaleAvailable(bool available);
+
+    // Shared teardown for a connected scale that has gone away (poll-detected
+    // unplug OR connectedChanged → disconnected). Emits scaleLost() while
+    // m_scale is still valid (main.cpp's handler reads scale() to unwire weight
+    // signals), THEN deletes + nulls it, releases the platform connection, and
+    // marks the scale unavailable. Idempotent: no-op when m_scale is already
+    // null, so the poll detector and the connectedChanged handler can't
+    // double-fire. Returns true if it actually tore a scale down.
+    bool teardownConnectedScale();
 
 #ifdef Q_OS_ANDROID
     void onPollTimerTickAndroid();

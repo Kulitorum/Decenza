@@ -1424,7 +1424,22 @@ int main(int argc, char *argv[])
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &translationManager](const QBluetoothDeviceInfo& device, const QString& type) {
+                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &translationManager, &usbScaleManager](const QBluetoothDeviceInfo& device, const QString& type) {
+#ifndef Q_OS_IOS
+        // Tear down an active USB scale FIRST (before touching physicalScale).
+        // The single-scale invariant covers BLE/WiFi via physicalScale, but the
+        // USB scale lives in UsbScaleManager — without this, switching from a
+        // connected USB scale to BLE/WiFi would leave BOTH feeding weight into
+        // WeightProcessor/MainController. disconnectScale() keeps the USB scale
+        // AVAILABLE (it's still plugged in) — we're switching away, not losing it.
+        if (usbScaleManager.scale()) {
+            QObject::disconnect(usbScaleManager.scale(), &ScaleDevice::weightChanged,
+                                &mainController, &MainController::onScaleWeightChanged);
+            QObject::disconnect(usbScaleManager.scale(), &ScaleDevice::weightSampleReceived,
+                                &weightProcessor, &WeightProcessor::processWeight);
+            usbScaleManager.disconnectScale();
+        }
+#endif
         // Single-scale invariant: at most one physical scale is connected at a
         // time (a different scale type replaces the old one below, never runs
         // alongside it). This caps concurrent forced-HIGH BLE links at two —
@@ -1933,14 +1948,15 @@ int main(int argc, char *argv[])
         QObject::connect(usbScale, &ScaleDevice::weightSampleReceived,
                          &weightProcessor, &WeightProcessor::processWeight);
 
-        // Save USB scale as the active scale type (so Settings panel shows it)
-        settings.setScaleType(usbScale->name());
-        settings.setScaleName(usbScale->name());
-
-        // Register in the known-scales registry + as primary, exactly like BLE
-        // and WiFi, using the stable USB identifier "usb:decent". This makes the
-        // USB scale auto-reconnect on a future startup when it's still the saved
-        // primary (see the usbScaleAvailable handler below).
+        // Register in the known-scales registry + set as primary, using the
+        // stable USB identifier "usb:decent". addKnownScale + setPrimaryScale
+        // write the correct scale type ("decent-usb") and display name into
+        // Settings, so the Settings panel shows it and it auto-reconnects on a
+        // future startup when it's still the saved primary (see the
+        // usbScaleAvailable handler below). Note this ALWAYS sets the USB scale
+        // as primary — unlike the BLE/WiFi scaleDiscovered handler, which gates
+        // the primary write on the WiFi→BLE fallback flag. There is no USB
+        // fallback path, so selecting USB is always an explicit primary choice.
         const QString kUsbScaleAddress = QStringLiteral("usb:decent");
         const QString kUsbScaleType = QStringLiteral("decent-usb");
         const QString kUsbScaleName = QStringLiteral("Half Decent Scale (USB)");
@@ -1959,7 +1975,7 @@ int main(int argc, char *argv[])
     // When USB scale lost: fall back to FlowScale (or BLE scale if available)
     QObject::connect(&usbScaleManager, &UsbScaleManager::scaleLost,
                      [&physicalScale, &flowScale, &machineState, &mainController, &engine,
-                      &timingController, &weightProcessor, &usbScaleManager]() {
+                      &timingController, &weightProcessor, &usbScaleManager, &bleManager]() {
         // Disconnect the USB scale's weight signals
         if (usbScaleManager.scale()) {
             QObject::disconnect(usbScaleManager.scale(), &ScaleDevice::weightChanged,
@@ -1984,6 +2000,12 @@ int main(int argc, char *argv[])
             QObject::connect(&flowScale, &ScaleDevice::weightSampleReceived,
                              &weightProcessor, &WeightProcessor::processWeight);
             qDebug() << "[USB Scale] Lost — falling back to FlowScale";
+            // Surface a "scale disconnected" UI notice — same as the BLE/WiFi
+            // disconnect path (see the connectedChanged handler that emits this
+            // when a physical scale drops to FlowScale). Only on the FlowScale
+            // fallback: falling back to a still-connected BLE scale is a switch,
+            // not a disconnect, so it shouldn't flash a "disconnected" notice.
+            emit bleManager.scaleDisconnected();
         }
 
         // Notify MQTT

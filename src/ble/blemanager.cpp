@@ -18,6 +18,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QTextStream>
+#include <algorithm>
 #include <QDateTime>
 #include <QTcpSocket>
 
@@ -552,8 +553,17 @@ void BLEManager::connectToSavedScale() {
 
     // USB saved-scale switch: USB needs neither Bluetooth nor a direct-wake. Hand
     // off to UsbScaleManager (usbConnectRequested) and skip the BLE guards below.
-    // It connects only if the USB scale is currently available (plugged in).
     if (m_savedScaleAddress.startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
+        // Bail BEFORE dropping the live scale if the USB scale isn't currently
+        // plugged in: UsbScaleManager::connectToScale() no-ops when nothing is
+        // available, which would otherwise strand the user on FlowScale with no
+        // feedback. The USB entry is present in m_scales only while probe-confirmed.
+        const bool usbPresent = std::any_of(m_scales.cbegin(), m_scales.cend(),
+            [](const ScaleEntry& e) { return e.transport == QStringLiteral("usb"); });
+        if (!usbPresent) {
+            appendScaleLog(QStringLiteral("USB scale switch ignored — scale not plugged in"));
+            return;
+        }
         if (m_scaleDevice && m_scaleDevice->isConnected())
             emit disconnectScaleRequested();
         emit usbConnectRequested();
