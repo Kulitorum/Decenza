@@ -55,6 +55,8 @@ void DecentScaleWifi::connectToHost(const QString& hostname) {
     m_userInitiatedShutdown = false;
     m_triedHostnameFallback = false;
     m_pendingHostnameFallback = false;
+    m_socketErrorThisConnect = false;
+    m_lastSocketErrorString.clear();
     // New connection cycle — invalidate any in-flight resolve from a prior call.
     ++m_resolveGeneration;
 
@@ -173,29 +175,30 @@ void DecentScaleWifi::onConnected() {
 void DecentScaleWifi::onDisconnected() {
     if (m_recognitionTimer) m_recognitionTimer->stop();
 
-    // Classify the disconnect for triage. Do NOT use closeCode() as the
-    // abnormality signal: Qt sets closeCode()/closeReason() only when a real
-    // WebSocket close frame is received, and the single socket is reused across
-    // reconnects, so on an abnormal TCP/WiFi drop (or abort()) closeCode() is
-    // stale/default (1000) — it never becomes 1006. Distinguish instead:
-    //   - expected        → we closed it, or the scale announced power-off
-    //   - transport error → a socket-level error fired this connection
-    //                       (RemoteHostClosed/timeout/...) = RF/WiFi/network loss,
-    //                       the abnormal-drop case
-    //   - peer close      → no error and we didn't initiate → the scale sent a
-    //                       clean close frame, so closeCode()/closeReason() ARE
-    //                       meaningful here
-    QString disconnectLog = m_userInitiatedShutdown
-        ? QStringLiteral("WebSocket disconnected (expected)")
-        : QStringLiteral("WebSocket disconnected (unexpected)");
+    // Classify the disconnect for triage. A genuine transport error means the
+    // link dropped under us, so it must read "(unexpected)" regardless of any
+    // shutdown flag; power-off and deliberate closes read "(expected)". Do NOT
+    // use closeCode() as the abnormality signal: Qt sets closeCode()/
+    // closeReason() only when a real close frame is received, and the reused
+    // socket keeps a stale value across reconnects, so on an abnormal drop
+    // closeCode() is stale/default (1000), never 1006. onError records a
+    // transport error ONLY for a genuine (not self-inflicted) failure, so the
+    // transport-error branch always means an abnormal drop and the peer-close
+    // branch is reached only when a clean close frame was received (where
+    // closeCode()/closeReason() ARE meaningful).
+    QString disconnectLog;
     if (!m_lastPowerEventReason.isEmpty()) {
-        disconnectLog += QString(" — scale power-off: %1").arg(m_lastPowerEventReason);
+        disconnectLog = QStringLiteral("WebSocket disconnected (expected) — scale power-off: ")
+                        + m_lastPowerEventReason;
     } else if (m_socketErrorThisConnect) {
-        disconnectLog += QString(" — transport error: %1").arg(m_lastSocketErrorString);
-    } else if (!m_userInitiatedShutdown) {
+        disconnectLog = QStringLiteral("WebSocket disconnected (unexpected) — transport error: ")
+                        + m_lastSocketErrorString;
+    } else if (m_userInitiatedShutdown) {
+        disconnectLog = QStringLiteral("WebSocket disconnected (expected)");
+    } else {
         const int closeCode = m_socket ? static_cast<int>(m_socket->closeCode()) : -1;
         const QString closeReason = m_socket ? m_socket->closeReason() : QString();
-        disconnectLog += QString(" — peer close (code %1").arg(closeCode);
+        disconnectLog = QString("WebSocket disconnected (unexpected) — peer close (code %1").arg(closeCode);
         if (!closeReason.isEmpty())
             disconnectLog += QString(", reason=\"%1\"").arg(closeReason);
         disconnectLog += QStringLiteral(")");
@@ -471,19 +474,25 @@ void DecentScaleWifi::onError() {
     const QString errStr = m_socket ? m_socket->errorString() : QStringLiteral("<no socket>");
     WIFI_WARN(QString("WebSocket error: %1 (code %2)").arg(errStr).arg(static_cast<int>(err)));
 
-    // Record that a transport-level error fired this connection so onDisconnected
-    // can report an abnormal drop accurately (closeCode() can't — see note there).
-    // Reset at the start of each connect attempt (attemptTarget).
-    m_socketErrorThisConnect = true;
-    m_lastSocketErrorString = errStr;
-
     // 503 detection — firmware refuses additional clients past its cap. Qt's
-    // WebSocket error path surfaces this in errorString().
+    // WebSocket error path surfaces this in errorString(). Treated as an expected
+    // refusal (we surface a modal), so it must NOT be recorded as a transport
+    // error — return before the transport-error capture below.
     if (errStr.contains(QStringLiteral("503"))) {
         emit errorOccurred(translateUiString("wifi.scale.error.serverBusy",
             "Another client is connected to the scale"));
         m_userInitiatedShutdown = true;
         return;
+    }
+
+    // Record a GENUINE transport error — one that dropped the link under us — so
+    // onDisconnected can flag an abnormal drop (closeCode() can't; see note there).
+    // Skip it when we already initiated a close: a deliberate abort()/close() can
+    // also surface here, and that is not an external transport failure. Reset per
+    // connect cycle/attempt (connectToHost/attemptTarget).
+    if (!m_userInitiatedShutdown) {
+        m_socketErrorThisConnect = true;
+        m_lastSocketErrorString = errStr;
     }
 
     // Classify common socket-level failures. These are all TRANSIENT connect

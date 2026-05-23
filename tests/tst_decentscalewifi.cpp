@@ -51,6 +51,12 @@ public:
         if (m_client) m_client->close();
     }
 
+    // Abrupt TCP teardown (no WS close handshake) — the client sees a socket
+    // error, simulating an RF/WiFi/network drop.
+    void abortClient() {
+        if (m_client) m_client->abort();
+    }
+
     const QStringList& received() const { return m_received; }
     void clearReceived() { m_received.clear(); }
 
@@ -319,6 +325,24 @@ private slots:
         QTest::ignoreMessage(QtDebugMsg,
             QRegularExpression(QStringLiteral("WebSocket disconnected \\(unexpected\\).*peer close")));
         server.closeFromServer();
+        QVERIFY(connSpy.wait(2000));
+        QVERIFY(!driver.isConnected());
+    }
+
+    // An abrupt TCP teardown (no WS close handshake) surfaces on the client as a
+    // socket error and must be logged as an abnormal transport drop — NOT
+    // "(expected)" and NOT "peer close". Guards the fix where a genuine transport
+    // error forces the "(unexpected)" prefix regardless of m_userInitiatedShutdown.
+    void abruptDropIsClassifiedAsTransportError() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        connectAndHandshake(driver, server);
+
+        QSignalSpy connSpy(&driver, &ScaleDevice::connectedChanged);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("WebSocket error:")));
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(QStringLiteral("WebSocket disconnected \\(unexpected\\).*transport error")));
+        server.abortClient();
         QVERIFY(connSpy.wait(2000));
         QVERIFY(!driver.isConnected());
     }

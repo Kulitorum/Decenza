@@ -141,19 +141,22 @@ private:
     QString m_lastPowerEventReason;
     int m_lastPowerEventCode = -1;
     // Set on intentional shutdown paths so onDisconnected logs the close as
-    // expected and skips noisy follow-up handling. Five sites set this to
+    // expected and skips noisy follow-up handling. Six sites set this to
     // true: disconnectFromScale (user close), handlePowerFrame (scale told
-    // us it's powering down), onRecognitionTimeout fallback branch (cached
-    // IP didn't validate → switching to hostname), onRecognitionTimeout
-    // give-up branch (hostname also failed), and onError (503 server-busy
-    // and the mapped socket-error paths). Reconnect itself is owned by
-    // main.cpp's scaleReconnectTimer — this flag does not gate reconnect.
+    // us it's powering down), attemptHostname (Android mDNS resolution found
+    // no responder), onRecognitionTimeout fallback branch (cached IP didn't
+    // validate → switching to hostname), onRecognitionTimeout give-up branch
+    // (hostname also failed), and onError (503 server-busy and the mapped
+    // socket-error paths). Reconnect itself is owned by main.cpp's
+    // scaleReconnectTimer — this flag does not gate reconnect.
     bool m_userInitiatedShutdown = false;
-    // Whether a socket-level error (errorOccurred) fired during this connection.
-    // onDisconnected uses it to flag an abnormal transport drop (RF/WiFi/network
-    // loss) vs a clean peer close frame — closeCode() can't be trusted for that
-    // (Qt sets it only on a received close frame, and the reused socket keeps a
-    // stale value across reconnects). Reset at the start of each connect attempt.
+    // Whether a GENUINE transport error (errorOccurred not caused by our own
+    // abort()/close()) fired during this connection. onDisconnected uses it to
+    // flag an abnormal transport drop (RF/WiFi/network loss) vs a clean peer
+    // close frame — closeCode() can't be trusted for that (Qt sets it only on a
+    // received close frame, and the reused socket keeps a stale value across
+    // reconnects). Reset per connect cycle (connectToHost) and attempt
+    // (attemptTarget); set in onError only when m_userInitiatedShutdown is false.
     bool m_socketErrorThisConnect = false;
     QString m_lastSocketErrorString;
 
