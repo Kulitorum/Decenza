@@ -74,6 +74,8 @@ void DecentScaleWifi::attemptTarget(const QString& target, bool isHostname) {
     m_currentTarget = target;
     m_currentTargetIsHostname = isHostname;
     m_recognized = false;
+    m_socketErrorThisConnect = false;
+    m_lastSocketErrorString.clear();
     if (isHostname) m_triedHostnameFallback = true;
 
     const QUrl url(QStringLiteral("ws://%1/snapshot").arg(target));
@@ -171,31 +173,33 @@ void DecentScaleWifi::onConnected() {
 void DecentScaleWifi::onDisconnected() {
     if (m_recognitionTimer) m_recognitionTimer->stop();
 
-    // Capture the WebSocket close code/reason so an unexpected drop is
-    // self-diagnosing. The discriminator that matters when triaging a mid-shot
-    // drop:
-    //   1000/1001 (+reason) → the scale sent a clean close frame: firmware chose
-    //                         to drop us (watchdog, WiFi reassoc, sleep, client cap)
-    //   1006 (no reason)    → abnormal closure, no close frame → TCP/WiFi-layer
-    //                         loss (RF, BLE/WiFi coexistence, network path)
-    const int closeCode = m_socket ? static_cast<int>(m_socket->closeCode()) : -1;
-    const QString closeReason = m_socket ? m_socket->closeReason() : QString();
-
-    QString disconnectLog;
-    if (!m_userInitiatedShutdown) {
-        disconnectLog = QStringLiteral("WebSocket disconnected (unexpected)");
-    } else if (!m_lastPowerEventReason.isEmpty()) {
-        disconnectLog = QString("WebSocket disconnected (expected: %1)").arg(m_lastPowerEventReason);
-    } else {
-        // Expected shutdown without a power event — typically a 503 server-busy
-        // rejection, the recognition-timeout fallback, or a user-initiated
-        // disconnect via disconnectFromScale().
-        disconnectLog = QStringLiteral("WebSocket disconnected (expected)");
+    // Classify the disconnect for triage. Do NOT use closeCode() as the
+    // abnormality signal: Qt sets closeCode()/closeReason() only when a real
+    // WebSocket close frame is received, and the single socket is reused across
+    // reconnects, so on an abnormal TCP/WiFi drop (or abort()) closeCode() is
+    // stale/default (1000) — it never becomes 1006. Distinguish instead:
+    //   - expected        → we closed it, or the scale announced power-off
+    //   - transport error → a socket-level error fired this connection
+    //                       (RemoteHostClosed/timeout/...) = RF/WiFi/network loss,
+    //                       the abnormal-drop case
+    //   - peer close      → no error and we didn't initiate → the scale sent a
+    //                       clean close frame, so closeCode()/closeReason() ARE
+    //                       meaningful here
+    QString disconnectLog = m_userInitiatedShutdown
+        ? QStringLiteral("WebSocket disconnected (expected)")
+        : QStringLiteral("WebSocket disconnected (unexpected)");
+    if (!m_lastPowerEventReason.isEmpty()) {
+        disconnectLog += QString(" — scale power-off: %1").arg(m_lastPowerEventReason);
+    } else if (m_socketErrorThisConnect) {
+        disconnectLog += QString(" — transport error: %1").arg(m_lastSocketErrorString);
+    } else if (!m_userInitiatedShutdown) {
+        const int closeCode = m_socket ? static_cast<int>(m_socket->closeCode()) : -1;
+        const QString closeReason = m_socket ? m_socket->closeReason() : QString();
+        disconnectLog += QString(" — peer close (code %1").arg(closeCode);
+        if (!closeReason.isEmpty())
+            disconnectLog += QString(", reason=\"%1\"").arg(closeReason);
+        disconnectLog += QStringLiteral(")");
     }
-    disconnectLog += QString(" [closeCode=%1").arg(closeCode);
-    if (!closeReason.isEmpty())
-        disconnectLog += QString(", reason=\"%1\"").arg(closeReason);
-    disconnectLog += QStringLiteral("]");
     WIFI_LOG(disconnectLog);
 
     // Pending hostname fallback (cached IP didn't validate): the recognition
@@ -219,6 +223,7 @@ void DecentScaleWifi::onDisconnected() {
 
     // Clear per-connect state so the next connect re-captures it fresh.
     m_firmwareVersion.clear();
+    m_loggedProtoVersion = -1;
     m_loggedFrameShapes.clear();
     m_lastPowerEventReason.clear();
     m_lastPowerEventCode = -1;
@@ -314,13 +319,13 @@ void DecentScaleWifi::handleStatusFrame(const QJsonObject& obj) {
         }
     }
 
-    // Protocol version — log on first capture for diagnostics only.
+    // Protocol version — log once per connect (reset on disconnect, like
+    // m_firmwareVersion) for diagnostics only.
     const QJsonValue pv = obj.value(QStringLiteral("protocol_version"));
     if (pv.isDouble()) {
-        static thread_local int s_lastLoggedProtoVersion = -1;
         const int v = pv.toInt();
-        if (v != s_lastLoggedProtoVersion) {
-            s_lastLoggedProtoVersion = v;
+        if (v != m_loggedProtoVersion) {
+            m_loggedProtoVersion = v;
             WIFI_LOG(QString("Protocol version: %1").arg(v));
         }
     }
@@ -465,6 +470,12 @@ void DecentScaleWifi::onError() {
         ? m_socket->error() : QAbstractSocket::UnknownSocketError;
     const QString errStr = m_socket ? m_socket->errorString() : QStringLiteral("<no socket>");
     WIFI_WARN(QString("WebSocket error: %1 (code %2)").arg(errStr).arg(static_cast<int>(err)));
+
+    // Record that a transport-level error fired this connection so onDisconnected
+    // can report an abnormal drop accurately (closeCode() can't — see note there).
+    // Reset at the start of each connect attempt (attemptTarget).
+    m_socketErrorThisConnect = true;
+    m_lastSocketErrorString = errStr;
 
     // 503 detection — firmware refuses additional clients past its cap. Qt's
     // WebSocket error path surfaces this in errorString().

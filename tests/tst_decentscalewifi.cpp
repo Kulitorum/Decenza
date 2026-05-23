@@ -282,6 +282,7 @@ private slots:
         FakeHdsServer server;
         DecentScaleWifi driver;
         QSignalSpy battSpy(&driver, &ScaleDevice::batteryLevelChanged);
+        QSignalSpy chargeSpy(&driver, &ScaleDevice::chargingChanged);
         QSignalSpy weightSpy(&driver, &ScaleDevice::weightChanged);
         connectAndHandshake(driver, server);
 
@@ -291,14 +292,35 @@ private slots:
             { "type", "status" },
             { "grams", 25.66 },
             { "battery_percent", 77 },
+            { "charging", true },
             { "firmware_version", "FW: 3.0.9" },
         });
 
-        // Routed to the status handler: battery parses from the same frame...
+        // Routed to the status handler: battery, charging, and firmware_version
+        // all parse from the same frame...
         QVERIFY(battSpy.wait(500));
         QCOMPARE(battSpy.last().at(0).toInt(), 77);
+        QVERIFY(chargeSpy.count() >= 1);
+        QCOMPARE(chargeSpy.last().at(0).toBool(), true);
         // ...and it is NOT double-handled as a weight snapshot.
         QCOMPARE(weightSpy.count(), 0);
+    }
+
+    // A clean close frame from the scale (no socket error, not app-initiated) is
+    // classified as a "peer close" — the one case where closeCode()/closeReason()
+    // are trustworthy. Guards the reworked disconnect classification that no
+    // longer relies on closeCode() to detect abnormal drops.
+    void unexpectedPeerCloseIsClassifiedAsPeerClose() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        connectAndHandshake(driver, server);
+
+        QSignalSpy connSpy(&driver, &ScaleDevice::connectedChanged);
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(QStringLiteral("WebSocket disconnected \\(unexpected\\).*peer close")));
+        server.closeFromServer();
+        QVERIFY(connSpy.wait(2000));
+        QVERIFY(!driver.isConnected());
     }
 
     // ==========================================

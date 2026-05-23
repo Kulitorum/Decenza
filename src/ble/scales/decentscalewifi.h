@@ -12,9 +12,12 @@ class QWebSocket;
 /**
  * Half Decent Scale over WiFi (WebSocket).
  *
- * Wire protocol: ws://<host>/snapshot. Snapshot frames are bare JSON
- * objects { "grams": <number>, "ms": <number> } emitted by the firmware.
- * Typed frames (status / button / power / rate) opt-in via "events on".
+ * Wire protocol: ws://<host>/snapshot. A frame is a weight snapshot when it
+ * carries NO "type" field — a bare JSON object { "grams": <number>,
+ * "ms": <number> }. Typed frames (status / button / power / rate / error)
+ * always carry "type" and opt in via "events on". NOTE: a "status" frame ALSO
+ * carries a "grams" field, so snapshots must be discriminated by the absence of
+ * "type", never by the presence of "grams".
  *
  * Reports type() == "decent-wifi" so the scale-creation hot-swap path in
  * main.cpp correctly distinguishes a BLE Decent reconnect from a WiFi one
@@ -129,6 +132,7 @@ private:
 
     QString m_name = QStringLiteral("Decent Scale (WiFi)");
     QString m_firmwareVersion;   // cached per-connect; cleared on disconnect
+    int m_loggedProtoVersion = -1;  // protocol version last logged this connect; reset on disconnect
     // One sample of each distinct non-snapshot frame "type" is logged per
     // connect (see onTextMessageReceived) so the firmware's actual WS surface
     // is visible — notably whether it ever sends a status frame carrying
@@ -145,6 +149,13 @@ private:
     // and the mapped socket-error paths). Reconnect itself is owned by
     // main.cpp's scaleReconnectTimer — this flag does not gate reconnect.
     bool m_userInitiatedShutdown = false;
+    // Whether a socket-level error (errorOccurred) fired during this connection.
+    // onDisconnected uses it to flag an abnormal transport drop (RF/WiFi/network
+    // loss) vs a clean peer close frame — closeCode() can't be trusted for that
+    // (Qt sets it only on a received close frame, and the reused socket keeps a
+    // stale value across reconnects). Reset at the start of each connect attempt.
+    bool m_socketErrorThisConnect = false;
+    QString m_lastSocketErrorString;
 
     IpResolver m_ipResolver;     // hostname → cached IP (or empty)
     IpCacheUpdate m_ipCacheUpdate;  // hostname, ip → side-effect
