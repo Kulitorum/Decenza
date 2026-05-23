@@ -4,6 +4,7 @@
 #include <QUrl>
 #include <QString>
 #include <QTimer>
+#include <QSet>
 #include <functional>
 
 class QWebSocket;
@@ -11,9 +12,12 @@ class QWebSocket;
 /**
  * Half Decent Scale over WiFi (WebSocket).
  *
- * Wire protocol: ws://<host>/snapshot. Snapshot frames are bare JSON
- * objects { "grams": <number>, "ms": <number> } emitted by the firmware.
- * Typed frames (status / button / power / rate) opt-in via "events on".
+ * Wire protocol: ws://<host>/snapshot. A frame is a weight snapshot when it
+ * carries NO "type" field — a bare JSON object { "grams": <number>,
+ * "ms": <number> }. Typed frames (status / button / power / rate / error)
+ * always carry "type" and opt in via "events on". NOTE: a "status" frame ALSO
+ * carries a "grams" field, so snapshots must be discriminated by the absence of
+ * "type", never by the presence of "grams".
  *
  * Reports type() == "decent-wifi" so the scale-creation hot-swap path in
  * main.cpp correctly distinguishes a BLE Decent reconnect from a WiFi one
@@ -128,17 +132,33 @@ private:
 
     QString m_name = QStringLiteral("Decent Scale (WiFi)");
     QString m_firmwareVersion;   // cached per-connect; cleared on disconnect
+    int m_loggedProtoVersion = -1;  // protocol version last logged this connect; reset on disconnect
+    // One sample of each distinct non-snapshot frame "type" is logged per
+    // connect (see onTextMessageReceived) so the firmware's actual WS surface
+    // is visible — notably whether it ever sends a status frame carrying
+    // firmware_version. Cleared on disconnect.
+    QSet<QString> m_loggedFrameShapes;
     QString m_lastPowerEventReason;
     int m_lastPowerEventCode = -1;
     // Set on intentional shutdown paths so onDisconnected logs the close as
-    // expected and skips noisy follow-up handling. Five sites set this to
+    // expected and skips noisy follow-up handling. Six sites set this to
     // true: disconnectFromScale (user close), handlePowerFrame (scale told
-    // us it's powering down), onRecognitionTimeout fallback branch (cached
-    // IP didn't validate → switching to hostname), onRecognitionTimeout
-    // give-up branch (hostname also failed), and onError (503 server-busy
-    // and the mapped socket-error paths). Reconnect itself is owned by
-    // main.cpp's scaleReconnectTimer — this flag does not gate reconnect.
+    // us it's powering down), attemptHostname (Android mDNS resolution found
+    // no responder), onRecognitionTimeout fallback branch (cached IP didn't
+    // validate → switching to hostname), onRecognitionTimeout give-up branch
+    // (hostname also failed), and onError (503 server-busy and the mapped
+    // socket-error paths). Reconnect itself is owned by main.cpp's
+    // scaleReconnectTimer — this flag does not gate reconnect.
     bool m_userInitiatedShutdown = false;
+    // Whether a GENUINE transport error (errorOccurred not caused by our own
+    // abort()/close()) fired during this connection. onDisconnected uses it to
+    // flag an abnormal transport drop (RF/WiFi/network loss) vs a clean peer
+    // close frame — closeCode() can't be trusted for that (Qt sets it only on a
+    // received close frame, and the reused socket keeps a stale value across
+    // reconnects). Reset per connect cycle (connectToHost) and attempt
+    // (attemptTarget); set in onError only when m_userInitiatedShutdown is false.
+    bool m_socketErrorThisConnect = false;
+    QString m_lastSocketErrorString;
 
     IpResolver m_ipResolver;     // hostname → cached IP (or empty)
     IpCacheUpdate m_ipCacheUpdate;  // hostname, ip → side-effect

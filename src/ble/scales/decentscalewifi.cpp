@@ -55,6 +55,8 @@ void DecentScaleWifi::connectToHost(const QString& hostname) {
     m_userInitiatedShutdown = false;
     m_triedHostnameFallback = false;
     m_pendingHostnameFallback = false;
+    m_socketErrorThisConnect = false;
+    m_lastSocketErrorString.clear();
     // New connection cycle — invalidate any in-flight resolve from a prior call.
     ++m_resolveGeneration;
 
@@ -74,6 +76,8 @@ void DecentScaleWifi::attemptTarget(const QString& target, bool isHostname) {
     m_currentTarget = target;
     m_currentTargetIsHostname = isHostname;
     m_recognized = false;
+    m_socketErrorThisConnect = false;
+    m_lastSocketErrorString.clear();
     if (isHostname) m_triedHostnameFallback = true;
 
     const QUrl url(QStringLiteral("ws://%1/snapshot").arg(target));
@@ -170,16 +174,34 @@ void DecentScaleWifi::onConnected() {
 
 void DecentScaleWifi::onDisconnected() {
     if (m_recognitionTimer) m_recognitionTimer->stop();
+
+    // Classify the disconnect for triage. A genuine transport error means the
+    // link dropped under us, so it must read "(unexpected)" regardless of any
+    // shutdown flag; power-off and deliberate closes read "(expected)". Do NOT
+    // use closeCode() as the abnormality signal: Qt sets closeCode()/
+    // closeReason() only when a real close frame is received, and the reused
+    // socket keeps a stale value across reconnects, so on an abnormal drop
+    // closeCode() is stale/default (1000), never 1006. onError records a
+    // transport error ONLY for a genuine (not self-inflicted) failure, so the
+    // transport-error branch always means an abnormal drop and the peer-close
+    // branch is reached only when a clean close frame was received (where
+    // closeCode()/closeReason() ARE meaningful).
     QString disconnectLog;
-    if (!m_userInitiatedShutdown) {
-        disconnectLog = QStringLiteral("WebSocket disconnected (unexpected)");
-    } else if (!m_lastPowerEventReason.isEmpty()) {
-        disconnectLog = QString("WebSocket disconnected (expected: %1)").arg(m_lastPowerEventReason);
-    } else {
-        // Expected shutdown without a power event — typically a 503 server-busy
-        // rejection, the recognition-timeout fallback, or a user-initiated
-        // disconnect via disconnectFromScale().
+    if (!m_lastPowerEventReason.isEmpty()) {
+        disconnectLog = QStringLiteral("WebSocket disconnected (expected) — scale power-off: ")
+                        + m_lastPowerEventReason;
+    } else if (m_socketErrorThisConnect) {
+        disconnectLog = QStringLiteral("WebSocket disconnected (unexpected) — transport error: ")
+                        + m_lastSocketErrorString;
+    } else if (m_userInitiatedShutdown) {
         disconnectLog = QStringLiteral("WebSocket disconnected (expected)");
+    } else {
+        const int closeCode = m_socket ? static_cast<int>(m_socket->closeCode()) : -1;
+        const QString closeReason = m_socket ? m_socket->closeReason() : QString();
+        disconnectLog = QString("WebSocket disconnected (unexpected) — peer close (code %1").arg(closeCode);
+        if (!closeReason.isEmpty())
+            disconnectLog += QString(", reason=\"%1\"").arg(closeReason);
+        disconnectLog += QStringLiteral(")");
     }
     WIFI_LOG(disconnectLog);
 
@@ -204,6 +226,8 @@ void DecentScaleWifi::onDisconnected() {
 
     // Clear per-connect state so the next connect re-captures it fresh.
     m_firmwareVersion.clear();
+    m_loggedProtoVersion = -1;
+    m_loggedFrameShapes.clear();
     m_lastPowerEventReason.clear();
     m_lastPowerEventCode = -1;
     m_userInitiatedShutdown = false;
@@ -227,13 +251,28 @@ void DecentScaleWifi::onTextMessageReceived(const QString& message) {
     }
     const QJsonObject obj = doc.object();
 
-    // Contract per protocol: absence of "type" means weight snapshot.
-    if (obj.contains(QStringLiteral("grams"))) {
+    // Frame routing (per the openscale WS README): a frame with NO "type" is a
+    // weight snapshot; every typed frame (status/button/power/rate/error)
+    // carries "type". A status frame ALSO carries a "grams" field, so snapshots
+    // must be discriminated by the ABSENCE of "type" — keying on the presence
+    // of "grams" (as we used to) swallowed every status frame as a snapshot,
+    // which is why firmware_version, battery, and charging were never seen over
+    // WiFi.
+    const QString type = obj.value(QStringLiteral("type")).toString();
+    if (type.isEmpty()) {
         handleSnapshotFrame(obj);
         return;
     }
 
-    const QString type = obj.value(QStringLiteral("type")).toString();
+    // Diagnostic: log one sample of each distinct typed frame per connect, so
+    // the firmware's actual WS surface is visible (frame types and, for status,
+    // its fields incl. firmware_version).
+    if (!m_loggedFrameShapes.contains(type)) {
+        m_loggedFrameShapes.insert(type);
+        WIFI_LOG(QString("First '%1' frame this connect: %2")
+                 .arg(type, QString::fromUtf8(bytes.left(200))));
+    }
+
     if (type == QStringLiteral("status")) {
         handleStatusFrame(obj);
     } else if (type == QStringLiteral("button")) {
@@ -243,7 +282,8 @@ void DecentScaleWifi::onTextMessageReceived(const QString& message) {
     } else if (type == QStringLiteral("rate")) {
         handleRateFrame(obj);
     }
-    // Unknown types are silently ignored (forward-compat).
+    // "error" frames and any unknown type are captured by the diagnostic log
+    // above; no further action.
 }
 
 void DecentScaleWifi::handleSnapshotFrame(const QJsonObject& obj) {
@@ -282,13 +322,13 @@ void DecentScaleWifi::handleStatusFrame(const QJsonObject& obj) {
         }
     }
 
-    // Protocol version — log on first capture for diagnostics only.
+    // Protocol version — log once per connect (reset on disconnect, like
+    // m_firmwareVersion) for diagnostics only.
     const QJsonValue pv = obj.value(QStringLiteral("protocol_version"));
     if (pv.isDouble()) {
-        static thread_local int s_lastLoggedProtoVersion = -1;
         const int v = pv.toInt();
-        if (v != s_lastLoggedProtoVersion) {
-            s_lastLoggedProtoVersion = v;
+        if (v != m_loggedProtoVersion) {
+            m_loggedProtoVersion = v;
             WIFI_LOG(QString("Protocol version: %1").arg(v));
         }
     }
@@ -435,12 +475,24 @@ void DecentScaleWifi::onError() {
     WIFI_WARN(QString("WebSocket error: %1 (code %2)").arg(errStr).arg(static_cast<int>(err)));
 
     // 503 detection — firmware refuses additional clients past its cap. Qt's
-    // WebSocket error path surfaces this in errorString().
+    // WebSocket error path surfaces this in errorString(). Treated as an expected
+    // refusal (we surface a modal), so it must NOT be recorded as a transport
+    // error — return before the transport-error capture below.
     if (errStr.contains(QStringLiteral("503"))) {
         emit errorOccurred(translateUiString("wifi.scale.error.serverBusy",
             "Another client is connected to the scale"));
         m_userInitiatedShutdown = true;
         return;
+    }
+
+    // Record a GENUINE transport error — one that dropped the link under us — so
+    // onDisconnected can flag an abnormal drop (closeCode() can't; see note there).
+    // Skip it when we already initiated a close: a deliberate abort()/close() can
+    // also surface here, and that is not an external transport failure. Reset per
+    // connect cycle/attempt (connectToHost/attemptTarget).
+    if (!m_userInitiatedShutdown) {
+        m_socketErrorThisConnect = true;
+        m_lastSocketErrorString = errStr;
     }
 
     // Classify common socket-level failures. These are all TRANSIENT connect

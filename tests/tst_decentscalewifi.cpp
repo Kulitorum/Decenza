@@ -51,6 +51,12 @@ public:
         if (m_client) m_client->close();
     }
 
+    // Abrupt TCP teardown (no WS close handshake) — the client sees a socket
+    // error, simulating an RF/WiFi/network drop.
+    void abortClient() {
+        if (m_client) m_client->abort();
+    }
+
     const QStringList& received() const { return m_received; }
     void clearReceived() { m_received.clear(); }
 
@@ -271,6 +277,74 @@ private slots:
             QRegularExpression(".*Firmware version changed mid-connect: FW: 3\\.0\\.9 -> FW: 3\\.1\\.0.*"));
         server.sendJson({{ "type", "status" }, { "firmware_version", "FW: 3.1.0" }});
         QTest::qWait(50);
+    }
+
+    // Regression: the real firmware's status frame ALSO carries a `grams` field
+    // (openscale README). Snapshots are distinguished by the ABSENCE of `type`,
+    // so a status-with-grams must still reach the status handler — keying on the
+    // presence of `grams` (the old bug) swallowed it as a weight snapshot, so
+    // battery / charging / firmware_version were never parsed over WiFi.
+    void statusFrameWithGramsIsNotMistakenForSnapshot() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        QSignalSpy battSpy(&driver, &ScaleDevice::batteryLevelChanged);
+        QSignalSpy chargeSpy(&driver, &ScaleDevice::chargingChanged);
+        QSignalSpy weightSpy(&driver, &ScaleDevice::weightChanged);
+        connectAndHandshake(driver, server);
+
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Firmware version: FW: 3\\.0\\.9.*"));
+        server.sendJson({
+            { "type", "status" },
+            { "grams", 25.66 },
+            { "battery_percent", 77 },
+            { "charging", true },
+            { "firmware_version", "FW: 3.0.9" },
+        });
+
+        // Routed to the status handler: battery, charging, and firmware_version
+        // all parse from the same frame...
+        QVERIFY(battSpy.wait(500));
+        QCOMPARE(battSpy.last().at(0).toInt(), 77);
+        QVERIFY(chargeSpy.count() >= 1);
+        QCOMPARE(chargeSpy.last().at(0).toBool(), true);
+        // ...and it is NOT double-handled as a weight snapshot.
+        QCOMPARE(weightSpy.count(), 0);
+    }
+
+    // A clean close frame from the scale (no socket error, not app-initiated) is
+    // classified as a "peer close" — the one case where closeCode()/closeReason()
+    // are trustworthy. Guards the reworked disconnect classification that no
+    // longer relies on closeCode() to detect abnormal drops.
+    void unexpectedPeerCloseIsClassifiedAsPeerClose() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        connectAndHandshake(driver, server);
+
+        QSignalSpy connSpy(&driver, &ScaleDevice::connectedChanged);
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(QStringLiteral("WebSocket disconnected \\(unexpected\\).*peer close")));
+        server.closeFromServer();
+        QVERIFY(connSpy.wait(2000));
+        QVERIFY(!driver.isConnected());
+    }
+
+    // An abrupt TCP teardown (no WS close handshake) surfaces on the client as a
+    // socket error and must be logged as an abnormal transport drop — NOT
+    // "(expected)" and NOT "peer close". Guards the fix where a genuine transport
+    // error forces the "(unexpected)" prefix regardless of m_userInitiatedShutdown.
+    void abruptDropIsClassifiedAsTransportError() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        connectAndHandshake(driver, server);
+
+        QSignalSpy connSpy(&driver, &ScaleDevice::connectedChanged);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("WebSocket error:")));
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(QStringLiteral("WebSocket disconnected \\(unexpected\\).*transport error")));
+        server.abortClient();
+        QVERIFY(connSpy.wait(2000));
+        QVERIFY(!driver.isConnected());
     }
 
     // ==========================================
