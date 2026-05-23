@@ -18,6 +18,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QTextStream>
+#include <algorithm>
 #include <QDateTime>
 #include <QTcpSocket>
 
@@ -450,7 +451,12 @@ void BLEManager::connectToScale(const QString& address) {
             emit disconnectScaleRequested();
         }
 
-        if (entry.transport == QStringLiteral("wifi")) {
+        if (entry.transport == QStringLiteral("usb")) {
+            // USB connect is owned by UsbScaleManager: it creates + opens the
+            // UsbDecentScale and emits its own scaleDiscovered. Don't emit
+            // scaleDiscovered here (no QBluetoothDeviceInfo / factory path).
+            emit usbConnectRequested();
+        } else if (entry.transport == QStringLiteral("wifi")) {
             // Strip the "wifi:" prefix to get the bare hostname.
             m_pendingWifiHostname = address.mid(QStringLiteral("wifi:").size());
             emit scaleDiscovered(QBluetoothDeviceInfo{}, entry.type);
@@ -460,6 +466,45 @@ void BLEManager::connectToScale(const QString& address) {
         return;
     }
     qWarning() << "Scale not found in discovered list:" << address;
+}
+
+void BLEManager::setUsbScaleAvailable(bool available, const QString& name) {
+    // Synthetic USB scale row, mirroring the WiFi entry. Stable address so
+    // it can be the saved primary across plug/unplug and app restarts.
+    const QString kUsbAddress = QStringLiteral("usb:decent");
+
+    // Find any existing USB entry.
+    qsizetype existing = -1;
+    for (qsizetype i = 0; i < m_scales.size(); ++i) {
+        if (m_scales[i].transport == QStringLiteral("usb")) {
+            existing = i;
+            break;
+        }
+    }
+
+    if (available) {
+        if (existing >= 0) {
+            // Refresh the display name only.
+            if (m_scales[existing].name != name) {
+                m_scales[existing].name = name;
+                emit scalesChanged();
+            }
+            return;
+        }
+        ScaleEntry entry;
+        entry.type = QStringLiteral("decent-usb");
+        entry.transport = QStringLiteral("usb");
+        entry.name = name;
+        entry.address = kUsbAddress;
+        m_scales.append(entry);
+        appendScaleLog(QString("Found %1 (%2)").arg(entry.name, entry.address));
+        emit scalesChanged();
+    } else {
+        if (existing < 0) return;  // Nothing to remove.
+        m_scales.removeAt(existing);
+        appendScaleLog(QStringLiteral("USB scale unplugged"));
+        emit scalesChanged();
+    }
 }
 
 void BLEManager::connectToWifiScale(const QString& hostnameOrIp) {
@@ -505,6 +550,25 @@ void BLEManager::connectToSavedScale() {
     // the saved primary. Goes through tryDirectConnectToScale() — the direct-wake
     // path — so it works even when the chosen scale isn't in the discovered list.
     if (m_savedScaleAddress.isEmpty() || m_savedScaleType.isEmpty()) return;
+
+    // USB saved-scale switch: USB needs neither Bluetooth nor a direct-wake. Hand
+    // off to UsbScaleManager (usbConnectRequested) and skip the BLE guards below.
+    if (m_savedScaleAddress.startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
+        // Bail BEFORE dropping the live scale if the USB scale isn't currently
+        // plugged in: UsbScaleManager::connectToScale() no-ops when nothing is
+        // available, which would otherwise strand the user on FlowScale with no
+        // feedback. The USB entry is present in m_scales only while probe-confirmed.
+        const bool usbPresent = std::any_of(m_scales.cbegin(), m_scales.cend(),
+            [](const ScaleEntry& e) { return e.transport == QStringLiteral("usb"); });
+        if (!usbPresent) {
+            appendScaleLog(QStringLiteral("USB scale switch ignored — scale not plugged in"));
+            return;
+        }
+        if (m_scaleDevice && m_scaleDevice->isConnected())
+            emit disconnectScaleRequested();
+        emit usbConnectRequested();
+        return;
+    }
 
     // Bail BEFORE dropping the working scale if the new connect can't proceed —
     // otherwise we'd disconnect the current scale and tryDirectConnectToScale()
@@ -1502,6 +1566,16 @@ void BLEManager::tryDirectConnectToScale() {
         m_scaleConnectionTimer->start();            // Fires onScaleConnectionTimeout if WiFi doesn't connect
         m_pendingWifiHostname = hostname;
         emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
+        return;
+    }
+
+    // USB saved-scale path: NOT a BLE address — the USB scale is owned by
+    // UsbScaleManager and reconnects via main.cpp's usbScaleAvailable handler
+    // (which connects when the saved primary is "usb:decent"). Don't fall
+    // through to the BLE connect/scan below — "usb:decent" is not a MAC.
+    if (m_savedScaleAddress.startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
+        qDebug() << "BLEManager: tryDirectConnectToScale - saved scale is USB; "
+                    "reconnect handled by UsbScaleManager";
         return;
     }
 

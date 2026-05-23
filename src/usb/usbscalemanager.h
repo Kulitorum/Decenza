@@ -18,9 +18,13 @@ class UsbDecentScale;
  * On Android: uses JNI (AndroidUsbScaleHelper).
  * On desktop: uses QSerialPortInfo.
  *
- * When the scale is confirmed (receives valid weight packets),
- * creates a UsbDecentScale and emits scaleDiscovered().
- * When unplugged, emits scaleLost().
+ * When the scale is confirmed (receives valid weight packets), it is recorded
+ * as AVAILABLE and emits usbScaleAvailable() — it does NOT auto-connect, so it
+ * can be tested over Bluetooth/WiFi instead. The discovered-devices list shows
+ * it as a selectable entry; selecting it (or auto-reconnect when it's the saved
+ * primary) calls connectToScale(), which creates a UsbDecentScale, opens it, and
+ * emits scaleDiscovered() to wire it active.
+ * When unplugged, emits usbScaleUnavailable() (and scaleLost() if connected).
  */
 class UsbScaleManager : public QObject {
     Q_OBJECT
@@ -32,15 +36,35 @@ public:
     ~UsbScaleManager() override;
 
     bool isScaleConnected() const;
+    bool isScaleAvailable() const { return m_scaleAvailable; }
     UsbDecentScale* scale() const { return m_scale; }
 
     void startPolling();
     void stopPolling();
 
+    // Create + open the UsbDecentScale for the currently-available USB scale and
+    // emit scaleDiscovered() so main.cpp wires it active. No-op if no scale is
+    // available or one is already connected. Called when the user selects the
+    // USB entry in the discovered list (via BLEManager::usbConnectRequested) or
+    // on startup when the USB scale is the saved primary.
+    Q_INVOKABLE void connectToScale();
+
+    // Tear down an active USB scale connection WITHOUT marking it lost. Used when
+    // the user switches to a BLE/WiFi scale: the USB scale is still plugged in
+    // (m_scaleAvailable stays true, no scaleLost()), we just stop feeding its
+    // weight so the new scale doesn't double-feed WeightProcessor. No-op if no
+    // scale is connected.
+    void disconnectScale();
+
 signals:
     void scaleConnectedChanged();
     void scaleDiscovered(UsbDecentScale* scale);
     void scaleLost();
+    // Probe-confirmed presence (NOT a connection): the USB scale is plugged in
+    // and answered with a valid weight packet. main.cpp lists it as a selectable
+    // entry and auto-connects only when it's the saved primary.
+    void usbScaleAvailable();
+    void usbScaleUnavailable();
     void logMessage(const QString& message);
 
 private slots:
@@ -50,6 +74,19 @@ private:
     QTimer m_pollTimer;
     UsbDecentScale* m_scale = nullptr;
     bool m_hasLoggedInitialPorts = false;
+    // True once a scale has been probe-confirmed and is still plugged in (but
+    // NOT necessarily connected). Drives usbScaleAvailable/Unavailable.
+    bool m_scaleAvailable = false;
+    void setScaleAvailable(bool available);
+
+    // Shared teardown for a connected scale that has gone away (poll-detected
+    // unplug OR connectedChanged → disconnected). Emits scaleLost() while
+    // m_scale is still valid (main.cpp's handler reads scale() to unwire weight
+    // signals), THEN deletes + nulls it, releases the platform connection, and
+    // marks the scale unavailable. Idempotent: no-op when m_scale is already
+    // null, so the poll detector and the connectedChanged handler can't
+    // double-fire. Returns true if it actually tore a scale down.
+    bool teardownConnectedScale();
 
 #ifdef Q_OS_ANDROID
     void onPollTimerTickAndroid();
@@ -75,6 +112,9 @@ private:
     QTimer* m_probeTimer = nullptr;
     QSerialPortInfo m_probingPortInfo;
     QByteArray m_probeBuffer;
+    // Port name confirmed by the last successful probe; reopened by
+    // connectToScale() when the user selects the USB entry. Cleared on unplug.
+    QString m_confirmedPortName;
 #endif
 
     static constexpr int POLL_INTERVAL_MS = 2000;
