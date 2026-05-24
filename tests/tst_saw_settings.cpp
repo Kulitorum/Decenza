@@ -2,9 +2,12 @@
 #include <QSignalSpy>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QJsonDocument>
+#include <QSettings>
 
 #include "core/settings.h"
 #include "core/settings_calibration.h"
+#include "ble/scales/scaletypeids.h"
 
 // Tests for per-(profile, scale) SAW learning in Settings.
 // Each test wipes SAW data in init/cleanup so QSettings state from a prior run
@@ -25,6 +28,23 @@ private:
     void commitBatch(const QString& profile, double drip, double flow, double overshoot = 0.0) {
         for (int i = 0; i < 3; ++i)
             m_settings.calibration()->addSawLearningPoint(drip, flow, kScale, overshoot, profile);
+    }
+
+    // Build a committed-median entry as stored in perProfileHistory.
+    static QJsonObject medianEntry(double drip, double flow, const QString& scale) {
+        QJsonObject e;
+        e["drip"] = drip; e["flow"] = flow; e["overshoot"] = 0.0;
+        e["scale"] = scale; e["profile"] = QStringLiteral("p"); e["ts"] = 1000;
+        return e;
+    }
+
+    // Seed a raw per-profile SAW history map straight into QSettings, bypassing the
+    // (now-normalizing) write path — used to simulate legacy display-name-keyed data.
+    void seedPerProfileHistory(const QJsonObject& map) {
+        QSettings qs("DecentEspresso", "DE1Qt");
+        qs.setValue("saw/perProfileHistory", QJsonDocument(map).toJson(QJsonDocument::Compact));
+        qs.sync();
+        m_settings.calibration()->invalidateCache();
     }
 
 private slots:
@@ -267,6 +287,113 @@ private slots:
         m_settings.calibration()->resetSawLearning();
 
         QCOMPARE(m_settings.calibration()->globalSawBootstrapLag(kScale), 0.0);
+    }
+
+    // ===== scale-type-identity: canonical id mapping =====
+
+    void scaleTypeIdRoundTripsWithCanonicalAccessors() {
+        const ScaleType all[] = {
+            ScaleType::DecentScale, ScaleType::DecentScaleWifi, ScaleType::DecentScaleUsb,
+            ScaleType::Acaia, ScaleType::AcaiaPyxis, ScaleType::Felicita, ScaleType::Skale,
+            ScaleType::HiroiaJimmy, ScaleType::Bookoo, ScaleType::SmartChef,
+            ScaleType::Difluid, ScaleType::EurekaPrecisa, ScaleType::SoloBarista,
+            ScaleType::AtomheartEclair, ScaleType::VariaAku, ScaleType::Timemore,
+        };
+        for (ScaleType t : all) {
+            const QString id = ScaleTypeIds::scaleTypeId(t);
+            QVERIFY2(!id.isEmpty(), "every real scale type has a non-empty id");
+            // Display name normalizes to the id...
+            QCOMPARE(ScaleTypeIds::normalizeScaleTypeId(ScaleTypeIds::scaleTypeName(t)), id);
+            // ...and the id normalizes to itself (idempotent).
+            QCOMPARE(ScaleTypeIds::normalizeScaleTypeId(id), id);
+        }
+        // A genuinely unknown string passes through unchanged.
+        QCOMPARE(ScaleTypeIds::normalizeScaleTypeId("Some Future Scale"), QString("Some Future Scale"));
+    }
+
+    // ===== scale-type-identity: sensorLag keyed by id =====
+
+    void sensorLagResolvesByIdAndLegacyName() {
+        QCOMPARE(SettingsCalibration::sensorLag("decent"), 0.38);
+        QCOMPARE(SettingsCalibration::sensorLag("decent-wifi"), 0.38);
+        QCOMPARE(SettingsCalibration::sensorLag("decent-usb"), 0.38);
+        QCOMPARE(SettingsCalibration::sensorLag("bookoo"), 0.50);
+        // Legacy display names still resolve via normalization.
+        QCOMPARE(SettingsCalibration::sensorLag("Decent Scale"), 0.38);
+        QCOMPARE(SettingsCalibration::sensorLag("Bookoo"), 0.50);
+    }
+
+    // ===== scale-type-identity: one-time migration =====
+
+    void migrationRekeysLegacyDisplayNameHistory() {
+        QJsonObject map;
+        QJsonArray arr; arr.append(medianEntry(0.6, 1.5, "Decent Scale"));
+        map["profile_a::Decent Scale"] = arr;
+        seedPerProfileHistory(map);
+
+        // Orphaned before migration: reading under the canonical id finds nothing.
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory("profile_a", "decent").size(), 0);
+
+        m_settings.calibration()->migrateScaleTypeIds();
+
+        // Rekeyed to "profile_a::decent" with the same median + rewritten scale field.
+        const QJsonArray hist = m_settings.calibration()->perProfileSawHistory("profile_a", "decent");
+        QCOMPARE(hist.size(), 1);
+        QCOMPARE(hist[0].toObject()["drip"].toDouble(), 0.6);
+        QCOMPARE(hist[0].toObject()["scale"].toString(), QString("decent"));
+    }
+
+    void migrationLeavesIdKeysUnchanged() {
+        QJsonObject map;
+        QJsonArray arr; arr.append(medianEntry(0.7, 1.5, "decent-wifi"));
+        map["profile_a::decent-wifi"] = arr;
+        seedPerProfileHistory(map);
+
+        m_settings.calibration()->migrateScaleTypeIds();
+
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory("profile_a", "decent-wifi").size(), 1);
+    }
+
+    void migrationIsIdempotent() {
+        QJsonObject map;
+        QJsonArray arr; arr.append(medianEntry(0.6, 1.5, "Decent Scale"));
+        map["profile_a::Decent Scale"] = arr;
+        seedPerProfileHistory(map);
+
+        m_settings.calibration()->migrateScaleTypeIds();
+        m_settings.calibration()->migrateScaleTypeIds();   // second run is a no-op
+
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory("profile_a", "decent").size(), 1);
+    }
+
+    void migrationMergesCollidingBucketsWithoutLoss() {
+        QJsonObject map;
+        QJsonArray a1; a1.append(medianEntry(0.6, 1.5, "Decent Scale"));
+        QJsonArray a2; a2.append(medianEntry(0.9, 1.5, "decent"));
+        map["profile_a::Decent Scale"] = a1;
+        map["profile_a::decent"] = a2;
+        seedPerProfileHistory(map);
+
+        m_settings.calibration()->migrateScaleTypeIds();
+
+        // Both legacy and pre-existing id entries survive under the id key.
+        QCOMPARE(m_settings.calibration()->perProfileSawHistory("profile_a", "decent").size(), 2);
+    }
+
+    void addKnownScaleStoresCanonicalId() {
+        const QString addr = QStringLiteral("TEST:SCALE:IDNORM");
+        m_settings.addKnownScale(addr, "Bookoo", "My Bookoo");
+        QString storedType, storedName;
+        for (const QVariant& v : m_settings.knownScales()) {
+            const QVariantMap s = v.toMap();
+            if (s["address"].toString() == addr) {
+                storedType = s["type"].toString();
+                storedName = s["name"].toString();
+            }
+        }
+        m_settings.removeKnownScale(addr);  // clean up before asserting (survives failures)
+        QCOMPARE(storedType, QString("bookoo"));   // id, not the "Bookoo" display name
+        QCOMPARE(storedName, QString("My Bookoo")); // human label untouched
     }
 };
 

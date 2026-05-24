@@ -66,9 +66,9 @@ public:
     QList<QPair<double, double>> sawLearningEntriesFor(const QString& profileFilename, const QString& scaleType, int maxEntries) const;
 
     // Reports which model the read path uses for (profile, scale).
-    Q_INVOKABLE QString sawModelSource(const QString& profileFilename, const QString& scaleType) const;
+    Q_INVOKABLE QString sawModelSource(const QString& profileFilename, QString scaleType) const;
 
-    void addSawLearningPoint(double drip, double flowRate, const QString& scaleType, double overshoot,
+    void addSawLearningPoint(double drip, double flowRate, QString scaleType, double overshoot,
                              const QString& profileFilename = QString());
     Q_INVOKABLE void resetSawLearning();
     Q_INVOKABLE void resetSawLearningForProfile(const QString& profileFilename, const QString& scaleType);
@@ -88,15 +88,21 @@ public:
     static double sensorLag(const QString& scaleType);
 
     // SAW convergence detection helper
-    bool isSawConverged(const QString& scaleType) const;
+    bool isSawConverged(QString scaleType) const;
 
     // Drop all in-memory caches so the next read pulls from QSettings. Called
     // by Settings::factoryReset() after clearing the underlying store.
     void invalidateCache();
 
+    // One-time migration: rewrite SAW storage (global pool, per-pair history +
+    // batch, global bootstrap) keyed on legacy display-name scale types to
+    // canonical type-ids, merging colliding buckets without data loss. Invoked
+    // once from Settings init under the scale/typeIdsMigrated flag.
+    void migrateScaleTypeIds();
+
     // Returns SAW learning entries filtered by scale type (most recent first).
     // Used by WeightProcessor to snapshot learning data at shot start.
-    QList<QPair<double, double>> sawLearningEntries(const QString& scaleType, int maxEntries) const;
+    QList<QPair<double, double>> sawLearningEntries(QString scaleType, int maxEntries) const;
 
 signals:
     void flowCalibrationMultiplierChanged();
