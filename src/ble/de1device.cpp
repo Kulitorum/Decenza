@@ -624,6 +624,10 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
     if (address == 0x80381C) {
         uint8_t ghcStatus = d[4];
 
+        // de1app does not enumerate ghc_is_installed values either; only its
+        // ghc_required() allowlist {0,1,2,4} is authoritative. Value 7 is the
+        // common "GHC active" code on modern DE1+ hardware (and the default in
+        // de1app's simulation files). Treat it the same as 3 here.
         QString statusName;
         switch (ghcStatus) {
             case 0: statusName = "not installed"; break;
@@ -631,6 +635,7 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
             case 2: statusName = "inactive"; break;
             case 3: statusName = "active"; break;
             case 4: statusName = "debug"; break;
+            case 7: statusName = "active"; break;
             default: statusName = QString("unknown (%1)").arg(ghcStatus); break;
         }
 
