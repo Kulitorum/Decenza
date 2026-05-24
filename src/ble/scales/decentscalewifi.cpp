@@ -7,10 +7,41 @@
 #include <QTimer>
 #include <QUrl>
 #include <QAbstractSocket>
+#include <QTcpSocket>
 #include <QHostAddress>
 #include <QThread>
 #include <QPointer>
 #include <algorithm>
+
+// Private headers — reach the QTcpSocket inside QWebSocket so we can set DSCP
+// and TCP_NODELAY (see applyTcpQos). Project already uses Qt private headers
+// elsewhere (QZipReader/QZipWriter) — same pattern, same risks (no API
+// guarantees across Qt versions). On a Qt upgrade, re-verify:
+//   1. `QWebSocketPrivate::m_pSocket` still exists and is still a `QTcpSocket*`
+//      (used by AccessBypass below; a type/name change → compile error here).
+//   2. `QWebSocketPrivate` still derives from `QObjectPrivate` so
+//      `static_cast<QWebSocketPrivate*>(QObjectPrivate::get(...))` is well-formed.
+#include <private/qobject_p.h>
+#include <private/qwebsocket_p.h>
+
+// Access-bypass for QWebSocketPrivate::m_pSocket. The member is declared
+// `private` (not just inside a private header), so we cannot name it
+// directly. [temp.spec]/2 lets explicit template instantiations name
+// otherwise-inaccessible class members through a member-pointer template
+// parameter, exposing them via a friend function. Standards-conforming;
+// preferred over the more common `#define private public` hack (which is UB
+// and varies by compiler).
+namespace {
+template <typename Tag, typename Tag::Type M>
+struct AccessBypass {
+    friend typename Tag::Type get(Tag) { return M; }
+};
+struct WsPrivateSocketTag {
+    using Type = QTcpSocket* QWebSocketPrivate::*;
+    friend Type get(WsPrivateSocketTag);
+};
+template struct AccessBypass<WsPrivateSocketTag, &QWebSocketPrivate::m_pSocket>;
+} // namespace
 
 #include "../../network/mdnsresolver.h"
 
@@ -161,8 +192,15 @@ void DecentScaleWifi::disconnectFromScale() {
 }
 
 void DecentScaleWifi::onConnected() {
-    WIFI_LOG("WebSocket connected");
+    const QString peerIp   = m_socket ? m_socket->peerAddress().toString() : QString();
+    const quint16 peerPort = m_socket ? m_socket->peerPort() : 0;
+    const quint16 localPort = m_socket ? m_socket->localPort() : 0;
+    WIFI_LOG(QString("WebSocket connected — peer=%1:%2 localPort=%3")
+             .arg(peerIp).arg(peerPort).arg(localPort));
     setConnected(true);
+
+    // Promote latency-critical traffic to Voice AC via DSCP, and kill Nagle.
+    applyTcpQos();
 
     // Bump to the highest cadence the firmware supports, opt in to events,
     // and seed an initial status frame so battery/firmware_version populate
@@ -450,6 +488,72 @@ bool DecentScaleWifi::send(const QString& text) {
     }
     m_socket->sendTextMessage(text);
     return true;
+}
+
+void DecentScaleWifi::applyTcpQos() {
+    if (!m_socket) {
+        WIFI_WARN(QStringLiteral("applyTcpQos: no QWebSocket — skipping"));
+        return;
+    }
+
+    // Pull the underlying QTcpSocket out of QWebSocketPrivate. The cast
+    // pattern (QObjectPrivate::get on the public object, then downcast to the
+    // concrete *Private) is the standard way Qt itself talks to its
+    // d-pointers; reaching the `private` m_pSocket member uses
+    // `AccessBypass<WsPrivateSocketTag, &QWebSocketPrivate::m_pSocket>` defined
+    // at file scope above, with `get(WsPrivateSocketTag{})` returning the
+    // member pointer that the `->*` then applies to d.
+    auto* d = static_cast<QWebSocketPrivate*>(QObjectPrivate::get(m_socket));
+    QTcpSocket* tcp = d ? d->*get(WsPrivateSocketTag{}) : nullptr;
+    if (!tcp) {
+        WIFI_WARN(QStringLiteral("applyTcpQos: QWebSocketPrivate has no QTcpSocket — skipping"));
+        return;
+    }
+
+    // DSCP EF (Expedited Forwarding) = 0x2E in the 6-bit DSCP field, which is
+    // 0xB8 when shifted into the 8-bit TOS byte (DSCP occupies the top 6 bits;
+    // the bottom 2 are ECN, left zero). Android/iOS/macOS/Linux/Windows map
+    // this to WMM AC_VO when the AP supports WMM. If the router/AP strips or
+    // ignores DSCP, no harm done — the byte still goes out.
+    constexpr int kDscpEfTosByte = 0xB8;
+    tcp->setSocketOption(QAbstractSocket::TypeOfServiceOption, kDscpEfTosByte);
+    tcp->setSocketOption(QAbstractSocket::LowDelayOption, 1);  // TCP_NODELAY
+
+    // Read back via the same option getters. On platforms that silently
+    // accept-but-discard (e.g. some Android OEM stacks for TOS), the read-back
+    // value won't match what we wrote — that's diagnostically valuable, so
+    // log both regardless, and escalate to WARN on mismatch so a support
+    // workflow grepping for warnings can see when QoS didn't take.
+    //
+    // For TOS, the exact byte matters (it's the DSCP marker the kernel will
+    // stamp onto every outgoing packet), so log it verbatim. For TCP_NODELAY
+    // we only care whether Nagle is off — some platforms (e.g. macOS) return a
+    // truthy-but-not-1 value from getsockopt(TCP_NODELAY), so booleanize the
+    // read-back instead of printing the raw integer.
+    const QVariant tosRead = tcp->socketOption(QAbstractSocket::TypeOfServiceOption);
+    const QVariant lowDelayRead = tcp->socketOption(QAbstractSocket::LowDelayOption);
+
+    const int tosReadInt = tosRead.isValid() ? tosRead.toInt() : -1;
+    const bool tosOk = (tosReadInt == kDscpEfTosByte);
+    const bool nodelayOk = lowDelayRead.isValid() && lowDelayRead.toInt() != 0;
+    const QString tosStr =
+        tosReadInt < 0 ? QStringLiteral("<n/a>") : QString::number(tosReadInt, 16);
+    const QString lowDelayStr =
+        !lowDelayRead.isValid() ? QStringLiteral("<n/a>")
+        : (nodelayOk ? QStringLiteral("enabled") : QStringLiteral("disabled"));
+
+    const QString line = QString("applyTcpQos: requested DSCP EF (TOS=0x%1) + TCP_NODELAY; "
+                                 "readback TOS=%2 TCP_NODELAY=%3")
+                         .arg(kDscpEfTosByte, 2, 16, QLatin1Char('0'))
+                         .arg(tosStr).arg(lowDelayStr);
+    if (tosOk && nodelayOk) {
+        WIFI_LOG(line);
+    } else {
+        WIFI_WARN(QString("%1 — kernel did not honor request (tosOk=%2 nodelayOk=%3)")
+                  .arg(line)
+                  .arg(tosOk ? QStringLiteral("yes") : QStringLiteral("no"))
+                  .arg(nodelayOk ? QStringLiteral("yes") : QStringLiteral("no")));
+    }
 }
 
 void DecentScaleWifi::tare()       { send(QStringLiteral("tare")); }
