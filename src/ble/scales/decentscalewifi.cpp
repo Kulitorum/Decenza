@@ -57,10 +57,13 @@ DecentScaleWifi::DecentScaleWifi(QObject* parent)
     connect(m_recognitionTimer, &QTimer::timeout,
             this, &DecentScaleWifi::onRecognitionTimeout);
 
-    // Initial socket — recreateSocket() will swap it on every connect attempt,
-    // but we need something non-null in m_socket so the various state guards
-    // (m_socket && m_socket->state() != UnconnectedState in the destructor etc.)
-    // don't crash if the driver is destroyed before its first connect attempt.
+    // Initial socket — recreateSocket() will swap it on every connect attempt.
+    // Called here rather than deferring to the first attemptTarget() because
+    // several code paths assume m_socket is non-null without a guard
+    // (e.g. onRecognitionTimeout calls m_socket->abort() directly). The
+    // destructor's own check IS null-safe, so this isn't about destructor
+    // safety — it's about the invariant "m_socket is always live" that the
+    // signal handlers rely on.
     recreateSocket();
 }
 
@@ -133,10 +136,16 @@ void DecentScaleWifi::recreateSocket() {
     m_recognitionTimer->stop();
 
     if (m_socket) {
-        // Detach the old socket's signals from this object so any late-emitted
-        // signals from the dying socket (deferred disconnected/errorOccurred
-        // queued by Qt's event loop) can't run our handlers — which would
-        // mistakenly operate on the NEW m_socket pointer they refer to.
+        // Detach the old socket's signals from this object. These connections
+        // are Qt::AutoConnection → DirectConnection (same thread), so they
+        // fire synchronously, not through the signal queue. The risk we're
+        // guarding against: the underlying QSocketNotifier / QAbstractSocket
+        // may already have a state-change event posted to the event loop
+        // from before we call abort() below. When that event runs, the
+        // dying socket re-emits disconnected/errorOccurred, and without
+        // this disconnect those would invoke onDisconnected/onError against
+        // `this` — which by then references the NEW m_socket, and the stale
+        // event would corrupt the new attempt's state machine.
         m_socket->disconnect(this);
         // Hard close (abort) before scheduling deletion — close() is graceful
         // and would queue a close frame that might race the delete. abort()
