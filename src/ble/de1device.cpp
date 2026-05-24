@@ -400,6 +400,15 @@ void DE1Device::parseStateInfo(const QByteArray& data) {
     bool stateChanged = (newState != m_state);
     bool subStateChanged = (newSubState != m_subState);
 
+    if (stateChanged) {
+        qDebug().noquote() << QString("[Phase] %1 → %2 (water raw=%3 mm, displayed=%4 mm, %5 ml)")
+            .arg(DE1::stateToString(m_state))
+            .arg(DE1::stateToString(newState))
+            .arg(m_waterLevelMm - 5.0, 0, 'f', 1)
+            .arg(m_waterLevelMm, 0, 'f', 1)
+            .arg(m_waterLevelMl);
+    }
+
     m_state = newState;
     m_subState = newSubState;
 
@@ -505,6 +514,10 @@ void DE1Device::parseWaterLevel(const QByteArray& data) {
     // Only emit when water level changes by at least 0.5% or ml changes
     if (qAbs(m_waterLevel - m_lastEmittedWaterLevel) >= 0.5
         || m_waterLevelMl != m_lastEmittedWaterLevelMl) {
+        qDebug().noquote() << QString("[WaterLevel] raw=%1 mm displayed=%2 mm %3 ml")
+            .arg(rawMm, 0, 'f', 1)
+            .arg(m_waterLevelMm, 0, 'f', 1)
+            .arg(m_waterLevelMl);
         m_lastEmittedWaterLevel = m_waterLevel;
         m_lastEmittedWaterLevelMl = m_waterLevelMl;
         emit waterLevelChanged();
@@ -626,6 +639,7 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
             .arg(statusName)
             .arg(canStartFromApp ? "CAN" : "CANNOT");
 
+        qDebug().noquote() << logMsg;
         emit logMessage(logMsg);
 
         if (m_isHeadless != canStartFromApp) {
@@ -689,6 +703,7 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
         QString statusName = detected ? "detected" : "not detected";
 
         QString logMsg = QString("Refill kit: %1").arg(statusName);
+        qDebug().noquote() << logMsg;
         emit logMessage(logMsg);
 
         if (m_refillKitDetected != detected) {
@@ -1436,6 +1451,7 @@ void DE1Device::setWaterRefillLevel(int refillPointMm) {
     data.append(BinaryCodec::encodeShortBE(BinaryCodec::encodeU16P8(0)));
     data.append(BinaryCodec::encodeShortBE(BinaryCodec::encodeU16P8(static_cast<double>(refillPointMm))));
 
+    qDebug() << "[WaterLevels] write: StartFillLevel =" << refillPointMm << "mm";
     m_transport->write(DE1::Characteristic::WATER_LEVELS, data);
 }
 
