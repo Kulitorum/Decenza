@@ -68,9 +68,9 @@ private:
     void log(const QString& message);
     void warn(const QString& message);
     // Update m_serviceDiscoveryActive and emit serviceDiscoveryActiveChanged()
-    // only on transitions. Coalesces the three reset call sites (chars-ready,
-    // disconnect, controller-error) so the signal cleanly brackets one discovery
-    // window per attempt.
+    // only on transitions. Coalesces the four reset call sites (chars-ready,
+    // disconnect(), onControllerDisconnected(), onControllerError()) so the
+    // signal cleanly brackets one discovery window per attempt.
     void setServiceDiscoveryActive(bool active);
     bool setupController(const QBluetoothDeviceInfo& device);
     void setupService();
