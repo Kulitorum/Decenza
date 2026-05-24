@@ -88,6 +88,11 @@ void DecentScaleWifi::connectToHost(const QString& hostname) {
     m_pendingHostnameFallback = false;
     m_socketErrorThisConnect = false;
     m_lastSocketErrorString.clear();
+    // Reset the app-initiated-power-off latch — if a prior cycle armed it via
+    // sleep() but the firmware echo never arrived (e.g. socket dropped first),
+    // the next connection's first real power_off frame (low battery, button)
+    // must surface, not be silently suppressed.
+    m_powerOffInitiatedByApp = false;
     // New connection cycle — invalidate any in-flight resolve from a prior call.
     ++m_resolveGeneration;
 
@@ -412,6 +417,19 @@ void DecentScaleWifi::handlePowerFrame(const QJsonObject& obj) {
     const QString reasonText = reason.isEmpty()
         ? QString("code %1").arg(reasonCode)
         : reason;
+
+    // If we initiated the power-off ourselves via sleep(), the firmware's
+    // echo back to us is not actionable for the user — suppress the dialog
+    // but still log so the diagnostic trail is intact. Consume-and-clear so
+    // a subsequent firmware-initiated power_off (low battery, button) still
+    // surfaces normally.
+    if (m_powerOffInitiatedByApp) {
+        m_powerOffInitiatedByApp = false;
+        WIFI_LOG(QString("Scale shut down: %1 (code %2) — app-initiated, dialog suppressed")
+                 .arg(reasonText).arg(reasonCode));
+        return;
+    }
+
     WIFI_WARN(QString("Scale shut down: %1 (code %2)").arg(reasonText).arg(reasonCode));
     emit errorOccurred(translateUiString("wifi.scale.error.scaleShutdown",
         "Scale shut down: %1").arg(reasonText));
@@ -574,6 +592,13 @@ void DecentScaleWifi::sleep() {
     // transport's behavior exactly. `soft_sleep on` is the lighter reversible
     // state and is wrong here: leaving the ESP32 radio active while the DE1
     // sleeps drains a battery-only HDS.
+    //
+    // Mark the imminent power_off echo as app-initiated so handlePowerFrame
+    // doesn't pop a "Scale shut down: disabled" dialog at the user. Set
+    // BEFORE the send to keep the assignment+send pair locally correct —
+    // any future caller or mock that delivers the echo synchronously inside
+    // send() still sees the flag set.
+    m_powerOffInitiatedByApp = true;
     const bool sent = send(QStringLiteral("{\"command\":\"power\",\"action\":\"off\"}"));
     if (!sent) {
         // Caller (app-exit waitLoop, DE1-sleep handler) hangs forever waiting
@@ -581,6 +606,14 @@ void DecentScaleWifi::sleep() {
         // dropped power-off command isn't masked by a misleading
         // "drained successfully" log downstream. Common at app exit after a
         // DE1-sleep keepScaleOn=true+WiFi close (socket already in ClosingState).
+        //
+        // Clear the latch locally: no echo will arrive (we didn't send the
+        // command), so if a firmware-initiated power_off (low battery, button)
+        // happens before the next connectToHost() cycle resets it, it must
+        // surface, not be silently suppressed. The connectToHost() reset is
+        // still the backstop for the case where send() succeeded but the
+        // socket dropped before the echo arrived.
+        m_powerOffInitiatedByApp = false;
         WIFI_WARN("sleep(): power-off command not delivered (socket not connected)");
     }
     // BT waits for `characteristicWritten` as a "command left the radio" ack.
