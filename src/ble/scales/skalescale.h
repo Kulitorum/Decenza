@@ -13,7 +13,7 @@ public:
 
     void connectToDevice(const QBluetoothDeviceInfo& device) override;
     QString name() const override { return m_name; }
-    QString type() const override { return "skale"; }
+    QString type() const override { return ScaleTypeIds::scaleTypeId(ScaleType::Skale); }
 
 public slots:
     void tare() override;

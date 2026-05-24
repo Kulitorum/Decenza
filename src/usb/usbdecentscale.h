@@ -35,7 +35,7 @@ public:
     // -- ScaleDevice interface --
     void connectToDevice(const QBluetoothDeviceInfo& device) override;
     QString name() const override { return QStringLiteral("Half Decent Scale (USB)"); }
-    QString type() const override { return QStringLiteral("decent-usb"); }
+    QString type() const override { return ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleUsb); }
 
 public slots:
     void tare() override;

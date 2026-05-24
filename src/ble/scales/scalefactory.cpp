@@ -113,6 +113,7 @@ ScaleType ScaleFactory::resolveScaleType(const QString& name) {
     // so we check internal type codes first as exact matches.
     QString lower = name.toLower();
     if (lower == "decent-wifi") return ScaleType::DecentScaleWifi;
+    if (lower == "decent-usb") return ScaleType::DecentScaleUsb;
     if (lower == "decent") return ScaleType::DecentScale;
     if (lower == "solo_barista") return ScaleType::SoloBarista;
     // Then fall through to is*() helpers for display names and BLE device names
@@ -178,25 +179,19 @@ std::unique_ptr<ScaleDevice> ScaleFactory::createScale(const QBluetoothDeviceInf
     }
 }
 
+// Display-name / id mappings live in the dependency-free ScaleTypeIds unit so
+// core (Settings) and tests can normalize type-ids without linking ScaleFactory.
+// These ScaleFactory methods are thin forwarders preserving the existing API.
 QString ScaleFactory::scaleTypeName(ScaleType type) {
-    switch (type) {
-        case ScaleType::DecentScale: return "Decent Scale";
-        case ScaleType::DecentScaleWifi: return "Half Decent Scale (WiFi)";
-        case ScaleType::Acaia: return "Acaia";
-        case ScaleType::AcaiaPyxis: return "Acaia Pyxis";
-        case ScaleType::Felicita: return "Felicita";
-        case ScaleType::Skale: return "Skale";
-        case ScaleType::HiroiaJimmy: return "Hiroia Jimmy";
-        case ScaleType::Bookoo: return "Bookoo";
-        case ScaleType::SmartChef: return "SmartChef";
-        case ScaleType::Difluid: return "Difluid";
-        case ScaleType::EurekaPrecisa: return "Eureka Precisa";
-        case ScaleType::SoloBarista: return "Solo Barista";
-        case ScaleType::AtomheartEclair: return "Atomheart Eclair";
-        case ScaleType::VariaAku: return "Varia Aku";
-        case ScaleType::Timemore: return "Timemore";
-        default: return "Unknown";
-    }
+    return ScaleTypeIds::scaleTypeName(type);
+}
+
+QString ScaleFactory::scaleTypeId(ScaleType type) {
+    return ScaleTypeIds::scaleTypeId(type);
+}
+
+QString ScaleFactory::normalizeScaleTypeId(const QString& typeOrName) {
+    return ScaleTypeIds::normalizeScaleTypeId(typeOrName);
 }
 
 // Detection functions based on device name patterns from de1app

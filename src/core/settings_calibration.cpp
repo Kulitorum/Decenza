@@ -1,6 +1,7 @@
 #include "settings_calibration.h"
 #include "settings.h"
 #include "../machine/sawprediction.h"
+#include "../ble/scales/scaletypeids.h"  // ScaleTypeIds::normalizeScaleTypeId (dependency-free)
 
 #include <QDateTime>
 #include <QJsonDocument>
@@ -46,7 +47,9 @@ SettingsCalibration::SettingsCalibration(Settings* owner, QObject* parent)
 }
 
 QString SettingsCalibration::currentScaleType() const {
-    return m_owner ? m_owner->scaleType() : QStringLiteral("decent");
+    // Normalize defensively — scaleType is stored as a canonical id, but this keeps
+    // SAW keying correct even if a legacy display name slips through pre-migration.
+    return ScaleTypeIds::normalizeScaleTypeId(m_owner ? m_owner->scaleType() : QStringLiteral("decent"));
 }
 
 void SettingsCalibration::invalidateCache() {
@@ -260,7 +263,8 @@ void SettingsCalibration::ensureSawCacheLoaded() const {
     m_sawConvergedCache = -1;  // Invalidate convergence cache too
 }
 
-bool SettingsCalibration::isSawConverged(const QString& scaleType) const {
+bool SettingsCalibration::isSawConverged(QString scaleType) const {
+    scaleType = ScaleTypeIds::normalizeScaleTypeId(scaleType);
     ensureSawCacheLoaded();
 
     // Return cached result if available and for the same scale
@@ -388,7 +392,8 @@ double SettingsCalibration::getExpectedDrip(double currentFlowRate) const {
     return prediction;
 }
 
-QList<QPair<double, double>> SettingsCalibration::sawLearningEntries(const QString& scaleType, int maxEntries) const {
+QList<QPair<double, double>> SettingsCalibration::sawLearningEntries(QString scaleType, int maxEntries) const {
+    scaleType = ScaleTypeIds::normalizeScaleTypeId(scaleType);
     ensureSawCacheLoaded();
     QList<QPair<double, double>> result;
     for (qsizetype i = m_sawHistoryCache.size() - 1; i >= 0 && result.size() < maxEntries; --i) {
@@ -408,26 +413,32 @@ QList<QPair<double, double>> SettingsCalibration::sawLearningEntries(const QStri
 
 double SettingsCalibration::sensorLag(const QString& scaleType)
 {
-    // BLE sensor lag per scale type, taken from de1app device_scale.tcl documentation.
-    // Used as the first-shot SAW default before adaptive learning has any data.
-    // The +0.1s added at call sites is the DE1 machine-side stop-command execution lag
-    // (separate from BLE round-trip lag), keeping this value scale-specific only.
-    if (scaleType == "Bookoo")           return 0.50;
-    if (scaleType == "Acaia")            return 0.69;
-    if (scaleType == "Acaia Pyxis")      return 0.69;  // Same Acaia BLE protocol
-    if (scaleType == "Felicita")         return 0.50;
-    if (scaleType == "Atomheart Eclair") return 0.50;
-    if (scaleType == "Hiroia Jimmy")     return 0.25;
-    if (scaleType == "Decent Scale")     return 0.38;
-    if (scaleType == "Skale")            return 0.38;
-    if (scaleType == "decent")           return 0.38;  // QSettings default before any scale is paired
-    if (scaleType == "decent-wifi")      return 0.38;  // WiFi variant of the same physical scale
+    // Per-scale sensor lag, keyed by canonical type-id (from de1app device_scale.tcl).
+    // Used as the first-shot SAW default before adaptive learning has data. The +0.1s
+    // added at call sites is the DE1 machine-side stop-command lag (separate from BLE
+    // round-trip), keeping this value scale-specific only. Normalize first so a legacy
+    // display name (e.g. "Decent Scale") still resolves.
+    const QString id = ScaleTypeIds::normalizeScaleTypeId(scaleType);
+    if (id == "bookoo")           return 0.50;
+    if (id == "acaia")            return 0.69;
+    if (id == "acaiapyxis")       return 0.69;  // Same Acaia BLE protocol
+    if (id == "felicita")         return 0.50;
+    if (id == "atomheart_eclair") return 0.50;
+    if (id == "hiroiajimmy")      return 0.25;
+    if (id == "decent")           return 0.38;  // also the QSettings default before pairing
+    if (id == "skale")            return 0.38;
+    if (id == "decent-wifi")      return 0.38;  // WiFi transport of the Half Decent Scale
+    if (id == "decent-usb")       return 0.38;  // USB transport of the Half Decent Scale
     qWarning() << "[SAW] Unknown scale type for sensorLag:" << scaleType << "- using default 0.38s";
     return 0.38;  // de1app default for unknown/unlisted scales
 }
 
-void SettingsCalibration::addSawLearningPoint(double drip, double flowRate, const QString& scaleType,
+void SettingsCalibration::addSawLearningPoint(double drip, double flowRate, QString scaleType,
                                               double overshoot, const QString& profileFilename) {
+    // Key SAW learning on the canonical type-id (rename-stable). Covers both the
+    // per-pair path (addSawPerPairEntry) and the legacy global-pool path below.
+    scaleType = ScaleTypeIds::normalizeScaleTypeId(scaleType);
+
     // Validate physical constraints (scale glitches can produce negative values)
     if (drip < 0 || flowRate < 0) {
         qWarning() << "[SAW] Invalid learning point rejected: drip=" << drip << "flow=" << flowRate;
@@ -580,7 +591,11 @@ void SettingsCalibration::resetSawLearningForProfile(const QString& profileFilen
 // ---- per-(profile, scale) helpers ----
 
 QString SettingsCalibration::sawPairKey(const QString& profileFilename, const QString& scaleType) {
-    return profileFilename + QStringLiteral("::") + scaleType;
+    // Key on the canonical type-id so per-(profile, scale) reads/writes stay in sync
+    // regardless of whether the caller passed an id or a legacy display name. This is
+    // the single choke point for perProfileSawHistory / sawPendingBatch /
+    // resetSawLearningForProfile / addSawPerPairEntry.
+    return profileFilename + QStringLiteral("::") + ScaleTypeIds::normalizeScaleTypeId(scaleType);
 }
 
 QJsonObject SettingsCalibration::loadPerProfileSawHistoryMap() const {
@@ -643,18 +658,19 @@ QJsonArray SettingsCalibration::sawPendingBatch(const QString& profileFilename, 
 }
 
 double SettingsCalibration::globalSawBootstrapLag(const QString& scaleType) const {
-    const QString key = QStringLiteral("saw/globalBootstrapLag/") + scaleType;
+    const QString key = QStringLiteral("saw/globalBootstrapLag/") + ScaleTypeIds::normalizeScaleTypeId(scaleType);
     return m_settings.value(key, 0.0).toDouble();
 }
 
 void SettingsCalibration::setGlobalSawBootstrapLag(const QString& scaleType, double lag) {
-    const QString key = QStringLiteral("saw/globalBootstrapLag/") + scaleType;
+    const QString key = QStringLiteral("saw/globalBootstrapLag/") + ScaleTypeIds::normalizeScaleTypeId(scaleType);
     m_settings.setValue(key, lag);
 }
 
 // ---- per-(profile, scale) read path ----
 
-QString SettingsCalibration::sawModelSource(const QString& profileFilename, const QString& scaleType) const {
+QString SettingsCalibration::sawModelSource(const QString& profileFilename, QString scaleType) const {
+    scaleType = ScaleTypeIds::normalizeScaleTypeId(scaleType);
     if (!profileFilename.isEmpty()) {
         QJsonArray pairHistory = perProfileSawHistory(profileFilename, scaleType);
         if (pairHistory.size() >= kSawMinMediansForGraduation) return QStringLiteral("perProfile");
@@ -925,4 +941,108 @@ void SettingsCalibration::recomputeGlobalSawBootstrap(const QString& scaleType) 
     setGlobalSawBootstrapLag(scaleType, median);
     qDebug() << "[SAW] global bootstrap lag for" << scaleType
              << "updated to" << median << "(median of" << n << "pairs with committed history)";
+}
+
+void SettingsCalibration::migrateScaleTypeIds() {
+    // (A) Global pool: rewrite each entry's "scale" field to its canonical id.
+    {
+        const QByteArray data = m_settings.value("saw/learningHistory").toByteArray();
+        if (!data.isEmpty()) {
+            QJsonParseError perr;
+            const QJsonDocument doc = QJsonDocument::fromJson(data, &perr);
+            if (perr.error != QJsonParseError::NoError) {
+                // Surface corruption instead of silently rewriting nothing. The
+                // global-pool reader (ensureSawCacheLoaded) already tolerates a bad
+                // blob as empty, so leave the bytes for that path rather than reset.
+                qWarning() << "[SAW] migrate: corrupt learningHistory JSON — skipping global-pool rewrite:"
+                           << perr.errorString();
+            } else {
+                QJsonArray arr = doc.array();
+                bool changed = false;
+                for (qsizetype i = 0; i < arr.size(); ++i) {
+                    QJsonObject o = arr[i].toObject();
+                    const QString s = o.value("scale").toString();
+                    const QString id = ScaleTypeIds::normalizeScaleTypeId(s);
+                    if (id != s) { o["scale"] = id; arr[i] = o; changed = true; }
+                }
+                if (changed) m_settings.setValue("saw/learningHistory", QJsonDocument(arr).toJson());
+            }
+        }
+    }
+
+    // Rewrite a "profile::scaleType" map: keys + per-entry "scale" -> ids, merging
+    // colliding buckets (concatenate both, keep the newest `trim`). Iteration is
+    // QJsonObject key-sorted, NOT chronological, so the post-merge order is arbitrary —
+    // acceptable because a collision requires a pre-existing id bucket for a scale whose
+    // legacy data was display-name-keyed (vanishingly rare) and we only care about not
+    // losing data.
+    auto migrateMap = [](const QJsonObject& in, qsizetype trim) -> QJsonObject {
+        QJsonObject out;
+        for (auto it = in.begin(); it != in.end(); ++it) {
+            const QString key = it.key();
+            QString newKey = key;
+            const qsizetype sep = key.lastIndexOf(QStringLiteral("::"));
+            if (sep >= 0) {
+                newKey = key.left(sep) + QStringLiteral("::")
+                       + ScaleTypeIds::normalizeScaleTypeId(key.mid(sep + 2));
+            }
+            QJsonArray arr = it.value().toArray();
+            for (qsizetype i = 0; i < arr.size(); ++i) {
+                QJsonObject o = arr[i].toObject();
+                const QString s = o.value("scale").toString();
+                const QString id = ScaleTypeIds::normalizeScaleTypeId(s);
+                if (id != s) { o["scale"] = id; arr[i] = o; }
+            }
+            if (!out.contains(newKey)) {
+                out[newKey] = arr;
+            } else {
+                QJsonArray combined;
+                const QJsonArray existing = out.value(newKey).toArray();
+                for (const auto& v : std::as_const(arr)) combined.append(v);       // this key's entries
+                for (const auto& v : std::as_const(existing)) combined.append(v);  // entries already placed under newKey
+                while (combined.size() > trim) combined.removeFirst();             // keep the newest `trim`
+                out[newKey] = combined;
+            }
+        }
+        return out;
+    };
+
+    // (B) Per-pair committed history.
+    {
+        const QJsonObject map = loadPerProfileSawHistoryMap();
+        const QJsonObject migrated = migrateMap(map, kMaxPairHistory);
+        if (migrated != map) savePerProfileSawHistoryMap(migrated);
+    }
+    // (C) Per-pair pending batch.
+    {
+        const QJsonObject map = loadPerProfileSawBatchMap();
+        const QJsonObject migrated = migrateMap(map, kBatchSize);
+        if (migrated != map) savePerProfileSawBatchMap(migrated);
+    }
+
+    // (D) Global bootstrap lag sub-keys: rename "<displayName>" -> "<id>". Don't
+    // clobber an existing id key (the bootstrap is recomputed on the next commit anyway).
+    {
+        m_settings.beginGroup("saw/globalBootstrapLag");
+        const QStringList keys = m_settings.childKeys();
+        QList<QPair<QString, double>> sets;
+        QStringList removes;
+        for (const QString& k : keys) {
+            const QString id = ScaleTypeIds::normalizeScaleTypeId(k);
+            if (id == k) continue;
+            if (!keys.contains(id)) sets.append({id, m_settings.value(k).toDouble()});
+            removes.append(k);
+        }
+        for (const QString& k : removes) m_settings.remove(k);
+        for (const auto& pair : sets) m_settings.setValue(pair.first, pair.second);
+        m_settings.endGroup();
+    }
+
+    // Invalidate caches so the next read pulls migrated data.
+    m_sawHistoryCacheDirty = true;
+    m_sawConvergedCache = -1;
+    m_perProfileSawHistoryCacheValid = false;
+    m_perProfileSawBatchCacheValid = false;
+
+    qDebug() << "[SAW] migrated SAW storage to canonical scale type-ids";
 }

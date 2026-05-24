@@ -12,6 +12,7 @@
 #include "settings_app.h"
 #include "settings_calibration.h"
 #include "grinderaliases.h"
+#include "../ble/scales/scaletypeids.h"  // ScaleTypeIds::normalizeScaleTypeId (dependency-free)
 #include <algorithm>
 #include <QStandardPaths>
 #include <QDir>
@@ -281,6 +282,45 @@ Settings::Settings(QObject* parent)
         }
     }
 
+    // One-time: normalize all persisted scaleType values from legacy display
+    // names (e.g. "Decent Scale") to canonical type-ids (e.g. "decent"), so a
+    // future display-name rename can never orphan SAW learning or miss the
+    // sensorLag lookup. Covers scale/type, known-scale entries, and SAW storage.
+    // Runs after the orphan-heal above so any display name it wrote is cleaned up.
+    // See docs/CLAUDE_MD/SAW_LEARNING.md and the scale-type-identity capability.
+    if (!m_settings.contains("scale/typeIdsMigrated")) {
+        const QString rawType = m_settings.value("scale/type").toString();
+        if (!rawType.isEmpty()) {
+            const QString id = ScaleTypeIds::normalizeScaleTypeId(rawType);
+            if (id != rawType) m_settings.setValue("scale/type", id);
+        }
+
+        QVariantList scales = knownScales();
+        bool anyChanged = false;
+        for (qsizetype i = 0; i < scales.size(); ++i) {
+            QVariantMap s = scales[i].toMap();
+            const QString t = s.value("type").toString();
+            const QString id = ScaleTypeIds::normalizeScaleTypeId(t);
+            if (id != t) { s["type"] = id; scales[i] = s; anyChanged = true; }
+        }
+        if (anyChanged) writeKnownScales(scales);
+
+        if (m_calibration) m_calibration->migrateScaleTypeIds();
+
+        // Mark migrated only once the writes actually landed — gate on the observable
+        // effect (persisted scale/type is now canonical) rather than setting the flag
+        // unconditionally. If a write failed (read-only / full store), scale/type stays
+        // a display name, the flag is left unset, and the migration retries next launch.
+        const QString persisted = m_settings.value("scale/type").toString();
+        if (persisted.isEmpty() || persisted == ScaleTypeIds::normalizeScaleTypeId(persisted)) {
+            m_settings.setValue("scale/typeIdsMigrated", true);
+            qDebug() << "Settings: normalized scaleType values to canonical type-ids";
+        } else {
+            qWarning() << "Settings: scaleType id migration incomplete (scale/type still"
+                       << persisted << ") — will retry next launch";
+        }
+    }
+
     // Theme initial state is now resolved inside SettingsTheme
 
     // Generate MCP API key on first run (avoids const_cast in the getter)
@@ -353,8 +393,11 @@ QString Settings::scaleType() const {
 }
 
 void Settings::setScaleType(const QString& type) {
-    if (scaleType() != type) {
-        m_settings.setValue("scale/type", type);
+    // Persist the canonical type-id, never a display name — scaleType is a
+    // rename-stable key for SAW learning / sensorLag / known scales.
+    const QString id = ScaleTypeIds::normalizeScaleTypeId(type);
+    if (scaleType() != id) {
+        m_settings.setValue("scale/type", id);
         emit scaleTypeChanged();
     }
 }
@@ -405,6 +448,10 @@ QVariantList Settings::knownScales() const {
 void Settings::addKnownScale(const QString& address, const QString& type, const QString& name) {
     if (address.isEmpty()) return;
 
+    // Store the canonical type-id (rename-stable key), not a display name. The
+    // human label lives in `name`.
+    const QString id = ScaleTypeIds::normalizeScaleTypeId(type);
+
     // Read existing scales
     QVariantList scales = knownScales();
 
@@ -412,8 +459,8 @@ void Settings::addKnownScale(const QString& address, const QString& type, const 
     for (qsizetype i = 0; i < scales.size(); ++i) {
         QVariantMap s = scales[i].toMap();
         if (s["address"].toString().compare(address, Qt::CaseInsensitive) == 0) {
-            if (s["type"].toString() != type || s["name"].toString() != name) {
-                s["type"] = type;
+            if (s["type"].toString() != id || s["name"].toString() != name) {
+                s["type"] = id;
                 s["name"] = name;
                 scales[i] = s;
                 writeKnownScales(scales);
@@ -425,7 +472,7 @@ void Settings::addKnownScale(const QString& address, const QString& type, const 
     // Add new scale
     QVariantMap newScale;
     newScale["address"] = address;
-    newScale["type"] = type;
+    newScale["type"] = id;
     newScale["name"] = name;
     newScale["isPrimary"] = false;
     scales.append(newScale);

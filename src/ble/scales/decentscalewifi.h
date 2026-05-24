@@ -47,7 +47,7 @@ public:
     void connectToHost(const QString& hostname);
 
     QString name() const override { return m_name; }
-    QString type() const override { return QStringLiteral("decent-wifi"); }
+    QString type() const override { return ScaleTypeIds::scaleTypeId(ScaleType::DecentScaleWifi); }
     QString transportType() const { return QStringLiteral("wifi"); }
 
     // mDNS-resilience hooks. Production wires these to

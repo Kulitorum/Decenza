@@ -244,6 +244,7 @@ set(SOURCES
     src/ble/bletransport.cpp
     src/ble/scaledevice.cpp
     src/ble/scales/scalefactory.cpp
+    src/ble/scales/scaletypeids.cpp
     src/ble/scales/decentscale.cpp
     src/ble/scales/decentscalewifi.cpp
     src/ble/scales/acaiascale.cpp
@@ -425,6 +426,7 @@ set(HEADERS
     src/ble/bletransport.h
     src/ble/scaledevice.h
     src/ble/scales/scalefactory.h
+    src/ble/scales/scaletypeids.h
     src/ble/scales/decentscale.h
     src/ble/scales/acaiascale.h
     src/ble/scales/felicitascale.h
@@ -1161,6 +1163,7 @@ if(NOT ANDROID AND NOT IOS)
         src/core/settings_network.cpp
         src/core/settings_app.cpp
         src/core/settings_calibration.cpp
+        src/ble/scales/scaletypeids.cpp
     )
     target_link_libraries(saw_parity PRIVATE Qt6::Core Qt6::Sql Qt6::Network Qt6::Gui Qt6::Bluetooth)
     target_include_directories(saw_parity PRIVATE ${CMAKE_SOURCE_DIR}/src)

@@ -1011,7 +1011,11 @@ QString BLEManager::getScaleType(const QBluetoothDeviceInfo& device) const {
     if (type == ScaleType::Unknown) {
         return "";
     }
-    return ScaleFactory::scaleTypeName(type);
+    // Return the canonical type-id (e.g. "decent"), NOT the display name. scaleType
+    // is a persistence/lookup key (known scales, SAW per-(profile, scale) learning,
+    // sensorLag) and must be rename-stable; the human label is carried separately in
+    // the entry's `name` field.
+    return ScaleFactory::scaleTypeId(type);
 }
 
 void BLEManager::setScaleDevice(ScaleDevice* scale) {

@@ -1,30 +1,12 @@
 #pragma once
 
+#include "scaletypeids.h"  // enum class ScaleType + ScaleTypeIds helpers
+
 #include <QObject>
 #include <QBluetoothDeviceInfo>
 #include <memory>
 
 class ScaleDevice;
-
-// Scale types supported
-enum class ScaleType {
-    Unknown,
-    DecentScale,
-    DecentScaleWifi,  // Same physical product as DecentScale, WiFi transport
-    Acaia,
-    AcaiaPyxis,
-    Felicita,
-    Skale,
-    HiroiaJimmy,
-    Bookoo,
-    SmartChef,
-    Difluid,
-    EurekaPrecisa,
-    SoloBarista,
-    AtomheartEclair,
-    VariaAku,
-    Timemore
-};
 
 class ScaleFactory {
 public:
@@ -42,6 +24,12 @@ public:
 
     // Get human-readable name for scale type
     static QString scaleTypeName(ScaleType type);
+
+    // Canonical type-id for a scale type (mirrors ScaleDevice::type(), e.g. "decent").
+    static QString scaleTypeId(ScaleType type);
+
+    // Normalize any legacy display-name or id string to the canonical type-id.
+    static QString normalizeScaleTypeId(const QString& typeOrName);
 
     // Resolve any type string (type() lowercase or scaleTypeName() display name) to ScaleType enum
     static ScaleType resolveScaleType(const QString& name);

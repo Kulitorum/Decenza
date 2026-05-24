@@ -180,7 +180,9 @@ Item {
                             }
 
                             Text {
-                                text: (Settings.scaleType || TranslationManager.translate("settings.options.none", "none"))
+                                // Show the human-readable scale name, not scaleType — the latter
+                                // is now a canonical id ("decent", "bookoo"), not a display label.
+                                text: (Settings.scaleName || TranslationManager.translate("settings.options.none", "none"))
                                       + sawSourceRow._sourceSuffix
                                       + " · "
                                       + TranslationManager.translate("settings.options.autoLearns", "learns when to stop so your cup hits target weight")
