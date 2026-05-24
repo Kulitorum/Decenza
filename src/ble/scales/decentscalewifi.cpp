@@ -170,6 +170,11 @@ void DecentScaleWifi::onConnected() {
     send(QStringLiteral("rate 10k"));
     send(QStringLiteral("events on"));
     send(QStringLiteral("status"));
+    // Restore the LCD on every (re)connect — mirrors the BT wake() that fires
+    // post-discovery in onCharacteristicsDiscoveryFinished. Idempotent on a
+    // scale whose LCD was already on; required when the previous DE1-sleep
+    // path turned it off and then closed the WS.
+    send(QStringLiteral("display on"));
 }
 
 void DecentScaleWifi::onDisconnected() {

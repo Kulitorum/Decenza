@@ -2691,9 +2691,21 @@ int main(int argc, char *argv[])
     });
 
     // Manage scale power state when the DE1 sleeps/wakes.
-    //   keepScaleOn=true  (default): send disableLcd() only — BLE stays connected,
-    //                                LCD re-enables via wake() on resume.
-    //   keepScaleOn=false: send sleep() then drop the BLE link once the write
+    //   keepScaleOn=true  (default): send disableLcd(). On BT the link stays
+    //                                connected and LCD re-enables via wake() on
+    //                                resume. On WiFi we additionally close the
+    //                                WS (after disableLcd) so the tablet's WiFi
+    //                                radio can park during DE1 sleep — there's
+    //                                no reason to keep a chatty TCP session
+    //                                open to the scale while the app is idle,
+    //                                and Android's WiFi power-save reliably
+    //                                kills the radio anyway (HDS AsyncTCP then
+    //                                reaps us at 30 s of unacked data, leaving
+    //                                a stale dirty disconnect). LCD comes back
+    //                                on via DecentScaleWifi::onConnected's
+    //                                "display on" when the WS reconnects on
+    //                                DE1 wake.
+    //   keepScaleOn=false: send sleep() then drop the link once the write
     //                      completes. Matches de1app's default for battery-only
     //                      scales. Auto-reconnect is suppressed via
     //                      scaleAutoReconnectSuppressed until the DE1 wakes.
@@ -2713,6 +2725,17 @@ int main(int argc, char *argv[])
                 if (settings.keepScaleOn()) {
                     qDebug() << "DE1 going to sleep - disabling scale LCD (keepScaleOn=true)";
                     physicalScale->disableLcd();
+                    // WiFi only: also gracefully close the WS so the tablet's
+                    // WiFi radio can park and the HDS doesn't reap us mid-sleep.
+                    // BT stays connected — the BLE radio doesn't have the same
+                    // idle-park pathology, and BT users have years of expecting
+                    // the link to survive the screensaver. See comment above
+                    // and DecentScaleWifi::onConnected for the LCD-restore.
+                    if (physicalScale->type() == QStringLiteral("decent-wifi")) {
+                        qDebug() << "DE1 sleep + WiFi scale - closing WS for the sleep interval";
+                        scaleAutoReconnectSuppressed = true;
+                        physicalScale->disconnectFromScale();
+                    }
                 } else {
                     qDebug() << "DE1 going to sleep - putting scale to sleep and disconnecting (keepScaleOn=false)";
                     // Suppress the reconnect timer that connectedChanged would
@@ -2733,10 +2756,11 @@ int main(int argc, char *argv[])
                 physicalScale->wake();
             } else if (scaleAutoReconnectSuppressed
                        && !settings.scaleAddress().isEmpty()) {
-                // keepScaleOn=false path: we deliberately disconnected on DE1
-                // sleep and suppressed the auto-reconnect. Re-arm the reconnect
-                // sequence now that the DE1 is back.
-                qDebug() << "DE1 woke up - re-arming scale reconnect (keepScaleOn=false)";
+                // We deliberately disconnected on DE1 sleep and suppressed the
+                // auto-reconnect — either via keepScaleOn=false (any transport)
+                // or via the keepScaleOn=true + WiFi graceful-close path above.
+                // Re-arm the reconnect sequence now that the DE1 is back.
+                qDebug() << "DE1 woke up - re-arming scale reconnect";
                 scaleAutoReconnectSuppressed = false;
                 // USB primary reconnects via UsbScaleManager, not this BLE/WiFi timer.
                 if (!scaleReconnectTimer.isActive()
