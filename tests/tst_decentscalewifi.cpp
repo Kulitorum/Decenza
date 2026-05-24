@@ -511,9 +511,7 @@ private slots:
     // After sleep() has armed the app-initiated-power-off latch, the firmware
     // echoes back a power_off frame (reason "disabled", code 0). The user
     // already knows — we just told the scale to power off — so the dialog
-    // (errorOccurred) must be suppressed. The disconnect-classification
-    // bookkeeping (m_userInitiatedShutdown) still fires, and a low-level
-    // INFO log records the event for diagnostics.
+    // (errorOccurred) must be suppressed.
     void appInitiatedPowerOffSuppressesDialog() {
         FakeHdsServer server;
         DecentScaleWifi driver;
@@ -560,6 +558,57 @@ private slots:
 
         // Second: firmware-initiated, must dialog. Latch already cleared by
         // the first frame's consume-and-clear.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(".*Scale shut down: low_battery.*"));
+        server.sendJson({
+            { "type", "power" },
+            { "event", "power_off" },
+            { "reason", "low_battery" },
+            { "reason_code", 3 },
+        });
+        QTest::qWait(50);
+        QCOMPARE(errorSpy.count(), 1);
+    }
+
+    // sleep() called while the socket is not connected (common at app exit
+    // after a DE1-sleep keepScaleOn=true+WiFi close — the WS is already in
+    // ClosingState when sleep() runs): the power-off command isn't delivered,
+    // so no firmware echo will arrive. Verify the observable end-to-end
+    // behaviour:
+    //   (a) sleep() still completes (sleepCompleted emitted) so app-exit
+    //       waitLoops don't hang
+    //   (b) the "not delivered" WARN fires for diagnostics
+    //   (c) after reconnecting and receiving a real firmware power_off, the
+    //       dialog still fires — the latch did NOT leak past the failed
+    //       sleep.
+    // Note: this test can't isolate which clear-path did the work — both
+    // sleep()'s self-clear-on-failure AND connectToHost()'s reset would
+    // independently produce (c). Both are present in the implementation as
+    // defense-in-depth; the test only asserts the combined invariant.
+    void sleepWithDisconnectedSocketDoesNotLeakLatch() {
+        DecentScaleWifi driver;
+        QSignalSpy sleepSpy(&driver, &ScaleDevice::sleepCompleted);
+        QSignalSpy errorSpy(&driver, &ScaleDevice::errorOccurred);
+        // No connectAndHandshake() — socket starts in UnconnectedState, so
+        // send() returns false synchronously.
+
+        // sleep() in this branch fires TWO warnings: send()'s own
+        // "send() dropped — socket not connected" (because we never
+        // connected), then sleep()'s "power-off command not delivered".
+        // Order matters for ignoreMessage — first match consumes first
+        // emit.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(".*send\\(\\) dropped.*"));
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(".*power-off command not delivered.*"));
+        driver.sleep();
+        QCOMPARE(sleepSpy.count(), 1);
+        QCOMPARE(errorSpy.count(), 0);
+
+        // Now connect and receive a firmware-initiated power_off — must dialog.
+        FakeHdsServer server;
+        connectAndHandshake(driver, server);
+
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(".*Scale shut down: low_battery.*"));
         server.sendJson({
