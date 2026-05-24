@@ -671,17 +671,54 @@ void DecentScaleWifi::onError() {
     // user. The 503 "another client connected" case handled above is the one
     // socket error we DO surface here, because the retry loop can never resolve it.
     // #1253
+    bool fastFailError = false;
     switch (err) {
     case QAbstractSocket::HostNotFoundError:
     case QAbstractSocket::ConnectionRefusedError:
     case QAbstractSocket::NetworkError:
     case QAbstractSocket::SocketTimeoutError:
         m_userInitiatedShutdown = true;
+        fastFailError = true;
         break;
     default:
         // Other errors fall through — the recognition timeout will catch the
         // case where the WS upgrade hangs without a clean socket error.
         break;
+    }
+
+    // Fast-fail: if a cached-IP attempt fires a fatal transient socket error,
+    // don't sit on the 5 s recognition timer waiting to time out — start the
+    // hostname fallback immediately. The kernel just told us the cached IP
+    // is dead; there's nothing to gain from waiting longer. Real symptom this
+    // addresses: on macOS cold start the network stack may still be warming
+    // up, the cached scale IP isn't routable yet, and the 5 s wait was long
+    // enough for the BLE-scale fallback machinery to also trigger and fail
+    // (CoreBluetooth not powered on), pushing the FlowScale-fallback dialog
+    // at the user before the WiFi scale could simply be retried via hostname.
+    if (fastFailError &&
+        !m_currentTargetIsHostname &&
+        !m_triedHostnameFallback &&
+        !m_pendingHostnameFallback) {
+        WIFI_LOG(QString("Cached IP %1 unreachable (%2) — fast-failing to hostname %3 fallback")
+                 .arg(m_currentTarget, errStr, m_hostname));
+        m_recognitionTimer->stop();
+
+        if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState) {
+            // Socket is mid-teardown. Use the existing flag mechanism that
+            // onRecognitionTimeout uses: abort to force a clean disconnect,
+            // and onDisconnected sees m_pendingHostnameFallback and runs
+            // attemptHostname() inline once the close completes.
+            m_pendingHostnameFallback = true;
+            m_socket->abort();
+        } else {
+            // Socket has already disconnected (onDisconnected raced ahead of
+            // this onError and went through its normal path without the
+            // pending flag set). Dial the hostname fallback ourselves, queued
+            // to the event loop so signal handlers remain re-entrant-safe.
+            QMetaObject::invokeMethod(this,
+                [this]() { attemptHostname(); },
+                Qt::QueuedConnection);
+        }
     }
 }
 

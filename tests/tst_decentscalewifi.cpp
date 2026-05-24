@@ -6,6 +6,7 @@
 #include <QRegularExpression>
 #include <QJsonObject>
 #include <QJsonDocument>
+#include <QElapsedTimer>
 
 #include "ble/scales/decentscalewifi.h"
 
@@ -619,6 +620,51 @@ private slots:
         });
         QTest::qWait(50);
         QCOMPARE(errorSpy.count(), 1);
+    }
+
+    // When the cached-IP dial fires a fatal transient socket error
+    // (HostNotFoundError, ConnectionRefusedError, NetworkError, SocketTimeoutError),
+    // the driver must NOT sit on the 5 s recognition timer waiting for it to
+    // expire — the kernel just told us the cached IP is dead, so the hostname
+    // fallback should run immediately. The user-visible symptom this prevents
+    // is on macOS cold start: ARP/route stale at .242 → cached-IP connect
+    // fast-fails → without this fix we wait 5 s, during which BLE-fallback
+    // also fails (CoreBluetooth radio not powered on yet), tripping a
+    // FlowScale "no scale" dialog before the WiFi scale could just be retried.
+    //
+    // Test setup: a cached IP that points at a localhost port with no
+    // listener (ConnectionRefusedError fires near-instantly), and a real
+    // FakeHdsServer for the hostname fallback target.
+    void cachedIpFastFailsToHostnameFallback() {
+        FakeHdsServer hostnameServer;
+        DecentScaleWifi driver;
+        // The cached IP resolver returns a port with no listener — connect
+        // will fail fast with ConnectionRefusedError.
+        driver.setIpResolver([](const QString& /*host*/) {
+            return QStringLiteral("127.0.0.1:1");  // Port 1: no listener
+        });
+        QSignalSpy connectedSpy(&hostnameServer, &FakeHdsServer::clientConnected);
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(".*WebSocket error.*"));
+
+        // Dial via the hostname target (which the FakeHdsServer is listening on).
+        QElapsedTimer timer;
+        timer.start();
+        driver.connectToHost(hostnameServer.host());
+
+        // The hostname-fallback connect must succeed FAR sooner than the 5 s
+        // recognition timeout — give it a generous 2 s budget to absorb CI jitter.
+        // Pre-fix this would have taken ~5 s.
+        QVERIFY(connectedSpy.wait(2000));
+        // Also wait for the driver's handshake messages to land on the server so
+        // setConnected(true) has definitely fired — otherwise init()'s expected
+        // DISCONNECTED warning won't fire at scope exit and the test fails on
+        // "Did not receive any message matching".
+        QTRY_VERIFY_WITH_TIMEOUT(hostnameServer.received().size() >= 4, 2000);
+        const qint64 elapsed = timer.elapsed();
+        QVERIFY2(elapsed < 4000,
+            qPrintable(QString("Hostname fallback took %1 ms — must be far less than "
+                               "the 5 s recognition timeout").arg(elapsed)));
     }
 };
 
