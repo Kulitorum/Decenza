@@ -67,6 +67,11 @@ private slots:
 private:
     void log(const QString& message);
     void warn(const QString& message);
+    // Update m_serviceDiscoveryActive and emit serviceDiscoveryActiveChanged()
+    // only on transitions. Coalesces the four reset call sites (chars-ready,
+    // disconnect(), onControllerDisconnected(), onControllerError()) so the
+    // signal cleanly brackets one discovery window per attempt.
+    void setServiceDiscoveryActive(bool active);
     bool setupController(const QBluetoothDeviceInfo& device);
     void setupService();
     void writeCharacteristic(const QBluetoothUuid& uuid, const QByteArray& data);
@@ -76,6 +81,10 @@ private:
     QLowEnergyService* m_service = nullptr;
     QMap<QBluetoothUuid, QLowEnergyCharacteristic> m_characteristics;
     bool m_characteristicsReady = false;
+    // True while discoverDetails() is in flight (service+characteristic
+    // discovery window). Used to gate serviceDiscoveryActiveChanged() emissions
+    // so consumers don't see false→false on the disconnect path.
+    bool m_serviceDiscoveryActive = false;
     // True once disconnected() has been emitted for the current connection
     // attempt (either via Qt's native signal on a Connected→Disconnected
     // transition, or synthesized by us when a connection attempt fails and

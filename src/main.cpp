@@ -1157,6 +1157,13 @@ int main(int argc, char *argv[])
     QObject::connect(&de1Device, &DE1Device::logMessage,
                      &bleManager, &BLEManager::de1LogMessage);
 
+    // Forward the DE1 BLE service+characteristic discovery window so BLEManager
+    // can pause the scale heartbeat during it (#1176 mid-discovery scale drop on
+    // Tab A8). DE1Device re-emits this from whichever transport is current, so
+    // we bind once and don't need to rewire on transport swaps.
+    QObject::connect(&de1Device, &DE1Device::serviceDiscoveryActiveChanged,
+                     &bleManager, &BLEManager::setDe1ServiceDiscoveryActive);
+
 #ifndef Q_OS_IOS
     // When USB DE1 discovered: disconnect BLE, switch to USB transport
     QObject::connect(&usbManager, &USBManager::de1Discovered,

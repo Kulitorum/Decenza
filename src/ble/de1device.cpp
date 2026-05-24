@@ -66,6 +66,8 @@ void DE1Device::setTransport(DE1Transport* transport) {
                 this, &DE1Device::errorOccurred);
         connect(m_transport, &DE1Transport::de1LinkFault,
                 this, &DE1Device::de1LinkFault);
+        connect(m_transport, &DE1Transport::serviceDiscoveryActiveChanged,
+                this, &DE1Device::serviceDiscoveryActiveChanged);
         connect(m_transport, &DE1Transport::logMessage,
                 this, &DE1Device::logMessage);
     }
@@ -357,6 +359,16 @@ void DE1Device::disconnect() {
     m_lastSawWriteMs = 0;
 
     if (m_transport) {
+        // Defensive false-edge for the discovery-active forwarding before we
+        // sever the transport's signals below. BleTransport::disconnect()
+        // calls setServiceDiscoveryActive(false) too, but it runs *after*
+        // QObject::disconnect() drops the forwarding wire, so its emission
+        // would never reach BLEManager — leaving m_de1ServiceDiscoveryActive
+        // stuck true and the DecentScale heartbeat paused indefinitely if
+        // the disconnect lands mid-discovery (e.g. USB takeover). The
+        // BLEManager slot has an equality guard so a redundant false→false
+        // is a no-op when no discovery was active.
+        emit serviceDiscoveryActiveChanged(false);
         // Disconnect signals FIRST to prevent re-entrant emissions
         // (BleTransport::disconnect() emits disconnected(), which would
         // trigger onTransportDisconnected() and double-emit our signals)
