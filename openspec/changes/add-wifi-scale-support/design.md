@@ -100,7 +100,7 @@ The HDS WebSocket protocol (`Kulitorum/openscale` README) exposes every command 
 | `resetTimer()` | `03 0B 02 00` | `"timer reset"` (text) | Silent |
 | `wake()` | `03 0A 01 01 00 01` | `"display on"` (and `"soft_sleep off"` if currently soft-sleeping) | Silent |
 | `disableLcd()` | `03 0A 00 00` | `"display off"` (text) | Silent |
-| `sleep()` → emits `sleepCompleted` | `03 0A 02 00`, waits for `characteristicWritten` ack | `"soft_sleep on"` (text), emit `sleepCompleted` immediately after `sendTextMessage` returns nonzero (write-succeeded analog) | See decision 12 |
+| `sleep()` → emits `sleepCompleted` | `03 0A 02 00`, waits for `characteristicWritten` ack | `{"command":"power","action":"off"}` (text), emit `sleepCompleted` immediately after the send call returns (write-succeeded analog) | See decision 12 |
 | `setLed(r,g,b)` | `03 0A r g b` | `"led <r> <g> <b>"` (text) | Silent |
 | Battery (0..100%) | LED-response packet byte `[4]` | `status` frame `battery_percent` | Pull at connect (request `status`) + on every 5 s heartbeat |
 | Charging | LED-response packet `[4] == 0xFF` (currently encoded lossily as battery=100) | `status` frame `charging` (explicit bool) | See decision 13 |
@@ -183,16 +183,15 @@ The BLE driver carries machinery that exists to work around GATT-layer quirks an
 
 ### 12. `sleep()` ↔ `sleepCompleted` semantics on WiFi
 
-`ScaleDevice::sleep()` is documented as "Put scale to sleep (battery power saving - full power off)" but the BLE driver's implementation uses `03 0A 02 00` which actually **disables LCD and pauses the scale loop** — it's reversible via a subsequent `wake()` ([decentscale.cpp:355-379](src/ble/scales/decentscale.cpp:355)). So the real semantics are "scale-side power saving, reversible."
+`ScaleDevice::sleep()` is documented as "Put scale to sleep (battery power saving - full power off)" and the BLE driver's `03 0A 02 00` is in fact the firmware-level power-off — the scale's radio drops and the scale requires a physical button press to wake again. The earlier reading of `0A 02 00` as a reversible LCD-off-plus-pause was wrong: that's what `disableLcd()`'s `0A 00 00` does, which is explicitly contrasted with `sleep()` in [decentscale.cpp:383-388](src/ble/scales/decentscale.cpp:383) ("This is different from sleep() which powers off the scale completely"). The same logical "sleep" gesture should produce the same outcome on the scale regardless of transport.
 
-The matching WiFi command is `"soft_sleep on"`, NOT `"power off"` (which would be irreversible and drop the WS link). Decision:
+Decision:
 
-- WiFi `sleep()` → `m_socket.sendTextMessage("soft_sleep on")`, then **immediately emit `sleepCompleted`** once the send call returns a positive byte count.
-- The BLE driver waits for `characteristicWritten` before emitting `sleepCompleted` ([decentscale.cpp:362-364](src/ble/scales/decentscale.cpp:362)). The semantic intent of that wait is "we confirmed the bytes left our radio." On WiFi, `sendTextMessage` returning a nonzero byte count is the precise analog (the TCP write went out). We do not wait for the firmware's status-ack JSON form — that would change the latency profile vs BLE.
-- If `sendTextMessage` returns 0 (socket not in `Open` state), emit `sleepCompleted` anyway (matches the BLE driver's "transport unavailable → emit immediately" fallback at [decentscale.cpp:358-361](src/ble/scales/decentscale.cpp:358)).
-- WiFi `wake()` sends `"display on"` AND `"soft_sleep off"`. Order: `soft_sleep off` first (restore sensor power + scale loop), then `display on` (restore OLED). Two TCP-ordered writes.
-
-`power off` (irreversible full power-off) is **not** wired to any `ScaleDevice` virtual today. It would be a new capability — not in scope here. If someone later adds a "shut down scale" UI button, that's the command it would send.
+- WiFi `sleep()` → `send("{\"command\":\"power\",\"action\":\"off\"}")`, the HDS firmware's equivalent of BT `0A 02 00`. Emits `sleepCompleted` unconditionally after the send attempt returns, so callers (app-exit waitLoop, DE1-sleep handler) don't hang waiting for an ack that won't come.
+- The BLE driver waits for `characteristicWritten` before emitting `sleepCompleted` ([decentscale.cpp:362-364](src/ble/scales/decentscale.cpp:362)). The semantic intent of that wait is "we confirmed the bytes left our radio." On WiFi, `send()` returning success (socket was in `ConnectedState`) is the precise analog (the TCP write entered the kernel buffer). We do not wait for the firmware's status-ack JSON form — that would change the latency profile vs BLE.
+- If the socket is not in `ConnectedState` (e.g., `ClosingState` from a prior graceful close, or never-opened), `send()` returns false. `sleep()` emits `sleepCompleted` anyway — matching the BLE driver's "transport unavailable → emit immediately" early-return at [decentscale.cpp:358-361](src/ble/scales/decentscale.cpp:358) — and logs a WARN so the dropped power-off command is diagnosable rather than hidden behind a misleading "drained successfully" downstream log.
+- WiFi `wake()` sends `"soft_sleep off"` then `"display on"` — the reversible-park complement (`soft_sleep on/off`), useful between explicit user actions but **not** what `sleep()` issues.
+- `"soft_sleep on"` remains a lighter, reversible park state on the firmware side. It is intentionally NOT what `sleep()` sends — it does not match BT's `0A 02 00` semantics and leaves the ESP32 radio active, draining a battery-only HDS while the DE1 is asleep.
 
 ### 13. Charging state — small `ScaleDevice` interface extension
 
