@@ -16,7 +16,11 @@
 // Private headers — reach the QTcpSocket inside QWebSocket so we can set DSCP
 // and TCP_NODELAY (see applyTcpQos). Project already uses Qt private headers
 // elsewhere (QZipReader/QZipWriter) — same pattern, same risks (no API
-// guarantees across Qt versions). Pinned to Qt 6.11.x; revisit on upgrade.
+// guarantees across Qt versions). On a Qt upgrade, re-verify:
+//   1. `QWebSocketPrivate::m_pSocket` still exists and is still a `QTcpSocket*`
+//      (used by AccessBypass below; a type/name change → compile error here).
+//   2. `QWebSocketPrivate` still derives from `QObjectPrivate` so
+//      `static_cast<QWebSocketPrivate*>(QObjectPrivate::get(...))` is well-formed.
 #include <private/qobject_p.h>
 #include <private/qwebsocket_p.h>
 
@@ -495,8 +499,10 @@ void DecentScaleWifi::applyTcpQos() {
     // Pull the underlying QTcpSocket out of QWebSocketPrivate. The cast
     // pattern (QObjectPrivate::get on the public object, then downcast to the
     // concrete *Private) is the standard way Qt itself talks to its
-    // d-pointers; reaching the `private` m_pSocket member uses the
-    // AccessBypass trick defined at file scope above.
+    // d-pointers; reaching the `private` m_pSocket member uses
+    // `AccessBypass<WsPrivateSocketTag, &QWebSocketPrivate::m_pSocket>` defined
+    // at file scope above, with `get(WsPrivateSocketTag{})` returning the
+    // member pointer that the `->*` then applies to d.
     auto* d = static_cast<QWebSocketPrivate*>(QObjectPrivate::get(m_socket));
     QTcpSocket* tcp = d ? d->*get(WsPrivateSocketTag{}) : nullptr;
     if (!tcp) {
@@ -516,7 +522,8 @@ void DecentScaleWifi::applyTcpQos() {
     // Read back via the same option getters. On platforms that silently
     // accept-but-discard (e.g. some Android OEM stacks for TOS), the read-back
     // value won't match what we wrote — that's diagnostically valuable, so
-    // log both regardless.
+    // log both regardless, and escalate to WARN on mismatch so a support
+    // workflow grepping for warnings can see when QoS didn't take.
     //
     // For TOS, the exact byte matters (it's the DSCP marker the kernel will
     // stamp onto every outgoing packet), so log it verbatim. For TCP_NODELAY
@@ -525,15 +532,28 @@ void DecentScaleWifi::applyTcpQos() {
     // read-back instead of printing the raw integer.
     const QVariant tosRead = tcp->socketOption(QAbstractSocket::TypeOfServiceOption);
     const QVariant lowDelayRead = tcp->socketOption(QAbstractSocket::LowDelayOption);
+
+    const int tosReadInt = tosRead.isValid() ? tosRead.toInt() : -1;
+    const bool tosOk = (tosReadInt == kDscpEfTosByte);
+    const bool nodelayOk = lowDelayRead.isValid() && lowDelayRead.toInt() != 0;
+    const QString tosStr =
+        tosReadInt < 0 ? QStringLiteral("<n/a>") : QString::number(tosReadInt, 16);
     const QString lowDelayStr =
         !lowDelayRead.isValid() ? QStringLiteral("<n/a>")
-        : (lowDelayRead.toInt() != 0 ? QStringLiteral("enabled") : QStringLiteral("disabled"));
+        : (nodelayOk ? QStringLiteral("enabled") : QStringLiteral("disabled"));
 
-    WIFI_LOG(QString("applyTcpQos: requested DSCP EF (TOS=0x%1) + TCP_NODELAY; "
-                     "readback TOS=%2 TCP_NODELAY=%3")
-             .arg(kDscpEfTosByte, 2, 16, QLatin1Char('0'))
-             .arg(tosRead.isValid() ? QString::number(tosRead.toInt(), 16) : QStringLiteral("<n/a>"))
-             .arg(lowDelayStr));
+    const QString line = QString("applyTcpQos: requested DSCP EF (TOS=0x%1) + TCP_NODELAY; "
+                                 "readback TOS=%2 TCP_NODELAY=%3")
+                         .arg(kDscpEfTosByte, 2, 16, QLatin1Char('0'))
+                         .arg(tosStr).arg(lowDelayStr);
+    if (tosOk && nodelayOk) {
+        WIFI_LOG(line);
+    } else {
+        WIFI_WARN(QString("%1 — kernel did not honor request (tosOk=%2 nodelayOk=%3)")
+                  .arg(line)
+                  .arg(tosOk ? QStringLiteral("yes") : QStringLiteral("no"))
+                  .arg(nodelayOk ? QStringLiteral("yes") : QStringLiteral("no")));
+    }
 }
 
 void DecentScaleWifi::tare()       { send(QStringLiteral("tare")); }
