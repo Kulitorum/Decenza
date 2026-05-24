@@ -20,6 +20,25 @@
 #include <private/qobject_p.h>
 #include <private/qwebsocket_p.h>
 
+// Access-bypass for QWebSocketPrivate::m_pSocket. The member is declared
+// `private` (not just inside a private header), so we cannot name it
+// directly. [temp.spec]/2 lets explicit template instantiations name
+// otherwise-inaccessible class members through a member-pointer template
+// parameter, exposing them via a friend function. Standards-conforming;
+// preferred over the more common `#define private public` hack (which is UB
+// and varies by compiler).
+namespace {
+template <typename Tag, typename Tag::Type M>
+struct AccessBypass {
+    friend typename Tag::Type get(Tag) { return M; }
+};
+struct WsPrivateSocketTag {
+    using Type = QTcpSocket* QWebSocketPrivate::*;
+    friend Type get(WsPrivateSocketTag);
+};
+template struct AccessBypass<WsPrivateSocketTag, &QWebSocketPrivate::m_pSocket>;
+} // namespace
+
 #include "../../network/mdnsresolver.h"
 
 #define WIFI_LOG(msg)  SCALE_LOG("DecentScaleWifi", msg)
@@ -473,12 +492,13 @@ void DecentScaleWifi::applyTcpQos() {
         return;
     }
 
-    // Pull the underlying QTcpSocket out of QWebSocketPrivate. Both classes
-    // are private API; the cast pattern (QObjectPrivate::get on the public
-    // object, then downcast to the concrete *Private) is the standard way Qt
-    // itself talks to its d-pointers.
+    // Pull the underlying QTcpSocket out of QWebSocketPrivate. The cast
+    // pattern (QObjectPrivate::get on the public object, then downcast to the
+    // concrete *Private) is the standard way Qt itself talks to its
+    // d-pointers; reaching the `private` m_pSocket member uses the
+    // AccessBypass trick defined at file scope above.
     auto* d = static_cast<QWebSocketPrivate*>(QObjectPrivate::get(m_socket));
-    QTcpSocket* tcp = d ? d->m_pSocket : nullptr;
+    QTcpSocket* tcp = d ? d->*get(WsPrivateSocketTag{}) : nullptr;
     if (!tcp) {
         WIFI_WARN(QStringLiteral("applyTcpQos: QWebSocketPrivate has no QTcpSocket — skipping"));
         return;

@@ -493,7 +493,11 @@ add_decenza_test(tst_decentscalewifi
     ${CMAKE_SOURCE_DIR}/src/ble/scales/decentscalewifi.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/scaletypeids.cpp
 )
-target_link_libraries(tst_decentscalewifi PRIVATE Qt6::WebSockets)
+target_link_libraries(tst_decentscalewifi PRIVATE
+    Qt6::WebSockets
+    Qt6::WebSocketsPrivate
+    Qt6::CorePrivate
+)
 
 # --- tst_wifiscalediscovery: mDNS probe service ---
 add_decenza_test(tst_wifiscalediscovery
