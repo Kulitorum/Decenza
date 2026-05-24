@@ -32,9 +32,10 @@ enum class ScaleType {
 //
 // The type-id is the stable key used everywhere a scale is persisted or keyed on:
 // the `scale/type` setting, known-scale entries, and SAW per-(profile, scale)
-// learning. It matches each driver's ScaleDevice::type(). The display name is a
-// human label only — renaming it must never change a key, which is the whole point
-// of keeping the two separate. See docs/CLAUDE_MD/SAW_LEARNING.md.
+// learning. It matches each scale's ScaleDevice::type() — BLE/WiFi drivers in
+// src/ble/scales/, and the USB scale via UsbDecentScale in src/usb/. The display
+// name is a human label only — renaming it must never change a key, which is the
+// whole point of keeping the two separate. See docs/CLAUDE_MD/SAW_LEARNING.md.
 namespace ScaleTypeIds {
 
 // Enum -> canonical id (mirrors ScaleDevice::type(), e.g. DecentScale -> "decent").

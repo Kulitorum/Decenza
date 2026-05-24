@@ -307,8 +307,18 @@ Settings::Settings(QObject* parent)
 
         if (m_calibration) m_calibration->migrateScaleTypeIds();
 
-        m_settings.setValue("scale/typeIdsMigrated", true);
-        qDebug() << "Settings: normalized scaleType values to canonical type-ids";
+        // Mark migrated only once the writes actually landed — gate on the observable
+        // effect (persisted scale/type is now canonical) rather than setting the flag
+        // unconditionally. If a write failed (read-only / full store), scale/type stays
+        // a display name, the flag is left unset, and the migration retries next launch.
+        const QString persisted = m_settings.value("scale/type").toString();
+        if (persisted.isEmpty() || persisted == ScaleTypeIds::normalizeScaleTypeId(persisted)) {
+            m_settings.setValue("scale/typeIdsMigrated", true);
+            qDebug() << "Settings: normalized scaleType values to canonical type-ids";
+        } else {
+            qWarning() << "Settings: scaleType id migration incomplete (scale/type still"
+                       << persisted << ") — will retry next launch";
+        }
     }
 
     // Theme initial state is now resolved inside SettingsTheme

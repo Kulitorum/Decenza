@@ -12,7 +12,7 @@ public:
 
     void connectToDevice(const QBluetoothDeviceInfo& device) override;
     QString name() const override { return m_name; }
-    QString type() const override { return "timemore"; }
+    QString type() const override { return ScaleTypeIds::scaleTypeId(ScaleType::Timemore); }
 
 public slots:
     void tare() override;

@@ -948,23 +948,34 @@ void SettingsCalibration::migrateScaleTypeIds() {
     {
         const QByteArray data = m_settings.value("saw/learningHistory").toByteArray();
         if (!data.isEmpty()) {
-            QJsonArray arr = QJsonDocument::fromJson(data).array();
-            bool changed = false;
-            for (qsizetype i = 0; i < arr.size(); ++i) {
-                QJsonObject o = arr[i].toObject();
-                const QString s = o.value("scale").toString();
-                const QString id = ScaleTypeIds::normalizeScaleTypeId(s);
-                if (id != s) { o["scale"] = id; arr[i] = o; changed = true; }
+            QJsonParseError perr;
+            const QJsonDocument doc = QJsonDocument::fromJson(data, &perr);
+            if (perr.error != QJsonParseError::NoError) {
+                // Surface corruption instead of silently rewriting nothing. The
+                // global-pool reader (ensureSawCacheLoaded) already tolerates a bad
+                // blob as empty, so leave the bytes for that path rather than reset.
+                qWarning() << "[SAW] migrate: corrupt learningHistory JSON — skipping global-pool rewrite:"
+                           << perr.errorString();
+            } else {
+                QJsonArray arr = doc.array();
+                bool changed = false;
+                for (qsizetype i = 0; i < arr.size(); ++i) {
+                    QJsonObject o = arr[i].toObject();
+                    const QString s = o.value("scale").toString();
+                    const QString id = ScaleTypeIds::normalizeScaleTypeId(s);
+                    if (id != s) { o["scale"] = id; arr[i] = o; changed = true; }
+                }
+                if (changed) m_settings.setValue("saw/learningHistory", QJsonDocument(arr).toJson());
             }
-            if (changed) m_settings.setValue("saw/learningHistory", QJsonDocument(arr).toJson());
         }
     }
 
     // Rewrite a "profile::scaleType" map: keys + per-entry "scale" -> ids, merging
-    // colliding buckets (concatenate migrated-from before existing, keep newest `trim`).
-    // Collisions require a pre-existing id bucket for a scale whose legacy data was
-    // display-name-keyed — vanishingly rare — so exact post-merge order is unimportant;
-    // the point is to lose no data.
+    // colliding buckets (concatenate both, keep the newest `trim`). Iteration is
+    // QJsonObject key-sorted, NOT chronological, so the post-merge order is arbitrary —
+    // acceptable because a collision requires a pre-existing id bucket for a scale whose
+    // legacy data was display-name-keyed (vanishingly rare) and we only care about not
+    // losing data.
     auto migrateMap = [](const QJsonObject& in, qsizetype trim) -> QJsonObject {
         QJsonObject out;
         for (auto it = in.begin(); it != in.end(); ++it) {
@@ -986,10 +997,10 @@ void SettingsCalibration::migrateScaleTypeIds() {
                 out[newKey] = arr;
             } else {
                 QJsonArray combined;
-                for (const auto& v : std::as_const(arr)) combined.append(v);                  // migrated-from (older)
                 const QJsonArray existing = out.value(newKey).toArray();
-                for (const auto& v : std::as_const(existing)) combined.append(v);              // existing (newer)
-                while (combined.size() > trim) combined.removeFirst();
+                for (const auto& v : std::as_const(arr)) combined.append(v);       // this key's entries
+                for (const auto& v : std::as_const(existing)) combined.append(v);  // entries already placed under newKey
+                while (combined.size() > trim) combined.removeFirst();             // keep the newest `trim`
                 out[newKey] = combined;
             }
         }

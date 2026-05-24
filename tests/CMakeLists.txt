@@ -483,6 +483,7 @@ add_decenza_test(tst_scaleprotocol
     ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/decentscale.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/bookooscale.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/scales/scaletypeids.cpp
 )
 
 # --- tst_decentscalewifi: WiFi scale driver (WebSocket protocol) ---
@@ -490,6 +491,7 @@ add_decenza_test(tst_decentscalewifi
     tst_decentscalewifi.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/decentscalewifi.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/scales/scaletypeids.cpp
 )
 target_link_libraries(tst_decentscalewifi PRIVATE Qt6::WebSockets)
 

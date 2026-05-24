@@ -1,5 +1,7 @@
 #pragma once
 
+#include "scales/scaletypeids.h"  // ScaleType + ScaleTypeIds::scaleTypeId (dependency-free)
+
 #include <QObject>
 #include <QBluetoothDeviceInfo>
 #include <QLowEnergyController>
