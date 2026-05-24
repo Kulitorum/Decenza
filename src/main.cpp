@@ -2845,7 +2845,17 @@ int main(int argc, char *argv[])
                     if (!scaleReconnectTimer.isActive()
                         && !settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
                         scaleReconnectAttempt = 0;
-                        scaleReconnectTimer.start(reconnectDelays[0]);
+                        // Short first-attempt delay for the wake-from-sleep path:
+                        // the WiFi scale is known alive (we closed the WS ourselves
+                        // and the HDS is still up), and a powered-off BT scale will
+                        // fail this attempt quickly and fall into the normal
+                        // reconnectDelays backoff for retry #2 onward. The full 5 s
+                        // default (reconnectDelays[0]) was sized for unexpected
+                        // drops where the radio/firmware might need to settle —
+                        // neither applies here. Saves ~4.8 s of perceived
+                        // "scale disconnected" UI time after DE1 wake.
+                        constexpr int kWakeReconnectFirstAttemptMs = 200;
+                        scaleReconnectTimer.start(kWakeReconnectFirstAttemptMs);
                     }
                 } else {
                     // Neither branch fired: scale exists but is mid-reconnect
