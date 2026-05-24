@@ -517,14 +517,23 @@ void DecentScaleWifi::applyTcpQos() {
     // accept-but-discard (e.g. some Android OEM stacks for TOS), the read-back
     // value won't match what we wrote — that's diagnostically valuable, so
     // log both regardless.
+    //
+    // For TOS, the exact byte matters (it's the DSCP marker the kernel will
+    // stamp onto every outgoing packet), so log it verbatim. For TCP_NODELAY
+    // we only care whether Nagle is off — some platforms (e.g. macOS) return a
+    // truthy-but-not-1 value from getsockopt(TCP_NODELAY), so booleanize the
+    // read-back instead of printing the raw integer.
     const QVariant tosRead = tcp->socketOption(QAbstractSocket::TypeOfServiceOption);
     const QVariant lowDelayRead = tcp->socketOption(QAbstractSocket::LowDelayOption);
+    const QString lowDelayStr =
+        !lowDelayRead.isValid() ? QStringLiteral("<n/a>")
+        : (lowDelayRead.toInt() != 0 ? QStringLiteral("enabled") : QStringLiteral("disabled"));
 
     WIFI_LOG(QString("applyTcpQos: requested DSCP EF (TOS=0x%1) + TCP_NODELAY; "
-                     "readback TOS=%2 LowDelay=%3")
+                     "readback TOS=%2 TCP_NODELAY=%3")
              .arg(kDscpEfTosByte, 2, 16, QLatin1Char('0'))
              .arg(tosRead.isValid() ? QString::number(tosRead.toInt(), 16) : QStringLiteral("<n/a>"))
-             .arg(lowDelayRead.isValid() ? QString::number(lowDelayRead.toInt()) : QStringLiteral("<n/a>")));
+             .arg(lowDelayStr));
 }
 
 void DecentScaleWifi::tare()       { send(QStringLiteral("tare")); }
