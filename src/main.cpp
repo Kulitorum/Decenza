@@ -1440,7 +1440,11 @@ int main(int argc, char *argv[])
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &translationManager, &usbScaleManager](const QBluetoothDeviceInfo& device, const QString& type) {
+                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &translationManager
+#ifndef Q_OS_IOS
+                     , &usbScaleManager
+#endif
+                     ](const QBluetoothDeviceInfo& device, const QString& type) {
 #ifndef Q_OS_IOS
         // Tear down an active USB scale FIRST (before touching physicalScale).
         // The single-scale invariant covers BLE/WiFi via physicalScale, but the
