@@ -626,6 +626,7 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
             .arg(statusName)
             .arg(canStartFromApp ? "CAN" : "CANNOT");
 
+        qDebug().noquote() << logMsg;
         emit logMessage(logMsg);
 
         if (m_isHeadless != canStartFromApp) {
@@ -689,6 +690,7 @@ void DE1Device::parseMMRResponse(const QByteArray& data) {
         QString statusName = detected ? "detected" : "not detected";
 
         QString logMsg = QString("Refill kit: %1").arg(statusName);
+        qDebug().noquote() << logMsg;
         emit logMessage(logMsg);
 
         if (m_refillKitDetected != detected) {
@@ -1436,6 +1438,7 @@ void DE1Device::setWaterRefillLevel(int refillPointMm) {
     data.append(BinaryCodec::encodeShortBE(BinaryCodec::encodeU16P8(0)));
     data.append(BinaryCodec::encodeShortBE(BinaryCodec::encodeU16P8(static_cast<double>(refillPointMm))));
 
+    qDebug() << "[WaterLevels] write: StartFillLevel =" << refillPointMm << "mm";
     m_transport->write(DE1::Characteristic::WATER_LEVELS, data);
 }
 
