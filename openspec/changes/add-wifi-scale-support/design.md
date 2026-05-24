@@ -187,13 +187,11 @@ The BLE driver carries machinery that exists to work around GATT-layer quirks an
 
 Decision:
 
-- WiFi `sleep()` → `m_socket.sendTextMessage("{\"command\":\"power\",\"action\":\"off\"}")`, the HDS firmware's equivalent of BT `0A 02 00`. Emits `sleepCompleted` immediately after the send call returns.
-- The BLE driver waits for `characteristicWritten` before emitting `sleepCompleted` ([decentscale.cpp:362-364](src/ble/scales/decentscale.cpp:362)). The semantic intent of that wait is "we confirmed the bytes left our radio." On WiFi, `sendTextMessage` returning is the precise analog (the TCP write went out). We do not wait for the firmware's status-ack JSON form — that would change the latency profile vs BLE.
-- If the socket is not open, emit `sleepCompleted` anyway (matches the BLE driver's "transport unavailable → emit immediately" fallback at [decentscale.cpp:358-361](src/ble/scales/decentscale.cpp:358)).
+- WiFi `sleep()` → `send("{\"command\":\"power\",\"action\":\"off\"}")`, the HDS firmware's equivalent of BT `0A 02 00`. Emits `sleepCompleted` unconditionally after the send attempt returns, so callers (app-exit waitLoop, DE1-sleep handler) don't hang waiting for an ack that won't come.
+- The BLE driver waits for `characteristicWritten` before emitting `sleepCompleted` ([decentscale.cpp:362-364](src/ble/scales/decentscale.cpp:362)). The semantic intent of that wait is "we confirmed the bytes left our radio." On WiFi, `send()` returning success (socket was in `ConnectedState`) is the precise analog (the TCP write entered the kernel buffer). We do not wait for the firmware's status-ack JSON form — that would change the latency profile vs BLE.
+- If the socket is not in `ConnectedState` (e.g., `ClosingState` from a prior graceful close, or never-opened), `send()` returns false. `sleep()` emits `sleepCompleted` anyway — matching the BLE driver's "transport unavailable → emit immediately" early-return at [decentscale.cpp:358-361](src/ble/scales/decentscale.cpp:358) — and logs a WARN so the dropped power-off command is diagnosable rather than hidden behind a misleading "drained successfully" downstream log.
 - WiFi `wake()` sends `"soft_sleep off"` then `"display on"` — the reversible-park complement (`soft_sleep on/off`), useful between explicit user actions but **not** what `sleep()` issues.
 - `"soft_sleep on"` remains a lighter, reversible park state on the firmware side. It is intentionally NOT what `sleep()` sends — it does not match BT's `0A 02 00` semantics and leaves the ESP32 radio active, draining a battery-only HDS while the DE1 is asleep.
-
-Historical note: this decision was reversed during implementation of [PR #1265](https://github.com/Kulitorum/Decenza/pull/1265). The original spec chose `"soft_sleep on"` for `sleep()` based on a misreading of BT `0A 02 00`'s reversibility (incorrectly attributing `disableLcd()`'s behavior to `sleep()`). The corrected mapping above is what ships.
 
 ### 13. Charging state — small `ScaleDevice` interface extension
 

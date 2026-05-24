@@ -2698,12 +2698,12 @@ int main(int argc, char *argv[])
     //                                resume. On WiFi we additionally close the
     //                                WS (after disableLcd) so the tablet's WiFi
     //                                radio can park during DE1 sleep — there's
-    //                                no reason to keep a chatty TCP session
-    //                                open to the scale while the app is idle,
-    //                                and Android's WiFi power-save reliably
-    //                                kills the radio anyway (HDS AsyncTCP then
-    //                                reaps us at 30 s of unacked data, leaving
-    //                                a stale dirty disconnect). LCD comes back
+    //                                no reason to keep a live TCP session open
+    //                                to the scale while the app is idle, and
+    //                                Android's WiFi power-save reliably kills
+    //                                the radio anyway (HDS AsyncTCP then reaps
+    //                                us at 30 s of unacked data, leaving a
+    //                                stale dirty disconnect). LCD comes back
     //                                on via DecentScaleWifi::onConnected's
     //                                "display on" when the WS reconnects on
     //                                DE1 wake.
@@ -2753,7 +2753,17 @@ int main(int argc, char *argv[])
                 }
             }
         } else if (phase == MachineState::Phase::Idle) {
-            if (physicalScale && physicalScale->isConnected()) {
+            if (physicalScale && physicalScale->isConnected()
+                && !scaleAutoReconnectSuppressed) {
+                // The scale stayed connected through DE1 sleep (keepScaleOn=true
+                // on BT, or keepScaleOn=true+WiFi where the reconnect already
+                // landed before this phase change fired). LCD was turned off by
+                // disableLcd() — restore it. Skip wake() when
+                // scaleAutoReconnectSuppressed is set: a fresh reconnect's
+                // onConnected() will send `display on` itself, and a stray
+                // wake() during the suppressed window would send a redundant
+                // soft_sleep off + display on pair on a scale that was never
+                // soft-slept.
                 qDebug() << "DE1 woke up - waking scale LCD";
                 physicalScale->wake();
             } else if (scaleAutoReconnectSuppressed

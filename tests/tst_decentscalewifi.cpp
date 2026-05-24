@@ -100,14 +100,14 @@ class tst_DecentScaleWifi : public QObject {
 
 private:
     // Wait for the driver to connect to the fake server and the initial
-    // handshake messages ("rate 10k", "events on", "status") to arrive.
-    // QTRY_VERIFY actively polls so the timeout absorbs scheduler jitter
-    // between client `connected` and server `textMessageReceived`.
+    // handshake messages ("rate 10k", "events on", "status", "display on") to
+    // arrive. QTRY_VERIFY actively polls so the timeout absorbs scheduler
+    // jitter between client `connected` and server `textMessageReceived`.
     void connectAndHandshake(DecentScaleWifi& driver, FakeHdsServer& server) {
         QSignalSpy connectedSpy(&server, &FakeHdsServer::clientConnected);
         driver.connectToHost(server.host());
         QVERIFY(connectedSpy.wait(2000));
-        QTRY_VERIFY_WITH_TIMEOUT(server.received().size() >= 3, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(server.received().size() >= 4, 2000);
     }
 
 private slots:
@@ -153,11 +153,17 @@ private slots:
         DecentScaleWifi driver;
         connectAndHandshake(driver, server);
 
-        // After handshake, received() carries exactly the three setup frames in order.
+        // After handshake, received() carries the four setup frames in order.
+        // The "display on" frame restores LCD state on reconnect after the
+        // DE1-sleep keepScaleOn=true+WiFi graceful-close path turned it off;
+        // dropping it from onConnected() would silently leave the scale dark
+        // every time the DE1 wakes — this assertion is the regression guard.
         const QStringList rx = server.received();
+        QCOMPARE(rx.size(), 4);
         QCOMPARE(rx[0], QStringLiteral("rate 10k"));
         QCOMPARE(rx[1], QStringLiteral("events on"));
         QCOMPARE(rx[2], QStringLiteral("status"));
+        QCOMPARE(rx[3], QStringLiteral("display on"));
     }
 
     // ==========================================
@@ -204,7 +210,7 @@ private slots:
         QCOMPARE(server.received()[2], QStringLiteral("display on"));
     }
 
-    void sleepSendsSoftSleepOnAndEmitsSleepCompleted() {
+    void sleepSendsPowerOffAndEmitsSleepCompleted() {
         FakeHdsServer server;
         DecentScaleWifi driver;
         QSignalSpy sleepSpy(&driver, &ScaleDevice::sleepCompleted);
@@ -212,7 +218,14 @@ private slots:
         server.clearReceived();
 
         driver.sleep();
-        QTRY_VERIFY(server.received().contains(QStringLiteral("soft_sleep on")));
+        // sleep() must send the firmware power-off JSON, the WS analog of BT's
+        // 0A 02 00 — NOT soft_sleep on, which is wake()'s reversible-park
+        // complement and leaves the ESP32 radio active draining a battery-only
+        // HDS. The negative assertion guards against a revert to the earlier
+        // wrong mapping.
+        QTRY_VERIFY(server.received().contains(
+            QStringLiteral("{\"command\":\"power\",\"action\":\"off\"}")));
+        QVERIFY(!server.received().contains(QStringLiteral("soft_sleep on")));
         QCOMPARE(sleepSpy.count(), 1);
     }
 
@@ -414,7 +427,7 @@ private slots:
         QSignalSpy connectedSpy(&server, &FakeHdsServer::clientConnected);
         driver.connectToHost(QStringLiteral("hds.local"));
         QVERIFY(connectedSpy.wait(2000));
-        QTRY_VERIFY_WITH_TIMEOUT(server.received().size() >= 3, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(server.received().size() >= 4, 2000);
 
         // Send a snapshot so recognition fires.
         server.sendJson({{ "grams", 25.66 }, { "ms", 12345 }});
@@ -456,7 +469,7 @@ private slots:
         QVERIFY(realConnectedSpy.wait(8000));  // 5s timeout + fallback margin
 
         // Now the fallback (hostname) is active — send a snapshot so it validates.
-        QTRY_VERIFY_WITH_TIMEOUT(real.received().size() >= 3, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(real.received().size() >= 4, 2000);
         real.sendJson({{ "grams", 12.34 }, { "ms", 1000 }});
         QSignalSpy weightSpy(&driver, &ScaleDevice::weightChanged);
         QVERIFY(weightSpy.wait(500));

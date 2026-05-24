@@ -170,10 +170,12 @@ void DecentScaleWifi::onConnected() {
     send(QStringLiteral("rate 10k"));
     send(QStringLiteral("events on"));
     send(QStringLiteral("status"));
-    // Restore the LCD on every (re)connect — mirrors the BT wake() that fires
-    // post-discovery in onCharacteristicsDiscoveryFinished. Idempotent on a
-    // scale whose LCD was already on; required when the previous DE1-sleep
-    // path turned it off and then closed the WS.
+    // Restore the LCD on every (re)connect. Idempotent on a fresh-connect
+    // scale (LCD defaults on); required on a reconnect after the DE1-sleep
+    // keepScaleOn=true+WiFi path, where disableLcd() was sent before the WS
+    // was gracefully closed. Not a full wake(): soft_sleep off isn't needed
+    // here because sleep() (which would have soft-slept) wasn't called on
+    // that path — only the LCD was disabled.
     send(QStringLiteral("display on"));
 }
 
@@ -435,9 +437,19 @@ int DecentScaleWifi::encodeButton(int buttonNumber, int pressCode) {
     return kWifiButtonFlag | ((buttonNumber & 0xF) << 8) | (pressCode & 0xFF);
 }
 
-void DecentScaleWifi::send(const QString& text) {
-    if (!m_socket) return;
+bool DecentScaleWifi::send(const QString& text) {
+    if (!m_socket || m_socket->state() != QAbstractSocket::ConnectedState) {
+        // Qt's sendTextMessage silently returns 0 bytes when the socket isn't
+        // ConnectedState (ClosingState, UnconnectedState, mid-handshake), with
+        // no errorOccurred signal — so without this check, commands queued
+        // during teardown would vanish without trace. Most observed at app
+        // exit when the DE1-sleep handler already initiated a graceful close.
+        WIFI_WARN(QStringLiteral("send() dropped — socket not connected: %1")
+                  .arg(text.left(80)));
+        return false;
+    }
     m_socket->sendTextMessage(text);
+    return true;
 }
 
 void DecentScaleWifi::tare()       { send(QStringLiteral("tare")); }
@@ -458,10 +470,18 @@ void DecentScaleWifi::sleep() {
     // transport's behavior exactly. `soft_sleep on` is the lighter reversible
     // state and is wrong here: leaving the ESP32 radio active while the DE1
     // sleeps drains a battery-only HDS.
-    send(QStringLiteral("{\"command\":\"power\",\"action\":\"off\"}"));
+    const bool sent = send(QStringLiteral("{\"command\":\"power\",\"action\":\"off\"}"));
+    if (!sent) {
+        // Caller (app-exit waitLoop, DE1-sleep handler) hangs forever waiting
+        // for sleepCompleted, so emit unconditionally — but warn so the
+        // dropped power-off command isn't masked by a misleading
+        // "drained successfully" log downstream. Common at app exit after a
+        // DE1-sleep keepScaleOn=true+WiFi close (socket already in ClosingState).
+        WIFI_WARN("sleep(): power-off command not delivered (socket not connected)");
+    }
     // BT waits for `characteristicWritten` as a "command left the radio" ack.
-    // The WS analog is sendTextMessage returning, which already happened above.
-    // Emit immediately to match BT's intent.
+    // The WS analog is send() returning success above. Emit immediately to
+    // match BT's intent.
     emit sleepCompleted();
 }
 

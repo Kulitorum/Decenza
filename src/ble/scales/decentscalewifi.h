@@ -91,7 +91,13 @@ private slots:
     void onRecognitionTimeout();
 
 private:
-    void send(const QString& text);
+    // Send a command text frame over the WS. Returns true on success, false
+    // when the socket is not in ConnectedState — Qt's sendTextMessage silently
+    // drops in that case (returns 0 bytes, no signal, no log), so the helper
+    // checks state and emits a WARN so dropped commands are diagnosable.
+    // Most callers ignore the return value; sleep() uses it to decide whether
+    // to log a delivery failure for the power-off command.
+    bool send(const QString& text);
     void handleSnapshotFrame(const QJsonObject& obj);
     void handleStatusFrame(const QJsonObject& obj);
     void handleButtonFrame(const QJsonObject& obj);
