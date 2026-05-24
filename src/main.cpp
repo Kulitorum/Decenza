@@ -1279,7 +1279,7 @@ int main(int argc, char *argv[])
             return;
         }
         if (scaleAutoReconnectSuppressed) {
-            qDebug() << "Scale reconnect (startup): suppressed (keepScaleOn=false), skipping";
+            qDebug() << "Scale reconnect (startup): suppressed (deliberate DE1-sleep disconnect), skipping";
             return;
         }
         if (scaleReconnectTimer.isActive()) {
@@ -1701,11 +1701,13 @@ int main(int argc, char *argv[])
                 emit bleManager.scaleDisconnected();
                 qDebug() << "Scale disconnected - switched to FlowScale";
                 // Start auto-reconnect if we have a saved scale address, unless
-                // the disconnect was a deliberate one from the DE1-sleep path
-                // (keepScaleOn=false). In that case the DE1-wake handler
-                // re-arms the reconnect.
+                // the disconnect was a deliberate one from a DE1-sleep path —
+                // either keepScaleOn=false on any transport, or keepScaleOn=true
+                // on WiFi (which gracefully closes the WS so the radio can park,
+                // see main.cpp's DE1-sleep handler below). In either case the
+                // DE1-wake handler re-arms the reconnect.
                 if (scaleAutoReconnectSuppressed) {
-                    qDebug() << "Scale disconnect was deliberate (keepScaleOn=false) - auto-reconnect suppressed until DE1 wakes";
+                    qDebug() << "Scale disconnect was deliberate (DE1-sleep) - auto-reconnect suppressed until DE1 wakes";
                 } else if (!settings.scaleAddress().isEmpty()
                            && !settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
                     // USB primary reconnects via UsbScaleManager, not this BLE/WiFi timer.
