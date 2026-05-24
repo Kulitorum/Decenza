@@ -1211,6 +1211,31 @@ int main(int argc, char *argv[])
     // initiated scan so normal reconnect behaviour resumes.
     bool scaleAutoReconnectSuppressed = false;
 
+    // Tracks whether disableLcd() was called on a BT scale during DE1 sleep
+    // and a wake() to restore the LCD hasn't run yet. Set in the DE1 sleep
+    // handler (BT keepScaleOn=true path only — WiFi's onConnected sends
+    // "display on" on its own reconnect handshake, so no separate restore is
+    // needed). Cleared whenever wake() is called: from the phaseChanged wake
+    // handler on the happy path (scale stayed connected through sleep), or
+    // from connectedChanged when a BT scale reconnects post-wake after having
+    // dropped mid-sleep (or after the wake handler's fallthrough couldn't
+    // act). Independent from scaleAutoReconnectSuppressed because the two
+    // concerns (reconnect arming vs. LCD restore) decouple under app-resume
+    // and user-initiated-scan paths that clear the suppression flag.
+    bool scaleLcdRestorePending = false;
+
+    // DE1-phase tracking flags (declared here so the disconnectScaleRequested
+    // handler below can clear them; the phaseChanged lambda that owns them
+    // lives much further down — see "Manage scale power state…" block).
+    //   de1EverAwake: suppress Sleep reaction on initial connect (DE1's
+    //     default BLE state is Sleep, so MachineState transitions
+    //     Disconnected→Sleep before the real state arrives).
+    //   wasInSleep: tracks whether the previous phase was Sleep, so the wake
+    //     actions fire on the very first non-Sleep transition (the DE1 typically
+    //     wakes into Phase::Heating or Phase::Ready, not Phase::Idle).
+    bool de1EverAwake = false;
+    bool wasInSleep = false;
+
     // R2 refractometer auto-reconnect: same persistent backoff as the scale
     // (5s → 30s → 60s, then 60s forever). The R2 has no DE1-sleep power
     // management, so there is no deliberate-disconnect suppression to track —
@@ -1447,7 +1472,7 @@ int main(int argc, char *argv[])
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &translationManager
+                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending, &translationManager
 #ifndef Q_OS_IOS
                      , &usbScaleManager
 #endif
@@ -1654,7 +1679,7 @@ int main(int argc, char *argv[])
 
         // When physical scale connects/disconnects, switch between physical and FlowScale
         QObject::connect(physicalScale.get(), &ScaleDevice::connectedChanged,
-                         [&physicalScale, &flowScale, &machineState, &engine, &bleManager, &mainController, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &settings, &scaleAutoReconnectSuppressed]() {
+                         [&physicalScale, &flowScale, &machineState, &engine, &bleManager, &mainController, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &settings, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending]() {
             if (physicalScale && physicalScale->isConnected()) {
                 // Scale connected - stop any pending reconnect attempts
                 scaleReconnectTimer.stop();
@@ -1663,6 +1688,18 @@ int main(int argc, char *argv[])
                 // suppression (e.g. scale reconnected during DE1 sleep via a
                 // manual scan).
                 scaleAutoReconnectSuppressed = false;
+                // BT keepScaleOn=true edge case: DE1 went to sleep (disableLcd
+                // turned off the LCD), the BLE link then dropped mid-sleep, and
+                // DE1 has since woken — the phaseChanged wake handler's
+                // fallthrough left scaleLcdRestorePending set because the scale
+                // wasn't connected at the moment of the first non-Sleep phase.
+                // Restore the LCD now. WiFi never sets this flag (its onConnected
+                // sends "display on" on the reconnect handshake instead).
+                if (scaleLcdRestorePending) {
+                    qDebug() << "Scale reconnected with LCD-restore pending - waking";
+                    physicalScale->wake();
+                    scaleLcdRestorePending = false;
+                }
                 // Scale connected - use physical scale
                 machineState.setScale(physicalScale.get());
                 timingController.setScale(physicalScale.get());
@@ -1745,12 +1782,17 @@ int main(int argc, char *argv[])
 
     // Handle disconnect request when starting a new scan
     QObject::connect(&bleManager, &BLEManager::disconnectScaleRequested,
-                     [&physicalScale, &flowScale, &machineState, &engine, &mainController, &bleManager, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &scaleAutoReconnectSuppressed]() {
+                     [&physicalScale, &flowScale, &machineState, &engine, &mainController, &bleManager, &timingController, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &scaleAutoReconnectSuppressed, &wasInSleep, &scaleLcdRestorePending]() {
         // Stop any pending auto-reconnect (user is deliberately scanning for a different scale)
         scaleReconnectTimer.stop();
-        // User is selecting a new scale — clear any sleep-deliberate suppression
-        // so the new scale's normal reconnect behaviour applies.
+        // User is selecting a new scale — clear any sleep-related state for
+        // the outgoing scale so the new scale's normal reconnect/LCD behaviour
+        // applies. Without this, a scan-during-sleep cycle would leave the
+        // wake handler armed for the replaced scale's address and the LCD-
+        // restore flag pointed at a (now-deleted) physicalScale instance.
         scaleAutoReconnectSuppressed = false;
+        wasInSleep = false;
+        scaleLcdRestorePending = false;
         scaleReconnectAttempt = 0;
         if (physicalScale) {
             qDebug() << "Disconnecting scale before scan";
@@ -2714,17 +2756,12 @@ int main(int argc, char *argv[])
     // de1EverAwake: suppress Sleep reaction on initial connect (DE1's default
     // BLE state is Sleep, so MachineState transitions Disconnected→Sleep before
     // the real state arrives).
-    // wasInSleep: tracks whether the previous phase was Sleep, so the wake
-    // actions (LCD restore / scale reconnect) fire on the very first non-Sleep
-    // transition. The DE1 wakes from Sleep into Phase::Heating (boiler warming
-    // up), not Phase::Idle — so a phase==Idle gate would miss the wake event
-    // entirely. By the time Phase::Idle is reached (if ever — typical resting
-    // state is Phase::Ready) the scale would still be disconnected.
-    bool de1EverAwake = false;
-    bool wasInSleep = false;
+    // de1EverAwake + wasInSleep are declared at the top of main() (see the
+    // "DE1-phase tracking flags" block) so the disconnectScaleRequested
+    // handler can clear them when the user swaps to a different scale.
     QObject::connect(&machineState, &MachineState::phaseChanged,
                      [&physicalScale, &machineState, &settings, &de1EverAwake,
-                      &wasInSleep,
+                      &wasInSleep, &scaleLcdRestorePending,
                       &scaleAutoReconnectSuppressed, &scaleReconnectTimer,
                       &scaleReconnectAttempt, &reconnectDelays]() {
         auto phase = machineState.phase();
@@ -2753,6 +2790,13 @@ int main(int argc, char *argv[])
                         qDebug() << "DE1 sleep + WiFi scale - closing WS for the sleep interval";
                         scaleAutoReconnectSuppressed = true;
                         physicalScale->disconnectFromScale();
+                    } else {
+                        // BT: track that the LCD is off so connectedChanged can
+                        // restore it if the BLE link drops mid-sleep and reconnects
+                        // after DE1 wake — the phaseChanged wake handler can only
+                        // fire wake() if the scale is connected at the moment of
+                        // the first non-Sleep phase transition.
+                        scaleLcdRestorePending = true;
                     }
                 } else {
                     qDebug() << "DE1 going to sleep - putting scale to sleep and disconnecting (keepScaleOn=false)";
@@ -2770,20 +2814,23 @@ int main(int argc, char *argv[])
             }
         } else {
             // Any non-Sleep, non-Disconnected phase (Idle / Heating / Ready /
-            // Espresso / …). Fire the wake actions exactly once on the first
-            // transition out of Sleep — the destination phase is typically
-            // Phase::Heating (boiler warming) and may never reach Phase::Idle
-            // in a single session, so the previous Phase::Idle-only gate
-            // missed the wake event entirely.
+            // EspressoPreheating / Pouring / …). Fire the wake actions exactly
+            // once on the first transition out of Sleep — the destination phase
+            // is typically Phase::Heating or Phase::Ready and may never reach
+            // Phase::Idle in a single session, so the previous Phase::Idle-only
+            // gate missed the wake event entirely.
             if (wasInSleep) {
                 wasInSleep = false;
                 if (physicalScale && physicalScale->isConnected()
                     && !scaleAutoReconnectSuppressed) {
-                    // The scale stayed connected through DE1 sleep
-                    // (keepScaleOn=true on BT). LCD was turned off by
-                    // disableLcd() — restore it.
+                    // BT keepScaleOn=true happy path: scale stayed connected
+                    // through DE1 sleep. LCD was turned off by disableLcd() —
+                    // restore it. (WiFi keepScaleOn=true closes the WS and
+                    // takes the next branch; its onConnected() handles LCD
+                    // restore via "display on" on the reconnect handshake.)
                     qDebug() << "DE1 woke up - waking scale LCD";
                     physicalScale->wake();
+                    scaleLcdRestorePending = false;
                 } else if (scaleAutoReconnectSuppressed
                            && !settings.scaleAddress().isEmpty()) {
                     // We deliberately disconnected on DE1 sleep and suppressed
@@ -2800,6 +2847,17 @@ int main(int argc, char *argv[])
                         scaleReconnectAttempt = 0;
                         scaleReconnectTimer.start(reconnectDelays[0]);
                     }
+                } else {
+                    // Neither branch fired: scale exists but is mid-reconnect
+                    // (BT link dropped during sleep — connectedChanged armed a
+                    // reconnect on its own) or app-resume already cleared the
+                    // suppression flag. Leave scaleLcdRestorePending intact so
+                    // connectedChanged restores the LCD when the scale lands.
+                    qDebug() << "DE1 woke up - no immediate wake action"
+                             << "(physicalScale=" << (physicalScale ? "yes" : "no")
+                             << "connected=" << (physicalScale && physicalScale->isConnected())
+                             << "suppressed=" << scaleAutoReconnectSuppressed
+                             << "lcdRestorePending=" << scaleLcdRestorePending << ")";
                 }
             }
             de1EverAwake = true;
