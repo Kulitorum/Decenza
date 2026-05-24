@@ -2714,15 +2714,31 @@ int main(int argc, char *argv[])
     // de1EverAwake: suppress Sleep reaction on initial connect (DE1's default
     // BLE state is Sleep, so MachineState transitions Disconnected→Sleep before
     // the real state arrives).
+    // wasInSleep: tracks whether the previous phase was Sleep, so the wake
+    // actions (LCD restore / scale reconnect) fire on the very first non-Sleep
+    // transition. The DE1 wakes from Sleep into Phase::Heating (boiler warming
+    // up), not Phase::Idle — so a phase==Idle gate would miss the wake event
+    // entirely. By the time Phase::Idle is reached (if ever — typical resting
+    // state is Phase::Ready) the scale would still be disconnected.
     bool de1EverAwake = false;
+    bool wasInSleep = false;
     QObject::connect(&machineState, &MachineState::phaseChanged,
                      [&physicalScale, &machineState, &settings, &de1EverAwake,
+                      &wasInSleep,
                       &scaleAutoReconnectSuppressed, &scaleReconnectTimer,
                       &scaleReconnectAttempt, &reconnectDelays]() {
         auto phase = machineState.phase();
         if (phase == MachineState::Phase::Disconnected) {
             de1EverAwake = false;
+            wasInSleep = false;
         } else if (phase == MachineState::Phase::Sleep) {
+            // Only treat this as a real sleep event if DE1 was previously
+            // awake — otherwise it's the initial-connect-while-sleeping case
+            // and we don't want the next non-Sleep phase to fire wake actions
+            // for a "wake event" that never had a matching sleep.
+            if (de1EverAwake) {
+                wasInSleep = true;
+            }
             if (de1EverAwake && physicalScale && physicalScale->isConnected()) {
                 if (settings.keepScaleOn()) {
                     qDebug() << "DE1 going to sleep - disabling scale LCD (keepScaleOn=true)";
@@ -2752,37 +2768,40 @@ int main(int argc, char *argv[])
                     physicalScale->sleep();
                 }
             }
-        } else if (phase == MachineState::Phase::Idle) {
-            if (physicalScale && physicalScale->isConnected()
-                && !scaleAutoReconnectSuppressed) {
-                // The scale stayed connected through DE1 sleep (keepScaleOn=true
-                // on BT, or keepScaleOn=true+WiFi where the reconnect already
-                // landed before this phase change fired). LCD was turned off by
-                // disableLcd() — restore it. Skip wake() when
-                // scaleAutoReconnectSuppressed is set: a fresh reconnect's
-                // onConnected() will send `display on` itself, and a stray
-                // wake() during the suppressed window would send a redundant
-                // soft_sleep off + display on pair on a scale that was never
-                // soft-slept.
-                qDebug() << "DE1 woke up - waking scale LCD";
-                physicalScale->wake();
-            } else if (scaleAutoReconnectSuppressed
-                       && !settings.scaleAddress().isEmpty()) {
-                // We deliberately disconnected on DE1 sleep and suppressed the
-                // auto-reconnect — either via keepScaleOn=false (any transport)
-                // or via the keepScaleOn=true + WiFi graceful-close path above.
-                // Re-arm the reconnect sequence now that the DE1 is back.
-                qDebug() << "DE1 woke up - re-arming scale reconnect";
-                scaleAutoReconnectSuppressed = false;
-                // USB primary reconnects via UsbScaleManager, not this BLE/WiFi timer.
-                if (!scaleReconnectTimer.isActive()
-                    && !settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
-                    scaleReconnectAttempt = 0;
-                    scaleReconnectTimer.start(reconnectDelays[0]);
+        } else {
+            // Any non-Sleep, non-Disconnected phase (Idle / Heating / Ready /
+            // Espresso / …). Fire the wake actions exactly once on the first
+            // transition out of Sleep — the destination phase is typically
+            // Phase::Heating (boiler warming) and may never reach Phase::Idle
+            // in a single session, so the previous Phase::Idle-only gate
+            // missed the wake event entirely.
+            if (wasInSleep) {
+                wasInSleep = false;
+                if (physicalScale && physicalScale->isConnected()
+                    && !scaleAutoReconnectSuppressed) {
+                    // The scale stayed connected through DE1 sleep
+                    // (keepScaleOn=true on BT). LCD was turned off by
+                    // disableLcd() — restore it.
+                    qDebug() << "DE1 woke up - waking scale LCD";
+                    physicalScale->wake();
+                } else if (scaleAutoReconnectSuppressed
+                           && !settings.scaleAddress().isEmpty()) {
+                    // We deliberately disconnected on DE1 sleep and suppressed
+                    // the auto-reconnect — either via keepScaleOn=false (any
+                    // transport) or via the keepScaleOn=true + WiFi graceful-
+                    // close path above. Re-arm the reconnect sequence now that
+                    // the DE1 is back. A fresh reconnect's onConnected() will
+                    // send `display on` itself, so no wake() needed here.
+                    qDebug() << "DE1 woke up - re-arming scale reconnect";
+                    scaleAutoReconnectSuppressed = false;
+                    // USB primary reconnects via UsbScaleManager, not this BLE/WiFi timer.
+                    if (!scaleReconnectTimer.isActive()
+                        && !settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) {
+                        scaleReconnectAttempt = 0;
+                        scaleReconnectTimer.start(reconnectDelays[0]);
+                    }
                 }
             }
-            de1EverAwake = true;
-        } else {
             de1EverAwake = true;
         }
     });
