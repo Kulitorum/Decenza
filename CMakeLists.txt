@@ -74,6 +74,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Sql
     Positioning
     WebSockets
+    WebSocketsPrivate
     CanvasPainter
 )
 
@@ -570,6 +571,7 @@ target_link_libraries(Decenza PRIVATE
     Qt6::Sql
     Qt6::Positioning
     Qt6::WebSockets
+    Qt6::WebSocketsPrivate
     Qt6::CanvasPainter
 )
 

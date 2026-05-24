@@ -7,10 +7,18 @@
 #include <QTimer>
 #include <QUrl>
 #include <QAbstractSocket>
+#include <QTcpSocket>
 #include <QHostAddress>
 #include <QThread>
 #include <QPointer>
 #include <algorithm>
+
+// Private headers — reach the QTcpSocket inside QWebSocket so we can set DSCP
+// and TCP_NODELAY (see applyTcpQos). Project already uses Qt private headers
+// elsewhere (QZipReader/QZipWriter) — same pattern, same risks (no API
+// guarantees across Qt versions). Pinned to Qt 6.11.x; revisit on upgrade.
+#include <private/qobject_p.h>
+#include <private/qwebsocket_p.h>
 
 #include "../../network/mdnsresolver.h"
 
@@ -161,8 +169,15 @@ void DecentScaleWifi::disconnectFromScale() {
 }
 
 void DecentScaleWifi::onConnected() {
-    WIFI_LOG("WebSocket connected");
+    const QString peerIp   = m_socket ? m_socket->peerAddress().toString() : QString();
+    const quint16 peerPort = m_socket ? m_socket->peerPort() : 0;
+    const quint16 localPort = m_socket ? m_socket->localPort() : 0;
+    WIFI_LOG(QString("WebSocket connected — peer=%1:%2 localPort=%3")
+             .arg(peerIp).arg(peerPort).arg(localPort));
     setConnected(true);
+
+    // Promote latency-critical traffic to Voice AC via DSCP, and kill Nagle.
+    applyTcpQos();
 
     // Bump to the highest cadence the firmware supports, opt in to events,
     // and seed an initial status frame so battery/firmware_version populate
@@ -450,6 +465,46 @@ bool DecentScaleWifi::send(const QString& text) {
     }
     m_socket->sendTextMessage(text);
     return true;
+}
+
+void DecentScaleWifi::applyTcpQos() {
+    if (!m_socket) {
+        WIFI_WARN(QStringLiteral("applyTcpQos: no QWebSocket — skipping"));
+        return;
+    }
+
+    // Pull the underlying QTcpSocket out of QWebSocketPrivate. Both classes
+    // are private API; the cast pattern (QObjectPrivate::get on the public
+    // object, then downcast to the concrete *Private) is the standard way Qt
+    // itself talks to its d-pointers.
+    auto* d = static_cast<QWebSocketPrivate*>(QObjectPrivate::get(m_socket));
+    QTcpSocket* tcp = d ? d->m_pSocket : nullptr;
+    if (!tcp) {
+        WIFI_WARN(QStringLiteral("applyTcpQos: QWebSocketPrivate has no QTcpSocket — skipping"));
+        return;
+    }
+
+    // DSCP EF (Expedited Forwarding) = 0x2E in the 6-bit DSCP field, which is
+    // 0xB8 when shifted into the 8-bit TOS byte (DSCP occupies the top 6 bits;
+    // the bottom 2 are ECN, left zero). Android/iOS/macOS/Linux/Windows map
+    // this to WMM AC_VO when the AP supports WMM. If the router/AP strips or
+    // ignores DSCP, no harm done — the byte still goes out.
+    constexpr int kDscpEfTosByte = 0xB8;
+    tcp->setSocketOption(QAbstractSocket::TypeOfServiceOption, kDscpEfTosByte);
+    tcp->setSocketOption(QAbstractSocket::LowDelayOption, 1);  // TCP_NODELAY
+
+    // Read back via the same option getters. On platforms that silently
+    // accept-but-discard (e.g. some Android OEM stacks for TOS), the read-back
+    // value won't match what we wrote — that's diagnostically valuable, so
+    // log both regardless.
+    const QVariant tosRead = tcp->socketOption(QAbstractSocket::TypeOfServiceOption);
+    const QVariant lowDelayRead = tcp->socketOption(QAbstractSocket::LowDelayOption);
+
+    WIFI_LOG(QString("applyTcpQos: requested DSCP EF (TOS=0x%1) + TCP_NODELAY; "
+                     "readback TOS=%2 LowDelay=%3")
+             .arg(kDscpEfTosByte, 2, 16, QLatin1Char('0'))
+             .arg(tosRead.isValid() ? QString::number(tosRead.toInt(), 16) : QStringLiteral("<n/a>"))
+             .arg(lowDelayRead.isValid() ? QString::number(lowDelayRead.toInt()) : QStringLiteral("<n/a>")));
 }
 
 void DecentScaleWifi::tare()       { send(QStringLiteral("tare")); }

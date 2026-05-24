@@ -98,6 +98,16 @@ private:
     // Most callers ignore the return value; sleep() uses it to decide whether
     // to log a delivery failure for the power-off command.
     bool send(const QString& text);
+
+    // Reaches into QWebSocketPrivate via the private header to set socket
+    // options on the underlying QTcpSocket: TCP_NODELAY (LowDelayOption) and
+    // DSCP EF (TypeOfServiceOption=0xB8). On Wi-Fi, DSCP→WMM mapping promotes
+    // EF/CS5/CS6 to the Voice AC, which has the shortest backoff timers. The
+    // intent is to tighten the round-trip distribution for time-critical
+    // commands (mainly stop-at-weight). Logs the outcome so we can verify the
+    // options actually took on each platform/router combination. Called from
+    // onConnected() once the underlying TCP socket exists.
+    void applyTcpQos();
     void handleSnapshotFrame(const QJsonObject& obj);
     void handleStatusFrame(const QJsonObject& obj);
     void handleButtonFrame(const QJsonObject& obj);
