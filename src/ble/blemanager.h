@@ -404,6 +404,12 @@ public slots:
     // Called by main.cpp when the DE1's direct-wake connection resolves
     // (connected, or the attempt ended).
     void onDe1ConnectionSettled();
+    // Track whether the DE1 transport is in BLE service+characteristic discovery
+    // and forward the state to a co-resident DecentScale so its heartbeat pauses
+    // for the duration. Wired from DE1Device::serviceDiscoveryActiveChanged in
+    // main.cpp. See #1176 — scale heartbeat writes that race DE1 char discovery
+    // fail with CharacteristicWriteError on weaker radios (Samsung Tab A8).
+    void setDe1ServiceDiscoveryActive(bool active);
     Q_INVOKABLE void scanForDevices();  // User-initiated scan for DE1, scales, and refractometers
     Q_INVOKABLE void startScan();  // Start scanning for DE1 and scales
     void stopScan();
@@ -536,6 +542,7 @@ private:
     bool m_scaleConnectionFailed = false;
     ScaleDevice* m_scaleDevice = nullptr;
     QTimer* m_scaleConnectionTimer = nullptr;
+    bool m_de1ServiceDiscoveryActive = false;
 
     // Saved scale for direct wake connection
     QString m_savedScaleAddress;

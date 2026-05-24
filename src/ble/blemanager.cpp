@@ -2,6 +2,7 @@
 #include "blecapability.h"
 #include "scaledevice.h"
 #include "protocol/de1characteristics.h"
+#include "scales/decentscale.h"
 #include "scales/scalefactory.h"
 #include "refractometers/difluidr2.h"
 #include "../core/settings_hardware.h"
@@ -1026,6 +1027,20 @@ void BLEManager::setScaleDevice(ScaleDevice* scale) {
         // Connect scale's debug log to our logging system
         connect(m_scaleDevice, &ScaleDevice::logMessage,
                 this, &BLEManager::appendScaleLog);
+        // Push current DE1-discovery state immediately so a scale that connects
+        // mid-discovery (e.g. after the gate timed out) starts in the right
+        // pause state instead of waiting for the next edge.
+        if (auto* ds = qobject_cast<DecentScale*>(m_scaleDevice)) {
+            ds->setHeartbeatsPaused(m_de1ServiceDiscoveryActive);
+        }
+    }
+}
+
+void BLEManager::setDe1ServiceDiscoveryActive(bool active) {
+    if (m_de1ServiceDiscoveryActive == active) return;
+    m_de1ServiceDiscoveryActive = active;
+    if (auto* ds = qobject_cast<DecentScale*>(m_scaleDevice)) {
+        ds->setHeartbeatsPaused(active);
     }
 }
 

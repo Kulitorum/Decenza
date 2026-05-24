@@ -398,13 +398,25 @@ void DecentScale::startHeartbeat() {
         m_heartbeatTimer = new QTimer(this);
         m_heartbeatTimer->setInterval(1000);  // Every 1 second like de1app
         connect(m_heartbeatTimer, &QTimer::timeout, this, [this]() {
-            if (m_characteristicsReady) {
+            if (m_characteristicsReady && !m_heartbeatsPaused) {
                 sendHeartbeat();
             }
         });
     }
     DECENT_LOG("Starting heartbeat timer");
     m_heartbeatTimer->start();
+}
+
+void DecentScale::setHeartbeatsPaused(bool paused) {
+    if (m_heartbeatsPaused == paused) return;
+    m_heartbeatsPaused = paused;
+    // Lifted out of the macro arg: SCALE_LOG concatenates with `+`, which binds
+    // tighter than `?:`, so an inline ternary would parse as
+    // `(QString + bool) ? "..." : "..."` and fail to compile.
+    const QString msg = paused
+        ? QStringLiteral("Pausing heartbeats — DE1 BLE discovery in progress")
+        : QStringLiteral("Resuming heartbeats — DE1 BLE discovery complete");
+    DECENT_LOG(msg);
 }
 
 void DecentScale::stopHeartbeat() {

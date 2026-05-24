@@ -25,6 +25,13 @@ public slots:
     void wake() override;
     void disableLcd() override;
     void setLed(int r, int g, int b);
+    // Pause the periodic 1 s heartbeat while DE1 BLE service/char discovery is
+    // in flight. Driven by BLEManager off the DE1 transport's
+    // serviceDiscoveryActiveChanged() signal. The Decent Scale tolerates
+    // skipped heartbeats fine (next tick covers it); a heartbeat write that
+    // races DE1 char discovery, however, fails with CharacteristicWriteError
+    // and disconnects the scale on weaker radios (#1176).
+    void setHeartbeatsPaused(bool paused);
 
 private slots:
     void onTransportConnected();
@@ -70,4 +77,5 @@ private:
     QString m_firmwareVersion;
     QTimer* m_heartbeatTimer = nullptr;
     QTimer* m_watchdogTimer = nullptr;
+    bool m_heartbeatsPaused = false;
 };

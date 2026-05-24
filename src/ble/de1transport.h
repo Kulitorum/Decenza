@@ -138,6 +138,17 @@ signals:
     void de1LinkFault(const QString& kind);
 
     /**
+     * Emitted while the transport is in BLE service + characteristic discovery —
+     * a high-burst window where the local BLE controller is saturated and any
+     * write to a co-resident peer (e.g. a scale on the same adapter) will fail
+     * with CharacteristicWriteError on weaker radios (Samsung Tab A8, #1176).
+     * Consumers (BLEManager → DecentScale heartbeat) pause non-essential scale
+     * writes for the duration. Serial transports never emit this — there is no
+     * radio contention to coordinate around.
+     */
+    void serviceDiscoveryActiveChanged(bool active);
+
+    /**
      * Emitted for debug/diagnostic logging.
      * @param message Log text to be captured by ShotDebugLogger.
      */

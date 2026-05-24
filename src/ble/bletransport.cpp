@@ -252,6 +252,7 @@ void BleTransport::disconnect() {
     }
     m_characteristics.clear();
     m_characteristicsReady = false;
+    setServiceDiscoveryActive(false);
 
     if (m_controller) {
         m_controller->disconnectFromDevice();
@@ -399,6 +400,7 @@ void BleTransport::onControllerDisconnected() {
     m_writeTimeoutTimer.stop();
     m_commandTimer.stop();
     m_characteristicsReady = false;
+    setServiceDiscoveryActive(false);
 
     if (!m_disconnectedEmittedForAttempt) {
         m_disconnectedEmittedForAttempt = true;
@@ -489,6 +491,12 @@ void BleTransport::onControllerError(QLowEnergyController::Error error) {
     }
 #endif
 
+    // A controller error during discovery would otherwise leave
+    // m_serviceDiscoveryActive stuck at true (BlueZ does not always fire a
+    // stateChanged→Unconnected after UnknownRemoteDeviceError). Reset here so
+    // peer scales aren't held in pause forever after a connect-time failure.
+    setServiceDiscoveryActive(false);
+
     // Synthesize disconnected() so the upper layer treats the attempt as
     // terminated. Without this, DE1Device::m_connecting stays true forever
     // after a connect-time error like UnknownRemoteDeviceError, and the
@@ -564,6 +572,7 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                 }
             }, qc);
             log("Starting characteristic discovery for DE1 service");
+            setServiceDiscoveryActive(true);
             m_service->discoverDetails();
         } else {
             warn("ERROR: createServiceObject() returned null for DE1 service UUID");
@@ -601,6 +610,8 @@ void BleTransport::onServiceStateChanged(QLowEnergyService::ServiceState state) 
         setupService();
         m_characteristicsReady = true;
         log(QString("Characteristics ready: %1 registered").arg(m_characteristics.size()));
+        // Discovery window closed — peer scales can resume normal write traffic.
+        setServiceDiscoveryActive(false);
         subscribeAll();
 
 #ifdef Q_OS_ANDROID
@@ -636,6 +647,12 @@ void BleTransport::onCharacteristicWritten(const QLowEnergyCharacteristic& c, co
 }
 
 // -- Private helpers --
+
+void BleTransport::setServiceDiscoveryActive(bool active) {
+    if (m_serviceDiscoveryActive == active) return;
+    m_serviceDiscoveryActive = active;
+    emit serviceDiscoveryActiveChanged(active);
+}
 
 void BleTransport::log(const QString& message) {
     QString msg = QString("[BLE DE1] ") + message;
