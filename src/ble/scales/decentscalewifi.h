@@ -108,6 +108,18 @@ private:
     // options actually took on each platform/router combination. Called from
     // onConnected() once the underlying TCP socket exists.
     void applyTcpQos();
+
+    // Tear down the current m_socket and replace it with a fresh QWebSocket
+    // before each connect attempt. Reusing a single QWebSocket across multiple
+    // open()/abort() cycles surfaces a Qt-internal state-staleness bug where
+    // the next attempt's WS handshake completes against the server, then
+    // immediately closes with peer-close code 1000 + UnknownSocketError(-1)
+    // — likely because Qt's internal close-state/error bookkeeping carries
+    // over from the prior abort(). Observed in production: scale auto-
+    // reconnect loops would fail this way until the scale-type-change path
+    // happened to construct a brand-new DecentScaleWifi (and thus a fresh
+    // QWebSocket), at which point the very next dial succeeded immediately.
+    void recreateSocket();
     void handleSnapshotFrame(const QJsonObject& obj);
     void handleStatusFrame(const QJsonObject& obj);
     void handleButtonFrame(const QJsonObject& obj);

@@ -50,21 +50,21 @@ template struct AccessBypass<WsPrivateSocketTag, &QWebSocketPrivate::m_pSocket>;
 
 DecentScaleWifi::DecentScaleWifi(QObject* parent)
     : ScaleDevice(parent)
-    , m_socket(new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this))
+    , m_socket(nullptr)
     , m_recognitionTimer(new QTimer(this))
 {
     m_recognitionTimer->setSingleShot(true);
     connect(m_recognitionTimer, &QTimer::timeout,
             this, &DecentScaleWifi::onRecognitionTimeout);
 
-    connect(m_socket, &QWebSocket::connected,
-            this, &DecentScaleWifi::onConnected);
-    connect(m_socket, &QWebSocket::disconnected,
-            this, &DecentScaleWifi::onDisconnected);
-    connect(m_socket, &QWebSocket::textMessageReceived,
-            this, &DecentScaleWifi::onTextMessageReceived);
-    connect(m_socket, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::errorOccurred),
-            this, &DecentScaleWifi::onError);
+    // Initial socket — recreateSocket() will swap it on every connect attempt.
+    // Called here rather than deferring to the first attemptTarget() because
+    // several code paths assume m_socket is non-null without a guard
+    // (e.g. onRecognitionTimeout calls m_socket->abort() directly). The
+    // destructor's own check IS null-safe, so this isn't about destructor
+    // safety — it's about the invariant "m_socket is always live" that the
+    // signal handlers rely on.
+    recreateSocket();
 }
 
 DecentScaleWifi::~DecentScaleWifi() {
@@ -116,11 +116,58 @@ void DecentScaleWifi::attemptTarget(const QString& target, bool isHostname) {
     m_lastSocketErrorString.clear();
     if (isHostname) m_triedHostnameFallback = true;
 
+    // Fresh QWebSocket per attempt — see recreateSocket()'s docstring for
+    // the staleness bug this works around. Cheap (microseconds) and
+    // architecturally correct.
+    recreateSocket();
+
     const QUrl url(QStringLiteral("ws://%1/snapshot").arg(target));
     WIFI_LOG(QString("Connecting to %1 (%2)").arg(
         url.toString(), isHostname ? QStringLiteral("hostname") : QStringLiteral("cached IP")));
     m_socket->open(url);
     m_recognitionTimer->start(kRecognitionTimeoutMs);
+}
+
+void DecentScaleWifi::recreateSocket() {
+    // Stop the recognition timer first: if the old socket was mid-attempt,
+    // the timer's onRecognitionTimeout slot would otherwise fire against
+    // the new socket (the slot calls m_socket->abort() which would kill the
+    // fresh attempt).
+    m_recognitionTimer->stop();
+
+    if (m_socket) {
+        // Detach the old socket's signals from this object. These connections
+        // are Qt::AutoConnection → DirectConnection (same thread), so they
+        // fire synchronously, not through the signal queue. The risk we're
+        // guarding against: the underlying QSocketNotifier / QAbstractSocket
+        // may already have a state-change event posted to the event loop
+        // from before we call abort() below. When that event runs, the
+        // dying socket re-emits disconnected/errorOccurred, and without
+        // this disconnect those would invoke onDisconnected/onError against
+        // `this` — which by then references the NEW m_socket, and the stale
+        // event would corrupt the new attempt's state machine.
+        m_socket->disconnect(this);
+        // Hard close (abort) before scheduling deletion — close() is graceful
+        // and would queue a close frame that might race the delete. abort()
+        // tears the TCP down immediately. deleteLater defers destruction past
+        // the current event loop tick, which is safe even while signals from
+        // the old socket are unwinding.
+        if (m_socket->state() != QAbstractSocket::UnconnectedState) {
+            m_socket->abort();
+        }
+        m_socket->deleteLater();
+    }
+
+    m_socket = new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this);
+
+    connect(m_socket, &QWebSocket::connected,
+            this, &DecentScaleWifi::onConnected);
+    connect(m_socket, &QWebSocket::disconnected,
+            this, &DecentScaleWifi::onDisconnected);
+    connect(m_socket, &QWebSocket::textMessageReceived,
+            this, &DecentScaleWifi::onTextMessageReceived);
+    connect(m_socket, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::errorOccurred),
+            this, &DecentScaleWifi::onError);
 }
 
 void DecentScaleWifi::attemptHostname() {
