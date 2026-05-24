@@ -448,10 +448,15 @@ void DecentScaleWifi::wake() {
 }
 
 void DecentScaleWifi::sleep() {
-    send(QStringLiteral("soft_sleep on"));
-    // BLE driver waits for characteristicWritten as the "command left the
-    // radio" ack. The WS analog is sendTextMessage returning — already
-    // happened above. Emit immediately to match BLE's intent.
+    // Firmware-level power off — the WS analog of BT's `0A 02 00`. The scale
+    // must be physically woken via its button afterward; this matches the BT
+    // transport's behavior exactly. `soft_sleep on` is the lighter reversible
+    // state and is wrong here: leaving the ESP32 radio active while the DE1
+    // sleeps drains a battery-only HDS.
+    send(QStringLiteral("{\"command\":\"power\",\"action\":\"off\"}"));
+    // BT waits for `characteristicWritten` as a "command left the radio" ack.
+    // The WS analog is sendTextMessage returning, which already happened above.
+    // Emit immediately to match BT's intent.
     emit sleepCompleted();
 }
 
