@@ -175,6 +175,13 @@ private:
     // (attemptTarget); set in onError only when m_userInitiatedShutdown is false.
     bool m_socketErrorThisConnect = false;
     QString m_lastSocketErrorString;
+    // Set in sleep() when we send the firmware power-off JSON. The scale
+    // echoes back a `power_off` frame (reason "disabled", code 0) on receipt;
+    // without this flag handlePowerFrame would fire a user-facing dialog
+    // saying "Scale shut down: disabled" — noise, because we initiated it.
+    // Consumed-and-cleared in handlePowerFrame; the disconnect path is
+    // already classified expected via m_userInitiatedShutdown.
+    bool m_powerOffInitiatedByApp = false;
 
     IpResolver m_ipResolver;     // hostname → cached IP (or empty)
     IpCacheUpdate m_ipCacheUpdate;  // hostname, ip → side-effect

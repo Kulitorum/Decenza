@@ -507,6 +507,70 @@ private slots:
         QCOMPARE(connectedSpy.count(), initialConnections + 1);
         QVERIFY(!driver.isConnected());
     }
+
+    // After sleep() has armed the app-initiated-power-off latch, the firmware
+    // echoes back a power_off frame (reason "disabled", code 0). The user
+    // already knows — we just told the scale to power off — so the dialog
+    // (errorOccurred) must be suppressed. The disconnect-classification
+    // bookkeeping (m_userInitiatedShutdown) still fires, and a low-level
+    // INFO log records the event for diagnostics.
+    void appInitiatedPowerOffSuppressesDialog() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        QSignalSpy errorSpy(&driver, &ScaleDevice::errorOccurred);
+        connectAndHandshake(driver, server);
+
+        driver.sleep();  // arms m_powerOffInitiatedByApp
+        QTRY_VERIFY(server.received().contains(
+            QStringLiteral("{\"command\":\"power\",\"action\":\"off\"}")));
+
+        server.sendJson({
+            { "type", "power" },
+            { "event", "power_off" },
+            { "reason", "disabled" },
+            { "reason_code", 0 },
+        });
+        QTest::qWait(50);
+
+        QCOMPARE(errorSpy.count(), 0);  // dialog suppressed
+    }
+
+    // The latch is one-shot: after the app-initiated power_off is consumed,
+    // a subsequent firmware-initiated power_off (low battery, button) must
+    // still surface a dialog. Without explicit clearing, a sleep() whose
+    // echo got lost could silently swallow a real shutdown later.
+    void firmwareInitiatedPowerOffStillDialogsAfterAppInitiated() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        QSignalSpy errorSpy(&driver, &ScaleDevice::errorOccurred);
+        connectAndHandshake(driver, server);
+
+        // First: app-initiated, suppressed.
+        driver.sleep();
+        QTRY_VERIFY(server.received().contains(
+            QStringLiteral("{\"command\":\"power\",\"action\":\"off\"}")));
+        server.sendJson({
+            { "type", "power" },
+            { "event", "power_off" },
+            { "reason", "disabled" },
+            { "reason_code", 0 },
+        });
+        QTest::qWait(50);
+        QCOMPARE(errorSpy.count(), 0);
+
+        // Second: firmware-initiated, must dialog. Latch already cleared by
+        // the first frame's consume-and-clear.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(".*Scale shut down: low_battery.*"));
+        server.sendJson({
+            { "type", "power" },
+            { "event", "power_off" },
+            { "reason", "low_battery" },
+            { "reason_code", 3 },
+        });
+        QTest::qWait(50);
+        QCOMPARE(errorSpy.count(), 1);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_DecentScaleWifi)
