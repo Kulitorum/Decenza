@@ -465,21 +465,18 @@ void DecentScaleWifi::handlePowerFrame(const QJsonObject& obj) {
         ? QString("code %1").arg(reasonCode)
         : reason;
 
-    // If we initiated the power-off ourselves via sleep(), the firmware's
-    // echo back to us is not actionable for the user — suppress the dialog
-    // but still log so the diagnostic trail is intact. Consume-and-clear so
-    // a subsequent firmware-initiated power_off (low battery, button) still
-    // surfaces normally.
+    // Consume-and-clear the app-initiated flag so the next firmware-initiated
+    // power_off still logs with full detail. We don't surface a dialog either
+    // way — the existing "Scale Disconnected" notice (only after reconnect
+    // gives up) is the user-facing signal.
     if (m_powerOffInitiatedByApp) {
         m_powerOffInitiatedByApp = false;
-        WIFI_LOG(QString("Scale shut down: %1 (code %2) — app-initiated, dialog suppressed")
+        WIFI_LOG(QString("Scale shut down: %1 (code %2) — app-initiated")
                  .arg(reasonText).arg(reasonCode));
         return;
     }
 
     WIFI_WARN(QString("Scale shut down: %1 (code %2)").arg(reasonText).arg(reasonCode));
-    emit errorOccurred(translateUiString("wifi.scale.error.scaleShutdown",
-        "Scale shut down: %1").arg(reasonText));
 }
 
 void DecentScaleWifi::handleRateFrame(const QJsonObject& obj) {
@@ -641,7 +638,7 @@ void DecentScaleWifi::sleep() {
     // sleeps drains a battery-only HDS.
     //
     // Mark the imminent power_off echo as app-initiated so handlePowerFrame
-    // doesn't pop a "Scale shut down: disabled" dialog at the user. Set
+    // logs at LOG level (we already know about it) rather than WARN. Set
     // BEFORE the send to keep the assignment+send pair locally correct —
     // any future caller or mock that delivers the echo synchronously inside
     // send() still sees the flag set.
@@ -688,13 +685,12 @@ void DecentScaleWifi::onError() {
     const QString errStr = m_socket ? m_socket->errorString() : QStringLiteral("<no socket>");
     WIFI_WARN(QString("WebSocket error: %1 (code %2)").arg(errStr).arg(static_cast<int>(err)));
 
-    // 503 detection — firmware refuses additional clients past its cap. Qt's
-    // WebSocket error path surfaces this in errorString(). Treated as an expected
-    // refusal (we surface a modal), so it must NOT be recorded as a transport
-    // error — return before the transport-error capture below.
+    // 503 detection — firmware refuses additional clients past its cap. Treat
+    // as an expected refusal so it isn't recorded as a transport error, but
+    // don't surface a modal: HDS firmware now allows multiple concurrent
+    // clients, so a 503 in practice means the cap is briefly saturated and the
+    // standard "Scale Disconnected" / FlowScale fallback notice is sufficient.
     if (errStr.contains(QStringLiteral("503"))) {
-        emit errorOccurred(translateUiString("wifi.scale.error.serverBusy",
-            "Another client is connected to the scale"));
         m_userInitiatedShutdown = true;
         return;
     }

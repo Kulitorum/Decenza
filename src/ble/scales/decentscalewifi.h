@@ -189,8 +189,8 @@ private:
     QString m_lastSocketErrorString;
     // Set in sleep() when we send the firmware power-off JSON. The scale
     // echoes back a `power_off` frame (reason "disabled", code 0) on receipt;
-    // without this flag handlePowerFrame would fire a user-facing dialog
-    // saying "Scale shut down: disabled" — noise, because we initiated it.
+    // this flag lets handlePowerFrame log the echo at LOG level (app-initiated)
+    // instead of WARN (firmware-initiated, e.g. low battery / physical button).
     // Consumed-and-cleared in handlePowerFrame; the disconnect path is
     // already classified expected via m_userInitiatedShutdown.
     bool m_powerOffInitiatedByApp = false;

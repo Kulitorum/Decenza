@@ -510,9 +510,9 @@ private slots:
     }
 
     // After sleep() has armed the app-initiated-power-off latch, the firmware
-    // echoes back a power_off frame (reason "disabled", code 0). The user
-    // already knows — we just told the scale to power off — so the dialog
-    // (errorOccurred) must be suppressed.
+    // echoes back a power_off frame (reason "disabled", code 0). No
+    // errorOccurred should ever fire (the dialog path was removed — see the
+    // method-level comment in handlePowerFrame); kept as a regression guard.
     void appInitiatedPowerOffSuppressesDialog() {
         FakeHdsServer server;
         DecentScaleWifi driver;
@@ -536,15 +536,16 @@ private slots:
 
     // The latch is one-shot: after the app-initiated power_off is consumed,
     // a subsequent firmware-initiated power_off (low battery, button) must
-    // still surface a dialog. Without explicit clearing, a sleep() whose
-    // echo got lost could silently swallow a real shutdown later.
+    // log at WARN level (not LOG). ignoreMessage on the WARN regex is what
+    // enforces the level — if the latch leaked, the second frame would log
+    // at LOG and the ignoreMessage would go unmatched, failing the test.
     void firmwareInitiatedPowerOffStillDialogsAfterAppInitiated() {
         FakeHdsServer server;
         DecentScaleWifi driver;
         QSignalSpy errorSpy(&driver, &ScaleDevice::errorOccurred);
         connectAndHandshake(driver, server);
 
-        // First: app-initiated, suppressed.
+        // First: app-initiated.
         driver.sleep();
         QTRY_VERIFY(server.received().contains(
             QStringLiteral("{\"command\":\"power\",\"action\":\"off\"}")));
@@ -555,10 +556,8 @@ private slots:
             { "reason_code", 0 },
         });
         QTest::qWait(50);
-        QCOMPARE(errorSpy.count(), 0);
 
-        // Second: firmware-initiated, must dialog. Latch already cleared by
-        // the first frame's consume-and-clear.
+        // Second: firmware-initiated — must log at WARN (latch cleared).
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(".*Scale shut down: low_battery.*"));
         server.sendJson({
@@ -568,7 +567,7 @@ private slots:
             { "reason_code", 3 },
         });
         QTest::qWait(50);
-        QCOMPARE(errorSpy.count(), 1);
+        QCOMPARE(errorSpy.count(), 0);  // dialog path removed in both cases
     }
 
     // sleep() called while the socket is not connected (common at app exit
@@ -580,8 +579,9 @@ private slots:
     //       waitLoops don't hang
     //   (b) the "not delivered" WARN fires for diagnostics
     //   (c) after reconnecting and receiving a real firmware power_off, the
-    //       dialog still fires — the latch did NOT leak past the failed
-    //       sleep.
+    //       WARN-level log still fires — the latch did NOT leak past the
+    //       failed sleep (a leaked latch would demote the log to LOG and the
+    //       ignoreMessage below would go unmatched, failing the test).
     // Note: this test can't isolate which clear-path did the work — both
     // sleep()'s self-clear-on-failure AND connectToHost()'s reset would
     // independently produce (c). Both are present in the implementation as
@@ -606,7 +606,7 @@ private slots:
         QCOMPARE(sleepSpy.count(), 1);
         QCOMPARE(errorSpy.count(), 0);
 
-        // Now connect and receive a firmware-initiated power_off — must dialog.
+        // Now connect and receive a firmware-initiated power_off — must log at WARN.
         FakeHdsServer server;
         connectAndHandshake(driver, server);
 
@@ -619,7 +619,7 @@ private slots:
             { "reason_code", 3 },
         });
         QTest::qWait(50);
-        QCOMPARE(errorSpy.count(), 1);
+        QCOMPARE(errorSpy.count(), 0);  // dialog path removed
     }
 
     // When the cached-IP dial fires a fatal transient socket error
