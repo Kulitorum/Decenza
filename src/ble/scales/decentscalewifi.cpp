@@ -445,10 +445,10 @@ void DecentScaleWifi::handlePowerFrame(const QJsonObject& obj) {
     if (event != QStringLiteral("power_off")) return;
 
     // Reject malformed power_off frames that omit BOTH the reason string and
-    // the numeric reason code — without either, we can't tell the user why
-    // the scale is going down, and marking the disconnect as "expected" would
-    // hide a potentially-real failure. Let the following unexpected disconnect
-    // log surface so it's diagnosable.
+    // the numeric reason code — without either, we have no diagnostic detail
+    // to log, and marking the disconnect as "expected" would hide a
+    // potentially-real failure. Let the following unexpected disconnect log
+    // surface so it's diagnosable.
     if (reason.isEmpty() && reasonCode == -1) {
         WIFI_WARN("Malformed power_off frame (no reason or reason_code) — "
                   "treating as unexpected disconnect");
@@ -711,9 +711,10 @@ void DecentScaleWifi::onError() {
     // abandoned — BLEManager's per-connect connection timer (onScaleConnectionTimeout)
     // is the backstop: it retries, recovers a still-booting scale, and for a
     // genuinely-gone scale emits the FlowScale-fallback notice that informs the
-    // user. The 503 "another client connected" case handled above is the one
-    // socket error we DO surface here, because the retry loop can never resolve it.
-    // #1253
+    // user. The 503 case handled above takes the same route — drop the link,
+    // let the reconnect ladder retry, fall back to the standard notice if the
+    // cap stays saturated. No socket-error path in this function surfaces a
+    // modal of its own.
     bool fastFailError = false;
     switch (err) {
     case QAbstractSocket::HostNotFoundError:
@@ -763,11 +764,4 @@ void DecentScaleWifi::onError() {
                 Qt::QueuedConnection);
         }
     }
-}
-
-QString DecentScaleWifi::translateUiString(const QString& key, const QString& fallback) const {
-    if (m_uiTranslator) {
-        return m_uiTranslator(key, fallback);
-    }
-    return fallback;
 }

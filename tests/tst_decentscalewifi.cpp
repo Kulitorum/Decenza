@@ -531,7 +531,7 @@ private slots:
         });
         QTest::qWait(50);
 
-        QCOMPARE(errorSpy.count(), 0);  // dialog suppressed
+        QCOMPARE(errorSpy.count(), 0);  // errorOccurred not emitted (dialog path removed)
     }
 
     // The latch is one-shot: after the app-initiated power_off is consumed,
@@ -539,7 +539,7 @@ private slots:
     // log at WARN level (not LOG). ignoreMessage on the WARN regex is what
     // enforces the level — if the latch leaked, the second frame would log
     // at LOG and the ignoreMessage would go unmatched, failing the test.
-    void firmwareInitiatedPowerOffStillDialogsAfterAppInitiated() {
+    void firmwareInitiatedPowerOffStillWarnsAfterAppInitiated() {
         FakeHdsServer server;
         DecentScaleWifi driver;
         QSignalSpy errorSpy(&driver, &ScaleDevice::errorOccurred);
