@@ -59,16 +59,6 @@ public:
     void setIpResolver(IpResolver resolver) { m_ipResolver = std::move(resolver); }
     void setIpCacheUpdate(IpCacheUpdate cb) { m_ipCacheUpdate = std::move(cb); }
 
-    // Optional UI-string translator — when set, user-visible error strings
-    // (those emitted via errorOccurred) are translated via stable i18n keys
-    // with the English text as fallback. Scale debug-log lines (WIFI_LOG /
-    // WIFI_WARN) stay in English — they're diagnostic, not user-facing.
-    // Decoupled from TranslationManager as a std::function so tests can link
-    // this driver without pulling in the full Settings/TranslationManager
-    // stack — matches the IpResolver / IpCacheUpdate pattern above.
-    using UiTranslator = std::function<QString(const QString& key, const QString& fallback)>;
-    void setUiTranslator(UiTranslator translator) { m_uiTranslator = std::move(translator); }
-
 public slots:
     void tare() override;
     void startTimer() override;
@@ -189,17 +179,12 @@ private:
     QString m_lastSocketErrorString;
     // Set in sleep() when we send the firmware power-off JSON. The scale
     // echoes back a `power_off` frame (reason "disabled", code 0) on receipt;
-    // without this flag handlePowerFrame would fire a user-facing dialog
-    // saying "Scale shut down: disabled" — noise, because we initiated it.
+    // this flag lets handlePowerFrame log the echo at LOG level (app-initiated)
+    // instead of WARN (firmware-initiated, e.g. low battery / physical button).
     // Consumed-and-cleared in handlePowerFrame; the disconnect path is
     // already classified expected via m_userInitiatedShutdown.
     bool m_powerOffInitiatedByApp = false;
 
     IpResolver m_ipResolver;     // hostname → cached IP (or empty)
     IpCacheUpdate m_ipCacheUpdate;  // hostname, ip → side-effect
-
-    UiTranslator m_uiTranslator;  // empty by default → falls back to English
-    // Translate `key` with `fallback`. Returns fallback if no UI translator
-    // is set. Use ONLY for user-visible strings (errorOccurred payloads).
-    QString translateUiString(const QString& key, const QString& fallback) const;
 };

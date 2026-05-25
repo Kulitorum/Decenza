@@ -1301,10 +1301,8 @@ ApplicationWindow {
         // wrong instruction.
         Tr { id: trEnableLocation;     key: "main.dialog.enableLocation.title";  fallback: "Enable Location";    visible: false }
         Tr { id: trEnableBluetooth;    key: "main.dialog.enableBluetooth.title"; fallback: "Enable Bluetooth";   visible: false }
-        // Generic title for non-permission errors. Transport-neutral because this
-        // dialog also surfaces WiFi-scale errors (e.g. "WiFi scale not found"),
-        // which are NOT Bluetooth errors. The Location / Bluetooth-permission cases
-        // above keep their specific titles.
+        // Generic title for non-permission errors. The Location /
+        // Bluetooth-permission cases above keep their specific titles.
         Tr { id: trBleErrorGeneric;    key: "main.dialog.bleError.title";        fallback: "Connection Error";   visible: false }
         Tr { id: trErrorPrefix;        key: "common.accessibility.errorPrefix";  fallback: "Error:";             visible: false }
 

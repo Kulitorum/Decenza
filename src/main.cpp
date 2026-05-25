@@ -1472,7 +1472,7 @@ int main(int argc, char *argv[])
 
     // Connect to any supported scale when discovered
     QObject::connect(&bleManager, &BLEManager::scaleDiscovered,
-                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending, &translationManager
+                     [&physicalScale, &flowScale, &machineState, &mainController, &engine, &bleManager, &settings, &timingController, &de1Device, &weightProcessor, &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays, &scaleAutoReconnectSuppressed, &scaleLcdRestorePending
 #ifndef Q_OS_IOS
                      , &usbScaleManager
 #endif
@@ -1543,9 +1543,6 @@ int main(int argc, char *argv[])
                         });
                         wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
                             settings.network()->setWifiScaleIp(host, ip);
-                        });
-                        wifi->setUiTranslator([&translationManager](const QString& key, const QString& fallback) {
-                            return translationManager.translate(key, fallback);
                         });
                         wifi->connectToHost(bleManager.pendingWifiHostname());
                     }
@@ -1769,9 +1766,6 @@ int main(int argc, char *argv[])
                 });
                 wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
                     settings.network()->setWifiScaleIp(host, ip);
-                });
-                wifi->setUiTranslator([&translationManager](const QString& key, const QString& fallback) {
-                    return translationManager.translate(key, fallback);
                 });
                 wifi->connectToHost(hostname);
             }
