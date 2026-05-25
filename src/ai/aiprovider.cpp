@@ -625,13 +625,14 @@ void GeminiProvider::sendRequest(const QJsonObject& requestBody)
     req.setRawHeader("x-goog-api-key", m_apiKey.toUtf8());
     req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
-    // Disable thinking tokens — espresso advice doesn't need extended reasoning
-    // and thinking output billing (~$3.50/MTok) dwarfs standard output ($0.60/MTok).
+    // Gemini 3.x ignores the 2.5-era integer thinkingBudget; it needs the thinkingLevel
+    // enum, else thinking defaults to "medium" (billed at the $9/MTok output rate).
     QJsonObject bodyWithConfig = requestBody;
     QJsonObject thinkingConfig;
-    thinkingConfig["thinkingBudget"] = 0;
+    thinkingConfig["thinkingLevel"] = "minimal";
     QJsonObject generationConfig;
     generationConfig["thinkingConfig"] = thinkingConfig;
+    generationConfig["maxOutputTokens"] = 1024;  // also bounds thinking tokens; matches other providers
     bodyWithConfig["generationConfig"] = generationConfig;
 
     m_retryFn = [this, requestBody]() { sendRequest(requestBody); };
@@ -759,6 +760,12 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
         emit analysisFailed("Gemini error: " + errorMsg);
         return;
     }
+
+    const QJsonObject usage = root["usageMetadata"].toObject();
+    qInfo() << "Gemini usage — prompt:" << usage["promptTokenCount"].toInt()
+            << "thoughts:" << usage["thoughtsTokenCount"].toInt()
+            << "output:" << usage["candidatesTokenCount"].toInt()
+            << "total:" << usage["totalTokenCount"].toInt();
 
     QJsonArray candidates = root["candidates"].toArray();
     if (candidates.isEmpty()) {

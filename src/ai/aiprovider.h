@@ -174,8 +174,8 @@ private:
     void sendRequest(const QJsonObject& requestBody);
 
     QString m_apiKey;
-    static constexpr const char* MODEL = "gemini-2.5-flash";
-    static constexpr const char* MODEL_DISPLAY = "2.5 Flash";
+    static constexpr const char* MODEL = "gemini-3.5-flash";
+    static constexpr const char* MODEL_DISPLAY = "3.5 Flash";
     QString apiUrl() const;
 };
 
