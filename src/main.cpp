@@ -2106,7 +2106,12 @@ int main(int argc, char *argv[])
         usbScaleManager.connectToScale();
     });
 
-    // Forward USB scale manager log messages
+    // Forward USB scale manager log messages to BOTH logs: the scale log (so the
+    // unified Settings scale panel shows USB probe/connect/error diagnostics and
+    // the scale "Share Log" export includes them — appendScaleLog records into
+    // m_scaleLogMessages) and the app/DE1 log (unchanged from before).
+    QObject::connect(&usbScaleManager, &UsbScaleManager::logMessage,
+                     &bleManager, &BLEManager::appendScaleLog);
     QObject::connect(&usbScaleManager, &UsbScaleManager::logMessage,
                      &bleManager, &BLEManager::de1LogMessage);
 #endif // !Q_OS_IOS
