@@ -499,7 +499,7 @@ for per-user baseline comparisons (see §5).
 ### In-App AI Advisor
 
 Built-in advisor (`src/ai/`) with 5 pluggable providers (Claude Sonnet 4.6, GPT-4.1,
-Gemini 2.5 Flash, OpenRouter, Ollama). Supports multi-turn conversations with persistent
+Gemini 3.5 Flash, OpenRouter, Ollama). Supports multi-turn conversations with persistent
 storage (5 slots keyed by bean + profile), dial-in history injection (last 5 same-profile
 shots), and provider-specific prompt caching.
 
