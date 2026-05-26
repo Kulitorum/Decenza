@@ -75,6 +75,10 @@ private:
     // connect (bytes [5-6] of cmd=0x0A, header=0x03). Empty until captured;
     // cleared in onTransportDisconnected so the next connect re-logs it.
     QString m_firmwareVersion;
+    // Last battery byte (d[4] of the same LED-response packet) captured per
+    // connect. -1 sentinel = not yet captured. Used to log the byte once per
+    // connect, then warn-log on any change. Cleared on disconnect.
+    int m_lastBatteryByte = -1;
     QTimer* m_heartbeatTimer = nullptr;
     QTimer* m_watchdogTimer = nullptr;
     bool m_heartbeatsPaused = false;

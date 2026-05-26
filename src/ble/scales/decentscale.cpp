@@ -73,6 +73,7 @@ void DecentScale::onTransportDisconnected() {
     // packet only arrives periodically, but capturing it fresh per connect
     // is what makes the line useful for triage.
     m_firmwareVersion.clear();
+    m_lastBatteryByte = -1;
     setConnected(false);
 }
 
@@ -217,6 +218,36 @@ void DecentScale::parseWeightData(const QByteArray& data) {
         } else if (battByte == 0xFF) {
             setCharging(true);
             setBatteryLevel(100);  // Keep "100" reporting so existing UI bindings don't regress
+        }
+        // Log the raw packet plus the byte we're parsing as battery, so a
+        // "battery reading looks wrong" report can be diagnosed without
+        // inferring from the UI. First LED-response per connect logs once;
+        // subsequent packets warn-log only on change. Same shape as the
+        // firmware-version log below.
+        const int battInt = static_cast<int>(battByte);
+        if (m_lastBatteryByte != battInt) {
+            const QString packet = QStringLiteral("%1 %2 %3 %4 %5 %6 %7")
+                .arg(d[0], 2, 16, QLatin1Char('0'))
+                .arg(d[1], 2, 16, QLatin1Char('0'))
+                .arg(d[2], 2, 16, QLatin1Char('0'))
+                .arg(d[3], 2, 16, QLatin1Char('0'))
+                .arg(d[4], 2, 16, QLatin1Char('0'))
+                .arg(d[5], 2, 16, QLatin1Char('0'))
+                .arg(d[6], 2, 16, QLatin1Char('0'));
+            if (m_lastBatteryByte < 0) {
+                DECENT_LOG(QString("Battery byte d[4]=0x%1 (%2) — LED response raw: %3")
+                           .arg(battByte, 2, 16, QLatin1Char('0'))
+                           .arg(battInt)
+                           .arg(packet));
+            } else {
+                DECENT_WARN(QString("Battery byte changed: 0x%1 -> 0x%2 (%3 -> %4) — LED response raw: %5")
+                            .arg(m_lastBatteryByte, 2, 16, QLatin1Char('0'))
+                            .arg(battByte, 2, 16, QLatin1Char('0'))
+                            .arg(m_lastBatteryByte)
+                            .arg(battInt)
+                            .arg(packet));
+            }
+            m_lastBatteryByte = battInt;
         }
         // Firmware version: bytes [5-6], encoded per openscale (HDS)
         // include/ble.h:730-731 — byte [5] is BCD-packed major (00..99),
