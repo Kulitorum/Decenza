@@ -805,9 +805,16 @@ Item {
                             spacing: Theme.scaled(4)
                             visible: ScaleDevice && ScaleDevice.batteryLevel >= 0 && ScaleDevice.batteryLevel <= 100
 
+                            // While charging, the BT path reports a 0xFF sentinel that our parser
+                            // maps to batteryLevel=100, and the WiFi percent is similarly unreliable
+                            // when plugged in. Mirror ScaleBatteryItem.qml's treatment: swap the
+                            // icon to battery-charging.svg and replace the percent with "Charging".
+                            readonly property bool charging: ScaleDevice && ScaleDevice.charging
+
                             Image {
                                 anchors.verticalCenter: parent.verticalCenter
                                 source: {
+                                    if (parent.charging) return "qrc:/icons/battery-charging.svg"
                                     var level = ScaleDevice ? ScaleDevice.batteryLevel : 0
                                     if (level <= 10) return "qrc:/icons/battery-0.svg"
                                     if (level <= 37) return "qrc:/icons/battery-25.svg"
@@ -821,8 +828,11 @@ Item {
                             }
 
                             Text {
-                                text: (ScaleDevice ? ScaleDevice.batteryLevel : 0) + "%"
+                                text: parent.charging
+                                      ? TranslationManager.translate("scaleBattery.display.charging", "Charging")
+                                      : (ScaleDevice ? ScaleDevice.batteryLevel : 0) + "%"
                                 color: {
+                                    if (parent.charging) return Theme.successColor
                                     var level = ScaleDevice ? ScaleDevice.batteryLevel : 0
                                     if (level > 50) return Theme.successColor
                                     if (level > 20) return Theme.warningColor

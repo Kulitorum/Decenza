@@ -62,6 +62,14 @@ private:
     static constexpr int kWatchdogTickleTimeoutMs = 2000;   // Subsequent: 2s after each update
     static constexpr int kWatchdogMaxRetries = 10;          // Re-enable notifications up to 10 times
     static constexpr int kChecksumFailureThreshold = 5;     // Disable checksum on the Nth consecutive failure (Nth packet is accepted)
+    // Battery polling: the BT scale only reports battery in the LED-response
+    // packet, which it sends in reply to the display-on command. Without
+    // periodic re-polling the value goes stale; piggyback on the 1 s
+    // heartbeat tick — every Nth tick re-send display-on, the scale's reply
+    // refreshes battery. ~4 minutes is a comfortable middle of the 3-5 min
+    // range Jeff asked for, and the heartbeat already stops when the scale
+    // sleeps (sleep() calls stopHeartbeat) so polling auto-pauses too.
+    static constexpr int kBatteryPollHeartbeatTicks = 240;
 
     ScaleBleTransport* m_transport = nullptr;
     QString m_name = "Decent Scale";
@@ -75,6 +83,15 @@ private:
     // connect (bytes [5-6] of cmd=0x0A, header=0x03). Empty until captured;
     // cleared in onTransportDisconnected so the next connect re-logs it.
     QString m_firmwareVersion;
+    // Last battery byte (d[4] of the same LED-response packet) captured per
+    // connect. -1 sentinel = not yet captured. Used to log the byte once per
+    // connect, then warn-log on any change. Cleared on disconnect.
+    int m_lastBatteryByte = -1;
+    // Counts 1 s heartbeat ticks; on every kBatteryPollHeartbeatTicks tick
+    // we re-send the display-on command so the scale replies with a fresh
+    // LED-response packet (which carries the battery byte). Reset in
+    // startHeartbeat() so each new connect/wake starts the interval fresh.
+    int m_ticksSinceBatteryPoll = 0;
     QTimer* m_heartbeatTimer = nullptr;
     QTimer* m_watchdogTimer = nullptr;
     bool m_heartbeatsPaused = false;
