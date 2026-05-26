@@ -12,8 +12,15 @@ Item {
     readonly property bool scaleConnected: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
     readonly property int level: scaleConnected ? ScaleDevice.batteryLevel : -1
     readonly property bool hasLevel: level >= 0 && level <= 100
+    // While charging, the BT path's battery byte is a sentinel (0xFF → 100)
+    // rather than a real percent, so don't show a number — swap to a charging
+    // icon + "Charging" label instead. WiFi reports charging as a first-class
+    // boolean alongside the (real) percent; same UI treatment keeps the widget
+    // transport-neutral.
+    readonly property bool charging: scaleConnected && ScaleDevice.charging
 
     readonly property color levelColor: {
+        if (charging)        return Theme.successColor
         if (!hasLevel) return Theme.textSecondaryColor
         if (level > 50) return Theme.successColor
         if (level > 20) return Theme.warningColor
@@ -21,6 +28,7 @@ Item {
     }
 
     readonly property string iconSource: {
+        if (charging)        return "qrc:/icons/battery-charging.svg"
         if (!hasLevel)       return "qrc:/icons/battery-0.svg"
         if (level <= 10)     return "qrc:/icons/battery-0.svg"
         if (level <= 37)     return "qrc:/icons/battery-25.svg"
@@ -31,6 +39,7 @@ Item {
 
     readonly property string displayText: {
         if (!scaleConnected) return "--"
+        if (charging) return TranslationManager.translate("scaleBattery.display.charging", "Charging")
         if (!hasLevel) return TranslationManager.translate("scaleBattery.display.notAvailable", "N/A")
         return level + "%"
     }
@@ -38,6 +47,8 @@ Item {
     readonly property string accessibleText: {
         if (!scaleConnected)
             return TranslationManager.translate("scaleBattery.accessible.disconnected", "Scale battery: no scale connected")
+        if (charging)
+            return TranslationManager.translate("scaleBattery.accessible.charging", "Scale battery: charging")
         if (!hasLevel)
             return TranslationManager.translate("scaleBattery.accessible.notReported", "Scale battery: not reported by this scale")
         var warning = level <= 20
