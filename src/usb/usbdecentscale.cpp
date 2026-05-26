@@ -282,12 +282,18 @@ void UsbDecentScale::processPacket(const QByteArray& packet)
     } else if (command == 0x0A) {
         // LED response packet (openscale/HDS format):
         // [0]=0x03 header, [1]=0x0A type, [2-3]=weight, [4]=battery, [5-6]=firmware version
-        // Battery: 0-100 = percentage, 0xFF = charging
+        // Battery: 0-100 = percentage, 0xFF = charging.
+        // Drive charging as a first-class signal so the scale battery widget
+        // and Settings → Connections row can swap to the "Charging" icon
+        // and label instead of showing "100%" — matches DecentScale (BLE)
+        // and DecentScaleWifi (WiFi).
         uint8_t battByte = d[4];
         if (battByte <= 100) {
+            setCharging(false);
             setBatteryLevel(battByte);
         } else if (battByte == 0xFF) {
-            setBatteryLevel(100);  // Charging — report as full
+            setCharging(true);
+            setBatteryLevel(100);  // Keep "100" reporting so existing UI bindings don't regress
         }
     } else if (command == 0xAA) {
         // Button press

@@ -446,6 +446,7 @@ private slots:
         // FW: 1.0.2 → wire 0x01 0x02. The exact value doesn't matter for
         // this test — the point is that byte 6 is not validated as a XOR
         // checksum of bytes 0-5 (which it would fail).
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Battery byte d\\[4\\]=.*"));
         QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
         auto pkt = buildDecentLedResponse(60, 1, 0, 2);
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
