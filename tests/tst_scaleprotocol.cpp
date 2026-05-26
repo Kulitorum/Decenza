@@ -162,7 +162,9 @@ private slots:
         // LED-response packet (battery 75%, firmware bytes zero). The
         // helper sets bytes [5-6] to 0x00 0x00 so the firmware-version
         // logger emits "Firmware version: 0.0.0 (raw 0x00 0x00)" — ignored
-        // here so it doesn't pollute test output.
+        // here so it doesn't pollute test output. The first LED response
+        // per connect also debug-logs the parsed battery byte.
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Battery byte d\\[4\\]=.*"));
         QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
         auto pkt = buildDecentLedResponse(75, 0, 0, 0);
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
@@ -180,6 +182,7 @@ private slots:
         // The "battery=100" reporting is preserved so existing UI that reads
         // batteryLevel == 100 keeps working; charging is the new first-class
         // signal that surfaces the underlying state.
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Battery byte d\\[4\\]=.*"));
         QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
         auto pkt = buildDecentLedResponse(0xFF, 0, 0, 0);
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
@@ -198,8 +201,12 @@ private slots:
         // First a charging response, then a normal battery percent — should
         // flip charging back to false. Firmware version is logged once per
         // connect (same value on both packets → no second log to ignore).
+        // First LED response debug-logs the battery byte (0xff); the second
+        // (different byte 0x3c=60) warn-logs the transition.
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Battery byte d\\[4\\]=0xff.*"));
         QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Firmware version:.*"));
         scale.onCharacteristicChanged(Scale::Decent::READ, buildDecentLedResponse(0xFF, 0, 0, 0));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Battery byte changed:.*0xff.*0x3c.*"));
         scale.onCharacteristicChanged(Scale::Decent::READ, buildDecentLedResponse(60, 0, 0, 0));
 
         // Two flips: false→true, then true→false.
@@ -241,6 +248,7 @@ private slots:
 
         QSignalSpy logSpy(&scale, &ScaleDevice::logMessage);
 
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Battery byte d\\[4\\]=.*"));
         QTest::ignoreMessage(QtDebugMsg,
             QRegularExpression(".*Firmware version: 3\\.0\\.9 \\(raw 0x03 0x09\\).*"));
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
@@ -273,6 +281,7 @@ private slots:
         QCOMPARE(static_cast<uint8_t>(pkt[5]), uint8_t(0x12));
         QCOMPARE(static_cast<uint8_t>(pkt[6]), uint8_t(0x34));
 
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Battery byte d\\[4\\]=.*"));
         QTest::ignoreMessage(QtDebugMsg,
             QRegularExpression(".*Firmware version: 12\\.3\\.4 \\(raw 0x12 0x34\\).*"));
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
@@ -286,10 +295,13 @@ private slots:
         auto pkt1 = buildDecentLedResponse(50, 3, 0, 9);
         auto pkt2 = buildDecentLedResponse(50, 3, 1, 0);
 
+        QTest::ignoreMessage(QtDebugMsg, QRegularExpression(".*Battery byte d\\[4\\]=.*"));
         QTest::ignoreMessage(QtDebugMsg,
             QRegularExpression(".*Firmware version: 3\\.0\\.9.*"));
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt1);
 
+        // pkt2 has the same battery byte (50) so no battery log on the
+        // second packet — only the firmware-version warn fires.
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression(".*Firmware version changed mid-connect.*3\\.0\\.9.*3\\.1\\.0.*"));
         scale.onCharacteristicChanged(Scale::Decent::READ, pkt2);

@@ -74,6 +74,7 @@ void DecentScale::onTransportDisconnected() {
     // is what makes the line useful for triage.
     m_firmwareVersion.clear();
     m_lastBatteryByte = -1;
+    m_ticksSinceBatteryPoll = 0;
     setConnected(false);
 }
 
@@ -429,12 +430,21 @@ void DecentScale::startHeartbeat() {
         m_heartbeatTimer = new QTimer(this);
         m_heartbeatTimer->setInterval(1000);  // Every 1 second like de1app
         connect(m_heartbeatTimer, &QTimer::timeout, this, [this]() {
-            if (m_characteristicsReady && !m_heartbeatsPaused) {
-                sendHeartbeat();
+            if (!m_characteristicsReady || m_heartbeatsPaused) return;
+            sendHeartbeat();
+            // Periodic battery refresh: re-send the display-on command every
+            // kBatteryPollHeartbeatTicks (~4 min). The scale replies with an
+            // LED-response packet whose d[4] byte is parsed in parseWeightData
+            // as battery — heartbeat alone never produces this reply.
+            if (++m_ticksSinceBatteryPoll >= kBatteryPollHeartbeatTicks) {
+                m_ticksSinceBatteryPoll = 0;
+                DECENT_LOG("Polling battery (display-on refresh)");
+                sendCommand(QByteArray::fromHex("0A01010001"));
             }
         });
     }
     DECENT_LOG("Starting heartbeat timer");
+    m_ticksSinceBatteryPoll = 0;
     m_heartbeatTimer->start();
 }
 
