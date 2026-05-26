@@ -169,6 +169,12 @@ private:
     int m_settlingWindowCount = 0;
     int m_settlingWindowIndex = 0;
     double m_lastSettlingAvg = 0.0;
+    // Most recent rolling-window avg observed while the stability gate held
+    // (drift < SETTLING_AVG_THRESHOLD, weight ≤ avg + SETTLING_ABOVE_AVG_MARGIN,
+    // avg ≥ m_weightAtStop − 0.5). Used as the cup-removal fallback for
+    // m_weight when the user lifts the cup before SETTLING_STABLE_MS elapses.
+    // 0 ⇒ no clean avg has been observed yet this settling cycle.
+    double m_lastCleanSettlingAvg = 0.0;
     qint64 m_settlingAvgStableSince = 0; // When the rolling avg stopped drifting
     qint64 m_lastDripOngoingLogMs = 0;   // Throttle "drip still ongoing" log to 1/sec
 

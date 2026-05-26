@@ -191,6 +191,87 @@ private slots:
         QVERIFY(tc.isSawSettling());
     }
 
+    void cupLiftMidSettlePreservesLastStableAvg_1280() {
+        // Issue #1280: shot 5470. SAW correctly stopped at 41.2 g and the cup
+        // settled at ~42.3 g for ~700 ms, but the user lifted the cup before
+        // SETTLING_STABLE_MS elapsed. Cup-lift produced scale spike artifacts
+        // (44, 48.4, 51) that ShotTimingController accepted (unlike ShotDataModel
+        // which spike-rejects), then a 38.5 down-step that squeaked under the
+        // 20 g cup-removal threshold, then the final cup-gone -28 reading.
+        // Before this fix, m_weight ended at 38.5 — the AI advisor saw
+        // {yield: 38.5, target: 42} and invented a "you stopped manually"
+        // narrative. The fix preserves the last clean rolling avg (~42.3 g) on
+        // the cup-removed path so finalWeightG reflects what was in the cup.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(41.2, 2.5, 42.0);
+        tc.endShot();
+        QVERIFY(tc.isSawSettling());
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Cup removed during settling"));
+
+        // Sample stream extracted verbatim from shot 5470's debug log
+        // (`[SAW] Settling: <w> g` lines + the final cup-gone reading).
+        const QList<double> samples = {
+            41.5, 41.7, 42.0, 42.2,
+            42.3, 42.3, 42.3, 42.3, 42.3, 42.3, 42.3,
+            42.4, 42.4, 42.5,
+            44.0, 48.4, 51.0,   // cup-lift upward spikes
+            38.5,               // down-step within cup-removal threshold
+            -28.0               // cup gone — triggers cup-removed branch
+        };
+        for (double w : samples)
+            tc.onWeightSample(w, 0.5);
+
+        QVERIFY2(!tc.isSawSettling(),
+                 "Cup-removed branch should have fired and exited settling");
+        QVERIFY2(tc.currentWeight() > 41.5 && tc.currentWeight() < 43.0,
+                 qPrintable(QString(
+                     "Expected ~42.3 g (last clean settled avg), got %1 g — "
+                     "the cup-lift spike artifacts polluted m_weight")
+                     .arg(tc.currentWeight(), 0, 'f', 2)));
+    }
+
+    void cupLiftBeforeAnyCleanAvgFloorsAtStopWeight() {
+        // Edge case: cup lifted before any settling sample satisfies the
+        // stability gate (no clean rolling avg captured). Then a sequence of
+        // small drops walks m_weight below m_weightAtStop before the final
+        // big drop trips cup-removal. Without the floor, m_weight would
+        // persist BELOW the SAW trigger weight — physically impossible since
+        // post-stop drip can only add weight.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(40.0, 3.0, 42.0);
+        tc.endShot();
+        QVERIFY(tc.isSawSettling());
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Cup removed during settling"));
+
+        // Cup wobble samples: each step is under the 20 g cup-removal threshold
+        // (relative to the previous m_weight), so each individual sample is
+        // accepted. m_weight ends up at 25 g (below stop weight 40) before the
+        // final -10 trips cup-removal via the peak-drop arm (peak=42, -10 < 22).
+        tc.onWeightSample(42.0, 0.5);   // m_weight = 42, peak = 42
+        tc.onWeightSample(36.0, 0.5);   // delta -6 < 20, accepted; m_weight = 36
+        tc.onWeightSample(30.0, 0.5);   // delta -6 < 20, accepted; m_weight = 30
+        tc.onWeightSample(25.0, 0.5);   // delta -5 < 20, accepted; m_weight = 25 (< 40)
+        tc.onWeightSample(-10.0, 0.5);  // cup-removed via peak arm (-10 < 42 - 20)
+
+        QVERIFY(!tc.isSawSettling());
+        QVERIFY2(tc.currentWeight() >= 40.0,
+                 qPrintable(QString(
+                     "Expected floor at m_weightAtStop (40.0 g), got %1 g — "
+                     "post-stop drip can only add weight; persisting a value "
+                     "below the SAW trigger weight is physically impossible")
+                     .arg(tc.currentWeight(), 0, 'f', 2)));
+    }
+
     void sawLearningCompleteFiresBeforeShotProcessingReady() {
         // SAW_LEARNING.md requires the [SAW] accuracy / accumulated / committed lines
         // to land in the per-shot debug log. shotProcessingReady triggers stopCapture

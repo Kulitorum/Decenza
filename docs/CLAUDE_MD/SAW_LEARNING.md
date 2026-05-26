@@ -132,6 +132,40 @@ Median rejects single outliers but does not detect the case where the user chang
 
 A new profile starting from `sensorLag(scaleType) + 0.1 s` will be off until 3 shots populate its history (one batch). With `globalSawBootstrapLag`, it starts from "what we have learned about this user's machine on this scale across their other profiles" — a much closer prior. Flow cal uses the same idea (median of espresso per-profile multipliers) and it noticeably reduces the cold-start error.
 
+## Settling and final-weight capture
+
+After SAW fires the stop command, [`ShotTimingController`](../../src/controllers/shottimingcontroller.cpp) runs a settling state machine that watches the scale stabilize. The cup gains a bit more weight from post-stop drip (typically 0.5–1.5 g) before reaching its true final weight, and learning needs both `m_weightAtStop` (the trigger weight) and the settled value (`m_weight`) to compute drip and update the model.
+
+### Stability gate and clean-avg capture
+
+Each settling sample is added to a 6-sample rolling window. The "stable enough to commit" gate fires when all three hold:
+
+- `avgDrift < SETTLING_AVG_THRESHOLD` (0.3 g) — window mean has stopped shifting
+- `weight ≤ avg + SETTLING_ABOVE_AVG_MARGIN` (0.2 g) — current reading has caught up to the mean (drip has effectively stopped)
+- `avg ≥ m_weightAtStop − 0.5` — the average isn't still recovering from pump-vibration artifacts
+
+Once the gate has held for `SETTLING_STABLE_MS = 1000 ms`, `onSettlingComplete` writes `m_weight = avg` and the learning point is committed.
+
+Every time the gate condition is satisfied (even before the 1000 ms accumulates), the avg is also captured into `m_lastCleanSettlingAvg`. This is the last-known-good settled value — held in reserve for the cup-lift case below.
+
+### Final-weight on cup removal
+
+If the user lifts the cup before settling completes, the cup-removal detector fires on a >20 g drop (single-step OR cumulative-from-peak). The handler **skips learning** (a corrupted weight stream can't teach the predictor) but the shot still needs a `finalWeightG` to persist.
+
+Before issue [#1280](https://github.com/Kulitorum/Decenza/issues/1280), `m_weight` was left at whatever value the last accepted sample had. In practice that was often a *cup-lift spike artifact* that squeaked past the 20 g cup-removal threshold — e.g. shot 5470 persisted `38.5 g` even though the cup had actually settled at `42.3 g` for ~700 ms and SAW had correctly stopped at `41.2 g`. The AI advisor then reasoned from `yield=38.5, target=42` and invented a "you stopped manually" narrative.
+
+The cup-removed branch now applies this fallback chain to restore `m_weight`:
+
+1. **Last clean settling avg** — the value captured by the stability gate above. This is the truth when at least one stable sample was observed (the common case for any settle that lasted long enough for the user to lift the cup).
+2. **`m_weightAtStop` floor** — if no clean avg was ever observed (cup lifted before the window filled), raise `m_weight` to at least the SAW trigger weight. Post-stop drip can only add weight; persisting a value below the trigger weight is physically impossible.
+3. **Unchanged** — if the fallback can't help (no SAW trigger captured, or `m_weight` already above stop weight), leave it as today's value.
+
+Learning is still skipped on the cup-removed path — corruption of the post-stop drip measurement is the only reason this branch exists. The fallback only affects the persisted `finalWeightG` (and therefore the AI advisor's `yieldG`, the visualizer export, and `DyeSettings::dyeDrinkWeight`).
+
+### Offline replay
+
+`./shot_eval --settling ~/shot_corpus/*.json` parses the `app.data.debug_log` embedded in each saved shot and replays the settling sample stream offline, printing `recorded` (today's `finalWeightG`) vs `postFix` (what the new fallback chain would persist). Useful for scanning a personal shot corpus for affected shots — most rows will print equal values; cup-lift-mid-settle shots surface with a `***` flag.
+
 ## User Experience
 
 - **Default ON, automatic** — there is no setting; SAW learning is always on.
@@ -173,9 +207,12 @@ A user who hits "Reset all" gets a clean slate (legacy + new keys both wiped) an
 
 - [src/core/settings.h](../../src/core/settings.h) / [src/core/settings.cpp](../../src/core/settings.cpp) — schema, batch accumulator, read-path fallback chain, bootstrap recompute. The new public API mirrors flow cal: `sawLearnedLagFor`, `getExpectedDripFor`, `sawLearningEntriesFor`, `sawModelSource`, `resetSawLearningForProfile`, `globalSawBootstrapLag`, `addSawLearningPoint(…, profileFilename)`.
 - [src/main.cpp](../../src/main.cpp) — wires `ProfileManager::baseProfileName()` into the WeightProcessor snapshot path and the `sawLearningComplete` handler, and emits the per-shot `model:` / `accuracy:` log lines.
+- [src/controllers/shottimingcontroller.cpp](../../src/controllers/shottimingcontroller.cpp) — settling state machine, stability gate, `m_lastCleanSettlingAvg` capture, cup-removed fallback chain (#1280).
 - [qml/pages/settings/SettingsCalibrationTab.qml](../../qml/pages/settings/SettingsCalibrationTab.qml) — Calibration tab UI changes (source suffix, per-profile reset).
 - [src/mcp/mcptools_control.cpp](../../src/mcp/mcptools_control.cpp) — `reset_saw_learning_for_profile` tool.
 - [tests/tst_saw_settings.cpp](../../tests/tst_saw_settings.cpp) — per-pair isolation, batch commit at N=3, dispersion-rejection, bootstrap recompute, fallback chain, reset behaviour, legacy-path preservation.
+- [tests/tst_settling.cpp](../../tests/tst_settling.cpp) — settling-state-machine tests including the #1280 cup-lift-mid-settle regression replays.
+- [tools/shot_eval/main.cpp](../../tools/shot_eval/main.cpp) — `--settling` mode for offline replay against a saved shot corpus.
 
 ## Related
 

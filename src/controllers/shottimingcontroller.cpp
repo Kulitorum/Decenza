@@ -109,6 +109,7 @@ void ShotTimingController::startShot()
     m_lastStableWeight = 0.0;
     m_lastWeightChangeTime = 0;
     m_settlingPeakWeight = 0.0;
+    m_lastCleanSettlingAvg = 0.0;
 
     // Reset tare state (will be set to Complete when tare() is called)
     m_tareState = TareState::Idle;
@@ -214,9 +215,29 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
                        << "peak:" << m_settlingPeakWeight << ") - skipping learning";
             // Cup removal corrupts weight data — bypass learning entirely
             // but still emit signals so the shot is saved.
-            // NOTE: m_weight is intentionally NOT updated here. It retains the last
-            // valid pre-removal reading so the saved shot preserves the correct
-            // final weight. The corrupted `weight` parameter is discarded.
+            //
+            // Restore m_weight to the last clean rolling-window avg so the
+            // saved finalWeightG reflects what was actually in the cup. The
+            // pre-removal m_weight is often a spike-artifact value that
+            // squeaked past the 20 g cup-removal threshold (e.g. shot 5470,
+            // issue #1280, where ShotDataModel-rejected up-spikes still
+            // updated m_weight here, then a 38.5 g down-step landed below
+            // both the actual settle weight and the SAW trigger weight).
+            //
+            // Fallback chain:
+            //   1. last clean settling avg (the truth, when settling had
+            //      time to register at least one stable sample)
+            //   2. m_weightAtStop floor — post-stop drip can only ADD
+            //      weight, so persisting a value below the SAW trigger
+            //      weight is physically impossible
+            //   3. leave m_weight as-is (cup lifted before either signal
+            //      was observable; this is the legacy behavior)
+            if (m_lastCleanSettlingAvg > 0.0) {
+                m_weight = m_lastCleanSettlingAvg;
+            } else if (m_weightAtStop > 0.0 && m_weight < m_weightAtStop) {
+                m_weight = m_weightAtStop;
+            }
+
             m_sawTriggeredThisShot = false;  // Prevent stale SAW state on next operation
             m_sawSettling = false;
             m_settlingTimer.stop();
@@ -291,7 +312,10 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             bool weightAboveAvg = (weight > avg + SETTLING_ABOVE_AVG_MARGIN);
 
             if (avgDrift < SETTLING_AVG_THRESHOLD && !avgBelowStop && !weightAboveAvg) {
-                // Average is stable and current weight is within it - check how long
+                // Average is stable and current weight is within it - check how long.
+                // Capture the clean avg now so we can fall back to it if the user
+                // lifts the cup before SETTLING_STABLE_MS elapses (issue #1280).
+                m_lastCleanSettlingAvg = avg;
                 if (m_settlingAvgStableSince == 0)
                     m_settlingAvgStableSince = now;
 
@@ -474,6 +498,7 @@ void ShotTimingController::startSettlingTimer()
     m_settlingWindowCount = 0;
     m_settlingWindowIndex = 0;
     m_lastSettlingAvg = m_weight;
+    m_lastCleanSettlingAvg = 0.0;  // No clean avg yet this cycle (#1280)
     m_settlingAvgStableSince = 0;
     m_lastDripOngoingLogMs = 0;  // Allow first "drip ongoing" log immediately
 

@@ -1470,6 +1470,76 @@ private slots:
         QVERIFY2(prompt.contains(QStringLiteral("Conversational metadata corrections")),
                  "System prompt must teach the bean-correction acknowledgement rule");
     }
+
+    // -------------------------------------------------------------
+    // #1280: standalone shot block carries stoppedBy so the LLM has a
+    // stop-reason anchor instead of inventing "you stopped manually"
+    // when yieldG looks short. Allowlist mirrors dialing_blocks.cpp.
+    // -------------------------------------------------------------
+    void buildUserPrompt_shotBlock_carriesStoppedByWeight()
+    {
+        QVariantMap shot = makeHealthyShotMap();
+        shot["stoppedBy"] = QStringLiteral("weight");
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        const QJsonObject payload = QJsonDocument::fromJson(prompt.toUtf8()).object();
+        const QJsonObject shotBlock = payload.value(QStringLiteral("shot")).toObject();
+        QCOMPARE(shotBlock.value(QStringLiteral("stoppedBy")).toString(),
+                 QStringLiteral("weight"));
+    }
+
+    void buildUserPrompt_shotBlock_carriesStoppedByManual()
+    {
+        QVariantMap shot = makeHealthyShotMap();
+        shot["stoppedBy"] = QStringLiteral("manual");
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        const QJsonObject shotBlock = QJsonDocument::fromJson(prompt.toUtf8()).object()
+            .value(QStringLiteral("shot")).toObject();
+        QCOMPARE(shotBlock.value(QStringLiteral("stoppedBy")).toString(),
+                 QStringLiteral("manual"));
+    }
+
+    void buildUserPrompt_shotBlock_omitsStoppedByForProfileEnd()
+    {
+        // profileEnd is intentionally omitted from the allowlist — the
+        // rubric at shotsummarizer.cpp:1405 documents that an ABSENT field
+        // means "ran to completion OR DE1 hardware button". Emitting
+        // "profileEnd" explicitly would conflict with that absence semantics.
+        QVariantMap shot = makeHealthyShotMap();
+        shot["stoppedBy"] = QStringLiteral("profileEnd");
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        const QJsonObject shotBlock = QJsonDocument::fromJson(prompt.toUtf8()).object()
+            .value(QStringLiteral("shot")).toObject();
+        QVERIFY2(!shotBlock.contains(QStringLiteral("stoppedBy")),
+                 "profileEnd must NOT serialize to the standalone shot block — "
+                 "the rubric documents absent-field semantics that conflict with it");
+    }
+
+    void buildUserPrompt_shotBlock_omitsStoppedByWhenEmpty()
+    {
+        QVariantMap shot = makeHealthyShotMap();
+        // No stoppedBy key set — projection field defaults to empty string.
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        const QJsonObject shotBlock = QJsonDocument::fromJson(prompt.toUtf8()).object()
+            .value(QStringLiteral("shot")).toObject();
+        QVERIFY2(!shotBlock.contains(QStringLiteral("stoppedBy")),
+                 "empty stoppedBy must not emit the field");
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_ShotSummarizer)

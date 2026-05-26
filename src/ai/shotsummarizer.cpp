@@ -166,9 +166,11 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
                                        const Profile* profile,
                                        const ShotMetadata& metadata,
                                        double doseWeight,
-                                       double finalWeight) const
+                                       double finalWeight,
+                                       const QString& stoppedBy) const
 {
     ShotSummary summary;
+    summary.stoppedBy = stoppedBy;
 
     if (!shotData) {
         return summary;
@@ -388,6 +390,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     summary.drinkEy = shotData.drinkEyPct;
     summary.enjoymentScore = shotData.enjoyment0to100;
     summary.tastingNotes = shotData.espressoNotes;
+    summary.stoppedBy = shotData.stoppedBy;  // #1280: forwarded into buildShotBlock
 
     // Convert curve data
     summary.pressureCurve = variantListToPoints(shotData.pressure);
@@ -693,6 +696,15 @@ static QJsonObject buildShotBlock(const ShotSummary& summary)
     // bounded values. Mirrors `dialing_get_context.bestRecentShot.enjoyment0to100`.
     if (summary.enjoymentScore > 0) shot["enjoyment0to100"] = summary.enjoymentScore;
     if (!summary.tastingNotes.isEmpty()) shot["notes"] = summary.tastingNotes;
+    // #1280: stop-reason anchor. Allowlist matches dialing_blocks.cpp so the
+    // standalone shot block carries the same field set as bestRecentShot /
+    // dialInSessions[].history. "profileEnd" and empty are intentionally
+    // omitted — the rubric at line 1405 documents how the model should treat
+    // an absent field (profile-end vs DE1 hardware button).
+    if (summary.stoppedBy == QStringLiteral("manual")
+        || summary.stoppedBy == QStringLiteral("weight")
+        || summary.stoppedBy == QStringLiteral("volume"))
+        shot["stoppedBy"] = summary.stoppedBy;
     const QJsonObject overallPeaks = buildOverallPeaksBlock(summary);
     if (!overallPeaks.isEmpty()) shot["overallPeaks"] = overallPeaks;
     const QJsonArray phases = buildPhasesBlock(summary);

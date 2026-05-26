@@ -730,6 +730,224 @@ EvaluatedShot evaluate(const LoadedShot& s)
     return ev;
 }
 
+// ---------------------------------------------------------------------------
+// Settling replay (#1280): offline analyzer that reproduces
+// ShotTimingController's settling stability gate against a saved shot's
+// embedded `app.data.debug_log`. Reports the recorded yield, the value the
+// fixed cup-removed handler would persist, and surfaces shots where the
+// recorded value differs from the actual settled weight.
+//
+// Mirrors src/controllers/shottimingcontroller.cpp constants:
+//   SETTLING_WINDOW_SIZE = 6
+//   SETTLING_AVG_THRESHOLD = 0.3 g
+//   SETTLING_ABOVE_AVG_MARGIN = 0.2 g
+//   cup-removal: >20 g single-step drop OR >20 g cumulative drop from peak
+// The stable-branch capture mirrors the same condition (drift below
+// threshold, weight close to avg, avg at/above stop weight).
+// ---------------------------------------------------------------------------
+struct SettlingReport {
+    QString path;
+    QString id;
+    bool hasDebugLog = false;
+    bool hasSawTrigger = false;
+    double stopWeight = 0.0;        // SAW trigger weight from `[SAW] Stop triggered:`
+    double recordedYieldG = 0.0;    // meta.out / totals.weight.last() — what's persisted today
+    double lastCleanAvg = 0.0;      // last rolling-window avg that passed the stability gate
+    double preFixWeight = 0.0;      // what m_weight ends up as in today's code
+    double postFixWeight = 0.0;     // what m_weight would be under the #1280 fallback chain
+    bool cupRemoved = false;        // saw `[SAW] Cup removed during settling`
+    int settlingSamples = 0;
+    QString note;                   // human-readable summary
+};
+
+QString extractDebugLog(const QJsonObject& root)
+{
+    const QJsonObject app = root.value(QStringLiteral("app")).toObject();
+    const QJsonObject data = app.value(QStringLiteral("data")).toObject();
+    return data.value(QStringLiteral("debug_log")).toString();
+}
+
+// Parse a single `[SAW] Settling: "<w>" g delta: "..." avg: "<a>" drift: "<d>" stable: <s> ms`
+// line. Returns false if the line doesn't match. Drift is informational only
+// here — we recompute the stability conditions ourselves so the offline
+// analyzer's gate matches what ShotTimingController would have evaluated
+// even if the log's printed drift was rounded.
+bool parseSettlingLine(const QString& line, double* outWeight, double* outAvg, double* outDrift)
+{
+    // Custom raw-string delimiter `RX(...)RX` so the regex's own `)` chars
+    // inside capture groups don't terminate the literal early.
+    static const QRegularExpression rx(
+        QStringLiteral(R"RX(\[SAW\] Settling:\s*"([-\d.]+)"\s*g\s+delta:\s*"[-\d.]+"\s+avg:\s*"([-\d.]+)"\s+drift:\s*"([-\d.]+)")RX"));
+    const auto m = rx.match(line);
+    if (!m.hasMatch()) return false;
+    *outWeight = m.captured(1).toDouble();
+    *outAvg = m.captured(2).toDouble();
+    *outDrift = m.captured(3).toDouble();
+    return true;
+}
+
+bool parseStopTriggered(const QString& line, double* outWeight)
+{
+    // Two variants in the log: `[SAW-Worker] Stop triggered: weight= X` and
+    // `[SAW] Stop triggered: weight= X`. The bare `[SAW]` form is the one
+    // ShotTimingController emits via onSawTriggered() — that's the value
+    // m_weightAtStop captures. Prefer it.
+    static const QRegularExpression rx(
+        QStringLiteral(R"RX(\[SAW\] Stop triggered:\s*weight=\s*([-\d.]+))RX"));
+    const auto m = rx.match(line);
+    if (!m.hasMatch()) return false;
+    *outWeight = m.captured(1).toDouble();
+    return true;
+}
+
+SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
+{
+    SettlingReport r;
+    r.path = path;
+
+    // Recorded yield: prefer meta.out (the persisted finalWeightG), fall
+    // back to totals.weight.last() so visualizer-format shots still resolve.
+    const QJsonObject meta = root.value(QStringLiteral("meta")).toObject();
+    r.recordedYieldG = toDouble(meta.value(QStringLiteral("out")));
+    if (r.recordedYieldG <= 0.0) {
+        const QJsonArray w = root.value(QStringLiteral("totals")).toObject()
+            .value(QStringLiteral("weight")).toArray();
+        if (!w.isEmpty()) r.recordedYieldG = toDouble(w.last());
+    }
+    r.id = meta.value(QStringLiteral("shot")).toObject().value(QStringLiteral("uuid")).toString();
+    if (r.id.isEmpty()) r.id = QFileInfo(path).baseName();
+
+    const QString log = extractDebugLog(root);
+    if (log.isEmpty()) {
+        r.note = QStringLiteral("no embedded debug_log (visualizer-format shot?)");
+        return r;
+    }
+    r.hasDebugLog = true;
+
+    // State mirroring ShotTimingController during the settling window.
+    constexpr int   SETTLING_WINDOW_SIZE      = 6;
+    constexpr double SETTLING_AVG_THRESHOLD   = 0.3;
+    constexpr double SETTLING_ABOVE_AVG_MARGIN = 0.2;
+    constexpr double CUP_REMOVED_DROP_G       = 20.0;
+
+    double curWeight = 0.0;
+    double peakWeight = 0.0;
+    bool cupRemovedFired = false;
+
+    // Walk every line. Stop accumulating samples after cup-removal so the
+    // post-removal artifacts (which the production code wouldn't see — it
+    // returns at cup-removed) don't pollute the offline view either.
+    const QStringList lines = log.split(QLatin1Char('\n'));
+    for (const QString& line : lines) {
+        if (!r.hasSawTrigger) {
+            double w = 0.0;
+            if (parseStopTriggered(line, &w)) {
+                r.stopWeight = w;
+                r.hasSawTrigger = true;
+                curWeight = 0.0;
+                peakWeight = 0.0;
+                continue;
+            }
+        }
+        if (line.contains(QStringLiteral("Cup removed during settling"))) {
+            cupRemovedFired = true;
+            r.cupRemoved = true;
+            break;
+        }
+        if (!r.hasSawTrigger) continue;
+        double weight = 0.0, avg = 0.0, drift = 0.0;
+        if (!parseSettlingLine(line, &weight, &avg, &drift)) continue;
+
+        // Mirror cup-removal trigger (before m_weight updates) — if it fires
+        // here, the production code would early-return; stop sampling.
+        const bool wouldFireRemoval =
+            (curWeight > CUP_REMOVED_DROP_G && weight < curWeight - CUP_REMOVED_DROP_G) ||
+            (peakWeight > CUP_REMOVED_DROP_G && weight < peakWeight - CUP_REMOVED_DROP_G);
+        if (wouldFireRemoval) {
+            cupRemovedFired = true;
+            r.cupRemoved = true;
+            break;
+        }
+
+        if (weight > peakWeight) peakWeight = weight;
+        curWeight = weight;
+        ++r.settlingSamples;
+
+        // Stability gate — capture the avg only when all three conditions
+        // hold (matches src/controllers/shottimingcontroller.cpp line 313).
+        // Window-fill check approximated by sample count.
+        if (r.settlingSamples < SETTLING_WINDOW_SIZE) continue;
+        const bool avgBelowStop = (r.stopWeight > 0 && avg < r.stopWeight - 0.5);
+        const bool weightAboveAvg = (weight > avg + SETTLING_ABOVE_AVG_MARGIN);
+        if (drift < SETTLING_AVG_THRESHOLD && !avgBelowStop && !weightAboveAvg) {
+            r.lastCleanAvg = avg;
+        }
+    }
+
+    r.preFixWeight = curWeight;
+
+    // Apply the #1280 fallback chain. Only matters on cup-removal — clean
+    // settles already write `m_weight = avg` via onSettlingComplete and the
+    // recorded yield is unchanged.
+    r.postFixWeight = curWeight;
+    if (cupRemovedFired) {
+        if (r.lastCleanAvg > 0.0) {
+            r.postFixWeight = r.lastCleanAvg;
+        } else if (r.stopWeight > 0.0 && curWeight < r.stopWeight) {
+            r.postFixWeight = r.stopWeight;
+        }
+    }
+
+    if (!r.hasSawTrigger)         r.note = QStringLiteral("no SAW trigger in log (non-SAW shot)");
+    else if (!cupRemovedFired)    r.note = QStringLiteral("clean settle");
+    else if (r.lastCleanAvg > 0.0) r.note = QStringLiteral("cup-lifted — recovered last clean avg");
+    else if (r.stopWeight > 0.0 && curWeight < r.stopWeight) r.note = QStringLiteral("cup-lifted — floored at stop weight");
+    else                          r.note = QStringLiteral("cup-lifted — no recovery available");
+
+    return r;
+}
+
+void printSettlingTable(const QList<SettlingReport>& rows, QTextStream& out)
+{
+    out << QStringLiteral("%1  %2  %3  %4  %5  %6  %7  %8\n")
+               .arg("file", -32)
+               .arg("stopW", 6)
+               .arg("recorded", 8)
+               .arg("preFix", 6)
+               .arg("postFix", 7)
+               .arg("Δ", 6)
+               .arg("cupLift", 7)
+               .arg("note");
+    out << QString(120, '-') << '\n';
+    int affected = 0;
+    double totalDelta = 0.0;
+    for (const auto& r : rows) {
+        const QString file = QFileInfo(r.path).fileName().left(32);
+        if (!r.hasSawTrigger) {
+            out << QStringLiteral("%1  %2\n").arg(file, -32).arg(r.note);
+            continue;
+        }
+        const double delta = r.postFixWeight - r.preFixWeight;
+        if (std::abs(delta) >= 0.05) {
+            ++affected;
+            totalDelta += delta;
+        }
+        const QString flag = (std::abs(delta) >= 0.05) ? QStringLiteral("***") : QString();
+        out << QStringLiteral("%1  %2  %3  %4  %5  %6  %7  %8 %9\n")
+                   .arg(file, -32)
+                   .arg(r.stopWeight, 6, 'f', 1)
+                   .arg(r.recordedYieldG, 8, 'f', 1)
+                   .arg(r.preFixWeight, 6, 'f', 1)
+                   .arg(r.postFixWeight, 7, 'f', 1)
+                   .arg(delta, 6, 'f', 1)
+                   .arg(r.cupRemoved ? "yes" : "no", 7)
+                   .arg(r.note, flag);
+    }
+    out << '\n'
+        << QStringLiteral("Summary: %1 shots scanned, %2 affected by #1280 fix, total Δ=%3 g\n")
+               .arg(rows.size()).arg(affected).arg(totalDelta, 0, 'f', 1);
+}
+
 void expandInputPaths(const QStringList& inputs, QStringList& files)
 {
     for (const auto& p : inputs) {
@@ -883,12 +1101,25 @@ int main(int argc, char** argv)
         "the sole input. See tests/data/shots/manifest.json for format.",
         "manifest");
     parser.addOption(validateOpt);
+    QCommandLineOption settlingOpt("settling",
+        "Settling-replay mode (#1280). Parses each shot's embedded "
+        "app.data.debug_log and reports the SAW stop weight, recorded "
+        "yield, today's m_weight at cup-removal, and the value the #1280 "
+        "fallback chain would persist. Useful for scanning a personal shot "
+        "corpus for cup-lift-mid-settle cases. Mutually exclusive with "
+        "--validate.");
+    parser.addOption(settlingOpt);
     parser.process(app);
 
     const QStringList inputs = parser.positionalArguments();
     const bool validating = parser.isSet(validateOpt);
+    const bool settlingMode = parser.isSet(settlingOpt);
     if (inputs.isEmpty() && !validating) {
         parser.showHelp(1);
+    }
+    if (validating && settlingMode) {
+        QTextStream(stderr) << "--validate and --settling are mutually exclusive\n";
+        return 1;
     }
 
     QTextStream out(stdout);
@@ -999,6 +1230,27 @@ int main(int argc, char** argv)
     if (files.isEmpty()) {
         QTextStream(stderr) << "no input files found\n";
         return 1;
+    }
+
+    if (settlingMode) {
+        QList<SettlingReport> rows;
+        rows.reserve(files.size());
+        for (const auto& f : files) {
+            QFile file(f);
+            if (!file.open(QIODevice::ReadOnly)) {
+                QTextStream(stderr) << "skip " << f << ": cannot open\n";
+                continue;
+            }
+            QJsonParseError pe;
+            const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &pe);
+            if (!doc.isObject()) {
+                QTextStream(stderr) << "skip " << f << ": " << pe.errorString() << '\n';
+                continue;
+            }
+            rows.append(analyzeShotSettling(f, doc.object()));
+        }
+        printSettlingTable(rows, out);
+        return 0;
     }
 
     QList<EvaluatedShot> results;
