@@ -316,10 +316,11 @@ private slots:
         // Simulate a frozen-scale fault: a long run of identical samples
         // at 74.8 g (35+ g above stop weight). The gate fires once the
         // rolling window fills (SETTLING_WINDOW_SIZE = 6) and then
-        // consecutively. Need enough samples × qWait that the
-        // post-window-fill interval exceeds SETTLING_CLEAN_CAPTURE_MS
-        // (250 ms): 15 samples × 50 ms = ~9 post-fill intervals × 50 ms
-        // = 450 ms, comfortably above the capture threshold.
+        // consecutively. We need the post-window-fill cumulative qWait
+        // to exceed SETTLING_CLEAN_CAPTURE_MS (250 ms): 15 samples × 50 ms
+        // = 750 ms total wall time; subtracting the first 6 samples that
+        // fill the window leaves 9 post-fill intervals × 50 ms = 450 ms,
+        // comfortably above the 250 ms capture threshold.
         for (int i = 0; i < 15; ++i) {
             tc.onWeightSample(74.8, 0.0);
             QTest::qWait(50);
@@ -381,6 +382,89 @@ private slots:
                      "Expected floor at m_weightAtStop (40.0 g), got %1 g — "
                      "post-stop drip can only add weight; persisting a value "
                      "below the SAW trigger weight is physically impossible")
+                     .arg(tc.currentWeight(), 0, 'f', 2)));
+    }
+
+    void cleanAvgClearedBetweenShots_1280() {
+        // Regression guard for the cross-shot reset invariant. The fix
+        // resets m_lastCleanSettlingAvg = 0.0 in both startShot() and
+        // startSettlingTimer(); if either reset is ever removed during
+        // refactoring, a clean avg captured during shot N could leak into
+        // shot N+1's cup-removal handler — silently overwriting the new
+        // shot's finalWeight with the prior shot's value.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        // Shot N: capture a clean avg via the same QTest::qWait pattern
+        // the _1280 plateau test uses.
+        tc.startShot();
+        tc.onSawTriggered(35.0, 2.5, 36.0);
+        tc.endShot();
+        for (int i = 0; i < 14; ++i) {
+            tc.onWeightSample(36.0, 0.5);
+            QTest::qWait(50);
+        }
+        QVERIFY2(tc.m_lastCleanSettlingAvg > 0.0,
+                 "Capture gate should have fired on the plateau");
+
+        // Start shot N+1 — this must reset the captured value.
+        tc.startShot();
+        QCOMPARE(tc.m_lastCleanSettlingAvg, 0.0);
+
+        // Re-confirm the reset also happens when settling starts (covers
+        // the path where startShot() ran but settling didn't yet).
+        tc.m_lastCleanSettlingAvg = 99.9;
+        tc.onSawTriggered(35.0, 2.5, 36.0);
+        tc.endShot();  // triggers startSettlingTimer()
+        QCOMPARE(tc.m_lastCleanSettlingAvg, 0.0);
+    }
+
+    void cleanAvgSurvivesPostCaptureGateFailure_1280() {
+        // Regression guard for the "captured then disturbed" sequence
+        // Mark's shot 5470 actually had: settling plateau holds for
+        // hundreds of ms (capture fires), THEN the cup-lift artifacts
+        // arrive (gate fails for each spike sample). The captured value
+        // MUST survive that gate failure — otherwise a "tighten the gate"
+        // refactor that clears m_lastCleanSettlingAvg on every gate-fail
+        // would silently break the actual bug class the fix targets.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(41.2, 2.5, 42.0);
+        tc.endShot();
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Cup removed during settling"));
+
+        // Establish the captured value with a stable plateau.
+        for (int i = 0; i < 14; ++i) {
+            tc.onWeightSample(42.3, 0.5);
+            QTest::qWait(50);
+        }
+        const double capturedAvg = tc.m_lastCleanSettlingAvg;
+        QVERIFY2(capturedAvg > 41.0 && capturedAvg < 43.0,
+                 "Plateau should produce a clean avg near 42.3 g");
+
+        // Now feed a few "gate failure" samples that do NOT trigger
+        // cup-removal (deltas under 20 g). Each one should reset
+        // m_settlingAvgStableSince via weightAboveAvg but MUST NOT clear
+        // m_lastCleanSettlingAvg.
+        tc.onWeightSample(44.0, 0.5);  // delta +1.7 from 42.3; weightAboveAvg trips
+        tc.onWeightSample(48.4, 0.5);  // delta +4.4; weightAboveAvg trips
+        tc.onWeightSample(51.0, 0.5);  // delta +2.6; weightAboveAvg trips
+        QCOMPARE(tc.m_lastCleanSettlingAvg, capturedAvg);
+
+        // Cup-removed via single-step drop from 51 to 20 (delta 31 > 20).
+        tc.onWeightSample(20.0, 0.5);
+
+        QVERIFY(!tc.isSawSettling());
+        QVERIFY2(std::abs(tc.currentWeight() - capturedAvg) < 0.1,
+                 qPrintable(QString(
+                     "After post-capture gate failure, cup-removed must "
+                     "restore the pre-disruption captured avg (%1 g), "
+                     "got %2 g")
+                     .arg(capturedAvg, 0, 'f', 2)
                      .arg(tc.currentWeight(), 0, 'f', 2)));
     }
 

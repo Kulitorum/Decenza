@@ -699,8 +699,9 @@ static QJsonObject buildShotBlock(const ShotSummary& summary)
     // #1280: stop-reason anchor. Allowlist matches dialing_blocks.cpp so the
     // standalone shot block carries the same field set as bestRecentShot /
     // dialInSessions[].history. "profileEnd" and empty are intentionally
-    // omitted — the rubric at line 1405 documents how the model should treat
-    // an absent field (profile-end vs DE1 hardware button).
+    // omitted — the system prompt's "stoppedBy → is the yield a real outcome
+    // or a user choice?" rubric documents how the model should treat an
+    // absent field (profile-end vs DE1 hardware button).
     if (summary.stoppedBy == QStringLiteral("manual")
         || summary.stoppedBy == QStringLiteral("weight")
         || summary.stoppedBy == QStringLiteral("volume"))

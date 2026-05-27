@@ -1509,9 +1509,10 @@ private slots:
     void buildUserPrompt_shotBlock_omitsStoppedByForProfileEnd()
     {
         // profileEnd is intentionally omitted from the allowlist — the
-        // rubric at shotsummarizer.cpp:1405 documents that an ABSENT field
-        // means "ran to completion OR DE1 hardware button". Emitting
-        // "profileEnd" explicitly would conflict with that absence semantics.
+        // system prompt's "stoppedBy → real outcome or user choice?" rubric
+        // documents that an ABSENT field means "ran to completion OR DE1
+        // hardware button". Emitting "profileEnd" explicitly would conflict
+        // with that absence semantics.
         QVariantMap shot = makeHealthyShotMap();
         shot["stoppedBy"] = QStringLiteral("profileEnd");
         ShotSummarizer summarizer;
@@ -1539,6 +1540,67 @@ private slots:
             .value(QStringLiteral("shot")).toObject();
         QVERIFY2(!shotBlock.contains(QStringLiteral("stoppedBy")),
                  "empty stoppedBy must not emit the field");
+    }
+
+    void buildUserPrompt_shotBlock_carriesStoppedByVolume()
+    {
+        // The third allowlist case: SAV (stop-at-volume) shots. Without
+        // a dedicated test, a future refactor that converts the three
+        // string comparisons in buildShotBlock into a QSet<QString> and
+        // accidentally lists only {manual, weight} would slip past the
+        // existing two cases.
+        QVariantMap shot = makeHealthyShotMap();
+        shot["stoppedBy"] = QStringLiteral("volume");
+        ShotSummarizer summarizer;
+        const ShotSummary summary =
+            summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        const QJsonObject shotBlock = QJsonDocument::fromJson(prompt.toUtf8()).object()
+            .value(QStringLiteral("shot")).toObject();
+        QCOMPARE(shotBlock.value(QStringLiteral("stoppedBy")).toString(),
+                 QStringLiteral("volume"));
+    }
+
+    void summarize_livePath_carriesStoppedByThroughBuildShotBlock_1280()
+    {
+        // The live `summarize(...)` overload accepts a defaulted `stoppedBy`
+        // parameter (currently passed only from MainController-equivalent
+        // callers post-#1280). Tests for the allowlist behavior on the
+        // saved-shot path exist above; this test guards against the two
+        // paths diverging — if a future refactor changes how the live
+        // path populates `ShotSummary::stoppedBy`, the same allowlist
+        // and serialization must still apply.
+        ShotDataModel model;
+        std::vector<LiveSample> samples;
+        for (double t = 0.0; t <= 8.0; t += 0.1) {
+            samples.push_back({
+                /*t=*/t, /*pressure=*/2.0, /*flow=*/2.0,
+                /*temperature=*/93.0, /*pressureGoal=*/0.0, /*flowGoal=*/2.0,
+                /*temperatureGoal=*/93.0, /*isFlowMode=*/true});
+        }
+        for (double t = 8.0 + 0.1; t <= 28.0 + 1e-9; t += 0.1) {
+            samples.push_back({
+                /*t=*/t, /*pressure=*/9.0, /*flow=*/2.0,
+                /*temperature=*/93.0, /*pressureGoal=*/9.0, /*flowGoal=*/0.0,
+                /*temperatureGoal=*/93.0, /*isFlowMode=*/false});
+        }
+        populateLiveShot(&model, samples,
+            {{0.0, QStringLiteral("Preinfusion"), 0, true},
+             {8.0, QStringLiteral("Pour"), 1, false}},
+            /*finalWeight=*/36.0);
+
+        ShotMetadata metadata;
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarize(&model, /*profile=*/nullptr,
+            metadata, /*doseWeight=*/18.0, /*finalWeight=*/36.0,
+            /*stoppedBy=*/QStringLiteral("weight"));
+
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        const QJsonObject shotBlock = QJsonDocument::fromJson(prompt.toUtf8()).object()
+            .value(QStringLiteral("shot")).toObject();
+        QCOMPARE(shotBlock.value(QStringLiteral("stoppedBy")).toString(),
+                 QStringLiteral("weight"));
     }
 };
 

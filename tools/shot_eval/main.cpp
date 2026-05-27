@@ -742,8 +742,16 @@ EvaluatedShot evaluate(const LoadedShot& s)
 //   SETTLING_AVG_THRESHOLD = 0.3 g
 //   SETTLING_ABOVE_AVG_MARGIN = 0.2 g
 //   cup-removal: >20 g single-step drop OR >20 g cumulative drop from peak
+//   SETTLING_CLEAN_CAPTURE_MS = 250 ms (mirrored here as
+//     MIN_CONSECUTIVE_STABLE_FIRES = 3 — sample-count approximation, see
+//     comment at the declaration for the trade-off vs scale-rate variation)
+//   MAX_PLAUSIBLE_POST_STOP_DRIP_G = 5.0 g (implausibility cap)
 // The stable-branch capture mirrors the same condition (drift below
 // threshold, weight close to avg, avg at/above stop weight).
+//
+// IMPORTANT: when production changes any of the above constants or the
+// cup-removed fallback chain (shottimingcontroller.cpp:240+), update this
+// mirror to match — there is no compile-time link enforcing parity.
 // ---------------------------------------------------------------------------
 struct SettlingReport {
     QString path;
