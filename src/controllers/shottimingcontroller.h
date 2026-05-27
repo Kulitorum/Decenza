@@ -163,6 +163,15 @@ private:
     static constexpr int SETTLING_WINDOW_SIZE = 6;         // ~1.5s of samples at ~4Hz
     static constexpr double SETTLING_AVG_THRESHOLD = 0.3;  // Max avg drift to declare stable (g)
     static constexpr int SETTLING_STABLE_MS = 1000;        // How long avg must be stable (ms)
+    // Minimum time the stability gate must hold continuously before
+    // m_lastCleanSettlingAvg is captured (#1280). Filters out transient
+    // gate-fires during noisy/oscillating settles — a single sample whose
+    // window avg happens to satisfy the gate must NOT be persisted as a
+    // "clean" value to fall back to on cup-removal. 250 ms ≈ 3 consecutive
+    // samples at the typical ~100 ms scale cadence; shorter than
+    // SETTLING_STABLE_MS so the fallback still applies to a 700 ms plateau
+    // (Mark's #1280 case) without waiting for full settlement.
+    static constexpr int SETTLING_CLEAN_CAPTURE_MS = 250;
     static constexpr double SETTLING_ABOVE_AVG_MARGIN = 0.2; // Current weight must be within this of avg to declare stable (g)
     static constexpr int SETTLING_SILENCE_OVERRIDE_MS = 2000; // If weight unchanged for this long, declare stable regardless of avg margin
     double m_settlingWindow[SETTLING_WINDOW_SIZE] = {};

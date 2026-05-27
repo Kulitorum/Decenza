@@ -11,10 +11,18 @@ The system SHALL persist `finalWeightG` as the cup's stable settled weight at sh
 
 #### Scenario: Cup lifted mid-settle falls back to the last clean average
 
-- **GIVEN** the controller has observed at least one clean rolling average (the stability gate above held on at least one settling sample)
+- **GIVEN** the stability gate above has held *continuously* for at least `SETTLING_CLEAN_CAPTURE_MS` (250 ms; approximately 3 consecutive samples at typical scale rates)
+- **AND** the controller has captured that last clean average into `m_lastCleanSettlingAvg`
 - **WHEN** the cup-removal detector fires during settling
 - **THEN** `m_weight` SHALL be restored to that last clean average
 - **AND** `finalWeightG` SHALL equal that value when persisted by `MainController::onShotEnded`
+
+#### Scenario: Transient gate-fires during a noisy settle do not pollute the fallback
+
+- **GIVEN** settling samples whose rolling-window average transiently satisfies the stability gate but breaks again within a single sample (the gate's `m_settlingAvgStableSince` clock resets before `SETTLING_CLEAN_CAPTURE_MS` accumulates)
+- **WHEN** the cup-removal detector fires during settling
+- **THEN** `m_lastCleanSettlingAvg` SHALL still be zero
+- **AND** the fallback chain SHALL fall through to the `m_weightAtStop` floor scenario below
 
 #### Scenario: Cup lifted before any clean average is observed
 

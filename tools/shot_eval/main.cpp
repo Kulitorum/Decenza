@@ -833,6 +833,13 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
     double curWeight = 0.0;
     double peakWeight = 0.0;
     bool cupRemovedFired = false;
+    int consecutiveStableFires = 0;
+    // ShotTimingController's SETTLING_CLEAN_CAPTURE_MS = 250 at ~100 ms per
+    // sample ≈ 3 consecutive stable samples before lastCleanAvg can be
+    // captured. Keeping the offline mirror in sync with production prevents
+    // the tool from reporting "phantom recoveries" on shots whose rolling
+    // avg only transiently met the gate amid noisy settling.
+    constexpr int MIN_CONSECUTIVE_STABLE_FIRES = 3;
 
     // Walk every line. Stop accumulating samples after cup-removal so the
     // post-removal artifacts (which the production code wouldn't see — it
@@ -880,7 +887,11 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
         const bool avgBelowStop = (r.stopWeight > 0 && avg < r.stopWeight - 0.5);
         const bool weightAboveAvg = (weight > avg + SETTLING_ABOVE_AVG_MARGIN);
         if (drift < SETTLING_AVG_THRESHOLD && !avgBelowStop && !weightAboveAvg) {
-            r.lastCleanAvg = avg;
+            ++consecutiveStableFires;
+            if (consecutiveStableFires >= MIN_CONSECUTIVE_STABLE_FIRES)
+                r.lastCleanAvg = avg;
+        } else {
+            consecutiveStableFires = 0;
         }
     }
 

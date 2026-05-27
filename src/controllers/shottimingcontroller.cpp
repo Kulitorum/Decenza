@@ -313,13 +313,19 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
 
             if (avgDrift < SETTLING_AVG_THRESHOLD && !avgBelowStop && !weightAboveAvg) {
                 // Average is stable and current weight is within it - check how long.
-                // Capture the clean avg now so we can fall back to it if the user
-                // lifts the cup before SETTLING_STABLE_MS elapses (issue #1280).
-                m_lastCleanSettlingAvg = avg;
                 if (m_settlingAvgStableSince == 0)
                     m_settlingAvgStableSince = now;
 
                 qint64 avgStableMs = now - m_settlingAvgStableSince;
+                // Capture the clean avg only after the gate has held continuously
+                // for SETTLING_CLEAN_CAPTURE_MS (#1280). Capturing on every gate
+                // fire (the original PR-1282 attempt) over-fired on noisy/oscillating
+                // settles where the window avg transiently satisfied the gate at
+                // values nowhere near the true cup weight; corpus-scan of 953 real
+                // shots showed 4 false-positive captures vs 2 legitimate recoveries
+                // before this guard was added.
+                if (avgStableMs >= SETTLING_CLEAN_CAPTURE_MS)
+                    m_lastCleanSettlingAvg = avg;
                 if (avgStableMs >= SETTLING_STABLE_MS) {
                     qDebug() << "[SAW] Weight settled by avg at" << QString::number(avg, 'f', 1)
                              << "g (avg stable for" << avgStableMs << "ms, current:" << weight << "g)";

@@ -215,16 +215,27 @@ private slots:
 
         // Sample stream extracted verbatim from shot 5470's debug log
         // (`[SAW] Settling: <w> g` lines + the final cup-gone reading).
-        const QList<double> samples = {
+        // The stable-plateau samples are fed with QTest::qWait(30) so the
+        // controller's m_settlingAvgStableSince clock accumulates past
+        // SETTLING_CLEAN_CAPTURE_MS (250 ms). Without the wait the test runs
+        // in microseconds and the clean-avg gate never fires.
+        const QList<double> stableSamples = {
             41.5, 41.7, 42.0, 42.2,
             42.3, 42.3, 42.3, 42.3, 42.3, 42.3, 42.3,
             42.4, 42.4, 42.5,
-            44.0, 48.4, 51.0,   // cup-lift upward spikes
-            38.5,               // down-step within cup-removal threshold
-            -28.0               // cup gone — triggers cup-removed branch
         };
-        for (double w : samples)
+        for (double w : stableSamples) {
             tc.onWeightSample(w, 0.5);
+            QTest::qWait(50);  // ~50 ms × 14 samples = 700 ms; gate must
+                                // cross SETTLING_CLEAN_CAPTURE_MS = 250 ms
+        }
+        // Cup-lift artifacts and removal — run fast, the gate should have
+        // already captured the clean avg from the plateau above.
+        tc.onWeightSample(44.0, 0.5);
+        tc.onWeightSample(48.4, 0.5);
+        tc.onWeightSample(51.0, 0.5);
+        tc.onWeightSample(38.5, 0.5);
+        tc.onWeightSample(-28.0, 0.5);
 
         QVERIFY2(!tc.isSawSettling(),
                  "Cup-removed branch should have fired and exited settling");
@@ -233,6 +244,51 @@ private slots:
                      "Expected ~42.3 g (last clean settled avg), got %1 g — "
                      "the cup-lift spike artifacts polluted m_weight")
                      .arg(tc.currentWeight(), 0, 'f', 2)));
+    }
+
+    void cupLiftAfterNoisyPlateauDoesNotCaptureTransients_1280() {
+        // Regression guard for the corpus-scan finding (PR #1282 review):
+        // shots whose scale was wobbly throughout settling had no real
+        // plateau, but the rolling-window avg occasionally satisfied the
+        // gate transiently. The original capture rule (fire on every
+        // gate match) over-applied the fallback in those cases. With
+        // SETTLING_CLEAN_CAPTURE_MS = 250 ms, a single transient gate
+        // fire MUST NOT update m_lastCleanSettlingAvg — verified by
+        // inspecting the private member via DECENZA_TESTING friend access.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(35.0, 2.5, 36.0);
+        tc.endShot();
+        QVERIFY(tc.isSawSettling());
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Cup removed during settling"));
+
+        // Wobbly samples — the rolling avg may briefly satisfy the gate
+        // but no plateau ever holds for 250 ms. Feed with NO qWait so
+        // m_settlingAvgStableSince never accumulates wall-clock time.
+        const QList<double> noisy = {
+            34.5, 36.0, 33.8, 35.2, 36.4, 33.2, 35.9, 34.0, 36.1, 33.5,
+            45.3,   // cup-lift starts; spike accepted (under 20 g step)
+            44.2, 41.1, 38.4,
+            10.0    // 35.3 g drop from peak 45.3 — cup-removed fires
+        };
+        for (double w : noisy)
+            tc.onWeightSample(w, 0.5);
+
+        QVERIFY(!tc.isSawSettling());
+        // Core invariant: no transient gate fire was promoted to a
+        // captured clean avg. Without SETTLING_CLEAN_CAPTURE_MS, this
+        // would have been set to whatever the rolling avg was at the
+        // single fortuitous moment the gate happened to fire (~34.9 g
+        // for this stream, but could be 47-56 g in corpus shots 908/909).
+        QVERIFY2(tc.m_lastCleanSettlingAvg == 0.0,
+                 qPrintable(QString(
+                     "Transient single-sample gate fires must NOT update "
+                     "m_lastCleanSettlingAvg, got %1 g")
+                     .arg(tc.m_lastCleanSettlingAvg, 0, 'f', 2)));
     }
 
     void cupLiftBeforeAnyCleanAvgFloorsAtStopWeight() {

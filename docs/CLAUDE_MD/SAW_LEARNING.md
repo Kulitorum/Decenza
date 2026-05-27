@@ -146,7 +146,7 @@ Each settling sample is added to a 6-sample rolling window. The "stable enough t
 
 Once the gate has held for `SETTLING_STABLE_MS = 1000 ms`, `onSettlingComplete` writes `m_weight = avg` and the learning point is committed.
 
-Every time the gate condition is satisfied (even before the 1000 ms accumulates), the avg is also captured into `m_lastCleanSettlingAvg`. This is the last-known-good settled value — held in reserve for the cup-lift case below.
+After the gate has held *continuously* for `SETTLING_CLEAN_CAPTURE_MS = 250 ms` (≈ 3 consecutive samples at typical scale rates), each subsequent gate-firing sample also writes the avg into `m_lastCleanSettlingAvg` — the last-known-good settled value held in reserve for the cup-lift case below. The 250 ms minimum filters out single-sample transients where the rolling avg fortuitously satisfies the gate amid noisy settling (a corpus scan of 953 shots found 2/953 such false-positive transients without this guard).
 
 ### Final-weight on cup removal
 
