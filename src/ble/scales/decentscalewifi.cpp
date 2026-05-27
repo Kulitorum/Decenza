@@ -543,9 +543,18 @@ void DecentScaleWifi::onRecognitionTimeout() {
     // — the cached-IP fallback branch above starts a new attempt, so recognition
     // could still succeed there. (#1281)
     WIFI_WARN(QStringLiteral("WiFi scale did not respond as HDS — giving up this attempt"));
-    emit recognitionFailed();
+    // ORDER MATTERS: write internal state and abort the socket BEFORE emitting
+    // recognitionFailed. The signal's only slot (in main.cpp's deferred-
+    // persistence wiring) emits disconnectScaleRequested synchronously, whose
+    // handler calls physicalScale.reset() — destroying THIS object while we're
+    // still on the call stack of onRecognitionTimeout. Any access to `this`
+    // (m_userInitiatedShutdown, m_socket) after the emit would be a use-after-
+    // free. By writing before the emit, we ensure those mutations complete
+    // while `this` is still alive; the implicit function return after the
+    // emit doesn't touch `this`, so it's safe to be destroyed during the emit.
     m_userInitiatedShutdown = true;  // mark expected; reconnect owned by main.cpp
     m_socket->abort();  // Same rationale as the fallback path above.
+    emit recognitionFailed();  // MUST be last — slot may destroy `this`.
 }
 
 int DecentScaleWifi::encodeButton(int buttonNumber, int pressCode) {

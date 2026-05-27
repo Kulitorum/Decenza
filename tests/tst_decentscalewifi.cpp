@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QSignalSpy>
+#include <QPointer>
 #include <QWebSocketServer>
 #include <QWebSocket>
 #include <QHostAddress>
@@ -759,6 +760,50 @@ private slots:
         QVERIFY(failedSpy.wait(8000));
         QCOMPARE(failedSpy.count(), 1);
         QCOMPARE(recognizedSpy.count(), 0);
+    }
+
+    // Regression guard against a use-after-free in onRecognitionTimeout's
+    // give-up branch: the driver MUST mutate its own state (m_userInitiatedShutdown,
+    // m_socket->abort()) BEFORE emitting recognitionFailed. Why: in production
+    // main.cpp wires the signal to a slot that emits disconnectScaleRequested,
+    // whose handler synchronously calls physicalScale.reset() — destroying
+    // `this` while onRecognitionTimeout is still on the stack. Any post-emit
+    // access to a member would be UB. The fix is to do all member writes
+    // first and emit last; this test exercises the destroy-during-emit
+    // pattern so a future re-ordering tripwire is caught by ASan / a flaky
+    // crash here.
+    //
+    // We delete the driver INSIDE the recognitionFailed slot to reproduce
+    // the synchronous-destroy chain. If the driver still touches `this`
+    // after the emit, the read/write is on freed memory.
+    void recognitionFailedSlotMaySafelyDestroyDriver() {
+        SilentServer silent;
+        auto* driver = new DecentScaleWifi();  // raw — we own deletion
+        QPointer<DecentScaleWifi> guard(driver);
+
+        bool slotFired = false;
+        QObject::connect(driver, &DecentScaleWifi::recognitionFailed, this,
+            [&driver, &slotFired]() {
+                slotFired = true;
+                delete driver;       // synchronous destroy — same as production
+                driver = nullptr;    // for hygiene; the test doesn't reuse it
+            },
+            Qt::DirectConnection);   // pin synchronous; AutoConnection would resolve the same way
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(".*No recognizable HDS frame within.*"));
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(".*WiFi scale did not respond as HDS.*"));
+
+        driver->connectToHost(silent.host());
+
+        // Wait past the 5 s recognition window for the give-up branch to fire.
+        // If member writes happen AFTER the emit, the test crashes (UAF) or
+        // ASan reports a use-after-free. If the order is correct, the slot
+        // runs cleanly, the object is destroyed exactly once, and we observe
+        // it via the QPointer.
+        QTRY_VERIFY_WITH_TIMEOUT(slotFired, 8000);
+        QVERIFY(guard.isNull());  // QPointer auto-nulls on QObject destruction
     }
 
     void cachedIpFastFailsToHostnameFallback() {
