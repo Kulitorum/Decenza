@@ -291,6 +291,62 @@ private slots:
                      .arg(tc.m_lastCleanSettlingAvg, 0, 'f', 2)));
     }
 
+    void implausibleCleanAvgIsRejectedAsScaleFault_1280() {
+        // Regression guard for the corpus-scan finding (PR #1282 review):
+        // shot 825 had a scale fault — the cup-on-scale reading froze at
+        // ~75 g for hundreds of milliseconds on a ~40 g target shot. The
+        // stability gate held continuously (gate is purely a window-drift
+        // check, can't tell a real settle from a frozen reading), so
+        // m_lastCleanSettlingAvg got captured at the glitch value.
+        // MAX_PLAUSIBLE_POST_STOP_DRIP_G rejects any captured avg whose
+        // overshoot above m_weightAtStop exceeds physical reality
+        // (real drip is 0.5–3 g, never tens of grams). On rejection the
+        // fallback chain falls through to the m_weightAtStop floor.
+        DE1Device device;
+        ShotTimingController tc(&device);
+
+        tc.startShot();
+        tc.onSawTriggered(39.5, 2.5, 40.0);
+        tc.endShot();
+        QVERIFY(tc.isSawSettling());
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Cup removed during settling"));
+
+        // Simulate a frozen-scale fault: a long run of identical samples
+        // at 74.8 g (35+ g above stop weight). The gate fires once the
+        // rolling window fills (SETTLING_WINDOW_SIZE = 6) and then
+        // consecutively. Need enough samples × qWait that the
+        // post-window-fill interval exceeds SETTLING_CLEAN_CAPTURE_MS
+        // (250 ms): 15 samples × 50 ms = ~9 post-fill intervals × 50 ms
+        // = 450 ms, comfortably above the capture threshold.
+        for (int i = 0; i < 15; ++i) {
+            tc.onWeightSample(74.8, 0.0);
+            QTest::qWait(50);
+        }
+        // Confirm the capture did happen (we DON'T want to silently rely
+        // on the capture gate having filtered it — the plausibility cap
+        // is the layer being tested).
+        QVERIFY2(tc.m_lastCleanSettlingAvg > 70.0,
+                 "Capture gate should have fired on the frozen plateau");
+
+        // Cup-removal trigger: a big drop.
+        tc.onWeightSample(20.0, 0.5);
+
+        QVERIFY(!tc.isSawSettling());
+        // Expected: clean avg (74.8) was rejected because 74.8 - 39.5 = 35.3 g
+        // exceeds MAX_PLAUSIBLE_POST_STOP_DRIP_G (5.0). The entire post-stop
+        // stream is corrupt (m_weight was 74.8 too), so finalWeight snaps
+        // back to the SAW trigger weight (39.5 g) — the only physically
+        // defensible minimum-truth value we have for this shot.
+        QVERIFY2(std::abs(tc.currentWeight() - 39.5) < 0.5,
+                 qPrintable(QString(
+                     "Implausible clean avg (35+ g overshoot) must snap "
+                     "finalWeight to m_weightAtStop (39.5 g), got %1 g — "
+                     "restoring the glitch value would AMPLIFY the bug")
+                     .arg(tc.currentWeight(), 0, 'f', 2)));
+    }
+
     void cupLiftBeforeAnyCleanAvgFloorsAtStopWeight() {
         // Edge case: cup lifted before any settling sample satisfies the
         // stability gate (no clean rolling avg captured). Then a sequence of

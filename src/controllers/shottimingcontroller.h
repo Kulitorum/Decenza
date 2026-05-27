@@ -172,6 +172,14 @@ private:
     // SETTLING_STABLE_MS so the fallback still applies to a 700 ms plateau
     // (Mark's #1280 case) without waiting for full settlement.
     static constexpr int SETTLING_CLEAN_CAPTURE_MS = 250;
+    // Maximum physically plausible post-stop drip (#1280 follow-up). Real
+    // drip is typically 0.5–3 g, even slow-flow profiles stay under ~5 g.
+    // A "stable" rolling avg more than this far above m_weightAtStop is
+    // almost certainly a scale fault (frozen reading, glitch) rather than
+    // a settled cup weight — corpus scan revealed one shot where the
+    // scale froze at ~75 g during settling on a ~40 g target. Reject the
+    // recovery in those cases and fall through to the m_weightAtStop floor.
+    static constexpr double MAX_PLAUSIBLE_POST_STOP_DRIP_G = 5.0;
     static constexpr double SETTLING_ABOVE_AVG_MARGIN = 0.2; // Current weight must be within this of avg to declare stable (g)
     static constexpr int SETTLING_SILENCE_OVERRIDE_MS = 2000; // If weight unchanged for this long, declare stable regardless of avg margin
     double m_settlingWindow[SETTLING_WINDOW_SIZE] = {};

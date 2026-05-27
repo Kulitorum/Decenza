@@ -24,6 +24,13 @@ The system SHALL persist `finalWeightG` as the cup's stable settled weight at sh
 - **THEN** `m_lastCleanSettlingAvg` SHALL still be zero
 - **AND** the fallback chain SHALL fall through to the `m_weightAtStop` floor scenario below
 
+#### Scenario: Implausible clean average is rejected as scale fault
+
+- **GIVEN** a captured `m_lastCleanSettlingAvg` whose overshoot above `m_weightAtStop` exceeds `MAX_PLAUSIBLE_POST_STOP_DRIP_G` (5 g; real drip is typically 0.5–3 g, even slow-flow profiles stay under 5 g)
+- **WHEN** the cup-removal detector fires during settling
+- **THEN** the system SHALL treat the post-stop weight stream as corrupted (scale freeze, drift, or sensor glitch)
+- **AND** `finalWeightG` SHALL snap to `m_weightAtStop` (the only physically defensible minimum-truth value), regardless of whether `m_weight` is currently above or below it
+
 #### Scenario: Cup lifted before any clean average is observed
 
 - **GIVEN** the cup is lifted before the rolling window has filled OR before any sample satisfied the stability gate

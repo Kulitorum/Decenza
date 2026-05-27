@@ -899,11 +899,23 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
 
     // Apply the #1280 fallback chain. Only matters on cup-removal — clean
     // settles already write `m_weight = avg` via onSettlingComplete and the
-    // recorded yield is unchanged.
+    // recorded yield is unchanged. The plausibility cap mirrors
+    // ShotTimingController's MAX_PLAUSIBLE_POST_STOP_DRIP_G.
+    constexpr double MAX_PLAUSIBLE_POST_STOP_DRIP_G = 5.0;
     r.postFixWeight = curWeight;
+    bool cleanAvgRejected = false;
     if (cupRemovedFired) {
-        if (r.lastCleanAvg > 0.0) {
+        const bool haveCleanAvg = r.lastCleanAvg > 0.0;
+        const bool cleanAvgPlausible =
+            haveCleanAvg
+            && (r.stopWeight <= 0.0
+                || (r.lastCleanAvg - r.stopWeight) <= MAX_PLAUSIBLE_POST_STOP_DRIP_G);
+        if (cleanAvgPlausible) {
             r.postFixWeight = r.lastCleanAvg;
+        } else if (haveCleanAvg && r.stopWeight > 0.0) {
+            // Implausible clean avg = scale fault; snap to SAW trigger.
+            cleanAvgRejected = true;
+            r.postFixWeight = r.stopWeight;
         } else if (r.stopWeight > 0.0 && curWeight < r.stopWeight) {
             r.postFixWeight = r.stopWeight;
         }
@@ -911,6 +923,7 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
 
     if (!r.hasSawTrigger)         r.note = QStringLiteral("no SAW trigger in log (non-SAW shot)");
     else if (!cupRemovedFired)    r.note = QStringLiteral("clean settle");
+    else if (cleanAvgRejected)    r.note = QStringLiteral("cup-lifted — clean avg rejected (likely scale fault)");
     else if (r.lastCleanAvg > 0.0) r.note = QStringLiteral("cup-lifted — recovered last clean avg");
     else if (r.stopWeight > 0.0 && curWeight < r.stopWeight) r.note = QStringLiteral("cup-lifted — floored at stop weight");
     else                          r.note = QStringLiteral("cup-lifted — no recovery available");

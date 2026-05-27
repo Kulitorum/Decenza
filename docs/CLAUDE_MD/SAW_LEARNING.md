@@ -156,9 +156,10 @@ Before issue [#1280](https://github.com/Kulitorum/Decenza/issues/1280), `m_weigh
 
 The cup-removed branch now applies this fallback chain to restore `m_weight`:
 
-1. **Last clean settling avg** — the value captured by the stability gate above. This is the truth when at least one stable sample was observed (the common case for any settle that lasted long enough for the user to lift the cup).
-2. **`m_weightAtStop` floor** — if no clean avg was ever observed (cup lifted before the window filled), raise `m_weight` to at least the SAW trigger weight. Post-stop drip can only add weight; persisting a value below the trigger weight is physically impossible.
-3. **Unchanged** — if the fallback can't help (no SAW trigger captured, or `m_weight` already above stop weight), leave it as today's value.
+1. **Last clean settling avg, if plausible** — the value captured by the stability gate above, **provided its overshoot above `m_weightAtStop` does not exceed `MAX_PLAUSIBLE_POST_STOP_DRIP_G = 5 g`**. Real drip is 0.5–3 g; a "stable" reading 10+ g above the trigger weight is almost certainly a scale fault (freeze, drift, sensor glitch), not a settled cup weight.
+2. **Scale-fault snap-to-trigger** — if the clean avg was captured but failed the plausibility check, treat the entire post-stop weight stream as corrupted and set `m_weight = m_weightAtStop`. The corpus scan found one such shot where the scale froze at ~75 g during settling on a ~40 g target; without this guard the fix would amplify the glitch from "recorded yield wrong" to "recorded yield very wrong".
+3. **`m_weightAtStop` floor** — if no clean avg was ever observed (cup lifted before the window filled), raise `m_weight` to at least the SAW trigger weight. Post-stop drip can only add weight; persisting a value below the trigger weight is physically impossible.
+4. **Unchanged** — if the fallback can't help (no SAW trigger captured, or `m_weight` already above stop weight with no implausible clean-avg signal), leave it as today's value.
 
 Learning is still skipped on the cup-removed path — corruption of the post-stop drip measurement is the only reason this branch exists. The fallback only affects the persisted `finalWeightG` (and therefore the AI advisor's `yieldG`, the visualizer export, and `DyeSettings::dyeDrinkWeight`).
 

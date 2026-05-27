@@ -225,15 +225,35 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             // both the actual settle weight and the SAW trigger weight).
             //
             // Fallback chain:
-            //   1. last clean settling avg (the truth, when settling had
-            //      time to register at least one stable sample)
+            //   1. last clean settling avg, ONLY if it's within
+            //      MAX_PLAUSIBLE_POST_STOP_DRIP_G of m_weightAtStop. A
+            //      huge overshoot is almost always a scale fault, not a
+            //      real settled value (corpus scan revealed one such shot
+            //      where the scale froze at ~75 g during settling on a
+            //      ~40 g target — restoring that reading would amplify
+            //      the glitch instead of correcting it).
             //   2. m_weightAtStop floor — post-stop drip can only ADD
             //      weight, so persisting a value below the SAW trigger
-            //      weight is physically impossible
+            //      weight is physically impossible.
             //   3. leave m_weight as-is (cup lifted before either signal
-            //      was observable; this is the legacy behavior)
-            if (m_lastCleanSettlingAvg > 0.0) {
+            //      was observable; this is the legacy behavior).
+            const bool haveCleanAvg = m_lastCleanSettlingAvg > 0.0;
+            const bool cleanAvgPlausible =
+                haveCleanAvg
+                && (m_weightAtStop <= 0.0
+                    || (m_lastCleanSettlingAvg - m_weightAtStop)
+                           <= MAX_PLAUSIBLE_POST_STOP_DRIP_G);
+            if (cleanAvgPlausible) {
                 m_weight = m_lastCleanSettlingAvg;
+            } else if (haveCleanAvg && m_weightAtStop > 0.0) {
+                // The clean avg captured an implausibly large overshoot
+                // (>5 g above SAW trigger) — almost certainly a scale
+                // fault (freeze, drift, sensor glitch). m_weight at the
+                // moment of cup-removal is part of that same corrupt
+                // stream, so snap finalWeight back to the SAW trigger
+                // weight regardless of whether m_weight is currently
+                // above or below it.
+                m_weight = m_weightAtStop;
             } else if (m_weightAtStop > 0.0 && m_weight < m_weightAtStop) {
                 m_weight = m_weightAtStop;
             }
