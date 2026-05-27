@@ -21,7 +21,6 @@
 #include <QTextStream>
 #include <algorithm>
 #include <QDateTime>
-#include <QTcpSocket>
 #include <QWebSocket>
 #include <QJsonDocument>
 #include <QJsonObject>

@@ -66,6 +66,18 @@ signals:
     // "Add WiFi Scale" flow to defer persisting the typed address as the
     // saved primary until we've verified it's a real scale (see #1281).
     void recognizedAsHds();
+    // Emitted from onRecognitionTimeout's "give up THIS attempt" branch —
+    // the WS handshake completed (so onConnected fired and setConnected(true)
+    // was signaled) but no HDS frame arrived within kRecognitionTimeoutMs and
+    // there's no further fallback to try. Mutually exclusive with
+    // recognizedAsHds for a given attempt (the recognition timer is stopped by
+    // onRecognizedAsHds, and the cached-IP fallback branch of
+    // onRecognitionTimeout doesn't emit this — only the terminal give-up
+    // branch does). main.cpp wires this for manual "Add WiFi Scale" entries
+    // because BLEManager's outer 20 s connection timer is stopped at
+    // WS-connect time, so without this signal a manual attempt that connects
+    // to a non-HDS WS endpoint dead-ends silently (#1281 follow-up).
+    void recognitionFailed();
 
 public slots:
     void tare() override;

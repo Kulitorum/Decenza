@@ -530,9 +530,20 @@ void DecentScaleWifi::onRecognitionTimeout() {
 
     // Hostname attempt also failed recognition — give up THIS attempt. Transient
     // connect failure: log it but don't pop a modal. BLEManager's connection timer
-    // (onScaleConnectionTimeout) is the backstop — it retries, and a genuinely-gone
-    // scale is surfaced by the FlowScale-fallback notice. #1253
+    // (onScaleConnectionTimeout) is the backstop for the saved-scale reconnect
+    // case — it retries, and a genuinely-gone scale is surfaced by the
+    // FlowScale-fallback notice. #1253
+    //
+    // For the MANUAL "Add WiFi Scale" path, the outer connection timer has
+    // already been stopped (onScaleConnectedChanged stops it when setConnected(true)
+    // fires from WS-connect, which happens before recognition), so its
+    // manualWifiValidationFailed emission won't fire. Emit recognitionFailed so
+    // main.cpp's deferred-persistence handler can route the failure to the
+    // user-visible dialog. The signal is only meaningful in the give-up branch
+    // — the cached-IP fallback branch above starts a new attempt, so recognition
+    // could still succeed there. (#1281)
     WIFI_WARN(QStringLiteral("WiFi scale did not respond as HDS — giving up this attempt"));
+    emit recognitionFailed();
     m_userInitiatedShutdown = true;  // mark expected; reconnect owned by main.cpp
     m_socket->abort();  // Same rationale as the fallback path above.
 }

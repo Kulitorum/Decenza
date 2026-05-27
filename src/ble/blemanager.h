@@ -21,7 +21,6 @@ class DiFluidR2;
 class SettingsHardware;
 class WifiScaleDiscovery;
 class TranslationManager;
-class QTcpSocket;
 class QWebSocket;
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
 class AppleBtState;

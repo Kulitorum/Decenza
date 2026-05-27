@@ -1783,9 +1783,25 @@ int main(int argc, char *argv[])
                     settings.network()->setWifiScaleIp(host, ip);
                 });
                 // For manual entries: commit the deferred persistence ONLY
-                // after the WS endpoint validates as HDS. SingleShotConnection
-                // because we only need the first recognition of this attempt —
-                // a later reconnect's recognition is a normal re-validate.
+                // after the WS endpoint validates as HDS, and surface a
+                // user-visible failure if validation fails. Both connections
+                // are SingleShotConnection because the driver guarantees
+                // recognizedAsHds and recognitionFailed are mutually exclusive
+                // for a given attempt (recognitionTimer is stopped by
+                // onRecognizedAsHds, and the cached-IP fallback branch of
+                // onRecognitionTimeout doesn't emit recognitionFailed — only
+                // the terminal give-up branch does).
+                //
+                // Why this exists at all: the outer 20 s scale-connection timer
+                // in BLEManager is stopped at WS-connect time (it watches for
+                // "ever connected", not "recognized"), so when a manual entry's
+                // WS handshake succeeds but the endpoint sends no HDS frame in
+                // 5 s (a non-HDS WS server, a captive portal, a future bug),
+                // the manualWifiValidationFailed path through
+                // onScaleConnectionTimeout would never fire. Without the
+                // explicit recognitionFailed wiring below, the user would see
+                // the scale appear connected for ~5 s, then disappear, with no
+                // error and no opportunity to retry. (#1281 follow-up.)
                 if (deferPersistence) {
                     QObject::connect(wifi, &DecentScaleWifi::recognizedAsHds,
                                      &bleManager,
@@ -1797,6 +1813,18 @@ int main(int argc, char *argv[])
                         settings.setPrimaryScale(deviceId);
                         bleManager.setSavedScaleAddress(deviceId, type, displayName);
                         emit bleManager.manualWifiValidationSucceeded(hostname);
+                    },
+                    Qt::SingleShotConnection);
+                    QObject::connect(wifi, &DecentScaleWifi::recognitionFailed,
+                                     &bleManager,
+                                     [&bleManager, hostname]() {
+                        qDebug() << "Manual WiFi scale failed HDS recognition:" << hostname;
+                        bleManager.appendScaleLog(
+                            QString("Manual WiFi scale at %1 connected but did not respond as HDS").arg(hostname));
+                        emit bleManager.manualWifiValidationFailed(hostname);
+                        // The driver's onRecognitionTimeout aborts the socket
+                        // itself, so the half-open scale tears down on its
+                        // own; we don't need to emit disconnectScaleRequested here.
                     },
                     Qt::SingleShotConnection);
                 }
