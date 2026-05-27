@@ -1157,18 +1157,12 @@ Item {
                                     border.width: 1
                                 }
 
-                                // Custom indicator (chevron) replacing the default
-                                // so we don't end up with two stacked chevrons.
-                                indicator: Text {
-                                    x: scalePicker.width - width - Theme.scaled(10)
-                                    y: (scalePicker.height - height) / 2
-                                    text: "\u25BC"
-                                    font.pixelSize: Theme.scaled(10)
-                                    color: Theme.textSecondaryColor
-                                }
+                                // Suppress the default style indicator entirely
+                                // and draw a single chevron at the end of the
+                                // contentItem layout, so there's only one arrow.
+                                indicator: Item { width: 0; height: 0 }
 
-                                // Closed-state content: live status dot + name + transport badge.
-                                // The chevron is drawn by `indicator` above.
+                                // Closed-state content: live status dot + name + transport badge + chevron.
                                 contentItem: RowLayout {
                                     spacing: Theme.scaled(6)
 
@@ -1208,7 +1202,6 @@ Item {
                                         height: Theme.scaled(18)
                                         radius: Theme.scaled(9)
                                         color: Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.22)
-                                        Layout.rightMargin: Theme.scaled(24)
                                         Text {
                                             id: badgeText
                                             anchors.centerIn: parent
@@ -1217,6 +1210,14 @@ Item {
                                             font.pixelSize: Theme.scaled(10)
                                             font.bold: true
                                         }
+                                    }
+
+                                    Text {
+                                        Layout.rightMargin: Theme.scaled(10)
+                                        text: "\u25BC"
+                                        font.pixelSize: Theme.scaled(10)
+                                        color: Theme.textSecondaryColor
+                                        Accessible.ignored: true
                                     }
                                 }
 
