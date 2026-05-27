@@ -132,6 +132,7 @@ private:
     void recreateSocket();
     void handleSnapshotFrame(const QJsonObject& obj);
     void handleStatusFrame(const QJsonObject& obj);
+    void handleSessionInfoFrame(const QJsonObject& obj);
     void handleButtonFrame(const QJsonObject& obj);
     void handlePowerFrame(const QJsonObject& obj);
     void handleRateFrame(const QJsonObject& obj);
@@ -175,8 +176,14 @@ private:
     int m_resolveGeneration = 0;
 
     QString m_name = QStringLiteral("Half Decent Scale (WiFi)");
-    QString m_firmwareVersion;   // cached per-connect; cleared on disconnect
-    int m_loggedProtoVersion = -1;  // protocol version last logged this connect; reset on disconnect
+    // firmware_version, protocol_version, and reset_reason all arrive in the
+    // session_info frame on every connect (newer firmware) and previously rode
+    // along in the status frame (older firmware still does). Cached per-connect
+    // so the same value arriving twice (e.g. status + session_info on a
+    // transitional firmware) doesn't spam the log; cleared on disconnect.
+    QString m_firmwareVersion;
+    int m_loggedProtoVersion = -1;
+    QString m_lastResetReason;
     // One sample of each distinct non-snapshot frame "type" is logged per
     // connect (see onTextMessageReceived) so the firmware's actual WS surface
     // is visible — notably whether it ever sends a status frame carrying

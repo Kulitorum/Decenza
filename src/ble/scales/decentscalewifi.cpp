@@ -330,6 +330,7 @@ void DecentScaleWifi::onDisconnected() {
     // Clear per-connect state so the next connect re-captures it fresh.
     m_firmwareVersion.clear();
     m_loggedProtoVersion = -1;
+    m_lastResetReason.clear();
     m_loggedFrameShapes.clear();
     m_lastPowerEventReason.clear();
     m_lastPowerEventCode = -1;
@@ -378,6 +379,8 @@ void DecentScaleWifi::onTextMessageReceived(const QString& message) {
 
     if (type == QStringLiteral("status")) {
         handleStatusFrame(obj);
+    } else if (type == QStringLiteral("session_info")) {
+        handleSessionInfoFrame(obj);
     } else if (type == QStringLiteral("button")) {
         handleButtonFrame(obj);
     } else if (type == QStringLiteral("power")) {
@@ -433,6 +436,54 @@ void DecentScaleWifi::handleStatusFrame(const QJsonObject& obj) {
         if (v != m_loggedProtoVersion) {
             m_loggedProtoVersion = v;
             WIFI_LOG(QString("Protocol version: %1").arg(v));
+        }
+    }
+}
+
+// Newer firmware separates connect-time identity (firmware_version,
+// protocol_version) and the boot-cause (reset_reason) into its own session_info
+// frame, sent unsolicited right after the WS handshake; the live status frame
+// no longer carries firmware_version / protocol_version. Older firmware put
+// them in status — handleStatusFrame still reads them there. Both paths assign
+// to the same m_firmwareVersion / m_loggedProtoVersion members with
+// change-detection, so a transitional firmware that sends both shapes only
+// logs once.
+void DecentScaleWifi::handleSessionInfoFrame(const QJsonObject& obj) {
+    onRecognizedAsHds();
+
+    const QJsonValue fwv = obj.value(QStringLiteral("firmware_version"));
+    if (fwv.isString()) {
+        const QString version = fwv.toString();
+        if (!version.isEmpty() && m_firmwareVersion != version) {
+            if (m_firmwareVersion.isEmpty()) {
+                WIFI_LOG(QString("Firmware version: %1").arg(version));
+            } else {
+                WIFI_WARN(QString("Firmware version changed mid-connect: %1 -> %2")
+                          .arg(m_firmwareVersion, version));
+            }
+            m_firmwareVersion = version;
+        }
+    }
+
+    const QJsonValue pv = obj.value(QStringLiteral("protocol_version"));
+    if (pv.isDouble()) {
+        const int v = pv.toInt();
+        if (v != m_loggedProtoVersion) {
+            m_loggedProtoVersion = v;
+            WIFI_LOG(QString("Protocol version: %1").arg(v));
+        }
+    }
+
+    // reset_reason is the scale's boot-cause for the current session (e.g.
+    // "poweron", "brownout", "watchdog"). Useful for triage — a watchdog reset
+    // mid-session that we recover from looks identical at the WS layer to a
+    // user power-cycling the scale; reset_reason disambiguates them.
+    const QJsonValue rr = obj.value(QStringLiteral("reset_reason"));
+    if (rr.isString()) {
+        const QString reason = rr.toString();
+        if (!reason.isEmpty() && m_lastResetReason != reason) {
+            m_lastResetReason = reason;
+            WIFI_LOG(QString("Scale reset reason: %1").arg(reason));
         }
     }
 }

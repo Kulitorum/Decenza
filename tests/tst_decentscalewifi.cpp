@@ -371,6 +371,50 @@ private slots:
         QTest::qWait(50);
     }
 
+    // session_info is the new firmware's connect-time identity frame — it
+    // carries firmware_version, protocol_version, and reset_reason. The live
+    // status frame on new firmware no longer carries firmware_version /
+    // protocol_version, so without parsing session_info the scale log would
+    // never capture them on connect.
+    void sessionInfoFrameLogsFirmwareProtocolAndResetReason() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        connectAndHandshake(driver, server);
+
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Firmware version: FW: 3\\.0\\.9.*"));
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Protocol version: 1.*"));
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Scale reset reason: poweron.*"));
+        server.sendJson({
+            { "type", "session_info" },
+            { "firmware_version", "FW: 3.0.9" },
+            { "protocol_version", 1 },
+            { "reset_reason", "poweron" },
+        });
+        QTest::qWait(50);
+
+        // Re-sending the same session_info must not re-log — change-detection
+        // gates each field. Any further qDebug here would fail the test because
+        // no further ignoreMessage is queued.
+        server.sendJson({
+            { "type", "session_info" },
+            { "firmware_version", "FW: 3.0.9" },
+            { "protocol_version", 1 },
+            { "reset_reason", "poweron" },
+        });
+        QTest::qWait(50);
+
+        // A mid-connect reset_reason CHANGE must surface (a watchdog-induced
+        // reset mid-session is exactly what reset_reason exists to disambiguate
+        // from a clean power-cycle).
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Scale reset reason: watchdog.*"));
+        server.sendJson({{ "type", "session_info" }, { "reset_reason", "watchdog" }});
+        QTest::qWait(50);
+    }
+
     // Regression: the real firmware's status frame ALSO carries a `grams` field
     // (openscale README). Snapshots are distinguished by the ABSENCE of `type`,
     // so a status-with-grams must still reach the status handler — keying on the
