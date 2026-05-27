@@ -288,6 +288,24 @@ Item {
                         wrapMode: Text.Wrap
                     }
 
+                    // "Searching the network..." indicator shown while the
+                    // mDNS probe is in flight and we haven't found anything
+                    // yet. Replaced by the discovered-scale banner below once
+                    // mdnsFound flips true; hidden entirely once the probe
+                    // finishes without a result.
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.scaled(20)
+                        Layout.rightMargin: Theme.scaled(20)
+                        Layout.topMargin: Theme.scaled(12)
+                        visible: addWifiScaleDialog.mdnsSearching && !addWifiScaleDialog.mdnsFound
+                        text: TranslationManager.translate("settings.bluetooth.mdnsSearching",
+                                                           "Searching the network for a scale...")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                        font.italic: true
+                    }
+
                     // mDNS-discovered scale suggestion. Saves the user from
                     // typing (and from typos that would fail validation) when
                     // the scale is responding to mDNS on the LAN.
@@ -467,11 +485,16 @@ Item {
             if (addWifiScaleDialog.opened) addWifiScaleDialog.close()
         }
         function onManualWifiMdnsDiscovered(hostname, ip) {
-            // Only surface the suggestion if the user still has the dialog open
-            // and hasn't already started typing — otherwise we'd jump under their
-            // fingers. The field is empty on open, so this catches the common
-            // "just opened the dialog and waiting" case.
+            // Only surface the suggestion if the user still has the dialog
+            // open AND hasn't started typing — otherwise the banner would
+            // pop in under their fingers, distracting from the address they
+            // were entering. (The field is empty on open, so the common
+            // "opened-and-waiting" case still gets the banner.)
             if (!addWifiScaleDialog.opened) return
+            if (wifiScaleHostField.text.length > 0) {
+                addWifiScaleDialog.mdnsSearching = false
+                return
+            }
             addWifiScaleDialog.mdnsHostname = hostname
             addWifiScaleDialog.mdnsIp = ip
             addWifiScaleDialog.mdnsSearching = false

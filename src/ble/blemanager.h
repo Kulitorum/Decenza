@@ -105,11 +105,14 @@ public:
 
     // Proactive WiFi-primary switch-back (driven by main.cpp's idle poll when
     // we're on the BLE backup but the saved primary is a WiFi scale):
-    //  - probeWifiPrimaryReachable() does a NON-disruptive TCP liveness check of
-    //    the WiFi scale's cached IP:80 (the HDS web/WS port). It never touches the
-    //    live BLE link, so a failed probe leaves the working backup untouched.
-    //    Reports the outcome via wifiPrimaryReachable() at most once per probe (a
-    //    probe superseded by a later call is cancelled without emitting).
+    //  - probeWifiPrimaryReachable() does a NON-disruptive HDS identity check:
+    //    opens ws://<ip>/snapshot and requires a valid HDS frame (snapshot or
+    //    status) within ~3.5 s. It never touches the live BLE link, so a failed
+    //    probe leaves the working backup untouched. Reports the outcome via
+    //    wifiPrimaryReachable() at most once per probe (a probe superseded by a
+    //    later call is cancelled without emitting). A bare TCP-open on port 80
+    //    is NOT enough — any LAN device listening on 80 (router, printer, NAS)
+    //    would pass that gate; #1281 needed the actual HDS-frame validation.
     //  - switchToWifiPrimary() drops the current backup scale and connects the
     //    saved WiFi primary via the cached-IP fast path. Call only after a
     //    reachable probe (and a re-check that we're still idle on the backup).
@@ -336,12 +339,20 @@ public:
     // WiFi Scale" dialog), without requiring it to be in the discovered list. A
     // bare name with no dot gets ".local" appended (matching the discovery
     // default "hds.local"); IPs and dotted names pass through. Arms the connection
-    // timer so a wrong/unreachable host fails visibly ("Not found" + FlowScale
-    // notice) instead of silently — WiFi socket errors are otherwise log-only
-    // (#1253). Unlike a saved WiFi scale this does NOT fall back to a BLE scan on
-    // failure (the user asked for a specific WiFi address). As with any scale
-    // connect, main.cpp records it in Known Devices + as primary when the connect
-    // is initiated, not on success.
+    // timer so a wrong/unreachable host surfaces as `manualWifiValidationFailed`
+    // (driving the QML "Couldn't verify a scale at <address>" dialog) instead
+    // of silently — WiFi socket errors are otherwise log-only (#1253). Unlike a
+    // saved WiFi scale this does NOT fall back to a BLE scan on failure (the
+    // user asked for a specific WiFi address).
+    //
+    // Unlike BLE or saved-scale WiFi connects, persistence is DEFERRED for
+    // manual entries: main.cpp's scaleDiscovered handler does NOT call
+    // addKnownScale / setPrimaryScale / setSavedScaleAddress at connect
+    // initiation. Instead, those run only after `DecentScaleWifi::recognizedAsHds`
+    // fires (validating that the typed endpoint is really an HDS scale). If
+    // recognition never arrives, `manualWifiValidationFailed` is emitted and
+    // the address is NOT saved as the primary — a typo or wrong IP can't
+    // poison the saved state. (#1281)
     Q_INVOKABLE void connectToWifiScale(const QString& hostnameOrIp);
     // Fire an mDNS probe for the HDS in parallel with the "Add WiFi Scale"
     // dialog. If the scale is on the LAN, this surfaces it to the user so

@@ -179,14 +179,16 @@ private:
     QString m_lastPowerEventReason;
     int m_lastPowerEventCode = -1;
     // Set on intentional shutdown paths so onDisconnected logs the close as
-    // expected and skips noisy follow-up handling. Six sites set this to
+    // expected and skips noisy follow-up handling. Seven sites set this to
     // true: disconnectFromScale (user close), handlePowerFrame (scale told
     // us it's powering down), attemptHostname (Android mDNS resolution found
     // no responder), onRecognitionTimeout fallback branch (cached IP didn't
     // validate → switching to hostname), onRecognitionTimeout give-up branch
-    // (hostname also failed), and onError (503 server-busy and the mapped
-    // socket-error paths). Reconnect itself is owned by main.cpp's
-    // scaleReconnectTimer — this flag does not gate reconnect.
+    // (hostname also failed), onError 503 early-return (server-busy), and
+    // onError cached-IP-eviction branch (any non-503 error on a cached-IP
+    // attempt → evict the cached IP and fall back to hostname; see #1281).
+    // Reconnect itself is owned by main.cpp's scaleReconnectTimer — this flag
+    // does not gate reconnect.
     bool m_userInitiatedShutdown = false;
     // Whether a GENUINE transport error (errorOccurred not caused by our own
     // abort()/close()) fired during this connection. onDisconnected uses it to

@@ -1323,10 +1323,13 @@ int main(int argc, char *argv[])
     // backup (the WiFi->BLE fallback connected after WiFi was unreachable),
     // periodically check — only while the machine is idle (idle page, never
     // mid-shot) — whether the WiFi scale is reachable again, and hop back if so.
-    // The check (BLEManager::probeWifiPrimaryReachable → a TCP dial of the cached
-    // IP) is non-disruptive: it never touches the live BLE link, so a failed
-    // check leaves the working backup untouched. This is genuine periodic polling
-    // (for an external availability change), not a timer-as-guard.
+    // The check (BLEManager::probeWifiPrimaryReachable → a WebSocket HDS-identity
+    // probe against ws://<cached-ip>/snapshot, requiring a valid HDS frame
+    // within ~3.5 s) is non-disruptive: it never touches the live BLE link, so
+    // a failed check leaves the working backup untouched. A bare TCP-open on
+    // port 80 was the old check; it false-positived against any LAN device on
+    // 80 and triggered the WiFi↔BLE thrash in #1281. This is genuine periodic
+    // polling (for an external availability change), not a timer-as-guard.
     QTimer wifiPreferTimer;
     constexpr int kWifiPreferIntervalMs = 30000;  // re-check every 30 s while armed
 
@@ -1822,9 +1825,18 @@ int main(int argc, char *argv[])
                         bleManager.appendScaleLog(
                             QString("Manual WiFi scale at %1 connected but did not respond as HDS").arg(hostname));
                         emit bleManager.manualWifiValidationFailed(hostname);
-                        // The driver's onRecognitionTimeout aborts the socket
-                        // itself, so the half-open scale tears down on its
-                        // own; we don't need to emit disconnectScaleRequested here.
+                        // The driver's onRecognitionTimeout aborts the WS
+                        // socket, but the DecentScaleWifi object itself stays
+                        // alive as `physicalScale` until something resets the
+                        // unique_ptr. Without this emit, that zombie disconnected
+                        // driver would survive the failed validation — and the
+                        // next reconnect-timer / scaleDiscovered tick would
+                        // re-route into the type-unchanged branch and re-dial
+                        // the unvalidated hostname against the same dead object.
+                        // disconnectScaleRequested's handler clears
+                        // BLEManager's reference and resets physicalScale, so
+                        // the next manual attempt starts from a clean slate.
+                        emit bleManager.disconnectScaleRequested();
                     },
                     Qt::SingleShotConnection);
                 }
