@@ -969,7 +969,8 @@ Item {
                         }
                     }
 
-                    // Connected BLE scale name + battery
+                    // Connected scale name + battery (transport-agnostic; the
+                    // header above already routes BLE/WiFi/USB through this same row).
                     RowLayout {
                         Layout.fillWidth: true
                         visible: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
@@ -1139,6 +1140,7 @@ Item {
 
                                 Accessible.role: Accessible.ComboBox
                                 Accessible.name: primaryLabel()
+                                Accessible.focusable: true
 
                                 onActivated: function(index) {
                                     var scales = Settings.knownScales
@@ -1223,9 +1225,19 @@ Item {
 
                                 // Per-row delegate: star (filled on primary) + name + transport badge.
                                 delegate: ItemDelegate {
+                                    id: scaleRowDelegate
                                     width: scalePicker.width
                                     height: scalePicker.rowHeight
                                     highlighted: scalePicker.highlightedIndex === index
+
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: (modelData.name || modelData.type)
+                                                     + " " + scalePicker.transportLabel(modelData.type)
+                                                     + (modelData.isPrimary
+                                                        ? ", " + TranslationManager.translate("connections.primary", "primary")
+                                                        : "")
+                                    Accessible.focusable: true
+                                    Accessible.onPressAction: scaleRowDelegate.clicked()
 
                                     contentItem: RowLayout {
                                         spacing: Theme.scaled(8)
@@ -1246,6 +1258,7 @@ Item {
                                             font.bold: modelData.isPrimary
                                             elide: Text.ElideRight
                                             verticalAlignment: Text.AlignVCenter
+                                            Accessible.ignored: true
                                         }
 
                                         Rectangle {
@@ -1255,6 +1268,7 @@ Item {
                                             height: Theme.scaled(18)
                                             radius: Theme.scaled(9)
                                             color: Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.2)
+                                            Accessible.ignored: true
                                             Text {
                                                 id: rowBadgeText
                                                 anchors.centerIn: parent
