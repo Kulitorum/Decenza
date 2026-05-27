@@ -154,6 +154,12 @@ private:
 
     static constexpr int kRecognitionTimeoutMs = 5000;
     static constexpr int kWifiButtonFlag = 0x1000;
+    // Battery-poll cadence: every Nth base-class keep-alive tick we request a
+    // `status` frame from the firmware (which no longer auto-pushes status).
+    // Base-class keepAliveTimer ticks at 30 s; 8 ticks → 240 s, matching the
+    // BT driver's effective ~4 min battery poll (kBatteryPollHeartbeatTicks =
+    // 240 × 1 s heartbeat). Reset on each connect cycle.
+    static constexpr int kBatteryPollKeepAliveTicks = 8;
 
     QWebSocket* m_socket = nullptr;
     QTimer* m_recognitionTimer = nullptr;
@@ -206,6 +212,10 @@ private:
     // Consumed-and-cleared in handlePowerFrame; the disconnect path is
     // already classified expected via m_userInitiatedShutdown.
     bool m_powerOffInitiatedByApp = false;
+    // Counts base-class keep-alive ticks since the last `status` request; on
+    // every kBatteryPollKeepAliveTicks tick we re-send `status` so the scale
+    // refreshes battery/charging. Reset in onConnected() and onDisconnected().
+    int m_ticksSinceBatteryPoll = 0;
 
     IpResolver m_ipResolver;     // hostname → cached IP (or empty)
     IpCacheUpdate m_ipCacheUpdate;  // hostname, ip → side-effect
