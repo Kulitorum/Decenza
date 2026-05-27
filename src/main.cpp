@@ -2773,12 +2773,16 @@ int main(int argc, char *argv[])
             batteryManager.ensureChargerOn();
 
             // Capture a debug snapshot from the WiFi scale right before we
-            // background. The scale WS stays connected through suspension on
-            // platforms with sufficient grace (Android foreground service, iOS
-            // bluetooth-central background mode), so the response usually lands
-            // in handleDebugFrame and gets logged before the event loop is
-            // frozen. If it doesn't, the request is still on the wire and
-            // costs nothing — and the answer arrives on the next resume.
+            // background. Fire-and-forget: we send the `debug` text command
+            // and don't wait for the reply. On Android the foreground service
+            // keeps the WS and event loop alive long enough that the response
+            // typically lands in handleDebugFrame and gets logged before
+            // backgrounding completes. iOS has no equivalent grace for plain
+            // TCP sockets — `bluetooth-central` background mode is for
+            // CoreBluetooth/BLE only, not WebSocket/TCP — so the WS will be
+            // suspended with the event loop and the reply lands on the next
+            // resume. Either way the request itself is on the wire and costs
+            // nothing.
             if (auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get())) {
                 if (wifi->isConnected()) {
                     wifi->requestDebugSnapshot();

@@ -406,11 +406,12 @@ private slots:
         });
         QTest::qWait(50);
 
-        // A mid-connect reset_reason CHANGE must surface (a watchdog-induced
-        // reset mid-session is exactly what reset_reason exists to disambiguate
-        // from a clean power-cycle).
-        QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Scale reset reason: watchdog.*"));
+        // A mid-connect reset_reason CHANGE must surface at WARN (a
+        // watchdog-induced reset mid-session is exactly what reset_reason
+        // exists to disambiguate from a clean power-cycle), mirroring
+        // firmware_version's mid-connect-change severity.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(".*Scale reset reason changed mid-connect: poweron -> watchdog.*"));
         server.sendJson({{ "type", "session_info" }, { "reset_reason", "watchdog" }});
         QTest::qWait(50);
     }
@@ -888,6 +889,35 @@ private slots:
             { "type", "status" },
             { "battery_percent", 80 },
             { "firmware_version", "FW: 3.0.9" },
+        });
+        QVERIFY(recognizedSpy.wait(500));
+        QCOMPARE(recognizedSpy.count(), 1);
+    }
+
+    // session_info is a new HDS-identifying frame on newer firmware: it
+    // arrives unprompted right after the WS handshake and carries
+    // firmware_version + protocol_version + reset_reason. It must trigger
+    // recognition on its own — if it doesn't, a manual "Add WiFi Scale" entry
+    // against a scale that sends session_info before any snapshot or status
+    // (which can happen since session_info is unsolicited) would dead-end at
+    // the 5 s recognition timeout.
+    void recognizedAsHdsFiresOnFirstSessionInfoFrame() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        QSignalSpy recognizedSpy(&driver, &DecentScaleWifi::recognizedAsHds);
+        connectAndHandshake(driver, server);
+
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Firmware version: FW: 3\\.0\\.9.*"));
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Protocol version: 1.*"));
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Scale reset reason: poweron.*"));
+        server.sendJson({
+            { "type", "session_info" },
+            { "firmware_version", "FW: 3.0.9" },
+            { "protocol_version", 1 },
+            { "reset_reason", "poweron" },
         });
         QVERIFY(recognizedSpy.wait(500));
         QCOMPARE(recognizedSpy.count(), 1);
