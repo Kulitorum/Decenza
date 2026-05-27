@@ -168,6 +168,83 @@ private slots:
         QCOMPARE(rx[3], QStringLiteral("display on"));
     }
 
+    // The WS firmware no longer auto-pushes status frames, so the driver
+    // polls by sending `status` on every Nth base-class keep-alive tick.
+    // Cadence must be EXACTLY every 8th call — the BT driver's effective
+    // battery poll is kBatteryPollHeartbeatTicks (240) × 1 s = 240 s, and we
+    // match that with 8 × 30 s = 240 s. Regression guard against off-by-one
+    // (>= vs >, pre- vs post-increment) and against accidental "send every
+    // tick" simplifications that would spam the scale 8× too often.
+    void keepAliveSendsStatusEveryEighthTick() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        connectAndHandshake(driver, server);
+        server.clearReceived();
+
+        // First seven ticks must NOT send anything.
+        for (int i = 0; i < 7; ++i) driver.sendKeepAlive();
+        QTest::qWait(100);  // drain any pending socket writes
+        QCOMPARE(server.received().size(), 0);
+
+        // Eighth tick triggers the poll.
+        driver.sendKeepAlive();
+        QTRY_COMPARE(server.received().size(), 1);
+        QCOMPARE(server.received().last(), QStringLiteral("status"));
+
+        // Cadence repeats: another seven silent, eighth fires.
+        for (int i = 0; i < 7; ++i) driver.sendKeepAlive();
+        QTest::qWait(100);
+        QCOMPARE(server.received().size(), 1);
+        driver.sendKeepAlive();
+        QTRY_COMPARE(server.received().size(), 2);
+        QCOMPARE(server.received().last(), QStringLiteral("status"));
+    }
+
+    // The tick counter must reset on disconnect so a fresh connect cycle
+    // doesn't fire `status` early because of carry-over from the prior
+    // session. Without the onDisconnected() reset, this test would observe a
+    // `status` after only 1 tick on the second connect (8 - 7 prior ticks),
+    // not 8. Covers BOTH reset sites — onConnected() alone would mask the bug.
+    void keepAliveCounterResetsOnReconnect() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        connectAndHandshake(driver, server);
+
+        // Burn 7 ticks on the first connection so any carry-over would be
+        // exactly 1 tick away from firing on reconnect.
+        for (int i = 0; i < 7; ++i) driver.sendKeepAlive();
+
+        // Drop and reconnect.
+        QSignalSpy connSpy(&driver, &ScaleDevice::connectedChanged);
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(QStringLiteral("WebSocket disconnected.*peer close")));
+        server.closeFromServer();
+        QVERIFY(connSpy.wait(2000));
+        QVERIFY(!driver.isConnected());
+
+        // Clear before the second handshake — connectAndHandshake's wait
+        // condition is `received().size() >= 4`, which is already true from
+        // the first session and would let it return before the new handshake
+        // frames actually arrive.
+        server.clearReceived();
+        connectAndHandshake(driver, server);
+        server.clearReceived();
+
+        // After reconnect, the first seven ticks must still be silent.
+        for (int i = 0; i < 7; ++i) driver.sendKeepAlive();
+        QTest::qWait(100);
+        QCOMPARE(server.received().size(), 0);
+
+        driver.sendKeepAlive();
+        QTRY_COMPARE(server.received().size(), 1);
+        QCOMPARE(server.received().last(), QStringLiteral("status"));
+
+        // Driver destructor at scope exit triggers a SECOND DISCONNECTED warn.
+        // init()'s ignoreMessage only suppresses the first; queue another so the
+        // teardown warning doesn't leak through.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
+    }
+
     // ==========================================
     // Command surface
     // ==========================================
