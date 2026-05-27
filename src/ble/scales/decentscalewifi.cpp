@@ -738,7 +738,8 @@ void DecentScaleWifi::onError() {
     //
     // 503 is the one error we DO NOT route here: it's the openscale "client cap
     // saturated" refusal — the scale is real and the cache is good; the link
-    // is briefly busy. That case is handled above with an early return.
+    // is briefly busy. That case is handled by the 503 early-return at the
+    // top of this function (the first thing onError checks).
     const bool cachedIpAttempt = !m_currentTargetIsHostname
                               && !m_triedHostnameFallback
                               && !m_pendingHostnameFallback;

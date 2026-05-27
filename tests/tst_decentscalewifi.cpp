@@ -635,6 +635,132 @@ private slots:
     // Test setup: a cached IP that points at a localhost port with no
     // listener (ConnectionRefusedError fires near-instantly), and a real
     // FakeHdsServer for the hostname fallback target.
+    // Cached-IP failure must evict the cached entry via m_ipCacheUpdate(host, "")
+    // BEFORE falling back to hostname. Without this, a poisoned cache (manually-
+    // typed wrong IP, DHCP-reassigned to another device) would survive across
+    // reconnect cycles and trigger the WiFi-↔-BLE failover loop in #1281.
+    //
+    // Asserts the FULL sequence of cache writes, not just the final value:
+    // (host, "")  — eviction on cached-IP fail
+    // (host, X)   — fresh IP cached after hostname-fallback success
+    void cachedIpFailureEvictsCacheBeforeFallback() {
+        FakeHdsServer hostnameServer;
+        DecentScaleWifi driver;
+        driver.setIpResolver([](const QString& /*host*/) {
+            // Cached IP points at a port with no listener — instant ConnectionRefused.
+            return QStringLiteral("127.0.0.1:1");
+        });
+        QList<QPair<QString, QString>> cacheWrites;
+        driver.setIpCacheUpdate([&](const QString& host, const QString& ip) {
+            cacheWrites.append({host, ip});
+        });
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*WebSocket error.*"));
+
+        QSignalSpy connectedSpy(&hostnameServer, &FakeHdsServer::clientConnected);
+        driver.connectToHost(hostnameServer.host());
+        QVERIFY(connectedSpy.wait(2000));
+        QTRY_VERIFY_WITH_TIMEOUT(hostnameServer.received().size() >= 4, 2000);
+
+        // Drive recognition on the hostname attempt so the fresh-IP cache write
+        // fires. Without this, the test would only observe the eviction half.
+        hostnameServer.sendJson({{ "grams", 1.0 }, { "ms", 1 }});
+        QSignalSpy weightSpy(&driver, &ScaleDevice::weightChanged);
+        QVERIFY(weightSpy.wait(500));
+
+        // First write must be the eviction (empty IP). Second must be the
+        // fresh peer IP from the successful hostname connect.
+        QTRY_COMPARE_WITH_TIMEOUT(cacheWrites.size(), 2, 1000);
+        QCOMPARE(cacheWrites[0].first, hostnameServer.host());
+        QCOMPARE(cacheWrites[0].second, QString());  // eviction
+        QCOMPARE(cacheWrites[1].first, hostnameServer.host());
+        QVERIFY(!cacheWrites[1].second.isEmpty());   // re-cache with new IP
+    }
+
+    // recognizedAsHds is the single source of truth for "this WS endpoint is
+    // really an HDS scale". main.cpp's manual-entry deferred-persistence flow
+    // commits addKnownScale/setPrimaryScale/setSavedScaleAddress ONLY when
+    // this signal fires. Lock down the contract:
+    //   - Fires on first snapshot frame (no "type", "grams" number)
+    //   - Fires on first status frame (type=="status")
+    //   - Does NOT fire on the WS upgrade alone (no inbound frame yet)
+    //   - Fires at most once per attempt (driver's m_recognized latch)
+    void recognizedAsHdsFiresOnceOnFirstFrame() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        QSignalSpy recognizedSpy(&driver, &DecentScaleWifi::recognizedAsHds);
+        connectAndHandshake(driver, server);
+
+        // WS-upgrade alone (no frame received yet): must NOT have fired.
+        QCOMPARE(recognizedSpy.count(), 0);
+
+        // First snapshot fires it.
+        server.sendJson({{ "grams", 12.34 }, { "ms", 100 }});
+        QVERIFY(recognizedSpy.wait(500));
+        QCOMPARE(recognizedSpy.count(), 1);
+
+        // Subsequent snapshots do NOT re-emit (the m_recognized latch is the
+        // whole point — recognition is per-attempt, not per-frame).
+        server.sendJson({{ "grams", 23.45 }, { "ms", 200 }});
+        server.sendJson({{ "grams", 34.56 }, { "ms", 300 }});
+        QTest::qWait(100);
+        QCOMPARE(recognizedSpy.count(), 1);
+    }
+
+    // The status-frame path also reaches onRecognizedAsHds. Without this,
+    // a scale that happens to send its status frame before any snapshot
+    // (the openscale order on connect — see handshake test: 'rate' then
+    // 'status') would never validate, and manual entries would dead-end.
+    void recognizedAsHdsFiresOnFirstStatusFrame() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        QSignalSpy recognizedSpy(&driver, &DecentScaleWifi::recognizedAsHds);
+        connectAndHandshake(driver, server);
+
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Firmware version: FW: 3\\.0\\.9.*"));
+        server.sendJson({
+            { "type", "status" },
+            { "battery_percent", 80 },
+            { "firmware_version", "FW: 3.0.9" },
+        });
+        QVERIFY(recognizedSpy.wait(500));
+        QCOMPARE(recognizedSpy.count(), 1);
+    }
+
+    // recognitionFailed is the failure counterpart of recognizedAsHds. It
+    // fires from onRecognitionTimeout's terminal "give up THIS attempt"
+    // branch when we've already exhausted the hostname fallback (or were on
+    // it directly) and 5 s passed with no HDS frame.
+    //
+    // Without this signal the manual "Add WiFi Scale" flow has a silent-
+    // failure window: when the WS handshake succeeds (so onConnected fires →
+    // setConnected(true) → the outer 20 s scale-connection-timer is stopped),
+    // but no HDS frame arrives, the validation-failed path through
+    // onScaleConnectionTimeout never runs. The test below exercises exactly
+    // that branch: SilentServer accepts the upgrade and sends nothing.
+    void recognitionFailedFiresOnHostnameGiveUp() {
+        SilentServer silent;
+        DecentScaleWifi driver;
+        QSignalSpy recognizedSpy(&driver, &DecentScaleWifi::recognizedAsHds);
+        QSignalSpy failedSpy(&driver, &DecentScaleWifi::recognitionFailed);
+        // No ipResolver — connectToHost goes straight to attemptHostname,
+        // which sets m_currentTargetIsHostname=true. When the recognition
+        // timer fires we hit the give-up branch, not the cached-IP-fallback
+        // branch.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(".*No recognizable HDS frame within.*"));
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(".*WiFi scale did not respond as HDS.*"));
+
+        driver.connectToHost(silent.host());
+
+        // 5 s recognition window + buffer. recognitionFailed should fire
+        // exactly once; recognizedAsHds should NOT fire (no HDS frame arrived).
+        QVERIFY(failedSpy.wait(8000));
+        QCOMPARE(failedSpy.count(), 1);
+        QCOMPARE(recognizedSpy.count(), 0);
+    }
+
     void cachedIpFastFailsToHostnameFallback() {
         FakeHdsServer hostnameServer;
         DecentScaleWifi driver;

@@ -2178,10 +2178,11 @@ int main(int argc, char *argv[])
 #endif // !Q_OS_IOS
 
     // Load saved scale address for direct wake connection. Read from the
-    // multi-scale-era key (primaryScaleAddress) first and fall back to the
-    // legacy single-scale key (scale/address) — the Settings orphan-heal at
-    // startup keeps them in sync, but read order matters during the heal
-    // window itself, AND the legacy key was the historical source of the
+    // multi-scale-era key (primaryScaleAddress) first, then fall back to the
+    // legacy single-scale key (scale/address). The Settings orphan-heal in
+    // the Settings constructor already syncs them before we reach this code,
+    // but reading the canonical key directly avoids depending on that sync —
+    // and the legacy key was the historical source of the
     // "tryDirectConnectToScale - no saved scale address/type" bug (QML
     // checked the new key, this load used the old one, and a drift between
     // them stranded the user with no auto-connect). If primary is set, look

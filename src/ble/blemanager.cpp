@@ -515,10 +515,11 @@ void BLEManager::probeMdnsForManualEntry() {
     // Dedicated mDNS probe for the "Add WiFi Scale" dialog. We keep this
     // separate from m_wifiDiscovery (used by the user-initiated scan / saved-
     // scale rehydration path), because m_wifiDiscovery's scaleFound handler
-    // auto-connects when the discovered hostname matches the saved primary —
-    // we explicitly do NOT want that side effect here. The manual flow's
-    // contract is "tell the user we found a scale and let them choose";
-    // connect happens only when they tap Use.
+    // auto-connects when the discovered hostname matches the saved primary
+    // (and no user-initiated scan is in progress) — we explicitly do NOT
+    // want that side effect here. The manual flow's contract is "tell the
+    // user we found a scale and let them choose"; connect happens only when
+    // they tap Use.
     if (!m_manualEntryDiscovery) {
         m_manualEntryDiscovery = new WifiScaleDiscovery(this);
         // Forward the dedicated probe's diagnostics into the scale debug log too —
@@ -1810,6 +1811,13 @@ void BLEManager::appendScaleLog(const QString& message) {
     QString timestampedMsg = QDateTime::currentDateTime().toString("[hh:mm:ss.zzz] ") + message;
     m_scaleLogMessages.append(timestampedMsg);
     emit scaleLogMessage(message);
+    // Mirror to the system log so the scale narrative is interleaved with
+    // qDebug output from the rest of the app — without this, the scale
+    // debug log lives only in m_scaleLogMessages (rendered into the user-
+    // shareable scale_debug_log.txt) and is invisible during local
+    // development unless the developer is staring at the in-app log view.
+    // Use a stable [Scale] prefix so the line is grep-friendly in stderr.
+    qDebug().noquote() << "[Scale]" << message;
 
     // Keep log size reasonable (last 1000 messages)
     while (m_scaleLogMessages.size() > 1000) {
