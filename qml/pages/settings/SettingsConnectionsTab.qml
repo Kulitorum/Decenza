@@ -1101,7 +1101,7 @@ Item {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: Theme.scaled(36)
 
-                                readonly property int rowHeight: Theme.scaled(40)
+                                readonly property int rowHeight: Theme.scaled(44)
                                 readonly property int visibleRows: 3
 
                                 function indexOfPrimary() {
@@ -1271,14 +1271,18 @@ Item {
                                 popup: Popup {
                                     y: scalePicker.height
                                     width: scalePicker.width
-                                    padding: 1
+                                    // Pin paddings so the style can't override them
+                                    // and silently eat into the visible row count.
+                                    leftPadding: 0
+                                    rightPadding: 0
+                                    topPadding: Theme.scaled(4)
+                                    bottomPadding: Theme.scaled(4)
                                     // Cap visible height at `visibleRows`; longer lists scroll.
                                     height: Math.min(scalePicker.count, scalePicker.visibleRows) * scalePicker.rowHeight
                                             + topPadding + bottomPadding
 
                                     contentItem: ListView {
                                         clip: true
-                                        implicitHeight: contentHeight
                                         model: scalePicker.popup.visible ? scalePicker.delegateModel : null
                                         currentIndex: scalePicker.highlightedIndex
                                         ScrollIndicator.vertical: ScrollIndicator {}
