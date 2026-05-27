@@ -109,6 +109,7 @@ void ShotTimingController::startShot()
     m_lastStableWeight = 0.0;
     m_lastWeightChangeTime = 0;
     m_settlingPeakWeight = 0.0;
+    m_lastCleanSettlingAvg = 0.0;
 
     // Reset tare state (will be set to Complete when tare() is called)
     m_tareState = TareState::Idle;
@@ -207,6 +208,12 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
         // 1. Single-step dramatic drop (>20g decrease from current)
         // 2. Cumulative drop >20g below peak weight (catches multi-step removal
         //    where no single step exceeds 20g)
+        //
+        // NOTE: cup-removed detection AND the fallback chain below are
+        // mirrored in tools/shot_eval/main.cpp `analyzeShotSettling()` for
+        // offline corpus replay. There is no compile-time link enforcing
+        // parity — when changing thresholds or the fallback ordering here,
+        // update the offline tool to match.
         bool cupRemoved = (m_weight > 20.0 && weight < m_weight - 20.0) ||
                           (m_settlingPeakWeight > 20.0 && weight < m_settlingPeakWeight - 20.0);
         if (cupRemoved) {
@@ -214,9 +221,81 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
                        << "peak:" << m_settlingPeakWeight << ") - skipping learning";
             // Cup removal corrupts weight data — bypass learning entirely
             // but still emit signals so the shot is saved.
-            // NOTE: m_weight is intentionally NOT updated here. It retains the last
-            // valid pre-removal reading so the saved shot preserves the correct
-            // final weight. The corrupted `weight` parameter is discarded.
+            //
+            // Restore m_weight to the last clean rolling-window avg so the
+            // saved finalWeightG reflects what was actually in the cup. The
+            // pre-removal m_weight is often a spike-artifact value that
+            // squeaked past the 20 g cup-removal threshold (e.g. shot 5470,
+            // issue #1280, where ShotDataModel-rejected up-spikes still
+            // updated m_weight here, then a 38.5 g down-step landed below
+            // both the actual settle weight and the SAW trigger weight).
+            //
+            // Fallback chain (4 branches; SAW_LEARNING.md has the full version):
+            //   1. last clean settling avg, ONLY if its overshoot above
+            //      m_weightAtStop is ≤ MAX_PLAUSIBLE_POST_STOP_DRIP_G.
+            //      Real drip is 0.5–3 g.
+            //   2. SCALE-FAULT snap to m_weightAtStop — fires when a
+            //      clean avg WAS captured but its overshoot is too large
+            //      to be physical (corpus scan revealed one shot where the
+            //      scale froze at ~75 g on a ~40 g target). Both the
+            //      captured avg AND the current m_weight came from the
+            //      same corrupt stream, so restoring either would amplify
+            //      the glitch — fall back to the SAW trigger weight.
+            //   3. m_weightAtStop FLOOR — fires when NO clean avg was
+            //      captured AND m_weight is below the SAW trigger weight.
+            //      Post-stop drip can only ADD weight, so persisting a
+            //      value below the trigger is physically impossible.
+            //   4. leave m_weight as-is (cup lifted before any signal was
+            //      observable AND m_weight is at/above stop weight — the
+            //      legacy behavior).
+            const bool haveCleanAvg = m_lastCleanSettlingAvg > 0.0;
+            const bool cleanAvgPlausible =
+                haveCleanAvg
+                && (m_weightAtStop <= 0.0
+                    || (m_lastCleanSettlingAvg - m_weightAtStop)
+                           <= MAX_PLAUSIBLE_POST_STOP_DRIP_G);
+            // Each branch logs which fallback fired so the per-shot debug
+            // log records why finalWeight is what it is — without this the
+            // four paths are indistinguishable at post-mortem.
+            if (cleanAvgPlausible) {
+                qDebug().nospace()
+                    << "[SAW] Cup-removed: restored finalWeight to clean avg "
+                    << QString::number(m_lastCleanSettlingAvg, 'f', 1)
+                    << " g (was " << QString::number(m_weight, 'f', 1) << " g)";
+                m_weight = m_lastCleanSettlingAvg;
+            } else if (haveCleanAvg && m_weightAtStop > 0.0) {
+                // The clean avg captured an implausibly large overshoot
+                // (>MAX_PLAUSIBLE_POST_STOP_DRIP_G above SAW trigger) —
+                // almost certainly a scale fault (freeze, drift, sensor
+                // glitch). m_weight at the moment of cup-removal is part
+                // of that same corrupt stream, so snap finalWeight back to
+                // the SAW trigger weight regardless of whether m_weight is
+                // currently above or below it.
+                qWarning().nospace()
+                    << "[SAW] Cup-removed: clean avg "
+                    << QString::number(m_lastCleanSettlingAvg, 'f', 1)
+                    << " g rejected as scale fault (overshoot "
+                    << QString::number(m_lastCleanSettlingAvg - m_weightAtStop, 'f', 1)
+                    << " g > " << MAX_PLAUSIBLE_POST_STOP_DRIP_G
+                    << " g over SAW trigger "
+                    << QString::number(m_weightAtStop, 'f', 1)
+                    << " g) — snapping finalWeight to SAW trigger";
+                m_weight = m_weightAtStop;
+            } else if (m_weightAtStop > 0.0 && m_weight < m_weightAtStop) {
+                qDebug().nospace()
+                    << "[SAW] Cup-removed: floored finalWeight at SAW trigger "
+                    << QString::number(m_weightAtStop, 'f', 1)
+                    << " g (was " << QString::number(m_weight, 'f', 1)
+                    << " g, no clean avg captured)";
+                m_weight = m_weightAtStop;
+            } else {
+                qDebug().nospace()
+                    << "[SAW] Cup-removed: no fallback applied (m_weight="
+                    << QString::number(m_weight, 'f', 1) << " g, m_weightAtStop="
+                    << QString::number(m_weightAtStop, 'f', 1) << " g, haveCleanAvg="
+                    << haveCleanAvg << ")";
+            }
+
             m_sawTriggeredThisShot = false;  // Prevent stale SAW state on next operation
             m_sawSettling = false;
             m_settlingTimer.stop();
@@ -291,11 +370,33 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             bool weightAboveAvg = (weight > avg + SETTLING_ABOVE_AVG_MARGIN);
 
             if (avgDrift < SETTLING_AVG_THRESHOLD && !avgBelowStop && !weightAboveAvg) {
-                // Average is stable and current weight is within it - check how long
+                // Average is stable and current weight is within it - check how long.
                 if (m_settlingAvgStableSince == 0)
                     m_settlingAvgStableSince = now;
 
                 qint64 avgStableMs = now - m_settlingAvgStableSince;
+                // Capture the clean avg only after the gate has held continuously
+                // for SETTLING_CLEAN_CAPTURE_MS (#1280). Capturing on every gate
+                // fire (the original PR-1282 attempt) over-fired on noisy/oscillating
+                // settles where the window avg transiently satisfied the gate at
+                // values nowhere near the true cup weight; corpus-scan of 953
+                // real shots found 2 such false-positive transients vs 2
+                // legitimate recoveries before this guard was added.
+                if (avgStableMs >= SETTLING_CLEAN_CAPTURE_MS) {
+                    // Log the FIRST capture each settling cycle (m_lastCleanSettlingAvg
+                    // is reset to 0 at startShot/startSettlingTimer). Subsequent gate
+                    // fires keep updating the value silently — logging every one would
+                    // be redundant with the per-sample `[SAW] Settling:` line.
+                    if (m_lastCleanSettlingAvg <= 0.0) {
+                        qDebug().nospace()
+                            << "[SAW] First clean-avg capture at "
+                            << QString::number(avg, 'f', 1)
+                            << " g (gate held " << avgStableMs
+                            << " ms, SAW trigger "
+                            << QString::number(m_weightAtStop, 'f', 1) << " g)";
+                    }
+                    m_lastCleanSettlingAvg = avg;
+                }
                 if (avgStableMs >= SETTLING_STABLE_MS) {
                     qDebug() << "[SAW] Weight settled by avg at" << QString::number(avg, 'f', 1)
                              << "g (avg stable for" << avgStableMs << "ms, current:" << weight << "g)";
@@ -434,6 +535,12 @@ void ShotTimingController::onDisplayTimerTick()
                     m_settlingAvgStableSince = 0;
                 } else {
                     qDebug() << "[SAW] Weight settled by avg at" << QString::number(avg, 'f', 1) << "g (detected by timer)";
+                    // #1280: mirror the onWeightSample capture so the
+                    // BLE-silence completion path also records the last
+                    // clean avg. Cup-removed only fires from onWeightSample
+                    // today, so this is a future-safety capture matching
+                    // the design contract in design.md.
+                    m_lastCleanSettlingAvg = avg;
                     m_weight = avg;
                     m_settlingTimer.stop();
                     onSettlingComplete();
@@ -474,6 +581,7 @@ void ShotTimingController::startSettlingTimer()
     m_settlingWindowCount = 0;
     m_settlingWindowIndex = 0;
     m_lastSettlingAvg = m_weight;
+    m_lastCleanSettlingAvg = 0.0;  // No clean avg yet this cycle (#1280)
     m_settlingAvgStableSince = 0;
     m_lastDripOngoingLogMs = 0;  // Allow first "drip ongoing" log immediately
 

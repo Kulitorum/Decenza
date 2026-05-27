@@ -159,16 +159,44 @@ private:
     double m_settlingPeakWeight = 0.0; // Peak weight seen during settling (for cup removal detection)
 
     // Rolling average for settling stability detection
-    // Tolerates oscillations by checking if the average weight has stopped drifting
-    static constexpr int SETTLING_WINDOW_SIZE = 6;         // ~1.5s of samples at ~4Hz
+    // Tolerates oscillations by checking if the average weight has stopped drifting.
+    // Scale cadences vary 4–10 Hz across supported hardware (Decent v1 ~4 Hz, most
+    // WiFi/v2 scales ~10 Hz); window size is chosen to absorb at least one full
+    // BLE drop-out without losing the trend.
+    static constexpr int SETTLING_WINDOW_SIZE = 6;         // 6-sample circular buffer
     static constexpr double SETTLING_AVG_THRESHOLD = 0.3;  // Max avg drift to declare stable (g)
     static constexpr int SETTLING_STABLE_MS = 1000;        // How long avg must be stable (ms)
+    // Minimum time the stability gate must hold continuously before
+    // m_lastCleanSettlingAvg is captured (#1280). Filters out transient
+    // gate-fires during noisy/oscillating settles — a single sample whose
+    // window avg happens to satisfy the gate must NOT be persisted as a
+    // "clean" value to fall back to on cup-removal. 250 ms ≈ 3 consecutive
+    // samples at the typical ~100 ms scale cadence; shorter than
+    // SETTLING_STABLE_MS so the fallback still applies to a 700 ms plateau
+    // (Mark's #1280 case) without waiting for full settlement.
+    static constexpr int SETTLING_CLEAN_CAPTURE_MS = 250;
+    // Maximum physically plausible post-stop drip (#1280 follow-up). Real
+    // drip is typically 0.5–3 g, even slow-flow profiles stay under ~5 g.
+    // A "stable" rolling avg more than this far above m_weightAtStop is
+    // almost certainly a scale fault (frozen reading, glitch) rather than
+    // a settled cup weight — corpus scan revealed one shot where the
+    // scale froze at ~75 g during settling on a ~40 g target. Reject the
+    // recovery in those cases and fall through to the m_weightAtStop floor.
+    static constexpr double MAX_PLAUSIBLE_POST_STOP_DRIP_G = 5.0;
     static constexpr double SETTLING_ABOVE_AVG_MARGIN = 0.2; // Current weight must be within this of avg to declare stable (g)
     static constexpr int SETTLING_SILENCE_OVERRIDE_MS = 2000; // If weight unchanged for this long, declare stable regardless of avg margin
     double m_settlingWindow[SETTLING_WINDOW_SIZE] = {};
     int m_settlingWindowCount = 0;
     int m_settlingWindowIndex = 0;
     double m_lastSettlingAvg = 0.0;
+    // Most recent rolling-window avg observed while the stability gate held
+    // (drift < SETTLING_AVG_THRESHOLD, weight ≤ avg + SETTLING_ABOVE_AVG_MARGIN,
+    // avg ≥ m_weightAtStop − 0.5) AND the gate had been holding for at least
+    // SETTLING_CLEAN_CAPTURE_MS — see that constant for the rationale behind
+    // the time gate. Used as the cup-removal fallback for m_weight when the
+    // user lifts the cup before SETTLING_STABLE_MS elapses.
+    // 0 ⇒ no clean avg has been observed yet this settling cycle.
+    double m_lastCleanSettlingAvg = 0.0;
     qint64 m_settlingAvgStableSince = 0; // When the rolling avg stopped drifting
     qint64 m_lastDripOngoingLogMs = 0;   // Throttle "drip still ongoing" log to 1/sec
 

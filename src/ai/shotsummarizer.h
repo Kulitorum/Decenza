@@ -123,6 +123,14 @@ struct ShotSummary {
     double drinkEy = 0;
     int enjoymentScore = 0;
     QString tastingNotes;
+
+    // Why the shot ended (#1161 surface, #1280 prompt anchor): one of
+    // "weight" | "volume" | "manual" | "profileEnd" | "". Emitted into the
+    // standalone shot JSON block only when the value is in the
+    // {manual, weight, volume} allowlist — same gating as dialing_blocks.cpp,
+    // so the LLM has a stop-reason anchor instead of inventing one when
+    // yieldG looks short.
+    QString stoppedBy;
 };
 
 class ShotSummarizer : public QObject {
@@ -131,12 +139,16 @@ class ShotSummarizer : public QObject {
 public:
     explicit ShotSummarizer(QObject* parent = nullptr);
 
-    // Main summarization method
+    // Main summarization method. `stoppedBy` is the same classification
+    // MainController persists to the shot record (#1161, line ~2050); pass
+    // it in so the live and saved paths surface identical stop-reason
+    // anchors in the standalone shot JSON block.
     ShotSummary summarize(const ShotDataModel* shotData,
                           const Profile* profile,
                           const ShotMetadata& metadata,
                           double doseWeight,
-                          double finalWeight) const;
+                          double finalWeight,
+                          const QString& stoppedBy = QString()) const;
 
     // Summarize from historical shot data (typed projection from database)
     ShotSummary summarizeFromHistory(const ShotProjection& shotData) const;
