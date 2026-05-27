@@ -45,7 +45,7 @@ DecentScale::~DecentScale() {
 
 void DecentScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     if (!m_transport) {
-        emit errorOccurred("No transport available");
+        DECENT_WARN("connectToDevice called with no transport");
         return;
     }
 
@@ -80,7 +80,6 @@ void DecentScale::onTransportDisconnected() {
 
 void DecentScale::onTransportError(const QString& message) {
     DECENT_WARN(QString("Transport error: %1").arg(message));
-    emit errorOccurred("Scale connection error");
     setConnected(false);
 }
 
@@ -93,7 +92,6 @@ void DecentScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
 void DecentScale::onServicesDiscoveryFinished() {
     if (!m_serviceFound) {
         DECENT_WARN("Decent Scale service not found");
-        emit errorOccurred("Decent Scale service not found");
         m_transport->disconnectFromDevice();
         return;
     }
