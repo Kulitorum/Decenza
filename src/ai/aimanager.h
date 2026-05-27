@@ -90,12 +90,13 @@ public:
                                   double finalWeight,
                                   const QVariantMap& metadata);
 
-    // Full version for C++ callers. `stoppedBy` (#1280) is the same
-    // classification MainController persists to the shot record; pass
-    // it through so the live-path AI prompt carries the stop-reason
-    // anchor the standalone shot block already supports. QML callers
-    // include the same value in the analyzeShot() QVariantMap under
-    // key "stoppedBy".
+    // Full version for C++ callers. `stoppedBy` (field introduced by
+    // #1161 on ShotProjection; wired through this entry point by #1280)
+    // is the same classification MainController persists to the shot
+    // record — pass it through so the live-path AI prompt carries the
+    // stop-reason anchor the standalone shot block already supports.
+    // QML callers include the same value in the analyzeShot()
+    // QVariantMap under key "stoppedBy".
     void analyzeShotWithMetadata(ShotDataModel* shotData,
                                   const Profile* profile,
                                   double doseWeight,
