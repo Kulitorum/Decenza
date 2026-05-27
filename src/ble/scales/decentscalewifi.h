@@ -59,6 +59,14 @@ public:
     void setIpResolver(IpResolver resolver) { m_ipResolver = std::move(resolver); }
     void setIpCacheUpdate(IpCacheUpdate cb) { m_ipCacheUpdate = std::move(cb); }
 
+signals:
+    // Emitted on the first valid HDS frame (snapshot or status) after a
+    // connect attempt — confirms the WS endpoint is actually an HDS scale,
+    // not just any device that accepted the WS upgrade. Used by the manual
+    // "Add WiFi Scale" flow to defer persisting the typed address as the
+    // saved primary until we've verified it's a real scale (see #1281).
+    void recognizedAsHds();
+
 public slots:
     void tare() override;
     void startTimer() override;

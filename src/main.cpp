@@ -1568,9 +1568,15 @@ int main(int argc, char *argv[])
                                          : getDeviceIdentifier(device);
         const QString displayName = isWifi ? QStringLiteral("Half Decent Scale (WiFi)")
                                             : device.name();
-        // Always track this scale in the known-scales list (useful for the
-        // multi-scale picker and per-scale state).
-        settings.addKnownScale(deviceId, type, displayName);
+        // Manual "Add WiFi Scale" entries DEFER persistence until the WS
+        // endpoint actually validates as an HDS scale. Without this, a typo or
+        // a random LAN host (e.g. the user typing their router's IP) would be
+        // silently saved as the primary, then dialed on every reconnect /
+        // proactive switch-back cycle. The commit happens when
+        // DecentScaleWifi::recognizedAsHds fires (first valid HDS frame); if
+        // BLEManager's connection timer trips first, manualWifiValidationFailed
+        // is emitted to the QML layer instead and nothing is persisted. (#1281)
+        const bool deferPersistence = isWifi && bleManager.isManualWifiConnect();
         // BUT preserve the user's chosen primary when this connect is a
         // temporary WiFi→BLE fallback: BLEManager's m_wifiFallbackToBleActive
         // is true only between the WiFi-timeout fallback trigger and the next
@@ -1579,14 +1585,23 @@ int main(int argc, char *argv[])
         // explicitly chose WiFi and the fallback is meant to be temporary, so
         // the next app launch should retry WiFi first.
         const bool isFallbackConnect = !isWifi && bleManager.isWifiFallbackToBleActive();
-        if (!isFallbackConnect) {
-            settings.setPrimaryScale(deviceId);
-            bleManager.setSavedScaleAddress(deviceId, type, displayName);
-        } else {
-            qDebug() << "Scale connected via WiFi-to-BLE fallback — preserving saved WiFi primary"
-                     << settings.scaleAddress();
+        if (deferPersistence) {
+            qDebug() << "Manual WiFi-scale entry — deferring persistence until HDS validation:" << deviceId;
             bleManager.appendScaleLog(
-                QString("WiFi fallback connected to %1 — saved WiFi primary preserved").arg(displayName));
+                QString("Validating manual WiFi scale at %1...").arg(hostname));
+        } else {
+            // Always track this scale in the known-scales list (useful for the
+            // multi-scale picker and per-scale state).
+            settings.addKnownScale(deviceId, type, displayName);
+            if (!isFallbackConnect) {
+                settings.setPrimaryScale(deviceId);
+                bleManager.setSavedScaleAddress(deviceId, type, displayName);
+            } else {
+                qDebug() << "Scale connected via WiFi-to-BLE fallback — preserving saved WiFi primary"
+                         << settings.scaleAddress();
+                bleManager.appendScaleLog(
+                    QString("WiFi fallback connected to %1 — saved WiFi primary preserved").arg(displayName));
+            }
         }
 
         // Switch MachineState and TimingController to use physical scale instead of FlowScale
@@ -1767,6 +1782,24 @@ int main(int argc, char *argv[])
                 wifi->setIpCacheUpdate([&settings](const QString& host, const QString& ip) {
                     settings.network()->setWifiScaleIp(host, ip);
                 });
+                // For manual entries: commit the deferred persistence ONLY
+                // after the WS endpoint validates as HDS. SingleShotConnection
+                // because we only need the first recognition of this attempt —
+                // a later reconnect's recognition is a normal re-validate.
+                if (deferPersistence) {
+                    QObject::connect(wifi, &DecentScaleWifi::recognizedAsHds,
+                                     &bleManager,
+                                     [&settings, &bleManager, deviceId, type, displayName, hostname]() {
+                        qDebug() << "Manual WiFi scale validated as HDS — committing persistence:" << deviceId;
+                        bleManager.appendScaleLog(
+                            QString("Manual WiFi scale at %1 validated as HDS").arg(hostname));
+                        settings.addKnownScale(deviceId, type, displayName);
+                        settings.setPrimaryScale(deviceId);
+                        bleManager.setSavedScaleAddress(deviceId, type, displayName);
+                        emit bleManager.manualWifiValidationSucceeded(hostname);
+                    },
+                    Qt::SingleShotConnection);
+                }
                 wifi->connectToHost(hostname);
             }
         } else {
@@ -2116,10 +2149,38 @@ int main(int argc, char *argv[])
                      &bleManager, &BLEManager::de1LogMessage);
 #endif // !Q_OS_IOS
 
-    // Load saved scale address for direct wake connection
-    QString savedScaleAddr = settings.scaleAddress();
-    QString savedScaleType = settings.scaleType();
-    QString savedScaleName = settings.scaleName();
+    // Load saved scale address for direct wake connection. Read from the
+    // multi-scale-era key (primaryScaleAddress) first and fall back to the
+    // legacy single-scale key (scale/address) — the Settings orphan-heal at
+    // startup keeps them in sync, but read order matters during the heal
+    // window itself, AND the legacy key was the historical source of the
+    // "tryDirectConnectToScale - no saved scale address/type" bug (QML
+    // checked the new key, this load used the old one, and a drift between
+    // them stranded the user with no auto-connect). If primary is set, look
+    // up its full entry from knownScales so we feed BLEManager the correct
+    // type/name without depending on the legacy scale/type and scale/name
+    // keys being in sync.
+    QString savedScaleAddr = settings.primaryScaleAddress();
+    QString savedScaleType;
+    QString savedScaleName;
+    if (!savedScaleAddr.isEmpty()) {
+        for (const QVariant& v : settings.knownScales()) {
+            const QVariantMap s = v.toMap();
+            if (s.value("address").toString().compare(savedScaleAddr, Qt::CaseInsensitive) == 0) {
+                savedScaleType = s.value("type").toString();
+                savedScaleName = s.value("name").toString();
+                break;
+            }
+        }
+    }
+    // Fall back to the legacy keys if primary wasn't set (older builds, or
+    // a fresh install before any scale connect has written the multi-scale
+    // store). The orphan-heal will reconcile this on the next launch.
+    if (savedScaleAddr.isEmpty()) {
+        savedScaleAddr = settings.scaleAddress();
+        savedScaleType = settings.scaleType();
+        savedScaleName = settings.scaleName();
+    }
     if (!savedScaleAddr.isEmpty() && !savedScaleType.isEmpty()) {
         bleManager.setSavedScaleAddress(savedScaleAddr, savedScaleType, savedScaleName);
     }

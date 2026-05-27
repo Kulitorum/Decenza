@@ -26,11 +26,13 @@ WifiScaleDiscovery::WifiScaleDiscovery(QObject* parent)
         // The generation bump in cancelInFlight() drops any late worker result.
         if (!m_androidInFlight) return;
         qDebug() << "[WifiScaleDiscovery] mDNS probe watchdog fired for" << m_currentHostname;
+        emit logMessage(QStringLiteral("mDNS probe watchdog fired for ") + m_currentHostname);
         cancelInFlight();
         emit probeFinished();
 #else
         if (m_lookupId == -1) return;
         qDebug() << "[WifiScaleDiscovery] mDNS lookup timed out for" << m_currentHostname;
+        emit logMessage(QStringLiteral("mDNS lookup timed out for ") + m_currentHostname);
         cancelInFlight();
         emit probeFinished();
 #endif
@@ -47,6 +49,8 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
     m_currentHostname = hostname;
     qDebug() << "[WifiScaleDiscovery] lookup for" << hostname
              << "(timeout" << timeoutMs << "ms)";
+    emit logMessage(QString("mDNS lookup for %1 (timeout %2 ms)")
+                        .arg(hostname).arg(timeoutMs));
 
 #ifdef Q_OS_ANDROID
     // Android's stock resolver (getaddrinfo / QHostInfo) does NOT resolve
@@ -81,11 +85,13 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
 
             if (ip.isEmpty()) {
                 qDebug() << "[WifiScaleDiscovery] mDNS lookup failed for" << hostnameForWorker;
+                emit self->logMessage(QStringLiteral("mDNS no responder for ") + hostnameForWorker);
                 emit self->probeFinished();
                 return;
             }
             qDebug() << "[WifiScaleDiscovery] mDNS found" << hostnameForWorker
                      << "->" << ip;
+            emit self->logMessage(QString("mDNS resolved %1 to %2").arg(hostnameForWorker, ip));
             emit self->scaleFound(hostnameForWorker, ip);
             emit self->probeFinished();
         }, Qt::QueuedConnection);
@@ -108,6 +114,8 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
             if (info.error() != QHostInfo::NoError || info.addresses().isEmpty()) {
                 qDebug() << "[WifiScaleDiscovery] lookup failed for"
                          << m_currentHostname << "-" << info.errorString();
+                emit logMessage(QString("mDNS lookup failed for %1: %2")
+                                    .arg(m_currentHostname, info.errorString()));
                 emit probeFinished();
                 return;
             }
@@ -115,6 +123,7 @@ void WifiScaleDiscovery::probe(const QString& hostname, int timeoutMs) {
             const QString resolved = info.addresses().first().toString();
             qDebug() << "[WifiScaleDiscovery] found" << m_currentHostname
                      << "->" << resolved;
+            emit logMessage(QString("mDNS resolved %1 to %2").arg(m_currentHostname, resolved));
             emit scaleFound(m_currentHostname, resolved);
             emit probeFinished();
         });

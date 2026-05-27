@@ -22,6 +22,10 @@
 #include <algorithm>
 #include <QDateTime>
 #include <QTcpSocket>
+#include <QWebSocket>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QUrl>
 
 #ifdef Q_OS_ANDROID
 #include <QJniEnvironment>
@@ -506,6 +510,47 @@ void BLEManager::setUsbScaleAvailable(bool available, const QString& name) {
         appendScaleLog(QStringLiteral("USB scale unplugged"));
         emit scalesChanged();
     }
+}
+
+void BLEManager::probeMdnsForManualEntry() {
+    // Dedicated mDNS probe for the "Add WiFi Scale" dialog. We keep this
+    // separate from m_wifiDiscovery (used by the user-initiated scan / saved-
+    // scale rehydration path), because m_wifiDiscovery's scaleFound handler
+    // auto-connects when the discovered hostname matches the saved primary —
+    // we explicitly do NOT want that side effect here. The manual flow's
+    // contract is "tell the user we found a scale and let them choose";
+    // connect happens only when they tap Use.
+    if (!m_manualEntryDiscovery) {
+        m_manualEntryDiscovery = new WifiScaleDiscovery(this);
+        // Forward the dedicated probe's diagnostics into the scale debug log too —
+        // a user reporting "I clicked Add WiFi Scale but nothing showed up" will
+        // have the mDNS-side reason (timeout vs no-responder vs lookup failure)
+        // captured in the log they share.
+        connect(m_manualEntryDiscovery, &WifiScaleDiscovery::logMessage, this,
+                [this](const QString& msg) {
+            appendScaleLog(QString("[WifiScaleDiscovery/manual] %1").arg(msg));
+        });
+        connect(m_manualEntryDiscovery, &WifiScaleDiscovery::scaleFound, this,
+                [this](const QString& hostname, const QString& resolvedAddress) {
+            // (Result line — the WifiScaleDiscovery logMessage above already
+            // logged the "mDNS resolved …" detail; this is the higher-level
+            // event for the user reading the log top-to-bottom.)
+            appendScaleLog(QString("Manual-entry mDNS found %1 at %2").arg(hostname, resolvedAddress));
+            m_manualEntryFoundThisProbe = true;
+            emit manualWifiMdnsDiscovered(hostname, resolvedAddress);
+        });
+        connect(m_manualEntryDiscovery, &WifiScaleDiscovery::probeFinished, this,
+                [this]() {
+            if (!m_manualEntryFoundThisProbe) {
+                appendScaleLog(QStringLiteral(
+                    "Manual-entry mDNS: no HDS scale responded — user can still type an address"));
+            }
+            emit manualWifiMdnsProbeFinished();
+        });
+    }
+    m_manualEntryFoundThisProbe = false;
+    appendScaleLog(QStringLiteral("Probing mDNS for hds.local (manual entry)..."));
+    m_manualEntryDiscovery->probe();
 }
 
 void BLEManager::connectToWifiScale(const QString& hostnameOrIp) {
@@ -1085,9 +1130,24 @@ void BLEManager::onScaleConnectionTimeout() {
     // Consume the manual-add marker: a manually-typed WiFi address reports
     // "Not found" directly (below) rather than silently switching to a BLE scan.
     const bool manualWifiAttempt = m_manualWifiConnect;
+    const QString manualHost = m_pendingWifiHostname;
     m_manualWifiConnect = false;
 
     qWarning() << "BLEManager: Scale connection timeout - not found";
+
+    // Manual "Add WiFi Scale" entry that didn't validate (no HDS frame within
+    // the connection-timer window): surface a clear, user-visible error and
+    // return BEFORE the FlowScale-fallback path. The typed address was NOT
+    // persisted as the saved primary (main.cpp's scaleDiscovered handler
+    // defers persistence for manual entries until DecentScaleWifi recognizes
+    // the endpoint as HDS — see #1281), so nothing here needs to undo state.
+    // The user can try again with a different address.
+    if (manualWifiAttempt) {
+        appendScaleLog(QString("Manual WiFi scale validation failed for %1").arg(manualHost));
+        emit manualWifiValidationFailed(manualHost);
+        emit disconnectScaleRequested();   // tear down the half-open WiFi driver
+        return;
+    }
 
     // WiFi-saved scale that didn't connect → fall back to a BLE scan for the
     // same physical scale family. Don't go straight to FlowScale yet — we owe
@@ -1152,14 +1212,21 @@ void BLEManager::beginWifiFallbackToBleScan() {
 }
 
 void BLEManager::probeWifiPrimaryReachable(const QString& ip) {
-    // Lightweight, NON-disruptive liveness check: a plain TCP connect to the
-    // WiFi scale's cached IP on the HDS web/WS port. It deliberately does NOT
-    // touch the live (BLE backup) scale, so a negative result costs the user
-    // nothing. This is the gate before switchToWifiPrimary(): only drop a working
-    // backup once we know the primary actually answers. (mDNS is the unreliable
-    // path under BLE-coex load, so we dial the cached IP directly.)
-    constexpr int kProbePort = 80;          // HDS serves its web page + WS here
-    constexpr int kProbeTimeoutMs = 3000;
+    // NON-disruptive HDS identity check: open ws://<ip>/snapshot and require a
+    // valid HDS frame (snapshot or status — both per the openscale WS protocol)
+    // within the timeout. Does NOT touch the live (BLE backup) scale, so a
+    // negative result costs nothing. This is the gate before switchToWifiPrimary():
+    // only drop a working backup once we've VERIFIED the primary IP actually
+    // hosts an HDS scale.
+    //
+    // Earlier this was a bare TCP connect to port 80. That was too permissive:
+    // a home router (or anything on the LAN listening on 80) would accept the
+    // SYN and the probe would falsely report "reachable", which then tore down
+    // the working BLE link to chase a phantom WiFi scale. Real-world symptom:
+    // user manually typed 192.168.1.1 (their gateway) as the scale address; the
+    // app cycled BLE↔WiFi every ~30 s with the gateway answering the probe and
+    // returning HTTP 403 to the WS upgrade. (See #1281.)
+    constexpr int kProbeTimeoutMs = 3500;
 
     cancelWifiProbe();  // at most one probe in flight
 
@@ -1168,18 +1235,18 @@ void BLEManager::probeWifiPrimaryReachable(const QString& ip) {
         return;
     }
 
-    m_wifiProbeSocket = new QTcpSocket(this);
+    m_wifiProbeWebSocket = new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this);
     m_wifiProbeTimer = new QTimer(this);
     m_wifiProbeTimer->setSingleShot(true);
 
-    // Resolve the probe exactly once: the first of connect / error / timeout
-    // wins. Members are nulled up front so any later signal (e.g. an error
-    // delivered during abort()) short-circuits instead of emitting twice.
+    // Resolve the probe exactly once: the first of valid-frame / error / timeout
+    // wins. Members are nulled up front so any later signal short-circuits
+    // instead of emitting twice.
     auto finish = [this](bool reachable) {
-        if (!m_wifiProbeSocket) return;  // already resolved
-        QTcpSocket* sock = m_wifiProbeSocket;
+        if (!m_wifiProbeWebSocket) return;  // already resolved
+        QWebSocket* sock = m_wifiProbeWebSocket;
         QTimer* timer = m_wifiProbeTimer;
-        m_wifiProbeSocket = nullptr;
+        m_wifiProbeWebSocket = nullptr;
         m_wifiProbeTimer = nullptr;
         timer->stop();
         timer->deleteLater();
@@ -1189,16 +1256,33 @@ void BLEManager::probeWifiPrimaryReachable(const QString& ip) {
         emit wifiPrimaryReachable(reachable);
     };
 
-    connect(m_wifiProbeSocket, &QAbstractSocket::connected, this,
-            [finish]() { finish(true); });
-    connect(m_wifiProbeSocket, &QAbstractSocket::errorOccurred, this,
-            [finish](QAbstractSocket::SocketError) { finish(false); });
+    connect(m_wifiProbeWebSocket, &QWebSocket::textMessageReceived, this,
+            [finish](const QString& message) {
+        // Validate the frame is HDS-shaped — same recognition contract as
+        // DecentScaleWifi::onRecognizedAsHds. A snapshot frame has no "type"
+        // and carries a "grams" number; a status frame has type=="status".
+        // Anything else (or non-JSON) means "WS connected to a non-HDS
+        // endpoint" — fail the probe.
+        const QJsonDocument doc = QJsonDocument::fromJson(message.toUtf8());
+        if (!doc.isObject()) { finish(false); return; }
+        const QJsonObject obj = doc.object();
+        const QString type = obj.value(QStringLiteral("type")).toString();
+        const bool isSnapshot = type.isEmpty()
+            && obj.value(QStringLiteral("grams")).isDouble();
+        const bool isStatus = (type == QStringLiteral("status"));
+        finish(isSnapshot || isStatus);
+    });
+    connect(m_wifiProbeWebSocket, QOverload<QAbstractSocket::SocketError>::of(&QWebSocket::errorOccurred),
+            this, [finish](QAbstractSocket::SocketError) { finish(false); });
+    connect(m_wifiProbeWebSocket, &QWebSocket::disconnected, this,
+            [finish]() { finish(false); });
     connect(m_wifiProbeTimer, &QTimer::timeout, this, [finish]() { finish(false); });
 
-    appendScaleLog(QString("Probing WiFi primary at %1:%2 (%3 ms)")
-                       .arg(ip).arg(kProbePort).arg(kProbeTimeoutMs));
+    const QUrl url(QStringLiteral("ws://%1/snapshot").arg(ip));
+    appendScaleLog(QString("Probing WiFi primary at %1 (%2 ms, HDS verify)")
+                       .arg(ip).arg(kProbeTimeoutMs));
     m_wifiProbeTimer->start(kProbeTimeoutMs);
-    m_wifiProbeSocket->connectToHost(ip, static_cast<quint16>(kProbePort));
+    m_wifiProbeWebSocket->open(url);
 }
 
 void BLEManager::cancelWifiProbe() {
@@ -1207,11 +1291,11 @@ void BLEManager::cancelWifiProbe() {
         m_wifiProbeTimer->deleteLater();
         m_wifiProbeTimer = nullptr;
     }
-    if (m_wifiProbeSocket) {
-        m_wifiProbeSocket->disconnect();
-        m_wifiProbeSocket->abort();
-        m_wifiProbeSocket->deleteLater();
-        m_wifiProbeSocket = nullptr;
+    if (m_wifiProbeWebSocket) {
+        m_wifiProbeWebSocket->disconnect();
+        m_wifiProbeWebSocket->abort();
+        m_wifiProbeWebSocket->deleteLater();
+        m_wifiProbeWebSocket = nullptr;
     }
 }
 
@@ -1473,6 +1557,14 @@ void BLEManager::scanForDevices() {
 void BLEManager::ensureWifiDiscovery() {
     if (m_wifiDiscovery) return;
     m_wifiDiscovery = new WifiScaleDiscovery(this);
+    // Forward mDNS-layer diagnostics into the user-shareable scale debug log.
+    // Without this, "mDNS lookup timed out" / "no responder" lines lived only
+    // in qDebug output (Qt Creator console / adb logcat), invisible in the log
+    // a user uploads with a bug report.
+    connect(m_wifiDiscovery, &WifiScaleDiscovery::logMessage, this,
+            [this](const QString& msg) {
+        appendScaleLog(QString("[WifiScaleDiscovery] %1").arg(msg));
+    });
     // Single unified handler that handles both code paths (user-initiated
     // scan AND saved-scale direct-wake). Before this consolidation, each
     // call site lazy-created the discovery object with a DIFFERENT lambda
