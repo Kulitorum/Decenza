@@ -204,9 +204,24 @@ Item {
         width: Math.min((parent ? parent.width : Theme.scaled(420)) * 0.85, Theme.scaled(420))
         padding: 0
 
+        // mDNS lookup state while the dialog is open. Set by the BLEManager
+        // signals below. The hostname is shown as a one-tap shortcut so the
+        // user doesn't have to type it (or guess between "hds.local" and an IP).
+        property bool mdnsSearching: false
+        property string mdnsHostname: ""
+        property string mdnsIp: ""
+        readonly property bool mdnsFound: mdnsHostname.length > 0
+
         onOpened: {
             wifiScaleHostField.text = ""
             wifiScaleHostField.forceActiveFocus()
+            // Reset prior probe state and kick off a fresh mDNS lookup. If the
+            // scale is on the LAN we offer it as a one-tap option above the
+            // text field, sidestepping the typo-and-bad-IP failure mode entirely.
+            mdnsHostname = ""
+            mdnsIp = ""
+            mdnsSearching = true
+            BLEManager.probeMdnsForManualEntry()
         }
 
         function submitWifiScale() {
@@ -273,6 +288,84 @@ Item {
                         wrapMode: Text.Wrap
                     }
 
+                    // "Searching the network..." indicator shown while the
+                    // mDNS probe is in flight and we haven't found anything
+                    // yet. Replaced by the discovered-scale banner below once
+                    // mdnsFound flips true; hidden entirely once the probe
+                    // finishes without a result.
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.scaled(20)
+                        Layout.rightMargin: Theme.scaled(20)
+                        Layout.topMargin: Theme.scaled(12)
+                        visible: addWifiScaleDialog.mdnsSearching && !addWifiScaleDialog.mdnsFound
+                        text: TranslationManager.translate("settings.bluetooth.mdnsSearching",
+                                                           "Searching the network for a scale...")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                        font.italic: true
+                    }
+
+                    // mDNS-discovered scale suggestion. Saves the user from
+                    // typing (and from typos that would fail validation) when
+                    // the scale is responding to mDNS on the LAN.
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.scaled(20)
+                        Layout.rightMargin: Theme.scaled(20)
+                        Layout.topMargin: Theme.scaled(12)
+                        Layout.preferredHeight: visible ? mdnsRow.implicitHeight + Theme.scaled(16) : 0
+                        visible: addWifiScaleDialog.mdnsFound
+                        color: Qt.darker(Theme.accentColor, 1.4)
+                        radius: Theme.scaled(6)
+                        border.color: Theme.accentColor
+                        border.width: 1
+
+                        RowLayout {
+                            id: mdnsRow
+                            anchors.fill: parent
+                            anchors.margins: Theme.scaled(8)
+                            spacing: Theme.scaled(8)
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.scaled(2)
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: TranslationManager.translate("settings.bluetooth.mdnsFoundTitle",
+                                                                       "Scale found on this network")
+                                    color: Theme.textColor
+                                    font.pixelSize: Theme.scaled(13)
+                                    font.bold: true
+                                    wrapMode: Text.Wrap
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: addWifiScaleDialog.mdnsHostname
+                                        + (addWifiScaleDialog.mdnsIp.length > 0
+                                           ? " (" + addWifiScaleDialog.mdnsIp + ")"
+                                           : "")
+                                    color: Theme.textSecondaryColor
+                                    font.pixelSize: Theme.scaled(12)
+                                    wrapMode: Text.Wrap
+                                }
+                            }
+
+                            AccessibleButton {
+                                text: TranslationManager.translate("settings.bluetooth.mdnsFoundUse", "Use")
+                                accessibleName: TranslationManager.translate("settings.bluetooth.mdnsFoundUseAccessible",
+                                                                              "Use the discovered WiFi scale")
+                                primary: true
+                                onClicked: {
+                                    var host = addWifiScaleDialog.mdnsHostname
+                                    addWifiScaleDialog.close()
+                                    BLEManager.connectToWifiScale(host)
+                                }
+                            }
+                        }
+                    }
+
                     // IP / name input
                     StyledTextField {
                         id: wifiScaleHostField
@@ -315,6 +408,99 @@ Item {
                     }
                 }
             }
+        }
+    }
+
+    // Validation-result dialog for the manual "Add WiFi Scale" flow. Shown when
+    // BLEManager fails to verify that the typed address actually hosts an HDS
+    // scale (timeout without HDS recognition, or socket error). Without this
+    // the user would silently end up with a poisoned saved primary that the
+    // app keeps redialing on every reconnect cycle (see #1281).
+    property string lastManualWifiHost: ""
+    Dialog {
+        id: manualWifiFailedDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+        width: Math.min((parent ? parent.width : Theme.scaled(420)) * 0.85, Theme.scaled(420))
+        padding: Theme.scaled(20)
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.primaryContrastColor
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(12)
+
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.bluetooth.manualWifiFailed.title",
+                                                   "No scale found")
+                color: Theme.textColor
+                font.pixelSize: Theme.scaled(16)
+                font.bold: true
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.bluetooth.manualWifiFailed.body",
+                                                   "Couldn't verify a Decent WiFi scale at %1. Check the address and that the scale is on the same network, then try again.").arg(connectionsTab.lastManualWifiHost)
+                color: Theme.textColor
+                font.pixelSize: Theme.scaled(14)
+                wrapMode: Text.Wrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(12)
+
+                Item { Layout.fillWidth: true }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("common.button.ok", "OK")
+                    accessibleName: TranslationManager.translate("common.accessibility.dismissDialog", "Dismiss dialog")
+                    primary: true
+                    onClicked: manualWifiFailedDialog.close()
+                }
+            }
+        }
+    }
+
+    Connections {
+        target: BLEManager
+        function onManualWifiValidationFailed(hostnameOrIp) {
+            connectionsTab.lastManualWifiHost = hostnameOrIp
+            // Don't stack on top of the entry dialog if the user reopened it
+            if (addWifiScaleDialog.opened) addWifiScaleDialog.close()
+            manualWifiFailedDialog.open()
+        }
+        function onManualWifiValidationSucceeded(hostnameOrIp) {
+            // No UX needed — the normal scale-connected indicator handles it.
+            // Close any open entry dialog defensively in case the user reopened it.
+            if (addWifiScaleDialog.opened) addWifiScaleDialog.close()
+        }
+        function onManualWifiMdnsDiscovered(hostname, ip) {
+            // Only surface the suggestion if the user still has the dialog
+            // open AND hasn't started typing — otherwise the banner would
+            // pop in under their fingers, distracting from the address they
+            // were entering. (The field is empty on open, so the common
+            // "opened-and-waiting" case still gets the banner.)
+            if (!addWifiScaleDialog.opened) return
+            if (wifiScaleHostField.text.length > 0) {
+                addWifiScaleDialog.mdnsSearching = false
+                return
+            }
+            addWifiScaleDialog.mdnsHostname = hostname
+            addWifiScaleDialog.mdnsIp = ip
+            addWifiScaleDialog.mdnsSearching = false
+        }
+        function onManualWifiMdnsProbeFinished() {
+            addWifiScaleDialog.mdnsSearching = false
         }
     }
 

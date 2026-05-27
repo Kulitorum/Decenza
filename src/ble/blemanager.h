@@ -21,7 +21,7 @@ class DiFluidR2;
 class SettingsHardware;
 class WifiScaleDiscovery;
 class TranslationManager;
-class QTcpSocket;
+class QWebSocket;
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
 class AppleBtState;
 #endif
@@ -105,11 +105,14 @@ public:
 
     // Proactive WiFi-primary switch-back (driven by main.cpp's idle poll when
     // we're on the BLE backup but the saved primary is a WiFi scale):
-    //  - probeWifiPrimaryReachable() does a NON-disruptive TCP liveness check of
-    //    the WiFi scale's cached IP:80 (the HDS web/WS port). It never touches the
-    //    live BLE link, so a failed probe leaves the working backup untouched.
-    //    Reports the outcome via wifiPrimaryReachable() at most once per probe (a
-    //    probe superseded by a later call is cancelled without emitting).
+    //  - probeWifiPrimaryReachable() does a NON-disruptive HDS identity check:
+    //    opens ws://<ip>/snapshot and requires a valid HDS frame (snapshot or
+    //    status) within ~3.5 s. It never touches the live BLE link, so a failed
+    //    probe leaves the working backup untouched. Reports the outcome via
+    //    wifiPrimaryReachable() at most once per probe (a probe superseded by a
+    //    later call is cancelled without emitting). A bare TCP-open on port 80
+    //    is NOT enough — any LAN device listening on 80 (router, printer, NAS)
+    //    would pass that gate; #1281 needed the actual HDS-frame validation.
     //  - switchToWifiPrimary() drops the current backup scale and connects the
     //    saved WiFi primary via the cached-IP fast path. Call only after a
     //    reachable probe (and a re-check that we're still idle on the backup).
@@ -336,13 +339,33 @@ public:
     // WiFi Scale" dialog), without requiring it to be in the discovered list. A
     // bare name with no dot gets ".local" appended (matching the discovery
     // default "hds.local"); IPs and dotted names pass through. Arms the connection
-    // timer so a wrong/unreachable host fails visibly ("Not found" + FlowScale
-    // notice) instead of silently — WiFi socket errors are otherwise log-only
-    // (#1253). Unlike a saved WiFi scale this does NOT fall back to a BLE scan on
-    // failure (the user asked for a specific WiFi address). As with any scale
-    // connect, main.cpp records it in Known Devices + as primary when the connect
-    // is initiated, not on success.
+    // timer so a wrong/unreachable host surfaces as `manualWifiValidationFailed`
+    // (driving the QML "Couldn't verify a scale at <address>" dialog) instead
+    // of silently — WiFi socket errors are otherwise log-only (#1253). Unlike a
+    // saved WiFi scale this does NOT fall back to a BLE scan on failure (the
+    // user asked for a specific WiFi address).
+    //
+    // Unlike BLE or saved-scale WiFi connects, persistence is DEFERRED for
+    // manual entries: main.cpp's scaleDiscovered handler does NOT call
+    // addKnownScale / setPrimaryScale / setSavedScaleAddress at connect
+    // initiation. Instead, those run only after `DecentScaleWifi::recognizedAsHds`
+    // fires (validating that the typed endpoint is really an HDS scale). If
+    // recognition never arrives, `manualWifiValidationFailed` is emitted and
+    // the address is NOT saved as the primary — a typo or wrong IP can't
+    // poison the saved state. (#1281)
     Q_INVOKABLE void connectToWifiScale(const QString& hostnameOrIp);
+    // Fire an mDNS probe for the HDS in parallel with the "Add WiFi Scale"
+    // dialog. If the scale is on the LAN, this surfaces it to the user so
+    // they don't have to type its address. Emits manualWifiMdnsDiscovered on
+    // success and (regardless) manualWifiMdnsProbeFinished when done. Safe to
+    // call multiple times; a new probe supersedes any in-flight one.
+    Q_INVOKABLE void probeMdnsForManualEntry();
+    // True while a manual "Add WiFi Scale" attempt is in flight (set by
+    // connectToWifiScale, cleared on connect success or timeout). main.cpp
+    // reads this in the scaleDiscovered handler to defer persisting the typed
+    // address as the saved primary until DecentScaleWifi confirms it's a
+    // real scale (see #1281).
+    bool isManualWifiConnect() const { return m_manualWifiConnect; }
     // Switch the LIVE connection to the current saved primary scale (set via
     // setSavedScaleAddress just before calling). If a scale is connected it is
     // disconnected first, then the saved primary is direct-woken (BLE) /
@@ -443,6 +466,24 @@ signals:
     // timeout and BLEManager has started a BLE scan as a fallback. UI binds
     // this to a toast/banner so the user knows what's happening.
     void wifiUnreachableFallingBackToBle(const QString& hostname);
+    // Emitted when a manual "Add WiFi Scale" connect attempt fails to verify
+    // (timeout without HDS recognition, or socket error before any frame).
+    // The QML layer binds this to a user-visible dialog so a typo / wrong IP
+    // doesn't silently strand the user on a phantom WiFi scale. The address
+    // is NOT persisted as the saved primary in this case (see main.cpp's
+    // scaleDiscovered handler — manual entries defer persistence until the
+    // scale is recognized as HDS).
+    void manualWifiValidationFailed(const QString& hostnameOrIp);
+    // Emitted when a manual "Add WiFi Scale" connect attempt succeeds (the
+    // WS endpoint validated as HDS). main.cpp uses this to commit the deferred
+    // persistence (addKnownScale + setPrimaryScale + setSavedScaleAddress).
+    void manualWifiValidationSucceeded(const QString& hostnameOrIp);
+    // Result of probeMdnsForManualEntry: emitted at most once per probe with
+    // the discovered hostname + IP if an HDS replied to the mDNS query.
+    void manualWifiMdnsDiscovered(const QString& hostname, const QString& ip);
+    // Always fired when probeMdnsForManualEntry finishes (whether or not the
+    // scale was found). QML uses this to drop a "Searching..." indicator.
+    void manualWifiMdnsProbeFinished();
     // Result of a probeWifiPrimaryReachable() call (emitted at most once per
     // probe — zero times if a later probeWifiPrimaryReachable() supersedes it
     // via cancelWifiProbe()). main.cpp switches to the WiFi primary when reachable.
@@ -499,10 +540,22 @@ private:
     QList<QBluetoothDeviceInfo> m_de1Devices;
     QList<ScaleEntry> m_scales;
     WifiScaleDiscovery* m_wifiDiscovery = nullptr;  // Lazy-created on first scanForDevices
-    // Non-disruptive WiFi-primary reachability probe: a per-probe TCP socket +
+    // Dedicated probe instance for the manual "Add WiFi Scale" flow. Keeps the
+    // UX-only mDNS probe separate from m_wifiDiscovery (which carries an
+    // auto-connect-to-saved-primary handler). Lazy-created on first call.
+    WifiScaleDiscovery* m_manualEntryDiscovery = nullptr;
+    // Set true when the current manual-entry probe fires scaleFound; consumed
+    // by probeFinished to decide whether to log "no responder" — the probe
+    // doesn't carry a "found anything" return code, so we have to track it
+    // out of band.
+    bool m_manualEntryFoundThisProbe = false;
+    // Non-disruptive WiFi-primary HDS identity probe: a per-probe WebSocket +
     // timeout timer (both owned, recreated each probe and torn down on the first
-    // of connect/error/timeout so exactly one wifiPrimaryReachable() is emitted).
-    QTcpSocket* m_wifiProbeSocket = nullptr;
+    // of valid-frame / error / timeout so exactly one wifiPrimaryReachable() is
+    // emitted). The probe opens ws://<ip>/snapshot and requires an HDS-shaped
+    // frame within the timeout — a bare TCP connect on port 80 was too permissive
+    // (any LAN device listening on 80 passed it; see probe impl for the bug).
+    QWebSocket* m_wifiProbeWebSocket = nullptr;
     QTimer* m_wifiProbeTimer = nullptr;
     TranslationManager* m_translationManager = nullptr;  // For i18n of user-visible error strings
     // Helper: translate `key` with `fallback`, or just return `fallback` if no

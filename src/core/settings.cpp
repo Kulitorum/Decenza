@@ -28,6 +28,8 @@
 #include <QStyleHints>
 #include <QDesktopServices>
 #include <QSet>
+#include <QMap>
+#include <QPair>
 
 #ifdef Q_OS_IOS
 #include "screensaver/iosbrightness.h"
@@ -249,22 +251,37 @@ Settings::Settings(QObject* parent)
     }
 
     // Invariant: if knownScales is non-empty, primaryAddress must match one
-    // of its entries. An orphan (stored entry with no matching primary) is
-    // invisible in the Known Devices picker AND filtered out of discovery,
-    // so the user can't reach it. Heal on launch.
+    // of its entries, AND the legacy scale/* keys (read by older code paths
+    // and by main.cpp's initial setSavedScaleAddress wiring) must match the
+    // primary. An orphan (stored entry with no matching primary) is invisible
+    // in the Known Devices picker AND filtered out of discovery, so the user
+    // can't reach it. A divergence in the other direction (valid primary but
+    // empty/stale scale/address) is what caused the user-visible bug in #1281
+    // follow-up: QML's startup hook reads primaryScaleAddress and fires
+    // tryDirectConnectToScale, but BLEManager's m_savedScaleAddress is loaded
+    // from scale/address — if the two drifted, the direct-connect dead-ends
+    // with "no saved scale address/type" and the user has to manually re-select
+    // a scale even though Known Devices had multiple entries. Heal both
+    // directions on launch.
     {
         const qsizetype scalesCount = m_settings.beginReadArray("knownScales/scales");
         QString promoteAddress, promoteType, promoteName;
         QSet<QString> addresses;
+        // Indexed by lowercase address → (type, name) so we can look up the
+        // canonical entry for whatever address ends up being primary.
+        QMap<QString, QPair<QString, QString>> entriesByAddress;
         for (qsizetype i = 0; i < scalesCount; ++i) {
             m_settings.setArrayIndex(static_cast<int>(i));
             const QString a = m_settings.value("address").toString();
             if (a.isEmpty()) continue;
+            const QString t = m_settings.value("type").toString();
+            const QString n = m_settings.value("name").toString();
             addresses.insert(a.toLower());
+            entriesByAddress.insert(a.toLower(), {t, n});
             if (promoteAddress.isEmpty()) {
                 promoteAddress = a;
-                promoteType = m_settings.value("type").toString();
-                promoteName = m_settings.value("name").toString();
+                promoteType = t;
+                promoteName = n;
             }
         }
         m_settings.endArray();
@@ -272,12 +289,29 @@ Settings::Settings(QObject* parent)
         if (!promoteAddress.isEmpty()) {
             const QString primary = m_settings.value("knownScales/primaryAddress").toString();
             if (primary.isEmpty() || !addresses.contains(primary.toLower())) {
+                // Primary missing or stale → promote the first known entry.
                 m_settings.setValue("knownScales/primaryAddress", promoteAddress);
                 m_settings.setValue("scale/address", promoteAddress);
                 m_settings.setValue("scale/type", promoteType);
                 m_settings.setValue("scale/name", promoteName);
                 qDebug() << "Settings: Repaired orphaned known scale — promoted"
                          << promoteName << promoteAddress << "to primary";
+            } else {
+                // Primary is valid. Verify legacy scale/* keys match it; sync
+                // if they don't. This is the direction the original heal
+                // missed — a setPrimaryScale() call that didn't write through
+                // to scale/address (because of a code-path bug or older build
+                // state) would leave us in the inconsistent state that breaks
+                // startup auto-connect.
+                const QString legacyAddr = m_settings.value("scale/address").toString();
+                if (legacyAddr.compare(primary, Qt::CaseInsensitive) != 0) {
+                    const auto entry = entriesByAddress.value(primary.toLower());
+                    m_settings.setValue("scale/address", primary);
+                    m_settings.setValue("scale/type", entry.first);
+                    m_settings.setValue("scale/name", entry.second);
+                    qDebug() << "Settings: Repaired scale/address drift — synced legacy keys to primary"
+                             << entry.second << primary;
+                }
             }
         }
     }
@@ -455,7 +489,10 @@ void Settings::addKnownScale(const QString& address, const QString& type, const 
     // Read existing scales
     QVariantList scales = knownScales();
 
-    // Check for existing entry — update name/type if found
+    // Check for existing entry — update name/type if found. We fall through
+    // to the invariant repair below in both branches (existing or newly added)
+    // so a re-add of an existing scale also fixes a missing primary.
+    bool alreadyExists = false;
     for (qsizetype i = 0; i < scales.size(); ++i) {
         QVariantMap s = scales[i].toMap();
         if (s["address"].toString().compare(address, Qt::CaseInsensitive) == 0) {
@@ -465,18 +502,37 @@ void Settings::addKnownScale(const QString& address, const QString& type, const 
                 scales[i] = s;
                 writeKnownScales(scales);
             }
-            return;
+            alreadyExists = true;
+            break;
         }
     }
 
-    // Add new scale
-    QVariantMap newScale;
-    newScale["address"] = address;
-    newScale["type"] = id;
-    newScale["name"] = name;
-    newScale["isPrimary"] = false;
-    scales.append(newScale);
-    writeKnownScales(scales);
+    if (!alreadyExists) {
+        QVariantMap newScale;
+        newScale["address"] = address;
+        newScale["type"] = id;
+        newScale["name"] = name;
+        newScale["isPrimary"] = false;
+        scales.append(newScale);
+        writeKnownScales(scales);
+    }
+
+    // Invariant: a non-empty knownScales list must have exactly one primary.
+    // If no primary is currently set, auto-promote this entry — whether we
+    // just added it or it already existed. The original code only ran this
+    // for newly-added entries; the existing-entry early-return left the
+    // invariant unrepaired if primary had been cleared post-startup (rare
+    // but reachable, e.g. via mcptools_devices.cpp's clearSavedScale).
+    //
+    // Symmetric counterpart to removeKnownScale's auto-promote-next branch:
+    // removing the primary promotes another; adding into (or re-adding within)
+    // an empty-primary state promotes one. Without this, the Known Devices
+    // picker can render with nothing selected even though the user has known
+    // scales — they then have to tap one to "select" it, which is what set
+    // primary in the first place. See discussion under #1281.
+    if (primaryScaleAddress().isEmpty()) {
+        setPrimaryScale(address);
+    }
 }
 
 void Settings::removeKnownScale(const QString& address) {

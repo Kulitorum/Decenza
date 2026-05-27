@@ -17,6 +17,39 @@
 // the system settings store. Tests save originals in init() and restore in
 // cleanup() (guaranteed to run even if assertions fail mid-test).
 
+// File-scope helper (Q_OBJECT moc rejects nested structs in test classes).
+// Snapshot + clear the Known Devices store so a test owns it for the
+// duration, and restore on scope exit. Settings exposes addKnownScale /
+// removeKnownScale but no bulk reset; the snapshot path covers test
+// isolation without leaking test entries into the user's QSettings store.
+struct KnownScalesGuard {
+    explicit KnownScalesGuard(Settings* s) : m_settings(s) {
+        m_snapshot = s->knownScales();
+        m_origPrimary = s->primaryScaleAddress();
+        for (const QVariant& v : m_snapshot) {
+            s->removeKnownScale(v.toMap()["address"].toString());
+        }
+    }
+    ~KnownScalesGuard() {
+        const QVariantList current = m_settings->knownScales();
+        for (const QVariant& v : current) {
+            m_settings->removeKnownScale(v.toMap()["address"].toString());
+        }
+        for (const QVariant& v : m_snapshot) {
+            const QVariantMap s = v.toMap();
+            m_settings->addKnownScale(s["address"].toString(),
+                                      s["type"].toString(),
+                                      s["name"].toString());
+        }
+        if (!m_origPrimary.isEmpty()) {
+            m_settings->setPrimaryScale(m_origPrimary);
+        }
+    }
+    Settings* m_settings;
+    QVariantList m_snapshot;
+    QString m_origPrimary;
+};
+
 class tst_Settings : public QObject {
     Q_OBJECT
 
@@ -314,6 +347,102 @@ private slots:
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
         QCOMPARE(m_settings.app()->autoLoadProfileFilename(), QString("preferred-profile"));
         QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 17);
+    }
+
+    // ==========================================
+    // Known scales: invariant + heal
+    // ==========================================
+
+    // Adding the first known scale into an empty primary state must auto-
+    // promote that entry to primary. Without this, the Known Devices picker
+    // renders with currentIndex == -1 (nothing selected) even though the
+    // list has entries — the user has to tap one to make their selection
+    // "stick" as primary, which is the bug the user observed in #1281.
+    void addKnownScalePromotesToPrimaryWhenNoneSet() {
+        KnownScalesGuard guard(&m_settings);
+        // Guard cleared knownScales; also clear primary so we're in the
+        // empty-primary state.
+        m_settings.setPrimaryScale(QString());
+
+        m_settings.addKnownScale("AA:BB:CC:DD:EE:FF", "decent", "Test Scale");
+
+        QCOMPARE(m_settings.primaryScaleAddress(), QString("AA:BB:CC:DD:EE:FF"));
+        QCOMPARE(m_settings.scaleAddress(), QString("AA:BB:CC:DD:EE:FF"));
+        QCOMPARE(m_settings.scaleType(), QString("decent"));
+        QCOMPARE(m_settings.scaleName(), QString("Test Scale"));
+
+        // Adding a SECOND scale must NOT change primary (the first one's
+        // promotion is sticky; the user explicitly switches via setPrimaryScale).
+        m_settings.addKnownScale("11:22:33:44:55:66", "decent", "Second Scale");
+        QCOMPARE(m_settings.primaryScaleAddress(), QString("AA:BB:CC:DD:EE:FF"));
+    }
+
+    // Re-adding an existing known scale must repair the primary invariant
+    // if primary was cleared between the original add and the re-add. main.cpp
+    // calls addKnownScale on every scale connect, so this is the natural
+    // healing path if some other code (clearSavedScale via MCP, a future
+    // migration, a test fixture) left primary empty while the entry still
+    // existed. Without this, the early-return on existing entries would skip
+    // the invariant check and the Known Devices picker would render with
+    // nothing selected even though the list has entries.
+    void addKnownScaleRepairsPrimaryOnReAddOfExistingEntry() {
+        KnownScalesGuard guard(&m_settings);
+
+        // First add — invariant auto-promotes the new entry.
+        m_settings.addKnownScale("AA:BB:CC:DD:EE:01", "decent", "Test Scale");
+        QCOMPARE(m_settings.primaryScaleAddress(), QString("AA:BB:CC:DD:EE:01"));
+
+        // Force the "primary cleared, entry remains" state — unreachable in
+        // normal flow but reproducible at this layer.
+        m_settings.setPrimaryScale(QString());
+        QVERIFY(m_settings.primaryScaleAddress().isEmpty());
+
+        // Re-add the same address — the same call main.cpp makes on every
+        // connect. Pre-fix this hit the early-return path and left primary
+        // empty; post-fix it repairs the invariant.
+        m_settings.addKnownScale("AA:BB:CC:DD:EE:01", "decent", "Test Scale");
+        QCOMPARE(m_settings.primaryScaleAddress(), QString("AA:BB:CC:DD:EE:01"));
+        // Legacy keys are also re-synced via setPrimaryScale's normal path.
+        QCOMPARE(m_settings.scaleAddress(), QString("AA:BB:CC:DD:EE:01"));
+    }
+
+    // Settings' startup orphan-heal must repair the BOTH directions of the
+    // scale/address ↔ knownScales/primaryAddress relationship:
+    //   forward — primary empty / stale → promote first known and write legacy
+    //   reverse — primary valid but legacy empty/stale → sync legacy from primary
+    // The reverse case was the actual #1281 follow-up bug. QML's startup hook
+    // gates `tryDirectConnectToScale` on `primaryScaleAddress`, but main.cpp's
+    // BLEManager load (pre-fix) read the legacy `scale/address`. A drift
+    // between the two stranded the user with no auto-connect at startup.
+    void orphanHealRepairsLegacyAddressFromValidPrimary() {
+        KnownScalesGuard guard(&m_settings);
+
+        // Pre-seed: knownScales has an entry, primary points to it, but the
+        // legacy keys are stale/empty (simulates the divergence). Write
+        // directly to QSettings so the heal sees the pre-state on next ctor.
+        QSettings raw("DecentEspresso", "DE1Qt");
+        raw.remove("knownScales/scales");
+        raw.beginWriteArray("knownScales/scales");
+        raw.setArrayIndex(0);
+        raw.setValue("address", "PRIMARY:AA:11");
+        raw.setValue("type", "decent");
+        raw.setValue("name", "Healed Scale");
+        raw.endArray();
+        raw.setValue("knownScales/primaryAddress", "PRIMARY:AA:11");
+        raw.setValue("scale/address", "");
+        raw.setValue("scale/type", "");
+        raw.setValue("scale/name", "");
+        raw.sync();
+
+        // Construct a fresh Settings — the orphan-heal in its constructor
+        // sees the divergence and syncs legacy from primary.
+        Settings healed;
+
+        QCOMPARE(healed.scaleAddress(), QString("PRIMARY:AA:11"));
+        QCOMPARE(healed.scaleType(), QString("decent"));
+        QCOMPARE(healed.scaleName(), QString("Healed Scale"));
+        // primaryScaleAddress unchanged (it was already correct).
+        QCOMPARE(healed.primaryScaleAddress(), QString("PRIMARY:AA:11"));
     }
 };
 

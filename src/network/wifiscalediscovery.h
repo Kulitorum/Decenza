@@ -52,6 +52,13 @@ public:
 signals:
     void scaleFound(const QString& hostname, const QString& resolvedAddress);
     void probeFinished();
+    // User-facing diagnostic stream — emitted at probe start, success, timeout,
+    // and lookup failure. BLEManager forwards this to its appendScaleLog so the
+    // user-shareable scale debug log captures what happened at the mDNS layer.
+    // Without it, mDNS-side failures (multicast filtering on the AP, scale not
+    // joining the right SSID, captive-portal redirect) were only visible via
+    // adb logcat / Qt Creator console, never in a user-shared log.
+    void logMessage(const QString& message);
 
 private:
     void cancelInFlight();
