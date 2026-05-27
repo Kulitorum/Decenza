@@ -377,6 +377,35 @@ private slots:
         QCOMPARE(m_settings.primaryScaleAddress(), QString("AA:BB:CC:DD:EE:FF"));
     }
 
+    // Re-adding an existing known scale must repair the primary invariant
+    // if primary was cleared between the original add and the re-add. main.cpp
+    // calls addKnownScale on every scale connect, so this is the natural
+    // healing path if some other code (clearSavedScale via MCP, a future
+    // migration, a test fixture) left primary empty while the entry still
+    // existed. Without this, the early-return on existing entries would skip
+    // the invariant check and the Known Devices picker would render with
+    // nothing selected even though the list has entries.
+    void addKnownScaleRepairsPrimaryOnReAddOfExistingEntry() {
+        KnownScalesGuard guard(&m_settings);
+
+        // First add — invariant auto-promotes the new entry.
+        m_settings.addKnownScale("AA:BB:CC:DD:EE:01", "decent", "Test Scale");
+        QCOMPARE(m_settings.primaryScaleAddress(), QString("AA:BB:CC:DD:EE:01"));
+
+        // Force the "primary cleared, entry remains" state — unreachable in
+        // normal flow but reproducible at this layer.
+        m_settings.setPrimaryScale(QString());
+        QVERIFY(m_settings.primaryScaleAddress().isEmpty());
+
+        // Re-add the same address — the same call main.cpp makes on every
+        // connect. Pre-fix this hit the early-return path and left primary
+        // empty; post-fix it repairs the invariant.
+        m_settings.addKnownScale("AA:BB:CC:DD:EE:01", "decent", "Test Scale");
+        QCOMPARE(m_settings.primaryScaleAddress(), QString("AA:BB:CC:DD:EE:01"));
+        // Legacy keys are also re-synced via setPrimaryScale's normal path.
+        QCOMPARE(m_settings.scaleAddress(), QString("AA:BB:CC:DD:EE:01"));
+    }
+
     // Settings' startup orphan-heal must repair the BOTH directions of the
     // scale/address ↔ knownScales/primaryAddress relationship:
     //   forward — primary empty / stale → promote first known and write legacy

@@ -489,7 +489,10 @@ void Settings::addKnownScale(const QString& address, const QString& type, const 
     // Read existing scales
     QVariantList scales = knownScales();
 
-    // Check for existing entry — update name/type if found
+    // Check for existing entry — update name/type if found. We fall through
+    // to the invariant repair below in both branches (existing or newly added)
+    // so a re-add of an existing scale also fixes a missing primary.
+    bool alreadyExists = false;
     for (qsizetype i = 0; i < scales.size(); ++i) {
         QVariantMap s = scales[i].toMap();
         if (s["address"].toString().compare(address, Qt::CaseInsensitive) == 0) {
@@ -499,27 +502,34 @@ void Settings::addKnownScale(const QString& address, const QString& type, const 
                 scales[i] = s;
                 writeKnownScales(scales);
             }
-            return;
+            alreadyExists = true;
+            break;
         }
     }
 
-    // Add new scale
-    QVariantMap newScale;
-    newScale["address"] = address;
-    newScale["type"] = id;
-    newScale["name"] = name;
-    newScale["isPrimary"] = false;
-    scales.append(newScale);
-    writeKnownScales(scales);
+    if (!alreadyExists) {
+        QVariantMap newScale;
+        newScale["address"] = address;
+        newScale["type"] = id;
+        newScale["name"] = name;
+        newScale["isPrimary"] = false;
+        scales.append(newScale);
+        writeKnownScales(scales);
+    }
 
     // Invariant: a non-empty knownScales list must have exactly one primary.
-    // If no primary is currently set, auto-promote the entry we just added.
-    // The symmetric counterpart to removeKnownScale's auto-promote-next branch:
-    // removing the primary promotes another; adding into an empty-primary state
-    // promotes the new one. Without this, the Known Devices picker can render
-    // with nothing selected even though the user has known scales — they then
-    // have to tap one to "select" it, which is what set primary in the first
-    // place. See discussion under #1281.
+    // If no primary is currently set, auto-promote this entry — whether we
+    // just added it or it already existed. The original code only ran this
+    // for newly-added entries; the existing-entry early-return left the
+    // invariant unrepaired if primary had been cleared post-startup (rare
+    // but reachable, e.g. via mcptools_devices.cpp's clearSavedScale).
+    //
+    // Symmetric counterpart to removeKnownScale's auto-promote-next branch:
+    // removing the primary promotes another; adding into (or re-adding within)
+    // an empty-primary state promotes one. Without this, the Known Devices
+    // picker can render with nothing selected even though the user has known
+    // scales — they then have to tap one to "select" it, which is what set
+    // primary in the first place. See discussion under #1281.
     if (primaryScaleAddress().isEmpty()) {
         setPrimaryScale(address);
     }
