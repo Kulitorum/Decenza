@@ -1157,7 +1157,18 @@ Item {
                                     border.width: 1
                                 }
 
-                                // Closed-state content: live status dot + name + transport badge + chevron.
+                                // Custom indicator (chevron) replacing the default
+                                // so we don't end up with two stacked chevrons.
+                                indicator: Text {
+                                    x: scalePicker.width - width - Theme.scaled(10)
+                                    y: (scalePicker.height - height) / 2
+                                    text: "\u25BC"
+                                    font.pixelSize: Theme.scaled(10)
+                                    color: Theme.textSecondaryColor
+                                }
+
+                                // Closed-state content: live status dot + name + transport badge.
+                                // The chevron is drawn by `indicator` above.
                                 contentItem: RowLayout {
                                     spacing: Theme.scaled(6)
 
@@ -1197,6 +1208,7 @@ Item {
                                         height: Theme.scaled(18)
                                         radius: Theme.scaled(9)
                                         color: Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.22)
+                                        Layout.rightMargin: Theme.scaled(24)
                                         Text {
                                             id: badgeText
                                             anchors.centerIn: parent
@@ -1205,14 +1217,6 @@ Item {
                                             font.pixelSize: Theme.scaled(10)
                                             font.bold: true
                                         }
-                                    }
-
-                                    Text {
-                                        Layout.rightMargin: Theme.scaled(10)
-                                        text: "\u25BC"
-                                        font.pixelSize: Theme.scaled(10)
-                                        color: Theme.textSecondaryColor
-                                        Accessible.ignored: true
                                     }
                                 }
 
@@ -1278,7 +1282,9 @@ Item {
                                     topPadding: Theme.scaled(4)
                                     bottomPadding: Theme.scaled(4)
                                     // Cap visible height at `visibleRows`; longer lists scroll.
-                                    height: Math.min(scalePicker.count, scalePicker.visibleRows) * scalePicker.rowHeight
+                                    // Drive sizing off the model length directly — ComboBox.count
+                                    // can lag behind a QVariantList model after refresh.
+                                    height: Math.min(Settings.knownScales.length, scalePicker.visibleRows) * scalePicker.rowHeight
                                             + topPadding + bottomPadding
 
                                     contentItem: ListView {
