@@ -390,7 +390,10 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     summary.drinkEy = shotData.drinkEyPct;
     summary.enjoymentScore = shotData.enjoyment0to100;
     summary.tastingNotes = shotData.espressoNotes;
-    summary.stoppedBy = shotData.stoppedBy;  // #1280: forwarded into buildShotBlock
+    // ShotProjection.stoppedBy was introduced by #1161 (see
+    // shotprojection.h:127); #1280 added the forwarding into buildShotBlock
+    // so the standalone shot prompt carries the stop-reason anchor too.
+    summary.stoppedBy = shotData.stoppedBy;
 
     // Convert curve data
     summary.pressureCurve = variantListToPoints(shotData.pressure);

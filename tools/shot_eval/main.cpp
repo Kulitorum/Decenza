@@ -749,9 +749,14 @@ EvaluatedShot evaluate(const LoadedShot& s)
 // The stable-branch capture mirrors the same condition (drift below
 // threshold, weight close to avg, avg at/above stop weight).
 //
+// SETTLING_STABLE_MS (1000 ms) is intentionally NOT mirrored: this tool
+// only replays the cup-removal fallback chain, not the full settlement
+// path that fires onSettlingComplete via the 1-second stability gate.
+//
 // IMPORTANT: when production changes any of the above constants or the
-// cup-removed fallback chain (shottimingcontroller.cpp:240+), update this
-// mirror to match — there is no compile-time link enforcing parity.
+// cup-removed fallback chain (shottimingcontroller.cpp's cup-removed
+// branch), update this mirror to match — there is no compile-time link
+// enforcing parity.
 // ---------------------------------------------------------------------------
 struct SettlingReport {
     QString path;
@@ -889,8 +894,10 @@ SettlingReport analyzeShotSettling(const QString& path, const QJsonObject& root)
         ++r.settlingSamples;
 
         // Stability gate — capture the avg only when all three conditions
-        // hold (matches src/controllers/shottimingcontroller.cpp line 313).
-        // Window-fill check approximated by sample count.
+        // hold. Mirrors the `if (avgDrift < SETTLING_AVG_THRESHOLD &&
+        // !avgBelowStop && !weightAboveAvg)` check in
+        // ShotTimingController::onWeightSample. Window-fill check
+        // approximated by sample count.
         if (r.settlingSamples < SETTLING_WINDOW_SIZE) continue;
         const bool avgBelowStop = (r.stopWeight > 0 && avg < r.stopWeight - 0.5);
         const bool weightAboveAvg = (weight > avg + SETTLING_ABOVE_AVG_MARGIN);

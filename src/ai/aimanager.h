@@ -90,7 +90,12 @@ public:
                                   double finalWeight,
                                   const QVariantMap& metadata);
 
-    // Full version for C++ callers
+    // Full version for C++ callers. `stoppedBy` (#1280) is the same
+    // classification MainController persists to the shot record; pass
+    // it through so the live-path AI prompt carries the stop-reason
+    // anchor the standalone shot block already supports. QML callers
+    // include the same value in the analyzeShot() QVariantMap under
+    // key "stoppedBy".
     void analyzeShotWithMetadata(ShotDataModel* shotData,
                                   const Profile* profile,
                                   double doseWeight,
@@ -104,7 +109,8 @@ public:
                                   const QString& grinderBurrs,
                                   const QString& grinderSetting,
                                   int enjoymentScore,
-                                  const QString& tastingNotes);
+                                  const QString& tastingNotes,
+                                  const QString& stoppedBy = QString());
 
     // Email fallback - generates prompt for copying
     Q_INVOKABLE QString generateEmailPrompt(ShotDataModel* shotData,

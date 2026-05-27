@@ -230,19 +230,24 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
             // updated m_weight here, then a 38.5 g down-step landed below
             // both the actual settle weight and the SAW trigger weight).
             //
-            // Fallback chain:
-            //   1. last clean settling avg, ONLY if it's within
-            //      MAX_PLAUSIBLE_POST_STOP_DRIP_G of m_weightAtStop. A
-            //      huge overshoot is almost always a scale fault, not a
-            //      real settled value (corpus scan revealed one such shot
-            //      where the scale froze at ~75 g during settling on a
-            //      ~40 g target — restoring that reading would amplify
-            //      the glitch instead of correcting it).
-            //   2. m_weightAtStop floor — post-stop drip can only ADD
-            //      weight, so persisting a value below the SAW trigger
-            //      weight is physically impossible.
-            //   3. leave m_weight as-is (cup lifted before either signal
-            //      was observable; this is the legacy behavior).
+            // Fallback chain (4 branches; SAW_LEARNING.md has the full version):
+            //   1. last clean settling avg, ONLY if its overshoot above
+            //      m_weightAtStop is ≤ MAX_PLAUSIBLE_POST_STOP_DRIP_G.
+            //      Real drip is 0.5–3 g.
+            //   2. SCALE-FAULT snap to m_weightAtStop — fires when a
+            //      clean avg WAS captured but its overshoot is too large
+            //      to be physical (corpus scan revealed one shot where the
+            //      scale froze at ~75 g on a ~40 g target). Both the
+            //      captured avg AND the current m_weight came from the
+            //      same corrupt stream, so restoring either would amplify
+            //      the glitch — fall back to the SAW trigger weight.
+            //   3. m_weightAtStop FLOOR — fires when NO clean avg was
+            //      captured AND m_weight is below the SAW trigger weight.
+            //      Post-stop drip can only ADD weight, so persisting a
+            //      value below the trigger is physically impossible.
+            //   4. leave m_weight as-is (cup lifted before any signal was
+            //      observable AND m_weight is at/above stop weight — the
+            //      legacy behavior).
             const bool haveCleanAvg = m_lastCleanSettlingAvg > 0.0;
             const bool cleanAvgPlausible =
                 haveCleanAvg
@@ -374,9 +379,9 @@ void ShotTimingController::onWeightSample(double weight, double flowRate, double
                 // for SETTLING_CLEAN_CAPTURE_MS (#1280). Capturing on every gate
                 // fire (the original PR-1282 attempt) over-fired on noisy/oscillating
                 // settles where the window avg transiently satisfied the gate at
-                // values nowhere near the true cup weight; corpus-scan of 953 real
-                // shots showed 4 false-positive captures vs 2 legitimate recoveries
-                // before this guard was added.
+                // values nowhere near the true cup weight; corpus-scan of 953
+                // real shots found 2 such false-positive transients vs 2
+                // legitimate recoveries before this guard was added.
                 if (avgStableMs >= SETTLING_CLEAN_CAPTURE_MS) {
                     // Log the FIRST capture each settling cycle (m_lastCleanSettlingAvg
                     // is reset to 0 at startShot/startSettlingTimer). Subsequent gate
@@ -530,6 +535,12 @@ void ShotTimingController::onDisplayTimerTick()
                     m_settlingAvgStableSince = 0;
                 } else {
                     qDebug() << "[SAW] Weight settled by avg at" << QString::number(avg, 'f', 1) << "g (detected by timer)";
+                    // #1280: mirror the onWeightSample capture so the
+                    // BLE-silence completion path also records the last
+                    // clean avg. Cup-removed only fires from onWeightSample
+                    // today, so this is a future-safety capture matching
+                    // the design contract in design.md.
+                    m_lastCleanSettlingAvg = avg;
                     m_weight = avg;
                     m_settlingTimer.stop();
                     onSettlingComplete();

@@ -159,8 +159,11 @@ private:
     double m_settlingPeakWeight = 0.0; // Peak weight seen during settling (for cup removal detection)
 
     // Rolling average for settling stability detection
-    // Tolerates oscillations by checking if the average weight has stopped drifting
-    static constexpr int SETTLING_WINDOW_SIZE = 6;         // ~1.5s of samples at ~4Hz
+    // Tolerates oscillations by checking if the average weight has stopped drifting.
+    // Scale cadences vary 4–10 Hz across supported hardware (Decent v1 ~4 Hz, most
+    // WiFi/v2 scales ~10 Hz); window size is chosen to absorb at least one full
+    // BLE drop-out without losing the trend.
+    static constexpr int SETTLING_WINDOW_SIZE = 6;         // 6-sample circular buffer
     static constexpr double SETTLING_AVG_THRESHOLD = 0.3;  // Max avg drift to declare stable (g)
     static constexpr int SETTLING_STABLE_MS = 1000;        // How long avg must be stable (ms)
     // Minimum time the stability gate must hold continuously before
@@ -188,8 +191,10 @@ private:
     double m_lastSettlingAvg = 0.0;
     // Most recent rolling-window avg observed while the stability gate held
     // (drift < SETTLING_AVG_THRESHOLD, weight ≤ avg + SETTLING_ABOVE_AVG_MARGIN,
-    // avg ≥ m_weightAtStop − 0.5). Used as the cup-removal fallback for
-    // m_weight when the user lifts the cup before SETTLING_STABLE_MS elapses.
+    // avg ≥ m_weightAtStop − 0.5) AND the gate had been holding for at least
+    // SETTLING_CLEAN_CAPTURE_MS — see that constant for the rationale behind
+    // the time gate. Used as the cup-removal fallback for m_weight when the
+    // user lifts the cup before SETTLING_STABLE_MS elapses.
     // 0 ⇒ no clean avg has been observed yet this settling cycle.
     double m_lastCleanSettlingAvg = 0.0;
     qint64 m_settlingAvgStableSince = 0; // When the rolling avg stopped drifting

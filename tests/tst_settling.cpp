@@ -244,6 +244,13 @@ private slots:
                      "Expected ~42.3 g (last clean settled avg), got %1 g — "
                      "the cup-lift spike artifacts polluted m_weight")
                      .arg(tc.currentWeight(), 0, 'f', 2)));
+        // #1161 invariant: the cup-removed branch clears
+        // m_sawTriggeredThisShot but must NOT clear m_stopAtWeightTriggered
+        // — otherwise MainController::onShotEnded would misclassify this
+        // cup-lifted SAW shot as "profileEnd" instead of "weight".
+        QVERIFY2(tc.wasSawTriggered(),
+                 "Cup-removed path must preserve wasSawTriggered() == true "
+                 "so the saved shot's stoppedBy classification stays 'weight'");
     }
 
     void cupLiftAfterNoisyPlateauDoesNotCaptureTransients_1280() {

@@ -655,7 +655,9 @@ void AIManager::analyzeShot(ShotDataModel* shotData,
                              double finalWeight,
                              const QVariantMap& metadata)
 {
-    // Extract metadata from QVariantMap (QML-friendly)
+    // Extract metadata from QVariantMap (QML-friendly).
+    // #1280: `stoppedBy` is optional; absent values produce an empty
+    // string which buildShotBlock then omits per its allowlist.
     analyzeShotWithMetadata(shotData, profile, doseWeight, finalWeight,
         metadata.value("beanBrand").toString(),
         metadata.value("beanType").toString(),
@@ -666,7 +668,8 @@ void AIManager::analyzeShot(ShotDataModel* shotData,
         metadata.value("grinderBurrs").toString(),
         metadata.value("grinderSetting").toString(),
         metadata.value("enjoymentScore").toInt(),
-        metadata.value("tastingNotes").toString());
+        metadata.value("tastingNotes").toString(),
+        metadata.value("stoppedBy").toString());
 }
 
 void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
@@ -682,7 +685,8 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
                              const QString& grinderBurrs,
                              const QString& grinderSetting,
                              int enjoymentScore,
-                             const QString& tastingNotes)
+                             const QString& tastingNotes,
+                             const QString& stoppedBy)
 {
     if (!isConfigured()) {
         m_lastError = "AI provider not configured. Please add your API key in settings.";
@@ -713,7 +717,8 @@ void AIManager::analyzeShotWithMetadata(ShotDataModel* shotData,
     ShotMetadata metadata = buildMetadata(beanBrand, beanType, roastDate, roastLevel,
                                           grinderBrand, grinderModel, grinderBurrs,
                                           grinderSetting, enjoymentScore, tastingNotes);
-    ShotSummary summary = m_summarizer->summarize(shotData, profile, metadata, doseWeight, finalWeight);
+    ShotSummary summary = m_summarizer->summarize(shotData, profile, metadata,
+                                                  doseWeight, finalWeight, stoppedBy);
 
     // Build prompts (select system prompt based on beverage type + profile knowledge)
     // profileKbId is the direct knowledge base key; profileType is the fallback for custom titles
@@ -865,7 +870,9 @@ QString AIManager::generateEmailPrompt(ShotDataModel* shotData,
         metadataMap.value("grinderSetting").toString(),
         metadataMap.value("enjoymentScore").toInt(),
         metadataMap.value("tastingNotes").toString());
-    ShotSummary summary = m_summarizer->summarize(shotData, profile, metadata, doseWeight, finalWeight);
+    ShotSummary summary = m_summarizer->summarize(shotData, profile, metadata,
+                                                  doseWeight, finalWeight,
+                                                  metadataMap.value("stoppedBy").toString());
 
     QString systemPrompt = ShotSummarizer::shotAnalysisSystemPrompt(
         summary.beverageType, summary.profileTitle, summary.profileType, summary.profileKbId);
@@ -901,7 +908,9 @@ QString AIManager::generateShotSummary(ShotDataModel* shotData,
         metadataMap.value("grinderSetting").toString(),
         metadataMap.value("enjoymentScore").toInt(),
         metadataMap.value("tastingNotes").toString());
-    ShotSummary summary = m_summarizer->summarize(shotData, profile, metadata, doseWeight, finalWeight);
+    ShotSummary summary = m_summarizer->summarize(shotData, profile, metadata,
+                                                  doseWeight, finalWeight,
+                                                  metadataMap.value("stoppedBy").toString());
 
     return m_summarizer->buildUserPrompt(summary);
 }
