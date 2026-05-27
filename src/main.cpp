@@ -2771,6 +2771,23 @@ int main(int argc, char *argv[])
             // before iOS can tear down CoreBluetooth. The bluetooth-central background mode
             // also helps by keeping CoreBluetooth alive longer during backgrounding.
             batteryManager.ensureChargerOn();
+
+            // Capture a debug snapshot from the WiFi scale right before we
+            // background. Fire-and-forget: we send the `debug` text command
+            // and don't wait for the reply. On Android the foreground service
+            // keeps the WS and event loop alive long enough that the response
+            // typically lands in handleDebugFrame and gets logged before
+            // backgrounding completes. iOS has no equivalent grace for plain
+            // TCP sockets — `bluetooth-central` background mode is for
+            // CoreBluetooth/BLE only, not WebSocket/TCP — so the WS will be
+            // suspended with the event loop and the reply lands on the next
+            // resume. Either way the request itself is on the wire and costs
+            // nothing.
+            if (auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get())) {
+                if (wifi->isConnected()) {
+                    wifi->requestDebugSnapshot();
+                }
+            }
         }
         else if (state == Qt::ApplicationActive && wasSuspended) {
             qDebug() << "App resumed from suspended state";
