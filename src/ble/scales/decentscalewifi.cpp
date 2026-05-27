@@ -257,10 +257,14 @@ void DecentScaleWifi::onConnected() {
 
     // Bump to the highest cadence the firmware supports, opt in to events,
     // and seed an initial status frame so battery/firmware_version populate
-    // immediately rather than waiting on the 5 s heartbeat.
+    // immediately. Periodic battery/charging refreshes are driven by
+    // sendKeepAlive() below — the WS firmware does not push status
+    // unsolicited, so we must request it ourselves (matches the BT driver's
+    // ~4-minute battery poll; see decentscale.cpp kBatteryPollHeartbeatTicks).
     send(QStringLiteral("rate 10k"));
     send(QStringLiteral("events on"));
     send(QStringLiteral("status"));
+    m_ticksSinceBatteryPoll = 0;
     // Restore the LCD on every (re)connect. Idempotent on a fresh-connect
     // scale (LCD defaults on); required on a reconnect after the DE1-sleep
     // keepScaleOn=true+WiFi path, where disableLcd() was sent before the WS
@@ -272,6 +276,7 @@ void DecentScaleWifi::onConnected() {
 
 void DecentScaleWifi::onDisconnected() {
     if (m_recognitionTimer) m_recognitionTimer->stop();
+    m_ticksSinceBatteryPoll = 0;
 
     // Classify the disconnect for triage. A genuine transport error means the
     // link dropped under us, so it must read "(unexpected)" regardless of any
@@ -698,9 +703,18 @@ void DecentScaleWifi::setLed(int r, int g, int b) {
 }
 
 void DecentScaleWifi::sendKeepAlive() {
-    // No-op. The 5 s status frame from the scale (after `events on`) plus
-    // TCP-level keepalive cover liveness — an app-level ping would just
-    // be noise on a healthy link. See design.md decision 11.
+    // Liveness itself is covered by TCP keepalive; this hook exists so the
+    // base-class keep-alive timer (30 s) can drive a periodic `status` request,
+    // since the WS firmware no longer auto-pushes status frames. Send `status`
+    // on every kBatteryPollKeepAliveTicks tick (~4 min) — matches the BT
+    // driver's effective battery-poll cadence (see decentscale.cpp's
+    // kBatteryPollHeartbeatTicks). The base-class timer is started in
+    // setConnected(true) and stopped in setConnected(false), so no extra
+    // lifecycle wiring is needed here.
+    if (++m_ticksSinceBatteryPoll >= kBatteryPollKeepAliveTicks) {
+        m_ticksSinceBatteryPoll = 0;
+        send(QStringLiteral("status"));
+    }
 }
 
 void DecentScaleWifi::onError() {
