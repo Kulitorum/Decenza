@@ -1092,82 +1092,203 @@ Item {
                             Layout.fillWidth: true
                             spacing: Theme.scaled(8)
 
-                            // Primary scale display / picker button
-                            Rectangle {
+                            // Primary scale picker \u2014 proper Qt ComboBox so the
+                            // affordance always matches the behavior. The popup
+                            // is capped at 3 visible rows; longer lists scroll
+                            // inline instead of opening a separate dialog.
+                            ComboBox {
+                                id: scalePicker
                                 Layout.fillWidth: true
-                                height: Theme.scaled(36)
-                                radius: Theme.scaled(6)
-                                color: Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.12)
-                                border.color: Theme.accentColor
-                                border.width: 1
+                                Layout.preferredHeight: Theme.scaled(36)
 
-                                Accessible.role: Accessible.Button
-                                Accessible.name: {
+                                readonly property int rowHeight: Theme.scaled(40)
+                                readonly property int visibleRows: 3
+
+                                function indexOfPrimary() {
                                     var scales = Settings.knownScales
                                     for (var i = 0; i < scales.length; i++) {
-                                        if (scales[i].isPrimary) {
-                                            var label = scales[i].name || scales[i].type
-                                            if (scales.length > 1)
-                                                return label + ". " + TranslationManager.translate("settings.bluetooth.tapToChange", "Tap to change")
-                                            return label
-                                        }
+                                        if (scales[i].isPrimary) return i
                                     }
-                                    return TranslationManager.translate("settings.bluetooth.selectScale", "Select scale")
+                                    return -1
                                 }
-                                Accessible.focusable: true
-                                Accessible.onPressAction: scalePickerArea.clicked(null)
+                                function primaryLabel() {
+                                    var scales = Settings.knownScales
+                                    for (var i = 0; i < scales.length; i++) {
+                                        if (scales[i].isPrimary)
+                                            return scales[i].name || scales[i].type
+                                    }
+                                    return TranslationManager.translate("settings.bluetooth.noScale", "No scale selected")
+                                }
+                                function transportLabel(typeId) {
+                                    if (!typeId) return ""
+                                    if (typeId === "decent-wifi") return "WiFi"
+                                    if (typeId === "decent-usb") return "USB"
+                                    return "BLE"
+                                }
 
-                                RowLayout {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.scaled(10)
-                                    anchors.rightMargin: Theme.scaled(10)
+                                model: Settings.knownScales
+                                currentIndex: indexOfPrimary()
+
+                                // Re-sync when the underlying list (or which one is primary) changes.
+                                Connections {
+                                    target: Settings
+                                    function onKnownScalesChanged() {
+                                        scalePicker.currentIndex = scalePicker.indexOfPrimary()
+                                    }
+                                }
+
+                                Accessible.role: Accessible.ComboBox
+                                Accessible.name: primaryLabel()
+
+                                onActivated: function(index) {
+                                    var scales = Settings.knownScales
+                                    if (index < 0 || index >= scales.length) return
+                                    var scale = scales[index]
+                                    if (scale.isPrimary) return
+                                    Settings.setPrimaryScale(scale.address)
+                                    BLEManager.setSavedScaleAddress(scale.address, scale.type, scale.name)
+                                    BLEManager.connectToSavedScale()
+                                }
+
+                                background: Rectangle {
+                                    radius: Theme.scaled(6)
+                                    color: Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.12)
+                                    border.color: Theme.accentColor
+                                    border.width: 1
+                                }
+
+                                // Closed-state content: live status dot + name + transport badge + chevron.
+                                contentItem: RowLayout {
                                     spacing: Theme.scaled(6)
 
-                                    Image {
-                                        source: "qrc:/icons/star.svg"
-                                        sourceSize.width: Theme.scaled(14)
-                                        sourceSize.height: Theme.scaled(14)
+                                    Rectangle {
+                                        Layout.leftMargin: Theme.scaled(10)
+                                        width: Theme.scaled(8)
+                                        height: Theme.scaled(8)
+                                        radius: Theme.scaled(4)
+                                        color: (ScaleDevice && ScaleDevice.connected)
+                                               ? Theme.successColor
+                                               : Theme.textSecondaryColor
                                         Accessible.ignored: true
                                     }
 
                                     Text {
-                                        text: {
-                                            // Show the human-readable name when present; fall back to
-                                            // the internal type code only when the saved scale has no
-                                            // name (older entries from before user-friendly naming).
-                                            // The prior implementation appended "(<type>)" to the name
-                                            // whenever they differed, producing ugly "Decent Scale (WiFi)
-                                            // (decent-wifi)" labels for the WiFi variant.
-                                            var scales = Settings.knownScales
-                                            for (var i = 0; i < scales.length; i++) {
-                                                if (scales[i].isPrimary)
-                                                    return scales[i].name || scales[i].type
-                                            }
-                                            return TranslationManager.translate("settings.bluetooth.noScale", "No scale selected")
-                                        }
+                                        Layout.fillWidth: true
+                                        text: scalePicker.primaryLabel()
                                         color: Theme.textColor
                                         font.pixelSize: Theme.scaled(13)
                                         font.bold: true
-                                        Layout.fillWidth: true
                                         elide: Text.ElideRight
+                                        verticalAlignment: Text.AlignVCenter
                                         Accessible.ignored: true
                                     }
 
+                                    Rectangle {
+                                        property string badge: {
+                                            var scales = Settings.knownScales
+                                            for (var i = 0; i < scales.length; i++) {
+                                                if (scales[i].isPrimary)
+                                                    return scalePicker.transportLabel(scales[i].type)
+                                            }
+                                            return ""
+                                        }
+                                        visible: badge.length > 0
+                                        width: badgeText.implicitWidth + Theme.scaled(10)
+                                        height: Theme.scaled(18)
+                                        radius: Theme.scaled(9)
+                                        color: Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.22)
+                                        Text {
+                                            id: badgeText
+                                            anchors.centerIn: parent
+                                            text: parent.badge
+                                            color: Theme.accentColor
+                                            font.pixelSize: Theme.scaled(10)
+                                            font.bold: true
+                                        }
+                                    }
+
                                     Text {
+                                        Layout.rightMargin: Theme.scaled(10)
                                         text: "\u25BC"
                                         font.pixelSize: Theme.scaled(10)
                                         color: Theme.textSecondaryColor
-                                        visible: Settings.knownScales.length > 1
                                         Accessible.ignored: true
                                     }
                                 }
 
-                                MouseArea {
-                                    id: scalePickerArea
-                                    anchors.fill: parent
-                                    onClicked: {
-                                        if (Settings.knownScales.length > 1)
-                                            knownScaleDialog.open()
+                                // Per-row delegate: star (filled on primary) + name + transport badge.
+                                delegate: ItemDelegate {
+                                    width: scalePicker.width
+                                    height: scalePicker.rowHeight
+                                    highlighted: scalePicker.highlightedIndex === index
+
+                                    contentItem: RowLayout {
+                                        spacing: Theme.scaled(8)
+
+                                        Image {
+                                            source: "qrc:/icons/star.svg"
+                                            sourceSize.width: Theme.scaled(14)
+                                            sourceSize.height: Theme.scaled(14)
+                                            opacity: modelData.isPrimary ? 1.0 : 0.25
+                                            Accessible.ignored: true
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: modelData.name || modelData.type
+                                            color: Theme.textColor
+                                            font.pixelSize: Theme.scaled(13)
+                                            font.bold: modelData.isPrimary
+                                            elide: Text.ElideRight
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+
+                                        Rectangle {
+                                            property string badge: scalePicker.transportLabel(modelData.type)
+                                            visible: badge.length > 0
+                                            width: rowBadgeText.implicitWidth + Theme.scaled(10)
+                                            height: Theme.scaled(18)
+                                            radius: Theme.scaled(9)
+                                            color: Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.2)
+                                            Text {
+                                                id: rowBadgeText
+                                                anchors.centerIn: parent
+                                                text: parent.badge
+                                                color: Theme.accentColor
+                                                font.pixelSize: Theme.scaled(10)
+                                                font.bold: true
+                                            }
+                                        }
+                                    }
+
+                                    background: Rectangle {
+                                        color: highlighted
+                                               ? Qt.rgba(Theme.accentColor.r, Theme.accentColor.g, Theme.accentColor.b, 0.18)
+                                               : "transparent"
+                                    }
+                                }
+
+                                popup: Popup {
+                                    y: scalePicker.height
+                                    width: scalePicker.width
+                                    padding: 1
+                                    // Cap visible height at `visibleRows`; longer lists scroll.
+                                    height: Math.min(scalePicker.count, scalePicker.visibleRows) * scalePicker.rowHeight
+                                            + topPadding + bottomPadding
+
+                                    contentItem: ListView {
+                                        clip: true
+                                        implicitHeight: contentHeight
+                                        model: scalePicker.popup.visible ? scalePicker.delegateModel : null
+                                        currentIndex: scalePicker.highlightedIndex
+                                        ScrollIndicator.vertical: ScrollIndicator {}
+                                    }
+
+                                    background: Rectangle {
+                                        radius: Theme.scaled(6)
+                                        color: Theme.surfaceColor
+                                        border.color: Theme.accentColor
+                                        border.width: 1
                                     }
                                 }
                             }
@@ -1663,41 +1784,4 @@ Item {
         }
     }
 
-    // Known scales picker dialog
-    SelectionDialog {
-        id: knownScaleDialog
-        title: TranslationManager.translate("settings.bluetooth.knownScales", "Known Scales")
-        options: {
-            // Use human-readable name when present; fall back to type only
-            // when the saved scale has no name (older saved entries from
-            // before user-friendly naming). Don't append the type code to
-            // names that already convey the transport (e.g. avoid the
-            // "Decent Scale (WiFi) (decent-wifi)" double-paren label).
-            var scales = Settings.knownScales
-            var labels = []
-            for (var i = 0; i < scales.length; i++) {
-                labels.push(scales[i].name || scales[i].type)
-            }
-            return labels
-        }
-        currentIndex: {
-            var scales = Settings.knownScales
-            for (var i = 0; i < scales.length; i++) {
-                if (scales[i].isPrimary) return i
-            }
-            return -1
-        }
-        onSelected: function(index, value) {
-            var scales = Settings.knownScales
-            if (index >= 0 && index < scales.length) {
-                var scale = scales[index]
-                if (scale.isPrimary) return  // re-selected the current primary — nothing to switch
-                Settings.setPrimaryScale(scale.address)
-                BLEManager.setSavedScaleAddress(scale.address, scale.type, scale.name)
-                // Actually switch the live connection to the chosen scale, so the
-                // "Connected:" status updates instead of staying on the old one.
-                BLEManager.connectToSavedScale()
-            }
-        }
-    }
 }
