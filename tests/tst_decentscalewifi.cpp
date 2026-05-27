@@ -415,6 +415,50 @@ private slots:
         QTest::qWait(50);
     }
 
+    // Debug frames (both event-driven and request-response shapes) are logged
+    // verbatim so every signal the firmware sends is captured in the scale
+    // log. We don't filter by event type — the firmware decides what's worth
+    // sending, and a one-line JSON dump is the cheapest triage surface.
+    void debugFramesAreLoggedVerbatim() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        connectAndHandshake(driver, server);
+
+        // Event-driven shape.
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Debug frame:.*\"event\":\"stall_start\".*\"stall_count\":1.*"));
+        server.sendJson({
+            { "type", "debug" }, { "event", "stall_start" },
+            { "stall_count", 1 }, { "last_stall_temp_c", 42.1 },
+        });
+        QTest::qWait(50);
+
+        // Full-state response shape (what requestDebugSnapshot() pulls back).
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression(".*Debug frame:.*\"soc_temp_c\":32\\.3.*\"weight_stalled\":false.*"));
+        server.sendJson({
+            { "type", "debug" }, { "status", "ok" },
+            { "soc_temp_c", 32.3 }, { "soc_temp_max_c", 32.3 },
+            { "weight_stalled", false }, { "stall_count", 0 },
+            { "adc_recovery_count", 0 }, { "ms", 29104 },
+        });
+        QTest::qWait(50);
+    }
+
+    // requestDebugSnapshot() sends the `debug` text command, which the
+    // firmware answers with a full-state debug frame. The app-suspend hook in
+    // main.cpp calls this so the scale log captures firmware state right
+    // before the app backgrounds.
+    void requestDebugSnapshotSendsDebugCommand() {
+        FakeHdsServer server;
+        DecentScaleWifi driver;
+        connectAndHandshake(driver, server);
+        server.clearReceived();
+
+        driver.requestDebugSnapshot();
+        QTRY_VERIFY(server.received().contains(QStringLiteral("debug")));
+    }
+
     // Regression: the real firmware's status frame ALSO carries a `grams` field
     // (openscale README). Snapshots are distinguished by the ABSENCE of `type`,
     // so a status-with-grams must still reach the status handler — keying on the

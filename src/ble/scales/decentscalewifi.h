@@ -90,6 +90,12 @@ public slots:
     void sendKeepAlive() override;
     void disconnectFromScale() override;
     void setLed(int r, int g, int b);
+    // Ask the scale to send a one-shot {"type":"debug","status":"ok",...}
+    // frame with full health state (SoC temps, stall counters, ADC recovery
+    // count). The response lands in handleDebugFrame and gets logged verbatim.
+    // Called from main.cpp on app suspend so the scale log has a snapshot of
+    // firmware state captured immediately before the app backgrounds.
+    void requestDebugSnapshot();
 
 private slots:
     void onConnected();
@@ -133,6 +139,7 @@ private:
     void handleSnapshotFrame(const QJsonObject& obj);
     void handleStatusFrame(const QJsonObject& obj);
     void handleSessionInfoFrame(const QJsonObject& obj);
+    void handleDebugFrame(const QJsonObject& obj);
     void handleButtonFrame(const QJsonObject& obj);
     void handlePowerFrame(const QJsonObject& obj);
     void handleRateFrame(const QJsonObject& obj);

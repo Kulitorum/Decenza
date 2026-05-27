@@ -2771,6 +2771,19 @@ int main(int argc, char *argv[])
             // before iOS can tear down CoreBluetooth. The bluetooth-central background mode
             // also helps by keeping CoreBluetooth alive longer during backgrounding.
             batteryManager.ensureChargerOn();
+
+            // Capture a debug snapshot from the WiFi scale right before we
+            // background. The scale WS stays connected through suspension on
+            // platforms with sufficient grace (Android foreground service, iOS
+            // bluetooth-central background mode), so the response usually lands
+            // in handleDebugFrame and gets logged before the event loop is
+            // frozen. If it doesn't, the request is still on the wire and
+            // costs nothing — and the answer arrives on the next resume.
+            if (auto* wifi = qobject_cast<DecentScaleWifi*>(physicalScale.get())) {
+                if (wifi->isConnected()) {
+                    wifi->requestDebugSnapshot();
+                }
+            }
         }
         else if (state == Qt::ApplicationActive && wasSuspended) {
             qDebug() << "App resumed from suspended state";

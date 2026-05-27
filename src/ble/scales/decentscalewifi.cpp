@@ -381,6 +381,8 @@ void DecentScaleWifi::onTextMessageReceived(const QString& message) {
         handleStatusFrame(obj);
     } else if (type == QStringLiteral("session_info")) {
         handleSessionInfoFrame(obj);
+    } else if (type == QStringLiteral("debug")) {
+        handleDebugFrame(obj);
     } else if (type == QStringLiteral("button")) {
         handleButtonFrame(obj);
     } else if (type == QStringLiteral("power")) {
@@ -486,6 +488,21 @@ void DecentScaleWifi::handleSessionInfoFrame(const QJsonObject& obj) {
             WIFI_LOG(QString("Scale reset reason: %1").arg(reason));
         }
     }
+}
+
+// Debug frames carry firmware-internal health telemetry. Two shapes arrive
+// here:
+//   • Event-driven (unprompted, after `events on`): {"type":"debug",
+//     "event":"stall_start"|"stall_end"|"adc_recovery"|"temp_peak", ...}.
+//   • Full-state snapshot (response to a "debug" request — see
+//     requestDebugSnapshot()): {"type":"debug","status":"ok","soc_temp_c":...,
+//     "weight_stalled":..., "stall_count":..., ...}.
+// Log each verbatim — the firmware decides what to send, and a compact
+// one-line dump is the cheapest way to surface every signal for triage. We
+// don't filter or shape further until we know which fields actually matter.
+void DecentScaleWifi::handleDebugFrame(const QJsonObject& obj) {
+    const QByteArray json = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+    WIFI_LOG(QString("Debug frame: %1").arg(QString::fromUtf8(json)));
 }
 
 void DecentScaleWifi::handleButtonFrame(const QJsonObject& obj) {
@@ -744,6 +761,10 @@ void DecentScaleWifi::sleep() {
     // The WS analog is send() returning success above. Emit immediately to
     // match BT's intent.
     emit sleepCompleted();
+}
+
+void DecentScaleWifi::requestDebugSnapshot() {
+    send(QStringLiteral("debug"));
 }
 
 void DecentScaleWifi::setLed(int r, int g, int b) {
