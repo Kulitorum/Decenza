@@ -1287,9 +1287,23 @@ Item {
                                     }
                                 }
 
-                                popup: Popup {
+                                // Use a Dialog (not Popup) so TalkBack can trap
+                                // focus inside the dropdown list and navigate
+                                // rows. Dialog inherits from Popup, so it's a
+                                // drop-in for ComboBox.popup. We position it
+                                // exactly where the Popup used to render, with
+                                // no header/footer/buttons, so the visual is
+                                // unchanged — only the accessibility tree
+                                // changes (TalkBack sees a modal it can enter).
+                                // See ACCESSIBILITY.md "Popup for selection lists".
+                                popup: Dialog {
                                     y: scalePicker.height
                                     width: scalePicker.width
+                                    modal: true
+                                    header: null
+                                    footer: null
+                                    standardButtons: Dialog.NoButton
+                                    closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
                                     // Pin paddings so the style can't override them
                                     // and silently eat into the visible row count.
                                     leftPadding: 0
@@ -1302,8 +1316,17 @@ Item {
                                     height: Math.min(Settings.knownScales.length, scalePicker.visibleRows) * scalePicker.rowHeight
                                             + topPadding + bottomPadding
 
+                                    // Move keyboard focus into the list when the
+                                    // dropdown opens so TalkBack/VoiceOver lands
+                                    // on the first row (or the current primary)
+                                    // instead of leaving focus on the ComboBox.
+                                    onOpened: scaleDropdownList.forceActiveFocus()
+
                                     contentItem: ListView {
+                                        id: scaleDropdownList
                                         clip: true
+                                        focus: true
+                                        keyNavigationEnabled: true
                                         model: scalePicker.popup.visible ? scalePicker.delegateModel : null
                                         currentIndex: scalePicker.highlightedIndex
                                         ScrollIndicator.vertical: ScrollIndicator {}
