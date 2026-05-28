@@ -1615,11 +1615,13 @@ int main(int argc, char *argv[])
         bleManager.setScaleDevice(physicalScale.get());
 
         // Forward scale-level error messages to BLEManager::errorOccurred, which
-        // main.qml wires to the error dialog. Transient WiFi connect-failures (mDNS
-        // miss, host-not-found, connection-refused — the scale is just booting) are
-        // log-only inside DecentScaleWifi (see #1253), so what reaches here is an
-        // ACTIONABLE error worth showing unconditionally — e.g. WiFi 503 "Another
-        // client is connected to the scale", which the retry loop can't resolve.
+        // main.qml wires to the error dialog. Transient connect-failures are log-only
+        // inside the drivers — BLE transport/service-discovery errors (#1285, #1292)
+        // and WiFi mDNS-miss / host-not-found / 503 retries (#1253). What reaches
+        // here is an ACTIONABLE error worth showing unconditionally — e.g. WiFi 503
+        // "Another client is connected to the scale" that the retry loop can't
+        // resolve, or a measurement-side condition from a refractometer ("No liquid
+        // detected", "Beyond range").
         QObject::connect(physicalScale.get(), &ScaleDevice::errorOccurred,
                          &bleManager, &BLEManager::errorOccurred);
 

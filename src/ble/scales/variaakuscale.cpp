@@ -189,7 +189,6 @@ void VariaAkuScale::onWatchdogTimeout() {
     if (m_watchdogRetries >= MAX_WATCHDOG_RETRIES) {
         VARIA_WARN(QString("No weight updates after %1 retries, giving up").arg(MAX_WATCHDOG_RETRIES));
         setConnected(false);
-        emit errorOccurred("Varia Aku scale not sending weight updates");
         return;
     }
 

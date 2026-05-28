@@ -208,7 +208,6 @@ void AcaiaScale::onInitTimer() {
         ACAIA_WARN(QString("Init sequence failed after %1 retries").arg(MAX_IDENT_RETRIES));
         m_initTimer->stop();
         m_isConnecting = false;
-        emit errorOccurred("Scale not responding to ident");
         return;
     }
 
