@@ -585,40 +585,23 @@ void ShotServer::onReadyRead()
     if (QTimer* t = m_keepAliveTimers.value(socket))
         t->stop();
 
-    // Diagnostic guard for the "QIODevice::read (QSslSocket): device not open"
+    // Safety net for the "QIODevice::read (QSslSocket): device not open"
     // warning Qt emits when readAll() runs against a closed underlying device.
     // The state guard above catches sockets that fully transitioned to a
     // non-Connected state, but there is a window where state still reads
     // Connected (Qt hasn't propagated the close yet) while the underlying
-    // QIODevice is already closed — `isOpen()` is the stricter check. Look up
-    // existing-pending-request state via constFind BEFORE m_pendingRequests[socket]
-    // below: QHash::operator[] default-inserts a PendingRequest for any missing
-    // key, which would both hide the "no pending request" signal in the
-    // diagnostic AND leak a phantom entry for a socket we're about to remove.
+    // QIODevice is already closed — `isOpen()` is the stricter check.
     //
-    // The qDebug() below is temporary instrumentation for #1295 — peer/state/
-    // age/reqLine let us classify each hit as either a sleep/wake race (old
-    // socket, no pending body) or a mid-request peer teardown. Once the
-    // dominant trigger is known, the logging block goes away and the
-    // isOpen() guard stays (it's load-bearing for the warning either way).
+    // Kept defensively even though investigation in #1295 did not observe
+    // shotserver tripping this race in practice; a future sleep/wake or
+    // abrupt peer teardown could still hit it, and one branch costs nothing.
+    //
+    // Note: the warning we actually see in production logs comes from a
+    // different code path — Qt-internal HTTP/2 channel teardown on the
+    // auto-update checker's outbound request, not this server's incoming
+    // socket. See QTBUG-129316 / QTBUG-144492. That source is unrelated to
+    // this guard; don't delete this guard if those bugs close.
     if (!socket->isOpen()) {
-        const auto it = m_pendingRequests.constFind(socket);
-        const bool hadPending = (it != m_pendingRequests.constEnd());
-        QString reqLine = QStringLiteral("<no pending request>");
-        qint64 ageMs = -1;
-        if (hadPending) {
-            const int eol = static_cast<int>(it->headerData.indexOf('\r'));
-            const QByteArray firstLine = eol > 0 ? it->headerData.left(eol) : it->headerData.left(120);
-            reqLine = QString::fromUtf8(firstLine).left(120);
-            ageMs = it->lastActivity.elapsed();
-        }
-        qDebug().nospace()
-            << "[ShotServer] readyRead on closed socket"
-            << " peer=" << socket->peerAddress().toString() << ":" << socket->peerPort()
-            << " state=" << socket->state()
-            << " hadPending=" << hadPending
-            << " ageMs=" << ageMs
-            << " reqLine=\"" << reqLine << "\"";
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
         return;
