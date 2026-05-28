@@ -458,7 +458,8 @@ signals:
     void errorOccurred(const QString& error);
     void de1LogMessage(const QString& message);
     void scaleLogMessage(const QString& message);
-    void flowScaleFallback();  // Emitted when no physical scale found, using FlowScale
+    void flowScaleFallback();  // Emitted when no physical scale found, using FlowScale (gated to fire once per saved-scale cycle so the "No Scale Found" dialog doesn't re-show on every retry)
+    void scaleRetryNeeded();   // Emitted on EVERY connection-failure path (including the post-WiFi→BLE-fallback give-up), regardless of the flowScaleFallback gate, so the persistent reconnect ladder in main.cpp survives the scale-type-change timer stop. Don't bind UI to this — it's for re-arming the retry timer only.
     void scaleDisconnected();  // Emitted when physical scale disconnects
     void scaleConnected();     // Emitted when a physical scale (re)connects — lets the UI dismiss the scale-disconnect / no-scale notice
     void scanStarted();  // Emitted when BLE scan actually begins

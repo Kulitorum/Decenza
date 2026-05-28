@@ -893,43 +893,51 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
             && m_savedScaleType == QStringLiteral("decent-wifi")
             && scaleType == QStringLiteral("decent");
 
-        // A user-initiated scan only POPULATES the discovered list (m_scales,
-        // above) for the user to choose from — it must NOT auto-connect. Auto-
-        // connecting here would grab the first scale found (hijacking the user's
-        // pick — e.g. connecting the BLE Decent scale when the user wants the
-        // WiFi one) and, via the scaleDiscovered handler's unconditional
-        // addKnownScale(), silently re-save a scale the user just forgot. So a
-        // forgotten scale would reappear on the next scan. Explicit selection
-        // from the list goes through connectToScale(), which emits its own
-        // scaleDiscovered.
-        if (m_userInitiatedScaleScan) {
-            return;
-        }
+        // Auto-connect rules (BLE path — WiFi has its own handler in
+        // the WifiScaleDiscovery::scaleFound lambda further down):
+        //   • Saved BLE primary → always auto-connect (even on user-initiated
+        //     scans). The user's "Scan" tap when their scale is offline is
+        //     itself a "please reconnect" — the original "don't hijack the
+        //     user's pick" concern doesn't apply when the found scale IS what
+        //     they previously chose as primary. The companion "don't silently
+        //     re-save a forgotten scale via addKnownScale()" concern is also
+        //     inert here: the scale is already saved, so the re-save is a
+        //     no-op against the same record. This restores the natural "scan
+        //     got my scale back" flow that was previously only reachable via
+        //     an awkward BT-then-WiFi switch dance.
+        //
+        //     Note: this rule only fires for BLE primaries. When the saved
+        //     primary is `wifi:hostname`, deviceIdentifiersMatch can never
+        //     return true here (BLE devices don't carry hostnames), so a
+        //     WiFi-primary user scanning while looking at BLE devices falls
+        //     through to the list-only branch. The WiFi handler below mirrors
+        //     this rule for the WiFi-primary case.
+        //   • WiFi→BLE fallback candidate → auto-connect (the #440-violating
+        //     "accept a Decent BLE scale as a substitute" path; opt-in via the
+        //     m_wifiFallbackToBleActive gate).
+        //   • Anything else during a user-initiated scan → list only, don't
+        //     hijack the user's pick. The user explicitly selects via the UI
+        //     (connectToScale()).
+        //   • Anything else in a background scan → ignore (no auto-connect to
+        //     non-primaries — #440 — and don't silently re-save a scale the
+        //     user just forgot via the scaleDiscovered handler's
+        //     addKnownScale()/setPrimaryScale()).
+        const bool matchesSaved = !m_savedScaleAddress.isEmpty()
+            && deviceIdentifiersMatch(device, m_savedScaleAddress);
 
-        // Auto-reconnect path: only connect to the saved primary scale — #440:
-        // don't let a nearby non-primary scale hijack auto-reconnect — unless
-        // this is the WiFi-to-BLE fallback accepting a Decent BLE substitute.
-        if (!isFallbackCandidate) {
-            // With no saved primary (e.g. the user just forgot the scale) there
-            // is nothing to auto-reconnect to. Leave the scale in the discovered
-            // list (appended above) for explicit selection, but do NOT emit —
-            // emitting auto-connects and, via the scaleDiscovered handler's
-            // addKnownScale()/setPrimaryScale(), silently re-saves the scale the
-            // user just forgot. It would then reappear as a Known Device on the
-            // next *background* scan (refractometer/DE1 scan, startup probe) and,
-            // because buildCombinedModel filters Known Devices out of the
-            // discovered list, never show up there again — so "Forget" appears
-            // not to stick. Explicit selection from the list goes through
-            // connectToScale(), which emits its own scaleDiscovered.
+        if (!isFallbackCandidate && !matchesSaved) {
+            if (m_userInitiatedScaleScan) {
+                // User is choosing — leave the discovered scale in the list
+                // for explicit selection. (Appended to m_scales above.)
+                return;
+            }
             if (m_savedScaleAddress.isEmpty()) {
                 appendScaleLog(QString("No saved scale — listing %1 for manual selection (no auto-connect)")
                                .arg(device.name()));
                 return;
             }
-            if (!deviceIdentifiersMatch(device, m_savedScaleAddress)) {
-                appendScaleLog(QString("Ignoring non-primary scale: %1 (%2)").arg(device.name(), getDeviceIdentifier(device)));
-                return;
-            }
+            appendScaleLog(QString("Ignoring non-primary scale: %1 (%2)").arg(device.name(), getDeviceIdentifier(device)));
+            return;
         }
 
         if (isFallbackCandidate) {
@@ -1169,6 +1177,16 @@ void BLEManager::onScaleConnectionTimeout() {
         appendScaleLog("Scale not found - using FlowScale");
         emit flowScaleFallback();
     }
+
+    // Always emit the retry-arm signal — even when the dialog gate has
+    // already fired. flowScaleFallback is the dialog trigger (gated to one
+    // shot per saved-scale cycle so the "No Scale Found" notice doesn't
+    // re-pop on every retry); scaleRetryNeeded is the retry-ladder trigger
+    // and must keep firing. Without this, a WiFi→BLE fallback whose own
+    // BLE attempt also times out used to fall into a silent dead end: the
+    // reconnect timer in main.cpp had been stopped by the scale-type
+    // change, and there was no signal that re-armed it.
+    emit scaleRetryNeeded();
 }
 
 void BLEManager::beginWifiFallbackToBleScan() {
@@ -1189,6 +1207,13 @@ void BLEManager::beginWifiFallbackToBleScan() {
             m_flowScaleFallbackEmitted = true;
             emit flowScaleFallback();
         }
+        // Honor the scaleRetryNeeded contract: this is a connection-failure
+        // give-up that must re-arm the retry ladder, just like the equivalent
+        // branch in onScaleConnectionTimeout. Without this, a user with a
+        // saved WiFi scale offline AND Bluetooth disabled would be stuck on
+        // FlowScale until they manually re-engaged — the exact bug class this
+        // PR is fixing.
+        emit scaleRetryNeeded();
         return;
     }
 
@@ -1602,13 +1627,13 @@ void BLEManager::ensureWifiDiscovery() {
                 qDebug() << "[BLE] WiFi scale already in discovered list — not re-adding";
             }
 
-            // Auto-connect when the discovered scale matches the saved primary
-            // AND we're not in a user-initiated scan (where the user is choosing
-            // explicitly — list only, don't auto-connect). Covers both paths:
-            // saved-scale direct-wake on app start AND a spontaneous scan that
-            // happens to find the saved scale.
-            if (!m_userInitiatedScaleScan
-                    && !m_savedScaleAddress.isEmpty()
+            // Auto-connect when the discovered scale matches the saved primary,
+            // including during user-initiated scans. Matching the saved primary
+            // is itself the anti-hijack guard — see the matching reasoning on
+            // the BLE path in onDeviceDiscovered. Covers both paths:
+            // saved-scale direct-wake on app start AND a spontaneous (or
+            // user-initiated) scan that happens to find the saved scale.
+            if (!m_savedScaleAddress.isEmpty()
                     && address.compare(m_savedScaleAddress, Qt::CaseInsensitive) == 0) {
                 m_pendingWifiHostname = hostname;
                 emit scaleDiscovered(QBluetoothDeviceInfo{}, QStringLiteral("decent-wifi"));
