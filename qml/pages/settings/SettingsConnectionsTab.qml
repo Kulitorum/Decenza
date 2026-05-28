@@ -1147,11 +1147,18 @@ Item {
 
                                 onActivated: function(index) {
                                     var scales = Settings.knownScales
-                                    if (index < 0 || index >= scales.length) return
+                                    if (index < 0 || index >= scales.length) {
+                                        // TOCTOU: scan/forget mutated the model between
+                                        // the user's tap and this handler. Log so we can
+                                        // tell this apart from a no-op re-select.
+                                        console.warn("scalePicker: stale activated index", index,
+                                                     "model length", scales.length)
+                                        return
+                                    }
                                     var scale = scales[index]
                                     if (scale.isPrimary) return
                                     Settings.setPrimaryScale(scale.address)
-                                    BLEManager.setSavedScaleAddress(scale.address, scale.type, scale.name)
+                                    BLEManager.setSavedScaleAddress(scale.address, scale.type, scale["name"])
                                     BLEManager.connectToSavedScale()
                                 }
 
@@ -1233,8 +1240,17 @@ Item {
                                     height: scalePicker.rowHeight
                                     highlighted: scalePicker.highlightedIndex === index
 
+                                    // `modelData["name"]` (bracket form) bypasses
+                                    // QML's reserved-property lookup on `name`
+                                    // — defensive per docs/CLAUDE_MD/QML_GOTCHAS.md
+                                    // even though QVariantMap-backed models work
+                                    // with dot notation in practice.
+                                    readonly property string _label:
+                                        modelData["name"] || modelData.type ||
+                                        TranslationManager.translate("settings.bluetooth.unknownScale", "Unknown scale")
+
                                     Accessible.role: Accessible.Button
-                                    Accessible.name: (modelData.name || modelData.type)
+                                    Accessible.name: _label
                                                      + " " + scalePicker.transportLabel(modelData.type)
                                                      + (modelData.isPrimary
                                                         ? ", " + TranslationManager.translate("connections.primary", "primary")
@@ -1255,7 +1271,7 @@ Item {
 
                                         Text {
                                             Layout.fillWidth: true
-                                            text: modelData.name || modelData.type
+                                            text: scaleRowDelegate._label
                                             color: Theme.textColor
                                             font.pixelSize: Theme.scaled(13)
                                             font.bold: modelData.isPrimary
