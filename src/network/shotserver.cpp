@@ -585,6 +585,44 @@ void ShotServer::onReadyRead()
     if (QTimer* t = m_keepAliveTimers.value(socket))
         t->stop();
 
+    // Diagnostic guard for the "QIODevice::read (QSslSocket): device not open"
+    // warning Qt emits when readAll() runs against a closed underlying device.
+    // The state guard above catches sockets that fully transitioned to a
+    // non-Connected state, but there is a window where state still reads
+    // Connected (Qt hasn't propagated the close yet) while the underlying
+    // QIODevice is already closed — `isOpen()` is the stricter check. Look up
+    // existing-pending-request state BEFORE m_pendingRequests[socket] below,
+    // which would auto-insert a fresh entry and erase the "no pending" signal.
+    //
+    // The qDebug() below is temporary instrumentation for #1295 — peer/state/
+    // age/reqLine let us classify each hit as either a sleep/wake race (old
+    // socket, no pending body) or a mid-request peer teardown. Once the
+    // dominant trigger is known, the logging block goes away and the
+    // isOpen() guard stays (it's load-bearing for the warning either way).
+    // Cleanup checklist lives in #1295.
+    if (!socket->isOpen()) {
+        const auto it = m_pendingRequests.constFind(socket);
+        const bool hadPending = (it != m_pendingRequests.constEnd());
+        QString reqLine = QStringLiteral("<no pending request>");
+        qint64 ageMs = -1;
+        if (hadPending) {
+            const int eol = static_cast<int>(it->headerData.indexOf('\r'));
+            const QByteArray firstLine = eol > 0 ? it->headerData.left(eol) : it->headerData.left(120);
+            reqLine = QString::fromUtf8(firstLine).left(120);
+            ageMs = it->lastActivity.elapsed();
+        }
+        qDebug().nospace()
+            << "[ShotServer] readyRead on closed socket"
+            << " peer=" << socket->peerAddress().toString() << ":" << socket->peerPort()
+            << " state=" << socket->state()
+            << " hadPending=" << hadPending
+            << " ageMs=" << ageMs
+            << " reqLine=\"" << reqLine << "\"";
+        cleanupPendingRequest(socket);
+        m_pendingRequests.remove(socket);
+        return;
+    }
+
     try {
         PendingRequest& pending = m_pendingRequests[socket];
         pending.lastActivity.start();
