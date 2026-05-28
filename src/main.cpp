@@ -2796,23 +2796,6 @@ int main(int argc, char *argv[])
             // before iOS can tear down CoreBluetooth. The bluetooth-central background mode
             // also helps by keeping CoreBluetooth alive longer during backgrounding.
             batteryManager.ensureChargerOn();
-
-            // Capture a debug snapshot from the active scale right before
-            // we background. Fire-and-forget — the request goes on the wire,
-            // the reply (if any) lands in the scale-driver's frame handler.
-            // On Android the foreground service keeps the WS and event loop
-            // alive long enough that the reply usually arrives pre-suspend.
-            // iOS has no equivalent grace for plain TCP sockets (CoreBluetooth-
-            // style background modes cover BLE, not WS/TCP), so the WS is
-            // suspended with the event loop and the reply lands on the next
-            // resume. Either way the request itself costs nothing. No-op for
-            // scales without a debug-snapshot command via the base virtual.
-            // The in-app screensaver path is separate — handled directly in
-            // QML's goToScreensaver() since macOS apps never reach Suspended
-            // for an in-app dim/screensaver.
-            if (physicalScale && physicalScale->isConnected()) {
-                physicalScale->requestDebugSnapshot();
-            }
         }
         else if (state == Qt::ApplicationActive && wasSuspended) {
             qDebug() << "App resumed from suspended state";

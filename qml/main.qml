@@ -3130,15 +3130,6 @@ ApplicationWindow {
         // Reset sleep counter (stopped state)
         root.sleepCountdownNormal = 0
 
-        // Capture a debug snapshot from the WiFi scale at the screensaver
-        // boundary — same intent as the Qt::ApplicationSuspended hook in
-        // main.cpp, but reachable on desktop too (the in-app screensaver
-        // doesn't transition Qt's app state to Suspended on macOS). No-op
-        // for non-Decent-WiFi scales via the base-class virtual.
-        if (ScaleDevice && ScaleDevice.connected) {
-            ScaleDevice.requestDebugSnapshot()
-        }
-
         // Close any open popups to prevent burn-in (Qt Popup renders above the
         // StackView on the overlay layer, so the screensaver can't cover them).
         // Re-queue so they show after wake. screensaverActive is already true,
