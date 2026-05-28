@@ -43,7 +43,7 @@ BookooScale::~BookooScale() {
 
 void BookooScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     if (!m_transport) {
-        emit errorOccurred("No transport available");
+        BOOKOO_WARN("connectToDevice called with no transport");
         return;
     }
 
@@ -92,7 +92,6 @@ void BookooScale::onServicesDiscoveryFinished() {
 
     if (!m_serviceFound) {
         BOOKOO_WARN(QString("Service %1 not found!").arg(Scale::Bookoo::SERVICE.toString()));
-        emit errorOccurred("Bookoo service not found");
         return;
     }
 

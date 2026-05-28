@@ -41,7 +41,7 @@ AtomheartEclairScale::~AtomheartEclairScale() {
 
 void AtomheartEclairScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     if (!m_transport) {
-        emit errorOccurred("No transport available");
+        ECLAIR_WARN("connectToDevice called with no transport");
         return;
     }
 
@@ -68,7 +68,6 @@ void AtomheartEclairScale::onTransportDisconnected() {
 
 void AtomheartEclairScale::onTransportError(const QString& message) {
     ECLAIR_WARN(QString("Transport error: %1").arg(message));
-    emit errorOccurred("Atomheart Eclair scale connection error");
     setConnected(false);
 }
 
@@ -84,7 +83,6 @@ void AtomheartEclairScale::onServicesDiscoveryFinished() {
     ECLAIR_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
         ECLAIR_WARN(QString("Atomheart Eclair service %1 not found!").arg(Scale::AtomheartEclair::SERVICE.toString()));
-        emit errorOccurred("Atomheart Eclair service not found");
         return;
     }
     m_transport->discoverCharacteristics(Scale::AtomheartEclair::SERVICE);

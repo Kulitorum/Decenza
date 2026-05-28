@@ -53,7 +53,7 @@ void AcaiaScale::stopAllTimers() {
 
 void AcaiaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     if (!m_transport) {
-        emit errorOccurred("No transport available");
+        ACAIA_WARN("connectToDevice called with no transport");
         return;
     }
 
@@ -99,7 +99,6 @@ void AcaiaScale::onTransportError(const QString& message) {
     ACAIA_WARN(QString("Transport error: %1").arg(message));
     stopAllTimers();
     m_isConnecting = false;
-    emit errorOccurred("Acaia scale connection error");
     setConnected(false);
 }
 
@@ -133,7 +132,6 @@ void AcaiaScale::onServicesDiscoveryFinished() {
         ACAIA_LOG("Using IPS protocol");
     } else {
         ACAIA_WARN("No compatible service found!");
-        emit errorOccurred("No compatible Acaia service found");
         return;
     }
 

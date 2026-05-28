@@ -66,7 +66,7 @@ TimemoreScale::~TimemoreScale() {
 
 void TimemoreScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     if (!m_transport) {
-        emit errorOccurred("No transport available");
+        TIMEMORE_WARN("connectToDevice called with no transport");
         return;
     }
 
@@ -93,7 +93,6 @@ void TimemoreScale::onTransportDisconnected() {
 
 void TimemoreScale::onTransportError(const QString& message) {
     TIMEMORE_WARN(QString("Transport error: %1").arg(message));
-    emit errorOccurred("Timemore scale connection error");
     setConnected(false);
 }
 
@@ -109,7 +108,6 @@ void TimemoreScale::onServicesDiscoveryFinished() {
     TIMEMORE_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
         TIMEMORE_WARN(QString("Timemore service %1 not found!").arg(Scale::Generic::SERVICE.toString()));
-        emit errorOccurred("Timemore service not found");
         return;
     }
     m_transport->discoverCharacteristics(Scale::Generic::SERVICE);

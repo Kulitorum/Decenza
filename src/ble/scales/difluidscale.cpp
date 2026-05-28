@@ -41,7 +41,7 @@ DifluidScale::~DifluidScale() {
 
 void DifluidScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     if (!m_transport) {
-        emit errorOccurred("No transport available");
+        DIFLUID_WARN("connectToDevice called with no transport");
         return;
     }
 
@@ -68,7 +68,6 @@ void DifluidScale::onTransportDisconnected() {
 
 void DifluidScale::onTransportError(const QString& message) {
     DIFLUID_WARN(QString("Transport error: %1").arg(message));
-    emit errorOccurred("Difluid scale connection error");
     setConnected(false);
 }
 
@@ -84,7 +83,6 @@ void DifluidScale::onServicesDiscoveryFinished() {
     DIFLUID_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
         DIFLUID_WARN(QString("DiFluid service %1 not found!").arg(Scale::DiFluid::SERVICE.toString()));
-        emit errorOccurred("Difluid service not found");
         return;
     }
     m_transport->discoverCharacteristics(Scale::DiFluid::SERVICE);
