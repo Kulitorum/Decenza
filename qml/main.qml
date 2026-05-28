@@ -3135,7 +3135,7 @@ ApplicationWindow {
         // main.cpp, but reachable on desktop too (the in-app screensaver
         // doesn't transition Qt's app state to Suspended on macOS). No-op
         // for non-Decent-WiFi scales via the base-class virtual.
-        if (typeof ScaleDevice !== "undefined" && ScaleDevice && ScaleDevice.isConnected) {
+        if (ScaleDevice && ScaleDevice.connected) {
             ScaleDevice.requestDebugSnapshot()
         }
 

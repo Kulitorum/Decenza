@@ -384,7 +384,8 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
         "the Half Decent Scale over WiFi responds — the response is written "
         "to the scale log (visible in debug_get_log) and carries SoC "
         "temperature, weight-ADC stall counters, and the ADC-recovery "
-        "attempt counter. Other scales return success with a no-op note.",
+        "attempt counter. On scales without a debug-frame command the "
+        "request is silently dropped.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [bleManager](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
@@ -397,10 +398,21 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
                 result["error"] = "No scale connected";
                 return result;
             }
-            QMetaObject::invokeMethod(scale, "requestDebugSnapshot", Qt::QueuedConnection);
+            // String-keyed invokeMethod can silently no-op if the slot
+            // disappears in a refactor (rename, lost Q_INVOKABLE / public-slots
+            // visibility). For a diagnostic tool, that's the worst possible
+            // outcome: caller is told "success" while nothing was queued.
+            // Capture the bool so a wiring regression surfaces as an error.
+            const bool queued = QMetaObject::invokeMethod(
+                scale, "requestDebugSnapshot", Qt::QueuedConnection);
+            if (!queued) {
+                result["error"] = "Failed to queue requestDebugSnapshot — "
+                                  "slot not found on active scale driver";
+                return result;
+            }
             result["success"] = true;
             result["message"] = "Debug snapshot requested — check the scale log for the response frame";
             return result;
         },
-        "read");
+        "control");
 }

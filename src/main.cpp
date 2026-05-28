@@ -2777,7 +2777,8 @@ int main(int argc, char *argv[])
             // the reply (if any) lands in the scale-driver's frame handler.
             // On Android the foreground service keeps the WS and event loop
             // alive long enough that the reply usually arrives pre-suspend.
-            // iOS has no equivalent grace for plain TCP sockets — the WS is
+            // iOS has no equivalent grace for plain TCP sockets (CoreBluetooth-
+            // style background modes cover BLE, not WS/TCP), so the WS is
             // suspended with the event loop and the reply lands on the next
             // resume. Either way the request itself costs nothing. No-op for
             // scales without a debug-snapshot command via the base virtual.
