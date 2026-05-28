@@ -1080,7 +1080,14 @@ Page {
                     fallback: "How was this shot?"
                     color: Theme.textColor
                     font: Theme.bodyFont
-                    Layout.preferredWidth: Math.min(implicitWidth, parent.width * 0.45)
+                    // Cap on an ancestor whose width does not depend on this label,
+                    // instead of `parent.width`. `parent` is the RowLayout, whose width
+                    // depends on this child's preferred size — that mutual dependency
+                    // tripped Qt Quick Layouts' "recursive rearrange" guard in
+                    // production. Binding to postShotReviewPage.width breaks the cycle;
+                    // the label still sizes to its implicitWidth, capped to ~45% of
+                    // the page.
+                    Layout.maximumWidth: postShotReviewPage.width * 0.45
                     Accessible.ignored: true
                 }
 
