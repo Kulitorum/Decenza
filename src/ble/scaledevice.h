@@ -64,6 +64,7 @@ public slots:
     virtual void wake() {}   // Wake scale from sleep (enable LCD)
     virtual void disableLcd() {}  // Turn off LCD but keep scale powered (for screensaver)
     virtual void sendKeepAlive() {}  // Override to send BLE keepalive (e.g., re-enable notifications)
+    virtual void requestDebugSnapshot() {}  // Ask the scale to send a one-shot full-state debug frame. No-op for scales without debug telemetry; Decent WiFi sends the `debug` text command.
     virtual void disconnectFromScale();  // Disconnect BLE from scale
     void resetFlowCalculation();  // Call after tare to avoid flow rate spikes
 

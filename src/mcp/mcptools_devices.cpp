@@ -2,6 +2,7 @@
 #include "mcptoolregistry.h"
 #include "../ble/blemanager.h"
 #include "../ble/de1device.h"
+#include "../ble/scaledevice.h"
 
 #include <QJsonObject>
 #include <QJsonArray>
@@ -369,4 +370,37 @@ void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1D
             return result;
         },
         "control");
+
+    // devices_request_scale_debug — ask the active scale to emit a full-state
+    // debug frame on the wire. Logged verbatim by handleDebugFrame; useful for
+    // on-demand triage when the AI/MCP layer wants to see firmware-internal
+    // health (SoC temp, ADC stalls, recovery counter) without waiting for an
+    // app-suspend or screensaver event. No-op on non-Decent-WiFi scales (the
+    // base-class virtual is empty); other drivers don't have a debug snapshot
+    // to request.
+    registry->registerTool(
+        "devices_request_scale_debug",
+        "Ask the active scale to emit a debug-state frame. Currently only "
+        "the Half Decent Scale over WiFi responds — the response is written "
+        "to the scale log (visible in debug_get_log) and carries SoC "
+        "temperature, weight-ADC stall counters, and the ADC-recovery "
+        "attempt counter. Other scales return success with a no-op note.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        [bleManager](const QJsonObject&) -> QJsonObject {
+            QJsonObject result;
+            if (!bleManager) {
+                result["error"] = "BLE manager not available";
+                return result;
+            }
+            ScaleDevice* scale = bleManager->scaleDevice();
+            if (!scale || !scale->isConnected()) {
+                result["error"] = "No scale connected";
+                return result;
+            }
+            QMetaObject::invokeMethod(scale, "requestDebugSnapshot", Qt::QueuedConnection);
+            result["success"] = true;
+            result["message"] = "Debug snapshot requested — check the scale log for the response frame";
+            return result;
+        },
+        "read");
 }
