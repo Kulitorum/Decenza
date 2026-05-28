@@ -206,7 +206,7 @@ Page {
         }
         function onShotBadgesUpdated(shotId, channeling, grindIssue, skipFirstFrame, pourTruncated) {
             if (shotId !== postShotReviewPage.editShotId) return
-            var updated = Object.assign({}, editShotData)
+            var updated = clonePersistedShot(editShotData)
             updated.channelingDetected = channeling
             updated.grindIssueDetected = grindIssue
             updated.skipFirstFrameDetected = skipFirstFrame
@@ -477,6 +477,66 @@ Page {
         _committedState = captureEditState()
     }
 
+    // Build a plain-JS clone of editShotData that carries every field the
+    // page still reads after a save. Object.assign({}, editShotData) on the
+    // Q_GADGET wrapper returned by shotReady() only copies own properties —
+    // but Q_PROPERTYs on the wrapper are exposed as accessors on the
+    // prototype, not as own properties of the instance, so Object.assign
+    // silently drops durationSec, pressure/flow/weight/... arrays, dateTime,
+    // profileName, debugLog, phases, badges, and every other read-only
+    // field. That broke the AI Advice / Discuss / Re-Upload button visibility (predicate
+    // `editShotData.durationSec > 0`), the graph, the badges row, the
+    // phase summary, and the bottom-bar context labels the moment the user
+    // made any edit. (The `_profileName`/`_visualizerId` caches in this file
+    // were added in #1241 as targeted band-aids for the same root cause.)
+    // Listing every field by name here works because direct dot access on a
+    // Q_GADGET wrapper is fine — it's only the implicit enumeration in
+    // Object.assign / spread that strips. Subsequent saves see `src` as the
+    // plain-JS clone produced by the previous call, which still has every
+    // key, so the chain holds.
+    function clonePersistedShot(src) {
+        return {
+            id: src.id, uuid: src.uuid, timestamp: src.timestamp,
+            timestampIso: src.timestampIso, dateTime: src.dateTime,
+            profileName: src.profileName, profileKbId: src.profileKbId,
+            profileJson: src.profileJson, profileNotes: src.profileNotes,
+            beanNotes: src.beanNotes,
+            temperatureOverrideC: src.temperatureOverrideC,
+            targetWeightG: src.targetWeightG,
+            durationSec: src.durationSec, debugLog: src.debugLog,
+            stoppedBy: src.stoppedBy,
+            visualizerId: src.visualizerId, visualizerUrl: src.visualizerUrl,
+            hasVisualizerUpload: src.hasVisualizerUpload,
+            channelingDetected: src.channelingDetected,
+            grindIssueDetected: src.grindIssueDetected,
+            skipFirstFrameDetected: src.skipFirstFrameDetected,
+            pourTruncatedDetected: src.pourTruncatedDetected,
+            detectorResults: src.detectorResults,
+            summaryLines: src.summaryLines,
+            phases: src.phases, phaseSummaries: src.phaseSummaries,
+            pressure: src.pressure, flow: src.flow,
+            temperature: src.temperature, temperatureMix: src.temperatureMix,
+            resistance: src.resistance, conductance: src.conductance,
+            darcyResistance: src.darcyResistance,
+            conductanceDerivative: src.conductanceDerivative,
+            waterDispensed: src.waterDispensed,
+            pressureGoal: src.pressureGoal, flowGoal: src.flowGoal,
+            temperatureGoal: src.temperatureGoal,
+            weight: src.weight, weightFlowRate: src.weightFlowRate,
+            // Editable fields — included so a clone that isn't followed by a
+            // saveEditedShot field-override (e.g. onShotBadgesUpdated) still
+            // carries the current persisted values.
+            beanBrand: src.beanBrand, beanType: src.beanType,
+            roastDate: src.roastDate, roastLevel: src.roastLevel,
+            grinderBrand: src.grinderBrand, grinderModel: src.grinderModel,
+            grinderBurrs: src.grinderBurrs, grinderSetting: src.grinderSetting,
+            barista: src.barista, doseWeightG: src.doseWeightG,
+            finalWeightG: src.finalWeightG, drinkTdsPct: src.drinkTdsPct,
+            drinkEyPct: src.drinkEyPct, enjoyment0to100: src.enjoyment0to100,
+            espressoNotes: src.espressoNotes, beverageType: src.beverageType
+        }
+    }
+
     // Save edited shot back to history
     function saveEditedShot() {
         Qt.inputMethod.commit()
@@ -522,7 +582,9 @@ Page {
         // We deliberately do NOT reload from the DB on save success — an async
         // reload would overwrite an edit the user has already started in
         // another field (autosave fires on every commit point).
-        var nb = Object.assign({}, editShotData)
+        // clonePersistedShot (instead of Object.assign) preserves every
+        // non-edited Q_GADGET field — see the helper's docstring for why.
+        var nb = clonePersistedShot(editShotData)
         nb.beanBrand = editBeanBrand
         nb.beanType = editBeanType
         nb.roastDate = editRoastDate
@@ -615,8 +677,15 @@ Page {
             uploadError = ""
             uploadSkipReason = ""
             if (url) {
-                editShotData = Object.assign({}, editShotData,
-                    { visualizerId: visualizerId, visualizerUrl: url })
+                // clonePersistedShot (not Object.assign) so a first-time upload
+                // on an unedited shot — where editShotData is still the raw
+                // Q_GADGET wrapper from onShotReady — doesn't strip durationSec,
+                // the frame arrays, dateTime, etc. See the helper's docstring.
+                var nb = clonePersistedShot(editShotData)
+                nb.visualizerId = visualizerId
+                nb.visualizerUrl = url
+                nb.hasVisualizerUpload = true
+                editShotData = nb
                 _visualizerId = visualizerId
             }
         }
