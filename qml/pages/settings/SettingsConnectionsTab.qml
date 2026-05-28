@@ -1141,6 +1141,9 @@ Item {
                                 Accessible.role: Accessible.ComboBox
                                 Accessible.name: primaryLabel()
                                 Accessible.focusable: true
+                                // TalkBack double-tap "activate" → open the
+                                // dropdown. Mirrors the StyledComboBox pattern.
+                                Accessible.onPressAction: if (!scalePicker.popup.visible) scalePicker.popup.open()
 
                                 onActivated: function(index) {
                                     var scales = Settings.knownScales
@@ -1318,9 +1321,12 @@ Item {
 
                                     // Move keyboard focus into the list when the
                                     // dropdown opens so TalkBack/VoiceOver lands
-                                    // on the first row (or the current primary)
-                                    // instead of leaving focus on the ComboBox.
-                                    onOpened: scaleDropdownList.forceActiveFocus()
+                                    // on the highlighted row (the primary on
+                                    // first open) instead of leaving focus on
+                                    // the ComboBox. Defer via Qt.callLater so
+                                    // the delegate items are guaranteed to be
+                                    // realized before focus is requested.
+                                    onOpened: Qt.callLater(scaleDropdownList.forceActiveFocus)
 
                                     contentItem: ListView {
                                         id: scaleDropdownList
