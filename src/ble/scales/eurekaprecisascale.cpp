@@ -41,7 +41,7 @@ EurekaPrecisaScale::~EurekaPrecisaScale() {
 
 void EurekaPrecisaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     if (!m_transport) {
-        emit errorOccurred("No transport available");
+        EUREKA_WARN("connectToDevice called with no transport");
         return;
     }
 
@@ -68,7 +68,6 @@ void EurekaPrecisaScale::onTransportDisconnected() {
 
 void EurekaPrecisaScale::onTransportError(const QString& message) {
     EUREKA_WARN(QString("Transport error: %1").arg(message));
-    emit errorOccurred("Eureka Precisa scale connection error");
     setConnected(false);
 }
 
@@ -84,7 +83,6 @@ void EurekaPrecisaScale::onServicesDiscoveryFinished() {
     EUREKA_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
         EUREKA_WARN(QString("Eureka Precisa service %1 not found!").arg(Scale::Generic::SERVICE.toString()));
-        emit errorOccurred("Eureka Precisa service not found");
         return;
     }
     m_transport->discoverCharacteristics(Scale::Generic::SERVICE);

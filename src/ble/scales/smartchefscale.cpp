@@ -41,7 +41,7 @@ SmartChefScale::~SmartChefScale() {
 
 void SmartChefScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     if (!m_transport) {
-        emit errorOccurred("No transport available");
+        SMARTCHEF_WARN("connectToDevice called with no transport");
         return;
     }
 
@@ -68,7 +68,6 @@ void SmartChefScale::onTransportDisconnected() {
 
 void SmartChefScale::onTransportError(const QString& message) {
     SMARTCHEF_WARN(QString("Transport error: %1").arg(message));
-    emit errorOccurred("SmartChef scale connection error");
     setConnected(false);
 }
 
@@ -84,7 +83,6 @@ void SmartChefScale::onServicesDiscoveryFinished() {
     SMARTCHEF_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
         SMARTCHEF_WARN(QString("SmartChef service %1 not found!").arg(Scale::Generic::SERVICE.toString()));
-        emit errorOccurred("SmartChef service not found");
         return;
     }
     m_transport->discoverCharacteristics(Scale::Generic::SERVICE);

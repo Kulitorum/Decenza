@@ -41,7 +41,7 @@ HiroiaScale::~HiroiaScale() {
 
 void HiroiaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     if (!m_transport) {
-        emit errorOccurred("No transport available");
+        HIROIA_WARN("connectToDevice called with no transport");
         return;
     }
 
@@ -68,7 +68,6 @@ void HiroiaScale::onTransportDisconnected() {
 
 void HiroiaScale::onTransportError(const QString& message) {
     HIROIA_WARN(QString("Transport error: %1").arg(message));
-    emit errorOccurred("Hiroia Jimmy scale connection error");
     setConnected(false);
 }
 
@@ -84,7 +83,6 @@ void HiroiaScale::onServicesDiscoveryFinished() {
     HIROIA_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
         HIROIA_WARN(QString("Hiroia Jimmy service %1 not found!").arg(Scale::HiroiaJimmy::SERVICE.toString()));
-        emit errorOccurred("Hiroia Jimmy service not found");
         return;
     }
     m_transport->discoverCharacteristics(Scale::HiroiaJimmy::SERVICE);

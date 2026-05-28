@@ -51,7 +51,7 @@ VariaAkuScale::~VariaAkuScale() {
 
 void VariaAkuScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     if (!m_transport) {
-        emit errorOccurred("No transport available");
+        VARIA_WARN("connectToDevice called with no transport");
         return;
     }
 
@@ -79,7 +79,6 @@ void VariaAkuScale::onTransportDisconnected() {
 
 void VariaAkuScale::onTransportError(const QString& message) {
     VARIA_WARN(QString("Transport error: %1").arg(message));
-    emit errorOccurred("Varia Aku scale connection error");
     setConnected(false);
 }
 
@@ -97,7 +96,6 @@ void VariaAkuScale::onServicesDiscoveryFinished() {
 
     if (!m_serviceFound) {
         VARIA_WARN(QString("Varia Aku service %1 not found!").arg(Scale::VariaAku::SERVICE.toString()));
-        emit errorOccurred("Varia Aku service not found");
         return;
     }
 
@@ -191,7 +189,6 @@ void VariaAkuScale::onWatchdogTimeout() {
     if (m_watchdogRetries >= MAX_WATCHDOG_RETRIES) {
         VARIA_WARN(QString("No weight updates after %1 retries, giving up").arg(MAX_WATCHDOG_RETRIES));
         setConnected(false);
-        emit errorOccurred("Varia Aku scale not sending weight updates");
         return;
     }
 

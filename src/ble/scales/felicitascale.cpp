@@ -41,7 +41,7 @@ FelicitaScale::~FelicitaScale() {
 
 void FelicitaScale::connectToDevice(const QBluetoothDeviceInfo& device) {
     if (!m_transport) {
-        emit errorOccurred("No transport available");
+        FELICITA_WARN("connectToDevice called with no transport");
         return;
     }
 
@@ -68,7 +68,6 @@ void FelicitaScale::onTransportDisconnected() {
 
 void FelicitaScale::onTransportError(const QString& message) {
     FELICITA_WARN(QString("Transport error: %1").arg(message));
-    emit errorOccurred("Felicita scale connection error");
     setConnected(false);
 }
 
@@ -84,7 +83,6 @@ void FelicitaScale::onServicesDiscoveryFinished() {
     FELICITA_LOG(QString("Service discovery finished, service found: %1").arg(m_serviceFound));
     if (!m_serviceFound) {
         FELICITA_WARN(QString("Felicita service %1 not found!").arg(Scale::Felicita::SERVICE.toString()));
-        emit errorOccurred("Felicita service not found");
         return;
     }
     m_transport->discoverCharacteristics(Scale::Felicita::SERVICE);
