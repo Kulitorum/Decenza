@@ -371,95 +371,6 @@ private slots:
         QTest::qWait(50);
     }
 
-    // session_info is the new firmware's connect-time identity frame — it
-    // carries firmware_version, protocol_version, and reset_reason. The live
-    // status frame on new firmware no longer carries firmware_version /
-    // protocol_version, so without parsing session_info the scale log would
-    // never capture them on connect.
-    void sessionInfoFrameLogsFirmwareProtocolAndResetReason() {
-        FakeHdsServer server;
-        DecentScaleWifi driver;
-        connectAndHandshake(driver, server);
-
-        QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Firmware version: FW: 3\\.0\\.9.*"));
-        QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Protocol version: 1.*"));
-        QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Scale reset reason: poweron.*"));
-        server.sendJson({
-            { "type", "session_info" },
-            { "firmware_version", "FW: 3.0.9" },
-            { "protocol_version", 1 },
-            { "reset_reason", "poweron" },
-        });
-        QTest::qWait(50);
-
-        // Re-sending the same session_info must not re-log — change-detection
-        // gates each field. Any further qDebug here would fail the test because
-        // no further ignoreMessage is queued.
-        server.sendJson({
-            { "type", "session_info" },
-            { "firmware_version", "FW: 3.0.9" },
-            { "protocol_version", 1 },
-            { "reset_reason", "poweron" },
-        });
-        QTest::qWait(50);
-
-        // A mid-connect reset_reason CHANGE must surface at WARN (a
-        // watchdog-induced reset mid-session is exactly what reset_reason
-        // exists to disambiguate from a clean power-cycle), mirroring
-        // firmware_version's mid-connect-change severity.
-        QTest::ignoreMessage(QtWarningMsg,
-            QRegularExpression(".*Scale reset reason changed mid-connect: poweron -> watchdog.*"));
-        server.sendJson({{ "type", "session_info" }, { "reset_reason", "watchdog" }});
-        QTest::qWait(50);
-    }
-
-    // Debug frames (both event-driven and request-response shapes) are logged
-    // verbatim so every signal the firmware sends is captured in the scale
-    // log. We don't filter by event type — the firmware decides what's worth
-    // sending, and a one-line JSON dump is the cheapest triage surface.
-    void debugFramesAreLoggedVerbatim() {
-        FakeHdsServer server;
-        DecentScaleWifi driver;
-        connectAndHandshake(driver, server);
-
-        // Event-driven shape.
-        QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Debug frame:.*\"event\":\"stall_start\".*\"stall_count\":1.*"));
-        server.sendJson({
-            { "type", "debug" }, { "event", "stall_start" },
-            { "stall_count", 1 }, { "last_stall_temp_c", 42.1 },
-        });
-        QTest::qWait(50);
-
-        // Full-state response shape (what requestDebugSnapshot() pulls back).
-        QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Debug frame:.*\"soc_temp_c\":32\\.3.*\"weight_stalled\":false.*"));
-        server.sendJson({
-            { "type", "debug" }, { "status", "ok" },
-            { "soc_temp_c", 32.3 }, { "soc_temp_max_c", 32.3 },
-            { "weight_stalled", false }, { "stall_count", 0 },
-            { "adc_recovery_count", 0 }, { "ms", 29104 },
-        });
-        QTest::qWait(50);
-    }
-
-    // requestDebugSnapshot() sends the `debug` text command, which the
-    // firmware answers with a full-state debug frame. The app-suspend hook in
-    // main.cpp calls this so the scale log captures firmware state right
-    // before the app backgrounds.
-    void requestDebugSnapshotSendsDebugCommand() {
-        FakeHdsServer server;
-        DecentScaleWifi driver;
-        connectAndHandshake(driver, server);
-        server.clearReceived();
-
-        driver.requestDebugSnapshot();
-        QTRY_VERIFY(server.received().contains(QStringLiteral("debug")));
-    }
-
     // Regression: the real firmware's status frame ALSO carries a `grams` field
     // (openscale README). Snapshots are distinguished by the ABSENCE of `type`,
     // so a status-with-grams must still reach the status handler — keying on the
@@ -889,35 +800,6 @@ private slots:
             { "type", "status" },
             { "battery_percent", 80 },
             { "firmware_version", "FW: 3.0.9" },
-        });
-        QVERIFY(recognizedSpy.wait(500));
-        QCOMPARE(recognizedSpy.count(), 1);
-    }
-
-    // session_info is a new HDS-identifying frame on newer firmware: it
-    // arrives unprompted right after the WS handshake and carries
-    // firmware_version + protocol_version + reset_reason. It must trigger
-    // recognition on its own — if it doesn't, a manual "Add WiFi Scale" entry
-    // against a scale that sends session_info before any snapshot or status
-    // (which can happen since session_info is unsolicited) would dead-end at
-    // the 5 s recognition timeout.
-    void recognizedAsHdsFiresOnFirstSessionInfoFrame() {
-        FakeHdsServer server;
-        DecentScaleWifi driver;
-        QSignalSpy recognizedSpy(&driver, &DecentScaleWifi::recognizedAsHds);
-        connectAndHandshake(driver, server);
-
-        QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Firmware version: FW: 3\\.0\\.9.*"));
-        QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Protocol version: 1.*"));
-        QTest::ignoreMessage(QtDebugMsg,
-            QRegularExpression(".*Scale reset reason: poweron.*"));
-        server.sendJson({
-            { "type", "session_info" },
-            { "firmware_version", "FW: 3.0.9" },
-            { "protocol_version", 1 },
-            { "reset_reason", "poweron" },
         });
         QVERIFY(recognizedSpy.wait(500));
         QCOMPARE(recognizedSpy.count(), 1);

@@ -330,7 +330,6 @@ void DecentScaleWifi::onDisconnected() {
     // Clear per-connect state so the next connect re-captures it fresh.
     m_firmwareVersion.clear();
     m_loggedProtoVersion = -1;
-    m_lastResetReason.clear();
     m_loggedFrameShapes.clear();
     m_lastPowerEventReason.clear();
     m_lastPowerEventCode = -1;
@@ -379,10 +378,6 @@ void DecentScaleWifi::onTextMessageReceived(const QString& message) {
 
     if (type == QStringLiteral("status")) {
         handleStatusFrame(obj);
-    } else if (type == QStringLiteral("session_info")) {
-        handleSessionInfoFrame(obj);
-    } else if (type == QStringLiteral("debug")) {
-        handleDebugFrame(obj);
     } else if (type == QStringLiteral("button")) {
         handleButtonFrame(obj);
     } else if (type == QStringLiteral("power")) {
@@ -440,79 +435,6 @@ void DecentScaleWifi::handleStatusFrame(const QJsonObject& obj) {
             WIFI_LOG(QString("Protocol version: %1").arg(v));
         }
     }
-}
-
-// Newer firmware separates connect-time identity (firmware_version,
-// protocol_version) and the boot-cause (reset_reason) into its own session_info
-// frame, sent unsolicited right after the WS handshake; the live status frame
-// no longer carries firmware_version / protocol_version. Older firmware put
-// firmware_version and protocol_version in status — handleStatusFrame still
-// reads them there. For those two fields both paths assign to the same
-// m_firmwareVersion / m_loggedProtoVersion members with change-detection, so
-// a transitional firmware that sends both shapes only logs each once.
-// reset_reason has no legacy counterpart in status and is session_info-only.
-void DecentScaleWifi::handleSessionInfoFrame(const QJsonObject& obj) {
-    onRecognizedAsHds();
-
-    const QJsonValue fwv = obj.value(QStringLiteral("firmware_version"));
-    if (fwv.isString()) {
-        const QString version = fwv.toString();
-        if (!version.isEmpty() && m_firmwareVersion != version) {
-            if (m_firmwareVersion.isEmpty()) {
-                WIFI_LOG(QString("Firmware version: %1").arg(version));
-            } else {
-                WIFI_WARN(QString("Firmware version changed mid-connect: %1 -> %2")
-                          .arg(m_firmwareVersion, version));
-            }
-            m_firmwareVersion = version;
-        }
-    }
-
-    const QJsonValue pv = obj.value(QStringLiteral("protocol_version"));
-    if (pv.isDouble()) {
-        const int v = pv.toInt();
-        if (v != m_loggedProtoVersion) {
-            m_loggedProtoVersion = v;
-            WIFI_LOG(QString("Protocol version: %1").arg(v));
-        }
-    }
-
-    // reset_reason is the scale's boot-cause for the current session (e.g.
-    // "poweron", "brownout", "watchdog"). Useful for triage — a watchdog reset
-    // mid-session that we recover from looks identical at the WS layer to a
-    // user power-cycling the scale; reset_reason disambiguates them. Mirror
-    // firmware_version's severity policy: log the initial value at debug
-    // level (this is just the connect-time boot cause, informational), and
-    // warn-log any mid-connect change (the scale silently rebooted under us
-    // — that's an anomaly worth a triage line).
-    const QJsonValue rr = obj.value(QStringLiteral("reset_reason"));
-    if (rr.isString()) {
-        const QString reason = rr.toString();
-        if (!reason.isEmpty() && m_lastResetReason != reason) {
-            if (m_lastResetReason.isEmpty()) {
-                WIFI_LOG(QString("Scale reset reason: %1").arg(reason));
-            } else {
-                WIFI_WARN(QString("Scale reset reason changed mid-connect: %1 -> %2")
-                          .arg(m_lastResetReason, reason));
-            }
-            m_lastResetReason = reason;
-        }
-    }
-}
-
-// Debug frames carry firmware-internal health telemetry. Two shapes arrive
-// here:
-//   • Event-driven (unprompted, after `events on`): {"type":"debug",
-//     "event":"stall_start"|"stall_end"|"adc_recovery"|"temp_peak", ...}.
-//   • Full-state snapshot (response to a "debug" request — see
-//     requestDebugSnapshot()): {"type":"debug","status":"ok","soc_temp_c":...,
-//     "weight_stalled":..., "stall_count":..., ...}.
-// Log each verbatim — the firmware decides what to send, and a compact
-// one-line dump is the cheapest way to surface every signal for triage. We
-// don't filter or shape further until we know which fields actually matter.
-void DecentScaleWifi::handleDebugFrame(const QJsonObject& obj) {
-    const QByteArray json = QJsonDocument(obj).toJson(QJsonDocument::Compact);
-    WIFI_LOG(QString("Debug frame: %1").arg(QString::fromUtf8(json)));
 }
 
 void DecentScaleWifi::handleButtonFrame(const QJsonObject& obj) {
@@ -771,10 +693,6 @@ void DecentScaleWifi::sleep() {
     // The WS analog is send() returning success above. Emit immediately to
     // match BT's intent.
     emit sleepCompleted();
-}
-
-void DecentScaleWifi::requestDebugSnapshot() {
-    send(QStringLiteral("debug"));
 }
 
 void DecentScaleWifi::setLed(int r, int g, int b) {
