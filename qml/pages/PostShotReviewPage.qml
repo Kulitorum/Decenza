@@ -479,12 +479,12 @@ Page {
 
     // Build a plain-JS clone of editShotData that carries every field the
     // page still reads after a save. Object.assign({}, editShotData) on the
-    // Q_GADGET wrapper returned by shotReady() only copies enumerable own
-    // properties — but Q_PROPERTYs on a Q_GADGET value-type wrapper are
-    // non-enumerable, so an Object.assign clone silently drops durationSec,
-    // pressure/flow/weight/... arrays, dateTime, profileName, debugLog,
-    // phases, badges, and every other read-only field. That broke the AI
-    // Advice / Discuss / Re-Upload button visibility (predicate
+    // Q_GADGET wrapper returned by shotReady() only copies own properties —
+    // but Q_PROPERTYs on the wrapper are exposed as accessors on the
+    // prototype, not as own properties of the instance, so Object.assign
+    // silently drops durationSec, pressure/flow/weight/... arrays, dateTime,
+    // profileName, debugLog, phases, badges, and every other read-only
+    // field. That broke the AI Advice / Discuss / Re-Upload button visibility (predicate
     // `editShotData.durationSec > 0`), the graph, the badges row, the
     // phase summary, and the bottom-bar context labels the moment the user
     // made any edit. (The `_profileName`/`_visualizerId` caches in this file
@@ -677,8 +677,15 @@ Page {
             uploadError = ""
             uploadSkipReason = ""
             if (url) {
-                editShotData = Object.assign({}, editShotData,
-                    { visualizerId: visualizerId, visualizerUrl: url })
+                // clonePersistedShot (not Object.assign) so a first-time upload
+                // on an unedited shot — where editShotData is still the raw
+                // Q_GADGET wrapper from onShotReady — doesn't strip durationSec,
+                // the frame arrays, dateTime, etc. See the helper's docstring.
+                var nb = clonePersistedShot(editShotData)
+                nb.visualizerId = visualizerId
+                nb.visualizerUrl = url
+                nb.hasVisualizerUpload = true
+                editShotData = nb
                 _visualizerId = visualizerId
             }
         }
