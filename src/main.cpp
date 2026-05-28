@@ -1318,6 +1318,31 @@ int main(int argc, char *argv[])
         qDebug() << "Scale reconnect: scheduled first retry in" << reconnectDelays[0] << "ms (startup failure)";
     });
 
+    // Re-arm the reconnect ladder on EVERY scale-connection failure, not just
+    // the first one. flowScaleFallback above is gated to fire once per saved-
+    // scale cycle (so the "No Scale Found" dialog doesn't re-pop on every
+    // retry), but the retry timer itself must survive the WiFi→BLE-fallback
+    // failure case: the scale-type change in that path stops scaleReconnectTimer
+    // (see "Scale reconnect: timer stopped due to scale type change" below),
+    // and without this signal there was no path to start it back up. The
+    // timer's own slot self-perpetuates once running, so we just need to start
+    // it once per failure cycle — the slot will keep it going. Uses the long-
+    // tail delay (60 s) because the immediate failure has already happened;
+    // hammering harder would just churn the WiFi radio.
+    QObject::connect(&bleManager, &BLEManager::scaleRetryNeeded,
+                     [&settings, &bleManager, &scaleReconnectTimer, &scaleReconnectAttempt,
+                      &reconnectDelays, &scaleAutoReconnectSuppressed]() {
+        if (settings.scaleAddress().isEmpty()) return;
+        if (settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)) return;
+        if (scaleAutoReconnectSuppressed) return;
+        if (scaleReconnectTimer.isActive()) return;
+        scaleReconnectAttempt = static_cast<int>(reconnectDelays.size()) - 1;
+        scaleReconnectTimer.start(reconnectDelays.back());
+        bleManager.appendScaleLog(QString("Scheduling reconnect in %1 s (retry after failure)")
+                                  .arg(reconnectDelays.back() / 1000));
+        qDebug() << "Scale reconnect: scheduled retry in" << reconnectDelays.back() << "ms (after failure)";
+    });
+
     // === Proactive switch-back to the WiFi primary scale ===
     // When the saved primary is a WiFi scale but we're currently on the BLE
     // backup (the WiFi->BLE fallback connected after WiFi was unreachable),
