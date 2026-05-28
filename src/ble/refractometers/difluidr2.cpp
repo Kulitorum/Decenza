@@ -114,7 +114,7 @@ bool DiFluidR2::isR2Device(const QString& name) {
 
 void DiFluidR2::connectToDevice(const QBluetoothDeviceInfo& device) {
     if (!m_transport) {
-        emit errorOccurred("No transport available");
+        R2_WARN("connectToDevice called with no transport");
         return;
     }
 
@@ -204,7 +204,6 @@ void DiFluidR2::onTransportError(const QString& message) {
                              : QStringLiteral("connect attempt failed before ready (was not connected)"),
                  QString::number(reinterpret_cast<quintptr>(this), 16)));
     R2_WARN(QString("Transport error: %1").arg(message));
-    emit errorOccurred("DiFluid R2 connection error");
     m_measurementTimer.stop();
     m_initTimer.stop();
     m_connected = false;
@@ -228,7 +227,6 @@ void DiFluidR2::onServicesDiscoveryFinished() {
     if (!m_serviceFound) {
         R2_WARN(QString("DiFluid R2 service %1 not found!")
                     .arg(Refractometer::DiFluidR2::SERVICE.toString()));
-        emit errorOccurred("DiFluid R2 service not found");
         return;
     }
     m_transport->discoverCharacteristics(Refractometer::DiFluidR2::SERVICE);
