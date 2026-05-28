@@ -590,13 +590,17 @@ void ShotServer::onReadyRead()
     // The state guard above catches sockets that fully transitioned to a
     // non-Connected state, but there is a window where state still reads
     // Connected (Qt hasn't propagated the close yet) while the underlying
-    // QIODevice is already closed — `isOpen()` is the stricter check. Kept as a
-    // cheap one-line guard: investigation in #1295 confirmed this branch never
-    // fired during ~80 min of active use, and the actual source of the warning
-    // in our log is Qt-internal HTTP/2 teardown elsewhere (the auto-update
-    // checker's hourly request, see QTBUG-129316 / QTBUG-144492). Even though
-    // shotserver wasn't the source we could observe, a future sleep/wake or
-    // abrupt peer teardown could still trip the same race here.
+    // QIODevice is already closed — `isOpen()` is the stricter check.
+    //
+    // Kept defensively even though investigation in #1295 did not observe
+    // shotserver tripping this race in practice; a future sleep/wake or
+    // abrupt peer teardown could still hit it, and one branch costs nothing.
+    //
+    // Note: the warning we actually see in production logs comes from a
+    // different code path — Qt-internal HTTP/2 channel teardown on the
+    // auto-update checker's outbound request, not this server's incoming
+    // socket. See QTBUG-129316 / QTBUG-144492. That source is unrelated to
+    // this guard; don't delete this guard if those bugs close.
     if (!socket->isOpen()) {
         cleanupPendingRequest(socket);
         m_pendingRequests.remove(socket);
