@@ -591,15 +591,16 @@ void ShotServer::onReadyRead()
     // non-Connected state, but there is a window where state still reads
     // Connected (Qt hasn't propagated the close yet) while the underlying
     // QIODevice is already closed — `isOpen()` is the stricter check. Look up
-    // existing-pending-request state BEFORE m_pendingRequests[socket] below,
-    // which would auto-insert a fresh entry and erase the "no pending" signal.
+    // existing-pending-request state via constFind BEFORE m_pendingRequests[socket]
+    // below: QHash::operator[] default-inserts a PendingRequest for any missing
+    // key, which would both hide the "no pending request" signal in the
+    // diagnostic AND leak a phantom entry for a socket we're about to remove.
     //
     // The qDebug() below is temporary instrumentation for #1295 — peer/state/
     // age/reqLine let us classify each hit as either a sleep/wake race (old
     // socket, no pending body) or a mid-request peer teardown. Once the
     // dominant trigger is known, the logging block goes away and the
     // isOpen() guard stays (it's load-bearing for the warning either way).
-    // Cleanup checklist lives in #1295.
     if (!socket->isOpen()) {
         const auto it = m_pendingRequests.constFind(socket);
         const bool hadPending = (it != m_pendingRequests.constEnd());
