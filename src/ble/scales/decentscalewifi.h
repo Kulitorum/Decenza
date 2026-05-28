@@ -93,9 +93,12 @@ public slots:
     // Ask the scale to send a one-shot {"type":"debug","status":"ok",...}
     // frame with full health state (SoC temps, stall counters, ADC recovery
     // count). The response lands in handleDebugFrame and gets logged verbatim.
-    // Called from main.cpp on app suspend so the scale log has a snapshot of
-    // firmware state captured immediately before the app backgrounds.
-    void requestDebugSnapshot();
+    // Triggered from three places: main.cpp on Qt::ApplicationSuspended (real
+    // OS backgrounding); goToScreensaver() in QML (covers the in-app
+    // screensaver path, which macOS never delivers as Qt::ApplicationSuspended);
+    // and the MCP tool devices_request_scale_debug for on-demand triage from
+    // the AI/MCP surface.
+    void requestDebugSnapshot() override;
 
 private slots:
     void onConnected();
