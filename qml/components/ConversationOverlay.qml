@@ -72,21 +72,6 @@ Rectangle {
      * checks beverage type, switches conversation, generates summary, and opens overlay.
      */
     function openWithShot(shotData, beanBrand, beanType, profileName, shotId) {
-        // [AIBtn-diag #1293] Log every guard input once at entry — the three
-        // early returns below are left untouched, so if no "opening overlay"
-        // line follows this one, these inputs say which guard bailed:
-        //   hasAiMgr/hasConv false -> first guard; convBusy true -> second;
-        //   bevSupported false -> beverage guard. Remove once root-caused.
-        var _diagBev = (shotData ? (shotData.beverageType || "espresso") : "noShotData")
-        console.log("[AIBtn-diag] openWithShot entry: shotId=", shotId,
-            "durationSec=", (shotData ? shotData.durationSec : "noShotData"),
-            "beverageType=", _diagBev,
-            "timestamp=", (shotData ? shotData.timestamp : "noShotData"),
-            "hasAiMgr=", !!MainController.aiManager,
-            "hasConv=", !!(MainController.aiManager && MainController.aiManager.conversation),
-            "convBusy=", !!(MainController.aiManager && MainController.aiManager.conversation && MainController.aiManager.conversation.busy),
-            "bevSupported=", !!(MainController.aiManager && MainController.aiManager.isSupportedBeverageType(_diagBev)))
-
         if (!MainController.aiManager || !MainController.aiManager.conversation) return
 
         // Don't switch conversations while a request is in-flight
@@ -142,12 +127,6 @@ Rectangle {
         overlay.beverageType = bevType
         overlay.isMistakeShot = isMistake
         overlay.shotDebugLog = shotData.debugLog || ""
-        // [AIBtn-diag #1293] Passed every guard — opening the overlay. If the
-        // user reports "nothing happened" but this line is present, the overlay
-        // opened and the problem is in its visibility/rendering, not openWithShot.
-        console.log("[AIBtn-diag] openWithShot: opening overlay. isMistake=", isMistake,
-            "pendingShotSummary.length=", overlay.pendingShotSummary.length,
-            "overlay.visible(before open)=", overlay.visible)
         overlay.open()
     }
 
