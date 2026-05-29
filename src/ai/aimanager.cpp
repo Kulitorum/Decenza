@@ -51,7 +51,16 @@ ShotProjection coerceShot(const QVariant& v)
 {
     if (v.userType() == qMetaTypeId<ShotProjection>())
         return v.value<ShotProjection>();
-    return ShotProjection::fromVariantMap(v.toMap());
+    const QVariantMap m = v.toMap();
+    // An empty map means QML passed null/undefined or a non-map scalar — the
+    // result would be a default ShotProjection (durationSec=0), which
+    // isMistakeShot reads as a mistake and silently suppresses the AI summary.
+    // That's a benign degrade, but log it so a future QML arg-shape regression
+    // is debuggable instead of silently flagging every shot as a mistake.
+    if (m.isEmpty())
+        qWarning() << "AIManager::coerceShot: empty/non-map shot arg (type"
+                   << v.typeName() << ") — shot will read as a mistake";
+    return ShotProjection::fromVariantMap(m);
 }
 }
 
