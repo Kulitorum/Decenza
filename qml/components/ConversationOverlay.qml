@@ -72,14 +72,29 @@ Rectangle {
      * checks beverage type, switches conversation, generates summary, and opens overlay.
      */
     function openWithShot(shotData, beanBrand, beanType, profileName, shotId) {
-        if (!MainController.aiManager || !MainController.aiManager.conversation) return
+        // [AIBtn-diag #1293] Entry log + per-early-return logs so a "button does
+        // nothing" reproduction shows exactly which guard bailed. Remove once the
+        // post-edit AI Advice/Discuss failure is root-caused.
+        console.log("[AIBtn-diag] openWithShot entry: shotId=", shotId,
+            "durationSec=", (shotData ? shotData.durationSec : "noShotData"),
+            "beverageType=", (shotData ? shotData.beverageType : "noShotData"),
+            "timestamp=", (shotData ? shotData.timestamp : "noShotData"))
+
+        if (!MainController.aiManager || !MainController.aiManager.conversation) {
+            console.log("[AIBtn-diag] openWithShot ABORT: aiManager/conversation missing")
+            return
+        }
 
         // Don't switch conversations while a request is in-flight
-        if (MainController.aiManager.conversation.busy) return
+        if (MainController.aiManager.conversation.busy) {
+            console.log("[AIBtn-diag] openWithShot ABORT: conversation.busy")
+            return
+        }
 
         // Check beverage type is supported
         var bevType = (shotData.beverageType || "espresso")
         if (!MainController.aiManager.isSupportedBeverageType(bevType)) {
+            console.log("[AIBtn-diag] openWithShot ABORT: unsupported beverage type:", bevType)
             unsupportedBeverageDialog.beverageType = bevType
             unsupportedBeverageDialog.open()
             return
@@ -127,6 +142,12 @@ Rectangle {
         overlay.beverageType = bevType
         overlay.isMistakeShot = isMistake
         overlay.shotDebugLog = shotData.debugLog || ""
+        // [AIBtn-diag #1293] Passed every guard — opening the overlay. If the
+        // user reports "nothing happened" but this line is present, the overlay
+        // opened and the problem is in its visibility/rendering, not openWithShot.
+        console.log("[AIBtn-diag] openWithShot: opening overlay. isMistake=", isMistake,
+            "pendingShotSummary.length=", overlay.pendingShotSummary.length,
+            "overlay.visible(before open)=", overlay.visible)
         overlay.open()
     }
 

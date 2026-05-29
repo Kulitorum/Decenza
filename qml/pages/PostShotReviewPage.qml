@@ -71,6 +71,25 @@ Page {
     property int editShotId: 0  // Shot ID to edit (always use edit mode now)
     property var editShotData: ({})  // Loaded shot data when editing
     property bool isEditMode: editShotId > 0
+
+    // [AIBtn-diag #1293] Temporary instrumentation: the AI Advice / Discuss
+    // buttons reportedly stop working after editing a shot, even after the
+    // clonePersistedShot fix. Both buttons share exactly one gate —
+    // `editShotData.durationSec > 0` — so this logs that gate's inputs on every
+    // editShotData reassignment (save, badge update, upload success). If the
+    // buttons go invisible after an edit, the line right after the edit will
+    // show durationSec as undefined/0. Grep the log for [AIBtn-diag].
+    onEditShotDataChanged: {
+        if (!isEditMode) return
+        console.log("[AIBtn-diag] editShotData changed:",
+            "durationSec=", editShotData.durationSec, "(" + (typeof editShotData.durationSec) + ")",
+            "finalWeightG=", editShotData.finalWeightG,
+            "beverageType=", editShotData.beverageType,
+            "aiConfigured=", !!(MainController.aiManager && MainController.aiManager.isConfigured),
+            "discussApp=", Settings.network.discussShotApp,
+            "=> aiBtnVisible=", !!(MainController.aiManager && MainController.aiManager.isConfigured && editShotData.durationSec > 0),
+            "discussVisible=", !!(editShotData.durationSec > 0 && Settings.network.discussShotApp !== Settings.network.discussAppNone))
+    }
     property bool autoClose: true  // false when user opens manually (no auto-dismiss)
     property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
     property string uploadError: ""
@@ -1893,6 +1912,15 @@ Page {
                 anchors.fill: parent
                 enabled: MainController.aiManager && MainController.aiManager.isConfigured && !MainController.aiManager.isAnalyzing
                 onClicked: {
+                    // [AIBtn-diag #1293] If this line appears, the button was
+                    // visible+enabled and the tap reached the handler — so any
+                    // "does nothing" is inside openWithShot (see its logging).
+                    // If this line is ABSENT after a tap, the button was
+                    // invisible/disabled (gate failure, see onEditShotDataChanged).
+                    console.log("[AIBtn-diag] AI Advice TAPPED: shotId=", editShotId,
+                        "durationSec=", editShotData.durationSec,
+                        "convBusy=", !!(MainController.aiManager && MainController.aiManager.conversation && MainController.aiManager.conversation.busy),
+                        "isAnalyzing=", !!(MainController.aiManager && MainController.aiManager.isAnalyzing))
                     conversationOverlay.openWithShot(editShotData, editBeanBrand, editBeanType, editShotData.profileName, editShotId)
                 }
             }
@@ -1953,6 +1981,13 @@ Page {
                 anchors.fill: parent
                 enabled: discussButton.isClaudeDesktopReady
                 onClicked: {
+                    // [AIBtn-diag #1293] Tap reached the Discuss handler. Logs the
+                    // URL the external-app launch resolves to — empty url means
+                    // discussShotUrl() returned nothing (nothing happens).
+                    console.log("[AIBtn-diag] Discuss TAPPED: shotId=", editShotId,
+                        "durationSec=", editShotData.durationSec,
+                        "mcpEnabled=", Settings.mcp.mcpEnabled,
+                        "discussUrl=\"" + Settings.network.discussShotUrl() + "\"")
                     // Copy shot summary to clipboard if MCP is not connected
                     if (!Settings.mcp.mcpEnabled && MainController.aiManager) {
                         // Prose, not the JSON envelope — the user is pasting this into
