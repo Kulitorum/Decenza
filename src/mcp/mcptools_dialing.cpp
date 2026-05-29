@@ -12,6 +12,7 @@
 #include "../profile/profile.h"
 
 #include <QDateTime>
+#include <QVariant>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -205,7 +206,9 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // drop-nested-envelope-in-dialing-shot-analysis.
                     if (mainController && mainController->aiManager()) {
                         AIManager* ai = mainController->aiManager();
-                        QString analysis = ai->buildShotAnalysisProseForShot(dbResult.shotData);
+                        // buildShotAnalysisProseForShot takes QVariant now (#1298);
+                        // wrap the real ShotProjection so coerceShot() returns it directly.
+                        QString analysis = ai->buildShotAnalysisProseForShot(QVariant::fromValue(dbResult.shotData));
                         if (!analysis.isEmpty())
                             result["shotAnalysis"] = analysis;
                     }

@@ -32,6 +32,29 @@
 #include <QRegularExpression>
 #include <cmath>
 
+namespace {
+// Coerce a QML-supplied shot argument into a ShotProjection. QML hands the
+// shot-taking Q_INVOKABLEs below one of two shapes:
+//   - a real ShotProjection (fresh shot via onShotReady, or History reload) —
+//     arrives as a QVariant wrapping ShotProjection;
+//   - a plain JS object — the optimistic edit clone built by
+//     PostShotReviewPage.clonePersistedShot() after an in-place edit — arrives
+//     as a QVariant wrapping QVariantMap.
+// A JS object does NOT auto-convert to a `const ShotProjection&` parameter on
+// the QML→C++ argument-binding path in Qt 6.11 (it throws "Could not convert
+// argument 0 from [object Object] to ShotProjection"), which is why the AI
+// Advice / Discuss buttons died after any edit (#1298). Accepting QVariant and
+// coercing explicitly here handles both shapes. fromVariantMap reconstructs a
+// full ShotProjection — clonePersistedShot copies every field, including the
+// curve arrays, so the summarizer gets complete data.
+ShotProjection coerceShot(const QVariant& v)
+{
+    if (v.userType() == qMetaTypeId<ShotProjection>())
+        return v.value<ShotProjection>();
+    return ShotProjection::fromVariantMap(v.toMap());
+}
+}
+
 AIManager::AIManager(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
@@ -927,8 +950,9 @@ QJsonObject AIManager::buildUserPromptObjectForShot(const ShotProjection& shotDa
     return m_summarizer->buildUserPromptObject(summary);
 }
 
-QString AIManager::buildShotAnalysisProseForShot(const ShotProjection& shotData)
+QString AIManager::buildShotAnalysisProseForShot(const QVariant& shotVariant)
 {
+    const ShotProjection shotData = coerceShot(shotVariant);
     ShotSummary summary = m_summarizer->summarizeFromHistory(shotData);
     return m_summarizer->buildShotAnalysisProse(summary);
 }
@@ -1803,8 +1827,9 @@ bool AIManager::isSupportedBeverageType(const QString& beverageType) const
     return bev.isEmpty() || bev == "espresso" || bev == "filter" || bev == "pourover";
 }
 
-bool AIManager::isMistakeShot(const ShotProjection& shotData) const
+bool AIManager::isMistakeShot(const QVariant& shotVariant) const
 {
+    const ShotProjection shotData = coerceShot(shotVariant);
     if (shotData.durationSec < 10.0) return true;
     if (shotData.finalWeightG < 5.0) return true;
     if (shotData.targetWeightG > 0.0 && shotData.finalWeightG < shotData.targetWeightG / 3.0) return true;
