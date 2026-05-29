@@ -78,7 +78,12 @@ public:
     Q_INVOKABLE QString switchConversation(const QString& beanBrand, const QString& beanType, const QString& profileName);
     Q_INVOKABLE void loadMostRecentConversation();
     Q_INVOKABLE void clearCurrentConversation();
-    Q_INVOKABLE bool isMistakeShot(const ShotProjection& shotData) const;
+    // Accepts QVariant (not const ShotProjection&) so QML can pass either a
+    // real ShotProjection or the plain-JS edit clone from
+    // PostShotReviewPage.clonePersistedShot — the latter can't bind to a
+    // ShotProjection parameter and threw at runtime (#1298). Coerced via
+    // coerceShot() in the .cpp.
+    Q_INVOKABLE bool isMistakeShot(const QVariant& shotData) const;
     Q_INVOKABLE bool isSupportedBeverageType(const QString& beverageType) const;
     static QString conversationKey(const QString& beanBrand, const QString& beanType, const QString& profileName);
 
@@ -146,7 +151,10 @@ public:
     // `buildUserPromptObjectForShot(shot)` when that envelope is built
     // in `Standalone` mode — both paths call
     // `ShotSummarizer::renderShotAnalysisProse` with `RenderMode::Standalone`.
-    Q_INVOKABLE QString buildShotAnalysisProseForShot(const ShotProjection& shotData);
+    // QVariant param (not const ShotProjection&) — same reason as
+    // isMistakeShot above: QML may pass the plain-JS edit clone. C++ callers
+    // (e.g. mcptools_dialing) wrap with QVariant::fromValue(shot).
+    Q_INVOKABLE QString buildShotAnalysisProseForShot(const QVariant& shotData);
 
     // Merge the four dialing-context blocks into a user-prompt envelope.
     // Both the in-app advisor and `ai_advisor_invoke` call this on the

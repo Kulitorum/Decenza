@@ -15,6 +15,7 @@
 // and asserted for exactly-once occurrences of the hoisted strings.
 
 #include <QtTest>
+#include <QVariant>
 #include <QSignalSpy>
 #include <QNetworkAccessManager>
 #include <QPair>
@@ -548,7 +549,7 @@ private slots:
             QStringLiteral("Northbound"), QStringLiteral("Spring Tour"),
             QStringLiteral("80's Espresso"), QStringLiteral("intent"), QString());
 
-        const QString prose = mgr.buildShotAnalysisProseForShot(shot);
+        const QString prose = mgr.buildShotAnalysisProseForShot(QVariant::fromValue(shot));
         QVERIFY(!prose.isEmpty());
 
         // Prose body — starts with the Shot Summary header, contains the
@@ -591,7 +592,7 @@ private slots:
         // same string the user-prompt envelope carries under its
         // `shotAnalysis` key — they share the private renderer, and any
         // future drift would re-introduce the bug this change retired.
-        const QString prose = mgr.buildShotAnalysisProseForShot(shot);
+        const QString prose = mgr.buildShotAnalysisProseForShot(QVariant::fromValue(shot));
         const QJsonObject envelope = mgr.buildUserPromptObjectForShot(shot);
         const QString envelopeShotAnalysis = envelope.value(QStringLiteral("shotAnalysis")).toString();
 
