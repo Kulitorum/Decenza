@@ -72,29 +72,29 @@ Rectangle {
      * checks beverage type, switches conversation, generates summary, and opens overlay.
      */
     function openWithShot(shotData, beanBrand, beanType, profileName, shotId) {
-        // [AIBtn-diag #1293] Entry log + per-early-return logs so a "button does
-        // nothing" reproduction shows exactly which guard bailed. Remove once the
-        // post-edit AI Advice/Discuss failure is root-caused.
+        // [AIBtn-diag #1293] Log every guard input once at entry — the three
+        // early returns below are left untouched, so if no "opening overlay"
+        // line follows this one, these inputs say which guard bailed:
+        //   hasAiMgr/hasConv false -> first guard; convBusy true -> second;
+        //   bevSupported false -> beverage guard. Remove once root-caused.
+        var _diagBev = (shotData ? (shotData.beverageType || "espresso") : "noShotData")
         console.log("[AIBtn-diag] openWithShot entry: shotId=", shotId,
             "durationSec=", (shotData ? shotData.durationSec : "noShotData"),
-            "beverageType=", (shotData ? shotData.beverageType : "noShotData"),
-            "timestamp=", (shotData ? shotData.timestamp : "noShotData"))
+            "beverageType=", _diagBev,
+            "timestamp=", (shotData ? shotData.timestamp : "noShotData"),
+            "hasAiMgr=", !!MainController.aiManager,
+            "hasConv=", !!(MainController.aiManager && MainController.aiManager.conversation),
+            "convBusy=", !!(MainController.aiManager && MainController.aiManager.conversation && MainController.aiManager.conversation.busy),
+            "bevSupported=", !!(MainController.aiManager && MainController.aiManager.isSupportedBeverageType(_diagBev)))
 
-        if (!MainController.aiManager || !MainController.aiManager.conversation) {
-            console.log("[AIBtn-diag] openWithShot ABORT: aiManager/conversation missing")
-            return
-        }
+        if (!MainController.aiManager || !MainController.aiManager.conversation) return
 
         // Don't switch conversations while a request is in-flight
-        if (MainController.aiManager.conversation.busy) {
-            console.log("[AIBtn-diag] openWithShot ABORT: conversation.busy")
-            return
-        }
+        if (MainController.aiManager.conversation.busy) return
 
         // Check beverage type is supported
         var bevType = (shotData.beverageType || "espresso")
         if (!MainController.aiManager.isSupportedBeverageType(bevType)) {
-            console.log("[AIBtn-diag] openWithShot ABORT: unsupported beverage type:", bevType)
             unsupportedBeverageDialog.beverageType = bevType
             unsupportedBeverageDialog.open()
             return
