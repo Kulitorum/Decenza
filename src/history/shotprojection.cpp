@@ -84,6 +84,13 @@ QJsonObject ShotProjection::toJsonObject() const
     return QJsonObject::fromVariantMap(toVariantMap());
 }
 
+ShotProjection ShotProjection::coerce(const QVariant& v)
+{
+    if (v.userType() == qMetaTypeId<ShotProjection>())
+        return v.value<ShotProjection>();
+    return ShotProjection::fromVariantMap(v.toMap());
+}
+
 ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
 {
     ShotProjection p;

@@ -636,12 +636,12 @@ Page {
         if (!pendingVisualizerUpdate) return
         if (!Settings.visualizer.visualizerAutoUpdate) return
         if (!MainController.visualizer) return
-        // Only PATCH already-uploaded shots. A first-POST path here is unsafe:
-        // by the time this runs, saveEditedShot has replaced editShotData via
-        // Object.assign, dropping Q_GADGET fields (id, durationSec, frame arrays)
-        // — uploadShotFromHistory would silently fail isValid() and the failure
-        // can't be surfaced because the page is destroyed. Initial uploads are
-        // owned by the shot-completion auto-upload flow and the manual button.
+        // Only PATCH already-uploaded shots. Initial uploads are owned by the
+        // shot-completion auto-upload flow and the manual button. editShotData is
+        // a plain-JS clone here (clonePersistedShot, after badges/save); the C++
+        // method takes QVariant and runs ShotProjection::coerce(), so the clone
+        // is accepted — passing a const ShotProjection& used to throw and
+        // silently drop the PATCH.
         if (!_visualizerId) return
         pendingVisualizerUpdate = false
         _patchInFlight = true
@@ -1791,15 +1791,16 @@ Page {
                         // stay in sync as fields evolve.
                         var patchOverrides = buildVisualizerOverrides()
                         _patchInFlight = true
+                        // editShotData may be a plain-JS clone (badges/save); the
+                        // C++ method takes QVariant and coerces it, so id/duration/
+                        // frame arrays survive. Edited fields ride in patchOverrides.
                         MainController.visualizer.updateShotOnVisualizerWithOverrides(
                             _visualizerId, editShotData, patchOverrides)
                     } else {
-                        // First upload: pass editShotData directly (preserves id,
-                        // durationSec, and frame arrays) and supply current edit-field
-                        // values as overrides. Object.assign({}, editShotData, ...) does
-                        // not work here — Q_GADGET properties are non-enumerable in V4,
-                        // so Object.assign silently drops them, leaving id=0 and causing
-                        // isValid() to fail.
+                        // First upload: pass editShotData (a clone after badges/save)
+                        // plus current edit-field overrides. The C++ method takes
+                        // QVariant and coerces via ShotProjection::coerce(), so id,
+                        // durationSec, and frame arrays survive isValid().
                         var uploadOverrides = buildVisualizerOverrides()
                         _firstUploadInFlight = true
                         MainController.visualizer.uploadShotFromHistoryWithOverrides(

@@ -166,6 +166,15 @@ add_decenza_test(tst_recipeparams
     ${CMAKE_SOURCE_DIR}/src/profile/recipeparams.cpp
 )
 
+# --- tst_shotprojection: ShotProjection::coerce() (QVariant → gadget) ---
+# shotprojection.h listed explicitly so AUTOMOC generates the Q_GADGET
+# meta-object (ShotProjection::staticMetaObject), required for QVariant::fromValue.
+add_decenza_test(tst_shotprojection
+    tst_shotprojection.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
+)
+
 # --- tst_settings: Settings persistence and defaults ---
 add_decenza_test(tst_settings
     tst_settings.cpp

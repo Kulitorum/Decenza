@@ -174,9 +174,9 @@ void VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
 }
 
 void VisualizerUploader::uploadShotFromHistoryWithOverrides(
-    const ShotProjection& baseShot, const QVariantMap& overrides)
+    const QVariant& baseShot, const QVariantMap& overrides)
 {
-    ShotProjection shot = baseShot;
+    ShotProjection shot = ShotProjection::coerce(baseShot);
     auto applyStr    = [&](QString       ShotProjection::*f, const char* k) {
         auto it = overrides.find(QLatin1String(k));
         if (it != overrides.end()) shot.*f = it->toString();
@@ -213,10 +213,10 @@ void VisualizerUploader::uploadShotFromHistoryWithOverrides(
 
 void VisualizerUploader::updateShotOnVisualizerWithOverrides(
     const QString& visualizerId,
-    const ShotProjection& baseShot,
+    const QVariant& baseShot,
     const QVariantMap& overrides)
 {
-    ShotProjection shot = baseShot;
+    ShotProjection shot = ShotProjection::coerce(baseShot);
     auto applyStr    = [&](QString       ShotProjection::*f, const char* k) {
         auto it = overrides.find(QLatin1String(k));
         if (it != overrides.end()) shot.*f = it->toString();
