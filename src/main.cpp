@@ -898,11 +898,14 @@ int main(int argc, char *argv[])
         }
         bleManager.resetScaleConnectionState();
 
-        // Attempt reconnection after a short delay to let Android restart Bluetooth
+        // Attempt reconnection after a short delay to let Android restart Bluetooth.
+        // Scale uses scan-only (allowDirectConnect=false): right after a BLE-stack
+        // death a parked direct-connect to a possibly-absent scale is exactly the
+        // contention we avoid (#1303); the scan reconnects it when it advertises.
         QTimer::singleShot(3000, [&bleManager]() {
             qDebug() << "BLE recovery: attempting reconnect";
             bleManager.tryDirectConnectToDE1();
-            bleManager.tryDirectConnectToScale();
+            bleManager.tryDirectConnectToScale(/*allowDirectConnect=*/false);
         });
     });
     bleRecoveryTimer->start();

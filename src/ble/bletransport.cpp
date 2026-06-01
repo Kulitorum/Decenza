@@ -158,6 +158,7 @@ BleTransport::BleTransport(QObject* parent)
     m_connectWatchdogTimer.setSingleShot(true);
     m_connectWatchdogTimer.setInterval(CONNECT_WATCHDOG_MS);
     connect(&m_connectWatchdogTimer, &QTimer::timeout, this, [this]() {
+        m_connectWatchdogTimer.stop();  // belt-and-suspenders: don't let a re-entrant Connecting re-arm us
         if (!m_controller || m_controller->state() != QLowEnergyController::ConnectingState) {
             return;  // resolved between the timeout firing and now — nothing to do
         }

@@ -613,6 +613,10 @@ private:
     bool m_scaleConnectionFailed = false;
     ScaleDevice* m_scaleDevice = nullptr;
     QTimer* m_scaleConnectionTimer = nullptr;
+    // Bounds a foreground direct-connect to ~4s (see kScaleDirectConnectAbortMs).
+    // A cancellable member (not a fire-and-forget singleShot) so a new connect
+    // attempt or a successful connect stops any stale pending abort.
+    QTimer* m_scaleDirectAbortTimer = nullptr;
     bool m_de1ServiceDiscoveryActive = false;
 
     // Saved scale for direct wake connection
