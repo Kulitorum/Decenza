@@ -319,6 +319,10 @@ private slots:
 
         QTest::ignoreMessage(QtWarningMsg,
             QRegularExpression("Cup removed during settling"));
+        // The cup-removal handler also warns when it rejects the implausible
+        // clean avg as a scale fault — that rejection IS what this test exercises.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("rejected as scale fault"));
 
         // Simulate a frozen-scale fault: a long run of identical samples
         // at 74.8 g (35+ g above stop weight). The gate fires once the
@@ -413,6 +417,12 @@ private slots:
         }
         QVERIFY2(tc.m_lastCleanSettlingAvg > 0.0,
                  "Capture gate should have fired on the plateau");
+
+        // Starting shot N+1 while shot N is still settling warns that it's
+        // cancelling the settling timer and saving the previous shot — exactly
+        // the cross-shot transition this test drives.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Cancelling settling timer - new shot started"));
 
         // Start shot N+1 — this must reset the captured value.
         tc.startShot();
