@@ -1911,36 +1911,62 @@ ApplicationWindow {
         }
     }
 
+    // When a post-session dialog (e.g. SteamHealthTracker scaleBuildupWarning)
+    // takes over from the completion overlay, this flag is set so completionTimer
+    // no-ops when it fires. The page's Dialog.onClosed drives navigation explicitly.
+    // If the page is destroyed before the dialog closes, the timer still fires once
+    // and is inert — the user is on whatever page replaced steamPage, so no further
+    // navigation is needed. The flag clears on the next showCompletion() or
+    // finishCompletion() so subsequent operations aren't suppressed.
+    property bool _completionSuspendedForDialog: false
+
     Timer {
         id: completionTimer
         interval: 1500  // 1.5s: short enough not to feel slow (reduced from 3s per user feedback)
         onTriggered: {
-            completionPending = false
-            completionOverlay.opacity = 0
-
-            // Return to saved page if set, otherwise go to idlePage
-            if (root.returnToPageName === "postShotReviewPage") {
-                var shotId = root.returnToShotId > 0 ? root.returnToShotId : MainController.lastSavedShotId
-                pageStack.replace(null, idlePage)
-                pageStack.push(postShotReviewPage, { editShotId: shotId })
-            } else {
-                if (pageStack.currentItem && pageStack.currentItem.objectName !== "idlePage") {
-                    pageStack.replace(null, idlePage)
-                }
-            }
-
-            // Clear return-to tracking
-            root.returnToPageName = ""
-            root.returnToShotId = 0
+            if (_completionSuspendedForDialog) return
+            finishCompletion()
         }
     }
 
     function showCompletion(message, type) {
+        _completionSuspendedForDialog = false
         completionMessage = message
         completionType = type
         completionPending = true
         completionOverlay.opacity = 1  // Instant (Behavior disabled when opacity is 0)
         completionTimer.restart()
+    }
+
+    // Hide the completion overlay and mark the timer's onTriggered as inert.
+    // Used when an operation page needs to hold the user on the page while a
+    // post-session modal dialog is up. The page is responsible for calling
+    // finishCompletion() from the dialog's onClosed.
+    function suspendCompletionForDialog() {
+        _completionSuspendedForDialog = true
+        completionPending = false
+        completionOverlay.opacity = 0
+    }
+
+    function finishCompletion() {
+        _completionSuspendedForDialog = false
+        completionPending = false
+        completionOverlay.opacity = 0
+
+        // Return to saved page if set, otherwise go to idlePage
+        if (root.returnToPageName === "postShotReviewPage") {
+            var shotId = root.returnToShotId > 0 ? root.returnToShotId : MainController.lastSavedShotId
+            pageStack.replace(null, idlePage)
+            pageStack.push(postShotReviewPage, { editShotId: shotId })
+        } else {
+            if (pageStack.currentItem && pageStack.currentItem.objectName !== "idlePage") {
+                pageStack.replace(null, idlePage)
+            }
+        }
+
+        // Clear return-to tracking
+        root.returnToPageName = ""
+        root.returnToShotId = 0
     }
 
     // Save current page info before navigating to operation pages (steam/flush/water)

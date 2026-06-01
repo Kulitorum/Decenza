@@ -99,6 +99,12 @@ Page {
             // latch at the first sample of the new session, so if the new
             // session also trips a threshold, the banner will re-show.
             warningVisible = false
+            // Same for the post-session modal warning. A new session takes
+            // precedence; the dialog's onClosed checks isSteaming and skips
+            // the navigation back to idle so we stay on the steam page.
+            if (steamWarningDialog.opened) {
+                steamWarningDialog.close()
+            }
             // Preset reset runs in the else branch (at session end), not here.
             // Resetting at session start meant Settings was stale during the
             // window between state=Steam (when main.qml's onStateChanged fires
@@ -211,18 +217,38 @@ Page {
             warningVisible = true
         }
         function onDescaleWarning() {
-            steamWarningDialog.warningMessage = TranslationManager.translate("steam.warning.descale",
-                "Your machine may need descaling. Steam pressure was consistently too high.")
-            steamWarningDialog.open()
+            openPostSessionWarning(TranslationManager.translate("steam.warning.descale",
+                "Your machine may need descaling. Steam pressure was consistently too high."))
         }
         function onTemperatureWarning(message) {
-            steamWarningDialog.warningMessage = message
-            steamWarningDialog.open()
+            openPostSessionWarning(message)
         }
         function onScaleBuildupWarning(message) {
-            steamWarningDialog.warningMessage = message
-            steamWarningDialog.open()
+            openPostSessionWarning(message)
         }
+    }
+
+    // The three SteamHealthTracker post-session signals above fire after the
+    // session ends, which is the same moment main.qml's completion overlay is
+    // counting down to navigate back to idle (#1302). If we let that timer
+    // navigate, the dialog gets destroyed mid-display along with this page.
+    // Suspend the completion overlay and let Dialog.onClosed drive the
+    // navigation once the user acknowledges the warning.
+    //
+    // checkTrend() can emit both the pressure and the temperature trend warning
+    // in the same call. Dialog.open() on an already-open Dialog is a no-op, so
+    // simply setting warningMessage would silently drop the second message —
+    // concatenate instead so the user sees every warning that was emitted.
+    function openPostSessionWarning(msg) {
+        if (steamWarningDialog.opened) {
+            if (steamWarningDialog.warningMessage.indexOf(msg) < 0) {
+                steamWarningDialog.warningMessage += "\n\n" + msg
+            }
+            return
+        }
+        steamWarningDialog.warningMessage = msg
+        root.suspendCompletionForDialog()
+        steamWarningDialog.open()
     }
 
     // Post-session warning dialog
@@ -236,6 +262,13 @@ Page {
         width: Math.min(parent.width * 0.85, Theme.scaled(360))
         padding: Theme.spacingMedium
         onOpened: warningOkButton.forceActiveFocus()
+        onClosed: {
+            // If a new session started while the dialog was up (user hit the
+            // hardware GHC button while still acknowledging the prior session's
+            // warning), don't navigate to idle — they're steaming again.
+            if (isSteaming) return
+            root.finishCompletion()
+        }
 
         background: Rectangle {
             color: Theme.surfaceColor
