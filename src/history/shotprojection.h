@@ -174,8 +174,9 @@ public:
     // methods that take `const ShotProjection&`: a registered QMetaType
     // converter (see registerMetaTypeConverters() called once at startup)
     // routes QVariantMap → ShotProjection through this method, so QML callers
-    // passing a JS object — including the Object.assign-produced object in
-    // PostShotReviewPage's onShotBadgesUpdated — still satisfy the parameter.
+    // passing a JS object — including the plain-JS clone produced by
+    // PostShotReviewPage's clonePersistedShot (used in onShotBadgesUpdated and
+    // saveEditedShot) — still satisfy the parameter.
     static ShotProjection fromVariantMap(const QVariantMap& map);
 
     // Coerce a QVariant arg (from a Q_INVOKABLE taking `const QVariant&`) into a

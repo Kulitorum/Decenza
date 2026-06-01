@@ -637,11 +637,12 @@ Page {
         if (!Settings.visualizer.visualizerAutoUpdate) return
         if (!MainController.visualizer) return
         // Only PATCH already-uploaded shots. Initial uploads are owned by the
-        // shot-completion auto-upload flow and the manual button. editShotData is
-        // a plain-JS clone here (clonePersistedShot, after badges/save); the C++
-        // method takes QVariant and runs ShotProjection::coerce(), so the clone
-        // is accepted — passing a const ShotProjection& used to throw and
-        // silently drop the PATCH.
+        // shot-completion auto-upload flow and the manual button. editShotData may
+        // be a plain-JS clone (clonePersistedShot, after badges/save) or the raw
+        // gadget (untouched since onShotReady); the C++ method takes QVariant and
+        // runs ShotProjection::coerce(), which accepts both — passing a
+        // const ShotProjection& used to throw on the clone and silently drop the
+        // PATCH.
         if (!_visualizerId) return
         pendingVisualizerUpdate = false
         _patchInFlight = true
@@ -1791,16 +1792,18 @@ Page {
                         // stay in sync as fields evolve.
                         var patchOverrides = buildVisualizerOverrides()
                         _patchInFlight = true
-                        // editShotData may be a plain-JS clone (badges/save); the
-                        // C++ method takes QVariant and coerces it, so id/duration/
-                        // frame arrays survive. Edited fields ride in patchOverrides.
+                        // editShotData may be a plain-JS clone (badges/save) or the
+                        // raw gadget; the C++ method takes QVariant and coerces it,
+                        // so id/duration/frame arrays survive either way. Edited
+                        // fields ride in patchOverrides.
                         MainController.visualizer.updateShotOnVisualizerWithOverrides(
                             _visualizerId, editShotData, patchOverrides)
                     } else {
-                        // First upload: pass editShotData (a clone after badges/save)
-                        // plus current edit-field overrides. The C++ method takes
-                        // QVariant and coerces via ShotProjection::coerce(), so id,
-                        // durationSec, and frame arrays survive isValid().
+                        // First upload: pass editShotData (a clone after badges/save,
+                        // or the raw gadget if untouched) plus current edit-field
+                        // overrides. The C++ method takes QVariant and coerces via
+                        // ShotProjection::coerce(), so id, durationSec, and frame
+                        // arrays survive isValid().
                         var uploadOverrides = buildVisualizerOverrides()
                         _firstUploadInFlight = true
                         MainController.visualizer.uploadShotFromHistoryWithOverrides(

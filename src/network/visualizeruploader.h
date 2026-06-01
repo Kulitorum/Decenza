@@ -68,14 +68,14 @@ public:
     // ShotHistoryStorage::convertShotRecord).
     Q_INVOKABLE void uploadShotFromHistory(const ShotProjection& shotData);
 
-    // Upload with metadata overrides applied on top of a base ShotProjection.
-    // Use from QML instead of Object.assign({}, editShotData, overrides): V4 can
-    // pass a QQmlValueTypeWrapper as ShotProjection, but Object.assign on a
-    // Q_GADGET yields a plain object that omits id/durationSec/frames, causing
-    // isValid() to fail silently with no UI feedback.
+    // Upload with metadata overrides applied on top of a base shot.
     // baseShot is QVariant (not const ShotProjection&) so a QML caller can pass
-    // an edited/cloned shot (plain JS object) as well as a raw gadget — see
-    // ShotProjection::coerce(). C++ callers wrap with QVariant::fromValue(shot).
+    // EITHER a raw ShotProjection gadget OR an edited/cloned shot (a plain JS
+    // object, e.g. clonePersistedShot's output) — ShotProjection::coerce()
+    // accepts both. This is why a plain object is now a supported input rather
+    // than something to avoid: coerce() reconstructs id/durationSec/frames that
+    // a bare Object.assign on a Q_GADGET would have dropped (causing isValid()
+    // to fail silently). C++ callers wrap with QVariant::fromValue(shot).
     Q_INVOKABLE void uploadShotFromHistoryWithOverrides(
         const QVariant& baseShot, const QVariantMap& overrides);
 

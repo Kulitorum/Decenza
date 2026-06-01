@@ -177,6 +177,10 @@ void VisualizerUploader::uploadShotFromHistoryWithOverrides(
     const QVariant& baseShot, const QVariantMap& overrides)
 {
     ShotProjection shot = ShotProjection::coerce(baseShot);
+    if (!shot.isValid()) {
+        emit uploadFailed("No shot data available");
+        return;
+    }
     auto applyStr    = [&](QString       ShotProjection::*f, const char* k) {
         auto it = overrides.find(QLatin1String(k));
         if (it != overrides.end()) shot.*f = it->toString();
@@ -217,6 +221,13 @@ void VisualizerUploader::updateShotOnVisualizerWithOverrides(
     const QVariantMap& overrides)
 {
     ShotProjection shot = ShotProjection::coerce(baseShot);
+    // updateShotOnVisualizer below only guards on visualizerId, not validity, so
+    // catch a coerce miss here — otherwise a PATCH could go out with id=0 /
+    // durationSec=0 / empty curves.
+    if (!shot.isValid()) {
+        emit uploadFailed("No shot data available");
+        return;
+    }
     auto applyStr    = [&](QString       ShotProjection::*f, const char* k) {
         auto it = overrides.find(QLatin1String(k));
         if (it != overrides.end()) shot.*f = it->toString();
