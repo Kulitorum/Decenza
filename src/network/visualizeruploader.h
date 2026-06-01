@@ -68,23 +68,26 @@ public:
     // ShotHistoryStorage::convertShotRecord).
     Q_INVOKABLE void uploadShotFromHistory(const ShotProjection& shotData);
 
-    // Upload with metadata overrides applied on top of a base ShotProjection.
-    // Use from QML instead of Object.assign({}, editShotData, overrides): V4 can
-    // pass a QQmlValueTypeWrapper as ShotProjection, but Object.assign on a
-    // Q_GADGET yields a plain object that omits id/durationSec/frames, causing
-    // isValid() to fail silently with no UI feedback.
+    // Upload with metadata overrides applied on top of a base shot.
+    // baseShot is QVariant (not const ShotProjection&) so a QML caller can pass
+    // EITHER a raw ShotProjection gadget OR an edited/cloned shot (a plain JS
+    // object, e.g. clonePersistedShot's output) — ShotProjection::coerce()
+    // accepts both. This is why a plain object is now a supported input rather
+    // than something to avoid: coerce() reconstructs id/durationSec/frames that
+    // a bare Object.assign on a Q_GADGET would have dropped (causing isValid()
+    // to fail silently). C++ callers wrap with QVariant::fromValue(shot).
     Q_INVOKABLE void uploadShotFromHistoryWithOverrides(
-        const ShotProjection& baseShot, const QVariantMap& overrides);
+        const QVariant& baseShot, const QVariantMap& overrides);
 
     // Update metadata on an already-uploaded shot (PATCH to visualizer.coffee)
     Q_INVOKABLE void updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData);
 
-    // PATCH with overrides applied on top of a base ShotProjection.
-    // Pass the Q_GADGET directly so fields not present in overrides (notably profileName)
-    // are taken from the original shot record rather than left empty.
+    // PATCH with overrides applied on top of a base shot. Fields not present in
+    // overrides (notably profileName) are taken from the base record rather than
+    // left empty. baseShot is QVariant for the same reason as above (coerce()).
     Q_INVOKABLE void updateShotOnVisualizerWithOverrides(
         const QString& visualizerId,
-        const ShotProjection& baseShot,
+        const QVariant& baseShot,
         const QVariantMap& overrides);
 
     // Test connection with current credentials

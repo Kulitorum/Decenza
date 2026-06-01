@@ -1,6 +1,7 @@
 #include "shotprojection.h"
 
 #include <QMetaType>
+#include <QDebug>
 
 QVariantMap ShotProjection::toVariantMap() const
 {
@@ -82,6 +83,22 @@ QVariantMap ShotProjection::toVariantMap() const
 QJsonObject ShotProjection::toJsonObject() const
 {
     return QJsonObject::fromVariantMap(toVariantMap());
+}
+
+ShotProjection ShotProjection::coerce(const QVariant& v)
+{
+    if (v.userType() == qMetaTypeId<ShotProjection>())
+        return v.value<ShotProjection>();
+    const QVariantMap m = v.toMap();
+    // An empty map means QML/C++ passed null/undefined or a non-map scalar — the
+    // result is a default (invalid, id=0) ShotProjection that callers reject via
+    // isValid(). Log it so a future arg-shape regression is debuggable instead of
+    // surfacing only as a generic "No shot data available". Matches the diagnostic
+    // in AIManager::coerceShot() (#1298).
+    if (m.isEmpty())
+        qWarning() << "ShotProjection::coerce: empty/non-map arg (type"
+                   << v.typeName() << ") — result will be invalid";
+    return ShotProjection::fromVariantMap(m);
 }
 
 ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)

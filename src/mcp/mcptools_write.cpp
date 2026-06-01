@@ -215,7 +215,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                             qInfo() << "MCP shots_update: auto-updating visualizer shot" << visualizerId
                                     << "for local shot id" << shotId;
                             visualizerUploader->updateShotOnVisualizerWithOverrides(
-                                visualizerId, vizShot, vizOverrides);
+                                visualizerId, QVariant::fromValue(vizShot), vizOverrides);
                         } else {
                             skipReason = QString("failed to reload shot %1 for visualizer PATCH").arg(shotId);
                             qWarning() << "MCP shots_update:" << skipReason;
@@ -351,7 +351,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         // Empty overrides — the projection loaded from DB already
                         // carries the user's current metadata (notes, ratings, bean
                         // info, etc.), so no edit-field overlay is needed.
-                        visualizerUploader->uploadShotFromHistoryWithOverrides(shot, QVariantMap{});
+                        visualizerUploader->uploadShotFromHistoryWithOverrides(QVariant::fromValue(shot), QVariantMap{});
                         respond(QJsonObject{
                             {"success", true},
                             {"uploadTriggered", true},

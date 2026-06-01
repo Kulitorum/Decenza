@@ -174,9 +174,23 @@ public:
     // methods that take `const ShotProjection&`: a registered QMetaType
     // converter (see registerMetaTypeConverters() called once at startup)
     // routes QVariantMap → ShotProjection through this method, so QML callers
-    // passing a JS object — including the Object.assign-produced object in
-    // PostShotReviewPage's onShotBadgesUpdated — still satisfy the parameter.
+    // passing a JS object — including the plain-JS clone produced by
+    // PostShotReviewPage's clonePersistedShot (used in onShotBadgesUpdated and
+    // saveEditedShot) — still satisfy the parameter.
     static ShotProjection fromVariantMap(const QVariantMap& map);
+
+    // Coerce a QVariant arg (from a Q_INVOKABLE taking `const QVariant&`) into a
+    // ShotProjection, accepting BOTH shapes QML may hand across the boundary:
+    //   - a genuine ShotProjection gadget (e.g. the raw shotReady() wrapper), or
+    //   - a plain JS object → QVariantMap (e.g. PostShotReviewPage's
+    //     clonePersistedShot result after a badge update / metadata edit).
+    // The registered QVariantMap→ShotProjection metatype converter does NOT
+    // reliably engage on the Qt 6.11 QML→C++ invokable argument-binding path
+    // (it throws "Could not convert argument from [object Object] to
+    // ShotProjection"), so invokables that may receive an edited/cloned shot
+    // take `const QVariant&` and coerce here instead. Same approach as
+    // AIManager's coerceShot() (#1298).
+    static ShotProjection coerce(const QVariant& v);
 
     // Register the QVariantMap → ShotProjection converter. Call once at
     // application startup (main.cpp). Idempotent across calls.
