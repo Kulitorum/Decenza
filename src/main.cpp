@@ -898,11 +898,14 @@ int main(int argc, char *argv[])
         }
         bleManager.resetScaleConnectionState();
 
-        // Attempt reconnection after a short delay to let Android restart Bluetooth
+        // Attempt reconnection after a short delay to let Android restart Bluetooth.
+        // Scale uses scan-only (allowDirectConnect=false): right after a BLE-stack
+        // death a parked direct-connect to a possibly-absent scale is exactly the
+        // contention we avoid (#1303); the scan reconnects it when it advertises.
         QTimer::singleShot(3000, [&bleManager]() {
             qDebug() << "BLE recovery: attempting reconnect";
             bleManager.tryDirectConnectToDE1();
-            bleManager.tryDirectConnectToScale();
+            bleManager.tryDirectConnectToScale(/*allowDirectConnect=*/false);
         });
     });
     bleRecoveryTimer->start();
@@ -1054,8 +1057,11 @@ int main(int argc, char *argv[])
         if (physicalScale && physicalScale->isConnected()) {
             physicalScale->wake();
         } else if (!settings.scaleAddress().isEmpty()) {
-            // Scale disconnected - try to reconnect
-            QTimer::singleShot(500, &bleManager, &BLEManager::tryDirectConnectToScale);
+            // Scale disconnected - try to reconnect. DE1 wake is a foreground
+            // trigger, so allow the bounded direct-connect fast-path (default).
+            QTimer::singleShot(500, &bleManager, [&bleManager]() {
+                bleManager.tryDirectConnectToScale();
+            });
         }
     });
     autoWakeManager.start();
@@ -1269,7 +1275,11 @@ int main(int argc, char *argv[])
             bleManager.appendScaleLog(QString("Auto-reconnect attempt %1").arg(scaleReconnectAttempt + 1));
         }
         bleManager.resetScaleConnectionState();
-        bleManager.tryDirectConnectToScale();
+        // Background reconnect: scan only, never a parked direct-connect. A
+        // direct connectToDevice() to an absent scale holds the Android BLE
+        // stack in Connecting for ~30s every cycle and starves the DE1 link
+        // (issue #1303). The saved scale auto-connects when seen in a scan.
+        bleManager.tryDirectConnectToScale(/*allowDirectConnect=*/false);
         scaleReconnectAttempt++;
         // Persistent reconnect: walk the ramp, then hold on the last (60s)
         // delay forever. Stops naturally when the scale connects

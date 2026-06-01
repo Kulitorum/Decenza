@@ -151,6 +151,28 @@ BleTransport::BleTransport(QObject* parent)
             m_controller->connectToDevice();
         }
     });
+
+    // Connect watchdog: fires only if a connect attempt is still wedged in
+    // Connecting at the deadline (see header). Aborts the hung controller and
+    // synthesizes disconnected() so the normal retry path recreates it (#1303).
+    m_connectWatchdogTimer.setSingleShot(true);
+    m_connectWatchdogTimer.setInterval(CONNECT_WATCHDOG_MS);
+    connect(&m_connectWatchdogTimer, &QTimer::timeout, this, [this]() {
+        m_connectWatchdogTimer.stop();  // belt-and-suspenders: don't let a re-entrant Connecting re-arm us
+        if (!m_controller || m_controller->state() != QLowEnergyController::ConnectingState) {
+            return;  // resolved between the timeout firing and now — nothing to do
+        }
+        warn(QString("Connect watchdog: stuck in Connecting for %1s — aborting hung "
+                     "attempt and synthesizing disconnected()").arg(CONNECT_WATCHDOG_MS / 1000));
+        // Abort the wedged GATT connect. The next connectToDevice() (driven by
+        // the reconnect loop after the synthesized disconnect) does its own
+        // "Cleaning up previous controller" teardown and recreate.
+        m_controller->disconnectFromDevice();
+        if (!m_disconnectedEmittedForAttempt) {
+            m_disconnectedEmittedForAttempt = true;
+            emit disconnected();
+        }
+    });
 }
 
 BleTransport::~BleTransport() {
@@ -243,6 +265,7 @@ void BleTransport::disconnect() {
 
     // Stop any pending retries
     m_retryTimer.stop();
+    m_connectWatchdogTimer.stop();
     m_pendingDevice = QBluetoothDeviceInfo();
     m_retryCount = 0;
 
@@ -710,6 +733,13 @@ bool BleTransport::setupController(const QBluetoothDeviceInfo& device) {
             default: stateName = QString::number(static_cast<int>(state)); break;
         }
         this->log(QString("Controller state: %1").arg(stateName));
+
+        // Connect watchdog: arm while Connecting, disarm on any resolution.
+        if (state == QLowEnergyController::ConnectingState) {
+            m_connectWatchdogTimer.start();
+        } else {
+            m_connectWatchdogTimer.stop();
+        }
 
         if (state == QLowEnergyController::UnconnectedState
             && !m_disconnectedEmittedForAttempt) {

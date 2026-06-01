@@ -117,4 +117,17 @@ private:
     int m_retryCount = 0;
     static constexpr int MAX_RETRIES = 3;
     static constexpr int RETRY_DELAY_MS = 2000;
+
+    // Connect watchdog: on Android the GATT stack can leave a connect attempt
+    // wedged in Connecting forever — no Connected, no error — so neither Qt's
+    // stateChanged→Unconnected synthesis nor the error path ever fires, and the
+    // reconnect loop stalls until the app is restarted (issue #1303). This timer
+    // is (re)started whenever the controller enters Connecting and stopped on any
+    // resolution; if it fires while still Connecting it aborts the hung attempt
+    // and synthesizes disconnected() so the retry path can recreate the
+    // controller. The deadline exceeds the slowest legitimate connect observed
+    // (~26s) and Android's own ~30s supervision timeout, so it only fires on a
+    // genuine wedge where nothing else did.
+    QTimer m_connectWatchdogTimer;
+    static constexpr int CONNECT_WATCHDOG_MS = 35000;
 };

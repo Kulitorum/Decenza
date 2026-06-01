@@ -421,7 +421,14 @@ public:
 
 public slots:
     Q_INVOKABLE void tryDirectConnectToDE1();
-    Q_INVOKABLE void tryDirectConnectToScale();
+    // allowDirectConnect=true (foreground triggers: device-picker switch, app
+    // startup, DE1 wake) issues a single direct connectToDevice() to the saved
+    // address for a fast connect, alongside a scan. allowDirectConnect=false
+    // (the 60s background reconnect ladder) scans only — it never parks a direct
+    // connect against an absent scale, which on Android holds the BLE stack in
+    // Connecting for ~30s and starves the DE1 link (issue #1303). A saved scale
+    // still auto-connects via onDeviceDiscovered when it's seen advertising.
+    Q_INVOKABLE void tryDirectConnectToScale(bool allowDirectConnect = true);
     // Release a scale direct-connect that was deferred to avoid colliding with
     // the DE1's BLE GATT connect (Android serializes concurrent connects badly).
     // Called by main.cpp when the DE1's direct-wake connection resolves
@@ -524,6 +531,16 @@ private:
     // first Decent-family scale found. Toast surfaces the fallback to the
     // user. Cleared on the next successful scale connect.
     void beginWifiFallbackToBleScan();
+    // Abort a foreground scale direct-connect that hasn't completed, tearing
+    // down the parked QLowEnergyController so it can't hold the Android BLE
+    // stack in Connecting for the full ~30s supervision timeout (issue #1303).
+    // No-op unless a direct connect is in progress and the scale isn't already
+    // connected. The parallel scan keeps running, so a present scale still
+    // auto-connects when it's seen advertising.
+    void abortScaleDirectConnectIfPending(const QString& reason);
+    // How long a foreground direct-connect may sit in Connecting before we abort
+    // it and fall back to the scan (mirrors de1app's ~4s ble-close-then-scan).
+    static constexpr int kScaleDirectConnectAbortMs = 4000;
     // Tear down any in-flight WiFi-primary reachability probe (socket + timeout
     // timer) without emitting a result. Safe to call when no probe is active.
     void cancelWifiProbe();
@@ -596,6 +613,10 @@ private:
     bool m_scaleConnectionFailed = false;
     ScaleDevice* m_scaleDevice = nullptr;
     QTimer* m_scaleConnectionTimer = nullptr;
+    // Bounds a foreground direct-connect to ~4s (see kScaleDirectConnectAbortMs).
+    // A cancellable member (not a fire-and-forget singleShot) so a new connect
+    // attempt or a successful connect stops any stale pending abort.
+    QTimer* m_scaleDirectAbortTimer = nullptr;
     bool m_de1ServiceDiscoveryActive = false;
 
     // Saved scale for direct wake connection
