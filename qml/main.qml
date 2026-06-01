@@ -1911,13 +1911,26 @@ ApplicationWindow {
         }
     }
 
+    // When a post-session dialog (e.g. SteamHealthTracker scaleBuildupWarning)
+    // takes over from the completion overlay, this flag is set so completionTimer
+    // no-ops when it fires. The page's Dialog.onClosed drives navigation explicitly.
+    // If the page is destroyed before the dialog closes, the timer still fires once
+    // and is inert — the user is on whatever page replaced steamPage, so no further
+    // navigation is needed. The flag clears on the next showCompletion() or
+    // finishCompletion() so subsequent operations aren't suppressed.
+    property bool _completionSuspendedForDialog: false
+
     Timer {
         id: completionTimer
         interval: 1500  // 1.5s: short enough not to feel slow (reduced from 3s per user feedback)
-        onTriggered: finishCompletion()
+        onTriggered: {
+            if (_completionSuspendedForDialog) return
+            finishCompletion()
+        }
     }
 
     function showCompletion(message, type) {
+        _completionSuspendedForDialog = false
         completionMessage = message
         completionType = type
         completionPending = true
@@ -1925,17 +1938,18 @@ ApplicationWindow {
         completionTimer.restart()
     }
 
-    // Hide the completion overlay and stop its timer without navigating. Used
-    // when an operation page wants to hold the user on the page (e.g. a steam
-    // health warning dialog opened post-session and must be acknowledged).
-    // The page is responsible for calling finishCompletion() later.
+    // Hide the completion overlay and mark the timer's onTriggered as inert.
+    // Used when an operation page needs to hold the user on the page while a
+    // post-session modal dialog is up. The page is responsible for calling
+    // finishCompletion() from the dialog's onClosed.
     function suspendCompletionForDialog() {
-        completionTimer.stop()
+        _completionSuspendedForDialog = true
         completionPending = false
         completionOverlay.opacity = 0
     }
 
     function finishCompletion() {
+        _completionSuspendedForDialog = false
         completionPending = false
         completionOverlay.opacity = 0
 
