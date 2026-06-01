@@ -1126,7 +1126,39 @@ void BLEManager::onScaleConnectedChanged() {
     }
 }
 
+void BLEManager::abortScaleDirectConnectIfPending(const QString& reason) {
+    // Only a foreground direct-connect parks a controller; bail otherwise.
+    if (!m_directConnectInProgress) return;
+    if (m_scaleDevice && m_scaleDevice->isConnected()) return;  // connect raced in
+
+    appendScaleLog(QString("Direct connect not established (%1) — aborting, scan continues").arg(reason));
+    // Tear down the parked connecting controller. QtScaleBleTransport::
+    // disconnectFromDevice() disconnects the controller's signals first, so this
+    // does not fire a spurious disconnected()/scaleDisconnected() cascade, and a
+    // connecting→disconnected transition doesn't flip connectedChanged.
+    if (m_scaleDevice) {
+        m_scaleDevice->disconnectFromScale();
+    }
+    m_directConnectInProgress = false;
+    m_directConnectAddress.clear();
+
+    // Keep hunting passively — a present scale auto-connects via
+    // onDeviceDiscovered the instant it's seen advertising.
+    m_scanningForScales = true;
+    if (!m_scanning) {
+        startScan();
+    }
+}
+
 void BLEManager::onScaleConnectionTimeout() {
+    // If a direct-connect is still parked at the overall timeout (e.g. the ~4s
+    // early abort never ran), tear its controller down here too before falling
+    // through to the WiFi/FlowScale fallback, so it can't keep the radio held.
+    if (m_directConnectInProgress && !(m_scaleDevice && m_scaleDevice->isConnected())
+            && m_scaleDevice) {
+        m_scaleDevice->disconnectFromScale();
+    }
+
     // Clear direct connect state on timeout
     m_directConnectInProgress = false;
     m_directConnectAddress.clear();
@@ -1641,7 +1673,7 @@ void BLEManager::ensureWifiDiscovery() {
         });
 }
 
-void BLEManager::tryDirectConnectToScale() {
+void BLEManager::tryDirectConnectToScale(bool allowDirectConnect) {
     if (m_disabled) {
         qDebug() << "BLEManager: tryDirectConnectToScale - disabled (simulator mode)";
         return;
@@ -1715,6 +1747,30 @@ void BLEManager::tryDirectConnectToScale() {
         return;
     }
 
+    // Background reconnect ladder (allowDirectConnect=false): scan only. A
+    // passive scan coexists with the DE1 link, whereas a direct connectToDevice()
+    // to an absent scale parks the Android BLE stack in Connecting for the full
+    // ~30s supervision timeout every cycle, starving the DE1 link until it drops
+    // and cannot recover (issue #1303). The saved scale still auto-connects via
+    // onDeviceDiscovered the instant it's seen advertising — direct-connect buys
+    // nothing here (an off scale can't be woken by a connect request), it only
+    // costs radio contention. The foreground triggers (switch/startup/DE1-wake)
+    // keep the direct-connect fast-path below by passing allowDirectConnect=true.
+    if (!allowDirectConnect) {
+        // appendScaleLog records to BOTH the user-shareable scale log and the
+        // system debug log (it mirrors to qDebug with a [Scale] prefix), so the
+        // background reconnect is visible in either capture. The scale log is a
+        // 1000-entry ring buffer, so the perpetual 60s ladder can't grow it
+        // without bound.
+        appendScaleLog("Auto-reconnect: scanning for saved scale (no direct-connect)");
+        m_scaleConnectionTimer->start();   // bounded budget; arms WiFi/FlowScale fallback + retry ladder
+        m_scanningForScales = true;
+        if (!m_scanning) {
+            startScan();
+        }
+        return;
+    }
+
 #ifdef Q_OS_IOS
     // On iOS, we have a UUID, not a MAC address
     // Direct connect with just a UUID rarely works - we need to find the device via scanning
@@ -1772,6 +1828,15 @@ void BLEManager::tryDirectConnectToScale() {
     if (!m_scanning) {
         startScan();
     }
+
+    // Bound the direct attempt (de1app closes its direct connect after ~4s and
+    // relies on the scan): if it hasn't connected by then, abort the parked
+    // controller so an absent scale can't hold the Android BLE stack in
+    // Connecting for the full ~30s timeout. The scan keeps running. The lambda
+    // is bound to `this` so it's dropped if BLEManager is destroyed.
+    QTimer::singleShot(kScaleDirectConnectAbortMs, this, [this]() {
+        abortScaleDirectConnectIfPending(QStringLiteral("~4s elapsed"));
+    });
 #endif
 }
 
