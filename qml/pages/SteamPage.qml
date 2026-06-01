@@ -213,16 +213,31 @@ Page {
         function onDescaleWarning() {
             steamWarningDialog.warningMessage = TranslationManager.translate("steam.warning.descale",
                 "Your machine may need descaling. Steam pressure was consistently too high.")
-            steamWarningDialog.open()
+            openPostSessionWarning()
         }
         function onTemperatureWarning(message) {
             steamWarningDialog.warningMessage = message
-            steamWarningDialog.open()
+            openPostSessionWarning()
         }
         function onScaleBuildupWarning(message) {
             steamWarningDialog.warningMessage = message
-            steamWarningDialog.open()
+            openPostSessionWarning()
         }
+    }
+
+    // The three SteamHealthTracker post-session signals above fire after the
+    // session ends, which is the same moment main.qml's completion overlay is
+    // counting down to navigate back to idle (#1302). If we let that timer
+    // fire, the dialog gets destroyed mid-display along with this page. Hide
+    // the completion overlay, stop its timer, and trigger navigation only
+    // once the user acknowledges the warning.
+    property bool _completionDeferredForWarning: false
+    function openPostSessionWarning() {
+        if (typeof root !== "undefined" && root.suspendCompletionForDialog) {
+            root.suspendCompletionForDialog()
+            _completionDeferredForWarning = true
+        }
+        steamWarningDialog.open()
     }
 
     // Post-session warning dialog
@@ -236,6 +251,14 @@ Page {
         width: Math.min(parent.width * 0.85, Theme.scaled(360))
         padding: Theme.spacingMedium
         onOpened: warningOkButton.forceActiveFocus()
+        onClosed: {
+            if (_completionDeferredForWarning) {
+                _completionDeferredForWarning = false
+                if (typeof root !== "undefined" && root.finishCompletion) {
+                    root.finishCompletion()
+                }
+            }
+        }
 
         background: Rectangle {
             color: Theme.surfaceColor

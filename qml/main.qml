@@ -1914,25 +1914,7 @@ ApplicationWindow {
     Timer {
         id: completionTimer
         interval: 1500  // 1.5s: short enough not to feel slow (reduced from 3s per user feedback)
-        onTriggered: {
-            completionPending = false
-            completionOverlay.opacity = 0
-
-            // Return to saved page if set, otherwise go to idlePage
-            if (root.returnToPageName === "postShotReviewPage") {
-                var shotId = root.returnToShotId > 0 ? root.returnToShotId : MainController.lastSavedShotId
-                pageStack.replace(null, idlePage)
-                pageStack.push(postShotReviewPage, { editShotId: shotId })
-            } else {
-                if (pageStack.currentItem && pageStack.currentItem.objectName !== "idlePage") {
-                    pageStack.replace(null, idlePage)
-                }
-            }
-
-            // Clear return-to tracking
-            root.returnToPageName = ""
-            root.returnToShotId = 0
-        }
+        onTriggered: finishCompletion()
     }
 
     function showCompletion(message, type) {
@@ -1941,6 +1923,36 @@ ApplicationWindow {
         completionPending = true
         completionOverlay.opacity = 1  // Instant (Behavior disabled when opacity is 0)
         completionTimer.restart()
+    }
+
+    // Hide the completion overlay and stop its timer without navigating. Used
+    // when an operation page wants to hold the user on the page (e.g. a steam
+    // health warning dialog opened post-session and must be acknowledged).
+    // The page is responsible for calling finishCompletion() later.
+    function suspendCompletionForDialog() {
+        completionTimer.stop()
+        completionPending = false
+        completionOverlay.opacity = 0
+    }
+
+    function finishCompletion() {
+        completionPending = false
+        completionOverlay.opacity = 0
+
+        // Return to saved page if set, otherwise go to idlePage
+        if (root.returnToPageName === "postShotReviewPage") {
+            var shotId = root.returnToShotId > 0 ? root.returnToShotId : MainController.lastSavedShotId
+            pageStack.replace(null, idlePage)
+            pageStack.push(postShotReviewPage, { editShotId: shotId })
+        } else {
+            if (pageStack.currentItem && pageStack.currentItem.objectName !== "idlePage") {
+                pageStack.replace(null, idlePage)
+            }
+        }
+
+        // Clear return-to tracking
+        root.returnToPageName = ""
+        root.returnToShotId = 0
     }
 
     // Save current page info before navigating to operation pages (steam/flush/water)
