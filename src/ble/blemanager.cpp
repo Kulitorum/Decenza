@@ -1179,6 +1179,7 @@ void BLEManager::onScaleConnectionTimeout() {
     m_directConnectInProgress = false;
     m_directConnectAddress.clear();
     if (wasParked) {
+        appendScaleLog("Scale connection timeout — tearing down parked direct-connect controller");
         if (auto* transport = m_scaleDevice ? m_scaleDevice->bleTransport() : nullptr) {
             transport->disconnectFromDevice();
         }
