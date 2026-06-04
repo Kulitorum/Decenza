@@ -518,8 +518,26 @@ add_decenza_test(tst_wifiscalediscovery
 add_decenza_test(tst_difluidr2
     tst_difluidr2.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
+    ${CMAKE_SOURCE_DIR}/src/ble/refractometers/refractometerdevice.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/refractometers/difluidr2.cpp
 )
+
+# --- tst_difluidr1: DiFluid R1 key derivation, AES decrypt, plaintext parsing (#1307) ---
+add_decenza_test(tst_difluidr1
+    tst_difluidr1.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/transport/scalebletransport.h
+    ${CMAKE_SOURCE_DIR}/src/ble/refractometers/refractometerdevice.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/refractometers/difluidr1.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/refractometers/aes128.cpp
+)
+# Crypto backend: OpenSSL on desktop+Android, CommonCrypto (in libSystem) on iOS.
+# Match the Q_OS_IOS branch in aes128.cpp exactly — macOS desktop still uses OpenSSL.
+if(IOS)
+    # CommonCrypto is part of libSystem — no extra linkage needed.
+else()
+    find_package(OpenSSL REQUIRED)
+    target_link_libraries(tst_difluidr1 PRIVATE OpenSSL::Crypto)
+endif()
 
 # --- tst_weightprocessor: WeightProcessor edge cases (LSLR, oscillation, per-frame) ---
 add_decenza_test(tst_weightprocessor

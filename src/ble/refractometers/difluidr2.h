@@ -1,7 +1,10 @@
 #pragma once
 
-#include <QObject>
+#include "refractometerdevice.h"
+
 #include <QBluetoothDeviceInfo>
+#include <QBluetoothUuid>
+#include <QByteArray>
 #include <QTimer>
 
 class ScaleBleTransport;
@@ -9,9 +12,10 @@ class ScaleBleTransport;
 /**
  * DiFluidR2 — BLE driver for the DiFluid R2 Extract refractometer.
  *
- * Standalone QObject (not a ScaleDevice subclass — a refractometer is not a scale).
- * Uses ScaleBleTransport for BLE communication (same abstraction as scale drivers,
- * gives us Qt/CoreBluetooth platform switching for free).
+ * Concrete RefractometerDevice. Uses ScaleBleTransport for BLE communication
+ * (same abstraction as scale drivers, gives us Qt/CoreBluetooth platform
+ * switching for free) — it is not a ScaleDevice subclass; a refractometer is
+ * not a scale.
  *
  * Protocol: header 0xDF 0xDF, func, cmd, datalen, data, additive checksum.
  * Service 0x00FF, characteristic 0xAA01.
@@ -23,41 +27,25 @@ class ScaleBleTransport;
  * the sub-threshold lower-bound plausibility filter (sub-3%) and context
  * gating (which shot is loaded) remain the consumer's responsibility.
  */
-class DiFluidR2 : public QObject {
+class DiFluidR2 : public RefractometerDevice {
     Q_OBJECT
-
-    Q_PROPERTY(bool connected READ isConnected NOTIFY connectedChanged)
-    Q_PROPERTY(double tds READ tds NOTIFY tdsChanged)
-    Q_PROPERTY(double temperature READ temperature NOTIFY temperatureChanged)
-    Q_PROPERTY(bool measuring READ isMeasuring NOTIFY measuringChanged)
-    Q_PROPERTY(QString name READ name CONSTANT)
 
 public:
     explicit DiFluidR2(ScaleBleTransport* transport, QObject* parent = nullptr);
     ~DiFluidR2() override;
 
-    bool isConnected() const { return m_connected; }
-    double tds() const { return m_tds; }
-    double temperature() const { return m_temperature; }
-    bool isMeasuring() const { return m_measuring; }
-    QString name() const { return m_name; }
+    bool isConnected() const override { return m_connected; }
+    double tds() const override { return m_tds; }
+    double temperature() const override { return m_temperature; }
+    bool isMeasuring() const override { return m_measuring; }
+    QString name() const override { return m_name; }
 
-    void connectToDevice(const QBluetoothDeviceInfo& device);
-    Q_INVOKABLE void disconnectFromDevice();
-
-    Q_INVOKABLE void requestMeasurement();
+    void connectToDevice(const QBluetoothDeviceInfo& device) override;
+    void disconnectFromDevice() override;
+    void requestMeasurement() override;
 
     // BLE name matching — call before scale detection to prevent misclassification
     static bool isR2Device(const QString& name);
-
-signals:
-    void connectedChanged();
-    void tdsChanged(double tds);
-    void temperatureChanged(double temperature);
-    void measuringChanged();
-    void measurementComplete();
-    void errorOccurred(const QString& error);
-    void logMessage(const QString& message);
 
 private slots:
     void onTransportConnected();

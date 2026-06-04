@@ -17,7 +17,7 @@
 #include "blecapability.h"
 
 class ScaleDevice;
-class DiFluidR2;
+class RefractometerDevice;
 class SettingsHardware;
 class WifiScaleDiscovery;
 class TranslationManager;
@@ -400,7 +400,7 @@ public:
     Q_INVOKABLE void connectToRefractometer(const QString& address);
     Q_INVOKABLE void setSavedRefractometerAddress(const QString& address, const QString& name);
     Q_INVOKABLE void clearSavedRefractometer();
-    void setRefractometerDevice(DiFluidR2* device);
+    void setRefractometerDevice(RefractometerDevice* device);
     Q_INVOKABLE void tryDirectConnectToRefractometer();
 
     // DE1 address management
@@ -677,7 +677,7 @@ private:
     QList<QBluetoothDeviceInfo> m_refractometerDevices;
     QString m_savedRefractometerAddress;
     QString m_savedRefractometerName;
-    DiFluidR2* m_refractometerDevice = nullptr;
+    RefractometerDevice* m_refractometerDevice = nullptr;
 
     // Scale debug log
     QStringList m_scaleLogMessages;

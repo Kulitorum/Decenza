@@ -5,7 +5,9 @@
 #include "protocol/de1characteristics.h"
 #include "scales/decentscale.h"
 #include "scales/scalefactory.h"
+#include "refractometers/difluidr1.h"
 #include "refractometers/difluidr2.h"
+#include "refractometers/refractometerdevice.h"
 #include "../core/settings_hardware.h"
 #include "../core/translationmanager.h"
 #include "../network/wifiscalediscovery.h"
@@ -827,8 +829,9 @@ void BLEManager::onDeviceDiscovered(const QBluetoothDeviceInfo& device) {
         return;
     }
 
-    // Check if it's a refractometer BEFORE scale detection (prevents R2 misclassification)
-    if (DiFluidR2::isR2Device(device.name())) {
+    // Check if it's a refractometer BEFORE scale detection (prevents misclassification
+    // — both R2 and R1 family names overlap with broad scale name heuristics).
+    if (DiFluidR2::isR2Device(device.name()) || DiFluidR1::isR1Device(device.name())) {
         // Avoid duplicates
         for (const auto& existing : m_refractometerDevices) {
             if (getDeviceIdentifier(existing) == getDeviceIdentifier(device)) {
@@ -1480,7 +1483,7 @@ void BLEManager::clearSavedRefractometer() {
     emit disconnectRefractometerRequested();
 }
 
-void BLEManager::setRefractometerDevice(DiFluidR2* device) {
+void BLEManager::setRefractometerDevice(RefractometerDevice* device) {
     qDebug().noquote() << QString("[R2-diag] setRefractometerDevice old=%1 new=%2")
         .arg(m_refractometerDevice ? QString::number(reinterpret_cast<quintptr>(m_refractometerDevice), 16)
                                     : QStringLiteral("none"),
@@ -1491,7 +1494,7 @@ void BLEManager::setRefractometerDevice(DiFluidR2* device) {
     }
     m_refractometerDevice = device;
     if (m_refractometerDevice) {
-        connect(m_refractometerDevice, &DiFluidR2::connectedChanged,
+        connect(m_refractometerDevice, &RefractometerDevice::connectedChanged,
                 this, &BLEManager::refractometerConnectedChanged);
     }
     emit refractometerConnectedChanged();
