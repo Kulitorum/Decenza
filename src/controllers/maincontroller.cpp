@@ -28,7 +28,7 @@
 #include "../ble/blemanager.h"
 #include "../ble/scaledevice.h"
 #include "../ble/scales/flowscale.h"
-#include "../ble/refractometers/difluidr2.h"
+#include "../ble/refractometers/refractometerdevice.h"
 #include <QGuiApplication>
 #include <QClipboard>
 #include <cmath>
@@ -2826,7 +2826,7 @@ void MainController::processVisualizerReconciliation()
     m_visualizer->fetchShotListSince(windowStartEpoch);
 }
 
-void MainController::setRefractometer(DiFluidR2* refractometer) {
+void MainController::setRefractometer(RefractometerDevice* refractometer) {
     // Disconnect old signal chain before connecting new one
     if (m_refractometer) {
         disconnect(m_refractometer, nullptr, this, nullptr);
@@ -2836,7 +2836,7 @@ void MainController::setRefractometer(DiFluidR2* refractometer) {
 
     // Non-mutating log only. PostShotReviewPage owns context-gated capture; do
     // not write to Settings here — device-initiated readings would leak forward.
-    connect(m_refractometer, &DiFluidR2::tdsChanged, this, [](double tds) {
+    connect(m_refractometer, &RefractometerDevice::tdsChanged, this, [](double tds) {
         qDebug() << "[Refractometer] tdsChanged" << tds;
     });
 }

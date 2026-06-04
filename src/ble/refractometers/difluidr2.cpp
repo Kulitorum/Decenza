@@ -28,7 +28,7 @@ static constexpr int PACKET_MIN_LENGTH = 6;  // header(2) + func(1) + cmd(1) + d
 static constexpr double MAX_PLAUSIBLE_TDS = 35.0;
 
 DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
-    : QObject(parent)
+    : RefractometerDevice(parent)
     , m_transport(transport)
 {
     // Watchdog: BLE measurement failures may produce no packet at all (device out of

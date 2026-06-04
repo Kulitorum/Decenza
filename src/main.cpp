@@ -72,7 +72,9 @@
 #include "ble/scales/scalefactory.h"
 #include "ble/scales/flowscale.h"
 #include "ble/scales/decentscalewifi.h"
+#include "ble/refractometers/difluidr1.h"
 #include "ble/refractometers/difluidr2.h"
+#include "ble/refractometers/refractometerdevice.h"
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
 #include "ble/transport/corebluetooth/corebluetoothscalebletransport.h" // IWYU pragma: keep
 #else
@@ -1925,8 +1927,8 @@ int main(int argc, char *argv[])
         }
     });
 
-    // === Refractometer (DiFluid R2) ===
-    std::unique_ptr<DiFluidR2> refractometer;
+    // === Refractometer (DiFluid R1 / R2) ===
+    std::unique_ptr<RefractometerDevice> refractometer;
     engine.rootContext()->setContextProperty("Refractometer", nullptr);
 
     // Restore saved refractometer address for auto-reconnect
@@ -1954,7 +1956,7 @@ int main(int argc, char *argv[])
         // Clean up old refractometer before replacing — disconnect first (emits
         // signals while pointers are still valid), then clear raw pointer holders
         if (refractometer) {
-            qDebug().noquote() << QString("[R2-diag] tearing down previous DiFluidR2 instance=%1 connected=%2 to recreate")
+            qDebug().noquote() << QString("[R2-diag] tearing down previous Refractometer instance=%1 connected=%2 to recreate")
                 .arg(QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16),
                      refractometer->isConnected() ? QStringLiteral("true") : QStringLiteral("false"));
             refractometer->disconnectFromDevice();
@@ -1969,8 +1971,14 @@ int main(int argc, char *argv[])
 #else
         auto* transport = new QtScaleBleTransport();
 #endif
-        refractometer = std::make_unique<DiFluidR2>(transport);
-        qDebug().noquote() << QString("[R2-diag] created DiFluidR2 instance=%1 connecting to %2")
+        // Pick the driver by advertised name. R1 prefix is checked first because
+        // it's the strict prefix match; R2 is the broader heuristic.
+        if (DiFluidR1::isR1Device(device.name())) {
+            refractometer = std::make_unique<DiFluidR1>(transport);
+        } else {
+            refractometer = std::make_unique<DiFluidR2>(transport);
+        }
+        qDebug().noquote() << QString("[R2-diag] created Refractometer instance=%1 connecting to %2")
             .arg(QString::number(reinterpret_cast<quintptr>(refractometer.get()), 16), device.name());
         // The refractometer reuses the scale transport class but is not a
         // scale: a 3rd forced-HIGH BLE link contends with the DE1 + scale and
@@ -1993,8 +2001,8 @@ int main(int argc, char *argv[])
         settings.setSavedRefractometerName(device.name());
         bleManager.setSavedRefractometerAddress(getDeviceIdentifier(device), device.name());
 
-        // Forward R2 log messages to the scale log (shared log view)
-        QObject::connect(refractometer.get(), &DiFluidR2::logMessage,
+        // Forward refractometer log messages to the scale log (shared log view)
+        QObject::connect(refractometer.get(), &RefractometerDevice::logMessage,
                          &bleManager, &BLEManager::appendScaleLog);
 
         qDebug() << "[Refractometer] Created and connecting to" << device.name();

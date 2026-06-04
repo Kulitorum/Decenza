@@ -292,4 +292,17 @@ namespace DiFluidR2 {
     const QBluetoothUuid CHARACTERISTIC(QString("0000AA01-0000-1000-8000-00805F9B34FB"));
 }
 
+// DiFluid R1 — protocol reverse-engineered in issue #1307.
+// 16-bit service 0x1EFF (advertised as 0xE01E in the scan record).
+// All 16-bit UUIDs expand to the Bluetooth base form.
+namespace DiFluidR1 {
+    const QBluetoothUuid SERVICE(QString("00001EFF-0000-1000-8000-00805F9B34FB"));
+    const QBluetoothUuid DATA   (QString("00001E01-0000-1000-8000-00805F9B34FB")); // notify: 16-byte AES-ECB ciphertext
+    const QBluetoothUuid BATTERY(QString("00001E02-0000-1000-8000-00805F9B34FB")); // notify: battery level
+    const QBluetoothUuid SALT   (QString("00001E03-0000-1000-8000-00805F9B34FB")); // read: 12-byte salt + HW info
+    const QBluetoothUuid STATUS (QString("00001E06-0000-1000-8000-00805F9B34FB")); // notify: status / ack
+    const QBluetoothUuid STATUS2(QString("00001E07-0000-1000-8000-00805F9B34FB")); // notify: status (shared handler)
+    const QBluetoothUuid CMD    (QString("00001E08-0000-1000-8000-00805F9B34FB")); // notify + write: commands + ack
+}
+
 } // namespace Refractometer
