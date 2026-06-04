@@ -1,10 +1,11 @@
 // AES-128 ECB single-block primitives.
 //
-// Uses platform-vetted crypto rather than vendoring an implementation:
+// Thin wrapper over platform-vetted crypto:
 //   - Desktop (Windows/macOS/Linux) and Android: OpenSSL EVP (already linked).
-//   - iOS: Apple Security.framework's CommonCrypto (OpenSSL isn't linked there).
+//   - iOS: Apple Security.framework's CommonCrypto (in libSystem; OpenSSL is
+//     not linked on iOS).
 //
-// Validated against the issue #1307 R1 test vector:
+// NIST FIPS-197 / DiFluid R1 capture test vector (validated by tst_difluidr1):
 //   key  = B8 D6 1A B4 DA 18 AA AA AA AA AA AA AA AA AA AA
 //   ct   = 5A 06 A0 05 22 D2 33 4D 0F 0B 28 F6 78 D9 DE CA
 //   pt   = 00 00 09 B7 FF FF FF B9 00 02 08 46 FF FF FF B9
@@ -12,6 +13,7 @@
 #include "aes128.h"
 
 #include <QtGlobal>
+#include <cstring>
 
 #if defined(Q_OS_IOS)
 #include <CommonCrypto/CommonCryptor.h>
@@ -63,14 +65,22 @@ bool oneBlock(const Key& key, const uint8_t in[16], uint8_t out[16], bool encryp
 
 #endif
 
+// Zero on failure so a downstream parse yields a trivially-zero reading
+// instead of uninitialized garbage that could pass plausibility gates.
+void runOrZero(const Key& key, const uint8_t in[16], uint8_t out[16], bool encrypt) {
+    if (!oneBlock(key, in, out, encrypt)) {
+        std::memset(out, 0, 16);
+    }
+}
+
 } // namespace
 
 void encryptBlock(const Key& key, const uint8_t in[16], uint8_t out[16]) {
-    oneBlock(key, in, out, /*encrypt=*/true);
+    runOrZero(key, in, out, /*encrypt=*/true);
 }
 
 void decryptBlock(const Key& key, const uint8_t in[16], uint8_t out[16]) {
-    oneBlock(key, in, out, /*encrypt=*/false);
+    runOrZero(key, in, out, /*encrypt=*/false);
 }
 
 } // namespace decenza::aes128

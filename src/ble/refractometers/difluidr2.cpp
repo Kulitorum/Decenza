@@ -19,13 +19,12 @@
 static constexpr uint8_t PACKET_HEADER = 0xDF;
 static constexpr int PACKET_MIN_LENGTH = 6;  // header(2) + func(1) + cmd(1) + datalen(1) + checksum(1)
 
-// DiFluid R2 hardware measurement ceiling (TDS %). Real coffee never approaches
-// this. When a measurement fails mid-flight the R2 emits an out-of-range
-// sentinel in the TDS field — observed as raw 0xFFE5 (65509 → 655.09%) one
-// packet before an `R2 error class=0 code=2` storm — which used to flow
-// through as a real reading and get autosaved onto the shot. Anything above
-// this is a failed measurement, not a value.
-static constexpr double MAX_PLAUSIBLE_TDS = 35.0;
+// R2-specific note on the shared plausibility ceiling: when an R2 measurement
+// fails mid-flight it emits an out-of-range sentinel in the TDS field —
+// observed as raw 0xFFE5 (65509 → 655.09%) one packet before an
+// `R2 error class=0 code=2` storm — which used to flow through as a real
+// reading and get autosaved onto the shot. The threshold lives on
+// RefractometerDevice; this comment captures the R2-specific failure mode.
 
 DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
     : RefractometerDevice(parent)
@@ -118,9 +117,12 @@ void DiFluidR2::connectToDevice(const QBluetoothDeviceInfo& device) {
         return;
     }
 
-    m_name = device.name();
+    const QString newName = device.name();
+    const bool nameChange = (newName != m_name);
+    m_name = newName;
     m_serviceFound = false;
     m_characteristicsReady = false;
+    if (nameChange) emit nameChanged();
 
     R2_LOG(QString("Connecting to %1 (%2)")
                .arg(device.name())

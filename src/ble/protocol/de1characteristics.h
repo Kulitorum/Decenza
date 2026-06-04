@@ -292,7 +292,7 @@ namespace DiFluidR2 {
     const QBluetoothUuid CHARACTERISTIC(QString("0000AA01-0000-1000-8000-00805F9B34FB"));
 }
 
-// DiFluid R1 — protocol reverse-engineered in issue #1307.
+// DiFluid R1 — protocol reverse-engineered from the official DiFluid app v1.2.6.
 // 16-bit service 0x1EFF (advertised as 0xE01E in the scan record).
 // All 16-bit UUIDs expand to the Bluetooth base form.
 namespace DiFluidR1 {
