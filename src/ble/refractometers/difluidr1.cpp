@@ -5,7 +5,9 @@
 #include "aes128.h"
 
 #include <QtEndian>
+#include <array>
 #include <cmath>
+#include <utility>
 
 #define R1_LOG(msg) do { \
     QString _msg = QString("[BLE DiFluidR1] ") + msg; \
@@ -51,17 +53,43 @@ DiFluidR1::DiFluidR1(ScaleBleTransport* transport, QObject* parent)
         // serialize these through a single ATT pipeline so submitting them
         // back-to-back is safe; the spec suggests a 120ms stagger but reports
         // it's not strictly required.
+        //
+        // Each call is logged individually so a missing/dropped CCCD write is
+        // identifiable from the log alone — and the transport's
+        // notificationsEnabled signal (connected below) confirms each one.
         using namespace Refractometer::DiFluidR1;
-        m_transport->enableNotifications(SERVICE, DATA);
-        m_transport->enableNotifications(SERVICE, BATTERY);
-        m_transport->enableNotifications(SERVICE, STATUS);
-        m_transport->enableNotifications(SERVICE, STATUS2);
-        m_transport->enableNotifications(SERVICE, CMD);
+        const std::array<std::pair<QBluetoothUuid, const char*>, 5> notifyChars = {{
+            { DATA,    "1E01 (data)" },
+            { BATTERY, "1E02 (battery)" },
+            { STATUS,  "1E06 (status)" },
+            { STATUS2, "1E07 (status2)" },
+            { CMD,     "1E08 (cmd ack)" },
+        }};
+        for (const auto& [uuid, label] : notifyChars) {
+            R1_LOG(QString("Enabling notify %1").arg(QString::fromLatin1(label)));
+            m_transport->enableNotifications(SERVICE, uuid);
+        }
 
         // Read the salt — characteristicRead() will fire on completion and
         // mark the link "connected" once the AES key is derived.
+        R1_LOG("Reading salt (1E03)");
         m_transport->readCharacteristic(SERVICE, SALT);
-        R1_LOG("Notifications enabled, reading salt");
+        m_saltWatchdog.start();
+    });
+
+    // Salt-read watchdog: if 5s after characteristic discovery the device
+    // hasn't returned the salt, log loudly. This is the most common silent
+    // failure mode for a brand-new driver — the read either gets queued
+    // behind the 5 CCCD writes and dropped, or the device exposes 1E03 with
+    // unexpected permissions. Without this we'd just sit at "Reading salt"
+    // forever.
+    m_saltWatchdog.setSingleShot(true);
+    m_saltWatchdog.setInterval(5000);
+    connect(&m_saltWatchdog, &QTimer::timeout, this, [this]() {
+        if (m_keyReady) return;
+        R1_WARN("Salt read did not complete within 5s — driver will not become 'connected'. "
+                "Check whether characteristic 1E03 is exposed and readable; "
+                "see the transport log above for any failed read.");
     });
 
     if (m_transport) {
@@ -79,6 +107,25 @@ DiFluidR1::DiFluidR1(ScaleBleTransport* transport, QObject* parent)
                 this, &DiFluidR1::onServicesDiscoveryFinished);
         connect(m_transport, &ScaleBleTransport::characteristicsDiscoveryFinished,
                 this, &DiFluidR1::onCharacteristicsDiscoveryFinished);
+        // characteristicDiscovered + notificationsEnabled + characteristicWritten
+        // are connected for diagnostic visibility — they're not part of the
+        // happy-path logic but make every step traceable when the first wire
+        // attempt goes wrong.
+        connect(m_transport, &ScaleBleTransport::characteristicDiscovered,
+                this, [this](const QBluetoothUuid& service,
+                             const QBluetoothUuid& ch, int properties) {
+            if (service != Refractometer::DiFluidR1::SERVICE) return;
+            R1_LOG(QString("  characteristic %1 props=0x%2")
+                       .arg(ch.toString(), QString::number(properties, 16)));
+        });
+        connect(m_transport, &ScaleBleTransport::notificationsEnabled,
+                this, [this](const QBluetoothUuid& ch) {
+            R1_LOG(QString("Notifications enabled OK on %1").arg(ch.toString()));
+        });
+        connect(m_transport, &ScaleBleTransport::characteristicWritten,
+                this, [this](const QBluetoothUuid& ch) {
+            R1_LOG(QString("Write completed on %1").arg(ch.toString()));
+        });
         connect(m_transport, &ScaleBleTransport::characteristicChanged,
                 this, &DiFluidR1::onCharacteristicChanged);
         connect(m_transport, &ScaleBleTransport::characteristicRead,
@@ -192,6 +239,7 @@ void DiFluidR1::connectToDevice(const QBluetoothDeviceInfo& device) {
 void DiFluidR1::disconnectFromDevice() {
     m_measurementTimer.stop();
     m_initTimer.stop();
+    m_saltWatchdog.stop();
     if (m_transport) {
         m_transport->disconnectFromDevice();
     }
@@ -233,6 +281,7 @@ void DiFluidR1::onTransportDisconnected() {
     R1_LOG("Transport disconnected");
     m_measurementTimer.stop();
     m_initTimer.stop();
+    m_saltWatchdog.stop();
     m_connected = false;
     m_keyReady = false;
     m_characteristicsReady = false;
@@ -246,6 +295,7 @@ void DiFluidR1::onTransportError(const QString& message) {
     R1_WARN(QString("Transport error: %1").arg(message));
     m_measurementTimer.stop();
     m_initTimer.stop();
+    m_saltWatchdog.stop();
     m_connected = false;
     m_keyReady = false;
     m_characteristicsReady = false;
@@ -330,15 +380,37 @@ void DiFluidR1::onCharacteristicRead(const QBluetoothUuid& characteristicUuid,
                                      const QByteArray& value) {
     if (characteristicUuid != Refractometer::DiFluidR1::SALT) return;
 
+    m_saltWatchdog.stop();
+
     if (value.size() < 6) {
-        R1_WARN(QString("Salt read returned too few bytes: %1").arg(value.size()));
+        R1_WARN(QString("Salt read returned too few bytes (%1): %2 — cannot derive AES key")
+                    .arg(value.size()).arg(QString(value.toHex(' '))));
         return;
     }
 
     m_key = deriveKey(value);
     m_keyReady = true;
-    R1_LOG(QString("Salt read (%1 bytes): %2 — key derived")
+    // Log the salt and the derived key. Salt is read from a public BLE
+    // characteristic so there's no secret to protect; printing both lets us
+    // sanity-check against the Python reference implementation's derivation
+    // when a measurement decrypt produces nonsense.
+    const QByteArray keyBytes(reinterpret_cast<const char*>(m_key.data()), 16);
+    R1_LOG(QString("Salt read (%1 bytes): %2")
                .arg(value.size()).arg(QString(value.toHex(' '))));
+    R1_LOG(QString("Derived key: %1").arg(QString(keyBytes.toHex(' '))));
+
+    // Optional model/hardware-version hints (per spec, bytes 6..10 of the
+    // 12-byte payload). Log when available — useful when triaging a brand-new
+    // device variant.
+    if (value.size() >= 11) {
+        const int hwHi = static_cast<uint8_t>(value[6]) - 3;
+        const double hwLo = static_cast<uint8_t>(value[7]) - 3.5;
+        const int model = (static_cast<uint8_t>(value[10]) - 5) % 6;
+        const char* modelNames[] = { "Basic", "Air", "Pro", "Ultimate", "Coffee", "?" };
+        R1_LOG(QString("Device: model=%1 hwVersion≈%2.%3")
+                   .arg(modelNames[model >= 0 && model < 5 ? model : 5])
+                   .arg(hwHi).arg(hwLo, 0, 'f', 1));
+    }
 
     if (!m_connected) {
         m_connected = true;
@@ -351,26 +423,45 @@ void DiFluidR1::onCharacteristicRead(const QBluetoothUuid& characteristicUuid,
 
 void DiFluidR1::handleMeasurementFrame(const QByteArray& ciphertext) {
     if (ciphertext.size() != 16) {
-        R1_LOG(QString("Non-protocol DATA packet (%1 bytes)").arg(ciphertext.size()));
+        R1_LOG(QString("Non-protocol DATA packet (%1 bytes): %2")
+                   .arg(ciphertext.size())
+                   .arg(QString(ciphertext.left(32).toHex(' '))));
         return;
     }
     if (!m_keyReady) {
-        R1_WARN("Measurement frame arrived before key derivation — dropping");
+        R1_WARN(QString("Measurement frame arrived before key derivation — dropping. ct=%1")
+                    .arg(QString(ciphertext.toHex(' '))));
         return;
     }
 
     const QByteArray pt = decryptFrame(ciphertext, m_key);
     double tempC = 0.0, brix = 0.0, ri = 0.0, raw = 0.0;
     if (!parsePlaintext(pt, tempC, brix, ri, raw)) {
-        R1_WARN("Decryption produced unparseable plaintext");
+        R1_WARN(QString("Decryption produced unparseable plaintext. ct=%1 pt=%2")
+                    .arg(QString(ciphertext.toHex(' ')), QString(pt.toHex(' '))));
         return;
     }
 
+    // Log the full ciphertext and plaintext on every frame — at ~one packet per
+    // user-initiated measurement this is not noisy, and it is the fastest path
+    // to "is the decrypt key right?" when triaging a bad reading.
+    R1_LOG(QString("Frame ct=%1").arg(QString(ciphertext.toHex(' '))));
+    R1_LOG(QString("Frame pt=%1").arg(QString(pt.toHex(' '))));
     R1_LOG(QString("Reading: T=%1°C  Brix=%2%  RI=%3  raw=%4")
                .arg(tempC, 0, 'f', 2)
                .arg(brix, 0, 'f', 2)
                .arg(ri, 0, 'f', 5)
                .arg(raw, 0, 'f', 2));
+
+    // RI of an aqueous solution lives in a known band; well outside it
+    // suggests a bad decrypt (key mismatch, byte-order bug). Flag clearly so
+    // a bug report doesn't waste a round trip on "the brix value is weird".
+    if (ri < 1.30 || ri > 1.50) {
+        R1_WARN(QString("Refractive index %1 is outside the plausible band [1.30, 1.50] — "
+                        "this usually means the decrypt key is wrong. "
+                        "Cross-check the salt and derived key against the Python reference.")
+                    .arg(ri, 0, 'f', 5));
+    }
 
     m_temperature = tempC;
     emit temperatureChanged(m_temperature);
@@ -396,7 +487,12 @@ void DiFluidR1::emitTdsResult(double brix, double /*tempC*/) {
 }
 
 void DiFluidR1::sendCommand(const QByteArray& cmd) {
-    if (!m_transport || !m_characteristicsReady) return;
+    if (!m_transport || !m_characteristicsReady) {
+        R1_WARN(QString("sendCommand dropped (no transport or chars not ready): %1")
+                    .arg(QString(cmd.toHex(' '))));
+        return;
+    }
+    R1_LOG(QString("Write 1E08 (WithResponse): %1").arg(QString(cmd.toHex(' '))));
     // Default WriteType::WithResponse — required by the R1 (it drops Write
     // Commands silently). Match the existing transport default rather than
     // re-specifying it so we don't accidentally diverge from R2's path.

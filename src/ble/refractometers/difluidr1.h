@@ -102,4 +102,5 @@ private:
     std::array<uint8_t, 16> m_key{};
     QTimer m_measurementTimer;
     QTimer m_initTimer;
+    QTimer m_saltWatchdog;
 };
