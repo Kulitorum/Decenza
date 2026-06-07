@@ -2875,17 +2875,21 @@ int main(int argc, char *argv[])
     //
     // With a saved-but-absent scale (or refractometer), the reconnect timers
     // keep running 60 s passive scans indefinitely. Each scan parks the radio
-    // active for ~15 s. Over the unattended hours the user typically spends on
-    // the screensaver, those scans can run hundreds of times and contend with
-    // the DE1 link's keepalive traffic. Issue #1309 traced a P80X DE1 wedge
-    // back to exactly this state: ~7 h of scale-absent scans during screensaver
-    // before an MMR keepalive write timed out and the link couldn't recover.
+    // active for the Qt LowEnergy discovery timeout (currently 15 s, set in
+    // BLEManager::setLowEnergyDiscoveryTimeout). Over the unattended hours the
+    // user typically spends on the screensaver, those scans can run hundreds
+    // of times and contend with the DE1 link's keepalive traffic. Issue #1309
+    // hypothesised this state as a contributing factor to a P80X DE1 wedge:
+    // ~7 h of scale-absent scans during screensaver before an MMR keepalive
+    // write timed out and the link couldn't recover. Root cause isn't proven —
+    // this PR cuts the most plausible upstream input.
     //
     // The screensaver doesn't suspend the app (we're still Qt::ApplicationActive),
-    // so the existing applicationStateChanged path above doesn't catch it.
-    // We mirror that path here: stop the timers on entry, restart them on exit
-    // using the same conditions (saved address present, not connected, not
-    // suppressed, not USB).
+    // so the existing applicationStateChanged path above doesn't catch it. We
+    // mirror that path here, stopping both timers on entry and restarting them
+    // on exit. Resume gates differ between the two: scale checks saved address,
+    // not connected, not suppressed, not USB; refractometer checks saved address
+    // and not connected (no suppression flag or USB-routing for it).
     QObject::connect(&screensaverManager, &ScreensaverVideoManager::screensaverActiveChanged,
                      [&screensaverManager, &physicalScale, &bleManager, &settings,
                       &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays,
