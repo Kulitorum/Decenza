@@ -1503,9 +1503,28 @@ int main(int argc, char *argv[])
             if (settings.machineAddress().isEmpty()) {
                 qDebug() << "DE1 reconnect: no saved address — skipping auto-reconnect";
             } else if (!de1ReconnectTimer.isActive()) {
-                de1ReconnectAttempt = 0;
-                de1ReconnectTimer.start(5000);  // First retry after 5s
-                qDebug() << "DE1 reconnect: scheduled first retry in 5000 ms";
+                // Distinguish a fresh disconnect (attempt counter is 0) from a
+                // mid-schedule retry attempt that failed (counter > 0). Resetting
+                // unconditionally meant every failed retry restarted the 5 s
+                // schedule, so the backoff never escalated and the "retries
+                // exhausted" branch was dead code — the loop hammered the radio
+                // every ~35 s forever (see issue #1309). The timer-callback also
+                // schedules the next interval, but its singleShot can be consumed
+                // by an "already connecting" early-return when a still-pending
+                // attempt is in flight; this path is the fallback that keeps the
+                // schedule advancing when that race happens.
+                if (de1ReconnectAttempt == 0) {
+                    de1ReconnectTimer.start(5000);  // Fresh disconnect — first retry after 5s
+                    qDebug() << "DE1 reconnect: scheduled first retry in 5000 ms";
+                } else if (de1ReconnectAttempt < kDE1MaxReconnectAttempts) {
+                    const int delay = de1ReconnectAttempt == 1 ? 30000 : 60000;
+                    de1ReconnectTimer.start(delay);
+                    qDebug() << "DE1 reconnect: attempt" << de1ReconnectAttempt
+                             << "failed, next retry in" << delay << "ms";
+                } else {
+                    qDebug() << "DE1 reconnect: retries exhausted after"
+                             << de1ReconnectAttempt << "attempts";
+                }
             }
         }
     });
