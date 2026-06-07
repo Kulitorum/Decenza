@@ -1262,13 +1262,21 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
         return;
     }
 
-    // Log only when the value changes. force=true + unchanged is intentionally
-    // silent: the USB charger keepalive fires every 60 s at the same value and
-    // was the dominant source of log noise. For writeMMRVerified retries the
-    // caller already logs "[MMR] verify retry" before invoking writeMMR, so
-    // the retry BLE write is still traceable without a duplicate log here.
+    // Log the dispatched write. force=true + unchanged is tagged "keepalive"
+    // instead of "write" so it's still trivially grep-filterable when the noise
+    // matters, but the BatteryManager's 60 s USB-charger refresh is now visible
+    // in bug reports. Without this, a wedge log shows a 5 s "Write timeout" out
+    // of nowhere because the write that actually started the timeout never
+    // logged anything (see #1309). For writeMMRVerified retries the caller
+    // already logs "[MMR] verify retry" before invoking writeMMR, so the retry
+    // BLE write is still traceable without a duplicate log here.
     if (!valueUnchanged) {
         qDebug().noquote() << QString("[MMR] write: 0x%1 = %2%3")
+            .arg(address, 6, 16, QLatin1Char('0'))
+            .arg(value)
+            .arg(reasonSuffix);
+    } else {
+        qDebug().noquote() << QString("[MMR] keepalive: 0x%1 = %2%3")
             .arg(address, 6, 16, QLatin1Char('0'))
             .arg(value)
             .arg(reasonSuffix);
