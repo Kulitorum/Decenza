@@ -1506,13 +1506,16 @@ int main(int argc, char *argv[])
                 // Distinguish a fresh disconnect (attempt counter is 0) from a
                 // mid-schedule retry attempt that failed (counter > 0). Resetting
                 // unconditionally meant every failed retry restarted the 5 s
-                // schedule, so the backoff never escalated and the "retries
-                // exhausted" branch was dead code — the loop hammered the radio
-                // every ~35 s forever (see issue #1309). The timer-callback also
-                // schedules the next interval, but its singleShot can be consumed
-                // by an "already connecting" early-return when a still-pending
-                // attempt is in flight; this path is the fallback that keeps the
-                // schedule advancing when that race happens.
+                // schedule, so the backoff never escalated past attempt 1 — and
+                // the "retries exhausted" branch was dead code because the
+                // counter never reached the cap (see issue #1309).
+                //
+                // After the fix this branch is the primary scheduler for every
+                // retry after the first: on each failed attempt the timer-
+                // callback's "already connecting" early-return (line 1430-1432)
+                // bails without rescheduling, then a later connecting→disconnected
+                // emission lands here while the timer is idle and advances the
+                // schedule to the next backoff step.
                 if (de1ReconnectAttempt == 0) {
                     de1ReconnectTimer.start(5000);  // Fresh disconnect — first retry after 5s
                     qDebug() << "DE1 reconnect: scheduled first retry in 5000 ms";
