@@ -1262,25 +1262,31 @@ void DE1Device::writeMMR(uint32_t address, uint32_t value,
         return;
     }
 
-    // Log the dispatched write. force=true + unchanged is tagged "keepalive"
-    // instead of "write" so it's still trivially grep-filterable when the noise
-    // matters, but the BatteryManager's 60 s USB-charger refresh is now visible
-    // in bug reports. Without this, a wedge log shows a 5 s "Write timeout" out
-    // of nowhere because the write that actually started the timeout never
-    // logged anything (see #1309). For writeMMRVerified retries the caller
-    // already logs "[MMR] verify retry" before invoking writeMMR, so the retry
-    // BLE write is still traceable without a duplicate log here.
+    // Log the dispatched write. Three tags so grep counts stay accurate:
+    //   "[MMR] write:"       — value changed since the last write to this addr.
+    //   "[MMR] retry-write:" — writeMMRVerified retry (force=true + unchanged
+    //                          because the cache holds the expected value, and
+    //                          reason carries the "-retry" suffix).
+    //   "[MMR] keepalive:"   — force=true + unchanged from any other caller.
+    //                          In practice that's only BatteryManager's 60 s
+    //                          USB-charger refresh.
+    // Before this split a wedge log showed a 5 s "Write timeout" out of nowhere
+    // because the write that actually started the timeout never logged anything
+    // (see #1309). The retry sub-tag also keeps a `grep keepalive` count of
+    // charger refreshes from being polluted by verify retries.
+    QString tag;
     if (!valueUnchanged) {
-        qDebug().noquote() << QString("[MMR] write: 0x%1 = %2%3")
-            .arg(address, 6, 16, QLatin1Char('0'))
-            .arg(value)
-            .arg(reasonSuffix);
+        tag = QStringLiteral("write");
+    } else if (reason.endsWith(QStringLiteral("-retry"))) {
+        tag = QStringLiteral("retry-write");
     } else {
-        qDebug().noquote() << QString("[MMR] keepalive: 0x%1 = %2%3")
-            .arg(address, 6, 16, QLatin1Char('0'))
-            .arg(value)
-            .arg(reasonSuffix);
+        tag = QStringLiteral("keepalive");
     }
+    qDebug().noquote() << QString("[MMR] %1: 0x%2 = %3%4")
+        .arg(tag)
+        .arg(address, 6, 16, QLatin1Char('0'))
+        .arg(value)
+        .arg(reasonSuffix);
 
     m_lastMMRValues.insert(address, value);
     m_transport->write(DE1::Characteristic::WRITE_TO_MMR, buildMMRPayload(address, value));
