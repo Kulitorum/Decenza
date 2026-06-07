@@ -1503,9 +1503,31 @@ int main(int argc, char *argv[])
             if (settings.machineAddress().isEmpty()) {
                 qDebug() << "DE1 reconnect: no saved address — skipping auto-reconnect";
             } else if (!de1ReconnectTimer.isActive()) {
-                de1ReconnectAttempt = 0;
-                de1ReconnectTimer.start(5000);  // First retry after 5s
-                qDebug() << "DE1 reconnect: scheduled first retry in 5000 ms";
+                // Distinguish a fresh disconnect (attempt counter is 0) from a
+                // mid-schedule retry attempt that failed (counter > 0). Resetting
+                // unconditionally meant every failed retry restarted the 5 s
+                // schedule, so the backoff never escalated past attempt 1 — and
+                // the "retries exhausted" branch was dead code because the
+                // counter never reached the cap (see issue #1309).
+                //
+                // After the fix this branch is the primary scheduler for every
+                // retry after the first: on each failed attempt the timer-
+                // callback's "already connecting" early-return (line 1430-1432)
+                // bails without rescheduling, then a later connecting→disconnected
+                // emission lands here while the timer is idle and advances the
+                // schedule to the next backoff step.
+                if (de1ReconnectAttempt == 0) {
+                    de1ReconnectTimer.start(5000);  // Fresh disconnect — first retry after 5s
+                    qDebug() << "DE1 reconnect: scheduled first retry in 5000 ms";
+                } else if (de1ReconnectAttempt < kDE1MaxReconnectAttempts) {
+                    const int delay = de1ReconnectAttempt == 1 ? 30000 : 60000;
+                    de1ReconnectTimer.start(delay);
+                    qDebug() << "DE1 reconnect: attempt" << de1ReconnectAttempt
+                             << "failed, next retry in" << delay << "ms";
+                } else {
+                    qDebug() << "DE1 reconnect: retries exhausted after"
+                             << de1ReconnectAttempt << "attempts";
+                }
             }
         }
     });
