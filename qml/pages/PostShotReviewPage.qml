@@ -852,11 +852,13 @@ Page {
                     }
                 }
 
-                // Read TDS button (R2 refractometer)
+                // Read TDS button (DiFluid R1 / R2 refractometer)
                 Rectangle {
                     id: readTdsButton
                     property bool refConnected: BLEManager.refractometerConnected
                     property bool refMeasuring: refConnected && typeof Refractometer !== "undefined" && Refractometer && Refractometer.measuring
+                    // R1 advertises with names starting "DFT_TDJ_*" (see DiFluidR1::isR1Device).
+                    property bool isR1: (Settings.savedRefractometerName || "").toLowerCase().indexOf("dft_tdj") === 0
                     visible: Settings.savedRefractometerAddress !== ""
                     Layout.preferredWidth: Theme.scaled(80)
                     Layout.preferredHeight: Theme.scaled(36)
@@ -871,7 +873,11 @@ Page {
                     Text {
                         anchors.centerIn: parent
                         text: {
-                            if (!readTdsButton.refConnected) return TranslationManager.translate("postshotreview.refractometer.off", "R2 Off")
+                            if (!readTdsButton.refConnected) {
+                                return readTdsButton.isR1
+                                    ? TranslationManager.translate("postshotreview.refractometer.r1off", "R1 Off")
+                                    : TranslationManager.translate("postshotreview.refractometer.r2off", "R2 Off")
+                            }
                             if (readTdsButton.refMeasuring) return TranslationManager.translate("postshotreview.refractometer.measuring", "...")
                             return TranslationManager.translate("postshotreview.refractometer.readTds", "Read TDS")
                         }
