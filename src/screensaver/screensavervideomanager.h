@@ -130,6 +130,14 @@ class ScreensaverVideoManager : public QObject {
     Q_PROPERTY(bool isRateLimited READ isRateLimited NOTIFY rateLimitedChanged)
     Q_PROPERTY(int rateLimitMinutesRemaining READ rateLimitMinutesRemaining NOTIFY rateLimitedChanged)
 
+    // Whether the screensaver page is currently shown. QML writes true when
+    // entering goToScreensaver() and false when waking. Observed by C++
+    // subsystems that want to throttle background work while the user is away
+    // (e.g. BLE scan-reconnect loops for absent scale / refractometer, which
+    // otherwise keep the radio busy and have nothing useful to do during the
+    // unattended hours).
+    Q_PROPERTY(bool screensaverActive READ screensaverActive WRITE setScreensaverActive NOTIFY screensaverActiveChanged)
+
 public:
     explicit ScreensaverVideoManager(QNetworkAccessManager* networkManager, Settings* settings, ProfileStorage* profileStorage, QObject* parent = nullptr);
     ~ScreensaverVideoManager();
@@ -191,6 +199,10 @@ public:
     // Rate limiting
     bool isRateLimited() const;
     int rateLimitMinutesRemaining() const;
+
+    // Screensaver-active observation (set by QML, read by C++ subsystems)
+    bool screensaverActive() const { return m_screensaverActive; }
+    void setScreensaverActive(bool active);
 
     // Property setters
     void setEnabled(bool enabled);
@@ -297,6 +309,7 @@ signals:
     void shotMapShowProfilesChanged();
     void shotMapShowTerminatorChanged();
     void rateLimitedChanged();
+    void screensaverActiveChanged();
 
 private slots:
     void onCategoriesReplyFinished();
@@ -355,6 +368,9 @@ private:
     QString m_selectedCategoryId;
     bool m_isFetchingCategories = false;
     QNetworkReply* m_categoriesReply = nullptr;
+
+    // Screensaver lifecycle (set by QML in goToScreensaver / wake handlers)
+    bool m_screensaverActive = false;
 
     // Catalog state
     bool m_enabled = true;

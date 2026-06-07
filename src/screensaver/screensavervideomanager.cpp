@@ -259,6 +259,13 @@ void ScreensaverVideoManager::setScreenDimming(int dimPercent)
 }
 
 // Property setters
+void ScreensaverVideoManager::setScreensaverActive(bool active)
+{
+    if (m_screensaverActive == active) return;
+    m_screensaverActive = active;
+    emit screensaverActiveChanged();
+}
+
 void ScreensaverVideoManager::setEnabled(bool enabled)
 {
     if (m_enabled != enabled) {

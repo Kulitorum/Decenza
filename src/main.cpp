@@ -2871,6 +2871,63 @@ int main(int argc, char *argv[])
         }
     });
 
+    // Pause BLE scan-reconnect loops while the screensaver is showing.
+    //
+    // With a saved-but-absent scale (or refractometer), the reconnect timers
+    // keep running 60 s passive scans indefinitely. Each scan parks the radio
+    // active for ~15 s. Over the unattended hours the user typically spends on
+    // the screensaver, those scans can run hundreds of times and contend with
+    // the DE1 link's keepalive traffic. Issue #1309 traced a P80X DE1 wedge
+    // back to exactly this state: ~7 h of scale-absent scans during screensaver
+    // before an MMR keepalive write timed out and the link couldn't recover.
+    //
+    // The screensaver doesn't suspend the app (we're still Qt::ApplicationActive),
+    // so the existing applicationStateChanged path above doesn't catch it.
+    // We mirror that path here: stop the timers on entry, restart them on exit
+    // using the same conditions (saved address present, not connected, not
+    // suppressed, not USB).
+    QObject::connect(&screensaverManager, &ScreensaverVideoManager::screensaverActiveChanged,
+                     [&screensaverManager, &physicalScale, &bleManager, &settings,
+                      &scaleReconnectTimer, &scaleReconnectAttempt, &reconnectDelays,
+                      &scaleAutoReconnectSuppressed,
+                      &refractometerReconnectTimer, &refractometerReconnectAttempt]() {
+        const bool active = screensaverManager.screensaverActive();
+        if (active) {
+            if (scaleReconnectTimer.isActive()) {
+                qDebug() << "Screensaver entered - pausing scale reconnect loop";
+                scaleReconnectTimer.stop();
+            }
+            if (refractometerReconnectTimer.isActive()) {
+                qDebug() << "Screensaver entered - pausing refractometer reconnect loop";
+                refractometerReconnectTimer.stop();
+            }
+            return;
+        }
+
+        // Screensaver dismissed — resume scanning under the same gates the
+        // app-resume path uses. We deliberately do NOT clear
+        // scaleAutoReconnectSuppressed here: a brief glance at the tablet
+        // isn't the same signal as switching back from another app, and DE1
+        // sleep semantics already manage that flag.
+        if (!(physicalScale && physicalScale->isConnected())
+            && !settings.scaleAddress().isEmpty()
+            && !settings.scaleAddress().startsWith(QStringLiteral("usb:"), Qt::CaseInsensitive)
+            && !scaleAutoReconnectSuppressed
+            && !scaleReconnectTimer.isActive()) {
+            scaleReconnectAttempt = 0;
+            scaleReconnectTimer.start(reconnectDelays[0]);
+            qDebug() << "Screensaver exited - resuming scale reconnect sequence";
+        }
+
+        if (!bleManager.isRefractometerConnected()
+            && !settings.savedRefractometerAddress().isEmpty()
+            && !refractometerReconnectTimer.isActive()) {
+            refractometerReconnectAttempt = 0;
+            refractometerReconnectTimer.start(reconnectDelays[0]);
+            qDebug() << "Screensaver exited - resuming refractometer reconnect sequence";
+        }
+    });
+
     // Remote sleep via MQTT/REST API - put scale to sleep
     QObject::connect(&mainController, &MainController::remoteSleepRequested,
                      [&physicalScale]() {
