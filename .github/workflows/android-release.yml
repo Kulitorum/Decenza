@@ -148,6 +148,27 @@ jobs:
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > $RUNNER_TEMP/keystore.jks
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/keystore.jks" >> $GITHUB_ENV
 
+      - name: Override Qt Android platform plugin (a11y fixes, #1300)
+        run: |
+          # Patched qtforandroid plugin fixing QTBUG-118858 (TalkBack typing echo)
+          # and QTBUG-145786 (keyboard-on-focus). See android/qt-overrides/README.md.
+          # No-op until the .so is committed; ABI-locked to the Qt version above —
+          # rebuild or remove on any Qt bump.
+          OVERRIDE="android/qt-overrides/arm64-v8a/libplugins_platforms_qtforandroid_arm64-v8a.so"
+          DEST="$QT_ROOT_DIR/plugins/platforms/libplugins_platforms_qtforandroid_arm64-v8a.so"
+          if [ -f "$OVERRIDE" ]; then
+            if [ ! -f "$DEST" ]; then
+              echo "::error::Stock plugin not found at $DEST — Qt layout changed; refusing to ship unverified override."
+              exit 1
+            fi
+            echo "Replacing stock Android platform plugin with patched a11y build:"
+            ls -l "$OVERRIDE" "$DEST"
+            cp -f "$OVERRIDE" "$DEST"
+            echo "Override applied."
+          else
+            echo "No a11y plugin override present — using stock Qt platform plugin."
+          fi
+
       - name: Configure CMake
         run: |
           mkdir -p build
