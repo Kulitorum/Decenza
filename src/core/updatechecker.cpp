@@ -313,9 +313,21 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     bool wasBeta = m_latestIsBeta;
     m_latestIsBeta = release["prerelease"].toBool();
 
-    // Reset prompt flag when a new release is discovered so the user gets
-    // notified once for each new version (but not repeatedly for the same one)
-    if (m_releaseTag != tagName) {
+    // Extract build number from release notes (look for "Build: XXXX" or "Build XXXX")
+    int newBuildNumber = 0;
+    QRegularExpression buildRe(R"(Build[:\s]+(\d+))", QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatch buildMatch = buildRe.match(body);
+    if (buildMatch.hasMatch()) {
+        newBuildNumber = buildMatch.captured(1).toInt();
+    } else {
+        // Fallback: extract from APK filename pattern (Decenza_X.Y.Z.apk where Z might be build)
+        newBuildNumber = extractBuildNumber(tagName);
+    }
+
+    // Reset prompt flag when a new release OR a new build of the same tag is
+    // discovered, so the user gets notified once per build (CI publishes
+    // multiple builds under the same vX.Y.Z tag).
+    if (m_releaseTag != tagName || m_latestBuildNumber != newBuildNumber) {
         m_updatePromptShown = false;
         // Invalidate cached APK from previous version. Don't delete the file —
         // a PackageInstaller session may still be streaming from it. The cache
@@ -329,16 +341,7 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     m_releaseTag = tagName;
     m_latestVersion = tagName.startsWith("v") ? tagName.mid(1) : tagName;
     m_releaseNotes = body;
-
-    // Extract build number from release notes (look for "Build: XXXX" or "Build XXXX")
-    QRegularExpression buildRe(R"(Build[:\s]+(\d+))", QRegularExpression::CaseInsensitiveOption);
-    QRegularExpressionMatch buildMatch = buildRe.match(body);
-    if (buildMatch.hasMatch()) {
-        m_latestBuildNumber = buildMatch.captured(1).toInt();
-    } else {
-        // Fallback: extract from APK filename pattern (Decenza_X.Y.Z.apk where Z might be build)
-        m_latestBuildNumber = extractBuildNumber(tagName);
-    }
+    m_latestBuildNumber = newBuildNumber;
 
     emit latestVersionChanged();
     emit latestVersionCodeChanged();
