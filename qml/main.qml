@@ -3168,6 +3168,9 @@ ApplicationWindow {
     function goToScreensaver() {
         console.log("[Main] goToScreensaver called, type:", ScreensaverManager.screensaverType)
         screensaverActive = true
+        // Mirror to C++ so subsystems (BLE scan-reconnect loops) can pause work
+        // for the duration the user is away. See ScreensaverVideoManager::screensaverActive.
+        ScreensaverManager.screensaverActive = true
         // Reset sleep counter (stopped state)
         root.sleepCountdownNormal = 0
 
@@ -3217,6 +3220,7 @@ ApplicationWindow {
 
     function goToIdleFromScreensaver() {
         screensaverActive = false
+        ScreensaverManager.screensaverActive = false
         // Brightness is restored in ScreensaverPage.StackView.onRemoved.
         // The scheduled stay-awake window is evaluated live, so waking here
         // (manually or via auto-wake) needs no separate arming.
