@@ -67,8 +67,10 @@ private:
     // periodic re-polling the value goes stale; piggyback on the 1 s
     // heartbeat tick — every Nth tick re-send display-on, the scale's reply
     // refreshes battery. ~4 minutes is a comfortable middle of the 3-5 min
-    // range Jeff asked for, and the heartbeat already stops when the scale
-    // sleeps (sleep() calls stopHeartbeat) so polling auto-pauses too.
+    // range Jeff asked for. The poll auto-pauses when the scale is asleep
+    // (sleep() calls stopHeartbeat) and is also gated on m_lcdOn so that
+    // disableLcd() (DE1 sleep + keepScaleOn=true) doesn't relight the LCD
+    // every ~4 min — see #1279.
     static constexpr int kBatteryPollHeartbeatTicks = 240;
 
     ScaleBleTransport* m_transport = nullptr;
@@ -95,4 +97,6 @@ private:
     QTimer* m_heartbeatTimer = nullptr;
     QTimer* m_watchdogTimer = nullptr;
     bool m_heartbeatsPaused = false;
+    // Gates the periodic battery poll — see kBatteryPollHeartbeatTicks above.
+    bool m_lcdOn = true;
 };
