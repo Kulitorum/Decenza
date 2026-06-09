@@ -75,6 +75,7 @@ void DecentScale::onTransportDisconnected() {
     m_firmwareVersion.clear();
     m_lastBatteryByte = -1;
     m_ticksSinceBatteryPoll = 0;
+    m_lcdOn = true;
     setConnected(false);
 }
 
@@ -402,6 +403,7 @@ void DecentScale::wake() {
     // Command 0A 01 01 00 01 enables LCD (grams mode)
     // Must match official de1app: 03 0A 01 01 00 01 [xor]
     sendCommand(QByteArray::fromHex("0A01010001"));
+    m_lcdOn = true;
 
     // Restart heartbeat and watchdog if they were stopped by sleep()
     if (m_characteristicsReady) {
@@ -415,6 +417,7 @@ void DecentScale::disableLcd() {
     // This is different from sleep() which powers off the scale completely
     DECENT_LOG("Disabling LCD (scale stays powered)");
     sendCommand(QByteArray::fromHex("0A0000"));
+    m_lcdOn = false;
 }
 
 void DecentScale::sendHeartbeat() {
@@ -436,8 +439,13 @@ void DecentScale::startHeartbeat() {
             // as battery — heartbeat alone never produces this reply.
             if (++m_ticksSinceBatteryPoll >= kBatteryPollHeartbeatTicks) {
                 m_ticksSinceBatteryPoll = 0;
-                DECENT_LOG("Polling battery (display-on refresh)");
-                sendCommand(QByteArray::fromHex("0A01010001"));
+                if (m_lcdOn) {
+                    DECENT_LOG("Polling battery (display-on refresh)");
+                    sendCommand(QByteArray::fromHex("0A01010001"));
+                }
+                // else: LCD intentionally off (DE1 sleep, keepScaleOn=true).
+                // Skip the poll — the display-on command would relight the
+                // LCD. Battery resumes refreshing when wake() is called.
             }
         });
     }
