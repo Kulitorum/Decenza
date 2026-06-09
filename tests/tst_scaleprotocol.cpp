@@ -29,12 +29,15 @@ public:
     void discoverCharacteristics(const QBluetoothUuid&) override {}
     void enableNotifications(const QBluetoothUuid&, const QBluetoothUuid&) override { m_notifyEnableCount++; }
     void writeCharacteristic(const QBluetoothUuid&, const QBluetoothUuid&,
-                             const QByteArray&, WriteType = WriteType::WithResponse) override {}
+                             const QByteArray& value, WriteType = WriteType::WithResponse) override {
+        m_writes.append(value);
+    }
     void readCharacteristic(const QBluetoothUuid&, const QBluetoothUuid&) override {}
     bool isConnected() const override { return true; }
 
     int m_notifyEnableCount = 0;
     int m_disconnectCount = 0;
+    QList<QByteArray> m_writes;
 };
 
 class tst_ScaleProtocol : public QObject {
@@ -685,6 +688,37 @@ private slots:
 
         QCOMPARE(transport->m_notifyEnableCount, 0);
         QCOMPARE(transport->m_disconnectCount, 0);
+    }
+
+    // Regression for #1317: with the LCD intentionally off (disableLcd() — the
+    // DE1-sleep + keepScaleOn=true path) the ~4-min battery refresh must NOT
+    // re-send the display-on command, which is the same byte sequence wake()
+    // uses and would silently relight the LCD ~4 min into the user's sleep.
+    void batteryPollSuppressedAfterDisableLcd() {
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_characteristicsReady = true;
+        scale.startHeartbeat();
+        scale.disableLcd();
+
+        // Drop everything written so far (the disableLcd 0A0000 packet) so the
+        // assertion below sees only what the next heartbeat tick produces.
+        transport->m_writes.clear();
+        // Seed the tick counter so one heartbeat tick crosses the battery-poll
+        // boundary — avoids a ~240 s real-time wait.
+        scale.m_ticksSinceBatteryPoll = DecentScale::kBatteryPollHeartbeatTicks - 1;
+
+        // One heartbeat fires.
+        QTest::qWait(1100);
+
+        // The only payload in this window that should NOT appear is the
+        // display-on packet (0x03 0x0A 0x01 0x01 0x00 0x01 [xor]) — that's
+        // the bug. Heartbeat (0x03 0x0A 0x03 0xFF 0xFF [xor]) is fine.
+        for (const auto& w : std::as_const(transport->m_writes)) {
+            QVERIFY2(!w.contains(QByteArray::fromHex("0A01010001")),
+                     "Battery poll fired while LCD was off — would relight LCD");
+        }
     }
 
     void wakeRestartsWatchdog() {

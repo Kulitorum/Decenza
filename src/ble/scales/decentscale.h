@@ -70,7 +70,7 @@ private:
     // range Jeff asked for. The poll auto-pauses when the scale is asleep
     // (sleep() calls stopHeartbeat) and is also gated on m_lcdOn so that
     // disableLcd() (DE1 sleep + keepScaleOn=true) doesn't relight the LCD
-    // every ~4 min — see #1279 and the disableLcd() regression follow-up.
+    // every ~4 min — see #1279.
     static constexpr int kBatteryPollHeartbeatTicks = 240;
 
     ScaleBleTransport* m_transport = nullptr;
@@ -97,10 +97,6 @@ private:
     QTimer* m_heartbeatTimer = nullptr;
     QTimer* m_watchdogTimer = nullptr;
     bool m_heartbeatsPaused = false;
-    // disableLcd() clears this; wake() sets it. The periodic battery poll
-    // re-sends the display-on command (same bytes as wake()), so if it fires
-    // while LCD is off (DE1 asleep, keepScaleOn=true) it lights the LCD back
-    // up ~4 min into the user's sleep period. Gate the poll on this flag —
-    // the regular heartbeat keeps running so the BLE link stays alive.
+    // Gates the periodic battery poll — see kBatteryPollHeartbeatTicks above.
     bool m_lcdOn = true;
 };

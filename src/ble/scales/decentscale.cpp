@@ -388,6 +388,7 @@ void DecentScale::resetTimer() {
 void DecentScale::sleep() {
     stopWatchdog();
     stopHeartbeat();
+    m_lcdOn = false;
     if (!m_transport || !m_characteristicsReady) {
         emit sleepCompleted();
         return;
@@ -443,9 +444,7 @@ void DecentScale::startHeartbeat() {
                     DECENT_LOG("Polling battery (display-on refresh)");
                     sendCommand(QByteArray::fromHex("0A01010001"));
                 }
-                // else: LCD intentionally off (DE1 sleep, keepScaleOn=true).
-                // Skip the poll — the display-on command would relight the
-                // LCD. Battery resumes refreshing when wake() is called.
+                // else: skip poll while LCD is off — see m_lcdOn.
             }
         });
     }
