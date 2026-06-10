@@ -188,6 +188,16 @@ Page {
                 editNotes = editShotData.espressoNotes || ""
                 editBeverageType = editShotData.beverageType || "espresso"
                 editBeanBaseJson = editShotData.beanBaseJson || ""
+                // A canonical pick persists identity immediately; if the page
+                // closed (or the network blipped) before the attribute payload
+                // arrived, the shot is stuck with a bare {id, roaster, name}
+                // blob — fields don't lock, the advisor sees nothing. Complete
+                // it: re-issue the best-effort fetch; the onCanonicalDetails
+                // merge below finishes the job.
+                if (beanBaseLinked && activeBeanBase.source === "visualizer"
+                    && activeBeanBase.origin === undefined
+                    && activeBeanBase.degree === undefined)
+                    MainController.beanbase.fetchCanonicalDetails(activeBeanBase)
                 // Recompute EY now that dose/weight are loaded (covers the case where TDS
                 // arrived via R2 before the shot data was ready, or where the DB already
                 // has a non-zero TDS from a previous session).
@@ -219,8 +229,19 @@ Page {
             // Success needs no reload: saveEditedShot() already advanced the
             // in-memory baseline optimistically. Reloading here would race an
             // autosave from another field and clobber an in-progress edit.
-            if (!success)
+            if (success) {
+                postShotReviewPage._saveFailed = false
+                // Sticky DYE sync deferred to write confirmation — syncing
+                // before knowing the write landed could leave next-shot
+                // settings carrying a bean the edited shot doesn't have.
+                postShotReviewPage.runPendingStickySync()
+            } else {
                 console.warn("PostShotReviewPage: Failed to save metadata for shot", shotId)
+                postShotReviewPage._saveFailed = true
+                if (AccessibilityManager.enabled)
+                    AccessibilityManager.announce(TranslationManager.translate(
+                        "postshotreview.saveFailed", "Saving shot changes failed — will retry"))
+            }
         }
         function onVisualizerInfoUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
@@ -292,7 +313,8 @@ Page {
         if (entry.roastName) editBeanType = entry.roastName
         if (entry.degree) editRoastLevel = entry.degree
         postShotReviewPage.autosave("beanBase", true)
-        // Canonical picks carry only identity; fetch the attribute payload.
+        // Canonical picks carry identity + names only; fetch the attribute
+        // payload (origin/variety/process/...).
         if (entry.source === "visualizer")
             MainController.beanbase.fetchCanonicalDetails(entry)
     }
@@ -383,8 +405,15 @@ Page {
         editEnjoyment !== (editShotData.enjoyment0to100 ?? 0) ||
         editNotes !== (editShotData.espressoNotes || "") ||
         editBeverageType !== (editShotData.beverageType || "espresso") ||
-        editBeanBaseJson !== (editShotData.beanBaseJson || "")
+        editBeanBaseJson !== (editShotData.beanBaseJson || "") ||
+        _saveFailed
     )
+
+    // A failed metadata write must not be silently dropped: saveEditedShot()
+    // advances the baseline optimistically, so on failure this flag forces
+    // hasUnsavedChanges back on — the next commit point or lifecycle flush
+    // retries the write. Cleared on the next successful save.
+    property bool _saveFailed: false
 
     // ---- Autosave + undo ---------------------------------------------------
     // There is no manual Save button: every committed edit is persisted right
@@ -570,11 +599,48 @@ Page {
             barista: src.barista, doseWeightG: src.doseWeightG,
             finalWeightG: src.finalWeightG, drinkTdsPct: src.drinkTdsPct,
             drinkEyPct: src.drinkEyPct, enjoyment0to100: src.enjoyment0to100,
-            espressoNotes: src.espressoNotes, beverageType: src.beverageType
+            espressoNotes: src.espressoNotes, beverageType: src.beverageType,
+            beanBaseJson: src.beanBaseJson
         }
     }
 
     // Save edited shot back to history
+    // Deferred until the DB write is CONFIRMED (onShotMetadataUpdated
+    // success) so next-shot settings can never diverge from the shot record.
+    //
+    // Sync sticky metadata back to Settings (bean/grinder info) for the
+    // next shot — but ONLY when editing the most recent shot. The sticky
+    // settings are "prep for the next pull"; editing a HISTORIC shot
+    // (opened from Shot History / Shot Detail) must not touch the bean
+    // dialog, dose/yield, or the live bean link. lastSavedShotId is
+    // seeded from the DB at startup, so this holds across app restarts
+    // too: the newest shot syncs forward, every older shot does not.
+    // Per-shot fields (enjoyment, notes, TDS, EY) are NOT synced — otherwise
+    // they would leak into the next shot's metadata, since MainController
+    // builds shot metadata from these Settings values at shot end.
+    property bool _stickySyncPending: false
+    function runPendingStickySync() {
+        if (!_stickySyncPending) return
+        _stickySyncPending = false
+        var isMostRecentShot = editShotId > 0 && editShotId === MainController.lastSavedShotId
+        if (!isMostRecentShot) return
+        Settings.dye.dyeBeanBrand = editBeanBrand
+        Settings.dye.dyeBeanType = editBeanType
+        Settings.dye.dyeRoastDate = editRoastDate
+        Settings.dye.dyeRoastLevel = editRoastLevel
+        Settings.dye.dyeGrinderBrand = editGrinderBrand
+        Settings.dye.dyeGrinderModel = editGrinderModel
+        Settings.dye.dyeGrinderBurrs = editGrinderBurrs
+        Settings.dye.dyeGrinderSetting = editGrinderSetting
+        Settings.dye.dyeBarista = editBarista
+        if (editDoseWeight > 0) Settings.dye.dyeBeanWeight = editDoseWeight
+        if (editDrinkWeight > 0) Settings.dye.dyeDrinkWeight = editDrinkWeight
+        // The link is sticky like the bean fields above: fixing the bean
+        // on the shot you just pulled should carry to the next shot too.
+        Settings.dye.dyeBeanBaseId = beanBaseLinked ? String(activeBeanBase.id) : ""
+        Settings.dye.dyeBeanBaseData = beanBaseLinked ? editBeanBaseJson : ""
+    }
+
     function saveEditedShot() {
         Qt.inputMethod.commit()
         if (editShotId <= 0) return
@@ -600,34 +666,9 @@ Page {
         metadata["enjoyment"] = editEnjoyment
         MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
 
-        // Sync sticky metadata back to Settings (bean/grinder info) for the
-        // next shot — but ONLY when editing the most recent shot. The sticky
-        // settings are "prep for the next pull"; editing a HISTORIC shot
-        // (opened from Shot History / Shot Detail) must not touch the bean
-        // dialog, dose/yield, or the live bean link. lastSavedShotId is
-        // seeded from the DB at startup, so this holds across app restarts
-        // too: the newest shot syncs forward, every older shot does not.
-        // Per-shot fields (enjoyment, notes, TDS, EY) are NOT synced — otherwise they
-        // would leak into the next shot's metadata, since MainController builds shot
-        // metadata from these Settings values at shot end.
-        var isMostRecentShot = editShotId > 0 && editShotId === MainController.lastSavedShotId
-        if (isMostRecentShot) {
-            Settings.dye.dyeBeanBrand = editBeanBrand
-            Settings.dye.dyeBeanType = editBeanType
-            Settings.dye.dyeRoastDate = editRoastDate
-            Settings.dye.dyeRoastLevel = editRoastLevel
-            Settings.dye.dyeGrinderBrand = editGrinderBrand
-            Settings.dye.dyeGrinderModel = editGrinderModel
-            Settings.dye.dyeGrinderBurrs = editGrinderBurrs
-            Settings.dye.dyeGrinderSetting = editGrinderSetting
-            Settings.dye.dyeBarista = editBarista
-            if (editDoseWeight > 0) Settings.dye.dyeBeanWeight = editDoseWeight
-            if (editDrinkWeight > 0) Settings.dye.dyeDrinkWeight = editDrinkWeight
-            // The link is sticky like the bean fields above: fixing the bean
-            // on the shot you just pulled should carry to the next shot too.
-            Settings.dye.dyeBeanBaseId = beanBaseLinked ? String(activeBeanBase.id) : ""
-            Settings.dye.dyeBeanBaseData = beanBaseLinked ? editBeanBaseJson : ""
-        }
+        // Sticky-sync intent recorded here, executed in onShotMetadataUpdated
+        // on write SUCCESS — see runPendingStickySync() for the gate rationale.
+        _stickySyncPending = true
 
         // Advance the in-memory baseline so hasUnsavedChanges clears at once.
         // We deliberately do NOT reload from the DB on save success — an async
@@ -1418,8 +1459,9 @@ Page {
             }
 
             // Bean search + this shot's snapshot details. Picking a result
-            // (or unlinking) rewrites the SHOT's snapshot via autosave; the
-            // sticky DYE link follows so the next shot is right too.
+            // (or unlinking) rewrites the SHOT's snapshot via autosave; when
+            // this is the MOST RECENT shot, the sticky DYE link follows too
+            // (see runPendingStickySync) so the next shot is right as well.
             BeanBaseSearchBar {
                 Layout.fillWidth: true
                 linked: postShotReviewPage.beanBaseLinked
@@ -1451,7 +1493,10 @@ Page {
                     if (!postShotReviewPage.beanBaseLinked
                         || postShotReviewPage.activeBeanBase.id !== canonicalId) return
                     var merged
-                    try { merged = JSON.parse(postShotReviewPage.editBeanBaseJson) } catch (e) { return }
+                    try { merged = JSON.parse(postShotReviewPage.editBeanBaseJson) } catch (e) {
+                        console.warn("PostShotReviewPage: enrichment merge skipped — unparseable blob")
+                        return
+                    }
                     for (var k in attrs) merged[k] = attrs[k]
                     postShotReviewPage.editBeanBaseJson = JSON.stringify(merged)
                     if (attrs.degree) postShotReviewPage.editRoastLevel = attrs.degree

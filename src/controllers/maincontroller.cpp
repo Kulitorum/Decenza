@@ -2026,8 +2026,10 @@ void MainController::onShotEnded() {
                     }
                 } else {
                     qWarning() << "[metadata] Failed to save shot to history (returned" << shotId << ") - metadata preserved for next attempt";
-                    m_lastSavedShotId = 0;
-                    emit lastSavedShotIdChanged();
+                    // Deliberately NOT zeroing m_lastSavedShotId: a failed save
+                    // does not change which stored shot is newest, and zeroing
+                    // killed every "most recent shot" consumer (review-page
+                    // sticky-sync gate, Last Shot widget) until restart.
 
                     // Still navigate to review page so user isn't stranded on espresso page
                     if (showPostShot) {

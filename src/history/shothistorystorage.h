@@ -217,9 +217,10 @@ public:
     // Refresh the total shots count (call after bulk import)
     Q_INVOKABLE void refreshTotalShots();
 
-    // Get most recent shot ID (for linking after save)
     // Id of the most recent shot: seeded from MAX(id) at initialize() so it
-    // is valid immediately after an app restart, then updated on every save.
+    // is valid immediately after an app restart, then updated on every save
+    // (not adjusted on delete — may briefly point at a deleted shot until
+    // the next save or restart).
     Q_INVOKABLE qint64 lastSavedShotId() const { return m_lastSavedShotId; }
 
     // Get database path
