@@ -205,7 +205,11 @@ signals:
     void frameChanged(int frameIndex, const QString& frameName, const QString& transitionReason);
 
     // DYE: emitted when shot ends and should show metadata page
-    void shotEndedShowMetadata();
+    // shotId of the just-saved shot, or 0 when the save failed / history
+    // was unavailable — the navigation handler must not fall back to
+    // lastSavedShotId, which still points at the PREVIOUS shot in those
+    // cases (opening it would let its edits sticky-sync forward).
+    void shotEndedShowMetadata(qint64 shotId);
     void lastSavedShotIdChanged();
 
     // Shot aborted because saved scale is not connected

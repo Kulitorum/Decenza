@@ -2022,7 +2022,7 @@ void MainController::onShotEnded() {
                     // Now that we have a valid shot ID, show the metadata page
                     if (showPostShot) {
                         qDebug() << "[metadata] Showing post-shot review page with shotId:" << shotId;
-                        emit shotEndedShowMetadata();
+                        emit shotEndedShowMetadata(shotId);
                     }
                 } else {
                     qWarning() << "[metadata] Failed to save shot to history (returned" << shotId << ") - metadata preserved for next attempt";
@@ -2031,10 +2031,12 @@ void MainController::onShotEnded() {
                     // killed every "most recent shot" consumer (review-page
                     // sticky-sync gate, Last Shot widget) until restart.
 
-                    // Still navigate to review page so user isn't stranded on espresso page
+                    // Leave the espresso page either way; 0 tells the handler
+                    // there is no shot to review (it must NOT open the prior
+                    // shot via lastSavedShotId).
                     if (showPostShot) {
-                        qWarning() << "[metadata] Shot save failed but still showing review page";
-                        emit shotEndedShowMetadata();
+                        qWarning() << "[metadata] Shot save failed - leaving espresso page without a review target";
+                        emit shotEndedShowMetadata(0);
                     }
                 }
             }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
@@ -2076,9 +2078,9 @@ void MainController::onShotEnded() {
     } else {
         qWarning() << "[metadata] Could not save shot - history not ready!";
 
-        // Still navigate to review page so user isn't stranded on espresso page
+        // Leave the espresso page; 0 = no shot to review (see signal doc).
         if (showPostShot) {
-            emit shotEndedShowMetadata();
+            emit shotEndedShowMetadata(0);
         }
     }
 
