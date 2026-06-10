@@ -600,25 +600,35 @@ Page {
         metadata["enjoyment"] = editEnjoyment
         MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
 
-        // Sync sticky metadata back to Settings (bean/grinder info) for the next shot.
+        // Sync sticky metadata back to Settings (bean/grinder info) for the
+        // next shot — but ONLY when editing the most recent shot. The sticky
+        // settings are "prep for the next pull"; editing a HISTORIC shot
+        // (opened from Shot History / Shot Detail) must not touch the bean
+        // dialog, dose/yield, or the live bean link. lastSavedShotId is
+        // in-session: after an app restart this skips the sync even for the
+        // true latest shot, which is fine — the sticky values were already
+        // synced when that shot was pulled.
         // Per-shot fields (enjoyment, notes, TDS, EY) are NOT synced — otherwise they
         // would leak into the next shot's metadata, since MainController builds shot
         // metadata from these Settings values at shot end.
-        Settings.dye.dyeBeanBrand = editBeanBrand
-        Settings.dye.dyeBeanType = editBeanType
-        Settings.dye.dyeRoastDate = editRoastDate
-        Settings.dye.dyeRoastLevel = editRoastLevel
-        Settings.dye.dyeGrinderBrand = editGrinderBrand
-        Settings.dye.dyeGrinderModel = editGrinderModel
-        Settings.dye.dyeGrinderBurrs = editGrinderBurrs
-        Settings.dye.dyeGrinderSetting = editGrinderSetting
-        Settings.dye.dyeBarista = editBarista
-        if (editDoseWeight > 0) Settings.dye.dyeBeanWeight = editDoseWeight
-        if (editDrinkWeight > 0) Settings.dye.dyeDrinkWeight = editDrinkWeight
-        // The link is sticky like the bean fields above: fixing the bean on
-        // the shot you just pulled should carry to the next shot too.
-        Settings.dye.dyeBeanBaseId = beanBaseLinked ? String(activeBeanBase.id) : ""
-        Settings.dye.dyeBeanBaseData = beanBaseLinked ? editBeanBaseJson : ""
+        var isMostRecentShot = editShotId > 0 && editShotId === MainController.lastSavedShotId
+        if (isMostRecentShot) {
+            Settings.dye.dyeBeanBrand = editBeanBrand
+            Settings.dye.dyeBeanType = editBeanType
+            Settings.dye.dyeRoastDate = editRoastDate
+            Settings.dye.dyeRoastLevel = editRoastLevel
+            Settings.dye.dyeGrinderBrand = editGrinderBrand
+            Settings.dye.dyeGrinderModel = editGrinderModel
+            Settings.dye.dyeGrinderBurrs = editGrinderBurrs
+            Settings.dye.dyeGrinderSetting = editGrinderSetting
+            Settings.dye.dyeBarista = editBarista
+            if (editDoseWeight > 0) Settings.dye.dyeBeanWeight = editDoseWeight
+            if (editDrinkWeight > 0) Settings.dye.dyeDrinkWeight = editDrinkWeight
+            // The link is sticky like the bean fields above: fixing the bean
+            // on the shot you just pulled should carry to the next shot too.
+            Settings.dye.dyeBeanBaseId = beanBaseLinked ? String(activeBeanBase.id) : ""
+            Settings.dye.dyeBeanBaseData = beanBaseLinked ? editBeanBaseJson : ""
+        }
 
         // Advance the in-memory baseline so hasUnsavedChanges clears at once.
         // We deliberately do NOT reload from the DB on save success — an async
