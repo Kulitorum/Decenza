@@ -71,9 +71,13 @@ private:
     QNetworkAccessManager m_nam;
     QString m_origApiKey;
 
+    // Mirrors the live wire shape (June 2026): {"meta":{…},"beans":[…]},
+    // numeric ids, nullable fields. The "data" wrapper only appears on the
+    // public endpoints — covered separately in parseBareArrayAndGarbage.
     static QByteArray sampleBeansJson() {
         return QByteArray(
-            "{\"data\":[{"
+            "{\"meta\":{\"tier\":\"Free Access\",\"remainingQuota\":1998},"
+            "\"beans\":[{"
             "\"id\": 5188, \"roaster\": \"Prodigal Coffee\","
             "\"roast-name\": \"Buenos Aires Caturra - Colombia, washed\","
             "\"degree\": \"Medium\", \"type\": \"Espresso\","

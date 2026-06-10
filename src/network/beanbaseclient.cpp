@@ -204,12 +204,18 @@ QVariantList BeanBaseClient::parseBeans(const QByteArray& responseBody) {
     QVariantList out;
     const QJsonDocument doc = QJsonDocument::fromJson(responseBody);
 
-    // Public endpoints return {"data":[…]}; tolerate a bare array too.
+    // Confirmed against the live API (June 2026): the authenticated /beans
+    // endpoint wraps results as {"meta":{…},"beans":[…]} — only the public
+    // endpoints (/roasters etc.) use {"data":[…]}. Tolerate both plus a bare
+    // array.
     QJsonArray beans;
-    if (doc.isObject())
-        beans = doc.object().value(QStringLiteral("data")).toArray();
-    else if (doc.isArray())
+    if (doc.isObject()) {
+        beans = doc.object().value(QStringLiteral("beans")).toArray();
+        if (beans.isEmpty())
+            beans = doc.object().value(QStringLiteral("data")).toArray();
+    } else if (doc.isArray()) {
         beans = doc.array();
+    }
 
     for (const QJsonValue& v : std::as_const(beans)) {
         if (!v.isObject())
