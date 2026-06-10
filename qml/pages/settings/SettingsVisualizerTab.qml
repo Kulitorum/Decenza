@@ -7,6 +7,7 @@ import "../../components"
 KeyboardAwareContainer {
     id: visualizerTab
     textFields: [usernameField, passwordField, beanBaseKeyField]
+    targetFlickable: visualizerLeftFlick
 
     // Connection test result message
     property string testResultMessage: ""
@@ -30,281 +31,292 @@ KeyboardAwareContainer {
             color: Theme.surfaceColor
             radius: Theme.cardRadius
 
-            ColumnLayout {
+            // Scrollable: the card grew past short screens when the Bean Base
+            // section was added — same pattern as SettingsAITab.
+            Flickable {
+                id: visualizerLeftFlick
                 anchors.fill: parent
                 anchors.margins: Theme.scaled(15)
-                spacing: Theme.scaled(12)
+                contentHeight: visualizerLeftColumn.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
 
-                Tr {
-                    key: "settings.visualizer.account"
-                    fallback: "Visualizer.coffee Account"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(16)
-                    font.bold: true
-                }
-
-                Tr {
-                    Layout.fillWidth: true
-                    key: "settings.visualizer.accountDesc"
-                    fallback: "Upload your shots to visualizer.coffee for tracking and analysis"
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
-                    wrapMode: Text.WordWrap
-                }
-
-                Item { height: 5 }
-
-                // Username
                 ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(4)
+                    id: visualizerLeftColumn
+                    width: visualizerLeftFlick.width
+                    spacing: Theme.scaled(12)
 
                     Tr {
-                        key: "settings.visualizer.username"
-                        fallback: "Username / Email"
-                        color: Theme.textSecondaryColor
-                        font.pixelSize: Theme.scaled(12)
+                        key: "settings.visualizer.account"
+                        fallback: "Visualizer.coffee Account"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
                     }
-
-                    StyledTextField {
-                        id: usernameField
-                        Layout.fillWidth: true
-                        text: Settings.visualizer.visualizerUsername
-                        placeholder: TranslationManager.translate("settings.visualizer.username", "Username / Email")
-                        inputMethodHints: Qt.ImhEmailCharactersOnly | Qt.ImhNoAutoUppercase
-                        onTextChanged: Settings.visualizer.visualizerUsername = text
-                        // Enter jumps to password field
-                        Keys.onReturnPressed: function(event) { passwordField.forceActiveFocus() }
-                        Keys.onEnterPressed: function(event) { passwordField.forceActiveFocus() }
-                    }
-                }
-
-                // Password
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(4)
 
                     Tr {
-                        key: "settings.visualizer.password"
-                        fallback: "Password"
+                        Layout.fillWidth: true
+                        key: "settings.visualizer.accountDesc"
+                        fallback: "Upload your shots to visualizer.coffee for tracking and analysis"
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
+                        wrapMode: Text.WordWrap
                     }
 
-                    StyledTextField {
-                        id: passwordField
+                    Item { height: 5 }
+
+                    // Username
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        text: Settings.visualizer.visualizerPassword
-                        echoMode: TextInput.Password
-                        placeholder: TranslationManager.translate("settings.visualizer.password", "Password")
-                        inputMethodHints: Qt.ImhNoAutoUppercase
-                        onTextChanged: Settings.visualizer.visualizerPassword = text
-                    }
-                }
-
-                Item { height: 5 }
-
-                // Test connection button
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(10)
-
-                    AccessibleButton {
-                        text: TranslationManager.translate("settings.visualizer.testConnection", "Test Connection")
-                        accessibleName: TranslationManager.translate("visualizer.testConnection", "Test Visualizer connection")
-                        primary: true
-                        enabled: usernameField.text.length > 0 && passwordField.text.length > 0
-                        onClicked: {
-                            visualizerTab.testResultMessage = TranslationManager.translate("settings.visualizer.testing", "Testing...")
-                            MainController.visualizer.testConnection()
-                        }
-                    }
-
-                    Text {
-                        text: visualizerTab.testResultMessage
-                        color: visualizerTab.testResultSuccess ? Theme.successColor : Theme.errorColor
-                        font.pixelSize: Theme.scaled(12)
-                        visible: visualizerTab.testResultMessage.length > 0
-                    }
-                }
-
-                Connections {
-                    target: MainController.visualizer
-                    function onConnectionTestResult(success, message) {
-                        visualizerTab.testResultSuccess = success
-                        visualizerTab.testResultMessage = message
-                    }
-                }
-
-                // ───────────────────────────────────────────
-                // Bean Base (Loffee Labs) section
-                // ───────────────────────────────────────────
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.topMargin: Theme.scaled(8)
-                    height: 1
-                    color: Theme.borderColor
-                }
-
-                Tr {
-                    key: "settings.beanbase.section"
-                    fallback: "Bean Base"
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(16)
-                    font.bold: true
-                }
-
-                Tr {
-                    Layout.fillWidth: true
-                    key: "settings.beanbase.description"
-                    fallback: "Look up coffee details and link your shots to a global coffee database."
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
-                    wrapMode: Text.WordWrap
-                }
-
-                Item { height: 5 }
-
-                // API key
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(4)
-
-                    RowLayout {
-                        Layout.fillWidth: true
+                        spacing: Theme.scaled(4)
 
                         Tr {
-                            key: "settings.beanbase.apiKey"
-                            fallback: "API Key"
+                            key: "settings.visualizer.username"
+                            fallback: "Username / Email"
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
                         }
 
-                        Item { Layout.fillWidth: true }
+                        StyledTextField {
+                            id: usernameField
+                            Layout.fillWidth: true
+                            text: Settings.visualizer.visualizerUsername
+                            placeholder: TranslationManager.translate("settings.visualizer.username", "Username / Email")
+                            inputMethodHints: Qt.ImhEmailCharactersOnly | Qt.ImhNoAutoUppercase
+                            onTextChanged: Settings.visualizer.visualizerUsername = text
+                            // Enter jumps to password field
+                            Keys.onReturnPressed: function(event) { passwordField.forceActiveFocus() }
+                            Keys.onEnterPressed: function(event) { passwordField.forceActiveFocus() }
+                        }
+                    }
 
-                        // Show / hide toggle (text, not a glyph icon — CLAUDE.md rule)
+                    // Password
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(4)
+
                         Tr {
-                            id: beanBaseShowToggle
-                            key: visualizerTab.showBeanBaseKey ? "common.button.hide" : "common.button.show"
-                            fallback: visualizerTab.showBeanBaseKey ? "Hide" : "Show"
-                            color: Theme.primaryColor
+                            key: "settings.visualizer.password"
+                            fallback: "Password"
+                            color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(12)
-                            visible: beanBaseKeyField.text.length > 0
+                        }
 
-                            AccessibleMouseArea {
-                                anchors.fill: parent
-                                accessibleName: visualizerTab.showBeanBaseKey
-                                    ? TranslationManager.translate("settings.beanbase.hideKey", "Hide API key")
-                                    : TranslationManager.translate("settings.beanbase.showKey", "Show API key")
-                                accessibleItem: beanBaseShowToggle
-                                onAccessibleClicked: visualizerTab.showBeanBaseKey = !visualizerTab.showBeanBaseKey
+                        StyledTextField {
+                            id: passwordField
+                            Layout.fillWidth: true
+                            text: Settings.visualizer.visualizerPassword
+                            echoMode: TextInput.Password
+                            placeholder: TranslationManager.translate("settings.visualizer.password", "Password")
+                            inputMethodHints: Qt.ImhNoAutoUppercase
+                            onTextChanged: Settings.visualizer.visualizerPassword = text
+                        }
+                    }
+
+                    Item { height: 5 }
+
+                    // Test connection button
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(10)
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("settings.visualizer.testConnection", "Test Connection")
+                            accessibleName: TranslationManager.translate("visualizer.testConnection", "Test Visualizer connection")
+                            primary: true
+                            enabled: usernameField.text.length > 0 && passwordField.text.length > 0
+                            onClicked: {
+                                visualizerTab.testResultMessage = TranslationManager.translate("settings.visualizer.testing", "Testing...")
+                                MainController.visualizer.testConnection()
+                            }
+                        }
+
+                        Text {
+                            text: visualizerTab.testResultMessage
+                            color: visualizerTab.testResultSuccess ? Theme.successColor : Theme.errorColor
+                            font.pixelSize: Theme.scaled(12)
+                            visible: visualizerTab.testResultMessage.length > 0
+                        }
+                    }
+
+                    Connections {
+                        target: MainController.visualizer
+                        function onConnectionTestResult(success, message) {
+                            visualizerTab.testResultSuccess = success
+                            visualizerTab.testResultMessage = message
+                        }
+                    }
+
+                    // Sign up link — kept with the Visualizer account block,
+                    // above the Bean Base divider.
+                    Tr {
+                        id: signUpLink
+                        key: "settings.visualizer.signUp"
+                        fallback: "Don't have an account? Sign up at visualizer.coffee"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+
+                        AccessibleMouseArea {
+                            anchors.fill: parent
+                            accessibleName: "Sign up at visualizer.coffee. Opens web browser"
+                            accessibleItem: signUpLink
+                            onAccessibleClicked: Qt.openUrlExternally("https://visualizer.coffee/users/sign_up")
+                        }
+                    }
+
+                    // ───────────────────────────────────────────
+                    // Bean Base (Loffee Labs) section
+                    // ───────────────────────────────────────────
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.scaled(8)
+                        height: 1
+                        color: Theme.borderColor
+                    }
+
+                    Tr {
+                        key: "settings.beanbase.section"
+                        fallback: "Bean Base"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        font.bold: true
+                    }
+
+                    Tr {
+                        Layout.fillWidth: true
+                        key: "settings.beanbase.description"
+                        fallback: "Look up coffee details and link your shots to a global coffee database."
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Item { height: 5 }
+
+                    // API key
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(4)
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Tr {
+                                key: "settings.beanbase.apiKey"
+                                fallback: "API Key"
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(12)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            // Show / hide toggle (text, not a glyph icon — CLAUDE.md rule)
+                            Tr {
+                                id: beanBaseShowToggle
+                                key: visualizerTab.showBeanBaseKey ? "common.button.hide" : "common.button.show"
+                                fallback: visualizerTab.showBeanBaseKey ? "Hide" : "Show"
+                                color: Theme.primaryColor
+                                font.pixelSize: Theme.scaled(12)
+                                visible: beanBaseKeyField.text.length > 0
+
+                                AccessibleMouseArea {
+                                    anchors.fill: parent
+                                    accessibleName: visualizerTab.showBeanBaseKey
+                                        ? TranslationManager.translate("settings.beanbase.hideKey", "Hide API key")
+                                        : TranslationManager.translate("settings.beanbase.showKey", "Show API key")
+                                    accessibleItem: beanBaseShowToggle
+                                    onAccessibleClicked: visualizerTab.showBeanBaseKey = !visualizerTab.showBeanBaseKey
+                                }
+                            }
+                        }
+
+                        StyledTextField {
+                            id: beanBaseKeyField
+                            Layout.fillWidth: true
+                            text: Settings.beanbase.beanBaseApiKey
+                            echoMode: visualizerTab.showBeanBaseKey ? TextInput.Normal : TextInput.Password
+                            placeholder: TranslationManager.translate("settings.beanbase.apiKeyPlaceholder", "Paste your API key")
+                            accessibleName: TranslationManager.translate("settings.beanbase.apiKey", "API Key")
+                            inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
+                            onTextChanged: {
+                                if (Settings.beanbase.beanBaseApiKey !== text)
+                                    Settings.beanbase.beanBaseApiKey = text
+                                // Clear a stale test result once the key is edited.
+                                visualizerTab.beanBaseTestMessage = ""
                             }
                         }
                     }
 
-                    StyledTextField {
-                        id: beanBaseKeyField
+                    Item { height: 5 }
+
+                    // Test key button + result
+                    RowLayout {
                         Layout.fillWidth: true
-                        text: Settings.beanbase.beanBaseApiKey
-                        echoMode: visualizerTab.showBeanBaseKey ? TextInput.Normal : TextInput.Password
-                        placeholder: TranslationManager.translate("settings.beanbase.apiKeyPlaceholder", "Paste your API key")
-                        accessibleName: TranslationManager.translate("settings.beanbase.apiKey", "API Key")
-                        inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase
-                        onTextChanged: {
-                            if (Settings.beanbase.beanBaseApiKey !== text)
-                                Settings.beanbase.beanBaseApiKey = text
-                            // Clear a stale test result once the key is edited.
-                            visualizerTab.beanBaseTestMessage = ""
+                        spacing: Theme.scaled(10)
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("settings.beanbase.testKey", "Test Key")
+                            accessibleName: TranslationManager.translate("settings.beanbase.testKey", "Test Bean Base API key")
+                            primary: true
+                            enabled: beanBaseKeyField.text.length > 0
+                            onClicked: {
+                                visualizerTab.beanBaseTestSuccess = false
+                                visualizerTab.beanBaseTestMessage =
+                                    TranslationManager.translate("settings.beanbase.testing", "Testing...")
+                                MainController.beanbase.testApiKey()
+                            }
                         }
-                    }
-                }
 
-                Item { height: 5 }
-
-                // Test key button + result
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(10)
-
-                    AccessibleButton {
-                        text: TranslationManager.translate("settings.beanbase.testKey", "Test Key")
-                        accessibleName: TranslationManager.translate("settings.beanbase.testKey", "Test Bean Base API key")
-                        primary: true
-                        enabled: beanBaseKeyField.text.length > 0
-                        onClicked: {
-                            visualizerTab.beanBaseTestSuccess = false
-                            visualizerTab.beanBaseTestMessage =
-                                TranslationManager.translate("settings.beanbase.testing", "Testing...")
-                            MainController.beanbase.testApiKey()
+                        Text {
+                            text: visualizerTab.beanBaseTestMessage
+                            color: visualizerTab.beanBaseTestSuccess ? Theme.successColor : Theme.errorColor
+                            font.pixelSize: Theme.scaled(12)
+                            visible: visualizerTab.beanBaseTestMessage.length > 0
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
                         }
                     }
 
-                    Text {
-                        text: visualizerTab.beanBaseTestMessage
-                        color: visualizerTab.beanBaseTestSuccess ? Theme.successColor : Theme.errorColor
+                    Connections {
+                        target: MainController.beanbase
+                        function onApiKeyTestResult(success, message) {
+                            visualizerTab.beanBaseTestSuccess = success
+                            if (success) {
+                                visualizerTab.beanBaseTestMessage =
+                                    TranslationManager.translate("settings.beanbase.testSuccess", "API key is valid")
+                            } else if (message === "invalid") {
+                                visualizerTab.beanBaseTestMessage =
+                                    TranslationManager.translate("settings.beanbase.testInvalid", "Invalid API key")
+                            } else if (message === "ratelimited") {
+                                visualizerTab.beanBaseTestMessage =
+                                    TranslationManager.translate("settings.beanbase.testRateLimited", "Rate limit reached — try again shortly")
+                            } else {
+                                visualizerTab.beanBaseTestMessage =
+                                    TranslationManager.translate("settings.beanbase.testNetworkError", "Could not reach Bean Base")
+                            }
+                        }
+                    }
+
+                    // Signup link
+                    Tr {
+                        id: beanBaseSignupLink
+                        key: "settings.beanbase.signupLink"
+                        fallback: "Get a free API key from loffeelabs.com"
+                        color: Theme.primaryColor
                         font.pixelSize: Theme.scaled(12)
-                        visible: visualizerTab.beanBaseTestMessage.length > 0
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
-                    }
-                }
 
-                Connections {
-                    target: MainController.beanbase
-                    function onApiKeyTestResult(success, message) {
-                        visualizerTab.beanBaseTestSuccess = success
-                        if (success) {
-                            visualizerTab.beanBaseTestMessage =
-                                TranslationManager.translate("settings.beanbase.testSuccess", "API key is valid")
-                        } else if (message === "invalid") {
-                            visualizerTab.beanBaseTestMessage =
-                                TranslationManager.translate("settings.beanbase.testInvalid", "Invalid API key")
-                        } else if (message === "ratelimited") {
-                            visualizerTab.beanBaseTestMessage =
-                                TranslationManager.translate("settings.beanbase.testRateLimited", "Rate limit reached — try again shortly")
-                        } else {
-                            visualizerTab.beanBaseTestMessage =
-                                TranslationManager.translate("settings.beanbase.testNetworkError", "Could not reach Bean Base")
+                        AccessibleMouseArea {
+                            anchors.fill: parent
+                            accessibleName: "Get a free API key from loffeelabs.com. Opens web browser"
+                            accessibleItem: beanBaseSignupLink
+                            onAccessibleClicked: Qt.openUrlExternally("https://loffeelabs.com/bean-base")
                         }
                     }
-                }
 
-                // Signup link
-                Tr {
-                    id: beanBaseSignupLink
-                    key: "settings.beanbase.signupLink"
-                    fallback: "Get a free API key from loffeelabs.com"
-                    color: Theme.primaryColor
-                    font.pixelSize: Theme.scaled(12)
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        accessibleName: "Get a free API key from loffeelabs.com. Opens web browser"
-                        accessibleItem: beanBaseSignupLink
-                        onAccessibleClicked: Qt.openUrlExternally("https://loffeelabs.com/bean-base")
-                    }
-                }
-
-                Item { Layout.fillHeight: true }
-
-                // Sign up link
-                Tr {
-                    id: signUpLink
-                    key: "settings.visualizer.signUp"
-                    fallback: "Don't have an account? Sign up at visualizer.coffee"
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(12)
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        accessibleName: "Sign up at visualizer.coffee. Opens web browser"
-                        accessibleItem: signUpLink
-                        onAccessibleClicked: Qt.openUrlExternally("https://visualizer.coffee/users/sign_up")
-                    }
                 }
             }
         }
