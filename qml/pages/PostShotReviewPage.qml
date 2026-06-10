@@ -231,10 +231,6 @@ Page {
             // autosave from another field and clobber an in-progress edit.
             if (success) {
                 postShotReviewPage._saveFailed = false
-                // Sticky DYE sync deferred to write confirmation — syncing
-                // before knowing the write landed could leave next-shot
-                // settings carrying a bean the edited shot doesn't have.
-                postShotReviewPage.runPendingStickySync()
             } else {
                 console.warn("PostShotReviewPage: Failed to save metadata for shot", shotId)
                 postShotReviewPage._saveFailed = true
@@ -605,9 +601,6 @@ Page {
     }
 
     // Save edited shot back to history
-    // Deferred until the DB write is CONFIRMED (onShotMetadataUpdated
-    // success) so next-shot settings can never diverge from the shot record.
-    //
     // Sync sticky metadata back to Settings (bean/grinder info) for the
     // next shot — but ONLY when editing the most recent shot. The sticky
     // settings are "prep for the next pull"; editing a HISTORIC shot
@@ -618,10 +611,14 @@ Page {
     // Per-shot fields (enjoyment, notes, TDS, EY) are NOT synced — otherwise
     // they would leak into the next shot's metadata, since MainController
     // builds shot metadata from these Settings values at shot end.
-    property bool _stickySyncPending: false
-    function runPendingStickySync() {
-        if (!_stickySyncPending) return
-        _stickySyncPending = false
+    //
+    // Called SYNCHRONOUSLY from saveEditedShot — deliberately not deferred
+    // to write confirmation: the exit-flush save (back button / auto-close)
+    // outlives the page only as a background DB write, so a success-callback
+    // sync would silently never run on the most common flow. If the write
+    // fails, _saveFailed forces a retry which re-syncs; the brief divergence
+    // on the rare failed-write-then-immediate-exit path is the lesser evil.
+    function runStickySync() {
         var isMostRecentShot = editShotId > 0 && editShotId === MainController.lastSavedShotId
         if (!isMostRecentShot) return
         Settings.dye.dyeBeanBrand = editBeanBrand
@@ -666,9 +663,7 @@ Page {
         metadata["enjoyment"] = editEnjoyment
         MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
 
-        // Sticky-sync intent recorded here, executed in onShotMetadataUpdated
-        // on write SUCCESS — see runPendingStickySync() for the gate rationale.
-        _stickySyncPending = true
+        runStickySync()
 
         // Advance the in-memory baseline so hasUnsavedChanges clears at once.
         // We deliberately do NOT reload from the DB on save success — an async
@@ -1461,7 +1456,7 @@ Page {
             // Bean search + this shot's snapshot details. Picking a result
             // (or unlinking) rewrites the SHOT's snapshot via autosave; when
             // this is the MOST RECENT shot, the sticky DYE link follows too
-            // (see runPendingStickySync) so the next shot is right as well.
+            // (see runStickySync) so the next shot is right as well.
             BeanBaseSearchBar {
                 Layout.fillWidth: true
                 linked: postShotReviewPage.beanBaseLinked
