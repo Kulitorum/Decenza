@@ -731,8 +731,10 @@ Page {
                     Layout.columnSpan: 2
                     Layout.fillWidth: true
                     Layout.bottomMargin: Theme.scaled(4)
-                    visible: Settings.beanbase.beanBaseApiKey.length > 0 || beanBaseLinked
-                    searchEnabled: Settings.beanbase.beanBaseApiKey.length > 0
+                    // Keyless since the canonical-search switch: visible for
+                    // everyone (search needs no credentials of any kind).
+                    visible: true
+                    searchEnabled: true
                     linked: beanBaseLinked
                     linkedLabel: beanBaseLinked
                         ? (activeBeanBase.roastName || "") + " (" + (activeBeanBase.roasterName || "") + ")"
@@ -755,6 +757,10 @@ Page {
                             if (entry.degree) Settings.dye.dyeRoastLevel = entry.degree
                             deselectPresetOnEdit()
                         }
+                        // Canonical picks carry only identity; fetch the
+                        // attribute payload (origin/variety/process/...).
+                        if (entry.source === "visualizer")
+                            MainController.beanbase.fetchCanonicalDetails(entry)
                     }
                     onUnlinkRequested: {
                         if (isEditMode) editBeanBaseJson = ""
@@ -776,6 +782,26 @@ Page {
                 BeanBaseDetailsPopup {
                     id: lockedBeanDetailsPopup
                     beanBaseJson: activeBeanBaseJson
+                }
+
+                // Best-effort attribute enrichment after a canonical pick:
+                // fold the two-stage payload into the stored blob (and the
+                // visible roast level) for whichever record is active.
+                Connections {
+                    target: MainController.beanbase
+                    function onCanonicalDetails(canonicalId, attrs) {
+                        if (!beanBaseLinked || activeBeanBase.id !== canonicalId) return
+                        var merged = JSON.parse(activeBeanBaseJson)
+                        for (var k in attrs) merged[k] = attrs[k]
+                        var json = JSON.stringify(merged)
+                        if (isEditMode) {
+                            editBeanBaseJson = json
+                            if (attrs.degree) editRoastLevel = attrs.degree
+                        } else {
+                            Settings.dye.dyeBeanBaseData = json
+                            if (attrs.degree) Settings.dye.dyeRoastLevel = attrs.degree
+                        }
+                    }
                 }
 
                 Item {

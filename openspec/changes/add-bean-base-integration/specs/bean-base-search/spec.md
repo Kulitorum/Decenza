@@ -1,30 +1,23 @@
 ## ADDED Requirements
 
-### Requirement: Search bar visibility is gated on API key presence and existing link state
+### Requirement: Search is keyless and always available (REVISED: canonical-search switch, June 2026)
 
-The BeanInfoPage SHALL render the Bean Base search bar only when at least one of the following is true: (a) `Settings.beanbase.beanBaseApiKey` is non-empty, or (b) the current bean preset / DYE record carries a non-empty `beanBaseId`. When neither condition holds, the page SHALL render identically to a build without Bean Base integration.
+Search runs through Visualizer's open canonical autocomplete — substring + multi-word matching, no API key, no account. The BeanInfoPage SHALL always render the search bar; entries carry Visualizer's canonical UUID, which is stored locally AND sent on shot PATCH so the same bag id lands in both systems. The Bean Base API key remains an optional enrichment credential only.
 
-#### Scenario: User has no API key and no existing link
-- **WHEN** the BeanInfoPage opens with `Settings.beanbase.beanBaseApiKey` empty and `dyeBeanBaseId` empty
-- **THEN** no Bean Base UI is rendered above the Bean section
-- **AND** the Roaster + Coffee fields behave exactly as in a build without this change
+#### Scenario: User with nothing configured searches
+- **WHEN** the BeanInfoPage opens with no Bean Base key and no Visualizer account configured
+- **THEN** the search bar is rendered and typing (including partial words) yields canonical results
+- **AND** picking one links the bean (canonical UUID stored) exactly as for any other user
 
-#### Scenario: User has no API key but a linked preset
-- **WHEN** the BeanInfoPage opens with `Settings.beanbase.beanBaseApiKey` empty and `dyeBeanBaseId` non-empty
-- **THEN** the "Linked" indicator is rendered and the search input is shown DISABLED (no new searches without a key)
-- **AND** the Unlink affordance remains available — removing a stale link never requires credentials (the link must always be correctable)
-- **AND** Replace (search for a different bean) is unavailable until a key is configured
-
-#### Scenario: User has an API key but no link
-- **WHEN** the BeanInfoPage opens with a non-empty API key and `dyeBeanBaseId` empty
-- **THEN** the search input "Search Loffee Labs Bean Base" is rendered at the top of the Bean section
-- **AND** typing into it triggers debounced Bean Base searches
-
-#### Scenario: User has both key and link
-- **WHEN** the BeanInfoPage opens with both a non-empty API key and `dyeBeanBaseId` set
-- **THEN** the search input is rendered with the linked bean's display name pre-filled
-- **AND** a "✓ Linked", "Unlink", and "🔗 open URL" affordance is visible
+#### Scenario: Linked bean
+- **WHEN** the BeanInfoPage opens with `dyeBeanBaseId` set
+- **THEN** the search input shows the linked bean's display name, with "Linked", "Unlink", and open-URL affordances
 - **AND** typing into the search input transitions back to "search mode" (the link is cleared and the dropdown re-opens)
+
+#### Scenario: Attribute enrichment after a canonical pick
+- **WHEN** the user picks a canonical result (identity only: UUID + roaster + name)
+- **THEN** a best-effort two-stage fetch fills origin/region/producer/variety/process/harvest/roast level/tasting notes into the stored blob (and the visible Roast level, which then locks)
+- **AND** enrichment failure leaves the link intact with identity-only data
 
 ### Requirement: Selecting a search result populates DYE fields per a fixed mapping
 

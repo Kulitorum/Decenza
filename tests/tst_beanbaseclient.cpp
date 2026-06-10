@@ -171,9 +171,9 @@ private slots:
 
         QSignalSpy spy(&client, &BeanBaseClient::searchResults);
         // Simulated fast typing — three queries inside the debounce window.
-        client.search("p");
-        client.search("pro");
-        client.search("prodigal");
+        client.searchBeanBase("p");
+        client.searchBeanBase("pro");
+        client.searchBeanBase("prodigal");
 
         QVERIFY(spy.wait(4000));
         // Only the final query was sent, exactly once.
@@ -189,11 +189,11 @@ private slots:
         client.setBaseUrl(server.baseUrl());
 
         QSignalSpy spy(&client, &BeanBaseClient::searchResults);
-        client.search("first");
+        client.searchBeanBase("first");
         QVERIFY(spy.wait(4000));          // request 1 sent after debounce
         QCOMPARE(server.requestCount(), 1);
 
-        client.search("second");
+        client.searchBeanBase("second");
         // Debounce (800 ms) elapses inside the 3 s window — the query must
         // be parked, not sent.
         QTest::qWait(1200);
@@ -212,12 +212,12 @@ private slots:
         client.setBaseUrl(server.baseUrl());
 
         QSignalSpy spy(&client, &BeanBaseClient::searchResults);
-        client.search("prodigal");
+        client.searchBeanBase("prodigal");
         QVERIFY(spy.wait(4000));
         QCOMPARE(server.requestCount(), 1);
 
         // Repeat (case-insensitive) — served from cache, synchronously.
-        client.search("Prodigal");
+        client.searchBeanBase("Prodigal");
         QCOMPARE(spy.count(), 2);
         QCOMPARE(server.requestCount(), 1);
         QCOMPARE(spy.at(1).at(1).toList().size(), 1);
@@ -252,7 +252,7 @@ private slots:
         client.setBaseUrl(server.baseUrl());
 
         QSignalSpy spy(&client, &BeanBaseClient::searchFailed);
-        client.search("prodigal");
+        client.searchBeanBase("prodigal");
         QVERIFY(spy.wait(4000));
         QCOMPARE(spy.first().at(1).toString(), QString("invalid"));
     }
@@ -290,6 +290,79 @@ private slots:
         QCOMPARE(bean["minElevationM"].toInt(), 0);
         // available defaults true (a listed bean is presumed orderable).
         QCOMPARE(bean["available"].toBool(), true);
+    }
+
+    void canonicalSearchFlow() {
+        FakeBeanBaseServer server;
+        server.respondWith("200 OK",
+            "<div><li role=\"option\" data-autocomplete-value=\"abc-123\" "
+            "data-roaster=\"Prodigal Coffee\" data-coffee-bag=\"Milk Blend\">x</li></div>");
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setVisualizerBaseUrl(server.baseUrl());
+
+        QSignalSpy spy(&client, &BeanBaseClient::searchResults);
+        // search() is the canonical path: debounced (350 ms), keyless, no
+        // rate floor — and works with an empty Bean Base key.
+        m_settings.beanbase()->setBeanBaseApiKey("");
+        client.search("prodigal mi");
+        client.search("prodigal milk");
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(server.requestCount(), 1);  // debounce coalesced
+        QVERIFY(server.requestLines().first().contains("/canonical/autocomplete_coffee_bags"));
+        const QVariantList entries = spy.first().at(1).toList();
+        QCOMPARE(entries.size(), 1);
+        QCOMPARE(entries.first().toMap()["visualizerCanonicalId"].toString(), QString("abc-123"));
+
+        // Cache hit: same query emits synchronously, no second request.
+        client.search("Prodigal Milk");
+        QCOMPARE(spy.count(), 2);
+        QCOMPARE(server.requestCount(), 1);
+    }
+
+    void parseCanonicalAutocompleteFragment() {
+        // Mirrors the live fragment shape (June 2026): <li> rows with
+        // data-autocomplete-value (canonical UUID) + data-roaster +
+        // data-coffee-bag; roaster fragments carry data-roaster-website.
+        const QByteArray html =
+            "<div class=\"py-1\">"
+            "<li class=\"x\" role=\"option\" data-autocomplete-value=\"e54d274c-fb79\" "
+            "data-roaster=\"Prodigal Coffee\" data-coffee-bag=\"Milk Blend &amp; More\">"
+            "Milk Blend (Prodigal Coffee)</li>"
+            "<li role=\"option\" data-autocomplete-value=\"cb10e43b-fe52\" "
+            "data-roaster=\"Prodigal Coffee\" data-roaster-website=\"https://getprodigal.com/\">"
+            "Prodigal Coffee</li></div>";
+        const QVariantList entries = BeanBaseClient::parseCanonicalAutocomplete(html);
+        QCOMPARE(entries.size(), 2);
+        const QVariantMap bag = entries.first().toMap();
+        QCOMPARE(bag["id"].toString(), QString("e54d274c-fb79"));
+        QCOMPARE(bag["visualizerCanonicalId"].toString(), QString("e54d274c-fb79"));
+        QCOMPARE(bag["source"].toString(), QString("visualizer"));
+        QCOMPARE(bag["roasterName"].toString(), QString("Prodigal Coffee"));
+        QCOMPARE(bag["roastName"].toString(), QString("Milk Blend & More"));  // entity-decoded
+        const QVariantMap roaster = entries.at(1).toMap();
+        QCOMPARE(roaster["roasterWebsite"].toString(), QString("https://getprodigal.com/"));
+        QVERIFY(!roaster.contains("roastName"));
+        // Garbage degrades to empty, never throws.
+        QCOMPARE(BeanBaseClient::parseCanonicalAutocomplete("<html>nope</html>").size(), 0);
+    }
+
+    void parseCanonicalPayloadTwoStage() {
+        // require_roaster=true responses nest a JSON payload div inside the
+        // matching <li>; keys map onto our blob vocabulary.
+        const QByteArray html =
+            "<div><li role=\"option\" data-autocomplete-value=\"e54d274c-fb79\" "
+            "data-roaster=\"Prodigal Coffee\" data-coffee-bag=\"Milk Blend\">Milk Blend"
+            "<div data-coffee-bag-payload-value=\"{&quot;roast_level&quot;:&quot;Light To Medium-light&quot;,"
+            "&quot;country&quot;:&quot;Brazil, Colombia&quot;,&quot;processing&quot;:&quot;Natural&quot;,"
+            "&quot;region&quot;:null,&quot;farmer&quot;:null}\"></div></li></div>";
+        const QVariantMap attrs = BeanBaseClient::parseCanonicalPayload(html, "e54d274c-fb79");
+        QCOMPARE(attrs["degree"].toString(), QString("Light To Medium-light"));
+        QCOMPARE(attrs["origin"].toString(), QString("Brazil, Colombia"));
+        QCOMPARE(attrs["process"].toString(), QString("Natural"));
+        QVERIFY(!attrs.contains("region"));  // nulls dropped
+        // Wrong id / missing payload -> empty map.
+        QVERIFY(BeanBaseClient::parseCanonicalPayload(html, "other-id").isEmpty());
+        QVERIFY(BeanBaseClient::parseCanonicalPayload("<li></li>", "e54d274c-fb79").isEmpty());
     }
 
     void parseBareArrayAndGarbage() {

@@ -22,9 +22,8 @@ Item {
     property string linkedLabel: ""
     property string linkedUrl: ""
 
-    // False when no API key is configured: the input is disabled (no new
-    // searches), but Unlink stays available — removing a stale link must
-    // never require credentials.
+    // Search runs through Visualizer's open canonical autocomplete — no key,
+    // no account. Kept as a switch only for future gating needs.
     property bool searchEnabled: true
 
     property alias textField: searchInput  // For KeyboardAwareContainer registration
@@ -280,10 +279,7 @@ Item {
                             return TranslationManager.translate("beaninfo.beanbase.errorQuota", "Daily Bean Base limit reached — search resumes tomorrow")
                         return TranslationManager.translate("beaninfo.beanbase.errorNetwork", "Could not reach Bean Base")
                     }
-                    // Bean Base matches whole words only ("prodi" finds
-                    // nothing, "prodigal" does) — teach that here, since
-                    // mid-word queries are the most common no-match cause.
-                    return TranslationManager.translate("beaninfo.beanbase.noMatches", "No matches — Bean Base needs complete words (or your bean isn't listed yet)")
+                    return TranslationManager.translate("beaninfo.beanbase.noMatches", "No matches — your bean may not be in the community database yet")
                 }
             }
         }

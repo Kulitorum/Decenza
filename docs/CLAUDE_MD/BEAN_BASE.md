@@ -27,9 +27,13 @@ BeanBaseSearchBar (BeanInfoPage)            Settings → Visualizer → Bean Bas
 - Quota counts beans returned (2,000/day free; our 25-result searches ≈ 80 fresh searches/day). Rate limit 1 req/3 s. Both return 429 — `classify429()` splits them by body text so quota exhaustion says "resets tomorrow", not "try again shortly".
 - Client enforces the budget: 800 ms debounce, 3 s sent-floor (latest-wins queue), session cache by normalized query, in-flight abort on supersede.
 
+## Canonical search (the primary path, June 2026)
+
+`BeanBaseClient::search()` hits Visualizer's open `GET /canonical/autocomplete_coffee_bags?q=` (keyless, substring + multi-word; internal endpoint — parse defensively, expect drift). Entries carry `visualizerCanonicalId` (UUID) = the identity stored locally and sent on shot PATCH (`shot[canonical_coffee_bag_id]`, accepted for all users) so the same bag id lands in both systems. `fetchCanonicalDetails()` runs the two-stage flow (`autocomplete_roasters` → `require_roaster=true&canonical_roaster_id=`) for the attribute payload. `searchBeanBase()` keeps the Bean Base API contract (whole words, key, quota) for optional extras. MCP tool: `bean_search` (canonical + per-result enrichment).
+
 ## UI rules
 
-- Search bar (`BeanBaseSearchBar.qml`) renders only when an API key exists OR a link exists; label is the verbatim branding "Search Loffee Labs Bean Base" (untranslated).
+- Search bar (`BeanBaseSearchBar.qml`) is always visible — search is keyless since the canonical switch. Label is the verbatim branding "Search Loffee Labs Bean Base" (untranslated).
 - **Lock follows the data**: a field (Roaster/Coffee/Roast level) locks iff linked AND the entry supplied a non-empty value. Locked roast level renders as read-only text (Bean Base degree strings like "Light To Medium-light" don't fit the combo model). Tapping any locked field opens the details popup.
 - The link is always correctable: Unlink works without a key; typing while linked re-enters search; edit mode rewrites the *shot's* snapshot (`requestUpdateShotMetadata` carries `beanBaseJson`).
 - Details surfaces: `BeanBaseDetailsRow`/`BeanBaseDetailsPopup` on BeanInfoPage (live DYE state), PostShotReviewPage + ShotDetailPage (per-shot snapshot). Zero footprint when the blob is empty.

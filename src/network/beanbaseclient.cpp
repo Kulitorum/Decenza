@@ -17,10 +17,42 @@ namespace {
 // `/beans` requires auth; `/roasters|/origins|/varieties|/processes` are public.
 constexpr auto kBeanBaseBaseUrl = "https://loffeelabs.com/api/v2";
 
+// Visualizer's canonical autocomplete (open-source: miharekar/visualizer,
+// CanonicalController — unauthenticated, substring + multi-word matching,
+// returns the canonical UUID we store locally AND send on shot PATCH).
+// Internal endpoint: parse defensively, degrade silently.
+constexpr auto kVisualizerBaseUrl = "https://visualizer.coffee";
+
 // Free-tier rate contract (loffeelabs.com/developers/documentation).
 constexpr int kDebounceMs = 800;
 constexpr int kMinSendGapMs = 3000;
 constexpr int kSearchResultLimit = 25;  // Well under the 50/call free-tier cap.
+
+// Canonical search: type-ahead cadence; no documented limit on the endpoint,
+// debounce + session cache keep usage polite.
+constexpr int kCanonicalDebounceMs = 350;
+
+// Minimal entity decode for attribute values in the autocomplete fragment
+// (Rails-escaped: amp/lt/gt/quot/#39 cover what names/URLs contain).
+QString htmlUnescape(QString s) {
+    s.replace(QStringLiteral("&quot;"), QStringLiteral("\""));
+    s.replace(QStringLiteral("&#39;"), QStringLiteral("'"));
+    s.replace(QStringLiteral("&lt;"), QStringLiteral("<"));
+    s.replace(QStringLiteral("&gt;"), QStringLiteral(">"));
+    s.replace(QStringLiteral("&amp;"), QStringLiteral("&"));
+    return s;
+}
+
+// Pulls attr="value" off an <li ...> tag chunk; empty when absent.
+QString liAttr(const QString& li, const QString& attr) {
+    const QString needle = attr + QStringLiteral("=\"");
+    const qsizetype start = li.indexOf(needle);
+    if (start < 0) return QString();
+    const qsizetype valueStart = start + needle.size();
+    const qsizetype end = li.indexOf(QLatin1Char('"'), valueStart);
+    if (end < 0) return QString();
+    return htmlUnescape(li.mid(valueStart, end - valueStart));
+}
 
 // Tag fields ("tasting-tag", "general-tag") have been observed only in the
 // docs' export list, not in a live authenticated payload — accept both a
@@ -74,6 +106,7 @@ BeanBaseClient::BeanBaseClient(QNetworkAccessManager* networkManager,
     , m_networkManager(networkManager)
     , m_settings(settings)
     , m_baseUrl(QString::fromLatin1(kBeanBaseBaseUrl))
+    , m_visualizerBaseUrl(QString::fromLatin1(kVisualizerBaseUrl))
 {
     m_debounceTimer.setSingleShot(true);
     m_debounceTimer.setInterval(kDebounceMs);
@@ -81,6 +114,17 @@ BeanBaseClient::BeanBaseClient(QNetworkAccessManager* networkManager,
 
     m_cooldownTimer.setSingleShot(true);
     connect(&m_cooldownTimer, &QTimer::timeout, this, &BeanBaseClient::sendQueuedSearch);
+
+    m_canonicalDebounceTimer.setSingleShot(true);
+    m_canonicalDebounceTimer.setInterval(kCanonicalDebounceMs);
+    connect(&m_canonicalDebounceTimer, &QTimer::timeout, this, [this]() {
+        // Copy before clearing: doSendCanonicalSearch takes a const ref, and
+        // passing the member directly would alias the string we clear.
+        const QString q = m_pendingCanonicalQuery;
+        m_pendingCanonicalQuery.clear();
+        if (!q.isEmpty())
+            doSendCanonicalSearch(q);
+    });
 }
 
 QString BeanBaseClient::apiKey() const {
@@ -120,7 +164,7 @@ void BeanBaseClient::testApiKey() {
     });
 }
 
-void BeanBaseClient::search(const QString& query) {
+void BeanBaseClient::searchBeanBase(const QString& query) {
     const QString trimmed = query.trimmed();
     if (trimmed.isEmpty())
         return;
@@ -136,6 +180,118 @@ void BeanBaseClient::search(const QString& query) {
     m_pendingQuery = trimmed;
     m_cooldownTimer.stop();
     m_debounceTimer.start();
+}
+
+void BeanBaseClient::search(const QString& query) {
+    const QString trimmed = query.trimmed();
+    if (trimmed.isEmpty())
+        return;
+
+    const QString normalized = trimmed.toLower();
+    const auto cached = m_canonicalCache.constFind(normalized);
+    if (cached != m_canonicalCache.constEnd()) {
+        emit searchResults(trimmed, cached.value());
+        return;
+    }
+
+    m_pendingCanonicalQuery = trimmed;
+    m_canonicalDebounceTimer.start();
+}
+
+void BeanBaseClient::doSendCanonicalSearch(const QString& query) {
+    if (!m_networkManager) {
+        emit searchFailed(query, QStringLiteral("network"));
+        return;
+    }
+    if (m_activeCanonicalReply) {
+        m_activeCanonicalReply->abort();
+        m_activeCanonicalReply.clear();
+    }
+
+    QUrl url(QStringLiteral("%1/canonical/autocomplete_coffee_bags").arg(m_visualizerBaseUrl));
+    QUrlQuery urlQuery;
+    urlQuery.addQueryItem(QStringLiteral("q"), query);
+    url.setQuery(urlQuery);
+
+    QNetworkReply* reply = m_networkManager->get(QNetworkRequest(url));
+    m_activeCanonicalReply = reply;
+    connect(reply, &QNetworkReply::finished, this, [this, reply, query]() {
+        reply->deleteLater();
+        if (m_activeCanonicalReply == reply)
+            m_activeCanonicalReply.clear();
+        if (reply->error() == QNetworkReply::OperationCanceledError)
+            return;
+
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (reply->error() == QNetworkReply::NoError && status == 200) {
+            const QVariantList entries = parseCanonicalAutocomplete(reply->readAll());
+            m_canonicalCache.insert(query.toLower(), entries);
+            emit searchResults(query, entries);
+        } else {
+            // 302/401 would mean the open endpoint got auth-gated — surface
+            // as a generic reach failure; the bar's copy stays honest.
+            emit searchFailed(query, QStringLiteral("network"));
+        }
+    });
+}
+
+void BeanBaseClient::fetchCanonicalDetails(const QVariantMap& entry) {
+    const QString roasterName = entry.value(QStringLiteral("roasterName")).toString();
+    const QString canonicalId = entry.value(QStringLiteral("id")).toString();
+    if (roasterName.isEmpty() || canonicalId.isEmpty() || !m_networkManager)
+        return;
+
+    const auto cachedUuid = m_roasterUuidCache.constFind(roasterName.toLower());
+    if (cachedUuid != m_roasterUuidCache.constEnd()) {
+        fetchCanonicalPayload(cachedUuid.value(), entry);
+        return;
+    }
+
+    QUrl url(QStringLiteral("%1/canonical/autocomplete_roasters").arg(m_visualizerBaseUrl));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("q"), roasterName);
+    url.setQuery(q);
+
+    QNetworkReply* reply = m_networkManager->get(QNetworkRequest(url));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, entry, roasterName]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError)
+            return;  // Best-effort enrichment: fail silently.
+        // Exact-name match (Visualizer itself keys canonical roasters by name).
+        const QVariantList roasters = parseCanonicalAutocomplete(reply->readAll());
+        for (const QVariant& v : roasters) {
+            const QVariantMap r = v.toMap();
+            if (r.value(QStringLiteral("roasterName")).toString()
+                    .compare(roasterName, Qt::CaseInsensitive) == 0) {
+                const QString uuid = r.value(QStringLiteral("id")).toString();
+                m_roasterUuidCache.insert(roasterName.toLower(), uuid);
+                fetchCanonicalPayload(uuid, entry);
+                return;
+            }
+        }
+    });
+}
+
+void BeanBaseClient::fetchCanonicalPayload(const QString& roasterUuid, const QVariantMap& entry) {
+    const QString canonicalId = entry.value(QStringLiteral("id")).toString();
+    const QString roastName = entry.value(QStringLiteral("roastName")).toString();
+
+    QUrl url(QStringLiteral("%1/canonical/autocomplete_coffee_bags").arg(m_visualizerBaseUrl));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("q"), roastName);
+    q.addQueryItem(QStringLiteral("require_roaster"), QStringLiteral("true"));
+    q.addQueryItem(QStringLiteral("canonical_roaster_id"), roasterUuid);
+    url.setQuery(q);
+
+    QNetworkReply* reply = m_networkManager->get(QNetworkRequest(url));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, canonicalId]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError)
+            return;
+        const QVariantMap attrs = parseCanonicalPayload(reply->readAll(), canonicalId);
+        if (!attrs.isEmpty())
+            emit canonicalDetails(canonicalId, attrs);
+    });
 }
 
 void BeanBaseClient::sendQueuedSearch() {
@@ -262,6 +418,84 @@ QVariantList BeanBaseClient::parseBeans(const QByteArray& responseBody) {
         entry[QStringLiteral("available")] = bean.value(QStringLiteral("available")).toBool(true);
 
         out.append(entry);
+    }
+    return out;
+}
+
+QVariantList BeanBaseClient::parseCanonicalAutocomplete(const QByteArray& html) {
+    QVariantList out;
+    const QString doc = QString::fromUtf8(html);
+
+    // Split on <li and read the role="option" rows' data attributes. The
+    // fragment is tiny (a dropdown's worth of rows); attribute scanning via
+    // liAttr keeps us independent of class names and whitespace.
+    qsizetype pos = 0;
+    while ((pos = doc.indexOf(QStringLiteral("<li"), pos)) != -1) {
+        qsizetype end = doc.indexOf(QLatin1Char('>'), pos);
+        if (end < 0) break;
+        const QString li = doc.mid(pos, end - pos + 1);
+        pos = end + 1;
+
+        const QString uuid = liAttr(li, QStringLiteral("data-autocomplete-value"));
+        if (uuid.isEmpty()) continue;
+
+        QVariantMap entry;
+        entry[QStringLiteral("id")] = uuid;
+        entry[QStringLiteral("visualizerCanonicalId")] = uuid;
+        entry[QStringLiteral("source")] = QStringLiteral("visualizer");
+        entry[QStringLiteral("roasterName")] = liAttr(li, QStringLiteral("data-roaster"));
+        // Bag rows carry data-coffee-bag; roaster rows carry data-roaster-website.
+        const QString bag = liAttr(li, QStringLiteral("data-coffee-bag"));
+        if (!bag.isEmpty())
+            entry[QStringLiteral("roastName")] = bag;
+        const QString website = liAttr(li, QStringLiteral("data-roaster-website"));
+        if (!website.isEmpty())
+            entry[QStringLiteral("roasterWebsite")] = website;
+        out.append(entry);
+    }
+    return out;
+}
+
+QVariantMap BeanBaseClient::parseCanonicalPayload(const QByteArray& html, const QString& canonicalId) {
+    const QString doc = QString::fromUtf8(html);
+
+    // Find the <li> whose data-autocomplete-value matches, then the payload
+    // div inside it (payload divs are nested within their <li>...</li>).
+    const qsizetype liStart = doc.indexOf(
+        QStringLiteral("data-autocomplete-value=\"") + canonicalId + QLatin1Char('"'));
+    if (liStart < 0) return QVariantMap();
+    qsizetype liEnd = doc.indexOf(QStringLiteral("</li>"), liStart);
+    if (liEnd < 0) liEnd = doc.size();
+
+    const QString needle = QStringLiteral("data-coffee-bag-payload-value=\"");
+    const qsizetype pStart = doc.indexOf(needle, liStart);
+    if (pStart < 0 || pStart > liEnd) return QVariantMap();
+    const qsizetype valueStart = pStart + needle.size();
+    const qsizetype valueEnd = doc.indexOf(QLatin1Char('"'), valueStart);
+    if (valueEnd < 0) return QVariantMap();
+
+    const QString json = htmlUnescape(doc.mid(valueStart, valueEnd - valueStart));
+    const QJsonObject src = QJsonDocument::fromJson(json.toUtf8()).object();
+    if (src.isEmpty()) return QVariantMap();
+
+    // Visualizer column -> our blob key (same vocabulary parseBeans emits,
+    // so downstream consumers — popup, advisor block, uploads — are
+    // source-agnostic). elevation is a single display string here.
+    static const QList<QPair<QString, QString>> kMap = {
+        {QStringLiteral("roast_level"), QStringLiteral("degree")},
+        {QStringLiteral("country"), QStringLiteral("origin")},
+        {QStringLiteral("region"), QStringLiteral("region")},
+        {QStringLiteral("farmer"), QStringLiteral("producer")},
+        {QStringLiteral("variety"), QStringLiteral("variety")},
+        {QStringLiteral("processing"), QStringLiteral("process")},
+        {QStringLiteral("harvest_time"), QStringLiteral("harvest")},
+        {QStringLiteral("tasting_notes"), QStringLiteral("tastingNotes")},
+        {QStringLiteral("elevation"), QStringLiteral("elevation")},
+    };
+    QVariantMap out;
+    for (const auto& [srcKey, outKey] : kMap) {
+        const QString v = src.value(srcKey).toString();
+        if (!v.isEmpty()) out[outKey] = v;
     }
     return out;
 }
