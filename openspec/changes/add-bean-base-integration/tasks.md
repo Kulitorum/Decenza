@@ -90,6 +90,10 @@
 - [x] 6.9 Translation keys: `beaninfo.beanbase.linked`, `beaninfo.beanbase.unlink`, `beaninfo.beanbase.openUrl`, `beaninfo.accessibility.searchBar`.
 - [x] 6.10 Accessibility focus order: search bar comes before Roaster field; when linked, "Unlink" button is reachable before Roaster.
 
+## 5B. Tier 2 — Search quality follow-up (from live-API probing)
+
+- [ ] 5B.1 Multi-word zero-result fallback: `search=` is contiguous-substring only ("prodigal washed" → 0). When a multi-word query returns 0 results, retry with `roaster=<leading word(s)>` anchoring or longest-single-word fallback before showing "No matches". (See design.md § Context 7.)
+
 ## 6B. Tier 2 — Bean details visibility (all three surfaces)
 
 > Added per user direction (June 2026): the blob fields must be USER-VISIBLE, not

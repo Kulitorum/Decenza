@@ -16,6 +16,16 @@ After investigation we have:
 
 6. **Live authenticated payload shape (confirmed with a real Free-tier key, June 2026)** — `GET /beans` returns `{"meta":{…},"beans":[…]}` — note the wrapper key is `beans`, NOT `data` (only the public endpoints use `data`). `meta` carries `total, page, limit, totalPages, tier ("Free Access"), beansExportedToday, remainingQuota, historicalIncluded` — `remainingQuota` could power a quota display later. **`id` is a JSON number** (e.g. `31754`) — open question 0.2 RESOLVED; we store it as an opaque string. Fields present in the default Free-tier set: `id, date, roaster, roast-name, link, type, degree, origin, region, producer, min-elev, max-elev, variety, process, description, tasting, harvest, price-low/-high, gram-low/-high, roaster-region, roaster-country, roast-type, roast-degree`, plus derived `price-per-cup-(low/high)`. Nullable: `variety, description, harvest, price-high`. **NOT present at Free tier (silently dropped even when requested via `fields=`): `image`, `tasting-tag`, `general-tag`, `soldout`, `available`.** Consequences: bag photos cannot be fed from the API today (the UI collapses gracefully; ask Loffee Labs whether `image` is tier-gated), tag chips won't render (the `tasting` comma-string carries the flavor list and is displayed as notes), and the sold-out advisory stays dormant. `fields=` works as a response filter but cannot summon fields the tier doesn't expose.
 
+7. **Deeper live-API probing (June 2026, Free-tier key, ~30 beans of quota):**
+   - `?id=<n>` works as an exact single-bean lookup (`total: 1`) — our rehydration path is confirmed. REST-style `GET /beans/<id>` is 404 ("Route not found").
+   - `format=csv` returns the **identical column set** as JSON — no hidden image/tag columns anywhere in the export.
+   - `historical=true` on Free tier is **silently ignored** (`historicalIncluded` stays `false`) — no error, graceful degrade.
+   - `roaster=` is an exact-match filter; `exclude_<filter>` and `<range>_min/_max` work as documented; `fields=` trims the response payload.
+   - `sort=`/`order=` params are accepted without error but results stay date-descending (default ordering; no evidence sorting is implemented).
+   - **`search=` is a contiguous-substring match, NOT term-AND**: `search=prodigal washed` → 0 results even though Prodigal has washed coffees. "prodigal espress" only matched because it's contiguous in "Prodigal Espresso…". UX consequence: users typing roaster + bean-name fragments can get spurious zero-results. Future enhancement: on 0 results for a multi-word query, retry with `roaster=<first word(s)>` anchoring or per-word fallback (this is effectively what Visualizer's roaster-anchored selector does).
+   - `tasting-profile=Chocolate` filtering WORKS at Free tier even though the `tasting-tag` field is never returned — the filter evaluates server-side. The `tasting` string can be very long (30+ comma-joined descriptors observed).
+   - **Quota counts beans returned, not requests**: `beansExportedToday` increments by the result count of each non-cached response. At our 25-result search limit that's ~80 fresh searches/day on the 2,000-bean Free quota — fine for dial-in use; the session cache prevents repeat spend.
+
 ## Goals / Non-Goals
 
 **Goals:**
