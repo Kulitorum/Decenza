@@ -13,7 +13,9 @@ class QNetworkAccessManager;
 class QNetworkReply;
 class Settings;
 
-// Client for the Loffee Labs Bean Base API (loffeelabs.com).
+// Client for bean lookup, two paths: Visualizer's canonical autocomplete
+// (primary, keyless — see search()) and the Loffee Labs Bean Base API
+// (optional, key-gated — see searchBeanBase()).
 //
 // Endpoints (base https://loffeelabs.com/api/v2, confirmed June 2026 — see
 // openspec/changes/add-bean-base-integration/design.md):
@@ -30,10 +32,11 @@ class Settings;
 //     accumulated),
 //   - session-lifetime response cache keyed by normalized query (a repeated
 //     query never re-spends quota).
-// These windows are wall-clock requirements imposed by the external API's
-// rate contract — inherently temporal, like polling or heartbeats, not
-// event-suppression guards — which is why QTimer is the correct tool here
-// despite the project's no-timers-as-guards rule.
+// Those Bean Base windows are wall-clock requirements imposed by the external
+// API's rate contract — inherently temporal, like polling or heartbeats, not
+// event-suppression guards — which is why QTimer is the correct tool there
+// despite the project's no-timers-as-guards rule. (The canonical path's
+// 350 ms debounce is plain type-ahead coalescing; no external contract.)
 class BeanBaseClient : public QObject {
     Q_OBJECT
 
@@ -67,10 +70,12 @@ public:
     // enrichment is best-effort on top of an already-stored link.
     Q_INVOKABLE void fetchCanonicalDetails(const QVariantMap& entry);
 
-    // MCP path (`bean_base_search` tool): the Bean Base API proper.
-    // Debounced 800 ms with the documented 1-req/3 s floor and daily quota;
-    // whole-word matching; requires the user's API key. Same
-    // searchResults/searchFailed signals (filter by query echo).
+    // The Bean Base API proper — currently UNUSED in production (kept for
+    // optional key-gated enrichment; the UI and the `bean_search` MCP tool
+    // both use the canonical search() above). Debounced 800 ms with the
+    // documented 1-req/3 s floor and daily quota; whole-word matching;
+    // requires the user's API key. Same searchResults/searchFailed signals
+    // (filter by query echo).
     Q_INVOKABLE void searchBeanBase(const QString& query);
 
     // Test seams: redirect requests at a local fake server. Production code
@@ -134,6 +139,7 @@ private:
     QTimer m_canonicalDebounceTimer;
     QString m_pendingCanonicalQuery;
     QPointer<QNetworkReply> m_activeCanonicalReply;
+    QString m_activeCanonicalQuery;  // Query of the in-flight canonical reply.
 
     // Session caches: normalized query -> parsed entries; roaster name -> UUID.
     QHash<QString, QVariantList> m_cache;           // Bean Base

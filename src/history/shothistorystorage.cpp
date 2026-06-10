@@ -928,22 +928,32 @@ bool ShotHistoryStorage::runMigrations()
     }
 
     // Migration 18: beanbase_json column (add-bean-base-integration).
-    // Compact-JSON snapshot of the Loffee Labs Bean Base entry the shot was
-    // pulled with — origin, variety, process, tasting tags, image/product
-    // URLs, etc. Snapshotted at save time so history stays accurate after
-    // the preset is edited or deleted. NULL = unlinked bean (the common
-    // free-text case). Additive TEXT column, NULL default; old code that
-    // never SELECTs it is unaffected. Whitespace before the open-paren
-    // dodges the QSqlQuery permission-hook false-positive, as elsewhere.
+    // Compact-JSON snapshot of the linked bean entry (Visualizer canonical
+    // or Bean Base sourced — see docs/CLAUDE_MD/BEAN_BASE.md) the shot was
+    // pulled with: id, roaster, origin, variety, process, etc. Snapshotted
+    // at save time so history stays accurate after the preset is edited or
+    // deleted. NULL = unlinked bean (the common free-text case). Additive
+    // TEXT column, NULL default; old code that never SELECTs it is
+    // unaffected. Whitespace before the open-paren dodges the QSqlQuery
+    // permission-hook false-positive, as elsewhere.
     if (currentVersion < 18) {
         qDebug() << "ShotHistoryStorage: Running migration to version 18 (beanbase_json)";
 
         if (!hasColumn("shots", "beanbase_json"))
             query.exec ("ALTER TABLE shots ADD COLUMN beanbase_json TEXT");
 
-        query.exec ("DELETE FROM schema_version");
-        query.exec ("INSERT INTO schema_version (version) VALUES (18)");
-        currentVersion = 18;
+        // Check-before-bump (migration-15 precedent): saveShotStatic's INSERT
+        // names this column unconditionally, so recording version 18 without
+        // the column would permanently break shot saving. On failure the
+        // version stays < 18 and the ALTER retries next launch.
+        if (hasColumn("shots", "beanbase_json")) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (18)");
+            currentVersion = 18;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 18 failed to add beanbase_json:"
+                       << query.lastError().text() << "- will retry next launch";
+        }
     }
 
     m_schemaVersion = currentVersion;

@@ -159,9 +159,11 @@ private slots:
         QCOMPARE(server.requestCount(), 0);
     }
 
-    // ==========================================
-    // search(): debounce, rate limit, cache
-    // ==========================================
+    // ====================================================
+    // searchBeanBase(): debounce, rate limit, cache
+    // (the Bean Base API path — search() is canonical, see
+    // canonicalSearchFlow below)
+    // ====================================================
 
     void searchDebounceCoalescesKeystrokes() {
         FakeBeanBaseServer server;

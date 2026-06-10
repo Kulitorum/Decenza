@@ -722,10 +722,8 @@ Page {
                     font.bold: true
                 }
 
-                // Bean Base search — only rendered when the user has an API
-                // key (discovery lives in Settings), or when an existing link
-                // must stay visible/correctable. Free-text entry below stays
-                // the primary path; most beans are not in Bean Base.
+                // Bean Base search. Free-text entry below stays the primary
+                // path; most beans are not in the community database.
                 BeanBaseSearchBar {
                     id: beanBaseSearchBar
                     Layout.columnSpan: 2
@@ -750,7 +748,6 @@ Page {
                             if (entry.degree) editRoastLevel = entry.degree
                         } else {
                             Settings.dye.dyeBeanBaseId = String(entry.id)
-                            Settings.dye.dyeBeanBaseRoasterId = entry.roasterId !== undefined ? String(entry.roasterId) : ""
                             Settings.dye.dyeBeanBaseData = json
                             if (entry.roasterName) Settings.dye.dyeBeanBrand = entry.roasterName
                             if (entry.roastName) Settings.dye.dyeBeanType = entry.roastName
@@ -791,7 +788,11 @@ Page {
                     target: MainController.beanbase
                     function onCanonicalDetails(canonicalId, attrs) {
                         if (!beanBaseLinked || activeBeanBase.id !== canonicalId) return
-                        var merged = JSON.parse(activeBeanBaseJson)
+                        // beanBaseLinked already implies the blob parsed, but
+                        // that invariant lives two bindings away — match the
+                        // sibling parse sites' defensiveness.
+                        var merged
+                        try { merged = JSON.parse(activeBeanBaseJson) } catch (e) { return }
                         for (var k in attrs) merged[k] = attrs[k]
                         var json = JSON.stringify(merged)
                         if (isEditMode) {

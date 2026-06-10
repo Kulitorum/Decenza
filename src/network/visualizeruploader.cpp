@@ -339,8 +339,13 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     // when present: never null it out, since the user may have linked the
     // bag in Visualizer's own UI.
     if (!shotData.beanBaseJson.isEmpty()) {
-        const QJsonObject bb = QJsonDocument::fromJson(shotData.beanBaseJson.toUtf8()).object();
-        const QString canonicalId = bb.value(QStringLiteral("visualizerCanonicalId")).toString();
+        const QJsonDocument bbDoc = QJsonDocument::fromJson(shotData.beanBaseJson.toUtf8());
+        // A NON-EMPTY blob that fails to parse is corruption, not "unlinked" —
+        // every consumer degrades identically/silently, so log it here at the
+        // upload chokepoint where it would otherwise vanish without a trace.
+        if (!bbDoc.isObject())
+            qWarning() << "VisualizerUploader: corrupt beanBaseJson on shot" << shotData.id;
+        const QString canonicalId = bbDoc.object().value(QStringLiteral("visualizerCanonicalId")).toString();
         if (!canonicalId.isEmpty())
             shotObj["canonical_coffee_bag_id"] = canonicalId;
     }

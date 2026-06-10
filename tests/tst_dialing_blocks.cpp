@@ -2482,6 +2482,100 @@ private slots:
         QVERIFY(!ShotSummarizer::expertBandForKbId(junk).has_value());
         QVERIFY(ShotSummarizer::profileKnowledgeForKbId(junk).isEmpty());
     }
+    // =====================================================================
+    // Bean Base snapshot: advisor remap + DB round-trip (review follow-up)
+    // =====================================================================
+
+    // The blob-key -> advisor-key remap IS the advisor contract: a silent
+    // rename upstream would empty currentBean.beanBase with no failure
+    // anywhere (the builder omits empty values by design). Pin it.
+    void beanBaseBlockRemapsBlobKeys()
+    {
+        DialingBlocks::CurrentBeanBlockInputs in;
+        in.beanBrand = "Prodigal Coffee";
+        in.beanType = "Milk Blend";
+        in.beanBaseJson = QStringLiteral(
+            "{\"id\":\"abc-123\",\"tastingNotes\":\"Orange, Honeycomb\","
+            "\"degree\":\"Light To Medium-light\",\"beanType\":\"Espresso\","
+            "\"origin\":\"Brazil, Colombia\",\"process\":\"Natural\","
+            "\"elevation\":\"1100-1200 m\","
+            "\"minElevationM\":1100,\"maxElevationM\":1200}");
+
+        const QJsonObject bean = DialingBlocks::buildCurrentBeanBlock(in);
+        QVERIFY(bean.contains("beanBase"));
+        const QJsonObject bb = bean["beanBase"].toObject();
+        QCOMPARE(bb["roasterTastingNotes"].toString(), QString("Orange, Honeycomb"));
+        QCOMPARE(bb["roastLevel"].toString(), QString("Light To Medium-light"));
+        QCOMPARE(bb["roastedFor"].toString(), QString("Espresso"));
+        QCOMPARE(bb["origin"].toString(), QString("Brazil, Colombia"));
+        QCOMPARE(bb["process"].toString(), QString("Natural"));
+        QCOMPARE(bb["elevation"].toString(), QString("1100-1200 m"));
+        QCOMPARE(bb["minElevationM"].toInt(), 1100);
+        QCOMPARE(bb["maxElevationM"].toInt(), 1200);
+    }
+
+    void beanBaseBlockOmittedWhenEmptyOrGarbage()
+    {
+        DialingBlocks::CurrentBeanBlockInputs in;
+        in.beanBrand = "X";
+        QVERIFY(!DialingBlocks::buildCurrentBeanBlock(in).contains("beanBase"));
+        in.beanBaseJson = "not json";
+        QVERIFY(!DialingBlocks::buildCurrentBeanBlock(in).contains("beanBase"));
+        in.beanBaseJson = "{\"tastingNotes\":\"\",\"minElevationM\":0}";
+        QVERIFY(!DialingBlocks::buildCurrentBeanBlock(in).contains("beanBase"));
+    }
+
+    // beanbase_json is read by POSITIONAL index in loadShotRecordStatic — a
+    // future column inserted mid-SELECT would silently shift the read and
+    // every consumer would treat the garbage as "unlinked". Round-trip via
+    // the production write path (updateShotMetadataStatic) pins the index,
+    // the sparse-emit contract, the ""-clears contract, and partial-update
+    // preservation in one go.
+    void beanBaseJsonDbRoundTripAndClear()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+
+        const QString blob = QStringLiteral(
+            "{\"id\":\"abc-123\",\"visualizerCanonicalId\":\"abc-123\","
+            "\"roasterName\":\"Prodigal Coffee\",\"origin\":\"Colombia\"}");
+
+        withRawDb(dbPath, "beanbase_roundtrip", [&](QSqlDatabase& db) {
+            const qint64 id = insertShot(db, ShotRow{
+                .uuid = "uuid-bb", .timestamp = QDateTime::currentSecsSinceEpoch(),
+                .profileName = "D-Flow", .profileKbId = "kb-dflow",
+                .duration = 28.0, .finalWeight = 36.0, .doseWeight = 18.0,
+                .grinderSetting = "5.0", .enjoyment = 0
+            });
+            QVERIFY(id > 0);
+
+            // Unlinked: empty field, sparse-emit omits the key.
+            ShotRecord rec = ShotHistoryStorage::loadShotRecordStatic(db, id);
+            QCOMPARE(rec.beanBaseJson, QString());
+            QVERIFY(!projectionForShot(db, id).toVariantMap().contains("beanBaseJson"));
+
+            // Link via the production edit path; byte-identical round-trip.
+            QVERIFY(ShotHistoryStorage::updateShotMetadataStatic(
+                db, id, {{"beanBaseJson", blob}}));
+            rec = ShotHistoryStorage::loadShotRecordStatic(db, id);
+            QCOMPARE(rec.beanBaseJson, blob);
+            QCOMPARE(projectionForShot(db, id).toVariantMap()
+                         .value("beanBaseJson").toString(), blob);
+
+            // Partial update of an unrelated field preserves the snapshot.
+            QVERIFY(ShotHistoryStorage::updateShotMetadataStatic(
+                db, id, {{"enjoyment", 80}}));
+            rec = ShotHistoryStorage::loadShotRecordStatic(db, id);
+            QCOMPARE(rec.beanBaseJson, blob);
+
+            // "" clears (the unlink-in-edit-mode / MCP {} contract).
+            QVERIFY(ShotHistoryStorage::updateShotMetadataStatic(
+                db, id, {{"beanBaseJson", QString()}}));
+            rec = ShotHistoryStorage::loadShotRecordStatic(db, id);
+            QCOMPARE(rec.beanBaseJson, QString());
+            QVERIFY(!projectionForShot(db, id).toVariantMap().contains("beanBaseJson"));
+        });
+    }
 };
 
 QTEST_GUILESS_MAIN(TstDialingBlocks)

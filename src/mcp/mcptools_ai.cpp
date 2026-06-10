@@ -473,7 +473,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     gather->entries = entries.mid(0, 5);
                     if (gather->entries.isEmpty()) { gather->finish(); return; }
                     gather->pendingDetails = static_cast<int>(gather->entries.size());
-                    gather->grace.start(4000);
+                    gather->grace.start(4000);  // Shorter window for enrichment only.
                     for (const QVariant& v : std::as_const(gather->entries))
                         client->fetchCanonicalDetails(v.toMap());
                 });
@@ -500,10 +500,17 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 [gather](const QString& q, const QString& status) {
                     if (gather->responded || q.compare(gather->query, Qt::CaseInsensitive) != 0) return;
                     gather->responded = true;
-                    gather->respond(QJsonObject{
-                        {"error", "Could not reach the bean database"}, {"status", status}});
+                    const QString msg = status == QStringLiteral("superseded")
+                        ? QStringLiteral("Search superseded by a concurrent search — retry")
+                        : QStringLiteral("Could not reach the bean database");
+                    gather->respond(QJsonObject{{"error", msg}, {"status", status}});
                     gather->deleteLater();
                 });
+            // Overall deadline armed BEFORE the search: the client is shared
+            // with the Beans-page bar, and a superseded/aborted query may
+            // produce no signal at all — without this the tool call would
+            // hang forever and leak the gather.
+            gather->grace.start(20000);
             client->search(query);
         },
         "read");

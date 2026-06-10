@@ -127,8 +127,21 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             if (args.contains("beanBase")) {
                 // Snapshot semantics: we store the data, not a reference —
                 // an empty object clears the link, anything else is saved
-                // verbatim as the shot's compact-JSON snapshot.
+                // verbatim as the shot's compact-JSON snapshot. Guard the
+                // coercion footguns: a STRING here (classic LLM mistake)
+                // would silently coerce to {} = the clear sentinel, turning
+                // "link this bean" into "unlink" with a success response.
+                if (!args["beanBase"].isObject()) {
+                    respond(QJsonObject{{"error",
+                        "beanBase must be a JSON object (pass {} to clear the link)"}});
+                    return;
+                }
                 const QJsonObject bean = args["beanBase"].toObject();
+                if (!bean.isEmpty() && bean.value("id").toVariant().toString().isEmpty()) {
+                    respond(QJsonObject{{"error",
+                        "beanBase object must carry a non-empty id (from bean_search or another shot's beanBase)"}});
+                    return;
+                }
                 metadata["beanBaseJson"] = bean.isEmpty()
                     ? QString()
                     : QString::fromUtf8(QJsonDocument(bean).toJson(QJsonDocument::Compact));

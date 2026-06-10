@@ -95,10 +95,14 @@ static void reshapeBeanBase(QJsonObject& obj)
 {
     if (!obj.contains("beanBaseJson"))
         return;
-    const QJsonDocument doc = QJsonDocument::fromJson(
-        obj.take("beanBaseJson").toString().toUtf8());
+    const QString raw = obj.take("beanBaseJson").toString();
+    const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
     if (doc.isObject() && !doc.object().isEmpty())
         obj["beanBase"] = doc.object();
+    else if (!raw.isEmpty())
+        // Corruption tripwire — sparse-emit makes a bad blob look "unlinked"
+        // at every consumer; leave one trace.
+        qWarning() << "MCP: corrupt beanBaseJson on shot" << obj.value("id");
 }
 
 void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory)

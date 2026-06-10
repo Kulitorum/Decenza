@@ -304,17 +304,6 @@ void SettingsDye::setDyeBeanBaseId(const QString& value) {
     }
 }
 
-QString SettingsDye::dyeBeanBaseRoasterId() const {
-    return m_settings.value("dye/beanBaseRoasterId", "").toString();
-}
-
-void SettingsDye::setDyeBeanBaseRoasterId(const QString& value) {
-    if (dyeBeanBaseRoasterId() != value) {
-        m_settings.setValue("dye/beanBaseRoasterId", value);
-        emit dyeBeanBaseRoasterIdChanged();
-    }
-}
-
 QString SettingsDye::dyeBeanBaseData() const {
     return m_settings.value("dye/beanBaseData", "").toString();
 }
@@ -328,7 +317,6 @@ void SettingsDye::setDyeBeanBaseData(const QString& value) {
 
 void SettingsDye::clearBeanBaseLink() {
     setDyeBeanBaseId(QString());
-    setDyeBeanBaseRoasterId(QString());
     setDyeBeanBaseData(QString());
 }
 
@@ -390,7 +378,6 @@ void SettingsDye::addBeanPreset(const QString& name, const QString& brand, const
     // common free-text case).
     if (brand == dyeBeanBrand() && type == dyeBeanType() && !dyeBeanBaseId().isEmpty()) {
         preset["beanBaseId"] = dyeBeanBaseId();
-        preset["beanBaseRoasterId"] = dyeBeanBaseRoasterId();
         preset["beanBaseData"] = dyeBeanBaseData();
     }
     arr.append(preset);
@@ -431,12 +418,10 @@ void SettingsDye::updateBeanPreset(int index, const QString& name, const QString
         if (brand == dyeBeanBrand() && type == dyeBeanType()) {
             if (!dyeBeanBaseId().isEmpty()) {
                 preset["beanBaseId"] = dyeBeanBaseId();
-                preset["beanBaseRoasterId"] = dyeBeanBaseRoasterId();
                 preset["beanBaseData"] = dyeBeanBaseData();
             }
         } else if (existing.contains("beanBaseId")) {
             preset["beanBaseId"] = existing["beanBaseId"];
-            preset["beanBaseRoasterId"] = existing["beanBaseRoasterId"];
             preset["beanBaseData"] = existing["beanBaseData"];
         }
         arr[index] = preset;
@@ -570,7 +555,6 @@ void SettingsDye::applyBeanPreset(int index) {
     // Bean Base link follows the preset — an unlinked preset clears any
     // leftover link from the previous bean.
     setDyeBeanBaseId(preset.value("beanBaseId").toString());
-    setDyeBeanBaseRoasterId(preset.value("beanBaseRoasterId").toString());
     setDyeBeanBaseData(preset.value("beanBaseData").toString());
 }
 

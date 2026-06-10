@@ -128,7 +128,8 @@ public:
     QString stoppedBy;  // #1161: "weight"|"volume"|"manual"|"profileEnd"|""
     QString profileJson;
     QString profileKbId;
-    // Compact-JSON Bean Base snapshot ("" = unlinked); see ShotRecord::beanBaseJson.
+    // Compact-JSON linked-bean snapshot ("" = unlinked) — Visualizer canonical
+    // or Bean Base sourced; see ShotRecord::beanBaseJson.
     QString beanBaseJson;
 
     bool channelingDetected = false;

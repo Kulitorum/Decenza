@@ -7,7 +7,10 @@
 // Loffee Labs Bean Base (loffeelabs.com) integration credentials. Split from
 // Settings to keep settings.h's transitive-include footprint small, the same
 // way every other Settings<Domain> is. Holds the per-user Bean Base API key
-// used by BeanBaseClient for authenticated `GET /beans` searches.
+// used by BeanBaseClient for authenticated `GET /beans` requests. NOTE: the
+// UI search bar and the `bean_search` MCP tool are KEYLESS (Visualizer
+// canonical autocomplete) — this key only gates the optional Bean Base API
+// path (testApiKey, searchBeanBase).
 //
 // Each user supplies their own free key (1 req/3 s, 2,000 beans/day) from
 // loffeelabs.com — there is no app-bundled key. The key is a sensitive

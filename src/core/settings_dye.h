@@ -41,7 +41,6 @@ class SettingsDye : public QObject {
     // consumers (shot snapshot, Visualizer upload, AI advisor) read it as a
     // unit, so it is deliberately NOT split into per-attribute properties.
     Q_PROPERTY(QString dyeBeanBaseId READ dyeBeanBaseId WRITE setDyeBeanBaseId NOTIFY dyeBeanBaseIdChanged)
-    Q_PROPERTY(QString dyeBeanBaseRoasterId READ dyeBeanBaseRoasterId WRITE setDyeBeanBaseRoasterId NOTIFY dyeBeanBaseRoasterIdChanged)
     Q_PROPERTY(QString dyeBeanBaseData READ dyeBeanBaseData WRITE setDyeBeanBaseData NOTIFY dyeBeanBaseDataChanged)
 
     // Bean presets
@@ -115,9 +114,6 @@ public:
     QString dyeBeanBaseId() const;
     void setDyeBeanBaseId(const QString& value);
 
-    QString dyeBeanBaseRoasterId() const;
-    void setDyeBeanBaseRoasterId(const QString& value);
-
     QString dyeBeanBaseData() const;
     void setDyeBeanBaseData(const QString& value);
 
@@ -180,7 +176,6 @@ signals:
     void dyeBaristaChanged();
     void dyeShotDateTimeChanged();
     void dyeBeanBaseIdChanged();
-    void dyeBeanBaseRoasterIdChanged();
     void dyeBeanBaseDataChanged();
     void beanPresetsChanged();
     void selectedBeanPresetChanged();
