@@ -56,6 +56,7 @@ Page {
                 editDrinkEy = editShotData.drinkEyPct ?? 0
                 editEnjoyment = editShotData.enjoyment0to100 ?? 0
                 editNotes = editShotData.espressoNotes || ""
+                editBeanBaseJson = editShotData.beanBaseJson || ""
             }
         }
     }
@@ -178,6 +179,23 @@ Page {
     property double editDrinkEy: 0
     property int editEnjoyment: 0  // 0 = unrated
     property string editNotes: ""
+    // Bean Base snapshot for the edited shot ("" = unlinked). Re-linking or
+    // unlinking in edit mode rewrites THIS, not the live DYE link state.
+    property string editBeanBaseJson: ""
+
+    // Active blob for the current mode; single source for the lock rule and
+    // the details row. Lock follows the data: a field locks only when linked
+    // AND Bean Base supplied a non-empty value for it.
+    readonly property string activeBeanBaseJson: isEditMode ? editBeanBaseJson : Settings.dye.dyeBeanBaseData
+    readonly property var activeBeanBase: {
+        if (!activeBeanBaseJson || activeBeanBaseJson.length === 0) return ({})
+        try { return JSON.parse(activeBeanBaseJson) } catch (e) { return ({}) }
+    }
+    readonly property bool beanBaseLinked: activeBeanBase.id !== undefined && activeBeanBase.id !== ""
+    function beanBaseLocks(fieldKey) {
+        return beanBaseLinked && activeBeanBase[fieldKey] !== undefined
+            && String(activeBeanBase[fieldKey]).length > 0
+    }
 
     // Save edited shot back to history
     function saveEditedShot() {
@@ -198,7 +216,8 @@ Page {
             "drinkTds": editDrinkTds,
             "drinkEy": editDrinkEy,
             "enjoyment": editEnjoyment,
-            "espressoNotes": editNotes
+            "espressoNotes": editNotes,
+            "beanBaseJson": editBeanBaseJson
         }
         MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
         root.goBack()
@@ -703,8 +722,61 @@ Page {
                     font.bold: true
                 }
 
+                // Bean Base search — only rendered when the user has an API
+                // key (discovery lives in Settings), or when an existing link
+                // must stay visible/correctable. Free-text entry below stays
+                // the primary path; most beans are not in Bean Base.
+                BeanBaseSearchBar {
+                    id: beanBaseSearchBar
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    Layout.bottomMargin: Theme.scaled(4)
+                    visible: Settings.beanbase.beanBaseApiKey.length > 0 || beanBaseLinked
+                    searchEnabled: Settings.beanbase.beanBaseApiKey.length > 0
+                    linked: beanBaseLinked
+                    linkedLabel: beanBaseLinked
+                        ? (activeBeanBase.roastName || "") + " (" + (activeBeanBase.roasterName || "") + ")"
+                        : ""
+                    linkedUrl: beanBaseLinked && activeBeanBase.link !== undefined ? activeBeanBase.link : ""
+
+                    onEntrySelected: function(entry) {
+                        var json = JSON.stringify(entry)
+                        if (isEditMode) {
+                            editBeanBaseJson = json
+                            if (entry.roasterName) editBeanBrand = entry.roasterName
+                            if (entry.roastName) editBeanType = entry.roastName
+                            if (entry.degree) editRoastLevel = entry.degree
+                        } else {
+                            Settings.dye.dyeBeanBaseId = String(entry.id)
+                            Settings.dye.dyeBeanBaseRoasterId = entry.roasterId !== undefined ? String(entry.roasterId) : ""
+                            Settings.dye.dyeBeanBaseData = json
+                            if (entry.roasterName) Settings.dye.dyeBeanBrand = entry.roasterName
+                            if (entry.roastName) Settings.dye.dyeBeanType = entry.roastName
+                            if (entry.degree) Settings.dye.dyeRoastLevel = entry.degree
+                            deselectPresetOnEdit()
+                        }
+                    }
+                    onUnlinkRequested: {
+                        if (isEditMode) editBeanBaseJson = ""
+                        else { Settings.dye.clearBeanBaseLink(); deselectPresetOnEdit() }
+                    }
+                }
+
+                // Compact details row: bag photo + origin · variety · process,
+                // tap for the full attribute popup. Zero footprint unlinked.
+                BeanBaseDetailsRow {
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    Layout.bottomMargin: Theme.scaled(4)
+                    beanBaseJson: activeBeanBaseJson
+                }
+
                 SuggestionField {
                     Layout.fillWidth: true
+                    // Locked while a linked Bean Base entry supplies the roaster
+                    // (lock follows the data; unlink to edit).
+                    enabled: !beanBaseLocks("roasterName")
+                    opacity: beanBaseLocks("roasterName") ? 0.7 : 1.0
                     label: TranslationManager.translate("shotmetadata.label.roaster", "Roaster")
                     text: isEditMode ? editBeanBrand : Settings.dye.dyeBeanBrand
                     suggestions: {
@@ -730,6 +802,8 @@ Page {
 
                 SuggestionField {
                     Layout.fillWidth: true
+                    enabled: !beanBaseLocks("roastName")
+                    opacity: beanBaseLocks("roastName") ? 0.7 : 1.0
                     label: TranslationManager.translate("shotmetadata.label.coffee", "Coffee")
                     text: isEditMode ? editBeanType : Settings.dye.dyeBeanType
                     suggestions: {
@@ -789,6 +863,8 @@ Page {
 
                 LabeledComboBox {
                     Layout.fillWidth: true
+                    enabled: !beanBaseLocks("degree")
+                    opacity: beanBaseLocks("degree") ? 0.7 : 1.0
                     label: TranslationManager.translate("shotmetadata.label.roastlevel", "Roast level")
                     model: ["",
                         TranslationManager.translate("shotmetadata.roastlevel.light", "Light"),

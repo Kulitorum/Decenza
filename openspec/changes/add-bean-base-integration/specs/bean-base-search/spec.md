@@ -11,9 +11,9 @@ The BeanInfoPage SHALL render the Bean Base search bar only when at least one of
 
 #### Scenario: User has no API key but a linked preset
 - **WHEN** the BeanInfoPage opens with `Settings.beanbase.beanBaseApiKey` empty and `dyeBeanBaseId` non-empty
-- **THEN** a "✓ Linked to Bean Base" indicator is rendered above the Bean section
-- **AND** the search input is NOT rendered
-- **AND** no Unlink or Replace affordance is offered (user cannot mutate the link without a key)
+- **THEN** the "Linked" indicator is rendered and the search input is shown DISABLED (no new searches without a key)
+- **AND** the Unlink affordance remains available — removing a stale link never requires credentials (the link must always be correctable)
+- **AND** Replace (search for a different bean) is unavailable until a key is configured
 
 #### Scenario: User has an API key but no link
 - **WHEN** the BeanInfoPage opens with a non-empty API key and `dyeBeanBaseId` empty
@@ -81,6 +81,24 @@ When the user explicitly unlinks a previously-matched Bean Base entry, the syste
 - **AND** cached origin/variety/process/etc. fields are cleared
 - **AND** `dyeBeanBrand`, `dyeBeanType`, and `dyeRoastLevel` retain their current display values
 - **AND** the Roaster, Coffee, and Roast level fields become enabled and lose the "verified" treatment
+
+### Requirement: Cached bean attributes are user-visible on all bean surfaces
+
+The cached Bean Base attributes (image, origin, region, producer, variety, process, elevation, bean type, tasting tags, tasting notes, harvest, product link) SHALL be viewable by the user — not just consumed by upload and advisor plumbing — via a shared details component mounted on the Beans page, the post-shot review page, and the shot history/detail page.
+
+#### Scenario: Viewing details for the current bean
+- **WHEN** the active bean is linked and the user opens the Beans page
+- **THEN** a compact details row (bag image thumbnail + origin · variety · process summary) is shown in the Bean section
+- **AND** tapping it opens a details popup rendering all cached attributes plus a "View at roaster" link
+
+#### Scenario: Viewing details on a past shot
+- **WHEN** the user opens the post-shot review page or a shot from history whose record carries a non-empty `beanbase_json` snapshot
+- **THEN** the same details affordance is shown next to that shot's bean information
+- **AND** the popup is fed from the SHOT's stored snapshot, not the live DYE state — a historical shot shows the bean it was actually pulled with
+
+#### Scenario: Unlinked beans and legacy shots have zero footprint
+- **WHEN** the blob is empty (unlinked bean, or a shot saved before this feature)
+- **THEN** no details row, image, or popup affordance is rendered — the page looks exactly as it does today
 
 ### Requirement: Search respects free-tier rate budget
 

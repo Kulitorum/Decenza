@@ -774,6 +774,14 @@ Page {
                             Tr { key: "shotdetail.roastlevel"; fallback: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.roastLevel); Accessible.ignored: true }
                             Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.roastLevel || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.roastLevel); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
                         }
+
+                        // Bean Base details (per-shot snapshot — shows the bean
+                        // this shot was actually pulled with). Zero footprint
+                        // for unlinked/legacy shots.
+                        BeanBaseDetailsRow {
+                            Layout.fillWidth: true
+                            beanBaseJson: shotData.beanBaseJson || ""
+                        }
                     }
                 }
 

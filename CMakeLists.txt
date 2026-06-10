@@ -746,6 +746,9 @@ set(QML_FILES
     qml/components/ColorSwatch.qml
     qml/components/StyledTextField.qml
     qml/components/SuggestionField.qml
+    qml/components/BeanBaseSearchBar.qml
+    qml/components/BeanBaseDetailsPopup.qml
+    qml/components/BeanBaseDetailsRow.qml
     qml/components/KeyboardAwareContainer.qml
     qml/components/AIConversationPanel.qml
     qml/components/ConversationOverlay.qml

@@ -55,40 +55,55 @@
 
 ## 5. Tier 2 — `BeanBaseSearchBar` QML component
 
-- [ ] 5.1 Create `qml/components/BeanBaseSearchBar.qml` as a reusable widget exposing:
+- [x] 5.1 Create `qml/components/BeanBaseSearchBar.qml` as a reusable widget exposing:
   - `property string label: "Search Loffee Labs Bean Base"` (default; not translated to preserve the verbatim Loffee Labs branding the way Visualizer renders it)
   - `property bool linked: false`
   - `property string linkedLabel: ""` (e.g., "Buenos Aires Caturra · Prodigal Coffee")
   - `property string linkedUrl: ""` (the bean's `link` field)
   - `signal entrySelected(var entry)` — fires with the full `BeanBaseEntry` JSON.
   - `signal unlinkRequested()`
-- [ ] 5.2 Render layout:
+- [x] 5.2 Render layout:
   - Section header label
   - Search `StyledTextField`
   - Dropdown `ListView` rendering each result as "RoastName · RoasterName" (Visualizer's exact format)
   - When `linked`, hide the dropdown; show a small "✓ Linked" inline indicator + `[Unlink]` button + `🔗` link icon that opens `linkedUrl` via `Qt.openUrlExternally`.
-- [ ] 5.3 Wire keystrokes to `BeanBaseClient.searchBeans()` via the debounce timer. Show a small spinner overlay when a request is in flight or queued.
-- [ ] 5.4 Tapping a dropdown row emits `entrySelected(entry)` and collapses the dropdown.
-- [ ] 5.5 Typing while in `linked` state automatically transitions to "search mode" (emits `unlinkRequested()` and re-opens the dropdown). This matches Visualizer's `canonical_selector_controller` behavior.
-- [ ] 5.6 Accessibility: search field is `Accessible.role: TextField` with name "Search Loffee Labs Bean Base"; dropdown rows are `AccessibleButton`-equivalent with `accessibleName` of the row text.
-- [ ] 5.7 Component test (Qt Quick test or screenshot) verifying empty / typing / dropdown / linked states.
+- [x] 5.3 Wire keystrokes to `BeanBaseClient.searchBeans()` via the debounce timer. Show a small spinner overlay when a request is in flight or queued.
+- [x] 5.4 Tapping a dropdown row emits `entrySelected(entry)` and collapses the dropdown.
+- [x] 5.5 Typing while in `linked` state automatically transitions to "search mode" (emits `unlinkRequested()` and re-opens the dropdown). This matches Visualizer's `canonical_selector_controller` behavior.
+- [x] 5.6 Accessibility: search field is `Accessible.role: TextField` with name "Search Loffee Labs Bean Base"; dropdown rows are `AccessibleButton`-equivalent with `accessibleName` of the row text.
+- [ ] 5.7 Component test — DEFERRED: no QML component-test harness exists in tests/ today; covered by manual verification (Section 10) until one is introduced.
 
 ## 6. Tier 2 — Integrate `BeanBaseSearchBar` into BeanInfoPage
 
-- [ ] 6.1 Add `BeanBaseSearchBar` to the top of the **Bean** section in the right-hand `fieldsGrid` of `qml/pages/BeanInfoPage.qml`, above the Roaster + Coffee row.
-- [ ] 6.2 Bind `visible: Settings.beanbase.beanBaseApiKey.length > 0 || hasBeanBaseLink` where `hasBeanBaseLink := Settings.dye.beanBaseId.length > 0`. (If both false, render nothing — matches today.)
-- [ ] 6.3 Render mode logic per the three-state matrix (no-key/no-link → nothing; no-key/link → static "✓ Linked" pill; key/no-link → live search; key/link → search + linked indicator).
-- [ ] 6.4 On `entrySelected(entry)`:
+- [x] 6.1 Add `BeanBaseSearchBar` to the top of the **Bean** section in the right-hand `fieldsGrid` of `qml/pages/BeanInfoPage.qml`, above the Roaster + Coffee row.
+- [x] 6.2 Bind `visible: Settings.beanbase.beanBaseApiKey.length > 0 || hasBeanBaseLink` where `hasBeanBaseLink := Settings.dye.beanBaseId.length > 0`. (If both false, render nothing — matches today.)
+- [x] 6.3 Render mode logic per the three-state matrix (no-key/no-link → nothing; no-key/link → static "✓ Linked" pill; key/no-link → live search; key/link → search + linked indicator).
+- [x] 6.4 On `entrySelected(entry)`:
   - Set `Settings.dye.dyeBeanBrand = entry.roasterName`, `dyeBeanType = entry.roastName`, and `dyeRoastLevel = entry.degree` only when `degree` is non-empty (empty pulled values leave the field unchanged and editable).
   - Set `Settings.dye.beanBaseId = entry.id`, `beanBaseRoasterId = entry.roasterId`, plus the cached attribute fields.
   - Do **not** touch `dyeRoastDate`.
   - Trigger the `↑` suggestion arrows on Roaster + Coffee to hide (e.g., `Settings.dye.beanBaseId` non-empty → `suggestionArrow.visible = false`).
-- [ ] 6.5 Render Roaster, Coffee, AND Roast level controls locked with a subtle "verified" tint when linked AND the matched entry supplied a non-empty value for that field (lock condition: `linked && pulledValueNonEmpty` — e.g. an entry with no `degree` leaves Roast level editable so the user can fill the gap). Unlinked beans keep today's fully-editable free-text experience with zero added friction (most beans are not in Bean Base).
-- [ ] 6.6 On `unlinkRequested()`: clear `Settings.dye.beanBaseId` + `beanBaseRoasterId` + cached attribute fields. Roaster + Coffee field values are *retained* (do not clear) so the user can edit them freely.
-- [ ] 6.7 If a Bean Base entry has `image`, show its thumbnail in the bean preset list (left column) for matching presets. (See task 4.x for storing `imageUrl` on the preset.)
-- [ ] 6.8 In edit mode (`isEditMode`), keep the search bar visible — retro-linking a historical shot is a deliberate use case, and so is FIXING a wrong link ("forgot to change the bean"). Re-link/unlink in edit mode updates the edited shot's `beanbase_json` snapshot (and visible bean fields) for that shot only; current DYE session state is untouched. The shot-metadata update path (`requestUpdateShotMetadata`) must carry the snapshot.
-- [ ] 6.9 Translation keys: `beaninfo.beanbase.linked`, `beaninfo.beanbase.unlink`, `beaninfo.beanbase.openUrl`, `beaninfo.accessibility.searchBar`.
-- [ ] 6.10 Accessibility focus order: search bar comes before Roaster field; when linked, "Unlink" button is reachable before Roaster.
+- [x] 6.5 Render Roaster, Coffee, AND Roast level controls locked with a subtle "verified" tint when linked AND the matched entry supplied a non-empty value for that field (lock condition: `linked && pulledValueNonEmpty` — e.g. an entry with no `degree` leaves Roast level editable so the user can fill the gap). Unlinked beans keep today's fully-editable free-text experience with zero added friction (most beans are not in Bean Base).
+- [x] 6.6 On `unlinkRequested()`: clear `Settings.dye.beanBaseId` + `beanBaseRoasterId` + cached attribute fields. Roaster + Coffee field values are *retained* (do not clear) so the user can edit them freely.
+- [ ] 6.7 Preset-list thumbnails (left column rows) — NOT YET: FavoritesListView rows are text-based; the bag photo IS shown in the details row + popup (6B). Revisit as polish if wanted.
+- [x] 6.8 In edit mode (`isEditMode`), keep the search bar visible — retro-linking a historical shot is a deliberate use case, and so is FIXING a wrong link ("forgot to change the bean"). Re-link/unlink in edit mode updates the edited shot's `beanbase_json` snapshot (and visible bean fields) for that shot only; current DYE session state is untouched. The shot-metadata update path (`requestUpdateShotMetadata`) must carry the snapshot.
+- [x] 6.9 Translation keys: `beaninfo.beanbase.linked`, `beaninfo.beanbase.unlink`, `beaninfo.beanbase.openUrl`, `beaninfo.accessibility.searchBar`.
+- [x] 6.10 Accessibility focus order: search bar comes before Roaster field; when linked, "Unlink" button is reachable before Roaster.
+
+## 6B. Tier 2 — Bean details visibility (all three surfaces)
+
+> Added per user direction (June 2026): the blob fields must be USER-VISIBLE, not
+> just plumbing. One shared component, three mounts; each page passes its own
+> blob source (live DYE state vs. per-shot snapshot).
+
+- [x] 6B.1 Create `qml/components/BeanBaseDetailsPopup.qml`: takes a `beanBaseJson` string property, parses with `JSON.parse` (guarded), renders: bag image (graceful collapse on load failure), origin, region, producer, variety, process, elevation range ("1700–1850 m"), bean type (Filter/Espresso/Omni), tasting-tag chips, roaster tasting notes/description, harvest, soldout indicator when true, "View at roaster" link (opens `link` externally). All Theme-styled, translated labels, accessible (dialog role, dismiss action).
+- [x] 6B.2 Create a compact `BeanBaseDetailsRow.qml` (or inline pattern): small bag-image thumbnail + one-line summary (origin · variety · process) + tap affordance opening the popup. Reused by all three pages.
+- [x] 6B.3 BeanInfoPage: when linked, show the details row (with image) inside the Bean section under the search bar; tap → popup. Register new QML files in CMakeLists.txt.
+- [x] 6B.4 Post-shot review page: when the shot's `beanBaseJson` is non-empty, show the details row next to the bean information; tap → popup fed from the SHOT's snapshot (not live DYE state).
+- [x] 6B.5 Shot history / shot detail page: same pattern as 6B.4, fed from the loaded shot record's `beanBaseJson`.
+- [x] 6B.6 All three mounts: zero footprint when blob empty (unlinked/legacy shots look exactly as today).
+
+> Implementation notes (June 2026): components are `BeanBaseSearchBar.qml`, `BeanBaseDetailsPopup.qml`, `BeanBaseDetailsRow.qml` (all registered in CMakeLists). BeanInfoPage drives lock state via `beanBaseLocks(fieldKey)` = linked && non-empty pulled value, with `activeBeanBaseJson` switching between live DYE state and `editBeanBaseJson` in edit mode (saved through `requestUpdateShotMetadata`). Review + detail pages mount the row read-only from the shot's `beanBaseJson`. DEVIATION from spec draft: no-key+linked shows the search bar DISABLED with Unlink still available (removability never requires credentials) — spec scenario updated. KNOWN EDGE: Bean Base `degree` values "Ultra Light"/"Nordic Light" aren't in the roast-level combo model, and stored values are English while the combo model is translated — the field is locked when supplied so this only affects combo display; revisit if it surfaces.
 
 ## 7. Tier 3 — Visualizer bag linkage
 
