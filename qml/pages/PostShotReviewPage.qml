@@ -188,6 +188,16 @@ Page {
                 editNotes = editShotData.espressoNotes || ""
                 editBeverageType = editShotData.beverageType || "espresso"
                 editBeanBaseJson = editShotData.beanBaseJson || ""
+                // A canonical pick persists identity immediately; if the page
+                // closed (or the network blipped) before the attribute payload
+                // arrived, the shot is stuck with a bare {id, roaster, name}
+                // blob — fields don't lock, the advisor sees nothing. Complete
+                // it: re-issue the best-effort fetch; the onCanonicalDetails
+                // merge below finishes the job.
+                if (beanBaseLinked && activeBeanBase.source === "visualizer"
+                    && activeBeanBase.origin === undefined
+                    && activeBeanBase.degree === undefined)
+                    MainController.beanbase.fetchCanonicalDetails(activeBeanBase)
                 // Recompute EY now that dose/weight are loaded (covers the case where TDS
                 // arrived via R2 before the shot data was ready, or where the DB already
                 // has a non-zero TDS from a previous session).
@@ -219,8 +229,15 @@ Page {
             // Success needs no reload: saveEditedShot() already advanced the
             // in-memory baseline optimistically. Reloading here would race an
             // autosave from another field and clobber an in-progress edit.
-            if (!success)
+            if (success) {
+                postShotReviewPage._saveFailed = false
+            } else {
                 console.warn("PostShotReviewPage: Failed to save metadata for shot", shotId)
+                postShotReviewPage._saveFailed = true
+                if (AccessibilityManager.enabled)
+                    AccessibilityManager.announce(TranslationManager.translate(
+                        "postshotreview.saveFailed", "Saving shot changes failed — will retry"))
+            }
         }
         function onVisualizerInfoUpdated(shotId, success) {
             if (shotId !== postShotReviewPage.editShotId) return
@@ -268,9 +285,40 @@ Page {
 
     property string editNotes: ""
     property string editBeverageType: "espresso"
-    // Bean Base snapshot stored with this shot (read-only on this page —
-    // re-linking happens via the Beans page in edit mode).
+    // Bean Base snapshot stored with this shot. Searchable/correctable right
+    // here (same flow as BeanInfoPage): picking a result rewrites THIS
+    // shot's snapshot and the bean fields, autosaved like any other edit —
+    // and undoable, since the blob rides the undo state.
     property string editBeanBaseJson: ""
+
+    readonly property var activeBeanBase: {
+        if (!editBeanBaseJson || editBeanBaseJson.length === 0) return ({})
+        try { return JSON.parse(editBeanBaseJson) } catch (e) { return ({}) }
+    }
+    readonly property bool beanBaseLinked: activeBeanBase.id !== undefined && activeBeanBase.id !== ""
+    // Lock follows the data: a field locks only when linked AND the entry
+    // supplied a non-empty value for it (same rule as BeanInfoPage).
+    function beanBaseLocks(fieldKey) {
+        return beanBaseLinked && activeBeanBase[fieldKey] !== undefined
+            && String(activeBeanBase[fieldKey]).length > 0
+    }
+
+    function applyBeanBaseEntry(entry) {
+        editBeanBaseJson = JSON.stringify(entry)
+        if (entry.roasterName) editBeanBrand = entry.roasterName
+        if (entry.roastName) editBeanType = entry.roastName
+        if (entry.degree) editRoastLevel = entry.degree
+        postShotReviewPage.autosave("beanBase", true)
+        // Canonical picks carry identity + names only; fetch the attribute
+        // payload (origin/variety/process/...).
+        if (entry.source === "visualizer")
+            MainController.beanbase.fetchCanonicalDetails(entry)
+    }
+
+    function unlinkBeanBase() {
+        editBeanBaseJson = ""
+        postShotReviewPage.autosave("beanBase", true)
+    }
 
     // Real espresso TDS is 5–22%; below 3.0% is a calibration or empty cuvette.
     readonly property real kMinimumPlausibleTds: 3.0
@@ -352,8 +400,16 @@ Page {
         editDrinkEy !== (editShotData.drinkEyPct ?? 0) ||
         editEnjoyment !== (editShotData.enjoyment0to100 ?? 0) ||
         editNotes !== (editShotData.espressoNotes || "") ||
-        editBeverageType !== (editShotData.beverageType || "espresso")
+        editBeverageType !== (editShotData.beverageType || "espresso") ||
+        editBeanBaseJson !== (editShotData.beanBaseJson || "") ||
+        _saveFailed
     )
+
+    // A failed metadata write must not be silently dropped: saveEditedShot()
+    // advances the baseline optimistically, so on failure this flag forces
+    // hasUnsavedChanges back on — the next commit point or lifecycle flush
+    // retries the write. Cleared on the next successful save.
+    property bool _saveFailed: false
 
     // ---- Autosave + undo ---------------------------------------------------
     // There is no manual Save button: every committed edit is persisted right
@@ -389,7 +445,8 @@ Page {
             barista: editBarista, doseWeight: editDoseWeight,
             drinkWeight: editDrinkWeight, drinkTds: editDrinkTds,
             drinkEy: editDrinkEy, enjoyment: editEnjoyment,
-            notes: editNotes, beverageType: editBeverageType
+            notes: editNotes, beverageType: editBeverageType,
+            beanBaseJson: editBeanBaseJson
         }
     }
 
@@ -402,6 +459,7 @@ Page {
         editDrinkWeight = s.drinkWeight; editDrinkTds = s.drinkTds
         editDrinkEy = s.drinkEy; editEnjoyment = s.enjoyment
         editNotes = s.notes; editBeverageType = s.beverageType
+        editBeanBaseJson = s.beanBaseJson !== undefined ? s.beanBaseJson : ""
         // RatingInput (internal `root.value = …`) and the dose/out ValueInputs
         // (handlers do `xInput.value = …`) imperatively assign their own
         // `value` during interaction, which severs the `value: editX` binding.
@@ -537,11 +595,49 @@ Page {
             barista: src.barista, doseWeightG: src.doseWeightG,
             finalWeightG: src.finalWeightG, drinkTdsPct: src.drinkTdsPct,
             drinkEyPct: src.drinkEyPct, enjoyment0to100: src.enjoyment0to100,
-            espressoNotes: src.espressoNotes, beverageType: src.beverageType
+            espressoNotes: src.espressoNotes, beverageType: src.beverageType,
+            beanBaseJson: src.beanBaseJson
         }
     }
 
     // Save edited shot back to history
+    // Sync sticky metadata back to Settings (bean/grinder info) for the
+    // next shot — but ONLY when editing the most recent shot. The sticky
+    // settings are "prep for the next pull"; editing a HISTORIC shot
+    // (opened from Shot History / Shot Detail) must not touch the bean
+    // dialog, dose/yield, or the live bean link. lastSavedShotId is
+    // seeded from the DB at startup, so this holds across app restarts
+    // too: the newest shot syncs forward, every older shot does not.
+    // Per-shot fields (enjoyment, notes, TDS, EY) are NOT synced — otherwise
+    // they would leak into the next shot's metadata, since MainController
+    // builds shot metadata from these Settings values at shot end.
+    //
+    // Called SYNCHRONOUSLY from saveEditedShot — deliberately not deferred
+    // to write confirmation: the exit-flush save (back button / auto-close)
+    // outlives the page only as a background DB write, so a success-callback
+    // sync would silently never run on the most common flow. If the write
+    // fails, _saveFailed forces a retry which re-syncs; the brief divergence
+    // on the rare failed-write-then-immediate-exit path is the lesser evil.
+    function runStickySync() {
+        var isMostRecentShot = editShotId > 0 && editShotId === MainController.lastSavedShotId
+        if (!isMostRecentShot) return
+        Settings.dye.dyeBeanBrand = editBeanBrand
+        Settings.dye.dyeBeanType = editBeanType
+        Settings.dye.dyeRoastDate = editRoastDate
+        Settings.dye.dyeRoastLevel = editRoastLevel
+        Settings.dye.dyeGrinderBrand = editGrinderBrand
+        Settings.dye.dyeGrinderModel = editGrinderModel
+        Settings.dye.dyeGrinderBurrs = editGrinderBurrs
+        Settings.dye.dyeGrinderSetting = editGrinderSetting
+        Settings.dye.dyeBarista = editBarista
+        if (editDoseWeight > 0) Settings.dye.dyeBeanWeight = editDoseWeight
+        if (editDrinkWeight > 0) Settings.dye.dyeDrinkWeight = editDrinkWeight
+        // The link is sticky like the bean fields above: fixing the bean
+        // on the shot you just pulled should carry to the next shot too.
+        Settings.dye.dyeBeanBaseId = beanBaseLinked ? String(activeBeanBase.id) : ""
+        Settings.dye.dyeBeanBaseData = beanBaseLinked ? editBeanBaseJson : ""
+    }
+
     function saveEditedShot() {
         Qt.inputMethod.commit()
         if (editShotId <= 0) return
@@ -561,26 +657,13 @@ Page {
             "drinkTds": editDrinkTds,
             "drinkEy": editDrinkEy,
             "espressoNotes": editNotes,
-            "beverageType": editBeverageType
+            "beverageType": editBeverageType,
+            "beanBaseJson": editBeanBaseJson
         }
         metadata["enjoyment"] = editEnjoyment
         MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
 
-        // Sync sticky metadata back to Settings (bean/grinder info) for the next shot.
-        // Per-shot fields (enjoyment, notes, TDS, EY) are NOT synced — otherwise they
-        // would leak into the next shot's metadata, since MainController builds shot
-        // metadata from these Settings values at shot end.
-        Settings.dye.dyeBeanBrand = editBeanBrand
-        Settings.dye.dyeBeanType = editBeanType
-        Settings.dye.dyeRoastDate = editRoastDate
-        Settings.dye.dyeRoastLevel = editRoastLevel
-        Settings.dye.dyeGrinderBrand = editGrinderBrand
-        Settings.dye.dyeGrinderModel = editGrinderModel
-        Settings.dye.dyeGrinderBurrs = editGrinderBurrs
-        Settings.dye.dyeGrinderSetting = editGrinderSetting
-        Settings.dye.dyeBarista = editBarista
-        if (editDoseWeight > 0) Settings.dye.dyeBeanWeight = editDoseWeight
-        if (editDrinkWeight > 0) Settings.dye.dyeDrinkWeight = editDrinkWeight
+        runStickySync()
 
         // Advance the in-memory baseline so hasUnsavedChanges clears at once.
         // We deliberately do NOT reload from the DB on save success — an async
@@ -602,6 +685,7 @@ Page {
         nb.finalWeightG = editDrinkWeight
         nb.drinkTdsPct = editDrinkTds
         nb.drinkEyPct = editDrinkEy
+        nb.beanBaseJson = editBeanBaseJson
         nb.enjoyment0to100 = editEnjoyment
         nb.espressoNotes = editNotes
         nb.beverageType = editBeverageType
@@ -1369,12 +1453,50 @@ Page {
                 }
             }
 
-            // Bean Base details for this shot's snapshot — bag photo +
-            // origin · variety · process, tap for the full popup. Zero
-            // footprint for unlinked/legacy shots.
+            // Bean search + this shot's snapshot details. Picking a result
+            // (or unlinking) rewrites the SHOT's snapshot via autosave; when
+            // this is the MOST RECENT shot, the sticky DYE link follows too
+            // (see runStickySync) so the next shot is right as well.
+            BeanBaseSearchBar {
+                Layout.fillWidth: true
+                linked: postShotReviewPage.beanBaseLinked
+                linkedLabel: postShotReviewPage.beanBaseLinked
+                    ? (activeBeanBase.roastName || "") + " (" + (activeBeanBase.roasterName || "") + ")"
+                    : ""
+                linkedUrl: postShotReviewPage.beanBaseLinked && activeBeanBase.link !== undefined
+                    ? activeBeanBase.link : ""
+                onEntrySelected: function(entry) { postShotReviewPage.applyBeanBaseEntry(entry) }
+                onUnlinkRequested: postShotReviewPage.unlinkBeanBase()
+            }
+
             BeanBaseDetailsRow {
                 Layout.fillWidth: true
                 beanBaseJson: postShotReviewPage.editBeanBaseJson
+            }
+
+            // Shared popup for taps on locked fields below.
+            BeanBaseDetailsPopup {
+                id: reviewLockedBeanPopup
+                beanBaseJson: postShotReviewPage.editBeanBaseJson
+            }
+
+            // Best-effort enrichment merge after a canonical pick (same
+            // contract as BeanInfoPage, but into the SHOT's snapshot).
+            Connections {
+                target: MainController.beanbase
+                function onCanonicalDetails(canonicalId, attrs) {
+                    if (!postShotReviewPage.beanBaseLinked
+                        || postShotReviewPage.activeBeanBase.id !== canonicalId) return
+                    var merged
+                    try { merged = JSON.parse(postShotReviewPage.editBeanBaseJson) } catch (e) {
+                        console.warn("PostShotReviewPage: enrichment merge skipped — unparseable blob")
+                        return
+                    }
+                    for (var k in attrs) merged[k] = attrs[k]
+                    postShotReviewPage.editBeanBaseJson = JSON.stringify(merged)
+                    if (attrs.degree) postShotReviewPage.editRoastLevel = attrs.degree
+                    postShotReviewPage.autosave("beanBase", true)
+                }
             }
 
             // 3-column grid for all fields
@@ -1385,41 +1507,73 @@ Page {
                 rowSpacing: 6
 
                 // === ROW 1: Bean info ===
-                SuggestionField {
-                    id: roasterField
+                Item {
                     Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.roaster", "Roaster")
-                    text: editBeanBrand
-                    suggestions: {
-                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
-                        if (editBeanBrand.length > 0 && list.indexOf(editBeanBrand) === -1) list = [editBeanBrand].concat(list)
-                        return list
+                    implicitHeight: roasterField.implicitHeight
+
+                    SuggestionField {
+                        id: roasterField
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        enabled: !beanBaseLocks("roasterName")
+                        opacity: beanBaseLocks("roasterName") ? 0.7 : 1.0
+                        label: TranslationManager.translate("postshotreview.label.roaster", "Roaster")
+                        text: editBeanBrand
+                        suggestions: {
+                            var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
+                            if (editBeanBrand.length > 0 && list.indexOf(editBeanBrand) === -1) list = [editBeanBrand].concat(list)
+                            return list
+                        }
+                        onTextEdited: function(t) { editBeanBrand = t }
+                        onInputBlurred: postShotReviewPage.autosave("beanBrand", true)
+                        onSuggestionSelected: function(t) {
+                            editBeanType = ""
+                            editRoastDate = ""
+                            var types = MainController.shotHistory.getDistinctBeanTypesForBrand(t)
+                            if (types.length === 1) editBeanType = types[0]
+                            else if (types.length === 0) _pendingBeanAutoFill = t
+                            postShotReviewPage.autosave("beanBrand", true)
+                        }
                     }
-                    onTextEdited: function(t) { editBeanBrand = t }
-                    onInputBlurred: postShotReviewPage.autosave("beanBrand", true)
-                    onSuggestionSelected: function(t) {
-                        editBeanType = ""
-                        editRoastDate = ""
-                        var types = MainController.shotHistory.getDistinctBeanTypesForBrand(t)
-                        if (types.length === 1) editBeanType = types[0]
-                        else if (types.length === 0) _pendingBeanAutoFill = t
-                        postShotReviewPage.autosave("beanBrand", true)
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        visible: beanBaseLocks("roasterName")
+                        accessibleName: TranslationManager.translate("beaninfo.beanbase.lockedField", "From Bean Base. Opens bean details")
+                        accessibleItem: roasterField
+                        onAccessibleClicked: reviewLockedBeanPopup.open()
                     }
                 }
 
-                SuggestionField {
-                    id: coffeeField
+                Item {
                     Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.coffee", "Coffee")
-                    text: editBeanType
-                    suggestions: {
-                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(editBeanBrand) : []
-                        if (editBeanType.length > 0 && list.indexOf(editBeanType) === -1) list = [editBeanType].concat(list)
-                        return list
+                    implicitHeight: coffeeField.implicitHeight
+
+                    SuggestionField {
+                        id: coffeeField
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        enabled: !beanBaseLocks("roastName")
+                        opacity: beanBaseLocks("roastName") ? 0.7 : 1.0
+                        label: TranslationManager.translate("postshotreview.label.coffee", "Coffee")
+                        text: editBeanType
+                        suggestions: {
+                            var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(editBeanBrand) : []
+                            if (editBeanType.length > 0 && list.indexOf(editBeanType) === -1) list = [editBeanType].concat(list)
+                            return list
+                        }
+                        onTextEdited: function(t) { editBeanType = t }
+                        onInputBlurred: postShotReviewPage.autosave("beanType", true)
+                        onSuggestionSelected: function(t) { editRoastDate = ""; postShotReviewPage.autosave("beanType", true) }
                     }
-                    onTextEdited: function(t) { editBeanType = t }
-                    onInputBlurred: postShotReviewPage.autosave("beanType", true)
-                    onSuggestionSelected: function(t) { editRoastDate = ""; postShotReviewPage.autosave("beanType", true) }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        visible: beanBaseLocks("roastName")
+                        accessibleName: TranslationManager.translate("beaninfo.beanbase.lockedField", "From Bean Base. Opens bean details")
+                        accessibleItem: coffeeField
+                        onAccessibleClicked: reviewLockedBeanPopup.open()
+                    }
                 }
 
                 Item {
@@ -1462,8 +1616,32 @@ Page {
                 }
 
                 // === ROW 2: Roast level, Grinder ===
+                Item {
+                    Layout.fillWidth: true
+                    visible: beanBaseLocks("degree")
+                    implicitHeight: reviewLockedRoastLevel.implicitHeight
+
+                    LabeledField {
+                        id: reviewLockedRoastLevel
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        enabled: false
+                        opacity: 0.7
+                        label: TranslationManager.translate("postshotreview.label.roastlevel", "Roast level")
+                        text: activeBeanBase.degree !== undefined ? String(activeBeanBase.degree) : ""
+                    }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: TranslationManager.translate("beaninfo.beanbase.lockedField", "From Bean Base. Opens bean details")
+                        accessibleItem: reviewLockedRoastLevel
+                        onAccessibleClicked: reviewLockedBeanPopup.open()
+                    }
+                }
+
                 LabeledComboBox {
                     Layout.fillWidth: true
+                    visible: !beanBaseLocks("degree")
                     label: TranslationManager.translate("postshotreview.label.roastlevel", "Roast level")
                     model: ["",
                         TranslationManager.translate("postshotreview.roastlevel.light", "Light"),

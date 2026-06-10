@@ -934,6 +934,68 @@ private slots:
             QCOMPARE(q.value(0).toString(), QString());
         });
     }
+
+    // ==========================================
+    // lastSavedShotId seed at initialize() (review-page sticky-sync gate
+    // input — the gate compares synchronously with no fallback, so this
+    // seed is the only thing keeping "most recent shot" correct across
+    // app restarts)
+    // ==========================================
+
+    void lastSavedShotIdSeededFromMaxId() {
+        QString path = freshDbPath();
+
+        // Empty DB: MAX(id) is NULL -> toLongLong() -> 0 (the load-bearing
+        // conversion the code comment promises).
+        {
+            ShotHistoryStorage s;
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
+            QVERIFY(s.initialize(path));
+            QCOMPARE(s.lastSavedShotId(), qint64(0));
+            s.close();
+            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
+        }
+
+        // Insert three shots, then construct a SECOND instance — modelling an
+        // app restart (distinct from the save-time assignment, which only
+        // covers the session the shot was pulled in).
+        qint64 newestId = -1;
+        withRawDb(path, "seed_insert", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            for (int i = 0; i < 3; i++) {
+                q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
+                          "VALUES (:u, :t, 'P', 25.0)");
+                q.bindValue(":u", QString("seed-uuid-%1").arg(i));
+                q.bindValue(":t", 1000 + i);
+                QVERIFY(q.exec());
+                newestId = q.lastInsertId().toLongLong();
+            }
+        });
+        {
+            ShotHistoryStorage s;
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
+            QVERIFY(s.initialize(path));
+            QCOMPARE(s.lastSavedShotId(), newestId);
+            s.close();
+            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
+        }
+
+        // Delete the newest row; a fresh instance must seed the surviving
+        // MAX(id), not the deleted id and not 0 (catches a future rewrite
+        // that caches the value instead of querying live).
+        withRawDb(path, "seed_delete", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec(QString("DELETE FROM shots WHERE id = %1").arg(newestId)));
+        });
+        {
+            ShotHistoryStorage s;
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
+            QVERIFY(s.initialize(path));
+            QCOMPARE(s.lastSavedShotId(), newestId - 1);
+            s.close();
+            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
+        }
+    }
 };
 
 QTEST_MAIN(tst_DbMigration)

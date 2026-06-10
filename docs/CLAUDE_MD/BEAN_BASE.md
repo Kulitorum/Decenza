@@ -5,7 +5,7 @@ Canonical coffee-database integration: users link beans to Loffee Labs Bean Base
 ## Architecture
 
 ```
-BeanBaseSearchBar (BeanInfoPage)            Settings → Visualizer → Bean Base
+BeanBaseSearchBar (BeanInfoPage + PostShotReviewPage)   Settings → Visualizer → Bean Base
    └─ MainController.beanbase                  SettingsBeanBase (beanbase/apiKey
         BeanBaseClient                           — gates ONLY testApiKey/
           ├─ search() → visualizer.coffee          searchBeanBase, not the bar)
@@ -56,6 +56,7 @@ The blob = one entry JSON-compacted. `src/network/beanbase_blob.h` is the C++ de
 - **Lock follows the data**: a field (Roaster/Coffee/Roast level) locks iff linked AND the entry supplied a non-empty value. Locked roast level renders as read-only text (Bean Base degree strings like "Light To Medium-light" don't fit the combo model). Tapping any locked field opens the details popup.
 - The link is always correctable: Unlink works without a key; typing while linked re-enters search; edit mode rewrites the *shot's* snapshot (`requestUpdateShotMetadata` carries `beanBaseJson`).
 - Details surfaces: `BeanBaseDetailsRow`/`BeanBaseDetailsPopup` on BeanInfoPage (live DYE state), PostShotReviewPage + ShotDetailPage (per-shot snapshot). Zero footprint when the blob is empty.
+- PostShotReviewPage also hosts the full search/link/unlink flow: a pick rewrites the SHOT's snapshot via the page's autosave (undoable); the sticky DYE link follows only for the MOST RECENT shot (gate on `lastSavedShotId`, which is seeded from MAX(id) at startup so the rule holds across restarts) — historic edits never touch the bean dialog or brew settings. The sticky sync runs only after the DB write is confirmed.
 
 ## Visualizer linkage (shot PATCH shipped; bag CRUD / id-resolution pending — design.md § Context 9)
 

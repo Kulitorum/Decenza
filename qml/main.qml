@@ -3408,8 +3408,11 @@ ApplicationWindow {
     Connections {
         target: MainController
 
-        function onShotEndedShowMetadata() {
-            root.pendingShotId = MainController.lastSavedShotId
+        function onShotEndedShowMetadata(shotId) {
+            // The signal carries the saved shot's id (0 on save failure) —
+            // deliberately NOT lastSavedShotId, which still points at the
+            // previous shot after a failed save and would wrongly open it.
+            root.pendingShotId = shotId
             console.log("Shot ended, navigate to review. shotId:", root.pendingShotId,
                         "overlayVisible:", root.stopOverlayVisible)
 

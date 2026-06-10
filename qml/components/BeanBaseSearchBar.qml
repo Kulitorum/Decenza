@@ -9,7 +9,8 @@ import Decenza
 //
 // Purely presentational: emits entrySelected(entry) / unlinkRequested() and
 // renders the linked indicator; the parent owns applying fields and storing
-// the link (live DYE state on the Beans page, the edited shot in edit mode).
+// the link (live DYE state on the Beans page; the shot's snapshot on the
+// review page and in edit mode).
 //
 // The label is the verbatim Loffee Labs branding, matching Visualizer's UI —
 // deliberately not translated.

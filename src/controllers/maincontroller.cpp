@@ -184,6 +184,10 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // Create shot history storage and comparison model
     m_shotHistory = new ShotHistoryStorage(this);
     m_shotHistory->initialize();
+    // Mirror the startup-seeded latest-shot id (initialize() reads MAX(id))
+    // so QML's MainController.lastSavedShotId is valid across restarts —
+    // no emit needed: QML bindings haven't been created yet.
+    m_lastSavedShotId = m_shotHistory->lastSavedShotId();
     connect(m_shotHistory, &QObject::destroyed, this, [this]() { m_savingShot = false; });
 
     // Authoritative C++ writeback: a successful Visualizer upload
@@ -2018,17 +2022,21 @@ void MainController::onShotEnded() {
                     // Now that we have a valid shot ID, show the metadata page
                     if (showPostShot) {
                         qDebug() << "[metadata] Showing post-shot review page with shotId:" << shotId;
-                        emit shotEndedShowMetadata();
+                        emit shotEndedShowMetadata(shotId);
                     }
                 } else {
                     qWarning() << "[metadata] Failed to save shot to history (returned" << shotId << ") - metadata preserved for next attempt";
-                    m_lastSavedShotId = 0;
-                    emit lastSavedShotIdChanged();
+                    // Deliberately NOT zeroing m_lastSavedShotId: a failed save
+                    // does not change which stored shot is newest, and zeroing
+                    // killed every "most recent shot" consumer (review-page
+                    // sticky-sync gate, Last Shot widget) until restart.
 
-                    // Still navigate to review page so user isn't stranded on espresso page
+                    // Leave the espresso page either way; 0 tells the handler
+                    // there is no shot to review (it must NOT open the prior
+                    // shot via lastSavedShotId).
                     if (showPostShot) {
-                        qWarning() << "[metadata] Shot save failed but still showing review page";
-                        emit shotEndedShowMetadata();
+                        qWarning() << "[metadata] Shot save failed - leaving espresso page without a review target";
+                        emit shotEndedShowMetadata(0);
                     }
                 }
             }, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::SingleShotConnection));
@@ -2070,9 +2078,9 @@ void MainController::onShotEnded() {
     } else {
         qWarning() << "[metadata] Could not save shot - history not ready!";
 
-        // Still navigate to review page so user isn't stranded on espresso page
+        // Leave the espresso page; 0 = no shot to review (see signal doc).
         if (showPostShot) {
-            emit shotEndedShowMetadata();
+            emit shotEndedShowMetadata(0);
         }
     }
 
