@@ -97,7 +97,7 @@
 ## 5C. Tier 2/3 — Visualizer-powered lookup (from § Context 10; user-requested direction)
 
 - [ ] 5C.1 Add `visualizerCanonicalSearch(q)` to the client layer: GET `visualizer.coffee/canonical/autocomplete_coffee_bags?q=`, parse `<li>` attrs (`data-autocomplete-value` UUID, `data-roaster`, `data-coffee-bag`). No auth, substring + multi-word. Defensive parsing (internal endpoint).
-- [ ] 5C.2 Use it as the search bar's multi-word / no-key path (supersedes 5B.1): results render the same; picking one stores `visualizerCanonicalId` (UUID) and roaster/name. With a Bean Base key present, follow up with a Bean Base `roaster=`+`search=` fetch to attach rich attributes when a confident match exists.
+- [ ] 5C.2 Use it as the search bar's multi-word / no-key path (supersedes 5B.1). CONFIRMED LIVE: the two-stage flow (`autocomplete_roasters` → `autocomplete_coffee_bags?require_roaster=true&canonical_roaster_id=<uuid>`) embeds a JSON payload per result (roast_level, country, region, farmer, variety, elevation, processing, harvest_time, tasting_notes) — so Visualizer alone supplies most attributes keylessly. No loffee_labs_id is exposed (no precise Bean Base cross-lookup); Bean Base adds only link/type/description/image, via fuzzy `roaster=`+`search=` when a key exists.
 - [ ] 5C.3 Shot PATCH linkage: send `shot[canonical_coffee_bag_id] = visualizerCanonicalId` on uploads/updates (accepted for ALL users — no premium needed). This delivers Tier 3's cross-user clustering without the bag-CRUD premium gate.
 - [ ] 5C.4 Upstream ask (miharekar): JSON canonical endpoint incl. `loffee_labs_id` + display attributes — would obsolete per-user Bean Base keys entirely.
 
