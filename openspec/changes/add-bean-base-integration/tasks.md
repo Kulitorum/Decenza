@@ -126,6 +126,20 @@
 - [ ] 7.5 Integration test (`tests/`): with a mock Visualizer server, simulate (a) bag exists with matching canonical id → reused; (b) bag exists by name only → reused with log warning; (c) no bag exists → created with full canonical fields. Each path must result in exactly one POST or zero POSTs to `/api/coffee_bags`.
 - [ ] 7.6 Backfill: existing presets without `beanBaseId` should NOT trigger a fetch-coffee-bags loop. Only when a Bean Base match is made for the first time do we run resolution.
 
+## 7B. Tier 3 — MCP read/write of per-shot Bean Base snapshots
+
+> Added per user direction (June 2026): MCP must be able to update Bean Base
+> entries on historical shots. Snapshot semantics confirmed: we SAVE the data
+> per shot, never just reference Bean Base's id — their `historical=true`
+> Dev-tier gating implies entries get delisted/mutated, so history must not
+> depend on their retention. (Bag images remain URLs into their CDN — text
+> data survives deletion, photos may not; local image caching would be a
+> separate deliberate feature.)
+
+- [x] 7B.1 `shots_get_detail` / `shots_compare`: emit the snapshot as a parsed `beanBase` object (`reshapeBeanBase()` — LLMs can't reliably read double-encoded JSON strings; sparse, omitted when unlinked).
+- [x] 7B.2 `shots_update`: new `beanBase` object arg — full entry replaces the shot's snapshot, `{}` clears it. Enables "fix shots recorded against the wrong bean" via MCP (copy the `beanBase` block from a correctly-linked shot, or from `bean_base_search` once Section 8 lands). Stored compact via the existing `updateShotMetadataStatic` beanBaseJson field-map entry.
+- [ ] 7B.3 Document the `beanBase` read/write shape in `docs/CLAUDE_MD/MCP_SERVER.md` (fold into Section 9 docs pass).
+
 ## 8. Tier 4 — AI advisor bean attribute enrichment
 
 - [ ] 8.1 Extend `DialingBlocks::buildCurrentBeanBlock()` (in `src/mcp/mcptools_dialing.cpp`) to include a `beanBaseAttributes` sub-object when the active preset has a `beanBaseId`: `{ origin, region, variety, process, degree, beanType, elevationM, tastingTags, generalTags, tastingNotes, productUrl }`.
