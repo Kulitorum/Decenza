@@ -232,6 +232,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     // DYE metadata
     summary.beanBrand = metadata.beanBrand;
     summary.beanType = metadata.beanType;
+    summary.beanBaseJson = metadata.beanBaseJson;
     summary.roastDate = metadata.roastDate;
     summary.roastLevel = metadata.roastLevel;
     summary.grinderBrand = metadata.grinderBrand;
@@ -380,6 +381,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     // DYE metadata
     summary.beanBrand = shotData.beanBrand;
     summary.beanType = shotData.beanType;
+    summary.beanBaseJson = shotData.beanBaseJson;
     summary.roastDate = shotData.roastDate;
     summary.roastLevel = shotData.roastLevel;
     summary.grinderBrand = shotData.grinderBrand;
@@ -515,6 +517,7 @@ static QJsonObject buildCurrentBeanBlock(const ShotSummary& summary)
     in.grinderBurrs = summary.grinderBurrs;
     in.grinderSetting = summary.grinderSetting;
     in.doseWeightG = summary.doseWeight;
+    in.beanBaseJson = summary.beanBaseJson;
     return DialingBlocks::buildCurrentBeanBlock(in);
 }
 

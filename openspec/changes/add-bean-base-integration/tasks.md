@@ -146,8 +146,8 @@
 
 ## 8. Tier 4 — AI advisor bean attribute enrichment
 
-- [ ] 8.1 Extend `DialingBlocks::buildCurrentBeanBlock()` (in `src/mcp/mcptools_dialing.cpp`) to include a `beanBaseAttributes` sub-object when the active preset has a `beanBaseId`: `{ origin, region, variety, process, degree, beanType, elevationM, tastingTags, generalTags, tastingNotes, productUrl }`.
-- [ ] 8.2 Verify the new block survives `enrichUserPromptObject` and is rendered into the system prompt as structured data (not stringified).
+- [x] 8.1 DONE (expanded per user direction to include the roaster's tasting expectations + everything advice-relevant: roasterTastingNotes, description, origin, region, producer, variety, process, roastLevel (Bean Base's richer degree string), roastedFor (Espresso/Filter/Omni), harvest, min/maxElevationM). Extend `DialingBlocks::buildCurrentBeanBlock()` (in `src/mcp/mcptools_dialing.cpp`) to include a `beanBaseAttributes` sub-object when the active preset has a `beanBaseId`: `{ origin, region, variety, process, degree, beanType, elevationM, tastingTags, generalTags, tastingNotes, productUrl }`.
+- [x] 8.2 Both surfaces wired: mcptools_dialing passes sd.beanBaseJson; ShotSummary carries beanBaseJson through both summarize() (live ShotMetadata) and summarizeFromHistory() (ShotProjection), so the in-app advisor and dialing_get_context emit byte-equivalent currentBean.beanBase. Verify the new block survives `enrichUserPromptObject` and is rendered into the system prompt as structured data (not stringified).
 - [ ] 8.3 Add a `bean_base_search` MCP tool in `src/mcp/mcptools_ai.cpp` (or a new `mcptools_beanbase.cpp` file):
   - Args: `query` (string, required), `limit` (int, default 10, max 25), `roaster` (optional anchored filter).
   - Returns: `QList<BeanBaseEntry>` JSON-encoded.
