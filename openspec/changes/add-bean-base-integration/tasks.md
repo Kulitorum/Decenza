@@ -120,6 +120,8 @@
 
 ## 7. Tier 3 — Visualizer bag linkage
 
+> Premium detection (prerequisite, designed June 2026): `POST /api/coffee_bags` with an empty body — 401 = bad creds, 403 "must be a premium user" = not premium, 400 ParameterMissing = PREMIUM (params rejected before any write; zero side effects). Note premium ≠ coffee_management_enabled (a separate user preference gating shot[coffee_bag_id]); verify by reading the PATCH response back. Upstream nicety: ask for `premium` in `/api/me`.
+
 > **RE-SCOPED after 0.3 (design.md § Context 9).** Blocked on: (a) an upstream loffee_labs_id→canonical-UUID lookup (propose/contribute to miharekar/visualizer — it's open source), and (b) bag writes being premium-only. Implementable once (a) lands: ensure-roaster → ensure-bag (full Bean Base attributes) → PATCH shot with coffee_bag_id / canonical_coffee_bag_id. Original tasks below kept for the field mapping; revise against the confirmed params when implementing.
 
 - [ ] 7.1 Extend `VisualizerUploader::buildCoffeeBagJson()` (or whichever method serializes the bag payload — verify in `src/network/visualizeruploader.cpp` lines around the existing bag block) to include:
