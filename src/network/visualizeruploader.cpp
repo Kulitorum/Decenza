@@ -23,6 +23,7 @@
 //     local state — including local clears. Issue #1150 / migration 16.
 
 #include "visualizeruploader.h"
+#include "beanbase_blob.h"
 #include "../models/shotdatamodel.h"
 #include "../core/settings.h"
 #include "../core/settings_visualizer.h"
@@ -339,8 +340,12 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     // when present: never null it out, since the user may have linked the
     // bag in Visualizer's own UI.
     if (!shotData.beanBaseJson.isEmpty()) {
-        const QJsonObject bb = QJsonDocument::fromJson(shotData.beanBaseJson.toUtf8()).object();
-        const QString canonicalId = bb.value(QStringLiteral("visualizerCanonicalId")).toString();
+        // A NON-EMPTY blob that fails to parse is corruption, not "unlinked" —
+        // every consumer degrades identically/silently, so log it here at the
+        // upload chokepoint where it would otherwise vanish without a trace.
+        if (!QJsonDocument::fromJson(shotData.beanBaseJson.toUtf8()).isObject())
+            qWarning() << "VisualizerUploader: corrupt beanBaseJson on shot" << shotData.id;
+        const QString canonicalId = BeanBaseBlob::canonicalId(shotData.beanBaseJson);
         if (!canonicalId.isEmpty())
             shotObj["canonical_coffee_bag_id"] = canonicalId;
     }

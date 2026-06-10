@@ -1,4 +1,5 @@
 #include "settings_dye.h"
+#include "../network/beanbase_blob.h"
 #include "settings_visualizer.h"
 #include "grinderaliases.h"
 
@@ -304,17 +305,6 @@ void SettingsDye::setDyeBeanBaseId(const QString& value) {
     }
 }
 
-QString SettingsDye::dyeBeanBaseRoasterId() const {
-    return m_settings.value("dye/beanBaseRoasterId", "").toString();
-}
-
-void SettingsDye::setDyeBeanBaseRoasterId(const QString& value) {
-    if (dyeBeanBaseRoasterId() != value) {
-        m_settings.setValue("dye/beanBaseRoasterId", value);
-        emit dyeBeanBaseRoasterIdChanged();
-    }
-}
-
 QString SettingsDye::dyeBeanBaseData() const {
     return m_settings.value("dye/beanBaseData", "").toString();
 }
@@ -328,7 +318,6 @@ void SettingsDye::setDyeBeanBaseData(const QString& value) {
 
 void SettingsDye::clearBeanBaseLink() {
     setDyeBeanBaseId(QString());
-    setDyeBeanBaseRoasterId(QString());
     setDyeBeanBaseData(QString());
 }
 
@@ -388,9 +377,12 @@ void SettingsDye::addBeanPreset(const QString& name, const QString& brand, const
     // The add dialog saves the CURRENT bean — when the passed identity matches
     // the live DYE state, carry its Bean Base link (empty when unlinked, the
     // common free-text case).
-    if (brand == dyeBeanBrand() && type == dyeBeanType() && !dyeBeanBaseId().isEmpty()) {
+    // BeanBaseBlob::isLinked also rejects a CORRUPT blob — without it a
+    // corrupt dyeBeanBaseData (which reads as "unlinked" everywhere else)
+    // would still be copied into the new preset alongside its stale id.
+    if (brand == dyeBeanBrand() && type == dyeBeanType()
+        && BeanBaseBlob::isLinked(dyeBeanBaseData())) {
         preset["beanBaseId"] = dyeBeanBaseId();
-        preset["beanBaseRoasterId"] = dyeBeanBaseRoasterId();
         preset["beanBaseData"] = dyeBeanBaseData();
     }
     arr.append(preset);
@@ -429,14 +421,12 @@ void SettingsDye::updateBeanPreset(int index, const QString& name, const QString
         // (e.g. renaming a preset that isn't the active bean) preserve the
         // row's existing link, like showOnIdle above.
         if (brand == dyeBeanBrand() && type == dyeBeanType()) {
-            if (!dyeBeanBaseId().isEmpty()) {
+            if (BeanBaseBlob::isLinked(dyeBeanBaseData())) {
                 preset["beanBaseId"] = dyeBeanBaseId();
-                preset["beanBaseRoasterId"] = dyeBeanBaseRoasterId();
                 preset["beanBaseData"] = dyeBeanBaseData();
             }
         } else if (existing.contains("beanBaseId")) {
             preset["beanBaseId"] = existing["beanBaseId"];
-            preset["beanBaseRoasterId"] = existing["beanBaseRoasterId"];
             preset["beanBaseData"] = existing["beanBaseData"];
         }
         arr[index] = preset;
@@ -570,7 +560,6 @@ void SettingsDye::applyBeanPreset(int index) {
     // Bean Base link follows the preset — an unlinked preset clears any
     // leftover link from the previous bean.
     setDyeBeanBaseId(preset.value("beanBaseId").toString());
-    setDyeBeanBaseRoasterId(preset.value("beanBaseRoasterId").toString());
     setDyeBeanBaseData(preset.value("beanBaseData").toString());
 }
 

@@ -3,9 +3,9 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-// "Search Loffee Labs Bean Base" — async autocomplete against the Bean Base
-// API via MainController.beanbase (debounce + rate limit + cache live in C++,
-// so every keystroke may safely call search()).
+// "Search Loffee Labs Bean Base" — async autocomplete against Visualizer's
+// canonical coffee-bag endpoint (keyless) via MainController.beanbase;
+// debounce + cache live in C++, so every keystroke may safely call search().
 //
 // Purely presentational: emits entrySelected(entry) / unlinkRequested() and
 // renders the linked indicator; the parent owns applying fields and storing
@@ -166,7 +166,7 @@ Item {
 
         Keys.onEscapePressed: { resultsPopup.close(); focus = false }
 
-        // Busy spinner while a request is in flight or rate-limit-queued
+        // Busy spinner while a request is in flight or debounce-queued
         BusyIndicator {
             anchors.right: parent.right
             anchors.rightMargin: Theme.scaled(8)
@@ -188,11 +188,18 @@ Item {
             if (query.toLowerCase() !== root._pendingQuery) return
             root.results = entries
             root.searchState = "idle"
-            if (searchInput.activeFocus && entries.length >= 0) resultsPopup.open()
+            if (searchInput.activeFocus) resultsPopup.open()  // Open even when empty: the no-matches message lives in the popup
         }
 
         function onSearchFailed(query, status) {
             if (query.toLowerCase() !== root._pendingQuery) return
+            // Superseded = a newer query (possibly from another consumer of
+            // the shared client) replaced this one; not an error, just stop
+            // the spinner and wait for the newer answer.
+            if (status === "superseded") {
+                root.searchState = "idle"
+                return
+            }
             root.results = []
             root.errorToken = status
             root.searchState = "error"
@@ -271,13 +278,18 @@ Item {
                 font.pixelSize: Theme.scaled(14)
                 text: {
                     if (root.searchState === "error") {
+                        // invalid/ratelimited/quota are unreachable from the
+                        // keyless canonical path — kept as defensive cover
+                        // for a future searchBeanBase()-backed mode.
                         if (root.errorToken === "invalid")
                             return TranslationManager.translate("beaninfo.beanbase.errorInvalid", "Invalid API key — check Settings")
                         if (root.errorToken === "ratelimited")
                             return TranslationManager.translate("beaninfo.beanbase.errorRateLimited", "Searching too fast — pause a moment and try again")
                         if (root.errorToken === "quota")
                             return TranslationManager.translate("beaninfo.beanbase.errorQuota", "Daily Bean Base limit reached — search resumes tomorrow")
-                        return TranslationManager.translate("beaninfo.beanbase.errorNetwork", "Could not reach Bean Base")
+                        if (root.errorToken === "parse")
+                            return TranslationManager.translate("beaninfo.beanbase.errorParse", "Bean search is temporarily unavailable")
+                        return TranslationManager.translate("beaninfo.beanbase.errorNetwork", "Could not reach the bean database")
                     }
                     return TranslationManager.translate("beaninfo.beanbase.noMatches", "No matches — your bean may not be in the community database yet")
                 }

@@ -32,6 +32,11 @@ constexpr int kSearchResultLimit = 25;  // Well under the 50/call free-tier cap.
 // debounce + session cache keep usage polite.
 constexpr int kCanonicalDebounceMs = 350;
 
+// Stalled-connection guard on every request (matches shotserver/aiprovider).
+// Surfaces as OperationCanceledError; handlers distinguish our own
+// supersede-abort (reply already detached) from a timeout (still active).
+constexpr int kTransferTimeoutMs = 15000;
+
 // Minimal entity decode for attribute values in the autocomplete fragment
 // (Rails-escaped: amp/lt/gt/quot/#39 cover what names/URLs contain).
 QString htmlUnescape(QString s) {
@@ -94,9 +99,13 @@ int toIntLoose(const QJsonValue& v) {
 QString classify429(const QByteArray& body) {
     const QString error = QJsonDocument::fromJson(body)
                               .object().value(QStringLiteral("error")).toString();
-    return error.contains(QStringLiteral("rate limit"), Qt::CaseInsensitive)
-        ? QStringLiteral("ratelimited")
-        : QStringLiteral("quota");
+    // Match both phrasings positively; an UNRECOGNIZED body (proxy error page,
+    // upstream copy change) defaults to the recoverable reading — telling a
+    // user "done for today" on a transient 429 makes them give up for a day.
+    if (error.contains(QStringLiteral("quota"), Qt::CaseInsensitive)
+        || error.contains(QStringLiteral("daily"), Qt::CaseInsensitive))
+        return QStringLiteral("quota");
+    return QStringLiteral("ratelimited");
 }
 }  // namespace
 
@@ -145,6 +154,7 @@ void BeanBaseClient::testApiKey() {
     // A 1-bean fetch is the cheapest authenticated call; 200 proves the key works.
     QNetworkRequest request{QUrl(QStringLiteral("%1/beans?limit=1").arg(m_baseUrl))};
     request.setRawHeader("Authorization", QByteArray("Bearer ") + key.toUtf8());
+    request.setTransferTimeout(kTransferTimeoutMs);
 
     QNetworkReply* reply = m_networkManager->get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
@@ -194,6 +204,12 @@ void BeanBaseClient::search(const QString& query) {
         return;
     }
 
+    // Latest-wins on a SHARED client (Beans page + MCP): tell the displaced
+    // query's consumer it will never get an answer, so nothing waits forever
+    // (MCP gather, search-bar spinner).
+    if (!m_pendingCanonicalQuery.isEmpty()
+        && m_pendingCanonicalQuery.compare(trimmed, Qt::CaseInsensitive) != 0)
+        emit searchFailed(m_pendingCanonicalQuery, QStringLiteral("superseded"));
     m_pendingCanonicalQuery = trimmed;
     m_canonicalDebounceTimer.start();
 }
@@ -204,6 +220,9 @@ void BeanBaseClient::doSendCanonicalSearch(const QString& query) {
         return;
     }
     if (m_activeCanonicalReply) {
+        // Aborting the in-flight request: its handler stays silent for the
+        // abort itself, so emit the never-coming-answer signal here.
+        emit searchFailed(m_activeCanonicalQuery, QStringLiteral("superseded"));
         m_activeCanonicalReply->abort();
         m_activeCanonicalReply.clear();
     }
@@ -213,18 +232,37 @@ void BeanBaseClient::doSendCanonicalSearch(const QString& query) {
     urlQuery.addQueryItem(QStringLiteral("q"), query);
     url.setQuery(urlQuery);
 
-    QNetworkReply* reply = m_networkManager->get(QNetworkRequest(url));
+    QNetworkRequest request{url};
+    request.setTransferTimeout(kTransferTimeoutMs);
+    QNetworkReply* reply = m_networkManager->get(request);
     m_activeCanonicalReply = reply;
+    m_activeCanonicalQuery = query;
     connect(reply, &QNetworkReply::finished, this, [this, reply, query]() {
         reply->deleteLater();
-        if (m_activeCanonicalReply == reply)
+        const bool wasActive = (m_activeCanonicalReply == reply);
+        if (wasActive)
             m_activeCanonicalReply.clear();
-        if (reply->error() == QNetworkReply::OperationCanceledError)
+        if (reply->error() == QNetworkReply::OperationCanceledError) {
+            // Our own supersede-abort already emitted; a transfer TIMEOUT
+            // (reply still active) has not — report it.
+            if (wasActive)
+                emit searchFailed(query, QStringLiteral("network"));
             return;
+        }
 
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() == QNetworkReply::NoError && status == 200) {
-            const QVariantList entries = parseCanonicalAutocomplete(reply->readAll());
+            const QByteArray body = reply->readAll();
+            const QVariantList entries = parseCanonicalAutocomplete(body);
+            // Markup-drift tripwire: rows present but none parsed means OUR
+            // attribute scraping broke, not that the bean is missing. Without
+            // this, every user sees a plausible "No matches" forever.
+            if (entries.isEmpty() && body.contains("<li")) {
+                qWarning() << "BeanBaseClient: canonical fragment contained rows but none parsed"
+                              " — markup drift? First 200 bytes:" << body.left(200);
+                emit searchFailed(query, QStringLiteral("parse"));
+                return;
+            }
             m_canonicalCache.insert(query.toLower(), entries);
             emit searchResults(query, entries);
         } else {
@@ -252,11 +290,13 @@ void BeanBaseClient::fetchCanonicalDetails(const QVariantMap& entry) {
     q.addQueryItem(QStringLiteral("q"), roasterName);
     url.setQuery(q);
 
-    QNetworkReply* reply = m_networkManager->get(QNetworkRequest(url));
+    QNetworkRequest request{url};
+    request.setTransferTimeout(kTransferTimeoutMs);
+    QNetworkReply* reply = m_networkManager->get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, entry, roasterName]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError)
-            return;  // Best-effort enrichment: fail silently.
+            return;  // Best-effort enrichment: transient failures stay silent.
         // Exact-name match (Visualizer itself keys canonical roasters by name).
         const QVariantList roasters = parseCanonicalAutocomplete(reply->readAll());
         for (const QVariant& v : roasters) {
@@ -269,6 +309,19 @@ void BeanBaseClient::fetchCanonicalDetails(const QVariantMap& entry) {
                 return;
             }
         }
+        // No exact match. A single candidate IS the answer (the query was the
+        // roaster's name); use it rather than failing enrichment for this
+        // roaster forever. Anything else is a systematic mismatch worth a
+        // log line — it's the difference between "best-effort" and
+        // "broke months ago and nobody can tell".
+        if (roasters.size() == 1) {
+            const QString uuid = roasters.first().toMap().value(QStringLiteral("id")).toString();
+            m_roasterUuidCache.insert(roasterName.toLower(), uuid);
+            fetchCanonicalPayload(uuid, entry);
+            return;
+        }
+        qWarning() << "BeanBaseClient: enrichment skipped — no exact roaster match for"
+                   << roasterName << "(" << roasters.size() << "candidates)";
     });
 }
 
@@ -283,14 +336,18 @@ void BeanBaseClient::fetchCanonicalPayload(const QString& roasterUuid, const QVa
     q.addQueryItem(QStringLiteral("canonical_roaster_id"), roasterUuid);
     url.setQuery(q);
 
-    QNetworkReply* reply = m_networkManager->get(QNetworkRequest(url));
+    QNetworkRequest request{url};
+    request.setTransferTimeout(kTransferTimeoutMs);
+    QNetworkReply* reply = m_networkManager->get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, canonicalId]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError)
-            return;
+            return;  // Best-effort: transient failures stay silent.
         const QVariantMap attrs = parseCanonicalPayload(reply->readAll(), canonicalId);
         if (!attrs.isEmpty())
             emit canonicalDetails(canonicalId, attrs);
+        else
+            qWarning() << "BeanBaseClient: enrichment payload missing/unparseable for" << canonicalId;
     });
 }
 
@@ -299,7 +356,7 @@ void BeanBaseClient::sendQueuedSearch() {
         return;
 
     // Respect the 1-request-per-3 s free-tier window: if we sent recently,
-    // park the query until the window clears (a newer search() replaces it).
+    // park the query until the window clears (a newer searchBeanBase() replaces it).
     if (m_sinceLastSend.isValid()) {
         const qint64 elapsed = m_sinceLastSend.elapsed();
         if (elapsed < kMinSendGapMs) {
@@ -340,18 +397,24 @@ void BeanBaseClient::doSendSearch(const QString& query) {
     QNetworkRequest request{url};
     request.setRawHeader("Authorization", QByteArray("Bearer ") + key.toUtf8());
 
+    request.setTransferTimeout(kTransferTimeoutMs);
     m_sinceLastSend.restart();
     QNetworkReply* reply = m_networkManager->get(request);
     m_activeSearchReply = reply;
 
     connect(reply, &QNetworkReply::finished, this, [this, reply, query]() {
         reply->deleteLater();
-        if (m_activeSearchReply == reply)
+        const bool wasActive = (m_activeSearchReply == reply);
+        if (wasActive)
             m_activeSearchReply.clear();
 
-        // Superseded request aborted by doSendSearch — drop silently.
-        if (reply->error() == QNetworkReply::OperationCanceledError)
+        // Superseded request aborted by doSendSearch — drop silently; a
+        // transfer TIMEOUT (reply still active) is a real failure.
+        if (reply->error() == QNetworkReply::OperationCanceledError) {
+            if (wasActive)
+                emit searchFailed(query, QStringLiteral("network"));
             return;
+        }
 
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() == QNetworkReply::NoError && status == 200) {
@@ -391,8 +454,11 @@ QVariantList BeanBaseClient::parseBeans(const QByteArray& responseBody) {
         const QJsonObject bean = v.toObject();
 
         QVariantMap entry;
-        // The id is kept as an opaque string: the user guide says "numerical"
-        // but the live format is unverified (design.md § Open Questions).
+        // Path discriminant — canonical entries carry source:"visualizer";
+        // every entry self-identifies so shape divergence is checkable.
+        entry[QStringLiteral("source")] = QStringLiteral("beanbase");
+        // The id is kept as an opaque string (confirmed numeric on the live
+        // API, June 2026).
         entry[QStringLiteral("id")] = toIdString(bean.value(QStringLiteral("id")));
         entry[QStringLiteral("roasterName")] = bean.value(QStringLiteral("roaster")).toString();
         entry[QStringLiteral("roastName")] = bean.value(QStringLiteral("roast-name")).toString();

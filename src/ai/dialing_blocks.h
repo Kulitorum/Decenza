@@ -189,7 +189,8 @@ struct CurrentBeanBlockInputs {
     QString grinderBurrs;
     QString grinderSetting;
     double doseWeightG = 0;
-    // Compact-JSON Bean Base snapshot ("" = unlinked). Parsed into a
+    // Compact-JSON linked-bean snapshot ("" = unlinked, Visualizer canonical
+    // or Bean Base sourced). Parsed into a
     // `beanBase` sub-object so the advisor sees structured origin/variety/
     // process/tasting data instead of just free-text brand+name strings.
     QString beanBaseJson;
@@ -239,6 +240,9 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
         put("roastLevel", "degree");          // Bean Base's richer string, e.g. "Light To Medium-light"
         put("roastedFor", "beanType");        // "Espresso" | "Filter" | "Omni"
         put("harvest", "harvest");
+        // Canonical-sourced blobs carry a single `elevation` display string;
+        // Bean Base-sourced blobs carry numeric min/max. Pass through both.
+        put("elevation", "elevation");
         const int loM = src.value(QLatin1String("minElevationM")).toInt();
         const int hiM = src.value(QLatin1String("maxElevationM")).toInt();
         if (loM > 0) bb["minElevationM"] = loM;
