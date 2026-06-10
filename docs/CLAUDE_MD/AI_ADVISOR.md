@@ -420,7 +420,7 @@ YOUR PROFILE HISTORY (last 90 days):
   3. What's the bean ID format — is it the UUID that visualizer uses as `canonical_coffee_bag_id`?
 
 **Visualizer <-> Bean Base linking via `canonical_coffee_bag_id`:**
-The visualizer API has a `canonical_coffee_bag_id` field (UUID, nullable) on both `coffee_bags` and shots. This is the mechanism for linking to external databases like Bean Base. This means Decenza can:
+(CONFIRMED June 2026 from the open-source miharekar/visualizer repo — see `BEAN_BASE.md` and the add-bean-base-integration design.) `canonical_coffee_bag_id` is the UUID of a row in Visualizer's own `canonical_coffee_bags` table; that table holds the Bean Base integer in its `loffee_labs_id` column. No public API resolves loffee_labs_id → UUID today, so cross-linking from Decenza needs a small upstream addition. This means Decenza can:
 - **Read**: Pull the user's coffee bags from visualizer, which may already have Bean Base links from the visualizer web UI
 - **Write**: When user selects a Bean Base result in Decenza, create/update a `coffee_bag` on visualizer with the `canonical_coffee_bag_id` set to the Bean Base UUID — keeping visualizer in sync
 - **Link shots**: When uploading shots, include `coffee_bag_id` to link shot -> bag -> Bean Base

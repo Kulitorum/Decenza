@@ -144,7 +144,7 @@
 
 - [x] 7B.1 `shots_get_detail` / `shots_compare`: emit the snapshot as a parsed `beanBase` object (`reshapeBeanBase()` — LLMs can't reliably read double-encoded JSON strings; sparse, omitted when unlinked).
 - [x] 7B.2 `shots_update`: new `beanBase` object arg — full entry replaces the shot's snapshot, `{}` clears it. Enables "fix shots recorded against the wrong bean" via MCP (copy the `beanBase` block from a correctly-linked shot, or from `bean_base_search` once Section 8 lands). Stored compact via the existing `updateShotMetadataStatic` beanBaseJson field-map entry.
-- [ ] 7B.3 Document the `beanBase` read/write shape in `docs/CLAUDE_MD/MCP_SERVER.md` (fold into Section 9 docs pass).
+- [x] 7B.3 Done in the Section 9 docs pass (MCP_SERVER.md Bean Base section).
 
 ## 8. Tier 4 — AI advisor bean attribute enrichment
 
@@ -155,14 +155,14 @@
   - Returns: `QList<BeanBaseEntry>` JSON-encoded.
   - Uses the same `BeanBaseClient` instance (with same rate-limit harness).
   - Rejects gracefully with a structured error if `Settings.beanbase.beanBaseApiKey` is empty.
-- [ ] 8.4 Document `bean_base_search` in `docs/CLAUDE_MD/MCP_SERVER.md` under the read-tools section. Note the rate-limit characteristics so advisor prompts don't spam it.
+- [x] 8.4 Documented in MCP_SERVER.md (new Bean Base section: bean_base_search, beanBase read/write on shot tools, key not exposed via MCP).
 - [ ] 8.5 Integration test: with a mock Bean Base server, the advisor receives the attribute block for a linked preset and free-text fallback otherwise.
 
 ## 9. Documentation & cross-references
 
-- [ ] 9.1 Update `docs/CLAUDE_MD/AI_ADVISOR.md` § "Bean Data Enrichment" (lines 384–432): mark Bean Base integration as in-progress (with reference to this change), keep the Visualizer-linkage paragraph accurate (correct the "ids match" assumption — they don't; Visualizer stores Bean Base ids verbatim in its `canonical_coffee_bag_id` column).
-- [ ] 9.2 Add a new `docs/CLAUDE_MD/BEAN_BASE.md` covering: API endpoints, free-tier rate limits, the `BeanBaseClient` rate-limit + cache harness, the field-mapping table, the linked-state matrix, and the Visualizer upload linkage shape.
-- [ ] 9.3 Link the new doc from the table in `CLAUDE.md` ("Reference Documents" section).
+- [x] 9.1 Update `docs/CLAUDE_MD/AI_ADVISOR.md` § "Bean Data Enrichment" (lines 384–432): mark Bean Base integration as in-progress (with reference to this change), keep the Visualizer-linkage paragraph accurate (correct the "ids match" assumption — they don't; Visualizer stores Bean Base ids verbatim in its `canonical_coffee_bag_id` column).
+- [x] 9.2 Add a new `docs/CLAUDE_MD/BEAN_BASE.md` covering: API endpoints, free-tier rate limits, the `BeanBaseClient` rate-limit + cache harness, the field-mapping table, the linked-state matrix, and the Visualizer upload linkage shape.
+- [x] 9.3 Link the new doc from the table in `CLAUDE.md` ("Reference Documents" section).
 - [ ] 9.4 If the tab is renamed to "Cloud" in a future change, this doc gets updated then — not now.
 
 ## 10. Verification

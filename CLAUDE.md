@@ -30,6 +30,7 @@ Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in th
 | `FIRMWARE_UPDATE.md` | DE1 firmware update flow, source URL, validation rules, failure modes |
 | `MCP_SERVER.md` | Full MCP tool list, access levels, architecture, data conventions |
 | `AI_ADVISOR.md` | AI dialing assistant design |
+| `BEAN_BASE.md` | Loffee Labs Bean Base integration: API quirks (whole-word search, tier-gated fields, 429 classification), snapshot-not-reference rule, lock-follows-the-data UI, Visualizer canonical-id architecture |
 | `SETTINGS.md` | Settings architecture: 7 domain sub-objects, how to add properties/domains, QML access pattern, build-blast rules |
 | `QML_GOTCHAS.md` | QML bug-prone patterns with code samples (font conflict, reserved names, IME drop, etc.) |
 | `QML_NAVIGATION.md` | StackView page navigation, phase-change handler, operation-page conventions |
