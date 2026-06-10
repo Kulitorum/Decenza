@@ -771,54 +771,94 @@ Page {
                     beanBaseJson: activeBeanBaseJson
                 }
 
-                SuggestionField {
-                    Layout.fillWidth: true
-                    // Locked while a linked Bean Base entry supplies the roaster
-                    // (lock follows the data; unlink to edit).
-                    enabled: !beanBaseLocks("roasterName")
-                    opacity: beanBaseLocks("roasterName") ? 0.7 : 1.0
-                    label: TranslationManager.translate("shotmetadata.label.roaster", "Roaster")
-                    text: isEditMode ? editBeanBrand : Settings.dye.dyeBeanBrand
-                    suggestions: {
-                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
-                        var current = isEditMode ? editBeanBrand : Settings.dye.dyeBeanBrand
-                        if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
-                        return list
-                    }
-                    onTextEdited: function(t) { if (isEditMode) editBeanBrand = t; else { Settings.dye.dyeBeanBrand = t; deselectPresetOnEdit(); } }
-                    onSuggestionSelected: function(t) {
-                        if (isEditMode) { editBeanType = ""; editRoastDate = ""; }
-                        else { Settings.dye.dyeBeanType = ""; Settings.dye.dyeRoastDate = ""; deselectPresetOnEdit(); }
-                        var types = MainController.shotHistory.getDistinctBeanTypesForBrand(t)
-                        if (types.length === 1) {
-                            if (isEditMode) editBeanType = types[0]; else Settings.dye.dyeBeanType = types[0];
-                        } else if (types.length === 0) {
-                            _pendingBeanAutoFill = t  // Cache miss — retry when async fetch completes
-                        }
-                    }
-                    onInputFocused: function(field) { focusedField = field }
-                    onInputBlurred: Qt.callLater(checkFocusReset)
+                // Shared popup for taps on any LOCKED field (Roaster / Coffee /
+                // Roast level) — same content as the details row's popup.
+                BeanBaseDetailsPopup {
+                    id: lockedBeanDetailsPopup
+                    beanBaseJson: activeBeanBaseJson
                 }
 
-                SuggestionField {
+                Item {
                     Layout.fillWidth: true
-                    enabled: !beanBaseLocks("roastName")
-                    opacity: beanBaseLocks("roastName") ? 0.7 : 1.0
-                    label: TranslationManager.translate("shotmetadata.label.coffee", "Coffee")
-                    text: isEditMode ? editBeanType : Settings.dye.dyeBeanType
-                    suggestions: {
-                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(
-                            isEditMode ? editBeanBrand : Settings.dye.dyeBeanBrand) : []
-                        var current = isEditMode ? editBeanType : Settings.dye.dyeBeanType
-                        if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
-                        return list
+                    implicitHeight: roasterSuggestionField.implicitHeight
+
+                    SuggestionField {
+                        id: roasterSuggestionField
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        // Locked while a linked Bean Base entry supplies the roaster
+                        // (lock follows the data; unlink to edit).
+                        enabled: !beanBaseLocks("roasterName")
+                        opacity: beanBaseLocks("roasterName") ? 0.7 : 1.0
+                        label: TranslationManager.translate("shotmetadata.label.roaster", "Roaster")
+                        text: isEditMode ? editBeanBrand : Settings.dye.dyeBeanBrand
+                        suggestions: {
+                            var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
+                            var current = isEditMode ? editBeanBrand : Settings.dye.dyeBeanBrand
+                            if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
+                            return list
+                        }
+                        onTextEdited: function(t) { if (isEditMode) editBeanBrand = t; else { Settings.dye.dyeBeanBrand = t; deselectPresetOnEdit(); } }
+                        onSuggestionSelected: function(t) {
+                            if (isEditMode) { editBeanType = ""; editRoastDate = ""; }
+                            else { Settings.dye.dyeBeanType = ""; Settings.dye.dyeRoastDate = ""; deselectPresetOnEdit(); }
+                            var types = MainController.shotHistory.getDistinctBeanTypesForBrand(t)
+                            if (types.length === 1) {
+                                if (isEditMode) editBeanType = types[0]; else Settings.dye.dyeBeanType = types[0];
+                            } else if (types.length === 0) {
+                                _pendingBeanAutoFill = t  // Cache miss — retry when async fetch completes
+                            }
+                        }
+                        onInputFocused: function(field) { focusedField = field }
+                        onInputBlurred: Qt.callLater(checkFocusReset)
                     }
-                    onTextEdited: function(t) { if (isEditMode) editBeanType = t; else { Settings.dye.dyeBeanType = t; deselectPresetOnEdit(); } }
-                    onSuggestionSelected: function(t) {
-                        if (isEditMode) editRoastDate = ""; else { Settings.dye.dyeRoastDate = ""; deselectPresetOnEdit(); }
+
+                    // Sibling overlay (a child of the disabled field would be
+                    // disabled with it): tapping a locked field opens the full
+                    // bean details popup.
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        visible: beanBaseLocks("roasterName")
+                        accessibleName: TranslationManager.translate("beaninfo.beanbase.lockedField", "From Bean Base. Opens bean details")
+                        accessibleItem: roasterSuggestionField
+                        onAccessibleClicked: lockedBeanDetailsPopup.open()
                     }
-                    onInputFocused: function(field) { focusedField = field }
-                    onInputBlurred: Qt.callLater(checkFocusReset)
+                }
+
+                Item {
+                    Layout.fillWidth: true
+                    implicitHeight: coffeeSuggestionField.implicitHeight
+
+                    SuggestionField {
+                        id: coffeeSuggestionField
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        enabled: !beanBaseLocks("roastName")
+                        opacity: beanBaseLocks("roastName") ? 0.7 : 1.0
+                        label: TranslationManager.translate("shotmetadata.label.coffee", "Coffee")
+                        text: isEditMode ? editBeanType : Settings.dye.dyeBeanType
+                        suggestions: {
+                            var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(
+                                isEditMode ? editBeanBrand : Settings.dye.dyeBeanBrand) : []
+                            var current = isEditMode ? editBeanType : Settings.dye.dyeBeanType
+                            if (current.length > 0 && list.indexOf(current) === -1) list = [current].concat(list)
+                            return list
+                        }
+                        onTextEdited: function(t) { if (isEditMode) editBeanType = t; else { Settings.dye.dyeBeanType = t; deselectPresetOnEdit(); } }
+                        onSuggestionSelected: function(t) {
+                            if (isEditMode) editRoastDate = ""; else { Settings.dye.dyeRoastDate = ""; deselectPresetOnEdit(); }
+                        }
+                        onInputFocused: function(field) { focusedField = field }
+                        onInputBlurred: Qt.callLater(checkFocusReset)
+                    }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        visible: beanBaseLocks("roastName")
+                        accessibleName: TranslationManager.translate("beaninfo.beanbase.lockedField", "From Bean Base. Opens bean details")
+                        accessibleItem: coffeeSuggestionField
+                        onAccessibleClicked: lockedBeanDetailsPopup.open()
+                    }
                 }
 
                 Item {
@@ -865,13 +905,27 @@ Page {
                 // Medium-light") don't fit the fixed combo model, so show the
                 // canonical value verbatim in a read-only field. The stored
                 // dyeRoastLevel carries the same string for uploads/advisor.
-                LabeledField {
+                Item {
                     Layout.fillWidth: true
                     visible: beanBaseLocks("degree")
-                    enabled: false
-                    opacity: 0.7
-                    label: TranslationManager.translate("shotmetadata.label.roastlevel", "Roast level")
-                    text: activeBeanBase.degree !== undefined ? String(activeBeanBase.degree) : ""
+                    implicitHeight: lockedRoastLevelField.implicitHeight
+
+                    LabeledField {
+                        id: lockedRoastLevelField
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        enabled: false
+                        opacity: 0.7
+                        label: TranslationManager.translate("shotmetadata.label.roastlevel", "Roast level")
+                        text: activeBeanBase.degree !== undefined ? String(activeBeanBase.degree) : ""
+                    }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: TranslationManager.translate("beaninfo.beanbase.lockedField", "From Bean Base. Opens bean details")
+                        accessibleItem: lockedRoastLevelField
+                        onAccessibleClicked: lockedBeanDetailsPopup.open()
+                    }
                 }
 
                 LabeledComboBox {
