@@ -861,10 +861,22 @@ Page {
                     }
                 }
 
+                // Locked roast level: Bean Base degree strings ("Light To
+                // Medium-light") don't fit the fixed combo model, so show the
+                // canonical value verbatim in a read-only field. The stored
+                // dyeRoastLevel carries the same string for uploads/advisor.
+                LabeledField {
+                    Layout.fillWidth: true
+                    visible: beanBaseLocks("degree")
+                    enabled: false
+                    opacity: 0.7
+                    label: TranslationManager.translate("shotmetadata.label.roastlevel", "Roast level")
+                    text: activeBeanBase.degree !== undefined ? String(activeBeanBase.degree) : ""
+                }
+
                 LabeledComboBox {
                     Layout.fillWidth: true
-                    enabled: !beanBaseLocks("degree")
-                    opacity: beanBaseLocks("degree") ? 0.7 : 1.0
+                    visible: !beanBaseLocks("degree")
                     label: TranslationManager.translate("shotmetadata.label.roastlevel", "Roast level")
                     model: ["",
                         TranslationManager.translate("shotmetadata.roastlevel.light", "Light"),
