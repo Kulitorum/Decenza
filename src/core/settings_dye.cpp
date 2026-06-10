@@ -55,6 +55,7 @@ SettingsDye::SettingsDye(SettingsVisualizer* visualizer, QObject* parent)
     connect(this, &SettingsDye::dyeGrinderBurrsChanged,  this, &SettingsDye::recomputeBeansModified);
     connect(this, &SettingsDye::dyeGrinderSettingChanged, this, &SettingsDye::recomputeBeansModified);
     connect(this, &SettingsDye::dyeBaristaChanged,       this, &SettingsDye::recomputeBeansModified);
+    connect(this, &SettingsDye::dyeBeanBaseIdChanged,    this, &SettingsDye::recomputeBeansModified);
     connect(this, &SettingsDye::selectedBeanPresetChanged, this, &SettingsDye::recomputeBeansModified);
     connect(this, &SettingsDye::beanPresetsChanged,      this, &SettingsDye::recomputeBeansModified);
     recomputeBeansModified();  // Seed initial state from persisted values
@@ -290,6 +291,47 @@ void SettingsDye::setDyeShotDateTime(const QString& value) {
     }
 }
 
+// Bean Base link state
+
+QString SettingsDye::dyeBeanBaseId() const {
+    return m_settings.value("dye/beanBaseId", "").toString();
+}
+
+void SettingsDye::setDyeBeanBaseId(const QString& value) {
+    if (dyeBeanBaseId() != value) {
+        m_settings.setValue("dye/beanBaseId", value);
+        emit dyeBeanBaseIdChanged();
+    }
+}
+
+QString SettingsDye::dyeBeanBaseRoasterId() const {
+    return m_settings.value("dye/beanBaseRoasterId", "").toString();
+}
+
+void SettingsDye::setDyeBeanBaseRoasterId(const QString& value) {
+    if (dyeBeanBaseRoasterId() != value) {
+        m_settings.setValue("dye/beanBaseRoasterId", value);
+        emit dyeBeanBaseRoasterIdChanged();
+    }
+}
+
+QString SettingsDye::dyeBeanBaseData() const {
+    return m_settings.value("dye/beanBaseData", "").toString();
+}
+
+void SettingsDye::setDyeBeanBaseData(const QString& value) {
+    if (dyeBeanBaseData() != value) {
+        m_settings.setValue("dye/beanBaseData", value);
+        emit dyeBeanBaseDataChanged();
+    }
+}
+
+void SettingsDye::clearBeanBaseLink() {
+    setDyeBeanBaseId(QString());
+    setDyeBeanBaseRoasterId(QString());
+    setDyeBeanBaseData(QString());
+}
+
 // Bean presets
 
 QJsonArray SettingsDye::getBeanPresetsArray() const {
@@ -343,6 +385,14 @@ void SettingsDye::addBeanPreset(const QString& name, const QString& brand, const
     preset["grinderSetting"] = grinderSetting;
     preset["barista"] = barista;
     preset["showOnIdle"] = true;
+    // The add dialog saves the CURRENT bean — when the passed identity matches
+    // the live DYE state, carry its Bean Base link (empty when unlinked, the
+    // common free-text case).
+    if (brand == dyeBeanBrand() && type == dyeBeanType() && !dyeBeanBaseId().isEmpty()) {
+        preset["beanBaseId"] = dyeBeanBaseId();
+        preset["beanBaseRoasterId"] = dyeBeanBaseRoasterId();
+        preset["beanBaseData"] = dyeBeanBaseData();
+    }
     arr.append(preset);
 
     m_settings.setValue("bean/presets", QJsonDocument(arr).toJson());
@@ -373,6 +423,22 @@ void SettingsDye::updateBeanPreset(int index, const QString& name, const QString
         preset["grinderSetting"] = grinderSetting;
         preset["barista"] = barista;
         preset["showOnIdle"] = showOnIdle;
+        // Bean Base link: when the saved identity matches the live DYE state
+        // (the "Save = make preset match current DYE" flow), mirror the live
+        // link exactly — including clearing it after an Unlink. Otherwise
+        // (e.g. renaming a preset that isn't the active bean) preserve the
+        // row's existing link, like showOnIdle above.
+        if (brand == dyeBeanBrand() && type == dyeBeanType()) {
+            if (!dyeBeanBaseId().isEmpty()) {
+                preset["beanBaseId"] = dyeBeanBaseId();
+                preset["beanBaseRoasterId"] = dyeBeanBaseRoasterId();
+                preset["beanBaseData"] = dyeBeanBaseData();
+            }
+        } else if (existing.contains("beanBaseId")) {
+            preset["beanBaseId"] = existing["beanBaseId"];
+            preset["beanBaseRoasterId"] = existing["beanBaseRoasterId"];
+            preset["beanBaseData"] = existing["beanBaseData"];
+        }
         arr[index] = preset;
 
         m_settings.setValue("bean/presets", QJsonDocument(arr).toJson());
@@ -501,6 +567,11 @@ void SettingsDye::applyBeanPreset(int index) {
     setDyeGrinderBurrs(burrs);
     setDyeGrinderSetting(preset.value("grinderSetting").toString());
     setDyeBarista(preset.value("barista").toString());
+    // Bean Base link follows the preset — an unlinked preset clears any
+    // leftover link from the previous bean.
+    setDyeBeanBaseId(preset.value("beanBaseId").toString());
+    setDyeBeanBaseRoasterId(preset.value("beanBaseRoasterId").toString());
+    setDyeBeanBaseData(preset.value("beanBaseData").toString());
 }
 
 void SettingsDye::recomputeBeansModified() {
@@ -537,7 +608,10 @@ void SettingsDye::recomputeBeansModified() {
                     || dyeGrinderModel()   != presetModel
                     || dyeGrinderBurrs()   != presetBurrs
                     || dyeGrinderSetting() != preset.value("grinderSetting").toString()
-                    || dyeBarista()        != preset.value("barista").toString();
+                    || dyeBarista()        != preset.value("barista").toString()
+                    // Link change (relink/unlink) counts as modified — the id
+                    // is the identity; beanBaseData always travels with it.
+                    || dyeBeanBaseId()     != preset.value("beanBaseId").toString();
         }
     }
     if (modified != m_beansModified) {
@@ -569,6 +643,18 @@ int SettingsDye::findBeanPresetByContent(const QString& brand, const QString& ty
     for (int i = 0; i < arr.size(); ++i) {
         QJsonObject obj = arr[i].toObject();
         if (obj["brand"].toString() == brand && obj["type"].toString() == type) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int SettingsDye::findBeanPresetByBeanBaseId(const QString& beanBaseId) const {
+    if (beanBaseId.isEmpty())
+        return -1;
+    QJsonArray arr = getBeanPresetsArray();
+    for (int i = 0; i < arr.size(); ++i) {
+        if (arr[i].toObject().value("beanBaseId").toString() == beanBaseId) {
             return i;
         }
     }

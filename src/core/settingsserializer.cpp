@@ -302,6 +302,9 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     dye["shotNotes"] = settings->dye()->dyeShotNotes();
     dye["barista"] = settings->dye()->dyeBarista();
     dye["shotDateTime"] = settings->dye()->dyeShotDateTime();
+    dye["beanBaseId"] = settings->dye()->dyeBeanBaseId();
+    dye["beanBaseRoasterId"] = settings->dye()->dyeBeanBaseRoasterId();
+    dye["beanBaseData"] = settings->dye()->dyeBeanBaseData();
     root["dye"] = dye;
 
     // Shot server settings
@@ -732,6 +735,9 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         else if (dye.contains("espressoNotes")) settings->dye()->setDyeShotNotes(dye["espressoNotes"].toString());
         if (dye.contains("barista")) settings->dye()->setDyeBarista(dye["barista"].toString());
         if (dye.contains("shotDateTime")) settings->dye()->setDyeShotDateTime(dye["shotDateTime"].toString());
+        if (dye.contains("beanBaseId")) settings->dye()->setDyeBeanBaseId(dye["beanBaseId"].toString());
+        if (dye.contains("beanBaseRoasterId")) settings->dye()->setDyeBeanBaseRoasterId(dye["beanBaseRoasterId"].toString());
+        if (dye.contains("beanBaseData")) settings->dye()->setDyeBeanBaseData(dye["beanBaseData"].toString());
     }
 
     // Shot server settings

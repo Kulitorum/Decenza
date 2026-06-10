@@ -62,17 +62,17 @@ When a Bean Base entry is applied, fields are partitioned into three buckets:
 |------------------|-----------|----------|
 | `roaster` | `dyeBeanBrand` | Filled, **disabled (verified)** |
 | `roast-name` | `dyeBeanType` | Filled, **disabled (verified)** |
-| `degree` | `dyeRoastLevel` | Filled, **editable** (user's bag may differ) |
+| `degree` | `dyeRoastLevel` | Filled, **disabled (verified)** |
 | `link` | preset `productUrl` (cached) + `coffee_bag[url]` on upload | Cached, not user-visible on BeanInfoPage |
-| `image` | preset `imageUrl` (cached) | Cached; displayed as preset thumbnail in left column |
+| `image` | cached in `beanBaseData` | Displayed on BeanInfoPage when a linked bean is active (bag photo beside the Bean section) and as a thumbnail on linked preset rows. QML `Image` loads the URL directly; if it fails to load, the layout collapses gracefully (no broken-image placeholder). |
 | `origin`, `region`, `variety`, `process`, `producer`, `min-elev`, `max-elev`, `tasting`, `tasting-tag`, `general-tag`, `type` | preset attribute cache | Cached; sent to Visualizer + injected into advisor prompt |
 | `harvest` | (none) | Cached; available for future use |
 | (Bean Base) `date` | `dyeRoastDate` | **NOT touched.** Bean Base `date` is the release date for a bean; the user's bag may have been roasted on a different day. Roast date remains user-entered. |
 | `soldout`, `available` | (none) | Cached; could power a "marked sold out" advisory but not in this change. |
 
-**Rationale:** Mirrors Visualizer's `canonical_selector_controller` (Roaster + Coffee disabled when `canonical_coffee_bag_id` is set) while keeping Decenza-specific fields (dose, grinder, barista, roast date) fully editable. Roast level is borderline — matching Bean Base's `degree` is usually right but a user buying the same bean lot at "city+" instead of "medium" should be free to correct it without unlinking.
+**Rationale (updated per user decision, June 2026):** Every field Bean Base supplies a non-empty value for is read-only while linked — canonical data wins where we have it, and divergent user edits can't pollute the canonical shot record. To change a pulled value, unlink first. The lock follows the data, not the link: if the matched entry lacks a value (e.g. no `degree`), that field stays editable so the user can fill the gap themselves (lock condition: `linked && pulledValueNonEmpty`). Decenza-specific fields (dose, grinder, barista, roast date) remain fully editable — they describe the user's bag and shot, not the bean's identity.
 
-**Alternative considered:** Lock all bean-identity fields including roast level. Rejected — too rigid; roast level is genuinely bag-specific.
+**Free-text is the primary path, not a fallback.** Many beans aren't in Bean Base. The unlinked experience must remain exactly as frictionless as today: no nag styling, no "unverified" warnings, the search bar stays out of the way when it has nothing to offer. The cached blob is optional enrichment; nothing requires it.
 
 ### Decision: Debounce 800 ms + 3 s sent-request floor; cache aggressively
 

@@ -45,18 +45,13 @@
 
 ## 4. Tier 2 — DYE schema additions for Bean Base attributes
 
-(If `add-shot-metadata-capture` will own these per task 0.1, mark this section blocked-on that change and move on.)
+> **RESOLVED 0.1 by design change (user decision, June 2026): single-blob schema in THIS change** — `add-shot-metadata-capture` keeps its scope for user-editable fields. The cached Bean Base payload is one compact-JSON blob (`beanBaseData`), not 14 individual fields: both consumers (shot snapshot → Visualizer upload, MCP/advisor) read it as a unit, the blob survives payload-shape surprises, and preset rows already flow to QML as variant maps so nested blob fields are QML-readable for free.
 
-- [ ] 4.1 Extend the bean preset JSON blob schema in `SettingsDye::getBeanPresetsArray()`:
-  - `beanBaseId` (string — opaque, see 0.2)
-  - `beanBaseRoasterId` (string)
-  - `origin`, `region`, `producer`, `variety`, `process`, `beanType`, `productUrl`, `imageUrl`, `roasterWebsite`, `tastingNotes`
-  - `minElevationM`, `maxElevationM` (numeric, optional)
-  - `tastingTags`, `generalTags` (string arrays)
-- [ ] 4.2 Add a parallel set of `dye*` per-shot fields on `SettingsDye` for the same attributes so a shot upload can carry them even when the user edits free-text values that diverge from the preset.
-- [ ] 4.3 Update `SettingsDye::addBeanPreset()` / `updateBeanPreset()` / `applyBeanPreset()` to read and write the new fields.
-- [ ] 4.4 Update `findBeanPresetByContent()` to prefer matching by `beanBaseId` when present; fall back to existing brand+type match otherwise.
-- [ ] 4.5 Unit test: preset round-trip with all new fields present and with all missing.
+- [x] 4.1 Preset rows gain `beanBaseId` (opaque string), `beanBaseRoasterId`, `beanBaseData` (compact-JSON blob with origin/variety/process/image/link/tags/etc. inside). Additive to the existing presets JSON array — no migration needed; missing = unlinked.
+- [x] 4.2 BLOB INSTEAD OF PER-FIELD: `SettingsDye` gains `dyeBeanBaseId` / `dyeBeanBaseRoasterId` / `dyeBeanBaseData` (sticky QSettings-backed Q_PROPERTYs) + `clearBeanBaseLink()` invokable. Serialized in settingsserializer (dye block). PLUS the per-shot snapshot path: `ShotMetadata.beanBaseJson` → `ShotSaveData.beanBaseJson` → new `shots.beanbase_json` column (migration 18) → `ShotRecord.beanBaseJson` → `ShotProjection.beanBaseJson` (sparse-emit). All three MainController save sites wired. `updateShotMetadataStatic` fieldMap carries `beanBaseJson` so edit mode can fix/clear a historical shot's snapshot.
+- [x] 4.3 `addBeanPreset`/`updateBeanPreset` mirror the live DYE link when the saved identity matches the active bean (including clearing after Unlink); `updateBeanPreset` preserves the row's existing link otherwise (rename-of-inactive-preset case). `applyBeanPreset` copies the preset's link into DYE state — an unlinked preset clears any leftover link. `recomputeBeansModified` counts a link change as modified (id compared; data travels with id).
+- [x] 4.4 Added `findBeanPresetByBeanBaseId()` (new Q_INVOKABLE — kept `findBeanPresetByContent` signature unchanged; UI tries id first, falls back to brand+type).
+- [x] 4.5 Unit tests: `dyeBeanBaseLinkRoundTripAndClear`, `beanPresetCarriesAndAppliesBeanBaseLink`, `updateBeanPresetPreservesLinkWhenNotActiveBean` in tst_settings.cpp (with init/cleanup save-restore of the new sticky fields).
 
 ## 5. Tier 2 — `BeanBaseSearchBar` QML component
 
@@ -84,14 +79,14 @@
 - [ ] 6.2 Bind `visible: Settings.beanbase.beanBaseApiKey.length > 0 || hasBeanBaseLink` where `hasBeanBaseLink := Settings.dye.beanBaseId.length > 0`. (If both false, render nothing — matches today.)
 - [ ] 6.3 Render mode logic per the three-state matrix (no-key/no-link → nothing; no-key/link → static "✓ Linked" pill; key/no-link → live search; key/link → search + linked indicator).
 - [ ] 6.4 On `entrySelected(entry)`:
-  - Set `Settings.dye.dyeBeanBrand = entry.roasterName`, `dyeBeanType = entry.roastName`, `dyeRoastLevel = entry.degree` (only if user hasn't already overridden).
+  - Set `Settings.dye.dyeBeanBrand = entry.roasterName`, `dyeBeanType = entry.roastName`, and `dyeRoastLevel = entry.degree` only when `degree` is non-empty (empty pulled values leave the field unchanged and editable).
   - Set `Settings.dye.beanBaseId = entry.id`, `beanBaseRoasterId = entry.roasterId`, plus the cached attribute fields.
   - Do **not** touch `dyeRoastDate`.
   - Trigger the `↑` suggestion arrows on Roaster + Coffee to hide (e.g., `Settings.dye.beanBaseId` non-empty → `suggestionArrow.visible = false`).
-- [ ] 6.5 Render Roaster + Coffee `StyledTextField`s with `enabled: !Settings.dye.beanBaseId` and a subtle "verified" tint when disabled (use `Theme.surfaceHighlightColor` or similar).
+- [ ] 6.5 Render Roaster, Coffee, AND Roast level controls locked with a subtle "verified" tint when linked AND the matched entry supplied a non-empty value for that field (lock condition: `linked && pulledValueNonEmpty` — e.g. an entry with no `degree` leaves Roast level editable so the user can fill the gap). Unlinked beans keep today's fully-editable free-text experience with zero added friction (most beans are not in Bean Base).
 - [ ] 6.6 On `unlinkRequested()`: clear `Settings.dye.beanBaseId` + `beanBaseRoasterId` + cached attribute fields. Roaster + Coffee field values are *retained* (do not clear) so the user can edit them freely.
 - [ ] 6.7 If a Bean Base entry has `image`, show its thumbnail in the bean preset list (left column) for matching presets. (See task 4.x for storing `imageUrl` on the preset.)
-- [ ] 6.8 In edit mode (`isEditMode`), keep the search bar visible — retro-linking a historical shot to its Bean Base entry is a deliberate use case.
+- [ ] 6.8 In edit mode (`isEditMode`), keep the search bar visible — retro-linking a historical shot is a deliberate use case, and so is FIXING a wrong link ("forgot to change the bean"). Re-link/unlink in edit mode updates the edited shot's `beanbase_json` snapshot (and visible bean fields) for that shot only; current DYE session state is untouched. The shot-metadata update path (`requestUpdateShotMetadata`) must carry the snapshot.
 - [ ] 6.9 Translation keys: `beaninfo.beanbase.linked`, `beaninfo.beanbase.unlink`, `beaninfo.beanbase.openUrl`, `beaninfo.accessibility.searchBar`.
 - [ ] 6.10 Accessibility focus order: search bar comes before Roaster field; when linked, "Unlink" button is reachable before Roaster.
 

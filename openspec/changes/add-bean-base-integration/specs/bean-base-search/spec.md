@@ -36,10 +36,15 @@ When the user picks a Bean Base entry from the dropdown, the system SHALL apply 
 - **AND** the Roaster and Coffee `StyledTextField`s are rendered with `enabled: false` and a "verified" visual treatment
 - **AND** the `↑` distinct-values suggestion arrow is hidden on those two fields
 
-#### Scenario: Roast level is filled but stays editable
+#### Scenario: Roast level is filled and locked like the other pulled fields
 - **WHEN** the picked entry has `degree = "Medium"`
 - **THEN** `dyeRoastLevel` is set to "Medium"
-- **AND** the Roast level dropdown remains enabled so the user can override
+- **AND** the Roast level control is disabled with the same "verified" treatment as Roaster and Coffee (fields Bean Base supplies are read-only while linked; unlink to edit)
+
+#### Scenario: A pulled field with no Bean Base value stays editable
+- **WHEN** the picked entry has an empty or missing `degree`
+- **THEN** `dyeRoastLevel` is left unchanged
+- **AND** the Roast level control remains enabled so the user can set it manually (the lock follows the data, not the link: a field is locked only when linked AND Bean Base supplied a non-empty value for it)
 
 #### Scenario: Roast date is not touched
 - **WHEN** the user picks a Bean Base entry that has a `date` field
@@ -51,6 +56,21 @@ When the user picks a Bean Base entry from the dropdown, the system SHALL apply 
 - **AND** these cached values are sent on the next Visualizer upload (per `visualizer-bag-linkage`)
 - **AND** these cached values are injected into the next AI advisor prompt (per `ai-advisor` modifications)
 
+### Requirement: The link is always correctable — replace, clear, or fix historical shots
+
+Because users forget to update the bean when opening a new bag, the Bean Base link MUST never be a one-way door. The search input SHALL remain visible and usable while linked (not collapsed into a static badge), and editing a historical shot SHALL allow re-linking or unlinking with the shot's stored Bean Base snapshot updated to match.
+
+#### Scenario: Replacing a wrong link in place
+- **WHEN** a bean is linked and the user types a new query into the search input
+- **THEN** the existing link is cleared and the dropdown reopens with results for the new query
+- **AND** picking a new entry applies it exactly as a first-time link would
+
+#### Scenario: Fixing a historical shot that carried the wrong bean
+- **WHEN** the user opens a past shot in edit mode and uses the search bar to link a different Bean Base entry (or unlink)
+- **THEN** the edited shot's stored Bean Base snapshot (`beanbase_json`) is replaced (or cleared) along with the visible bean fields
+- **AND** the change affects only that shot — the current DYE session state and other shots are untouched
+- **AND** a subsequent Visualizer re-upload of that shot carries the corrected bean data
+
 ### Requirement: Unlinking preserves field values
 
 When the user explicitly unlinks a previously-matched Bean Base entry, the system SHALL clear `beanBaseId`, `beanBaseRoasterId`, and the cached attribute fields, but SHALL preserve the user-visible `dyeBeanBrand`, `dyeBeanType`, and `dyeRoastLevel` values.
@@ -59,8 +79,8 @@ When the user explicitly unlinks a previously-matched Bean Base entry, the syste
 - **WHEN** the user taps the Unlink action on a linked bean
 - **THEN** `dyeBeanBaseId` and `dyeBeanBaseRoasterId` are cleared
 - **AND** cached origin/variety/process/etc. fields are cleared
-- **AND** `dyeBeanBrand` and `dyeBeanType` retain their current display values
-- **AND** the Roaster and Coffee fields become enabled and lose the "verified" treatment
+- **AND** `dyeBeanBrand`, `dyeBeanType`, and `dyeRoastLevel` retain their current display values
+- **AND** the Roaster, Coffee, and Roast level fields become enabled and lose the "verified" treatment
 
 ### Requirement: Search respects free-tier rate budget
 

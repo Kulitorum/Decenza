@@ -55,6 +55,10 @@ struct ShotRecord {
     QString visualizerId;
     QString visualizerUrl;
 
+    // Compact-JSON snapshot of the linked Bean Base entry at shot time
+    // (empty = unlinked / pre-migration-18 shot). See ShotSaveData::beanBaseJson.
+    QString beanBaseJson;
+
     // Time-series data (lazily loaded)
     QVector<QPointF> pressure;
     QVector<QPointF> flow;
@@ -226,6 +230,11 @@ struct ShotSaveData {
     QString barista;
     QString profileNotes;
     QString debugLog;
+
+    // Compact-JSON snapshot of the linked Bean Base entry at shot time
+    // (empty = unlinked, the common free-text case). Snapshotted per shot so
+    // history stays accurate after the preset is edited or deleted.
+    QString beanBaseJson;
 
     // AI knowledge base ID (e.g. "d-flow", "blooming espresso") — computed at save time
     QString profileKbId;

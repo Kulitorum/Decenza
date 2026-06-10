@@ -927,6 +927,25 @@ bool ShotHistoryStorage::runMigrations()
         currentVersion = 17;
     }
 
+    // Migration 18: beanbase_json column (add-bean-base-integration).
+    // Compact-JSON snapshot of the Loffee Labs Bean Base entry the shot was
+    // pulled with — origin, variety, process, tasting tags, image/product
+    // URLs, etc. Snapshotted at save time so history stays accurate after
+    // the preset is edited or deleted. NULL = unlinked bean (the common
+    // free-text case). Additive TEXT column, NULL default; old code that
+    // never SELECTs it is unaffected. Whitespace before the open-paren
+    // dodges the QSqlQuery permission-hook false-positive, as elsewhere.
+    if (currentVersion < 18) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 18 (beanbase_json)";
+
+        if (!hasColumn("shots", "beanbase_json"))
+            query.exec ("ALTER TABLE shots ADD COLUMN beanbase_json TEXT");
+
+        query.exec ("DELETE FROM schema_version");
+        query.exec ("INSERT INTO schema_version (version) VALUES (18)");
+        currentVersion = 18;
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -1075,6 +1094,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     data.barista = metadata.barista;
     data.profileNotes = profile ? profile->profileNotes() : QString();
     data.debugLog = debugLog;
+    data.beanBaseJson = metadata.beanBaseJson;
 
     if (profile) {
         data.profileKbId = ShotSummarizer::computeProfileKbId(profile->title(), profile->editorType());
@@ -1227,7 +1247,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     temperature_override, yield_override, profile_kb_id,
                     channeling_detected, grind_issue_detected,
                     skip_first_frame_detected, pour_truncated_detected,
-                    stopped_by
+                    stopped_by, beanbase_json
                 ) VALUES (
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
@@ -1238,7 +1258,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :temperature_override, :yield_override, :profile_kb_id,
                     :channeling_detected, :grind_issue_detected,
                     :skip_first_frame_detected, :pour_truncated_detected,
-                    :stopped_by
+                    :stopped_by, :beanbase_json
                 )
             )");
 
@@ -1274,6 +1294,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":skip_first_frame_detected", data.skipFirstFrameDetected ? 1 : 0);
             query.bindValue(":pour_truncated_detected", data.pourTruncatedDetected ? 1 : 0);
             query.bindValue(":stopped_by", data.stoppedBy);
+            query.bindValue(":beanbase_json", data.beanBaseJson.isEmpty() ? QVariant() : data.beanBaseJson);
 
             if (!query.exec()) {
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
@@ -1711,7 +1732,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                temperature_override, yield_override, beverage_type, profile_kb_id,
                channeling_detected, grind_issue_detected,
                skip_first_frame_detected, pour_truncated_detected,
-               stopped_by
+               stopped_by, beanbase_json
         FROM shots WHERE id = ?
     )")) {
         qWarning() << "ShotHistoryStorage::loadShotRecordStatic: prepare failed:" << query.lastError().text();
@@ -1759,6 +1780,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.skipFirstFrameDetected = query.value(32).toInt() != 0;
     record.pourTruncatedDetected = query.value(33).toInt() != 0;
     record.stoppedBy = query.value(34).toString();
+    record.beanBaseJson = query.value(35).toString();
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so
@@ -2038,6 +2060,9 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
         {"doseWeight",      "dose_weight"},
         {"finalWeight",     "final_weight"},
         {"beverageType",    "beverage_type"},
+        // Bean Base snapshot: pass "" to clear (unlink), JSON string to
+        // re-link — edit mode must be able to fix a wrong bean after the fact.
+        {"beanBaseJson",    "beanbase_json"},
     };
 
     // Build SET clause from only the keys present in the metadata.

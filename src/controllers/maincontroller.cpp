@@ -1919,6 +1919,7 @@ void MainController::onShotEnded() {
     metadata.espressoEnjoyment = m_settings->dye()->dyeEspressoEnjoyment();
     metadata.espressoNotes = m_settings->dye()->dyeShotNotes();
     metadata.barista = m_settings->dye()->dyeBarista();
+    metadata.beanBaseJson = m_settings->dye()->dyeBeanBaseData();
 
     // For volume/timer-based profiles (targetWeight=0), use the actual final weight
     // so favorites can restore a meaningful yield target
@@ -2134,6 +2135,7 @@ void MainController::uploadPendingShot() {
     metadata.drinkEy = m_settings->dye()->dyeDrinkEy();
     metadata.espressoEnjoyment = m_settings->dye()->dyeEspressoEnjoyment();
     metadata.barista = m_settings->dye()->dyeBarista();
+    metadata.beanBaseJson = m_settings->dye()->dyeBeanBaseData();
 
     // Build notes: user notes + AI recommendation (if any)
     QString notes = m_settings->dye()->dyeShotNotes();
@@ -2285,6 +2287,7 @@ void MainController::generateFakeShotData() {
             metadata.espressoEnjoyment = m_settings->dye()->dyeEspressoEnjoyment();
             metadata.espressoNotes = m_settings->dye()->dyeShotNotes();
             metadata.barista = m_settings->dye()->dyeBarista();
+            metadata.beanBaseJson = m_settings->dye()->dyeBeanBaseData();
 
             // Use current profile's temperature and target weight as overrides
             double temperatureOverride = m_profileManager->currentProfile().espressoTemperature();

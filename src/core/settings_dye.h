@@ -35,6 +35,15 @@ class SettingsDye : public QObject {
     Q_PROPERTY(QString dyeBarista READ dyeBarista WRITE setDyeBarista NOTIFY dyeBaristaChanged)
     Q_PROPERTY(QString dyeShotDateTime READ dyeShotDateTime WRITE setDyeShotDateTime NOTIFY dyeShotDateTimeChanged)
 
+    // Bean Base (Loffee Labs) link state — sticky like the bean fields.
+    // dyeBeanBaseId empty = unlinked (the free-text-only path most beans use).
+    // dyeBeanBaseData holds the full cached entry as one compact-JSON blob;
+    // consumers (shot snapshot, Visualizer upload, AI advisor) read it as a
+    // unit, so it is deliberately NOT split into per-attribute properties.
+    Q_PROPERTY(QString dyeBeanBaseId READ dyeBeanBaseId WRITE setDyeBeanBaseId NOTIFY dyeBeanBaseIdChanged)
+    Q_PROPERTY(QString dyeBeanBaseRoasterId READ dyeBeanBaseRoasterId WRITE setDyeBeanBaseRoasterId NOTIFY dyeBeanBaseRoasterIdChanged)
+    Q_PROPERTY(QString dyeBeanBaseData READ dyeBeanBaseData WRITE setDyeBeanBaseData NOTIFY dyeBeanBaseDataChanged)
+
     // Bean presets
     Q_PROPERTY(QVariantList beanPresets READ beanPresets NOTIFY beanPresetsChanged)
     // Filtered view of beanPresets: only rows where showOnIdle == true. Each row gains
@@ -103,6 +112,18 @@ public:
     QString dyeShotDateTime() const;
     void setDyeShotDateTime(const QString& value);
 
+    QString dyeBeanBaseId() const;
+    void setDyeBeanBaseId(const QString& value);
+
+    QString dyeBeanBaseRoasterId() const;
+    void setDyeBeanBaseRoasterId(const QString& value);
+
+    QString dyeBeanBaseData() const;
+    void setDyeBeanBaseData(const QString& value);
+
+    // Convenience: clear all three Bean Base link fields (Unlink action).
+    Q_INVOKABLE void clearBeanBaseLink();
+
     // Bean presets
     QVariantList beanPresets() const;
     int selectedBeanPreset() const;
@@ -127,6 +148,8 @@ public:
     Q_INVOKABLE void saveBeanPresetFromCurrent(const QString& name);
     Q_INVOKABLE int findBeanPresetByContent(const QString& brand, const QString& type) const;
     Q_INVOKABLE int findBeanPresetByName(const QString& name) const;
+    // Canonical-id match — preferred over brand+type when the bean is linked.
+    Q_INVOKABLE int findBeanPresetByBeanBaseId(const QString& beanBaseId) const;
 
     bool beansModified() const { return m_beansModified; }
 
@@ -156,6 +179,9 @@ signals:
     void dyeShotNotesChanged();
     void dyeBaristaChanged();
     void dyeShotDateTimeChanged();
+    void dyeBeanBaseIdChanged();
+    void dyeBeanBaseRoasterIdChanged();
+    void dyeBeanBaseDataChanged();
     void beanPresetsChanged();
     void selectedBeanPresetChanged();
     void beansModifiedChanged();
