@@ -313,7 +313,7 @@ KeyboardAwareContainer {
                             anchors.fill: parent
                             accessibleName: "Get a free API key from loffeelabs.com. Opens web browser"
                             accessibleItem: beanBaseSignupLink
-                            onAccessibleClicked: Qt.openUrlExternally("https://loffeelabs.com/bean-base")
+                            onAccessibleClicked: Qt.openUrlExternally("https://loffeelabs.com/developers")
                         }
                     }
 
