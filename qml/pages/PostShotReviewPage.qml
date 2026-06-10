@@ -605,9 +605,8 @@ Page {
         // settings are "prep for the next pull"; editing a HISTORIC shot
         // (opened from Shot History / Shot Detail) must not touch the bean
         // dialog, dose/yield, or the live bean link. lastSavedShotId is
-        // in-session: after an app restart this skips the sync even for the
-        // true latest shot, which is fine — the sticky values were already
-        // synced when that shot was pulled.
+        // seeded from the DB at startup, so this holds across app restarts
+        // too: the newest shot syncs forward, every older shot does not.
         // Per-shot fields (enjoyment, notes, TDS, EY) are NOT synced — otherwise they
         // would leak into the next shot's metadata, since MainController builds shot
         // metadata from these Settings values at shot end.

@@ -218,6 +218,8 @@ public:
     Q_INVOKABLE void refreshTotalShots();
 
     // Get most recent shot ID (for linking after save)
+    // Id of the most recent shot: seeded from MAX(id) at initialize() so it
+    // is valid immediately after an app restart, then updated on every save.
     Q_INVOKABLE qint64 lastSavedShotId() const { return m_lastSavedShotId; }
 
     // Get database path

@@ -116,6 +116,16 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
             qWarning() << "ShotHistoryStorage: Failed to count shots at startup:" << countQuery.lastError().text();
     }
 
+    // Seed lastSavedShotId with the newest stored shot so "most recent
+    // shot" consumers (Last Shot widget, MCP latest-shot resolution, the
+    // review page's sticky-sync gate) work across app restarts, not just
+    // for shots saved this session. Empty DB -> NULL -> 0 (unchanged).
+    {
+        QSqlQuery maxQuery(m_db);
+        if (maxQuery.exec("SELECT MAX(id) FROM shots") && maxQuery.next())
+            m_lastSavedShotId = maxQuery.value(0).toLongLong();
+    }
+
     m_ready = true;
     emit readyChanged();
 

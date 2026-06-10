@@ -184,6 +184,10 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // Create shot history storage and comparison model
     m_shotHistory = new ShotHistoryStorage(this);
     m_shotHistory->initialize();
+    // Mirror the startup-seeded latest-shot id (initialize() reads MAX(id))
+    // so QML's MainController.lastSavedShotId is valid across restarts —
+    // no emit needed: QML bindings haven't been created yet.
+    m_lastSavedShotId = m_shotHistory->lastSavedShotId();
     connect(m_shotHistory, &QObject::destroyed, this, [this]() { m_savingShot = false; });
 
     // Authoritative C++ writeback: a successful Visualizer upload
