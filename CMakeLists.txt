@@ -328,6 +328,7 @@ set(SOURCES
     src/mcp/mcptools_shots.cpp
     src/mcp/mcptools_profiles.cpp
     src/mcp/mcptools_settings.cpp
+    src/mcp/mcptools_beansearch.cpp
     src/mcp/mcptools_dialing.cpp
     src/ai/dialing_blocks.cpp
     src/mcp/mcptools_control.cpp
@@ -478,6 +479,7 @@ set(HEADERS
     src/network/visualizeruploader.h
     src/network/visualizerimporter.h
     src/network/beanbaseclient.h
+    src/network/beanbase_blob.h
     src/ai/aimanager.h
     src/ai/aiprovider.h
     src/ai/conductance.h

@@ -34,6 +34,22 @@ BeanBaseSearchBar (BeanInfoPage)            Settings → Visualizer → Bean Bas
 
 `BeanBaseClient::search()` hits Visualizer's open `GET /canonical/autocomplete_coffee_bags?q=` (keyless, substring + multi-word; internal endpoint — parse defensively, expect drift). Entries carry `visualizerCanonicalId` (UUID) = the identity stored locally and sent on shot PATCH (`shot[canonical_coffee_bag_id]`, accepted for all users) so the same bag id lands in both systems. `fetchCanonicalDetails()` runs the two-stage flow (`autocomplete_roasters` → `require_roaster=true&canonical_roaster_id=`) for the attribute payload. `searchBeanBase()` keeps the Bean Base API contract (whole words, key, quota) for optional extras. MCP tool: `bean_search` (canonical + per-result enrichment).
 
+## The entry / blob vocabulary (schema of record)
+
+Entries are QVariantMaps (QML lingua franca; deliberately not a C++ value type). Keys, by producer:
+
+| Key | canonical (`search()`) | Bean Base (`searchBeanBase()`) | enrichment (`canonicalDetails`) |
+|---|---|---|---|
+| `id` (opaque string; **non-empty = linked**) | UUID | integer-as-string | — |
+| `visualizerCanonicalId` | = id | — | — |
+| `source` | "visualizer" | "beanbase" | — |
+| `roasterName`, `roastName` | ✓ | ✓ | — |
+| `degree, origin, region, producer, variety, process, harvest, tastingNotes` | — | ✓ | ✓ (remapped from Visualizer columns) |
+| `elevation` (display string) | — | — | ✓ |
+| `minElevationM/maxElevationM` (int), `link, image, beanType, description, tastingTags, generalTags, soldout, available, roasterRegion, roasterCountry` | — | ✓ | — |
+
+The blob = one entry JSON-compacted. `src/network/beanbase_blob.h` is the C++ definition of "linked" (`isLinked`: parses + non-empty `id`) and of the uploader's canonical id (`canonicalId`); QML mirrors it via `bean.id !== ""` checks. A misspelled key reads as `undefined`/`""` with no diagnostics — check this table before adding readers.
+
 ## UI rules
 
 - Search bar (`BeanBaseSearchBar.qml`) is always visible — search is keyless since the canonical switch. Label is the verbatim branding "Search Loffee Labs Bean Base" (untranslated).

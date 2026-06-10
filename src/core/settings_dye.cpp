@@ -1,4 +1,5 @@
 #include "settings_dye.h"
+#include "../network/beanbase_blob.h"
 #include "settings_visualizer.h"
 #include "grinderaliases.h"
 
@@ -376,7 +377,11 @@ void SettingsDye::addBeanPreset(const QString& name, const QString& brand, const
     // The add dialog saves the CURRENT bean — when the passed identity matches
     // the live DYE state, carry its Bean Base link (empty when unlinked, the
     // common free-text case).
-    if (brand == dyeBeanBrand() && type == dyeBeanType() && !dyeBeanBaseId().isEmpty()) {
+    // BeanBaseBlob::isLinked also rejects a CORRUPT blob — without it a
+    // corrupt dyeBeanBaseData (which reads as "unlinked" everywhere else)
+    // would still be copied into the new preset alongside its stale id.
+    if (brand == dyeBeanBrand() && type == dyeBeanType()
+        && BeanBaseBlob::isLinked(dyeBeanBaseData())) {
         preset["beanBaseId"] = dyeBeanBaseId();
         preset["beanBaseData"] = dyeBeanBaseData();
     }
@@ -416,7 +421,7 @@ void SettingsDye::updateBeanPreset(int index, const QString& name, const QString
         // (e.g. renaming a preset that isn't the active bean) preserve the
         // row's existing link, like showOnIdle above.
         if (brand == dyeBeanBrand() && type == dyeBeanType()) {
-            if (!dyeBeanBaseId().isEmpty()) {
+            if (BeanBaseBlob::isLinked(dyeBeanBaseData())) {
                 preset["beanBaseId"] = dyeBeanBaseId();
                 preset["beanBaseData"] = dyeBeanBaseData();
             }

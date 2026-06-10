@@ -193,6 +193,8 @@ add_decenza_test(tst_saw_settings
 add_decenza_test(tst_beanbaseclient
     tst_beanbaseclient.cpp
     ${CMAKE_SOURCE_DIR}/src/network/beanbaseclient.cpp
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_beansearch.cpp
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcptoolregistry.h
     ${CORE_SOURCES}
 )
 
