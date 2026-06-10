@@ -292,6 +292,9 @@ KeyboardAwareContainer {
                             } else if (message === "ratelimited") {
                                 visualizerTab.beanBaseTestMessage =
                                     TranslationManager.translate("settings.beanbase.testRateLimited", "Rate limit reached — try again shortly")
+                            } else if (message === "quota") {
+                                visualizerTab.beanBaseTestMessage =
+                                    TranslationManager.translate("settings.beanbase.testQuota", "Daily quota reached — resets tomorrow (key is valid)")
                             } else {
                                 visualizerTab.beanBaseTestMessage =
                                     TranslationManager.translate("settings.beanbase.testNetworkError", "Could not reach Bean Base")

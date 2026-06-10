@@ -223,6 +223,28 @@ private slots:
         QCOMPARE(spy.at(1).at(1).toList().size(), 1);
     }
 
+    void rateLimitAndQuota429sAreDistinguished() {
+        // Both limits return 429 — only the body text differs. A quota-
+        // exhausted user must see "done for today", not "try again shortly".
+        FakeBeanBaseServer server;
+        server.respondWith("429 Too Many Requests",
+            "{\"error\":\"Rate limit exceeded. Maximum 1 request(s) per 3 second(s).\"}");
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setBaseUrl(server.baseUrl());
+
+        QSignalSpy spy(&client, &BeanBaseClient::apiKeyTestResult);
+        client.testApiKey();
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.first().at(1).toString(), QString("ratelimited"));
+
+        server.respondWith("429 Too Many Requests",
+            "{\"error\":\"Daily export quota exceeded.\"}");
+        spy.clear();
+        client.testApiKey();
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.first().at(1).toString(), QString("quota"));
+    }
+
     void searchInvalidKeySignalsFailure() {
         FakeBeanBaseServer server;
         server.respondWith("401 Unauthorized", "{\"error\":\"bad key\"}");

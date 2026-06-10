@@ -54,6 +54,18 @@ int toIntLoose(const QJsonValue& v) {
     if (v.isDouble()) return static_cast<int>(v.toDouble());
     return v.toString().toInt();
 }
+
+// Both the 1-req/3 s rate limit AND the 2,000-beans/day quota return 429;
+// only the body text distinguishes them (rate limit: "Rate limit exceeded.
+// Maximum 1 request(s) per 3 second(s)."). A quota-exhausted user must see
+// "done for today", not "try again shortly" — they'd think search is broken.
+QString classify429(const QByteArray& body) {
+    const QString error = QJsonDocument::fromJson(body)
+                              .object().value(QStringLiteral("error")).toString();
+    return error.contains(QStringLiteral("rate limit"), Qt::CaseInsensitive)
+        ? QStringLiteral("ratelimited")
+        : QStringLiteral("quota");
+}
 }  // namespace
 
 BeanBaseClient::BeanBaseClient(QNetworkAccessManager* networkManager,
@@ -100,7 +112,7 @@ void BeanBaseClient::testApiKey() {
         } else if (status == 401) {
             emit apiKeyTestResult(false, QStringLiteral("invalid"));
         } else if (status == 429) {
-            emit apiKeyTestResult(false, QStringLiteral("ratelimited"));
+            emit apiKeyTestResult(false, classify429(reply->readAll()));
         } else {
             // Transport failure or unexpected status — treat as "couldn't reach".
             emit apiKeyTestResult(false, QStringLiteral("network"));
@@ -193,7 +205,7 @@ void BeanBaseClient::doSendSearch(const QString& query) {
         } else if (status == 401) {
             emit searchFailed(query, QStringLiteral("invalid"));
         } else if (status == 429) {
-            emit searchFailed(query, QStringLiteral("ratelimited"));
+            emit searchFailed(query, classify429(reply->readAll()));
         } else {
             emit searchFailed(query, QStringLiteral("network"));
         }

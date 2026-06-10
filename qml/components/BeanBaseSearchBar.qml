@@ -275,7 +275,9 @@ Item {
                         if (root.errorToken === "invalid")
                             return TranslationManager.translate("beaninfo.beanbase.errorInvalid", "Invalid API key — check Settings")
                         if (root.errorToken === "ratelimited")
-                            return TranslationManager.translate("beaninfo.beanbase.errorRateLimited", "Rate limit reached — try again shortly")
+                            return TranslationManager.translate("beaninfo.beanbase.errorRateLimited", "Searching too fast — pause a moment and try again")
+                        if (root.errorToken === "quota")
+                            return TranslationManager.translate("beaninfo.beanbase.errorQuota", "Daily Bean Base limit reached — search resumes tomorrow")
                         return TranslationManager.translate("beaninfo.beanbase.errorNetwork", "Could not reach Bean Base")
                     }
                     // Bean Base matches whole words only ("prodi" finds
