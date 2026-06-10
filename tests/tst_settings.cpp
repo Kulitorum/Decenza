@@ -68,6 +68,7 @@ private:
     QString m_origDyeBeanBrand;
     QString m_origAutoLoadFilename;
     int m_origAutoLoadRevertMinutes;
+    QString m_origBeanBaseApiKey;
 
 private slots:
 
@@ -83,6 +84,7 @@ private slots:
         m_origDyeBeanBrand = m_settings.dye()->dyeBeanBrand();
         m_origAutoLoadFilename = m_settings.app()->autoLoadProfileFilename();
         m_origAutoLoadRevertMinutes = m_settings.app()->autoLoadRevertMinutes();
+        m_origBeanBaseApiKey = m_settings.beanbase()->beanBaseApiKey();
     }
 
     void cleanup() {
@@ -97,6 +99,7 @@ private slots:
         m_settings.dye()->setDyeBeanBrand(m_origDyeBeanBrand);
         m_settings.app()->setAutoLoadProfileFilename(m_origAutoLoadFilename);
         m_settings.app()->setAutoLoadRevertMinutes(m_origAutoLoadRevertMinutes);
+        m_settings.beanbase()->setBeanBaseApiKey(m_origBeanBaseApiKey);
     }
 
     // ==========================================

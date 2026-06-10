@@ -18,7 +18,6 @@
 #include "../models/shotcomparisonmodel.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
-#include "../network/beanbaseclient.h"
 #include "../ai/aimanager.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotimporter.h"

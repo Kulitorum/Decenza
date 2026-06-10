@@ -189,6 +189,13 @@ add_decenza_test(tst_saw_settings
     ${CORE_SOURCES}
 )
 
+# --- tst_beanbaseclient: Bean Base API client (debounce, rate limit, cache, parse) ---
+add_decenza_test(tst_beanbaseclient
+    tst_beanbaseclient.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/beanbaseclient.cpp
+    ${CORE_SOURCES}
+)
+
 # --- tst_autowakewindow: scheduled stay-awake window predicate (#1203) ---
 add_decenza_test(tst_autowakewindow
     tst_autowakewindow.cpp

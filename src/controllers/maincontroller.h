@@ -8,6 +8,7 @@
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
+#include "../network/beanbaseclient.h"
 #include "../ai/aimanager.h"
 #include "../models/shotdatamodel.h"
 #include "../models/steamdatamodel.h"
@@ -37,7 +38,6 @@ class ProfileStorage;
 class ShotDebugLogger;
 class LocationProvider;
 class ShotTimingController;
-class BeanBaseClient;
 struct ShotSample;
 
 class MainController : public QObject {

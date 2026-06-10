@@ -29,24 +29,19 @@
 
 > **Partial — built during Tier 1.** `src/network/beanbaseclient.{h,cpp}` exists with the constructor + `testApiKey()` (used by the Settings UI Test Key button), wired into `MainController` as `MainController.beanbase` (Q_PROPERTY), and registered in CMakeLists. The base URL constant (`https://loffeelabs.com/api/v2`), `Authorization: Bearer` header, and live key read from `Settings.beanbase` are in place. Remaining below: `searchBeans`/`lookupBean`, the debounce + 3 s rate-limit queue, the response cache, and the `BeanBaseEntry` struct.
 
-- [~] 3.1 Create `src/network/beanbaseclient.h/.cpp`:
-  - DONE: `QNetworkAccessManager`-backed; `testApiKey()`; `Authorization: Bearer <key>` from `Settings.beanbase.beanBaseApiKey`; base URL constant.
-  - TODO: `searchBeans(QString query, std::function<void(QList<BeanBaseEntry>)> callback)`, `lookupBean(QString id, ...)`.
+- [x] 3.1 `src/network/beanbaseclient.h/.cpp` complete. DEVIATION from the callback signature: QML can't pass `std::function`, so the API is `Q_INVOKABLE search(QString)` + `searchResults(query, entries)` / `searchFailed(query, status)` signals (query echoed back so consumers drop stale results). `lookupBean(id)` deferred to when Tier 2 UI needs rehydration — `search()` covers the search bar. `setBaseUrl()` added as the test seam.
   - `QNetworkAccessManager`-backed (use existing `MainController` instance via DI or its own).
   - Methods: `searchBeans(QString query, std::function<void(QList<BeanBaseEntry>)> callback)`, `lookupBean(QString id, ...)`, `testApiKey(std::function<void(bool, QString)>)`.
   - Authorization header `Authorization: Bearer <key>` pulled from `Settings.beanbase.beanBaseApiKey`.
   - Base URL constant (config file or constexpr).
-- [ ] 3.2 Implement debounce + rate-limit queue:
-  - `m_debounceTimer` (single-shot, 800 ms) coalesces in-flight search requests.
-  - `m_lastRequestSentAt` plus a `m_pendingQueue` ensure at least 3 s between *sent* requests.
-  - If a new query arrives mid-cooldown, replace the queued one (don't accumulate).
-- [ ] 3.3 Implement session cache (`QHash<QString, QList<BeanBaseEntry>>`) keyed by normalized query string. Lifetime: app session (no persistence yet).
-- [ ] 3.4 Define `BeanBaseEntry` struct mirroring the bean fields: `id`, `roasterId` (if present in payload), `roasterName`, `roastName`, `degree`, `link`, `image`, `origin`, `region`, `producer`, `variety`, `process`, `minElevationM`, `maxElevationM`, `tastingTags` (QStringList), `tastingNotes` (QString), `generalTags` (QStringList), `beanType` (QString), `soldout` (bool), `available` (bool), `harvest` (QString or QDate), `description` (QString).
-- [ ] 3.5 Parse `GET /beans` JSON response into a `QList<BeanBaseEntry>`. Treat unknown / missing fields as defaults — never fail the whole response on one bad field.
-- [ ] 3.6 Implement `testApiKey()` as `GET /beans?limit=1`; map 200 → success, 401 → "Invalid API key", network error → "Could not reach Bean Base".
-- [ ] 3.7 Wire `BeanBaseClient` instance into `MainController` (member, ownership). Expose to QML as `MainController.beanbase` for `testApiKey()`.
-- [ ] 3.8 Unit test: rate-limit queue (rapid `searchBeans()` calls should fire no more than 1 per 3 s window); cache hit on identical query; parse robustness (missing fields, soldout boolean variants).
-- [ ] 3.9 Unit test: `testApiKey()` mock 200 / 401 / timeout → correct callback values.
+- [x] 3.2 Debounce (800 ms single-shot) + 3 s sent-gap cooldown implemented; queued query is latest-wins (replaced, never accumulated); in-flight reply aborted when superseded so stale responses can't land out of order. Timer use justified in a header comment: the API's wall-clock rate window is genuinely temporal (like polling/heartbeats), not an event-suppression guard.
+- [x] 3.3 Session cache `QHash<QString, QVariantList>` keyed by trimmed+lowercased query. App-session lifetime, no persistence.
+- [x] 3.4 DEVIATION: entries are `QVariantMap`s (QML-friendly, what the search bar binds to) rather than a C++ struct — same field set: id (opaque string), roasterName, roastName, degree, beanType, link, image, origin, region, producer, variety, process, minElevationM, maxElevationM, tastingTags, tastingNotes, generalTags, roasterRegion, roasterCountry, harvest, description, soldout, available. `roasterId` omitted: not present in the documented bean export fields (design.md open question on canonical_roaster_id sourcing stands).
+- [x] 3.5 `parseBeans()` (static, public, unit-testable): tolerates `{"data":[…]}` or bare array; id as number or string; elevations numeric or string; tags as JSON array or comma-joined string; non-object entries skipped; garbage → empty list.
+- [x] 3.6 `testApiKey()` → `GET /beans?limit=1`; 200→success, 401→invalid, 429→ratelimited, transport→network, empty key→missing (synchronous, no request).
+- [x] 3.7 Wired as `MainController.beanbase` Q_PROPERTY. Gotcha hit + fixed: Qt 6.11 moc requires the complete type for pointer Q_PROPERTYs — header is included in maincontroller.h (like the other clients), not forward-declared.
+- [x] 3.8 `tests/tst_beanbaseclient.cpp` with a canned-response `FakeBeanBaseServer` (QTcpServer): debounce coalesces rapid keystrokes into one request (final query only); second search inside the 3 s window is parked then sent after the window clears; case-insensitive cache hit emits synchronously with zero new requests; parse robustness (full entry, missing-field defaults, bare array, garbage). NOTE for future test authors: no raw string literals in moc'd test files — moc miscounts braces inside `R"(...)"` and silently drops classes declared after one (vtable link error).
+- [x] 3.9 `testApiKey()` tests: 200→success, 401→invalid, connection-refused→network (instant, no slow timeout wait), empty key→missing with zero requests sent. All 13 tests green via Qt Creator run_tests (44/44 with tst_Settings).
 
 ## 4. Tier 2 — DYE schema additions for Bean Base attributes
 
