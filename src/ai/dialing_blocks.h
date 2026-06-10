@@ -189,6 +189,10 @@ struct CurrentBeanBlockInputs {
     QString grinderBurrs;
     QString grinderSetting;
     double doseWeightG = 0;
+    // Compact-JSON Bean Base snapshot ("" = unlinked). Parsed into a
+    // `beanBase` sub-object so the advisor sees structured origin/variety/
+    // process/tasting data instead of just free-text brand+name strings.
+    QString beanBaseJson;
 };
 
 // Defined inline so test binaries that link only `shotsummarizer.cpp`
@@ -210,6 +214,38 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
     const QJsonObject freshness = DialingHelpers::buildBeanFreshness(in.roastDate);
     if (!freshness.isEmpty())
         bean["beanFreshness"] = freshness;
+
+    // Canonical Bean Base attributes (when the bean was linked): everything
+    // the advisor can reason from. roasterTastingNotes is the headline — the
+    // roaster's flavor EXPECTATIONS, which the AI compares against the
+    // user's actual tasting feedback to pick an extraction direction.
+    // Terroir/processing fields inform grind/temp priors (washed vs natural,
+    // high-grown dense beans); roastedFor flags filter roasts pulled as
+    // espresso. Keys follow MCP conventions (units/meaning in names).
+    if (!in.beanBaseJson.isEmpty()) {
+        const QJsonObject src = QJsonDocument::fromJson(in.beanBaseJson.toUtf8()).object();
+        QJsonObject bb;
+        auto put = [&](const char* outKey, const char* srcKey) {
+            const QString v = src.value(QLatin1String(srcKey)).toString();
+            if (!v.isEmpty()) bb[QLatin1String(outKey)] = v;
+        };
+        put("roasterTastingNotes", "tastingNotes");  // e.g. "Orange, Honeycomb, Cane Sugar"
+        put("description", "description");
+        put("origin", "origin");
+        put("region", "region");
+        put("producer", "producer");
+        put("variety", "variety");
+        put("process", "process");
+        put("roastLevel", "degree");          // Bean Base's richer string, e.g. "Light To Medium-light"
+        put("roastedFor", "beanType");        // "Espresso" | "Filter" | "Omni"
+        put("harvest", "harvest");
+        const int loM = src.value(QLatin1String("minElevationM")).toInt();
+        const int hiM = src.value(QLatin1String("maxElevationM")).toInt();
+        if (loM > 0) bb["minElevationM"] = loM;
+        if (hiM > 0) bb["maxElevationM"] = hiM;
+        if (!bb.isEmpty())
+            bean["beanBase"] = bb;
+    }
 
     return bean;
 }

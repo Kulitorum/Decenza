@@ -187,6 +187,7 @@ Page {
                 editEnjoyment = editShotData.enjoyment0to100 ?? 0
                 editNotes = editShotData.espressoNotes || ""
                 editBeverageType = editShotData.beverageType || "espresso"
+                editBeanBaseJson = editShotData.beanBaseJson || ""
                 // Recompute EY now that dose/weight are loaded (covers the case where TDS
                 // arrived via R2 before the shot data was ready, or where the DB already
                 // has a non-zero TDS from a previous session).
@@ -267,6 +268,9 @@ Page {
 
     property string editNotes: ""
     property string editBeverageType: "espresso"
+    // Bean Base snapshot stored with this shot (read-only on this page —
+    // re-linking happens via the Beans page in edit mode).
+    property string editBeanBaseJson: ""
 
     // Real espresso TDS is 5–22%; below 3.0% is a calibration or empty cuvette.
     readonly property real kMinimumPlausibleTds: 3.0
@@ -1363,6 +1367,14 @@ Page {
                         }
                     }
                 }
+            }
+
+            // Bean Base details for this shot's snapshot — bag photo +
+            // origin · variety · process, tap for the full popup. Zero
+            // footprint for unlinked/legacy shots.
+            BeanBaseDetailsRow {
+                Layout.fillWidth: true
+                beanBaseJson: postShotReviewPage.editBeanBaseJson
             }
 
             // 3-column grid for all fields

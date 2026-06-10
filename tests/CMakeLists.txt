@@ -55,6 +55,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/settings_network.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_app.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_calibration.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/settings_beanbase.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/scaletypeids.cpp
 )
 
@@ -185,6 +186,13 @@ add_decenza_test(tst_settings
 # --- tst_saw_settings: per-(profile, scale) SAW learning + batch + bootstrap ---
 add_decenza_test(tst_saw_settings
     tst_saw_settings.cpp
+    ${CORE_SOURCES}
+)
+
+# --- tst_beanbaseclient: Bean Base API client (debounce, rate limit, cache, parse) ---
+add_decenza_test(tst_beanbaseclient
+    tst_beanbaseclient.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/beanbaseclient.cpp
     ${CORE_SOURCES}
 )
 

@@ -88,6 +88,19 @@ static void nullifyUnratedFields(QJsonObject& obj)
     }
 }
 
+// MCP consumers get the Bean Base snapshot as a parsed `beanBase` object —
+// LLMs cannot reliably read a double-encoded JSON string. Absent/unparseable
+// snapshots are simply omitted (sparse, like the projection's own emit).
+static void reshapeBeanBase(QJsonObject& obj)
+{
+    if (!obj.contains("beanBaseJson"))
+        return;
+    const QJsonDocument doc = QJsonDocument::fromJson(
+        obj.take("beanBaseJson").toString().toUtf8());
+    if (doc.isObject() && !doc.object().isEmpty())
+        obj["beanBase"] = doc.object();
+}
+
 void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory)
 {
     // shots_list
@@ -357,6 +370,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         stripDetectorInternals(result);
                         reshapeDetectorEnvelopes(result);
                         nullifyUnratedFields(result);
+                        reshapeBeanBase(result);
                     } else {
                         result["error"] = "Shot not found: " + QString::number(shotId);
                     }
@@ -439,6 +453,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             stripDetectorInternals(shotJson);
                             reshapeDetectorEnvelopes(shotJson);
                             nullifyUnratedFields(shotJson);
+                            reshapeBeanBase(shotJson);
                             shots.append(shotJson);
                             projections.append(std::move(shot));
                         }

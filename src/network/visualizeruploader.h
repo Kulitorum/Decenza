@@ -30,6 +30,10 @@ struct ShotMetadata {
     int espressoEnjoyment = 0;  // 0-100
     QString espressoNotes;
     QString barista;
+    // Compact-JSON snapshot of the linked Bean Base entry (empty when the
+    // bean is unlinked — the common free-text case). Persisted per shot so
+    // history stays accurate even after the preset is edited or deleted.
+    QString beanBaseJson;
 };
 
 class VisualizerUploader : public QObject {

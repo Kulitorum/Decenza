@@ -227,6 +227,7 @@ set(SOURCES
     src/core/settings_network.cpp
     src/core/settings_app.cpp
     src/core/settings_calibration.cpp
+    src/core/settings_beanbase.cpp
     src/core/widgetlibrary.cpp
     src/widget/machinestatussnapshot.cpp
     src/core/batterymanager.cpp
@@ -294,6 +295,7 @@ set(SOURCES
     src/ui/jscanvascontext.cpp
     src/network/visualizeruploader.cpp
     src/network/visualizerimporter.cpp
+    src/network/beanbaseclient.cpp
     src/ai/aimanager.cpp
     src/ai/aiprovider.cpp
     src/ai/aiconversation.cpp
@@ -410,6 +412,7 @@ set(HEADERS
     src/core/settings_network.h
     src/core/settings_app.h
     src/core/settings_calibration.h
+    src/core/settings_beanbase.h
     src/core/grinderaliases.h
     src/core/widgetlibrary.h
     src/core/batterymanager.h
@@ -474,6 +477,7 @@ set(HEADERS
     src/ui/jscanvascontext.h
     src/network/visualizeruploader.h
     src/network/visualizerimporter.h
+    src/network/beanbaseclient.h
     src/ai/aimanager.h
     src/ai/aiprovider.h
     src/ai/conductance.h
@@ -742,6 +746,9 @@ set(QML_FILES
     qml/components/ColorSwatch.qml
     qml/components/StyledTextField.qml
     qml/components/SuggestionField.qml
+    qml/components/BeanBaseSearchBar.qml
+    qml/components/BeanBaseDetailsPopup.qml
+    qml/components/BeanBaseDetailsRow.qml
     qml/components/KeyboardAwareContainer.qml
     qml/components/AIConversationPanel.qml
     qml/components/ConversationOverlay.qml
@@ -1168,6 +1175,7 @@ if(NOT ANDROID AND NOT IOS)
         src/core/settings_network.cpp
         src/core/settings_app.cpp
         src/core/settings_calibration.cpp
+        src/core/settings_beanbase.cpp
         src/ble/scales/scaletypeids.cpp
     )
     target_link_libraries(saw_parity PRIVATE Qt6::Core Qt6::Sql Qt6::Network Qt6::Gui Qt6::Bluetooth)

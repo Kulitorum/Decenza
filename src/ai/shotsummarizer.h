@@ -119,6 +119,9 @@ struct ShotSummary {
     QString grinderModel;
     QString grinderBurrs;
     QString grinderSetting;
+    // Compact-JSON Bean Base snapshot ("" = unlinked); flows into
+    // currentBean.beanBase via the shared block builder.
+    QString beanBaseJson;
     double drinkTds = 0;
     double drinkEy = 0;
     int enjoymentScore = 0;

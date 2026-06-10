@@ -180,6 +180,12 @@ function getSearchEntries(tr) {
           description: tr("settings.search.visualizerDesc", "Connect to visualizer.coffee for shot sharing"),
           keywords: ["visualizer", "coffee", "upload", "share", "account"] },
 
+        // Bean Base (Loffee Labs) — lives in the Visualizer tab's left card
+        { tabId: "visualizer", cardId: "visualizer",
+          title: tr("settings.beanbase.section", "Bean Base"),
+          description: tr("settings.search.beanBaseDesc", "Look up coffee details from the Loffee Labs Bean Base database"),
+          keywords: ["bean base", "beanbase", "loffee", "loffeelabs", "coffee database", "roaster", "api key"] },
+
         // AI
         { tabId: "ai", cardId: "aiProvider",
           title: tr("settings.ai.section.provider", "AI Provider"),

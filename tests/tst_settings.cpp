@@ -8,6 +8,7 @@
 #include "core/settings_dye.h"
 #include "core/settings_theme.h"
 #include "core/settings_visualizer.h"
+#include "core/settings_beanbase.h"
 #include "core/settingsserializer.h"
 #include <QJsonObject>
 #include <QRegularExpression>
@@ -67,6 +68,10 @@ private:
     QString m_origDyeBeanBrand;
     QString m_origAutoLoadFilename;
     int m_origAutoLoadRevertMinutes;
+    QString m_origBeanBaseApiKey;
+    QString m_origDyeBeanBaseId;
+    QString m_origDyeBeanBaseRoasterId;
+    QString m_origDyeBeanBaseData;
 
 private slots:
 
@@ -82,6 +87,10 @@ private slots:
         m_origDyeBeanBrand = m_settings.dye()->dyeBeanBrand();
         m_origAutoLoadFilename = m_settings.app()->autoLoadProfileFilename();
         m_origAutoLoadRevertMinutes = m_settings.app()->autoLoadRevertMinutes();
+        m_origBeanBaseApiKey = m_settings.beanbase()->beanBaseApiKey();
+        m_origDyeBeanBaseId = m_settings.dye()->dyeBeanBaseId();
+        m_origDyeBeanBaseRoasterId = m_settings.dye()->dyeBeanBaseRoasterId();
+        m_origDyeBeanBaseData = m_settings.dye()->dyeBeanBaseData();
     }
 
     void cleanup() {
@@ -96,6 +105,10 @@ private slots:
         m_settings.dye()->setDyeBeanBrand(m_origDyeBeanBrand);
         m_settings.app()->setAutoLoadProfileFilename(m_origAutoLoadFilename);
         m_settings.app()->setAutoLoadRevertMinutes(m_origAutoLoadRevertMinutes);
+        m_settings.beanbase()->setBeanBaseApiKey(m_origBeanBaseApiKey);
+        m_settings.dye()->setDyeBeanBaseId(m_origDyeBeanBaseId);
+        m_settings.dye()->setDyeBeanBaseRoasterId(m_origDyeBeanBaseRoasterId);
+        m_settings.dye()->setDyeBeanBaseData(m_origDyeBeanBaseData);
     }
 
     // ==========================================
@@ -153,6 +166,142 @@ private slots:
         bool original = m_settings.brew()->ignoreVolumeWithScale();
         m_settings.brew()->setIgnoreVolumeWithScale(!original);
         QCOMPARE(m_settings.brew()->ignoreVolumeWithScale(), !original);
+    }
+
+    // ==========================================
+    // Bean Base (Loffee Labs) API key
+    // ==========================================
+
+    void beanBaseApiKeyDefaultIsEmpty() {
+        // Fresh key (never written) reads back as empty string.
+        QSettings raw("DecentEspresso", "DE1Qt");
+        raw.remove("beanbase/apiKey");
+        raw.sync();
+        Settings fresh;
+        QCOMPARE(fresh.beanbase()->beanBaseApiKey(), QString());
+    }
+
+    void beanBaseApiKeyRoundTrip() {
+        m_settings.beanbase()->setBeanBaseApiKey("loffee_test_key_123");
+        QCOMPARE(m_settings.beanbase()->beanBaseApiKey(), QString("loffee_test_key_123"));
+        m_settings.beanbase()->setBeanBaseApiKey("");
+        QCOMPARE(m_settings.beanbase()->beanBaseApiKey(), QString());
+    }
+
+    void beanBaseApiKeySignalEmitted() {
+        QSignalSpy spy(m_settings.beanbase(), &SettingsBeanBase::beanBaseApiKeyChanged);
+        m_settings.beanbase()->setBeanBaseApiKey("abc");
+        QCOMPARE(spy.count(), 1);
+        // Setting the same value again does not re-emit.
+        m_settings.beanbase()->setBeanBaseApiKey("abc");
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void dyeBeanBaseLinkRoundTripAndClear() {
+        m_settings.dye()->setDyeBeanBaseId("5188");
+        m_settings.dye()->setDyeBeanBaseRoasterId("42");
+        m_settings.dye()->setDyeBeanBaseData("{\"id\":\"5188\",\"origin\":\"Colombia\"}");
+        QCOMPARE(m_settings.dye()->dyeBeanBaseId(), QString("5188"));
+        QCOMPARE(m_settings.dye()->dyeBeanBaseRoasterId(), QString("42"));
+        QVERIFY(m_settings.dye()->dyeBeanBaseData().contains("Colombia"));
+
+        m_settings.dye()->clearBeanBaseLink();
+        QCOMPARE(m_settings.dye()->dyeBeanBaseId(), QString());
+        QCOMPARE(m_settings.dye()->dyeBeanBaseRoasterId(), QString());
+        QCOMPARE(m_settings.dye()->dyeBeanBaseData(), QString());
+    }
+
+    void beanPresetCarriesAndAppliesBeanBaseLink() {
+        const QString origBrand = m_settings.dye()->dyeBeanBrand();
+        const QString origType = m_settings.dye()->dyeBeanType();
+
+        // Linked bean saved as preset: link travels with the row.
+        m_settings.dye()->setDyeBeanBrand("Prodigal Coffee");
+        m_settings.dye()->setDyeBeanType("Buenos Aires");
+        m_settings.dye()->setDyeBeanBaseId("5188");
+        m_settings.dye()->setDyeBeanBaseRoasterId("42");
+        m_settings.dye()->setDyeBeanBaseData("{\"id\":\"5188\"}");
+        m_settings.dye()->addBeanPreset("__test_linked__", "Prodigal Coffee", "Buenos Aires",
+                                        "", "", "", "", "", "", "");
+        const int linkedIdx = m_settings.dye()->findBeanPresetByName("__test_linked__");
+        QVERIFY(linkedIdx >= 0);
+        QCOMPARE(m_settings.dye()->getBeanPreset(linkedIdx).value("beanBaseId").toString(),
+                 QString("5188"));
+        QCOMPARE(m_settings.dye()->findBeanPresetByBeanBaseId("5188"), linkedIdx);
+
+        // Unlinked preset: applying it clears any leftover link.
+        m_settings.dye()->addBeanPreset("__test_unlinked__", "Tiny Roaster", "House Blend",
+                                        "", "", "", "", "", "", "");
+        const int unlinkedIdx = m_settings.dye()->findBeanPresetByName("__test_unlinked__");
+        QVERIFY(unlinkedIdx >= 0);
+        m_settings.dye()->applyBeanPreset(unlinkedIdx);
+        QCOMPARE(m_settings.dye()->dyeBeanBaseId(), QString());
+        QCOMPARE(m_settings.dye()->dyeBeanBaseData(), QString());
+
+        // Re-applying the linked preset restores the link.
+        m_settings.dye()->applyBeanPreset(linkedIdx);
+        QCOMPARE(m_settings.dye()->dyeBeanBaseId(), QString("5188"));
+        QCOMPARE(m_settings.dye()->dyeBeanBaseRoasterId(), QString("42"));
+
+        // Cleanup (remove by name — indices shift after each removal).
+        m_settings.dye()->setSelectedBeanPreset(-1);
+        m_settings.dye()->removeBeanPreset(m_settings.dye()->findBeanPresetByName("__test_unlinked__"));
+        m_settings.dye()->removeBeanPreset(m_settings.dye()->findBeanPresetByName("__test_linked__"));
+        m_settings.dye()->setDyeBeanBrand(origBrand);
+        m_settings.dye()->setDyeBeanType(origType);
+    }
+
+    void updateBeanPresetPreservesLinkWhenNotActiveBean() {
+        const QString origBrand = m_settings.dye()->dyeBeanBrand();
+        const QString origType = m_settings.dye()->dyeBeanType();
+
+        // Create a linked preset for bean A.
+        m_settings.dye()->setDyeBeanBrand("Roaster A");
+        m_settings.dye()->setDyeBeanType("Bean A");
+        m_settings.dye()->setDyeBeanBaseId("111");
+        m_settings.dye()->setDyeBeanBaseRoasterId("11");
+        m_settings.dye()->setDyeBeanBaseData("{\"id\":\"111\"}");
+        m_settings.dye()->addBeanPreset("__test_rename__", "Roaster A", "Bean A",
+                                        "", "", "", "", "", "", "");
+        const int idx = m_settings.dye()->findBeanPresetByName("__test_rename__");
+        QVERIFY(idx >= 0);
+
+        // Switch the live DYE state to a different bean, then "rename" preset A
+        // (update with its own stored values, not the live ones) — the link
+        // must survive.
+        m_settings.dye()->setDyeBeanBrand("Roaster B");
+        m_settings.dye()->setDyeBeanType("Bean B");
+        m_settings.dye()->clearBeanBaseLink();
+        m_settings.dye()->updateBeanPreset(idx, "__test_renamed__", "Roaster A", "Bean A",
+                                           "", "", "", "", "", "", "");
+        QCOMPARE(m_settings.dye()->getBeanPreset(idx).value("beanBaseId").toString(),
+                 QString("111"));
+
+        // Updating with the ACTIVE bean's identity mirrors the live (cleared)
+        // link — an unlink followed by Save clears the preset's link too.
+        m_settings.dye()->updateBeanPreset(idx, "__test_renamed__", "Roaster B", "Bean B",
+                                           "", "", "", "", "", "", "");
+        QCOMPARE(m_settings.dye()->getBeanPreset(idx).value("beanBaseId").toString(),
+                 QString());
+
+        // Cleanup
+        m_settings.dye()->setSelectedBeanPreset(-1);
+        m_settings.dye()->removeBeanPreset(m_settings.dye()->findBeanPresetByName("__test_renamed__"));
+        m_settings.dye()->setDyeBeanBrand(origBrand);
+        m_settings.dye()->setDyeBeanType(origType);
+    }
+
+    void beanBaseApiKeyExcludedFromNonSensitiveExport() {
+        // The key is a sensitive credential — it must only appear in the
+        // export when includeSensitive is true.
+        m_settings.beanbase()->setBeanBaseApiKey("secret_key");
+
+        QJsonObject withoutSensitive = SettingsSerializer::exportToJson(&m_settings, false);
+        QVERIFY(!withoutSensitive.contains("beanbase"));
+
+        QJsonObject withSensitive = SettingsSerializer::exportToJson(&m_settings, true);
+        QVERIFY(withSensitive.contains("beanbase"));
+        QCOMPARE(withSensitive["beanbase"].toObject()["apiKey"].toString(), QString("secret_key"));
     }
 
     // ==========================================

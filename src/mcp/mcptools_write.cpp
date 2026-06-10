@@ -47,7 +47,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
     registry->registerAsyncTool(
         "shots_update",
         "Update any metadata field on a shot. Supports all fields the QML shot editor can change: "
-        "enjoyment, notes, dose, yield, bean info, grinder info, barista, TDS, EY.",
+        "enjoyment, notes, dose, yield, bean info, grinder info, barista, TDS, EY, and the shot's "
+        "Bean Base snapshot (beanBase).",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -67,7 +68,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"barista", QJsonObject{{"type", "string"}, {"description", "Barista name"}}},
                 {"beverageType", QJsonObject{{"type", "string"}, {"description", "Beverage type (e.g. 'espresso', 'lungo'). Saved locally; the Visualizer shot schema carries beverage type via the profile, not the shot, so editing it here does not propagate to visualizer.coffee."}}},
                 {"drinkTds", QJsonObject{{"type", "number"}, {"description", "TDS measurement"}}},
-                {"drinkEy", QJsonObject{{"type", "number"}, {"description", "Extraction yield percentage"}}}
+                {"drinkEy", QJsonObject{{"type", "number"}, {"description", "Extraction yield percentage"}}},
+                {"beanBase", QJsonObject{{"type", "object"}, {"description",
+                    "Replace this shot's stored Bean Base snapshot (the canonical bean record the shot "
+                    "was pulled with — shown as `beanBase` in shots_get_detail). Pass a full entry object "
+                    "(e.g. copied from a correctly-linked shot's beanBase, with fields like id, roasterName, "
+                    "roastName, origin, variety, process, tastingTags). Pass an empty object {} to clear "
+                    "the link. Use this to fix shots recorded against the wrong bean."}}}
             }},
             {"required", QJsonArray{"shotId"}}
         },
@@ -117,6 +124,15 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 metadata["drinkTds"] = args["drinkTds"].toDouble();
             if (args.contains("drinkEy"))
                 metadata["drinkEy"] = args["drinkEy"].toDouble();
+            if (args.contains("beanBase")) {
+                // Snapshot semantics: we store the data, not a reference —
+                // an empty object clears the link, anything else is saved
+                // verbatim as the shot's compact-JSON snapshot.
+                const QJsonObject bean = args["beanBase"].toObject();
+                metadata["beanBaseJson"] = bean.isEmpty()
+                    ? QString()
+                    : QString::fromUtf8(QJsonDocument(bean).toJson(QJsonDocument::Compact));
+            }
 
             if (metadata.isEmpty()) {
                 respond(QJsonObject{{"error", "Provide at least one field to update"}});

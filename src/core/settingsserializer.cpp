@@ -11,6 +11,7 @@
 #include "settings_theme.h"
 #include "settings_visualizer.h"
 #include "settings_calibration.h"
+#include "settings_beanbase.h"
 #include <QJsonArray>
 #include <QDebug>
 
@@ -22,7 +23,8 @@ QStringList SettingsSerializer::sensitiveKeys()
         "anthropicApiKey",
         "geminiApiKey",
         "openrouterApiKey",
-        "mqttPassword"
+        "mqttPassword",
+        "beanBaseApiKey"
     };
 }
 
@@ -258,6 +260,14 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     visualizer["defaultShotRating"] = settings->visualizer()->defaultShotRating();
     root["visualizer"] = visualizer;
 
+    // Bean Base (Loffee Labs) credentials — the API key is a sensitive
+    // per-user credential, gated behind includeSensitive like the other keys.
+    if (includeSensitive) {
+        QJsonObject beanbase;
+        beanbase["apiKey"] = settings->beanbase()->beanBaseApiKey();
+        root["beanbase"] = beanbase;
+    }
+
     // AI settings
     QJsonObject ai;
     auto* aiSettings = settings->ai();
@@ -292,6 +302,9 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     dye["shotNotes"] = settings->dye()->dyeShotNotes();
     dye["barista"] = settings->dye()->dyeBarista();
     dye["shotDateTime"] = settings->dye()->dyeShotDateTime();
+    dye["beanBaseId"] = settings->dye()->dyeBeanBaseId();
+    dye["beanBaseRoasterId"] = settings->dye()->dyeBeanBaseRoasterId();
+    dye["beanBaseData"] = settings->dye()->dyeBeanBaseData();
     root["dye"] = dye;
 
     // Shot server settings
@@ -672,6 +685,14 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (visualizer.contains("defaultShotRating")) settings->visualizer()->setDefaultShotRating(visualizer["defaultShotRating"].toInt());
     }
 
+    // Bean Base (Loffee Labs) credentials
+    if (json.contains("beanbase") && !excludeKeys.contains("beanbase")) {
+        QJsonObject beanbase = json["beanbase"].toObject();
+        if (beanbase.contains("apiKey") && !excludeKeys.contains("beanBaseApiKey")) {
+            settings->beanbase()->setBeanBaseApiKey(beanbase["apiKey"].toString());
+        }
+    }
+
     // AI settings
     if (json.contains("ai") && !excludeKeys.contains("ai")) {
         QJsonObject ai = json["ai"].toObject();
@@ -714,6 +735,9 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         else if (dye.contains("espressoNotes")) settings->dye()->setDyeShotNotes(dye["espressoNotes"].toString());
         if (dye.contains("barista")) settings->dye()->setDyeBarista(dye["barista"].toString());
         if (dye.contains("shotDateTime")) settings->dye()->setDyeShotDateTime(dye["shotDateTime"].toString());
+        if (dye.contains("beanBaseId")) settings->dye()->setDyeBeanBaseId(dye["beanBaseId"].toString());
+        if (dye.contains("beanBaseRoasterId")) settings->dye()->setDyeBeanBaseRoasterId(dye["beanBaseRoasterId"].toString());
+        if (dye.contains("beanBaseData")) settings->dye()->setDyeBeanBaseData(dye["beanBaseData"].toString());
     }
 
     // Shot server settings

@@ -61,6 +61,7 @@ class ShotProjection {
     Q_PROPERTY(QString stoppedBy MEMBER stoppedBy)
     Q_PROPERTY(QString profileJson MEMBER profileJson)
     Q_PROPERTY(QString profileKbId MEMBER profileKbId)
+    Q_PROPERTY(QString beanBaseJson MEMBER beanBaseJson)
 
     Q_PROPERTY(bool channelingDetected MEMBER channelingDetected)
     Q_PROPERTY(bool grindIssueDetected MEMBER grindIssueDetected)
@@ -127,6 +128,8 @@ public:
     QString stoppedBy;  // #1161: "weight"|"volume"|"manual"|"profileEnd"|""
     QString profileJson;
     QString profileKbId;
+    // Compact-JSON Bean Base snapshot ("" = unlinked); see ShotRecord::beanBaseJson.
+    QString beanBaseJson;
 
     bool channelingDetected = false;
     bool grindIssueDetected = false;

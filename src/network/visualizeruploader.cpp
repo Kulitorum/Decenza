@@ -331,6 +331,20 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     setStr("barista", &ShotProjection::barista);
     setStr("profile_title", &ShotProjection::profileName);
 
+    // Canonical bean linkage (5C): when the shot's Bean Base snapshot was
+    // picked via Visualizer's canonical autocomplete, the blob carries
+    // Visualizer's canonical UUID — send it so the shot clusters by bean on
+    // visualizer.coffee too (accepted for ALL users on shot PATCH; the
+    // server back-fills bean fields from the canonical record). Only emit
+    // when present: never null it out, since the user may have linked the
+    // bag in Visualizer's own UI.
+    if (!shotData.beanBaseJson.isEmpty()) {
+        const QJsonObject bb = QJsonDocument::fromJson(shotData.beanBaseJson.toUtf8()).object();
+        const QString canonicalId = bb.value(QStringLiteral("visualizerCanonicalId")).toString();
+        if (!canonicalId.isEmpty())
+            shotObj["canonical_coffee_bag_id"] = canonicalId;
+    }
+
     QJsonObject root;
     root["shot"] = shotObj;
 
