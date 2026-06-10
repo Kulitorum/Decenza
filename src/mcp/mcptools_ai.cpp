@@ -6,6 +6,7 @@
 #include "../ai/shotsummarizer.h"
 #include "../ai/aiprovider.h"
 #include "../controllers/maincontroller.h"
+#include "../network/beanbaseclient.h"
 #include "../core/dbutils.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotprojection.h"
@@ -396,4 +397,78 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
             thread->start();
         },
         "control");
+
+    // bean_base_search — read-only community coffee-database lookup.
+    // Reuses the app's BeanBaseClient, so the free-tier budget enforcement
+    // (800 ms debounce, 1 request / 3 s floor, session cache) applies to MCP
+    // callers exactly as it does to the Beans-page search bar. Results pair
+    // with shots_update's `beanBase` arg: search here, then link a shot.
+    registry->registerAsyncTool(
+        "bean_base_search",
+        "Search the Loffee Labs Bean Base community coffee database by roaster or bean name. "
+        "MATCHING IS WHOLE-WORD: partial words return nothing ('prodigal' works, 'prodi' does not), "
+        "and multi-word queries match only contiguous phrases — prefer single complete words. "
+        "Returns canonical bean entries (origin, variety, process, roast level, roaster tasting "
+        "notes, product link). Pass a result object as shots_update's beanBase argument to link "
+        "a shot to its bean. Requires the user's Bean Base API key (Settings > Visualizer > Bean "
+        "Base); fails with status 'missing' when unset. Rate-limited to 1 request per 3 seconds "
+        "with a daily quota — do not call in a loop.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"query", QJsonObject{{"type", "string"},
+                    {"description", "Whole-word search term(s), e.g. a roaster or bean name"}}}
+            }},
+            {"required", QJsonArray{"query"}}
+        },
+        [mainController](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            BeanBaseClient* client = mainController ? mainController->beanbase() : nullptr;
+            if (!client) {
+                respond(QJsonObject{{"error", "Bean Base client not available"}});
+                return;
+            }
+            const QString query = args["query"].toString().trimmed();
+            if (query.length() < 2) {
+                respond(QJsonObject{{"error", "query must be at least 2 characters"}});
+                return;
+            }
+
+            // One-shot bridge: listen for this query's result, then tear down.
+            // A guard object scopes both connections so whichever signal
+            // arrives first disconnects the pair (no double-respond).
+            QObject* guard = new QObject(client);
+            auto finish = [guard](std::function<void()> emitResponse) {
+                emitResponse();
+                guard->deleteLater();
+            };
+            QObject::connect(client, &BeanBaseClient::searchResults, guard,
+                [query, respond, finish](const QString& q, const QVariantList& entries) {
+                    if (q.compare(query, Qt::CaseInsensitive) != 0) return;
+                    finish([&]() {
+                        respond(QJsonObject{
+                            {"query", query},
+                            {"count", entries.size()},
+                            {"results", QJsonArray::fromVariantList(entries)},
+                            {"hint", entries.isEmpty()
+                                ? "No matches. Bean Base needs complete words; the bean may also not be listed."
+                                : "To link a shot to one of these beans, pass the chosen result object as shots_update's beanBase argument."}
+                        });
+                    });
+                });
+            QObject::connect(client, &BeanBaseClient::searchFailed, guard,
+                [query, respond, finish](const QString& q, const QString& status) {
+                    if (q.compare(query, Qt::CaseInsensitive) != 0) return;
+                    finish([&]() {
+                        QString msg;
+                        if (status == "missing") msg = "No Bean Base API key configured (Settings > Visualizer > Bean Base)";
+                        else if (status == "invalid") msg = "Bean Base API key is invalid";
+                        else if (status == "quota") msg = "Daily Bean Base quota exhausted — resets tomorrow";
+                        else if (status == "ratelimited") msg = "Bean Base rate limit hit — retry in a few seconds";
+                        else msg = "Could not reach Bean Base";
+                        respond(QJsonObject{{"error", msg}, {"status", status}});
+                    });
+                });
+            client->search(query);
+        },
+        "read");
 }
