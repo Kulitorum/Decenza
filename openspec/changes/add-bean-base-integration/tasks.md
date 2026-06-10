@@ -94,6 +94,13 @@
 
 - [ ] 5B.1 Multi-word zero-result fallback: `search=` is contiguous-substring only ("prodigal washed" → 0). When a multi-word query returns 0 results, retry with `roaster=<leading word(s)>` anchoring or longest-single-word fallback before showing "No matches". (See design.md § Context 7.)
 
+## 5C. Tier 2/3 — Visualizer-powered lookup (from § Context 10; user-requested direction)
+
+- [ ] 5C.1 Add `visualizerCanonicalSearch(q)` to the client layer: GET `visualizer.coffee/canonical/autocomplete_coffee_bags?q=`, parse `<li>` attrs (`data-autocomplete-value` UUID, `data-roaster`, `data-coffee-bag`). No auth, substring + multi-word. Defensive parsing (internal endpoint).
+- [ ] 5C.2 Use it as the search bar's multi-word / no-key path (supersedes 5B.1): results render the same; picking one stores `visualizerCanonicalId` (UUID) and roaster/name. With a Bean Base key present, follow up with a Bean Base `roaster=`+`search=` fetch to attach rich attributes when a confident match exists.
+- [ ] 5C.3 Shot PATCH linkage: send `shot[canonical_coffee_bag_id] = visualizerCanonicalId` on uploads/updates (accepted for ALL users — no premium needed). This delivers Tier 3's cross-user clustering without the bag-CRUD premium gate.
+- [ ] 5C.4 Upstream ask (miharekar): JSON canonical endpoint incl. `loffee_labs_id` + display attributes — would obsolete per-user Bean Base keys entirely.
+
 ## 6B. Tier 2 — Bean details visibility (all three surfaces)
 
 > Added per user direction (June 2026): the blob fields must be USER-VISIBLE, not
