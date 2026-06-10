@@ -278,7 +278,10 @@ Item {
                             return TranslationManager.translate("beaninfo.beanbase.errorRateLimited", "Rate limit reached — try again shortly")
                         return TranslationManager.translate("beaninfo.beanbase.errorNetwork", "Could not reach Bean Base")
                     }
-                    return TranslationManager.translate("beaninfo.beanbase.noMatches", "No matches — your bean may not be in Bean Base yet")
+                    // Bean Base matches whole words only ("prodi" finds
+                    // nothing, "prodigal" does) — teach that here, since
+                    // mid-word queries are the most common no-match cause.
+                    return TranslationManager.translate("beaninfo.beanbase.noMatches", "No matches — Bean Base needs complete words (or your bean isn't listed yet)")
                 }
             }
         }
