@@ -8,9 +8,18 @@ screen-reader bugs that are unfixed upstream (see GitHub issue #1300):
 - **QTBUG-145786** — the keyboard opens the instant a field gets accessibility
   focus (focus trap).
 
-Both fixes live entirely in the Android platform plugin, so a single replaced
-`.so` carries both. We ship arm64-v8a only (`install-qt-action … arch:
-android_arm64_v8a`), so only one file is needed.
+The fix spans **two** Qt artifacts and BOTH must be overridden:
+- `arm64-v8a/libplugins_platforms_qtforandroid_arm64-v8a.so` — the C++ platform
+  plugin (keyboard-on-focus fix, node `setText`, IME text-change synthesis).
+- `Qt6Android.jar` — the accessibility **Java** classes
+  (`QtAccessibilityDelegate` / `QtAccessibilityInterface` / `QtNativeAccessibility`),
+  which actually send the `TYPE_VIEW_TEXT_CHANGED` event. The C++ calls into these;
+  without the jar override the method is missing and the event is never sent (this
+  was the cause of the persistently-silent typing echo). This jar is the **stock**
+  `Qt6Android.jar` with only the patched a11y `.class` files swapped in, so
+  everything else stays byte-identical to stock.
+
+We ship arm64-v8a only (`install-qt-action … arch: android_arm64_v8a`).
 
 ## Layout
 

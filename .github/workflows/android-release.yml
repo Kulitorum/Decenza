@@ -169,6 +169,25 @@ jobs:
             echo "No a11y plugin override present — using stock Qt platform plugin."
           fi
 
+          # The accessibility Java classes (QtAccessibilityDelegate /
+          # QtAccessibilityInterface / QtNativeAccessibility) live in Qt6Android.jar,
+          # NOT the .so. The typing-echo path needs both halves, so override the jar
+          # too (stock jar with only the patched a11y classes swapped in).
+          JAR_OVERRIDE="android/qt-overrides/Qt6Android.jar"
+          JAR_DEST="$QT_ROOT_DIR/jar/Qt6Android.jar"
+          if [ -f "$JAR_OVERRIDE" ]; then
+            if [ ! -f "$JAR_DEST" ]; then
+              echo "::error::Stock Qt6Android.jar not found at $JAR_DEST — Qt layout changed; refusing to ship unverified override."
+              exit 1
+            fi
+            echo "Replacing stock Qt6Android.jar with patched a11y build:"
+            ls -l "$JAR_OVERRIDE" "$JAR_DEST"
+            cp -f "$JAR_OVERRIDE" "$JAR_DEST"
+            echo "Jar override applied."
+          else
+            echo "No a11y jar override present — using stock Qt6Android.jar."
+          fi
+
       - name: Configure CMake
         run: |
           mkdir -p build
