@@ -24,6 +24,7 @@ class SettingsDye;
 class SettingsNetwork;
 class SettingsApp;
 class SettingsCalibration;
+class SettingsBeanBase;
 
 class Settings : public QObject {
     Q_OBJECT
@@ -49,6 +50,7 @@ class Settings : public QObject {
     Q_PROPERTY(QObject* network READ networkQObject CONSTANT)
     Q_PROPERTY(QObject* app READ appQObject CONSTANT)
     Q_PROPERTY(QObject* calibration READ calibrationQObject CONSTANT)
+    Q_PROPERTY(QObject* beanbase READ beanbaseQObject CONSTANT)
 
     // Machine settings
     Q_PROPERTY(QString machineAddress READ machineAddress WRITE setMachineAddress NOTIFY machineAddressChanged)
@@ -92,6 +94,7 @@ public:
     SettingsNetwork* network() const { return m_network; }
     SettingsApp* app() const { return m_app; }
     SettingsCalibration* calibration() const { return m_calibration; }
+    SettingsBeanBase* beanbase() const { return m_beanbase; }
 
     // QML-facing accessors — implemented out-of-line in settings.cpp where the
     // SettingsXxx -> QObject* upcast is visible. QML uses these via Q_PROPERTY.
@@ -107,6 +110,7 @@ public:
     QObject* networkQObject() const;
     QObject* appQObject() const;
     QObject* calibrationQObject() const;
+    QObject* beanbaseQObject() const;
 
     // Machine settings
     QString machineAddress() const;
@@ -198,4 +202,5 @@ private:
     SettingsNetwork* m_network = nullptr;
     SettingsApp* m_app = nullptr;
     SettingsCalibration* m_calibration = nullptr;
+    SettingsBeanBase* m_beanbase = nullptr;
 };

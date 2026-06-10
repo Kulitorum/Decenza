@@ -18,6 +18,7 @@
 #include "../models/shotcomparisonmodel.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
+#include "../network/beanbaseclient.h"
 #include "../ai/aimanager.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotimporter.h"
@@ -179,6 +180,7 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     m_visualizer = new VisualizerUploader(m_networkManager, m_settings, this);
     m_visualizer->setDevice(m_device);
     m_visualizerImporter = new VisualizerImporter(m_networkManager, this, m_settings, this);
+    m_beanbase = new BeanBaseClient(m_networkManager, m_settings, this);
 
     // Create shot history storage and comparison model
     m_shotHistory = new ShotHistoryStorage(this);

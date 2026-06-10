@@ -37,6 +37,7 @@ class ProfileStorage;
 class ShotDebugLogger;
 class LocationProvider;
 class ShotTimingController;
+class BeanBaseClient;
 struct ShotSample;
 
 class MainController : public QObject {
@@ -45,6 +46,7 @@ class MainController : public QObject {
     // Non-profile QML properties (profile properties are on ProfileManager)
     Q_PROPERTY(VisualizerUploader* visualizer READ visualizer CONSTANT)
     Q_PROPERTY(VisualizerImporter* visualizerImporter READ visualizerImporter CONSTANT)
+    Q_PROPERTY(BeanBaseClient* beanbase READ beanbase CONSTANT)
     Q_PROPERTY(AIManager* aiManager READ aiManager CONSTANT)
     Q_PROPERTY(ShotDataModel* shotDataModel READ shotDataModel CONSTANT)
     Q_PROPERTY(SteamDataModel* steamDataModel READ steamDataModel CONSTANT)
@@ -82,6 +84,7 @@ public:
     double filteredGoalFlow() const { return m_filteredGoalFlow; }
     VisualizerUploader* visualizer() const { return m_visualizer; }
     VisualizerImporter* visualizerImporter() const { return m_visualizerImporter; }
+    BeanBaseClient* beanbase() const { return m_beanbase; }
     ProfileStorage* profileStorage() const { return m_profileStorage; }
     AIManager* aiManager() const { return m_aiManager; }
     void setAiManager(AIManager* aiManager) {
@@ -282,6 +285,7 @@ private:
     ProfileStorage* m_profileStorage = nullptr;
     VisualizerUploader* m_visualizer = nullptr;
     VisualizerImporter* m_visualizerImporter = nullptr;
+    BeanBaseClient* m_beanbase = nullptr;
     AIManager* m_aiManager = nullptr;
     ShotTimingController* m_timingController = nullptr;
     BLEManager* m_bleManager = nullptr;
