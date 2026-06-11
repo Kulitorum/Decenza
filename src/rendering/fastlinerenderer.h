@@ -18,7 +18,7 @@ class FastLineRenderer : public QQuickItem {
     Q_PROPERTY(double maxY READ maxY WRITE setMaxY NOTIFY maxYChanged)
 
 public:
-    static constexpr int MAX_POINTS = 6000;  // 10 min at 10Hz (scale rate) — covers espresso and filter profiles
+    static constexpr int MAX_POINTS = 6000;  // 10 min at 10Hz (WiFi scale rate; BLE scale ~5Hz in practice) — covers espresso and filter profiles
 
     explicit FastLineRenderer(QQuickItem* parent = nullptr);
 
@@ -63,5 +63,6 @@ private:
     double m_minX = 0, m_maxX = 1, m_minY = 0, m_maxY = 1;
     bool m_geometryDirty = true;
     bool m_materialDirty = true;
+    bool m_overflowLogged = false;
 
 };
