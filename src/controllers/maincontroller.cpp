@@ -1841,12 +1841,14 @@ void MainController::onShotEnded() {
         return;
     }
 
-    // Skip saving for cleaning/maintenance profile types — they are not espresso shots
+    // Machine maintenance cycles must not pollute shot history or post-shot review.
+    // Same three types are excluded in visualizeruploader.cpp and mcptools_write.cpp — keep in sync.
     if (m_profileManager) {
         const QString beverageType = m_profileManager->currentProfile().beverageType();
         if (beverageType == QLatin1String("cleaning") || beverageType == QLatin1String("descale") || beverageType == QLatin1String("calibrate")) {
             if (m_shotDebugLogger)
                 m_shotDebugLogger->stopCapture();
+            m_extractionStarted = false;
             return;
         }
     }
