@@ -76,6 +76,9 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.profileJson = record.profileJson;
     p.profileKbId = record.profileKbId;
     p.beanBaseJson = record.beanBaseJson;
+    p.bagId = record.bagId;
+    p.frozenDate = record.frozenDate;
+    p.defrostDate = record.defrostDate;
 
     p.pressure = pointsToVariant(record.pressure);
     p.flow = pointsToVariant(record.flow);

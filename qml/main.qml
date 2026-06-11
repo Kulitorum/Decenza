@@ -826,14 +826,10 @@ ApplicationWindow {
             root.sleepCountdownNormal = root.autoSleepMinutes
         }
 
-        // Auto-match current bean data to a preset so the bean button
-        // doesn't appear yellow when the data already matches a saved preset
-        if (Settings.dye.selectedBeanPreset === -1 && Settings.dye.dyeBeanBrand.length > 0) {
-            var matchIndex = Settings.dye.findBeanPresetByContent(Settings.dye.dyeBeanBrand, Settings.dye.dyeBeanType)
-            if (matchIndex >= 0) {
-                Settings.dye.selectedBeanPreset = matchIndex
-            }
-        }
+        // (Bean preset auto-matching removed: bags replaced presets, and the
+        // legacy preset migration maps the selection to activeBagId in C++.
+        // Free-text bean state with no bag is a legitimate "no bag selected"
+        // condition now, not something to repair at startup.)
 
         // Mark app as initialized
         root.appInitialized = true

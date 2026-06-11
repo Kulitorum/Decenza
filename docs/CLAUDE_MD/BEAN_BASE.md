@@ -65,3 +65,17 @@ From the open-source `miharekar/visualizer` repo: `canonical_coffee_bags.id` is 
 ## Testing
 
 `tests/tst_beanbaseclient.cpp` runs against a canned-response local HTTP server (`FakeBeanBaseServer`): debounce coalescing, 3 s gap, cache hits, 429 classification, parse robustness. Gotcha: **no raw string literals in moc'd test files** — moc miscounts braces inside `R"(...)"` and silently drops subsequent classes (vtable link error).
+
+## Coffee bag model (bean-bag-inventory)
+
+Bags replaced bean presets entirely — one concept, no live-state divergence. Key invariants:
+
+- **The active bag IS the bean state.** `SettingsDye`'s dye/* keys are a synchronous write-through cache of the active bag: selecting a bag (`Settings.dye.activeBagId`) copies its fields in (`applyActiveBag`); every bean/grinder/dose setter writes through to the bag row on a background thread. There is no `beansModified`, no save prompt. `setActiveBagKeepFields()` selects WITHOUT applying — used when the caller is about to set its own values (loading a historical shot's setup).
+- **Storage**: `coffee_bags` table in the shot history DB (migration 19, `shothistorystorage.cpp`); CRUD via `src/history/coffeebagstorage.{h,cpp}` (async + `withTempDb()` statics). Shots snapshot `bag_id`, `frozen_date`, `defrost_date` at save time and populate the indexed `shots.beanbase_id` column (history search lane; backfilled from `beanbase_json` in migration 19).
+- **Legacy presets**: `bean/presets` + `bean/selectedPreset` QSettings are merge-imported into bags by `CoffeeBagStorage::convertLegacyPresetSettings()` — version-independent, runs at launch AND from `SettingsSerializer` legacy imports; keys cleared only after commit. Guarded out of test builds (`DECENZA_TESTING`) so unit tests don't consume the developer's real presets.
+- **Transfer**: `importDatabaseStatic` migrates bags with `shots.bag_id` id-remap; `dye/activeBagId` is excluded from settings export (device-local row id).
+- **Freeze lifecycle**: `frozenDate`/`defrostDate` on the bag describe the CURRENT portion only; per-shot snapshots are the permanent thermal history. "Next Portion" = `requestSetDefrostToday()`.
+- **Search**: `UnifiedBeanSearchModel` (`src/history/unifiedbeansearchmodel.{h,cpp}`) merges inventory (Tier 0) + canonical autocomplete + shot history into the Change Beans dialog's ranked list; a history/canonical result matching an inventory bag is absorbed into its Tier 0 row.
+- **canonicalRoasterId** is persisted in the beanBaseData blob by `fetchCanonicalPayload` (was previously in-memory only) for future Visualizer Coffee Management roaster linking.
+- **MCP**: `bag_list` / `bag_select` / `bag_update` tools; `shots_get_detail` carries the bag snapshot.
+- Visualizer Coffee Management sync (CM detection, bag CRUD at upload time) is specced in `openspec/changes/bean-bag-inventory/specs/visualizer-coffee-management/spec.md` but blocked on a live-API verification spike.

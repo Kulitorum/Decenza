@@ -1,11 +1,10 @@
 #include "settings_dye.h"
-#include "../network/beanbase_blob.h"
+#include "../history/coffeebagstorage.h"
 #include "settings_visualizer.h"
 #include "grinderaliases.h"
 
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QtMath>
+#include <QDebug>
 
 SettingsDye::SettingsDye(SettingsVisualizer* visualizer, QObject* parent)
     : QObject(parent)
@@ -18,11 +17,9 @@ SettingsDye::SettingsDye(SettingsVisualizer* visualizer, QObject* parent)
     // always passes a fully-constructed instance.
     Q_ASSERT(m_visualizer);
 
-    // Seed empty bean presets list if missing (user adds their own)
-    if (!m_settings.contains("bean/presets")) {
-        QJsonArray empty;
-        m_settings.setValue("bean/presets", QJsonDocument(empty).toJson());
-    }
+    // NOTE: do NOT seed bean/presets here. The legacy preset array is
+    // consumed by ShotHistoryStorage::importLegacyBeanPresets() — re-seeding
+    // an empty array would just create churn for the import to retire.
 
     // One-time legacy DYE grinder migration: split the combined "model" string
     // into brand/model/burrs using the alias table.
@@ -41,25 +38,58 @@ SettingsDye::SettingsDye(SettingsVisualizer* visualizer, QObject* parent)
             }
         }
     }
+}
 
-    // Beans-modified tracking: recompute whenever any DYE bean/grinder field or
-    // the selected preset / preset list changes. Fields tracked here must stay
-    // in sync with those compared in recomputeBeansModified() and written by
-    // applyBeanPreset(). All sources are internal to this domain — no
-    // cross-domain wiring required.
-    connect(this, &SettingsDye::dyeBeanBrandChanged,     this, &SettingsDye::recomputeBeansModified);
-    connect(this, &SettingsDye::dyeBeanTypeChanged,      this, &SettingsDye::recomputeBeansModified);
-    connect(this, &SettingsDye::dyeRoastDateChanged,     this, &SettingsDye::recomputeBeansModified);
-    connect(this, &SettingsDye::dyeRoastLevelChanged,    this, &SettingsDye::recomputeBeansModified);
-    connect(this, &SettingsDye::dyeGrinderBrandChanged,  this, &SettingsDye::recomputeBeansModified);
-    connect(this, &SettingsDye::dyeGrinderModelChanged,  this, &SettingsDye::recomputeBeansModified);
-    connect(this, &SettingsDye::dyeGrinderBurrsChanged,  this, &SettingsDye::recomputeBeansModified);
-    connect(this, &SettingsDye::dyeGrinderSettingChanged, this, &SettingsDye::recomputeBeansModified);
-    connect(this, &SettingsDye::dyeBaristaChanged,       this, &SettingsDye::recomputeBeansModified);
-    connect(this, &SettingsDye::dyeBeanBaseIdChanged,    this, &SettingsDye::recomputeBeansModified);
-    connect(this, &SettingsDye::selectedBeanPresetChanged, this, &SettingsDye::recomputeBeansModified);
-    connect(this, &SettingsDye::beanPresetsChanged,      this, &SettingsDye::recomputeBeansModified);
-    recomputeBeansModified();  // Seed initial state from persisted values
+void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
+{
+    if (m_bagStorage == storage)
+        return;
+    m_bagStorage = storage;
+    if (!m_bagStorage)
+        return;
+
+    // Refresh the dye cache whenever the active bag row changes elsewhere
+    // (bag edit dialog, Next Portion, post-shot dose stamp). The apply is a
+    // no-op when values are already equal, so the write-through echo settles.
+    connect(m_bagStorage, &CoffeeBagStorage::bagReady, this,
+            [this](qint64 bagId, const QVariantMap& bag) {
+                if (bagId != activeBagId())
+                    return;
+                if (bag.isEmpty()) {
+                    // Active bag vanished (deleted row / failed migration map).
+                    qWarning() << "SettingsDye: active bag" << bagId << "not found - clearing selection";
+                    m_keepFieldsOnNextApply = false;
+                    setActiveBagId(-1);
+                    return;
+                }
+                if (m_keepFieldsOnNextApply) {
+                    m_keepFieldsOnNextApply = false;
+                    const QString frozen = bag.value("frozenDate").toString();
+                    const QString defrost = bag.value("defrostDate").toString();
+                    if (frozen != m_activeBagFrozenDate || defrost != m_activeBagDefrostDate) {
+                        m_activeBagFrozenDate = frozen;
+                        m_activeBagDefrostDate = defrost;
+                        emit activeBagChanged();
+                    }
+                    return;
+                }
+                applyActiveBag(bag);
+            });
+    connect(m_bagStorage, &CoffeeBagStorage::bagUpdated, this,
+            [this](qint64 bagId, bool success) {
+                // Skip the refresh for our own write-throughs — the dye cache
+                // is already the source of those values; re-reading per
+                // keystroke would just churn.
+                if (m_pendingSelfWrites > 0) {
+                    m_pendingSelfWrites--;
+                    return;
+                }
+                if (success && bagId == activeBagId())
+                    m_bagStorage->requestBag(bagId);
+            });
+
+    if (activeBagId() > 0)
+        m_bagStorage->requestBag(activeBagId());
 }
 
 // DYE metadata
@@ -71,6 +101,7 @@ QString SettingsDye::dyeBeanBrand() const {
 void SettingsDye::setDyeBeanBrand(const QString& value) {
     if (dyeBeanBrand() != value) {
         m_settings.setValue("dye/beanBrand", value);
+        writeThroughToBag("roasterName", value);
         emit dyeBeanBrandChanged();
     }
 }
@@ -82,6 +113,7 @@ QString SettingsDye::dyeBeanType() const {
 void SettingsDye::setDyeBeanType(const QString& value) {
     if (dyeBeanType() != value) {
         m_settings.setValue("dye/beanType", value);
+        writeThroughToBag("coffeeName", value);
         emit dyeBeanTypeChanged();
     }
 }
@@ -93,6 +125,7 @@ QString SettingsDye::dyeRoastDate() const {
 void SettingsDye::setDyeRoastDate(const QString& value) {
     if (dyeRoastDate() != value) {
         m_settings.setValue("dye/roastDate", value);
+        writeThroughToBag("roastDate", value);
         emit dyeRoastDateChanged();
     }
 }
@@ -104,6 +137,7 @@ QString SettingsDye::dyeRoastLevel() const {
 void SettingsDye::setDyeRoastLevel(const QString& value) {
     if (dyeRoastLevel() != value) {
         m_settings.setValue("dye/roastLevel", value);
+        writeThroughToBag("roastLevel", value);
         emit dyeRoastLevelChanged();
     }
 }
@@ -129,6 +163,7 @@ void SettingsDye::setDyeGrinderBrand(const QString& value) {
     if (dyeGrinderBrand() != value) {
         m_dyeGrinderBrandCache = value;
         m_settings.setValue("dye/grinderBrand", value);
+        writeThroughToBag("grinderBrand", value);
         emit dyeGrinderBrandChanged();
     }
 }
@@ -142,6 +177,7 @@ void SettingsDye::setDyeGrinderModel(const QString& value) {
     if (dyeGrinderModel() != value) {
         m_dyeGrinderModelCache = value;
         m_settings.setValue("dye/grinderModel", value);
+        writeThroughToBag("grinderModel", value);
         emit dyeGrinderModelChanged();
     }
 }
@@ -155,6 +191,7 @@ void SettingsDye::setDyeGrinderBurrs(const QString& value) {
     if (dyeGrinderBurrs() != value) {
         m_dyeGrinderBurrsCache = value;
         m_settings.setValue("dye/grinderBurrs", value);
+        writeThroughToBag("grinderBurrs", value);
         emit dyeGrinderBurrsChanged();
     }
 }
@@ -168,6 +205,7 @@ void SettingsDye::setDyeGrinderSetting(const QString& value) {
     if (dyeGrinderSetting() != value) {
         m_dyeGrinderSettingCache = value;
         m_settings.setValue("dye/grinderSetting", value);
+        writeThroughToBag("grinderSetting", value);
         emit dyeGrinderSettingChanged();
     }
 }
@@ -197,6 +235,7 @@ void SettingsDye::setDyeBeanWeight(double value) {
     if (!qFuzzyCompare(1.0 + dyeBeanWeight(), 1.0 + value)) {
         m_dyeBeanWeightCache = value;
         m_settings.setValue("dye/beanWeight", value);
+        writeThroughToBag("doseWeightG", value);
         emit dyeBeanWeightChanged();
     }
 }
@@ -210,6 +249,7 @@ void SettingsDye::setDyeDrinkWeight(double value) {
     if (!qFuzzyCompare(1.0 + dyeDrinkWeight(), 1.0 + value)) {
         m_dyeDrinkWeightCache = value;
         m_settings.setValue("dye/drinkWeight", value);
+        writeThroughToBag("yieldTargetG", value);
         emit dyeDrinkWeightChanged();
     }
 }
@@ -301,6 +341,7 @@ QString SettingsDye::dyeBeanBaseId() const {
 void SettingsDye::setDyeBeanBaseId(const QString& value) {
     if (dyeBeanBaseId() != value) {
         m_settings.setValue("dye/beanBaseId", value);
+        writeThroughToBag("beanBaseId", value);
         emit dyeBeanBaseIdChanged();
     }
 }
@@ -312,6 +353,7 @@ QString SettingsDye::dyeBeanBaseData() const {
 void SettingsDye::setDyeBeanBaseData(const QString& value) {
     if (dyeBeanBaseData() != value) {
         m_settings.setValue("dye/beanBaseData", value);
+        writeThroughToBag("beanBaseData", value);
         emit dyeBeanBaseDataChanged();
     }
 }
@@ -321,342 +363,115 @@ void SettingsDye::clearBeanBaseLink() {
     setDyeBeanBaseData(QString());
 }
 
-// Bean presets
+// Active bag
 
-QJsonArray SettingsDye::getBeanPresetsArray() const {
-    QByteArray data = m_settings.value("bean/presets").toByteArray();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    return doc.array();
+int SettingsDye::activeBagId() const {
+    return m_settings.value("dye/activeBagId", -1).toInt();
 }
 
-QVariantList SettingsDye::beanPresets() const {
-    QJsonArray arr = getBeanPresetsArray();
+void SettingsDye::setActiveBagId(int bagId) {
+    if (activeBagId() == bagId)
+        return;
+    m_settings.setValue("dye/activeBagId", bagId);
+    emit activeBagIdChanged();
 
-    QVariantList result;
-    for (const QJsonValue& v : arr) {
-        QVariantMap row = v.toObject().toVariantMap();
-        // Backfill legacy presets (no showOnIdle field) — default true to preserve behavior
-        if (!row.contains("showOnIdle")) {
-            row["showOnIdle"] = true;
-        }
-        result.append(row);
-    }
-    return result;
-}
-
-int SettingsDye::selectedBeanPreset() const {
-    return m_settings.value("bean/selectedPreset", -1).toInt();
-}
-
-void SettingsDye::setSelectedBeanPreset(int index) {
-    if (selectedBeanPreset() != index) {
-        m_settings.setValue("bean/selectedPreset", index);
-        emit selectedBeanPresetChanged();
-    }
-}
-
-void SettingsDye::addBeanPreset(const QString& name, const QString& brand, const QString& type,
-                                const QString& roastDate, const QString& roastLevel,
-                                const QString& grinderBrand, const QString& grinderModel,
-                                const QString& grinderBurrs, const QString& grinderSetting,
-                                const QString& barista) {
-    QJsonArray arr = getBeanPresetsArray();
-
-    QJsonObject preset;
-    preset["name"] = name;
-    preset["brand"] = brand;
-    preset["type"] = type;
-    preset["roastDate"] = roastDate;
-    preset["roastLevel"] = roastLevel;
-    preset["grinderBrand"] = grinderBrand;
-    preset["grinderModel"] = grinderModel;
-    preset["grinderBurrs"] = grinderBurrs;
-    preset["grinderSetting"] = grinderSetting;
-    preset["barista"] = barista;
-    preset["showOnIdle"] = true;
-    // The add dialog saves the CURRENT bean — when the passed identity matches
-    // the live DYE state, carry its Bean Base link (empty when unlinked, the
-    // common free-text case).
-    // BeanBaseBlob::isLinked also rejects a CORRUPT blob — without it a
-    // corrupt dyeBeanBaseData (which reads as "unlinked" everywhere else)
-    // would still be copied into the new preset alongside its stale id.
-    if (brand == dyeBeanBrand() && type == dyeBeanType()
-        && BeanBaseBlob::isLinked(dyeBeanBaseData())) {
-        preset["beanBaseId"] = dyeBeanBaseId();
-        preset["beanBaseData"] = dyeBeanBaseData();
-    }
-    arr.append(preset);
-
-    m_settings.setValue("bean/presets", QJsonDocument(arr).toJson());
-    emit beanPresetsChanged();
-}
-
-void SettingsDye::updateBeanPreset(int index, const QString& name, const QString& brand,
-                                   const QString& type, const QString& roastDate,
-                                   const QString& roastLevel, const QString& grinderBrand,
-                                   const QString& grinderModel, const QString& grinderBurrs,
-                                   const QString& grinderSetting, const QString& barista) {
-    QJsonArray arr = getBeanPresetsArray();
-
-    if (index >= 0 && index < static_cast<int>(arr.size())) {
-        // Preserve showOnIdle from existing entry (default true for legacy)
-        QJsonObject existing = arr[index].toObject();
-        bool showOnIdle = existing.contains("showOnIdle") ? existing["showOnIdle"].toBool() : true;
-
-        QJsonObject preset;
-        preset["name"] = name;
-        preset["brand"] = brand;
-        preset["type"] = type;
-        preset["roastDate"] = roastDate;
-        preset["roastLevel"] = roastLevel;
-        preset["grinderBrand"] = grinderBrand;
-        preset["grinderModel"] = grinderModel;
-        preset["grinderBurrs"] = grinderBurrs;
-        preset["grinderSetting"] = grinderSetting;
-        preset["barista"] = barista;
-        preset["showOnIdle"] = showOnIdle;
-        // Bean Base link: when the saved identity matches the live DYE state
-        // (the "Save = make preset match current DYE" flow), mirror the live
-        // link exactly — including clearing it after an Unlink. Otherwise
-        // (e.g. renaming a preset that isn't the active bean) preserve the
-        // row's existing link, like showOnIdle above.
-        if (brand == dyeBeanBrand() && type == dyeBeanType()) {
-            if (BeanBaseBlob::isLinked(dyeBeanBaseData())) {
-                preset["beanBaseId"] = dyeBeanBaseId();
-                preset["beanBaseData"] = dyeBeanBaseData();
-            }
-        } else if (existing.contains("beanBaseId")) {
-            preset["beanBaseId"] = existing["beanBaseId"];
-            preset["beanBaseData"] = existing["beanBaseData"];
-        }
-        arr[index] = preset;
-
-        m_settings.setValue("bean/presets", QJsonDocument(arr).toJson());
-        emit beanPresetsChanged();
-    }
-}
-
-void SettingsDye::removeBeanPreset(int index) {
-    QJsonArray arr = getBeanPresetsArray();
-
-    if (index >= 0 && index < static_cast<int>(arr.size())) {
-        arr.removeAt(index);
-        m_settings.setValue("bean/presets", QJsonDocument(arr).toJson());
-
-        int selected = selectedBeanPreset();
-        if (selected >= static_cast<int>(arr.size()) && arr.size() > 0) {
-            setSelectedBeanPreset(static_cast<int>(arr.size()) - 1);
-        } else if (arr.size() == 0) {
-            setSelectedBeanPreset(-1);
-        } else if (selected > index) {
-            setSelectedBeanPreset(selected - 1);
-        }
-
-        emit beanPresetsChanged();
-    }
-}
-
-void SettingsDye::moveBeanPreset(int from, int to) {
-    QJsonArray arr = getBeanPresetsArray();
-
-    if (from >= 0 && from < static_cast<int>(arr.size()) && to >= 0 && to < static_cast<int>(arr.size()) && from != to) {
-        QJsonValue item = arr[from];
-        arr.removeAt(from);
-        arr.insert(to, item);
-        m_settings.setValue("bean/presets", QJsonDocument(arr).toJson());
-
-        int selected = selectedBeanPreset();
-        if (selected == from) {
-            setSelectedBeanPreset(to);
-        } else if (from < selected && to >= selected) {
-            setSelectedBeanPreset(selected - 1);
-        } else if (from > selected && to <= selected) {
-            setSelectedBeanPreset(selected + 1);
-        }
-
-        emit beanPresetsChanged();
-    }
-}
-
-void SettingsDye::setBeanPresetShowOnIdle(int index, bool show) {
-    QJsonArray arr = getBeanPresetsArray();
-
-    if (index >= 0 && index < static_cast<int>(arr.size())) {
-        QJsonObject preset = arr[index].toObject();
-        if (preset["showOnIdle"].toBool(true) != show) {
-            preset["showOnIdle"] = show;
-            arr[index] = preset;
-            m_settings.setValue("bean/presets", QJsonDocument(arr).toJson());
-            emit beanPresetsChanged();
-        }
-    }
-}
-
-QVariantList SettingsDye::idleBeanPresets() const {
-    QJsonArray arr = getBeanPresetsArray();
-
-    QVariantList result;
-    for (qsizetype i = 0; i < arr.size(); ++i) {
-        QJsonObject obj = arr[i].toObject();
-        bool showOnIdle = obj.contains("showOnIdle") ? obj["showOnIdle"].toBool() : true;
-        if (!showOnIdle) continue;
-        QVariantMap row = obj.toVariantMap();
-        row["showOnIdle"] = true;
-        row["originalIndex"] = static_cast<int>(i);
-        result.append(row);
-    }
-    return result;
-}
-
-QVariantMap SettingsDye::getBeanPreset(int index) const {
-    QJsonArray arr = getBeanPresetsArray();
-
-    if (index >= 0 && index < arr.size()) {
-        QVariantMap row = arr[index].toObject().toVariantMap();
-        if (!row.contains("showOnIdle")) {
-            row["showOnIdle"] = true;
-        }
-        return row;
-    }
-    return QVariantMap();
-}
-
-void SettingsDye::applyBeanPreset(int index) {
-    QVariantMap preset = getBeanPreset(index);
-    if (preset.isEmpty()) {
+    if (bagId <= 0) {
+        // No bag selected: bean identity goes silent. Grinder/dose globals
+        // stay — the physical grinder didn't change.
+        m_applyingBag = true;
+        setDyeBeanBrand(QString());
+        setDyeBeanType(QString());
+        setDyeRoastDate(QString());
+        setDyeRoastLevel(QString());
+        setDyeBeanBaseId(QString());
+        setDyeBeanBaseData(QString());
+        m_applyingBag = false;
+        m_activeBagFrozenDate.clear();
+        m_activeBagDefrostDate.clear();
+        emit activeBagChanged();
         return;
     }
 
-    // Migrate legacy presets: split combined grinder model using alias lookup
-    QString brand = preset.value("grinderBrand").toString();
-    QString model = preset.value("grinderModel").toString();
-    QString burrs = preset.value("grinderBurrs").toString();
-    if (brand.isEmpty() && !model.isEmpty()) {
-        auto result = GrinderAliases::lookup(model);
-        if (result.found) {
-            brand = result.brand;
-            model = result.model;
-            if (burrs.isEmpty()) burrs = result.stockBurrs;
-            // Persist the migration back to the preset
-            updateBeanPreset(index, preset.value("name").toString(),
-                             preset.value("brand").toString(), preset.value("type").toString(),
-                             preset.value("roastDate").toString(), preset.value("roastLevel").toString(),
-                             brand, model, burrs,
-                             preset.value("grinderSetting").toString(),
-                             preset.value("barista").toString());
-        }
-    }
-
-    // Apply all preset fields to DYE settings
-    setDyeBeanBrand(preset.value("brand").toString());
-    setDyeBeanType(preset.value("type").toString());
-    setDyeRoastDate(preset.value("roastDate").toString());
-    setDyeRoastLevel(preset.value("roastLevel").toString());
-    setDyeGrinderBrand(brand);
-    setDyeGrinderModel(model);
-    setDyeGrinderBurrs(burrs);
-    setDyeGrinderSetting(preset.value("grinderSetting").toString());
-    setDyeBarista(preset.value("barista").toString());
-    // Bean Base link follows the preset — an unlinked preset clears any
-    // leftover link from the previous bean.
-    setDyeBeanBaseId(preset.value("beanBaseId").toString());
-    setDyeBeanBaseData(preset.value("beanBaseData").toString());
-}
-
-void SettingsDye::recomputeBeansModified() {
-    bool modified = false;
-    const int idx = selectedBeanPreset();
-    if (idx >= 0) {
-        const QVariantMap preset = getBeanPreset(idx);
-        if (!preset.isEmpty()) {
-            // Legacy bean presets store the grinder as a single combined "model"
-            // string (e.g. "Niche Zero") with empty brand/burrs. Live DYE state has
-            // been split via GrinderAliases at construction time. Normalize the
-            // preset side through the same alias lookup before comparing — otherwise
-            // a freshly-applied legacy preset would read as "modified" until the
-            // user re-saves it. applyBeanPreset() persists the migrated form on
-            // first use, so this normalization only kicks in for not-yet-applied
-            // legacy presets.
-            QString presetBrand = preset.value("grinderBrand").toString();
-            QString presetModel = preset.value("grinderModel").toString();
-            QString presetBurrs = preset.value("grinderBurrs").toString();
-            if (presetBrand.isEmpty() && !presetModel.isEmpty()) {
-                auto result = GrinderAliases::lookup(presetModel);
-                if (result.found) {
-                    presetBrand = result.brand;
-                    presetModel = result.model;
-                    if (presetBurrs.isEmpty()) presetBurrs = result.stockBurrs;
-                }
-            }
-
-            modified = dyeBeanBrand()      != preset.value("brand").toString()
-                    || dyeBeanType()       != preset.value("type").toString()
-                    || dyeRoastDate()      != preset.value("roastDate").toString()
-                    || dyeRoastLevel()     != preset.value("roastLevel").toString()
-                    || dyeGrinderBrand()   != presetBrand
-                    || dyeGrinderModel()   != presetModel
-                    || dyeGrinderBurrs()   != presetBurrs
-                    || dyeGrinderSetting() != preset.value("grinderSetting").toString()
-                    || dyeBarista()        != preset.value("barista").toString()
-                    // Link change (relink/unlink) counts as modified — the id
-                    // is the identity; beanBaseData always travels with it.
-                    || dyeBeanBaseId()     != preset.value("beanBaseId").toString();
-        }
-    }
-    if (modified != m_beansModified) {
-        m_beansModified = modified;
-        emit beansModifiedChanged();
+    if (m_bagStorage) {
+        m_bagStorage->requestBag(bagId);     // applies via bagReady
+        m_bagStorage->requestTouchLastUsed(bagId);
     }
 }
 
-void SettingsDye::saveBeanPresetFromCurrent(const QString& name) {
-    int existingIndex = findBeanPresetByName(name);
-    if (existingIndex >= 0) {
-        updateBeanPreset(existingIndex,
-                         name,
-                         dyeBeanBrand(), dyeBeanType(), dyeRoastDate(), dyeRoastLevel(),
-                         dyeGrinderBrand(), dyeGrinderModel(), dyeGrinderBurrs(),
-                         dyeGrinderSetting(), dyeBarista());
-        setSelectedBeanPreset(existingIndex);
-    } else {
-        addBeanPreset(name,
-                      dyeBeanBrand(), dyeBeanType(), dyeRoastDate(), dyeRoastLevel(),
-                      dyeGrinderBrand(), dyeGrinderModel(), dyeGrinderBurrs(),
-                      dyeGrinderSetting(), dyeBarista());
-        setSelectedBeanPreset(static_cast<int>(getBeanPresetsArray().size()) - 1);
+void SettingsDye::setActiveBagKeepFields(int bagId)
+{
+    if (activeBagId() == bagId)
+        return;
+    if (bagId <= 0) {
+        // Caller is about to set its own field values — just drop the bag
+        // link without the identity-clearing that setActiveBagId(-1) does.
+        m_settings.setValue("dye/activeBagId", -1);
+        m_activeBagFrozenDate.clear();
+        m_activeBagDefrostDate.clear();
+        emit activeBagIdChanged();
+        emit activeBagChanged();
+        return;
+    }
+    m_settings.setValue("dye/activeBagId", bagId);
+    emit activeBagIdChanged();
+    if (m_bagStorage) {
+        m_keepFieldsOnNextApply = true;
+        m_bagStorage->requestBag(bagId);     // lifecycle-only via bagReady
+        m_bagStorage->requestTouchLastUsed(bagId);
     }
 }
 
-int SettingsDye::findBeanPresetByContent(const QString& brand, const QString& type) const {
-    QJsonArray arr = getBeanPresetsArray();
-    for (int i = 0; i < arr.size(); ++i) {
-        QJsonObject obj = arr[i].toObject();
-        if (obj["brand"].toString() == brand && obj["type"].toString() == type) {
-            return i;
-        }
+void SettingsDye::applyActiveBag(const QVariantMap& bag)
+{
+    // Guard suppresses the setters' write-through — these values just came
+    // FROM the bag.
+    m_applyingBag = true;
+
+    // Bean identity always follows the bag, including empties — an absent
+    // roast date displays as silence, not as the previous bean's date.
+    setDyeBeanBrand(bag.value("roasterName").toString());
+    setDyeBeanType(bag.value("coffeeName").toString());
+    setDyeRoastDate(bag.value("roastDate").toString());
+    setDyeRoastLevel(bag.value("roastLevel").toString());
+    setDyeBeanBaseId(bag.value("beanBaseId").toString());
+    setDyeBeanBaseData(bag.value("beanBaseData").toString());
+
+    // Grinder/dose are "last used with this bag": only applied when the bag
+    // has them. A fresh bag keeps the current setup and adopts it through
+    // write-through on the next edit / dose stamp on the next shot.
+    const QString grinderBrand = bag.value("grinderBrand").toString();
+    const QString grinderModel = bag.value("grinderModel").toString();
+    if (!grinderBrand.isEmpty() || !grinderModel.isEmpty()) {
+        setDyeGrinderBrand(grinderBrand);
+        setDyeGrinderModel(grinderModel);
+        setDyeGrinderBurrs(bag.value("grinderBurrs").toString());
+        setDyeGrinderSetting(bag.value("grinderSetting").toString());
     }
-    return -1;
+    const double dose = bag.value("doseWeightG", 0.0).toDouble();
+    if (dose > 0)
+        setDyeBeanWeight(dose);
+    const double yield = bag.value("yieldTargetG", 0.0).toDouble();
+    if (yield > 0)
+        setDyeDrinkWeight(yield);
+
+    m_applyingBag = false;
+
+    const QString frozen = bag.value("frozenDate").toString();
+    const QString defrost = bag.value("defrostDate").toString();
+    if (frozen != m_activeBagFrozenDate || defrost != m_activeBagDefrostDate) {
+        m_activeBagFrozenDate = frozen;
+        m_activeBagDefrostDate = defrost;
+        emit activeBagChanged();
+    }
 }
 
-int SettingsDye::findBeanPresetByBeanBaseId(const QString& beanBaseId) const {
-    if (beanBaseId.isEmpty())
-        return -1;
-    QJsonArray arr = getBeanPresetsArray();
-    for (int i = 0; i < arr.size(); ++i) {
-        if (arr[i].toObject().value("beanBaseId").toString() == beanBaseId) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-int SettingsDye::findBeanPresetByName(const QString& name) const {
-    QJsonArray arr = getBeanPresetsArray();
-    for (int i = 0; i < arr.size(); ++i) {
-        QJsonObject obj = arr[i].toObject();
-        if (obj["name"].toString() == name) {
-            return i;
-        }
-    }
-    return -1;
+void SettingsDye::writeThroughToBag(const QString& field, const QVariant& value)
+{
+    if (m_applyingBag || !m_bagStorage)
+        return;
+    const int bagId = activeBagId();
+    if (bagId <= 0)
+        return;
+    m_pendingSelfWrites++;
+    m_bagStorage->requestUpdateBag(bagId, {{field, value}});
 }

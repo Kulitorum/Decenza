@@ -226,6 +226,12 @@ public:
     // Get database path
     QString databasePath() const { return m_dbPath; }
 
+    // Bag id that bean/selectedPreset mapped to during the legacy preset
+    // import, or -1. SettingsDye adopts it through setActiveBagId() after
+    // storage init — the import cannot write dye/activeBagId to QSettings
+    // directly without bypassing the settings cache and NOTIFY.
+    qint64 migratedActiveBagId() const { return m_migratedActiveBagId; }
+
     // Invalidate all cached getDistinct*() results (call after save/delete/import/update)
     void invalidateDistinctCache();
 
@@ -280,6 +286,10 @@ signals:
 private:
     bool createTables();
     bool runMigrations();
+    // Version-independent merge-import of legacy bean/presets QSettings into
+    // coffee_bags (bean-bag-inventory). Called from initialize() after
+    // migrations; clears the legacy keys only after a successful commit.
+    void importLegacyBeanPresets();
     QByteArray compressSampleData(ShotDataModel* shotData, const QString& phaseSummariesJson = QString());
     static void decompressSampleData(const QByteArray& blob, ShotRecord* record);
     void updateTotalShots();
@@ -319,6 +329,7 @@ private:
     int m_totalShots = 0;
     int m_schemaVersion = 1;
     qint64 m_lastSavedShotId = 0;
+    qint64 m_migratedActiveBagId = -1;
     std::atomic<bool> m_backupInProgress{false};  // Prevent concurrent backup/export operations (thread-safe)
     std::atomic<bool> m_importInProgress{false};   // Prevent concurrent import/restore operations (thread-safe)
 

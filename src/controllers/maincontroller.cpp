@@ -6,6 +6,7 @@
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
 #include "../core/settings_dye.h"
+#include "../network/beanbase_blob.h"
 #include "../core/settings_network.h"
 #include "../core/settings_calibration.h"
 #include "../core/settings_mqtt.h"
@@ -189,6 +190,25 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // no emit needed: QML bindings haven't been created yet.
     m_lastSavedShotId = m_shotHistory->lastSavedShotId();
     connect(m_shotHistory, &QObject::destroyed, this, [this]() { m_savingShot = false; });
+
+    // Coffee bag storage shares the shot history database (coffee_bags
+    // table, created by migration 19 inside initialize() above).
+    m_bagStorage = new CoffeeBagStorage(this);
+    m_bagStorage->initialize(m_shotHistory->databasePath());
+    // Adopt the bag that the legacy preset import mapped bean/selectedPreset
+    // to — through the setter, so the settings cache and NOTIFY fire.
+    if (m_shotHistory->migratedActiveBagId() > 0)
+        m_settings->dye()->setActiveBagId(static_cast<int>(m_shotHistory->migratedActiveBagId()));
+    m_settings->dye()->setBagStorage(m_bagStorage);
+
+    // Unified bean search (Change Beans dialog): inventory + canonical
+    // autocomplete + shot history in one ranked model.
+    m_beanSearch = new UnifiedBeanSearchModel(this);
+    m_beanSearch->setSources(m_bagStorage, m_beanbase, m_shotHistory->databasePath());
+
+    // Coffee Management sync needs the local DB to read the uploaded shot's
+    // bag and persist the remote ids back onto it.
+    m_visualizer->setLocalDbPath(m_shotHistory->databasePath());
 
     // Authoritative C++ writeback: a successful Visualizer upload
     // persists its returned id to the originating local shot row here,
@@ -513,15 +533,22 @@ void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
     // main thread where QPointer's tracking is valid.
     QThread* thread = QThread::create([self, dbPath, shotId, doseOverride]() {
         ShotRecord record;
+        qint64 matchedBagId = -1;
         if (!withTempDb(dbPath, "load_meta", [&](QSqlDatabase& db) {
             record = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+            // Resolve the shot's bag (its bag_id link, or an identity match
+            // for pre-bag shots) while the connection is open — the apply
+            // step must select it BEFORE writing dye fields, or those writes
+            // would write through into whatever bag is currently active.
+            matchedBagId = CoffeeBagStorage::findBagForShotStatic(
+                db, shotId, record.summary.beanBrand, record.summary.beanType);
         })) {
             qWarning() << "loadShotWithMetadata: Failed to open DB for shot" << shotId;
         }
 
         // Apply metadata on main thread (interacts with QML state and BLE)
-        QMetaObject::invokeMethod(qApp, [self, shotId, doseOverride, record = std::move(record)]() {
-            if (self) self->applyLoadedShotMetadata(shotId, record, doseOverride);
+        QMetaObject::invokeMethod(qApp, [self, shotId, doseOverride, matchedBagId, record = std::move(record)]() {
+            if (self) self->applyLoadedShotMetadata(shotId, record, doseOverride, matchedBagId);
         }, Qt::QueuedConnection);
     });
 
@@ -529,7 +556,8 @@ void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
     thread->start();
 }
 
-void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride) {
+void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride,
+                                             qint64 matchedBagId) {
     if (shotRecord.summary.id <= 0) {
         qWarning() << "applyLoadedShotMetadata: Shot not found or DB open failed for id:" << shotId;
         emit shotMetadataLoaded(shotId, false);
@@ -552,6 +580,12 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
 
     // Copy metadata to DYE settings
     if (m_settings) {
+        // Select the shot's bag FIRST, keeping fields — the setters below
+        // write through to the active bag, so the bag must be the right one
+        // (or none) before any field is written. The shot's values win over
+        // the bag's last-used values; via write-through the bag adopts them.
+        m_settings->dye()->setActiveBagKeepFields(matchedBagId > 0 ? static_cast<int>(matchedBagId) : -1);
+
         m_settings->dye()->setDyeBeanBrand(shotRecord.summary.beanBrand);
         m_settings->dye()->setDyeBeanType(shotRecord.summary.beanType);
         m_settings->dye()->setDyeRoastDate(shotRecord.roastDate);
@@ -561,6 +595,11 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         m_settings->dye()->setDyeGrinderBurrs(shotRecord.grinderBurrs);
         m_settings->dye()->setDyeGrinderSetting(shotRecord.grinderSetting);
         m_settings->dye()->setDyeBarista(shotRecord.barista);
+        // Bean Base link follows the shot's snapshot — and clears when the
+        // shot was unlinked, so the previous bag's link can't leak onto a
+        // guest bean.
+        m_settings->dye()->setDyeBeanBaseData(shotRecord.beanBaseJson);
+        m_settings->dye()->setDyeBeanBaseId(BeanBaseBlob::canonicalId(shotRecord.beanBaseJson));
 
         // Restore dose (input parameter, not a result). When loading an auto-favorite,
         // `doseOverride` holds the bucketed dose shown on the card — apply that instead
@@ -575,13 +614,7 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
             }, Qt::QueuedConnection);
         }
         // Note: Don't copy finalWeight/TDS/EY - those are shot results, not inputs
-
-        // Find matching bean preset or set to -1 for guest bean
-        int beanPresetIndex = m_settings->dye()->findBeanPresetByContent(
-            shotRecord.summary.beanBrand, shotRecord.summary.beanType);
-        qDebug() << "applyLoadedShotMetadata: Looking for bean preset - brand:" << shotRecord.summary.beanBrand
-                 << "type:" << shotRecord.summary.beanType << "-> found index:" << beanPresetIndex;
-        m_settings->dye()->setSelectedBeanPreset(beanPresetIndex);
+        // (bag selection happened above, before the field writes)
 
         // Apply brew overrides from history on top of profile defaults (set by loadProfile)
         // Values > 0 indicate overrides were used (0 means no override or old shot)
@@ -604,7 +637,7 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         qDebug() << "Loaded shot metadata - brand:" << shotRecord.summary.beanBrand
                  << "type:" << shotRecord.summary.beanType
                  << "grinder:" << shotRecord.grinderModel << shotRecord.grinderSetting
-                 << "beanPresetIndex:" << beanPresetIndex
+                 << "matchedBagId:" << matchedBagId
                  << "brewOverrides - temp:" << (shotRecord.temperatureOverride > 0 ? QString::number(shotRecord.temperatureOverride) : "none")
                  << "target:" << (shotRecord.targetWeight > 0 ? QString::number(shotRecord.targetWeight)
                     : (shotRecord.summary.finalWeight > 0 && m_profileManager->currentProfile().targetWeight() <= 0
@@ -1936,6 +1969,11 @@ void MainController::onShotEnded() {
     metadata.espressoNotes = m_settings->dye()->dyeShotNotes();
     metadata.barista = m_settings->dye()->dyeBarista();
     metadata.beanBaseJson = m_settings->dye()->dyeBeanBaseData();
+    // Coffee bag snapshot: which bag this shot was pulled with, and the
+    // beans' freeze lifecycle at shot time (bean-bag-inventory).
+    metadata.bagId = m_settings->dye()->activeBagId();
+    metadata.frozenDate = m_settings->dye()->activeBagFrozenDate();
+    metadata.defrostDate = m_settings->dye()->activeBagDefrostDate();
 
     // For volume/timer-based profiles (targetWeight=0), use the actual final weight
     // so favorites can restore a meaningful yield target
@@ -2086,6 +2124,21 @@ void MainController::onShotEnded() {
                 duration, finalWeight, doseWeight,
                 metadata, debugLog,
                 shotTemperatureOverride, shotTargetWeight, stoppedBy);
+
+            // Stamp the actual dose/yield onto the active bag ("last used
+            // with this bag" — the dose may come from SAW/profile settings
+            // rather than a manual edit). Independent of save success:
+            // a failed stamp is logged inside storage and never blocks the
+            // shot save. No user prompt (bean-bag-inventory).
+            if (m_bagStorage && metadata.bagId > 0) {
+                QVariantMap stamp;
+                if (doseWeight > 0)
+                    stamp.insert(QStringLiteral("doseWeightG"), doseWeight);
+                if (shotTargetWeight > 0)
+                    stamp.insert(QStringLiteral("yieldTargetG"), shotTargetWeight);
+                stamp.insert(QStringLiteral("lastUsedEpoch"), QDateTime::currentSecsSinceEpoch());
+                m_bagStorage->requestUpdateBag(metadata.bagId, stamp);
+            }
         }
     } else {
         qWarning() << "[metadata] Could not save shot - history not ready!";
@@ -2156,6 +2209,9 @@ void MainController::uploadPendingShot() {
     metadata.espressoEnjoyment = m_settings->dye()->dyeEspressoEnjoyment();
     metadata.barista = m_settings->dye()->dyeBarista();
     metadata.beanBaseJson = m_settings->dye()->dyeBeanBaseData();
+    metadata.bagId = m_settings->dye()->activeBagId();
+    metadata.frozenDate = m_settings->dye()->activeBagFrozenDate();
+    metadata.defrostDate = m_settings->dye()->activeBagDefrostDate();
 
     // Build notes: user notes + AI recommendation (if any)
     QString notes = m_settings->dye()->dyeShotNotes();
@@ -2308,6 +2364,9 @@ void MainController::generateFakeShotData() {
             metadata.espressoNotes = m_settings->dye()->dyeShotNotes();
             metadata.barista = m_settings->dye()->dyeBarista();
             metadata.beanBaseJson = m_settings->dye()->dyeBeanBaseData();
+            metadata.bagId = m_settings->dye()->activeBagId();
+            metadata.frozenDate = m_settings->dye()->activeBagFrozenDate();
+            metadata.defrostDate = m_settings->dye()->activeBagDefrostDate();
 
             // Use current profile's temperature and target weight as overrides
             double temperatureOverride = m_profileManager->currentProfile().espressoTemperature();

@@ -2371,6 +2371,10 @@ int main(int argc, char *argv[])
         "MachineState is created in C++");
     qmlRegisterUncreatableType<AIConversation>("Decenza", 1, 0, "AIConversationType",
         "AIConversation is created in C++");
+    qmlRegisterUncreatableType<CoffeeBagStorage>("Decenza", 1, 0, "CoffeeBagStorageType",
+        "CoffeeBagStorage is created in C++ (MainController.bagStorage)");
+    qmlRegisterUncreatableType<UnifiedBeanSearchModel>("Decenza", 1, 0, "UnifiedBeanSearchModelType",
+        "UnifiedBeanSearchModel is created in C++ (MainController.beanSearch)");
     // Exposes SteamHealthTracker::BaselineState enum values to QML
     // (e.g. SteamHealthTrackerType.EstablishingAfterReset). The tracker
     // instance itself is available as the "SteamHealthTracker" context

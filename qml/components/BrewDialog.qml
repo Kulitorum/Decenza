@@ -36,26 +36,9 @@ Dialog {
     property string grinderBurrs: ""
     property string grindSetting: ""
 
-    // Bean and profile
-    property string beanBrand: ""
-    property string beanType: ""
-    property string roastDate: ""
+    // Profile
     property string selectedProfileTitle: ""
     property string originalProfileFilename: ""
-
-    function getBeanBrandSuggestions() {
-        var suggestions = MainController.shotHistory ? MainController.shotHistory.getDistinctBeanBrands() : []
-        if (root.beanBrand.length > 0 && suggestions.indexOf(root.beanBrand) === -1)
-            suggestions.unshift(root.beanBrand)
-        return suggestions
-    }
-
-    function getBeanTypeSuggestions() {
-        var suggestions = MainController.shotHistory ? MainController.shotHistory.getDistinctBeanTypesForBrand(root.beanBrand) : []
-        if (root.beanType.length > 0 && suggestions.indexOf(root.beanType) === -1)
-            suggestions.unshift(root.beanType)
-        return suggestions
-    }
 
     function getProfileSuggestions() {
         var profiles = ProfileManager.availableProfiles
@@ -124,19 +107,11 @@ Dialog {
     // Incremented when async distinct cache refreshes; referenced in suggestion bindings
     // to force QML re-evaluation (the >= 0 condition is always true by design)
     property int _distinctCacheVersion: 0
-    property string _pendingBeanAutoFill: ""
 
     Connections {
         target: MainController.shotHistory
         function onDistinctCacheReady() {
             _distinctCacheVersion++
-            if (_pendingBeanAutoFill.length > 0) {
-                var types = MainController.shotHistory.getDistinctBeanTypesForBrand(_pendingBeanAutoFill)
-                if (types.length > 0) {
-                    _pendingBeanAutoFill = ""
-                    if (types.length === 1) root.beanType = types[0]
-                }
-            }
         }
     }
 
@@ -186,9 +161,6 @@ Dialog {
         grinderModel = Settings.dye.dyeGrinderModel
         grinderBurrs = Settings.dye.dyeGrinderBurrs
         grindSetting = Settings.dye.dyeGrinderSetting
-        beanBrand = Settings.dye.dyeBeanBrand
-        beanType = Settings.dye.dyeBeanType
-        roastDate = Settings.dye.dyeRoastDate
         selectedProfileTitle = ProfileManager.currentProfileName
         originalProfileFilename = Settings.app.currentProfile
         showScaleWarning = false
@@ -213,8 +185,7 @@ Dialog {
         implicitWidth: Theme.scaled(520) * root.dialogScale
         inOverlay: true
         textFields: [
-            profileInput.textField, beanBrandInput.textField,
-            beanTypeInput.textField, roastDateInput,
+            profileInput.textField,
             grinderBrandInput.textField, grinderModelInput.textField,
             grinderBurrsInput.textField, grindInput.textField
         ]
@@ -302,7 +273,7 @@ Dialog {
             }
         }
 
-        // Roaster
+        // Beans: read-only summary of the active bag + Change Beans
         RowLayout {
             Layout.fillWidth: true
             Layout.leftMargin: Theme.scaled(20)
@@ -311,7 +282,7 @@ Dialog {
             spacing: Theme.scaled(4)
 
             Text {
-                text: TranslationManager.translate("brewDialog.roasterLabel", "Roaster:")
+                text: TranslationManager.translate("brewDialog.beansLabel", "Beans:")
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 Layout.alignment: Qt.AlignVCenter
@@ -319,97 +290,25 @@ Dialog {
                 Accessible.ignored: true
             }
 
-            SuggestionField {
-                id: beanBrandInput
+            BeanSummary {
+                id: brewBeanSummary
                 Layout.fillWidth: true
-                label: ""
-                accessibleName: TranslationManager.translate("brewDialog.roaster", "Roaster")
-                text: root.beanBrand
-                suggestions: _distinctCacheVersion >= 0 ? root.getBeanBrandSuggestions() : []
-                onTextEdited: function(t) { root.beanBrand = t }
-                onSuggestionSelected: function(t) {
-                    root.beanType = ""
-                    var types = MainController.shotHistory.getDistinctBeanTypesForBrand(t)
-                    if (types.length === 1) root.beanType = types[0]
-                    else if (types.length === 0) _pendingBeanAutoFill = t
-                }
-            }
-        }
-
-        // Coffee
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: Theme.scaled(20)
-            Layout.rightMargin: Theme.scaled(20)
-            Layout.topMargin: Theme.scaled(8)
-            spacing: Theme.scaled(4)
-
-            Text {
-                text: TranslationManager.translate("brewDialog.coffeeLabel", "Coffee:")
-                font: Theme.bodyFont
-                color: Theme.textSecondaryColor
                 Layout.alignment: Qt.AlignVCenter
-                Layout.preferredWidth: Theme.scaled(75)
-                Accessible.ignored: true
-            }
-
-            SuggestionField {
-                id: beanTypeInput
-                Layout.fillWidth: true
-                label: ""
-                accessibleName: TranslationManager.translate("brewDialog.coffee", "Coffee")
-                text: root.beanType
-                suggestions: _distinctCacheVersion >= 0 ? root.getBeanTypeSuggestions() : []
-                onTextEdited: function(t) { root.beanType = t }
-            }
-        }
-
-        // Roast date
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: Theme.scaled(20)
-            Layout.rightMargin: Theme.scaled(20)
-            Layout.topMargin: Theme.scaled(8)
-            spacing: Theme.scaled(4)
-
-            Text {
-                text: TranslationManager.translate("brewDialog.roastDateLabel", "Roasted:")
-                font: Theme.bodyFont
-                color: Theme.textSecondaryColor
-                Layout.alignment: Qt.AlignVCenter
-                Layout.preferredWidth: Theme.scaled(75)
-                Accessible.ignored: true
-            }
-
-            StyledTextField {
-                id: roastDateInput
-                Layout.fillWidth: true
-                placeholder: TranslationManager.translate("brewDialog.roastDatePlaceholder", "yyyy-mm-dd")
-                accessibleName: TranslationManager.translate("brewDialog.roastDate", "Roast date")
-                text: root.roastDate
-                inputMethodHints: Qt.ImhDate
-                inputMask: "9999-99-99"
-                onTextEdited: root.roastDate = text.replace(/_/g, "")
             }
 
             AccessibleButton {
-                id: roastDateCalendarBtn
-                Layout.preferredWidth: Theme.scaled(44)
                 Layout.preferredHeight: Theme.scaled(44)
                 Layout.alignment: Qt.AlignVCenter
-                accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
-                leftPadding: Theme.scaled(8)
-                rightPadding: Theme.scaled(8)
-                icon.source: "qrc:/emoji/1f4c5.svg"
-                icon.width: Theme.scaled(20)
-                icon.height: Theme.scaled(20)
-                text: ""
-                onClicked: roastDatePicker.openWithDate(root.roastDate)
+                text: brewBeanSummary.hasBeans
+                    ? TranslationManager.translate("beans.button.change", "Change Beans")
+                    : TranslationManager.translate("beans.button.select", "Select Beans")
+                accessibleName: TranslationManager.translate("beans.button.accessible.change", "Change the selected beans")
+                onClicked: brewChangeBeansDialog.open()
             }
 
-            DatePickerDialog {
-                id: roastDatePicker
-                onDateSelected: function(dateString) { root.roastDate = dateString }
+            ChangeBeansDialog {
+                id: brewChangeBeansDialog
+                context: "brew"
             }
         }
 
@@ -824,11 +723,8 @@ Dialog {
                     root.temperatureValue = root.profileTemperature
                     root.profileTargetWeight = ProfileManager.profileTargetWeight
 
-                    // Use bean preset dose if available, otherwise default 18g
+                    // Use the active bag's dose if available, otherwise default 18g
                     root.doseValue = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
-                    root.beanBrand = Settings.dye.dyeBeanBrand
-                    root.beanType = Settings.dye.dyeBeanType
-                    root.roastDate = Settings.dye.dyeRoastDate
                     root.selectedProfileTitle = ProfileManager.currentProfileName
                     root.grinderBrand = Settings.dye.dyeGrinderBrand
                     root.grinderModel = Settings.dye.dyeGrinderModel
@@ -887,9 +783,6 @@ Dialog {
                 onClicked: {
                     Qt.inputMethod.commit()
                     Settings.brew.lastUsedRatio = root.ratio
-                    Settings.dye.dyeBeanBrand = root.beanBrand
-                    Settings.dye.dyeBeanType = root.beanType
-                    Settings.dye.dyeRoastDate = root.roastDate
                     Settings.dye.dyeGrinderBrand = root.grinderBrand
                     Settings.dye.dyeGrinderModel = root.grinderModel
                     Settings.dye.dyeGrinderBurrs = root.grinderBurrs

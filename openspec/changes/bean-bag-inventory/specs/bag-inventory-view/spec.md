@@ -1,0 +1,91 @@
+## ADDED Requirements
+
+### Requirement: Beans window shows bag inventory
+The Beans window SHALL display a list of bags where `inInventory = true`, replacing the current preset list.
+
+#### Scenario: Inventory with canonical bags
+- **WHEN** the Beans window is opened and the user has canonical-linked bags
+- **THEN** each bag SHALL display: roaster name, coffee name, canonical verified badge, key attributes (origin · variety · process), roast age, and defrost age if `defrostDate` is set
+
+#### Scenario: Inventory with non-canonical bags
+- **WHEN** a bag has no `beanBaseId`
+- **THEN** the card SHALL display roaster name, coffee name, roast age, and a "Find in Bean Base" nudge link — but SHALL NOT display empty attribute fields
+
+#### Scenario: Empty inventory
+- **WHEN** no bags are in inventory
+- **THEN** the window SHALL display a prompt to add the first bag, with an "Add New Bag" action
+
+### Requirement: Bag cards adapt to data confidence
+Bag cards SHALL follow the "show less when more is known" principle: canonical-linked bags show a single dense attribute line; non-canonical bags show only what is available.
+
+#### Scenario: Full canonical card
+- **WHEN** a bag has `beanBaseId` and `beanBaseData` with origin, variety, and process
+- **THEN** the card SHALL render all three on one line (e.g., "Ethiopia · Washed · Heirloom")
+
+#### Scenario: Partial data card
+- **WHEN** a bag has only roaster and coffee name (no canonical)
+- **THEN** the card SHALL show only those two fields — no empty placeholders
+
+### Requirement: Mark as Empty removes bag from inventory
+The system SHALL provide a "Mark as Empty" action on each bag card. Activating it SHALL set `inInventory = false`, removing the bag from the inventory view. Historical shots referencing the bag SHALL be unaffected.
+
+#### Scenario: Mark as empty
+- **WHEN** the user activates "Mark as Empty" on a bag
+- **THEN** the bag SHALL disappear from the inventory view immediately
+- **AND** shots that were made with that bag SHALL retain their bean snapshot
+
+#### Scenario: Active bag marked empty
+- **WHEN** the user marks the currently active bag as empty
+- **THEN** `activeBagId` SHALL be cleared
+- **AND** the bean summary in shot contexts SHALL show "No beans selected"
+
+### Requirement: Add New Bag entry point
+The Beans window SHALL provide an "Add New Bag" action that opens the Change Beans dialog in creation mode.
+
+#### Scenario: Add new bag from inventory
+- **WHEN** the user taps "Add New Bag"
+- **THEN** the Change Beans dialog SHALL open
+- **AND** on bag creation, the new bag SHALL appear in inventory and become the active bag
+
+### Requirement: Idle-page bean widget shows inventory bags
+The idle-page bean layout widget (`BeansItem.qml`) SHALL display inventory bags (`inInventory = true`) as selectable pills, replacing the showOnIdle-filtered preset pills. Tapping a pill SHALL set `activeBagId`.
+
+#### Scenario: Selecting a bag from the idle page
+- **WHEN** the user taps a bag pill on the idle page
+- **THEN** `activeBagId` SHALL be set to that bag
+- **AND** the pill SHALL show a selected state
+
+#### Scenario: Bag marked empty disappears from idle widget
+- **WHEN** a bag is marked empty
+- **THEN** its pill SHALL be removed from the idle widget (visibility criterion is `inInventory`, the dropped `showOnIdle` flag has no successor)
+
+### Requirement: Bags are editable in place
+Each bag SHALL be editable from its card via an Edit action, opening the Bag Details form in edit mode. All bag fields are editable (roaster, coffee name, roast date, roast level, notes, startWeightG, freeze dates, canonical link). Edits modify the existing bag row — no new bag is created, and `activeBagId` is unaffected.
+
+#### Scenario: Fixing a typo on a bag
+- **WHEN** the user edits a bag's coffee name and saves
+- **THEN** the same bag row SHALL be updated in place
+- **AND** shots already linked to the bag keep their snapshots unchanged (snapshots are immutable history)
+
+#### Scenario: Adding a roast date later
+- **WHEN** the user edits a bag that was created without a roast date and enters one
+- **THEN** the bag SHALL store it and roast-age displays SHALL appear from then on
+
+### Requirement: New Bag from existing bag (save-as template)
+Each bag card SHALL offer a "New Bag" (save-as) action that opens the Bag Details form in creation mode pre-filled from that bag — identity, canonical link, grinder/dose, notes — with the roast date blank (a new bag is a new roast date). Confirming creates a separate bag row; the source bag is untouched.
+
+#### Scenario: New bag of the same coffee
+- **WHEN** the user activates "New Bag" on an existing bag (e.g. they bought the same coffee again)
+- **THEN** the details form SHALL open pre-filled from the source bag with roast date blank
+- **AND** confirming SHALL create a new bag in inventory, leaving the source bag unchanged (e.g. still markable as empty separately)
+
+### Requirement: Bags with no linked shots can be deleted
+A bag that no shot references (no `shots.bag_id` rows) SHALL be deletable from the inventory view (e.g., a mistaken creation). Bags with linked shots SHALL only be markable as empty, never deleted.
+
+#### Scenario: Deleting a mistakenly created bag
+- **WHEN** the user deletes a bag with zero linked shots
+- **THEN** the bag row SHALL be removed from the database entirely
+
+#### Scenario: Delete unavailable for used bags
+- **WHEN** a bag has at least one linked shot
+- **THEN** no delete action SHALL be offered — only "Mark as Empty"

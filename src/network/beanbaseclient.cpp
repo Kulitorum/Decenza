@@ -339,15 +339,21 @@ void BeanBaseClient::fetchCanonicalPayload(const QString& roasterUuid, const QVa
     QNetworkRequest request{url};
     request.setTransferTimeout(kTransferTimeoutMs);
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, canonicalId]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, canonicalId, roasterUuid]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError)
             return;  // Best-effort: transient failures stay silent.
-        const QVariantMap attrs = parseCanonicalPayload(reply->readAll(), canonicalId);
-        if (!attrs.isEmpty())
+        QVariantMap attrs = parseCanonicalPayload(reply->readAll(), canonicalId);
+        if (!attrs.isEmpty()) {
+            // Persist the roaster UUID in the blob — it otherwise lives only
+            // in the in-memory m_roasterUuidCache and is lost on restart.
+            // Visualizer Coffee Management bag creation needs it for verified
+            // roaster linking (bean-bag-inventory).
+            attrs.insert(QStringLiteral("canonicalRoasterId"), roasterUuid);
             emit canonicalDetails(canonicalId, attrs);
-        else
+        } else {
             qWarning() << "BeanBaseClient: enrichment payload missing/unparseable for" << canonicalId;
+        }
     });
 }
 

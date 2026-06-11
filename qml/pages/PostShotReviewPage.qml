@@ -250,22 +250,8 @@ Page {
         }
         function onDistinctCacheReady() {
             _distinctCacheVersion++
-            if (_pendingBeanAutoFill.length > 0) {
-                var types = MainController.shotHistory.getDistinctBeanTypesForBrand(_pendingBeanAutoFill)
-                if (types.length > 0) {
-                    _pendingBeanAutoFill = ""
-                    if (types.length === 1) {
-                        editBeanType = types[0]
-                        // Async auto-fill (cache resolved after the roaster was
-                        // picked) — persist like any other committed value.
-                        postShotReviewPage.autosave("beanType", true)
-                    }
-                }
-            }
         }
     }
-
-    property string _pendingBeanAutoFill: ""
 
     // Editing fields (separate from Settings.dye* to avoid polluting current session)
     property string editBeanBrand: ""
@@ -296,29 +282,6 @@ Page {
         try { return JSON.parse(editBeanBaseJson) } catch (e) { return ({}) }
     }
     readonly property bool beanBaseLinked: activeBeanBase.id !== undefined && activeBeanBase.id !== ""
-    // Lock follows the data: a field locks only when linked AND the entry
-    // supplied a non-empty value for it (same rule as BeanInfoPage).
-    function beanBaseLocks(fieldKey) {
-        return beanBaseLinked && activeBeanBase[fieldKey] !== undefined
-            && String(activeBeanBase[fieldKey]).length > 0
-    }
-
-    function applyBeanBaseEntry(entry) {
-        editBeanBaseJson = JSON.stringify(entry)
-        if (entry.roasterName) editBeanBrand = entry.roasterName
-        if (entry.roastName) editBeanType = entry.roastName
-        if (entry.degree) editRoastLevel = entry.degree
-        postShotReviewPage.autosave("beanBase", true)
-        // Canonical picks carry identity + names only; fetch the attribute
-        // payload (origin/variety/process/...).
-        if (entry.source === "visualizer")
-            MainController.beanbase.fetchCanonicalDetails(entry)
-    }
-
-    function unlinkBeanBase() {
-        editBeanBaseJson = ""
-        postShotReviewPage.autosave("beanBase", true)
-    }
 
     // Real espresso TDS is 5–22%; below 3.0% is a calibration or empty cuvette.
     readonly property real kMinimumPlausibleTds: 3.0
@@ -817,7 +780,6 @@ Page {
         anchors.fill: parent
         targetFlickable: flickable
         textFields: [
-            roasterField.textField, coffeeField.textField, roastDateField.textField,
             grinderBrandField.textField, grinderModelField.textField, grinderBurrsField.textField,
             settingField.textField, baristaField.textField,
             notesExpandable.textField
@@ -1453,30 +1415,67 @@ Page {
                 }
             }
 
-            // Bean search + this shot's snapshot details. Picking a result
-            // (or unlinking) rewrites the SHOT's snapshot via autosave; when
-            // this is the MOST RECENT shot, the sticky DYE link follows too
-            // (see runStickySync) so the next shot is right as well.
-            BeanBaseSearchBar {
+            // Read-only bean summary for THIS shot's snapshot + Change Beans.
+            // Picking a bag rewrites the shot's snapshot (and, for the most
+            // recent shot, sets the active bag too — the "wrong bag" fix path).
+            RowLayout {
                 Layout.fillWidth: true
-                linked: postShotReviewPage.beanBaseLinked
-                linkedLabel: postShotReviewPage.beanBaseLinked
-                    ? (activeBeanBase.roastName || "") + " (" + (activeBeanBase.roasterName || "") + ")"
-                    : ""
-                linkedUrl: postShotReviewPage.beanBaseLinked && activeBeanBase.link !== undefined
-                    ? activeBeanBase.link : ""
-                onEntrySelected: function(entry) { postShotReviewPage.applyBeanBaseEntry(entry) }
-                onUnlinkRequested: postShotReviewPage.unlinkBeanBase()
+                spacing: Theme.scaled(8)
+
+                BeanSummary {
+                    id: reviewBeanSummary
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    useShotData: true
+                    roasterName: editBeanBrand
+                    coffeeName: editBeanType
+                    roastDate: editRoastDate
+                    roastLevel: editRoastLevel
+                    beanBaseData: editBeanBaseJson
+                }
+
+                AccessibleButton {
+                    Layout.preferredHeight: Theme.scaled(44)
+                    Layout.alignment: Qt.AlignVCenter
+                    text: reviewBeanSummary.hasBeans
+                        ? TranslationManager.translate("beans.button.change", "Change Beans")
+                        : TranslationManager.translate("beans.button.select", "Select Beans")
+                    accessibleName: TranslationManager.translate("beans.button.accessible.change", "Change the selected beans")
+                    onClicked: reviewChangeBeansDialog.open()
+                }
+
+                ChangeBeansDialog {
+                    id: reviewChangeBeansDialog
+                    // Only the most recent shot is the "post-shot" fix path
+                    // (sets activeBagId too); older shots opened through this
+                    // page are historical — retag the shot only.
+                    context: editShotId === MainController.lastSavedShotId ? "postShot" : "historicalShot"
+                    shotId: postShotReviewPage.editShotId
+                    onBagSelected: function(bagId, bag) {
+                        // The dialog already wrote the snapshot to the DB —
+                        // mirror it into the edit fields and advance the
+                        // autosave baseline so a later autosave doesn't
+                        // clobber the new bag with stale values.
+                        editBeanBrand = bag.roasterName || ""
+                        editBeanType = bag.coffeeName || ""
+                        editRoastDate = bag.roastDate || ""
+                        editRoastLevel = bag.roastLevel || ""
+                        editBeanBaseJson = bag.beanBaseData || ""
+                        var nb = clonePersistedShot(editShotData)
+                        nb.beanBrand = editBeanBrand
+                        nb.beanType = editBeanType
+                        nb.roastDate = editRoastDate
+                        nb.roastLevel = editRoastLevel
+                        nb.beanBaseJson = editBeanBaseJson
+                        editShotData = nb
+                        _committedState = captureEditState()
+                        pendingVisualizerUpdate = true
+                    }
+                }
             }
 
             BeanBaseDetailsRow {
                 Layout.fillWidth: true
-                beanBaseJson: postShotReviewPage.editBeanBaseJson
-            }
-
-            // Shared popup for taps on locked fields below.
-            BeanBaseDetailsPopup {
-                id: reviewLockedBeanPopup
                 beanBaseJson: postShotReviewPage.editBeanBaseJson
             }
 
@@ -1506,153 +1505,11 @@ Page {
                 columnSpacing: 8
                 rowSpacing: 6
 
-                // === ROW 1: Bean info ===
-                Item {
-                    Layout.fillWidth: true
-                    implicitHeight: roasterField.implicitHeight
-
-                    SuggestionField {
-                        id: roasterField
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        enabled: !beanBaseLocks("roasterName")
-                        opacity: beanBaseLocks("roasterName") ? 0.7 : 1.0
-                        label: TranslationManager.translate("postshotreview.label.roaster", "Roaster")
-                        text: editBeanBrand
-                        suggestions: {
-                            var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanBrands() : []
-                            if (editBeanBrand.length > 0 && list.indexOf(editBeanBrand) === -1) list = [editBeanBrand].concat(list)
-                            return list
-                        }
-                        onTextEdited: function(t) { editBeanBrand = t }
-                        onInputBlurred: postShotReviewPage.autosave("beanBrand", true)
-                        onSuggestionSelected: function(t) {
-                            editBeanType = ""
-                            editRoastDate = ""
-                            var types = MainController.shotHistory.getDistinctBeanTypesForBrand(t)
-                            if (types.length === 1) editBeanType = types[0]
-                            else if (types.length === 0) _pendingBeanAutoFill = t
-                            postShotReviewPage.autosave("beanBrand", true)
-                        }
-                    }
-
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        visible: beanBaseLocks("roasterName")
-                        accessibleName: TranslationManager.translate("beaninfo.beanbase.lockedField", "From Bean Base. Opens bean details")
-                        accessibleItem: roasterField
-                        onAccessibleClicked: reviewLockedBeanPopup.open()
-                    }
-                }
-
-                Item {
-                    Layout.fillWidth: true
-                    implicitHeight: coffeeField.implicitHeight
-
-                    SuggestionField {
-                        id: coffeeField
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        enabled: !beanBaseLocks("roastName")
-                        opacity: beanBaseLocks("roastName") ? 0.7 : 1.0
-                        label: TranslationManager.translate("postshotreview.label.coffee", "Coffee")
-                        text: editBeanType
-                        suggestions: {
-                            var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBeanTypesForBrand(editBeanBrand) : []
-                            if (editBeanType.length > 0 && list.indexOf(editBeanType) === -1) list = [editBeanType].concat(list)
-                            return list
-                        }
-                        onTextEdited: function(t) { editBeanType = t }
-                        onInputBlurred: postShotReviewPage.autosave("beanType", true)
-                        onSuggestionSelected: function(t) { editRoastDate = ""; postShotReviewPage.autosave("beanType", true) }
-                    }
-
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        visible: beanBaseLocks("roastName")
-                        accessibleName: TranslationManager.translate("beaninfo.beanbase.lockedField", "From Bean Base. Opens bean details")
-                        accessibleItem: coffeeField
-                        onAccessibleClicked: reviewLockedBeanPopup.open()
-                    }
-                }
-
-                Item {
-                    Layout.fillWidth: true
-                    implicitHeight: roastDateField.implicitHeight
-
-                    LabeledField {
-                        id: roastDateField
-                        anchors.left: parent.left
-                        anchors.right: reviewCalendarBtn.left
-                        anchors.rightMargin: Theme.scaled(4)
-                        label: TranslationManager.translate("postshotreview.label.roastdate", "Roast date (yyyy-mm-dd)")
-                        text: editRoastDate
-                        inputHints: Qt.ImhDate
-                        inputMask: "9999-99-99"
-                        onTextEdited: function(t) { editRoastDate = t }
-                        onEditingFinished: postShotReviewPage.autosave("roastDate", true)
-                    }
-
-                    AccessibleButton {
-                        id: reviewCalendarBtn
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        width: Theme.scaled(44)
-                        height: Theme.scaled(44)
-                        accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
-                        leftPadding: Theme.scaled(8)
-                        rightPadding: Theme.scaled(8)
-                        icon.source: "qrc:/emoji/1f4c5.svg"
-                        icon.width: Theme.scaled(20)
-                        icon.height: Theme.scaled(20)
-                        text: ""
-                        onClicked: reviewDatePicker.openWithDate(editRoastDate)
-                    }
-
-                    DatePickerDialog {
-                        id: reviewDatePicker
-                        onDateSelected: function(dateString) { editRoastDate = dateString; postShotReviewPage.autosave("roastDate", true) }
-                    }
-                }
-
-                // === ROW 2: Roast level, Grinder ===
-                Item {
-                    Layout.fillWidth: true
-                    visible: beanBaseLocks("degree")
-                    implicitHeight: reviewLockedRoastLevel.implicitHeight
-
-                    LabeledField {
-                        id: reviewLockedRoastLevel
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        enabled: false
-                        opacity: 0.7
-                        label: TranslationManager.translate("postshotreview.label.roastlevel", "Roast level")
-                        text: activeBeanBase.degree !== undefined ? String(activeBeanBase.degree) : ""
-                    }
-
-                    AccessibleMouseArea {
-                        anchors.fill: parent
-                        accessibleName: TranslationManager.translate("beaninfo.beanbase.lockedField", "From Bean Base. Opens bean details")
-                        accessibleItem: reviewLockedRoastLevel
-                        onAccessibleClicked: reviewLockedBeanPopup.open()
-                    }
-                }
-
-                LabeledComboBox {
-                    Layout.fillWidth: true
-                    visible: !beanBaseLocks("degree")
-                    label: TranslationManager.translate("postshotreview.label.roastlevel", "Roast level")
-                    model: ["",
-                        TranslationManager.translate("postshotreview.roastlevel.light", "Light"),
-                        TranslationManager.translate("postshotreview.roastlevel.mediumlight", "Medium-Light"),
-                        TranslationManager.translate("postshotreview.roastlevel.medium", "Medium"),
-                        TranslationManager.translate("postshotreview.roastlevel.mediumdark", "Medium-Dark"),
-                        TranslationManager.translate("postshotreview.roastlevel.dark", "Dark")]
-                    currentValue: editRoastLevel
-                    onValueChanged: function(v) { editRoastLevel = v; postShotReviewPage.autosave("roastLevel", true) }
-                }
-
+                // (Bean identity fields removed — the read-only BeanSummary +
+                // Change Beans dialog above replace them. Grinder and dose
+                // correction fields below stay editable: they dual-write the
+                // shot and the sticky DYE state, which now writes through to
+                // the active bag.)
                 SuggestionField {
                     id: grinderBrandField
                     Layout.fillWidth: true
@@ -2232,56 +2089,6 @@ Page {
     }
 
     // === Inline Components ===
-
-    component LabeledField: Item {
-        property string label: ""
-        property string text: ""
-        property int inputHints: Qt.ImhNone
-        property string inputMask: ""
-        property alias textField: fieldInput  // Expose for KeyboardAwareContainer registration
-        signal textEdited(string text)
-        signal editingFinished()
-
-        implicitHeight: fieldLabel.height + fieldInput.height + 2
-
-        Text {
-            id: fieldLabel
-            anchors.left: parent.left
-            anchors.top: parent.top
-            text: parent.label
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(11)
-            Accessible.ignored: true
-        }
-
-        StyledTextField {
-            id: fieldInput
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: fieldLabel.bottom
-            anchors.topMargin: Theme.scaled(2)
-            text: parent.text
-            inputMethodHints: parent.inputHints
-            inputMask: parent.inputMask
-            EnterKey.type: Qt.EnterKeyNext
-            Keys.onReturnPressed: nextItemInFocusChain().forceActiveFocus()
-            onTextChanged: parent.textEdited(text)
-            onActiveFocusChanged: {
-                if (activeFocus) {
-                    if (AccessibilityManager.enabled) {
-                        let announcement = parent.label + ". " + (text.length > 0 ? text : TranslationManager.translate("postshotreview.accessible.empty", "Empty"))
-                        AccessibilityManager.announce(announcement)
-                    }
-                } else {
-                    parent.editingFinished()
-                }
-            }
-
-            Accessible.role: Accessible.EditableText
-            Accessible.name: parent.label
-            Accessible.description: text.length > 0 ? text : TranslationManager.translate("postshotreview.accessible.empty", "Empty")
-        }
-    }
 
     component LabeledComboBox: Item {
         property string label: ""

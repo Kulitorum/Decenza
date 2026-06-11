@@ -12,7 +12,11 @@
 #include "settings_visualizer.h"
 #include "settings_calibration.h"
 #include "settings_beanbase.h"
+#include "history/coffeebagstorage.h"
 #include <QJsonArray>
+#include <QJsonDocument>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QDebug>
 
 QStringList SettingsSerializer::sensitiveKeys()
@@ -125,27 +129,12 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     flush["presets"] = flushPresets;
     root["flush"] = flush;
 
-    // Bean presets
-    QJsonArray beanPresets;
-    for (const QVariant& preset : settings->dye()->beanPresets()) {
-        QJsonObject p;
-        QVariantMap m = preset.toMap();
-        p["name"] = m["name"].toString();
-        p["brand"] = m["brand"].toString();
-        p["type"] = m["type"].toString();
-        p["roastDate"] = m["roastDate"].toString();
-        p["roastLevel"] = m["roastLevel"].toString();
-        p["grinderBrand"] = m["grinderBrand"].toString();
-        p["grinderModel"] = m["grinderModel"].toString();
-        p["grinderBurrs"] = m["grinderBurrs"].toString();
-        p["grinderSetting"] = m["grinderSetting"].toString();
-        p["barista"] = m["barista"].toString();
-        beanPresets.append(p);
-    }
-    QJsonObject beans;
-    beans["presets"] = beanPresets;
-    beans["selectedPreset"] = settings->dye()->selectedBeanPreset();
-    root["beans"] = beans;
+    // Bean presets were replaced by coffee bags (bean-bag-inventory). Bags
+    // live in the shot history database, which transfers via the DB import
+    // path (with id remapping) — not through settings JSON. dye/activeBagId
+    // is also deliberately NOT exported: it is a device-local DB row id.
+    // importFromJson still understands the legacy "beans" section from
+    // old-version exports.
 
     // Profile favorites
     QJsonObject profile;
@@ -285,12 +274,10 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     ai["openrouterModel"] = aiSettings->openrouterModel();
     root["ai"] = ai;
 
-    // DYE (Describe Your Espresso) metadata
+    // DYE (Describe Your Espresso) metadata. Bean identity fields (brand,
+    // type, roast date/level, Bean Base link) are NOT exported — they are
+    // read-throughs of the active bag, and bags travel in the database.
     QJsonObject dye;
-    dye["beanBrand"] = settings->dye()->dyeBeanBrand();
-    dye["beanType"] = settings->dye()->dyeBeanType();
-    dye["roastDate"] = settings->dye()->dyeRoastDate();
-    dye["roastLevel"] = settings->dye()->dyeRoastLevel();
     dye["grinderBrand"] = settings->dye()->dyeGrinderBrand();
     dye["grinderModel"] = settings->dye()->dyeGrinderModel();
     dye["grinderBurrs"] = settings->dye()->dyeGrinderBurrs();
@@ -302,8 +289,6 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     dye["shotNotes"] = settings->dye()->dyeShotNotes();
     dye["barista"] = settings->dye()->dyeBarista();
     dye["shotDateTime"] = settings->dye()->dyeShotDateTime();
-    dye["beanBaseId"] = settings->dye()->dyeBeanBaseId();
-    dye["beanBaseData"] = settings->dye()->dyeBeanBaseData();
     root["dye"] = dye;
 
     // Shot server settings
@@ -519,32 +504,27 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         }
     }
 
-    // Bean presets
+    // Legacy bean presets (exports from pre-bag app versions). Presets were
+    // replaced by coffee bags in the shot history database — re-materialize
+    // the raw QSettings keys and run the shared merge-import conversion
+    // immediately (this import runs mid-session; the launch-time path in
+    // ShotHistoryStorage would otherwise only pick the keys up on restart).
     if (json.contains("beans") && !excludeKeys.contains("beans")) {
         QJsonObject beans = json["beans"].toObject();
-        if (beans.contains("selectedPreset")) settings->dye()->setSelectedBeanPreset(beans["selectedPreset"].toInt());
-
         if (beans.contains("presets")) {
-            QVariantList existingPresets = settings->dye()->beanPresets();
-            for (qsizetype i = existingPresets.size() - 1; i >= 0; --i) {
-                settings->dye()->removeBeanPreset(static_cast<int>(i));
-            }
-            QJsonArray presets = beans["presets"].toArray();
-            for (const QJsonValue& v : presets) {
-                QJsonObject p = v.toObject();
-                settings->dye()->addBeanPreset(
-                    p["name"].toString(),
-                    p["brand"].toString(),
-                    p["type"].toString(),
-                    p["roastDate"].toString(),
-                    p["roastLevel"].toString(),
-                    p["grinderBrand"].toString(),
-                    p["grinderModel"].toString(),
-                    p["grinderBurrs"].toString(),
-                    p["grinderSetting"].toString(),
-                    p["barista"].toString()
-                );
-            }
+            QSettings rawSettings(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
+            rawSettings.setValue(QStringLiteral("bean/presets"),
+                                 QJsonDocument(beans["presets"].toArray()).toJson());
+            if (beans.contains("selectedPreset"))
+                rawSettings.setValue(QStringLiteral("bean/selectedPreset"),
+                                     beans["selectedPreset"].toInt());
+
+            // Same default path as ShotHistoryStorage::initialize().
+            const QString dbPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                                   + QStringLiteral("/shots.db");
+            const qint64 selectedBagId = CoffeeBagStorage::convertLegacyPresetSettings(dbPath);
+            if (selectedBagId > 0)
+                settings->dye()->setActiveBagId(static_cast<int>(selectedBagId));
         }
     }
 
@@ -714,13 +694,13 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (ai.contains("openrouterModel")) aiSettings->setOpenrouterModel(ai["openrouterModel"].toString());
     }
 
-    // DYE metadata
+    // DYE metadata. Bean identity fields (beanBrand/beanType/roastDate/
+    // roastLevel/beanBaseId/beanBaseData) from legacy exports are skipped —
+    // they are read-throughs of the active bag now, and writing them would
+    // mutate whatever bag happens to be active on this device. Bag identity
+    // arrives via the database import instead.
     if (json.contains("dye") && !excludeKeys.contains("dye")) {
         QJsonObject dye = json["dye"].toObject();
-        if (dye.contains("beanBrand")) settings->dye()->setDyeBeanBrand(dye["beanBrand"].toString());
-        if (dye.contains("beanType")) settings->dye()->setDyeBeanType(dye["beanType"].toString());
-        if (dye.contains("roastDate")) settings->dye()->setDyeRoastDate(dye["roastDate"].toString());
-        if (dye.contains("roastLevel")) settings->dye()->setDyeRoastLevel(dye["roastLevel"].toString());
         if (dye.contains("grinderBrand")) settings->dye()->setDyeGrinderBrand(dye["grinderBrand"].toString());
         if (dye.contains("grinderModel")) settings->dye()->setDyeGrinderModel(dye["grinderModel"].toString());
         if (dye.contains("grinderBurrs")) settings->dye()->setDyeGrinderBurrs(dye["grinderBurrs"].toString());
@@ -734,8 +714,6 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         else if (dye.contains("espressoNotes")) settings->dye()->setDyeShotNotes(dye["espressoNotes"].toString());
         if (dye.contains("barista")) settings->dye()->setDyeBarista(dye["barista"].toString());
         if (dye.contains("shotDateTime")) settings->dye()->setDyeShotDateTime(dye["shotDateTime"].toString());
-        if (dye.contains("beanBaseId")) settings->dye()->setDyeBeanBaseId(dye["beanBaseId"].toString());
-        if (dye.contains("beanBaseData")) settings->dye()->setDyeBeanBaseData(dye["beanBaseData"].toString());
     }
 
     // Shot server settings

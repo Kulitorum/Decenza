@@ -34,6 +34,14 @@ struct ShotMetadata {
     // case) — Visualizer canonical or Bean Base sourced. Persisted per shot
     // so history stays accurate even after the preset is edited or deleted.
     QString beanBaseJson;
+
+    // Active coffee bag snapshot (bean-bag-inventory): the bag the shot was
+    // pulled with (-1 = no bag) and its freeze lifecycle at shot time. The
+    // dates record the beans' thermal history permanently, even after the
+    // bag's defrostDate moves on to the next portion.
+    qint64 bagId = -1;
+    QString frozenDate;   // ISO yyyy-MM-dd, "" = not frozen
+    QString defrostDate;  // ISO yyyy-MM-dd, "" = not defrosted
 };
 
 class VisualizerUploader : public QObject {
@@ -96,6 +104,18 @@ public:
 
     // Test connection with current credentials
     Q_INVOKABLE void testConnection();
+
+    // --- Visualizer Coffee Management sync (bean-bag-inventory) ---
+    // CM state is probed at upload time with a single-field PATCH on our own
+    // just-uploaded shot (spike-verified: 200 = CM on, 400 = param dropped =
+    // CM off; bag CRUD is premium-gated, not CM-gated). Cached per session;
+    // testConnection() resets it so a toggle on visualizer.coffee converges
+    // on the next upload.
+    enum class CmState { Unknown, Active, NoCoffeeManagement, PremiumNoCm };
+    CmState cmState() const { return m_cmState; }
+    // Shot history DB path — needed to read the uploaded shot's bag row and
+    // persist visualizerBagId/visualizerRoasterId back. Set by MainController.
+    void setLocalDbPath(const QString& dbPath) { m_localDbPath = dbPath; }
 
     // One-time reconciliation support: fetch the user's shot list
     // (GET /api/shots, paged) for shots whose start time (clock) is at
@@ -160,6 +180,25 @@ private:
     // exhausted, then emits shotListFetched once.
     void fetchShotListPage(int page, qint64 windowStartEpoch, QVariantList accumulated);
 
+    // --- Coffee Management sync chain (bean-bag-inventory) ---
+    // Entry point, called after a successful upload POST. Loads the shot's
+    // bag from the local DB on a background thread, then drives the chain.
+    void syncCoffeeBagAfterUpload(qint64 dbShotId, const QString& visualizerShotId);
+    // Single-field probe PATCH on our own shot: 200 → Active, 400 → PremiumNoCm.
+    // onCmActive runs (queued) when the probe confirms CM.
+    void probeCmState(const QString& visualizerShotId, const QString& probeBagUuid,
+                      std::function<void()> onCmActive);
+    void resolveRoaster(const QString& visualizerShotId, const QVariantMap& bag);
+    void findRemoteBag(const QString& visualizerShotId, const QVariantMap& bag,
+                       const QString& roasterId, int page = 1);
+    void createRemoteBag(const QString& visualizerShotId, const QVariantMap& bag,
+                         const QString& roasterId);
+    void linkShotToBag(const QString& visualizerShotId, const QString& bagUuid,
+                       const QString& canonicalId);
+    void persistBagSyncIds(qint64 localBagId, const QString& visualizerBagId,
+                           const QString& visualizerRoasterId);
+    QNetworkRequest makeApiJsonRequest(const QString& path) const;
+
     Settings* m_settings;
     QNetworkAccessManager* m_networkManager;
     DE1Device* m_device = nullptr;
@@ -176,6 +215,10 @@ private:
     // this correlation (it would mis-attribute the returned id).
     // Reset after each terminal outcome.
     qint64 m_uploadingDbShotId = 0;
+
+    // Coffee Management sync state (see CmState above).
+    CmState m_cmState = CmState::Unknown;
+    QString m_localDbPath;
 
     static constexpr const char* VISUALIZER_API_URL = "https://visualizer.coffee/api/shots/upload";
     static constexpr const char* VISUALIZER_SHOTS_API_URL = "https://visualizer.coffee/api/shots/";

@@ -20,17 +20,40 @@ Item {
         return null
     }
 
+    // Inventory bags shown as pills (bean-bag-inventory: pills are bags now,
+    // not presets — visibility criterion is inInventory, selection is
+    // activeBagId, and there is no dirty state because bag edits write through).
+    property var inventoryBags: []
+
+    function bagLabel(bag) {
+        if (!bag) return ""
+        var coffee = bag.coffeeName || ""
+        return coffee.length > 0 ? coffee : (bag.roasterName || "")
+    }
+
+    Component.onCompleted: MainController.bagStorage.requestInventory()
+
+    Connections {
+        target: MainController.bagStorage
+        function onInventoryReady(bags) {
+            root.inventoryBags = bags
+        }
+        function onBagsChanged() {
+            MainController.bagStorage.requestInventory()
+        }
+    }
+
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     function togglePresets() {
         if (root.isCompact) {
-            if (Settings.dye.idleBeanPresets.length === 0) {
+            if (root.inventoryBags.length === 0) {
                 goToBeanInfo()
             } else {
                 presetPopup.visible ? presetPopup.close() : presetPopup.open()
             }
-        } else if (Settings.dye.idleBeanPresets.length === 0) {
+        } else if (root.inventoryBags.length === 0) {
             goToBeanInfo()
         } else if (root.idlePage) {
             root.idlePage.activePresetFunction =
@@ -83,7 +106,7 @@ Item {
             supportLongPress: true
             supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.beaninfo", "Beans")
-            accessibleDescription: TranslationManager.translate("idle.accessible.beaninfo.hint", "Tap to toggle presets. Double-tap or long-press for bean info.")
+            accessibleDescription: TranslationManager.translate("idle.accessible.beaninfo.hint", "Tap to toggle bag pills. Double-tap or long-press for the bag inventory.")
             onAccessibleClicked: root.togglePresets()
             onAccessibleDoubleClicked: root.goToBeanInfo()
             onAccessibleLongPressed: root.goToBeanInfo()
@@ -104,17 +127,17 @@ Item {
             translationFallback: "Beans"
             iconSource: "qrc:/icons/coffeebeans.svg"
             iconSize: Theme.scaled(43)
-            backgroundColor: Settings.dye.selectedBeanPreset === -1 ? Theme.highlightColor : Theme.primaryColor
+            backgroundColor: Settings.dye.activeBagId <= 0 ? Theme.highlightColor : Theme.primaryColor
             supportDoubleClick: true
             onClicked: root.togglePresets()
             onPressAndHold: root.goToBeanInfo()
             onDoubleClicked: root.goToBeanInfo()
 
-            Accessible.description: TranslationManager.translate("idle.accessible.beaninfo.description", "Set up bean and grinder info for your shots. Double-tap or long-press for bean info.")
+            Accessible.description: TranslationManager.translate("idle.accessible.beaninfo.description", "Select the bag of beans for your next shot. Double-tap or long-press for the bag inventory.")
         }
     }
 
-    // --- PRESET POPUP ---
+    // --- BAG PILL POPUP ---
     Popup {
         id: presetPopup
         modal: false
@@ -122,19 +145,19 @@ Item {
         closePolicy: Popup.CloseOnPressOutside
 
         // Full-mode beans path runs IdlePage.onActivePresetFunctionChanged which announces
-        // the preset list to TalkBack. The compact-mode popup bypasses that path, so
+        // the bag list to TalkBack. The compact-mode popup bypasses that path, so
         // announce here directly to keep feature parity for screen-reader users.
         onOpened: {
             if (typeof AccessibilityManager === "undefined" || !AccessibilityManager.enabled) return
-            var presets = Settings.dye.idleBeanPresets
-            if (presets.length === 0) return
+            var bags = root.inventoryBags
+            if (bags.length === 0) return
             var names = []
             var selectedName = ""
-            for (var i = 0; i < presets.length; ++i) {
-                names.push(presets[i].name)
-                if (presets[i].originalIndex === Settings.dye.selectedBeanPreset) selectedName = presets[i].name
+            for (var i = 0; i < bags.length; ++i) {
+                names.push(root.bagLabel(bags[i]))
+                if (bags[i].id === Settings.dye.activeBagId) selectedName = root.bagLabel(bags[i])
             }
-            var announcement = presets.length + " " + TranslationManager.translate("idle.accessible.presets", "presets") + ": " + names.join(", ")
+            var announcement = bags.length + " " + TranslationManager.translate("idle.accessible.bags", "bags") + ": " + names.join(", ")
             if (selectedName !== "") {
                 announcement += ". " + selectedName + " " + TranslationManager.translate("idle.accessible.isSelected", "is selected")
             }
@@ -185,23 +208,19 @@ Item {
         contentItem: PresetPillRow {
             id: beansPillRow
             maxWidth: Theme.scaled(600)
-            presets: Settings.dye.idleBeanPresets
-            modified: Settings.dye.beansModified
-            // selectedIndex refers to position within the filtered list
+            presets: root.inventoryBags.map(function(b) { return { name: root.bagLabel(b) } })
             selectedIndex: {
-                var list = Settings.dye.idleBeanPresets
+                var list = root.inventoryBags
                 for (var i = 0; i < list.length; ++i) {
-                    if (list[i].originalIndex === Settings.dye.selectedBeanPreset) return i
+                    if (list[i].id === Settings.dye.activeBagId) return i
                 }
                 return -1
             }
 
             onPresetSelected: function(index) {
-                var row = beansPillRow.presets[index]
-                if (!row) return
-                var originalIndex = row.originalIndex !== undefined ? row.originalIndex : index
-                Settings.dye.selectedBeanPreset = originalIndex
-                Settings.dye.applyBeanPreset(originalIndex)
+                var bag = root.inventoryBags[index]
+                if (!bag) return
+                Settings.dye.activeBagId = bag.id
                 presetPopup.close()
             }
         }

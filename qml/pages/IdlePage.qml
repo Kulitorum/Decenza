@@ -96,6 +96,27 @@ Page {
 
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("idle.pageTitle", "Idle")
+        MainController.bagStorage.requestInventory()
+    }
+
+    // Inventory bags for the beans pill row (bean-bag-inventory: pills are
+    // bags, selection is activeBagId, no dirty state — edits write through).
+    property var inventoryBags: []
+
+    function bagLabel(bag) {
+        if (!bag) return ""
+        var coffee = bag.coffeeName || ""
+        return coffee.length > 0 ? coffee : (bag.roasterName || "")
+    }
+
+    Connections {
+        target: MainController.bagStorage
+        function onInventoryReady(bags) {
+            idlePage.inventoryBags = bags
+        }
+        function onBagsChanged() {
+            MainController.bagStorage.requestInventory()
+        }
     }
 
     // Track which function's presets are showing (used by center-zone action items)
@@ -138,10 +159,10 @@ Page {
                     }
                     break
                 case "beans":
-                    presets = Settings.dye.idleBeanPresets
-                    for (var bi = 0; bi < presets.length; ++bi) {
-                        if (presets[bi].originalIndex === Settings.dye.selectedBeanPreset) {
-                            selectedName = presets[bi].name
+                    presets = idlePage.inventoryBags.map(function(b) { return { name: idlePage.bagLabel(b) } })
+                    for (var bi = 0; bi < idlePage.inventoryBags.length; ++bi) {
+                        if (idlePage.inventoryBags[bi].id === Settings.dye.activeBagId) {
+                            selectedName = idlePage.bagLabel(idlePage.inventoryBags[bi])
                             break
                         }
                     }
@@ -518,22 +539,19 @@ Page {
                 sourceComponent: PresetPillRow {
                     id: inlineBeanPresetRow
                     maxWidth: beanPresetLoader.width
-                    presets: Settings.dye.idleBeanPresets
-                    modified: Settings.dye.beansModified
+                    presets: idlePage.inventoryBags.map(function(b) { return { name: idlePage.bagLabel(b) } })
                     selectedIndex: {
-                        var list = Settings.dye.idleBeanPresets
+                        var list = idlePage.inventoryBags
                         for (var i = 0; i < list.length; ++i) {
-                            if (list[i].originalIndex === Settings.dye.selectedBeanPreset) return i
+                            if (list[i].id === Settings.dye.activeBagId) return i
                         }
                         return -1
                     }
 
                     onPresetSelected: function(index) {
-                        var row = inlineBeanPresetRow.presets[index]
-                        if (!row) return
-                        var originalIndex = row.originalIndex !== undefined ? row.originalIndex : index
-                        Settings.dye.selectedBeanPreset = originalIndex
-                        Settings.dye.applyBeanPreset(originalIndex)
+                        var bag = idlePage.inventoryBags[index]
+                        if (!bag) return
+                        Settings.dye.activeBagId = bag.id
                     }
                 }
             }

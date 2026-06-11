@@ -55,6 +55,14 @@ QVariantMap ShotProjection::toVariantMap() const
     // surface an empty field to QML/MCP consumers.
     if (!beanBaseJson.isEmpty())
         m["beanBaseJson"] = beanBaseJson;
+    // Coffee bag snapshot — sparse-emit like the other optional fields:
+    // pre-bag shots and unfrozen beans simply omit them.
+    if (bagId > 0)
+        m["bagId"] = bagId;
+    if (!frozenDate.isEmpty())
+        m["frozenDate"] = frozenDate;
+    if (!defrostDate.isEmpty())
+        m["defrostDate"] = defrostDate;
 
     m["pressure"] = pressure;
     m["flow"] = flow;
@@ -142,6 +150,9 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.profileJson = m.value("profileJson").toString();
     p.profileKbId = m.value("profileKbId").toString();
     p.beanBaseJson = m.value("beanBaseJson").toString();
+    p.bagId = m.value("bagId", -1).toLongLong();
+    p.frozenDate = m.value("frozenDate").toString();
+    p.defrostDate = m.value("defrostDate").toString();
 
     p.channelingDetected = m.value("channelingDetected").toBool();
     p.grindIssueDetected = m.value("grindIssueDetected").toBool();

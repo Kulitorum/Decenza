@@ -718,10 +718,10 @@ Page {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spacingMedium
-                visible: !!(shotData.beanBrand || shotData.beanType || shotData.roastDate || shotData.roastLevel
-                            || shotData.grinderBrand || shotData.grinderModel || shotData.grinderBurrs || shotData.grinderSetting)
 
-                // Bean info card
+                // Bean info card: read-only summary of this shot's bean
+                // snapshot + a re-link action ("historicalShot" semantics:
+                // updates only this shot, never the active bag).
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1  // Equal weight
@@ -729,7 +729,6 @@ Page {
                     Layout.alignment: Qt.AlignTop
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
-                    visible: !!(shotData.beanBrand || shotData.beanType || shotData.roastDate || shotData.roastLevel)
                     Accessible.role: Accessible.Grouping
                     Accessible.name: TranslationManager.translate("shotdetail.beaninfo", "Beans")
 
@@ -756,23 +755,15 @@ Page {
                             Accessible.ignored: true
                         }
 
-                        GridLayout {
-                            columns: 2
-                            columnSpacing: Theme.spacingLarge
-                            rowSpacing: Theme.spacingSmall
+                        BeanSummary {
+                            id: detailBeanSummary
                             Layout.fillWidth: true
-
-                            Tr { key: "shotdetail.roaster"; fallback: "Roaster:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.beanBrand); Accessible.ignored: true }
-                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.beanBrand || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.beanBrand); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
-
-                            Tr { key: "shotdetail.coffee"; fallback: "Coffee:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.beanType); Accessible.ignored: true }
-                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.beanType || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.beanType); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
-
-                            Tr { key: "shotdetail.roastdate"; fallback: "Roast Date:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.roastDate); Accessible.ignored: true }
-                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.roastDate || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.roastDate); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
-
-                            Tr { key: "shotdetail.roastlevel"; fallback: "Roast Level:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.roastLevel); Accessible.ignored: true }
-                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.roastLevel || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.roastLevel); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+                            useShotData: true
+                            roasterName: shotData.beanBrand || ""
+                            coffeeName: shotData.beanType || ""
+                            roastDate: shotData.roastDate || ""
+                            roastLevel: shotData.roastLevel || ""
+                            beanBaseData: shotData.beanBaseJson || ""
                         }
 
                         // Bean Base details (per-shot snapshot — shows the bean
@@ -781,6 +772,32 @@ Page {
                         BeanBaseDetailsRow {
                             Layout.fillWidth: true
                             beanBaseJson: shotData.beanBaseJson || ""
+                        }
+
+                        AccessibleButton {
+                            Layout.preferredHeight: Theme.scaled(40)
+                            text: detailBeanSummary.hasBeans
+                                ? TranslationManager.translate("shotdetail.changeBeans", "Re-link Beans")
+                                : TranslationManager.translate("beans.button.select", "Select Beans")
+                            accessibleName: TranslationManager.translate("shotdetail.accessible.changeBeans", "Change the beans recorded for this shot")
+                            onClicked: detailChangeBeansDialog.open()
+                        }
+
+                        ChangeBeansDialog {
+                            id: detailChangeBeansDialog
+                            context: "historicalShot"
+                            shotId: shotDetailPage.shotId
+                        }
+
+                        // Reload after the snapshot update lands so the
+                        // summary reflects the re-linked bean (event-based,
+                        // no race with the background write).
+                        Connections {
+                            target: MainController.shotHistory
+                            function onShotMetadataUpdated(id, success) {
+                                if (id === shotDetailPage.shotId && success)
+                                    shotDetailPage.loadShot()
+                            }
                         }
                     }
                 }

@@ -14,9 +14,11 @@ FocusScope {
     property int pillSuffixVersion: 0  // Increment from outside to force pill text refresh without full layout recalc
     property real pillSuffixMaxWidth: 0  // Reserve extra horizontal space per pill for the suffix
     // When true AND a pill is selected, append an "unsaved" marker to that pill.
-    // Callers opt in by binding this to their own dirty state — e.g. ProfileManager.profileModified
-    // for the espresso row or Settings.dye.beansModified for the beans row. Rows that have no
-    // dirty-state concept (steam / flush / hot water) leave this at the default false.
+    // Callers opt in by binding this to their own dirty state — e.g.
+    // ProfileManager.profileModified for the espresso row. Rows that have no
+    // dirty-state concept (steam / flush / hot water / beans) leave this at the
+    // default false. (The beans row lost its dirty state when bags replaced
+    // presets — bag edits write through, so there is nothing unsaved.)
     property bool modified: false
     // When modified, format as "Name (modified)" for read-only presets; otherwise "*Name".
     property bool modifiedIsReadOnly: false
