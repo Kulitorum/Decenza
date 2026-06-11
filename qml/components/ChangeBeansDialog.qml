@@ -40,7 +40,6 @@ Dialog {
     // Identity known from the picked result -> shown as read-only confirmation,
     // not editable fields ("show fields only for unknown values").
     property bool identityKnown: false
-    property bool moreOpen: false
     property bool _awaitingCreate: false
     property bool _armedForm: false   // openForEdit/openForSaveAs pre-armed the form
     property string errorMessage: ""
@@ -105,7 +104,6 @@ Dialog {
         fDose = ""; fYield = ""; fStartWeight = ""; fNotes = ""
         fFreeze = false; fFrozenDate = ""; fDefrostDate = ""
         identityKnown = false
-        moreOpen = false
         errorMessage = ""
     }
 
@@ -155,7 +153,6 @@ Dialog {
         fFrozenDate = bag.frozenDate || ""
         fDefrostDate = bag.defrostDate || ""
         fFreeze = fFrozenDate.length > 0
-        moreOpen = fStartWeight.length > 0 || fNotes.length > 0 || fFreeze
         mode = "form"
         _armedForm = true
         open()
@@ -759,22 +756,10 @@ Dialog {
                         }
                     }
 
-                    // --- "More options" expander ---
-                    AccessibleButton {
-                        Layout.leftMargin: Theme.scaled(20)
-                        Layout.preferredHeight: Theme.scaled(36)
-                        text: (root.moreOpen ? "- " : "+ ")
-                            + TranslationManager.translate("changebeans.form.moreOptions", "More options")
-                        accessibleName: TranslationManager.translate("changebeans.form.moreOptions.accessible", "More options")
-                        accessibleDescription: root.moreOpen
-                            ? TranslationManager.translate("changebeans.form.moreOptions.collapse", "Collapses extra fields")
-                            : TranslationManager.translate("changebeans.form.moreOptions.expand", "Expands starting weight, notes and freeze options")
-                        flat: true
-                        onClicked: root.moreOpen = !root.moreOpen
-                    }
-
+                    // Starting weight / notes / grinder hardware / freeze —
+                    // always visible (the "More options" expander was removed:
+                    // it only added a click).
                     ColumnLayout {
-                        visible: root.moreOpen
                         Layout.fillWidth: true
                         spacing: Theme.scaled(10)
 

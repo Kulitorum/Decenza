@@ -39,10 +39,10 @@ When a shot is saved, the active bag's `frozenDate` and `defrostDate` SHALL be w
 - **AND** these fields SHALL be preserved even if the bag is later marked empty
 
 ### Requirement: Freeze toggle available in Change Beans dialog
-The bag creation form (in the Change Beans dialog) SHALL include a freeze toggle under the "More options" expander.
+The bag creation form (in the Change Beans dialog) SHALL include a freeze toggle (always visible — no expander).
 
 #### Scenario: Creating a bag with freeze enabled
-- **WHEN** the user expands "More options" and enables the freeze toggle
+- **WHEN** the user enables the freeze toggle
 - **THEN** the form SHALL show a `frozenDate` date picker (defaulting to today)
 - **AND** on bag creation, the bag SHALL have `frozenDate` set and `defrostDate` null
 
