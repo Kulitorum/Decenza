@@ -113,6 +113,7 @@ The device-to-device transfer and backup/restore path (`ShotHistoryStorage::impo
 - **The upload POST ignores embedded `coffee_bag_id`** → a post-upload PATCH is required. Shot PATCH needs `Accept: application/json` (Rails `request.format`, independent of Content-Type) and a `{"shot": {...}}` body.
 - **DELETE exists** for bags, roasters, and shots (all `{success:true}`).
 - `/api/me` exposes only id/name/public/avatar (upstream PR still worthwhile). Rate limits: 200 req/user/10 min — upload-time sync is well within budget.
+- **Positive path verified after the user enabled CM on the same account (2026-06-11):** the enable-job auto-created 11 bags from shot history (95 → 106); the single-field probe PATCH on a throwaway shot returned **200** (vs 400 with CM off — both probe outcomes now observed on one account), and the server rewrote the shot's bean fields from the linked bag (`refresh_coffee_bag_fields` live-confirmed). Note: `shots.roast_date` comes back formatted in the user's display preference (e.g. "06.05.2026"), but the bag detail endpoint returns ISO `yyyy-MM-dd` — our find-or-create compares bag dates only, so ISO comparison holds.
 
 **Resulting design:**
 
