@@ -1841,6 +1841,16 @@ void MainController::onShotEnded() {
         return;
     }
 
+    // Skip saving for cleaning/maintenance profile types — they are not espresso shots
+    if (m_profileManager) {
+        const QString beverageType = m_profileManager->currentProfile().beverageType();
+        if (beverageType == QLatin1String("cleaning") || beverageType == QLatin1String("descale") || beverageType == QLatin1String("calibrate")) {
+            if (m_shotDebugLogger)
+                m_shotDebugLogger->stopCapture();
+            return;
+        }
+    }
+
     // Use extraction end time (excludes SAW settling phase) for accurate duration.
     // extractionDuration() is set for all shots (SAW and non-SAW) in endShot().
     // Falls back to rawTime only if timing controller is unavailable.
