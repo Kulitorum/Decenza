@@ -22,7 +22,9 @@ Item {
 
     // Inventory bags shown as pills (bean-bag-inventory: pills are bags now,
     // not presets — visibility criterion is inInventory, selection is
-    // activeBagId, and there is no dirty state because bag edits write through).
+    // activeBagId, and there is no dirty state because bag edits write
+    // through). Capped to the 5 most recently used (inventoryReady is
+    // MRU-ordered); the full inventory lives on the Beans page.
     property var inventoryBags: []
 
     function bagLabel(bag) {
@@ -36,7 +38,7 @@ Item {
     Connections {
         target: MainController.bagStorage
         function onInventoryReady(bags) {
-            root.inventoryBags = bags
+            root.inventoryBags = bags.slice(0, 5)
         }
         function onBagsChanged() {
             MainController.bagStorage.requestInventory()

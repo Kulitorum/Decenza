@@ -10,7 +10,7 @@ The current bean management model conflates three separate concepts — a live e
 - New **Change Beans dialog** with unified search across Bean Base canonical database and full shot history, quality-ranked results, merge logic for canonical+history matches, and a pre-filling bag details form
 - New **bag lifecycle fields**: `frozenDate`, `defrostDate` (current portion only), `notes`, `startWeightG`
 - New **Next Portion** one-tap action on frozen bag cards — stamps `defrostDate = today`, no dialog
-- New **Mark as Empty** action removes a bag from inventory; historical shots retain their snapshots
+- New **Bag finished** action removes a bag from inventory; historical shots retain their snapshots
 - Bags are **editable in place** (Edit action on the card — typo fixes, adding a roast date later) and usable as **save-as templates** ("New Bag" action pre-fills the creation form from an existing bag, roast date blank)
 - Roast date on bag creation is always blank and never inferred, but **optional** — unknown roast dates (supermarket beans, gifts) don't block bag creation
 - Grinder settings (`grinderBrand`, `grinderModel`, `grinderBurrs`, `grinderSetting`) and dose persisted per bag as "last used" — edits write through to the active bag, dose/yield stamped on each shot, no save prompt
@@ -26,7 +26,7 @@ The current bean management model conflates three separate concepts — a live e
 ### New Capabilities
 
 - `coffee-bag-model`: The `CoffeeBag` data model — identity, lifecycle, last-used grinder/dose, Visualizer sync fields, DB schema and migration from presets
-- `bag-inventory-view`: Beans window reimagined as a bag inventory — cards, canonical badge display, Next Portion action, Mark as Empty, Add New Bag entry point
+- `bag-inventory-view`: Beans window reimagined as a bag inventory — cards, canonical badge display, Next Portion action, Bag finished, Add New Bag entry point
 - `change-beans-dialog`: Unified Bean Base + history search dialog with quality-ranked results, merge logic, source labels, pre-filling bag details form, and manual entry fallback
 - `bag-read-only-summary`: Read-only bean summary component used in brew settings, post-shot review, and shot detail — adapts to data confidence, "show less when more known"
 - `bag-freeze-lifecycle`: Freeze/defrost tracking — frozenDate, defrostDate (current portion), Next Portion quick action, freeze toggle in bag creation form

@@ -101,6 +101,8 @@ Page {
 
     // Inventory bags for the beans pill row (bean-bag-inventory: pills are
     // bags, selection is activeBagId, no dirty state — edits write through).
+    // Capped to the 5 most recently used (inventoryReady is MRU-ordered);
+    // the full inventory lives on the Beans page.
     property var inventoryBags: []
 
     function bagLabel(bag) {
@@ -112,7 +114,7 @@ Page {
     Connections {
         target: MainController.bagStorage
         function onInventoryReady(bags) {
-            idlePage.inventoryBags = bags
+            idlePage.inventoryBags = bags.slice(0, 5)
         }
         function onBagsChanged() {
             MainController.bagStorage.requestInventory()

@@ -7,7 +7,7 @@ import Decenza
 // bags show a dense attribute line + verified badge; partial bags show only
 // what is available plus a subtle "Find in Bean Base" nudge. Tapping the card
 // selects the bag (sets activeBagId). Action row: Next Portion (frozen bags),
-// Edit, New Bag (save-as), Mark as Empty, Delete (refused by storage when
+// Edit, New Bag (save-as), Bag finished, Delete (refused by storage when
 // shots reference the bag — a brief message explains).
 Rectangle {
     id: card
@@ -205,7 +205,7 @@ Rectangle {
             visible: false
             Layout.fillWidth: true
             key: "bagcard.deleteRefused"
-            fallback: "This bag has shots linked to it — use Mark as Empty instead"
+            fallback: "This bag has shots linked to it — use Bag finished instead"
             font: Theme.captionFont
             color: Theme.warningColor
             wrapMode: Text.Wrap
@@ -232,8 +232,8 @@ Rectangle {
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
                 rightPadding: Theme.scaled(10)
-                text: TranslationManager.translate("bagcard.markEmpty", "Mark as Empty")
-                accessibleName: TranslationManager.translate("bagcard.accessible.markEmpty", "Mark bag as empty and remove it from inventory")
+                text: TranslationManager.translate("bagcard.bagFinished", "Bag finished")
+                accessibleName: TranslationManager.translate("bagcard.accessible.bagFinished", "Bag finished: remove this bag from inventory; shot history is kept")
                 onClicked: MainController.bagStorage.requestMarkEmpty(card.bag.id)
             }
 

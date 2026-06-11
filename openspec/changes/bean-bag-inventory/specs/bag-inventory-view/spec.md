@@ -26,16 +26,16 @@ Bag cards SHALL follow the "show less when more is known" principle: canonical-l
 - **WHEN** a bag has only roaster and coffee name (no canonical)
 - **THEN** the card SHALL show only those two fields — no empty placeholders
 
-### Requirement: Mark as Empty removes bag from inventory
-The system SHALL provide a "Mark as Empty" action on each bag card. Activating it SHALL set `inInventory = false`, removing the bag from the inventory view. Historical shots referencing the bag SHALL be unaffected.
+### Requirement: "Bag finished" removes bag from inventory
+The system SHALL provide a "Bag finished" action on each bag card. Activating it SHALL set `inInventory = false`, removing the bag from the inventory view. Historical shots referencing the bag SHALL be unaffected.
 
-#### Scenario: Mark as empty
-- **WHEN** the user activates "Mark as Empty" on a bag
+#### Scenario: Bag finished
+- **WHEN** the user activates "Bag finished" on a bag
 - **THEN** the bag SHALL disappear from the inventory view immediately
 - **AND** shots that were made with that bag SHALL retain their bean snapshot
 
 #### Scenario: Active bag marked empty
-- **WHEN** the user marks the currently active bag as empty
+- **WHEN** the user finishes the currently active bag
 - **THEN** `activeBagId` SHALL be cleared
 - **AND** the bean summary in shot contexts SHALL show "No beans selected"
 
@@ -48,7 +48,7 @@ The Beans window SHALL provide an "Add New Bag" action that opens the Change Bea
 - **AND** on bag creation, the new bag SHALL appear in inventory and become the active bag
 
 ### Requirement: Idle-page bean widget shows inventory bags
-The idle-page bean layout widget (`BeansItem.qml`) SHALL display inventory bags (`inInventory = true`) as selectable pills, replacing the showOnIdle-filtered preset pills. Tapping a pill SHALL set `activeBagId`.
+The idle-page bean layout widget (`BeansItem.qml`) SHALL display the 5 most recently used inventory bags (`inInventory = true`, MRU order) as selectable pills, replacing the showOnIdle-filtered preset pills. Tapping a pill SHALL set `activeBagId`. The full inventory remains on the Beans page.
 
 #### Scenario: Selecting a bag from the idle page
 - **WHEN** the user taps a bag pill on the idle page
@@ -88,4 +88,4 @@ A bag that no shot references (no `shots.bag_id` rows) SHALL be deletable from t
 
 #### Scenario: Delete unavailable for used bags
 - **WHEN** a bag has at least one linked shot
-- **THEN** no delete action SHALL be offered — only "Mark as Empty"
+- **THEN** no delete action SHALL be offered — only "Bag finished"
