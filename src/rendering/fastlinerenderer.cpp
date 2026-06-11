@@ -150,7 +150,7 @@ QSGNode* FastLineRenderer::updatePaintNode(QSGNode* node, UpdatePaintNodeData*) 
 
             // Convert data points to pixel coordinates in a temp buffer
             struct Pt { float x, y; };
-            QVarLengthArray<Pt, 1024> px(m_pointCount);
+            QVarLengthArray<Pt, MAX_POINTS> px(m_pointCount);
             for (int i = 0; i < m_pointCount; ++i) {
                 px[i].x = static_cast<float>((m_points[i].x() - m_minX) * scaleX);
                 px[i].y = h - static_cast<float>((m_points[i].y() - m_minY) * scaleY);

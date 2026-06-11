@@ -169,5 +169,5 @@ private:
     double m_weightAtStop = 0.0;     // Weight when stop was triggered
 
     static constexpr int FLUSH_INTERVAL_MS = 33;  // Chart update timer (~30fps); batches BLE and scale samples
-    static constexpr int INITIAL_CAPACITY = 600;  // Pre-allocate for 2min at 5Hz
+    static constexpr int INITIAL_CAPACITY = 6000;  // Pre-allocate for 10min at 10Hz (scale rate) — covers filter profiles
 };
