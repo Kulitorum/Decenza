@@ -1,4 +1,5 @@
 #include "fastlinerenderer.h"
+#include <QDebug>
 #include <cmath>
 
 FastLineRenderer::FastLineRenderer(QQuickItem* parent)
@@ -66,16 +67,26 @@ void FastLineRenderer::appendPoint(double x, double y) {
         m_pointCount++;
         m_geometryDirty = true;
         update();
+    } else if (!m_overflowLogged) {
+        qWarning() << "FastLineRenderer: MAX_POINTS (" << MAX_POINTS
+                   << ") reached — further points will be discarded."
+                      " Increase MAX_POINTS if shots regularly exceed 10 minutes.";
+        m_overflowLogged = true;
     }
 }
 
 void FastLineRenderer::clear() {
     m_pointCount = 0;
+    m_overflowLogged = false;
     m_geometryDirty = true;
     update();
 }
 
 void FastLineRenderer::setPoints(const QVector<QPointF>& points) {
+    if (points.size() > MAX_POINTS)
+        qWarning() << "FastLineRenderer::setPoints: received" << points.size()
+                   << "points, truncating to MAX_POINTS (" << MAX_POINTS << ")."
+                      " Increase MAX_POINTS if shots regularly exceed 10 minutes.";
     m_pointCount = static_cast<int>(qMin(points.size(), qsizetype(MAX_POINTS)));
     m_points = points;
     if (m_points.size() > MAX_POINTS)
@@ -150,7 +161,7 @@ QSGNode* FastLineRenderer::updatePaintNode(QSGNode* node, UpdatePaintNodeData*) 
 
             // Convert data points to pixel coordinates in a temp buffer
             struct Pt { float x, y; };
-            QVarLengthArray<Pt, 1024> px(m_pointCount);
+            QVarLengthArray<Pt, MAX_POINTS> px(m_pointCount);
             for (int i = 0; i < m_pointCount; ++i) {
                 px[i].x = static_cast<float>((m_points[i].x() - m_minX) * scaleX);
                 px[i].y = h - static_cast<float>((m_points[i].y() - m_minY) * scaleY);
