@@ -338,10 +338,45 @@ Dialog {
                     Accessible.ignored: true  // announced on open
                 }
 
-                HideKeyboardButton {
+                // Form actions live in the header so they're reachable
+                // without scrolling past the fields.
+                Row {
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.scaled(8)
                     anchors.verticalCenter: parent.verticalCenter
+                    spacing: Theme.scaled(8)
+
+                    HideKeyboardButton {
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    AccessibleButton {
+                        visible: root.mode === "form"
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: Theme.scaled(38)
+                        leftPadding: Theme.scaled(14)
+                        rightPadding: Theme.scaled(14)
+                        text: TranslationManager.translate("common.cancel", "Cancel")
+                        accessibleName: TranslationManager.translate("changebeans.form.accessible.cancel", "Cancel bag details")
+                        onClicked: root.close()
+                    }
+
+                    AccessibleButton {
+                        visible: root.mode === "form"
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: Theme.scaled(38)
+                        leftPadding: Theme.scaled(14)
+                        rightPadding: Theme.scaled(14)
+                        primary: true
+                        enabled: !root._awaitingCreate
+                        text: root.formMode === "edit"
+                            ? TranslationManager.translate("common.save", "Save")
+                            : TranslationManager.translate("changebeans.form.create", "Add Bag")
+                        accessibleName: root.formMode === "edit"
+                            ? TranslationManager.translate("changebeans.form.accessible.save", "Save bag changes")
+                            : TranslationManager.translate("changebeans.form.accessible.create", "Create bag")
+                        onClicked: root.confirmForm()
+                    }
                 }
 
                 Rectangle {
@@ -925,36 +960,9 @@ Dialog {
                         Accessible.focusable: true
                     }
 
-                    // Form buttons
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: Theme.scaled(20)
-                        Layout.rightMargin: Theme.scaled(20)
-                        Layout.bottomMargin: Theme.scaled(16)
-                        spacing: Theme.scaled(10)
-
-                        AccessibleButton {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(44)
-                            text: TranslationManager.translate("common.cancel", "Cancel")
-                            accessibleName: TranslationManager.translate("changebeans.form.accessible.cancel", "Cancel bag details")
-                            onClicked: root.close()
-                        }
-
-                        AccessibleButton {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(44)
-                            primary: true
-                            enabled: !root._awaitingCreate
-                            text: root.formMode === "edit"
-                                ? TranslationManager.translate("common.save", "Save")
-                                : TranslationManager.translate("changebeans.form.create", "Add Bag")
-                            accessibleName: root.formMode === "edit"
-                                ? TranslationManager.translate("changebeans.form.accessible.save", "Save bag changes")
-                                : TranslationManager.translate("changebeans.form.accessible.create", "Create bag")
-                            onClicked: root.confirmForm()
-                        }
-                    }
+                    // (Cancel / Save live in the dialog header — reachable
+                    // without scrolling past the form fields.)
+                    Item { Layout.preferredHeight: Theme.scaled(8) }
                 }
             }
         }
