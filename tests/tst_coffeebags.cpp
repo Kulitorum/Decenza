@@ -433,11 +433,11 @@ private slots:
             fresh.coffeeName = "Bag";
             CoffeeBagStorage::insertBagStatic(db, fresh);
 
-            const QVector<CoffeeBag> inventory = CoffeeBagStorage::loadInventoryStatic(db);
+            const QVector<InventoryBag> inventory = CoffeeBagStorage::loadInventoryStatic(db);
             QCOMPARE(inventory.size(), 2);
             QHash<QString, qint64> countByRoaster;
-            for (const CoffeeBag& bag : inventory)
-                countByRoaster.insert(bag.roasterName, bag.shotCount);
+            for (const InventoryBag& entry : inventory)
+                countByRoaster.insert(entry.bag.roasterName, entry.shotCount);
             QCOMPARE(countByRoaster.value("Used"), qint64(2));
             QCOMPARE(countByRoaster.value("Fresh"), qint64(0));
         });
@@ -494,7 +494,7 @@ private slots:
         storage.initialize(path);
         qint64 usedBagId = -1, freshBagId = -1;
         withRawDb(path, "delete_ids", [&](QSqlDatabase& db) {
-            usedBagId = CoffeeBagStorage::loadInventoryStatic(db).first().id;
+            usedBagId = CoffeeBagStorage::loadInventoryStatic(db).first().bag.id;
             CoffeeBag fresh;
             fresh.roasterName = "Mistake";
             fresh.coffeeName = "Bag";

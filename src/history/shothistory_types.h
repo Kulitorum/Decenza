@@ -61,8 +61,9 @@ struct ShotRecord {
     QString beanBaseJson;
 
     // Coffee bag snapshot (bean-bag-inventory, migration 19): the bag this
-    // shot was pulled with (-1/0 = none or pre-bag shot) and its freeze
-    // lifecycle at shot time.
+    // shot was pulled with and its freeze lifecycle at shot time. Sentinel
+    // rule (canonical — see ShotProjection): bagId <= 0 (or a NULL column)
+    // means "no bag / pre-bag shot". Default -1; the DB read maps NULL to -1.
     qint64 bagId = -1;
     QString frozenDate;
     QString defrostDate;
@@ -245,7 +246,8 @@ struct ShotSaveData {
     // edited or deleted.
     QString beanBaseJson;
 
-    // Coffee bag snapshot (bean-bag-inventory): see ShotRecord.
+    // Coffee bag snapshot (bean-bag-inventory): see ShotRecord. Sentinel rule:
+    // bagId <= 0 == no bag. Default -1.
     qint64 bagId = -1;
     QString frozenDate;
     QString defrostDate;

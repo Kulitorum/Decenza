@@ -430,7 +430,7 @@ void VisualizerUploader::testConnection()
 {
     // Re-detect Coffee Management on the next upload — the user may have
     // toggled it (or switched accounts) since the last probe.
-    m_cmState = CmState::Unknown;
+    setCmState(CmState::Unknown);
 
     QString username = m_settings->value("visualizer/username", "").toString();
     QString password = m_settings->value("visualizer/password", "").toString();
@@ -1540,6 +1540,25 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
 // server-side from the bag.
 // ===================================================================
 
+static const char* cmStateName(VisualizerUploader::CmState state)
+{
+    switch (state) {
+    case VisualizerUploader::CmState::Unknown:            return "Unknown";
+    case VisualizerUploader::CmState::Active:             return "Active";
+    case VisualizerUploader::CmState::NoCoffeeManagement: return "NoCoffeeManagement";
+    case VisualizerUploader::CmState::PremiumNoCm:        return "PremiumNoCm";
+    }
+    return "?";
+}
+
+void VisualizerUploader::setCmState(CmState state)
+{
+    if (m_cmState == state)
+        return;
+    qDebug() << "Visualizer CM: state" << cmStateName(m_cmState) << "->" << cmStateName(state);
+    m_cmState = state;
+}
+
 QNetworkRequest VisualizerUploader::makeApiJsonRequest(const QString& path) const
 {
     QNetworkRequest request{QUrl(QStringLiteral("https://visualizer.coffee") + path)};
@@ -1642,13 +1661,13 @@ void VisualizerUploader::probeCmState(const QString& visualizerShotId, const QSt
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status == 200) {
-            m_cmState = CmState::Active;
+            setCmState(CmState::Active);
             qDebug() << "Visualizer CM: probe confirmed Coffee Management ACTIVE";
             onCmActive();
         } else if (status == 400) {
             // params.expect found no permitted key — coffee_bag_id is only
             // permitted when coffee_management_enabled. Definitive negative.
-            m_cmState = CmState::PremiumNoCm;
+            setCmState(CmState::PremiumNoCm);
             qDebug() << "Visualizer CM: probe says Coffee Management is OFF (canonical-only mode)";
         } else {
             // 401/429/5xx/network — transient; never cache a negative. Warn (not
@@ -1719,7 +1738,7 @@ void VisualizerUploader::resolveRoasterId(const QString& roasterName, const QStr
                                .object().value("id").toString());
             } else if (status == 403) {
                 // Bag/roaster CRUD is premium-gated: a 403 means not premium.
-                m_cmState = CmState::NoCoffeeManagement;
+                setCmState(CmState::NoCoffeeManagement);
                 qDebug() << "Visualizer CM: roaster create 403 - account is not premium";
             } else {
                 qDebug() << "Visualizer CM: roaster create failed (HTTP" << status << ")";
@@ -1856,7 +1875,7 @@ void VisualizerUploader::createRemoteBag(const QString& visualizerShotId, const 
                 probeCmState(visualizerShotId, bagUuid, []() {});
             }
         } else if (status == 403) {
-            m_cmState = CmState::NoCoffeeManagement;
+            setCmState(CmState::NoCoffeeManagement);
             qDebug() << "Visualizer CM: bag create 403 - account is not premium";
         } else {
             qDebug() << "Visualizer CM: bag create failed (HTTP" << status << ")";
@@ -1888,7 +1907,7 @@ void VisualizerUploader::linkShotToBag(const QString& visualizerShotId, const QS
         } else if (status == 400) {
             // coffee_bag_id alone + dropped param = CM turned off since the
             // last probe; converge without retry noise.
-            m_cmState = CmState::PremiumNoCm;
+            setCmState(CmState::PremiumNoCm);
             qDebug() << "Visualizer CM: link rejected - Coffee Management now OFF";
         } else {
             qDebug() << "Visualizer CM: shot link failed (HTTP" << status << ") - retry next upload";
@@ -1996,7 +2015,7 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
                 persistBagSyncIds(localBagId, bagUuid, roasterId);
         } else if (status == 403) {
             // Bag CRUD is premium-gated: a 403 means not premium.
-            m_cmState = CmState::NoCoffeeManagement;
+            setCmState(CmState::NoCoffeeManagement);
             qDebug() << "Visualizer CM: bag update 403 - account is not premium";
         } else if (status == 404) {
             // The remote bag was deleted on visualizer.coffee; our id is stale.
