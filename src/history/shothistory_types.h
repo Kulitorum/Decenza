@@ -9,6 +9,7 @@
 #include <optional>
 
 #include "ai/shotanalysis.h"
+#include "history/bagid.h"
 
 // Lightweight shot summary for list display
 struct HistoryShotSummary {
@@ -61,9 +62,9 @@ struct ShotRecord {
     QString beanBaseJson;
 
     // Coffee bag snapshot (bean-bag-inventory, migration 19): the bag this
-    // shot was pulled with and its freeze lifecycle at shot time. Sentinel
-    // rule (canonical — see ShotProjection): bagId <= 0 (or a NULL column)
-    // means "no bag / pre-bag shot". Default -1; the DB read maps NULL to -1.
+    // shot was pulled with and its freeze lifecycle at shot time. "No bag /
+    // pre-bag shot" sentinel is bagId <= 0 (default -1; the DB read maps NULL
+    // to -1) — see bagIdIsSet() in bagid.h.
     qint64 bagId = -1;
     QString frozenDate;
     QString defrostDate;
@@ -246,8 +247,8 @@ struct ShotSaveData {
     // edited or deleted.
     QString beanBaseJson;
 
-    // Coffee bag snapshot (bean-bag-inventory): see ShotRecord. Sentinel rule:
-    // bagId <= 0 == no bag. Default -1.
+    // Coffee bag snapshot (bean-bag-inventory): see ShotRecord. "No bag" when
+    // !bagIdIsSet(bagId) (bagId <= 0). Default -1.
     qint64 bagId = -1;
     QString frozenDate;
     QString defrostDate;

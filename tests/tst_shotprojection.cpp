@@ -22,6 +22,8 @@ private slots:
     void coerce_plainMap_reconstructsValidProjection();
     void coerce_emptyVariant_yieldsInvalidProjection();
     void coerce_nonMapScalar_yieldsInvalidProjection();
+    void hasBag_followsSentinelRule();
+    void toVariantMap_sparseEmitsBagIdOnlyWhenPresent();
 };
 
 static ShotProjection makeSampleShot()
@@ -98,6 +100,42 @@ void TstShotProjection::coerce_nonMapScalar_yieldsInvalidProjection()
         QRegularExpression("ShotProjection::coerce: empty/non-map arg.*"));
     const ShotProjection result = ShotProjection::coerce(QVariant(QStringLiteral("not a shot")));
     QVERIFY(!result.isValid());
+}
+
+// hasBag() is the canonical "no bag" sentinel test (bagId <= 0 == none). The
+// boundary matters: -1 (struct default), 0 (the NULL-mapped column value), and
+// any positive id are all live values, and a future drift to >= 0 / != -1 would
+// leak a phantom bagId into the Visualizer payload.
+void TstShotProjection::hasBag_followsSentinelRule()
+{
+    ShotProjection p = makeSampleShot();
+
+    p.bagId = -1;  // struct default / explicit "none"
+    QVERIFY(!p.hasBag());
+    p.bagId = 0;   // NULL column maps here under the sentinel rule
+    QVERIFY(!p.hasBag());
+    p.bagId = 1;   // smallest real bag id
+    QVERIFY(p.hasBag());
+    p.bagId = 974;
+    QVERIFY(p.hasBag());
+}
+
+// toVariantMap() sparse-emits bagId: present only when hasBag(), so a no-bag
+// shot never serializes a misleading bagId: 0 / -1 into the QML/MCP/upload map.
+void TstShotProjection::toVariantMap_sparseEmitsBagIdOnlyWhenPresent()
+{
+    ShotProjection p = makeSampleShot();
+
+    p.bagId = -1;
+    QVERIFY2(!p.toVariantMap().contains(QStringLiteral("bagId")),
+             "no-bag shot (-1) must omit the bagId key");
+    p.bagId = 0;
+    QVERIFY2(!p.toVariantMap().contains(QStringLiteral("bagId")),
+             "no-bag shot (0) must omit the bagId key");
+    p.bagId = 42;
+    const QVariantMap withBag = p.toVariantMap();
+    QVERIFY(withBag.contains(QStringLiteral("bagId")));
+    QCOMPARE(withBag.value(QStringLiteral("bagId")).toLongLong(), qint64(42));
 }
 
 QTEST_APPLESS_MAIN(TstShotProjection)

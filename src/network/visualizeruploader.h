@@ -36,10 +36,10 @@ struct ShotMetadata {
     QString beanBaseJson;
 
     // Active coffee bag snapshot (bean-bag-inventory): the bag the shot was
-    // pulled with and its freeze lifecycle at shot time. Sentinel rule
-    // (canonical — see ShotProjection): bagId <= 0 == no bag. Default -1. The
-    // dates record the beans' thermal history permanently, even after the
-    // bag's defrostDate moves on to the next portion.
+    // pulled with and its freeze lifecycle at shot time. "No bag" sentinel is
+    // bagId <= 0 (default -1) — see bagIdIsSet() in bagid.h. The dates record
+    // the beans' thermal history permanently, even after the bag's defrostDate
+    // moves on to the next portion.
     qint64 bagId = -1;
     QString frozenDate;   // ISO yyyy-MM-dd, "" = not frozen
     QString defrostDate;  // ISO yyyy-MM-dd, "" = not defrosted

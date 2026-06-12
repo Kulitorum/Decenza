@@ -1,4 +1,5 @@
 #include "settings_dye.h"
+#include "../history/bagid.h"
 #include "../history/coffeebagstorage.h"
 #include "settings_visualizer.h"
 #include "grinderaliases.h"
@@ -385,7 +386,7 @@ void SettingsDye::setActiveBagId(int bagId) {
     m_settings.setValue("dye/activeBagId", bagId);
     emit activeBagIdChanged();
 
-    if (bagId <= 0) {
+    if (!bagIdIsSet(bagId)) {
         // No bag selected: bean identity goes silent. Grinder/dose globals
         // stay — the physical grinder didn't change.
         m_applyingBag = true;
@@ -413,7 +414,7 @@ void SettingsDye::setActiveBagKeepFields(int bagId)
 {
     if (activeBagId() == bagId)
         return;
-    if (bagId <= 0) {
+    if (!bagIdIsSet(bagId)) {
         // Caller is about to set its own field values — just drop the bag
         // link without the identity-clearing that setActiveBagId(-1) does.
         m_settings.setValue("dye/activeBagId", -1);
@@ -494,7 +495,7 @@ void SettingsDye::writeThroughToBag(const QString& field, const QVariant& value)
     if (m_applyingBag || !m_bagStorage)
         return;
     const int bagId = activeBagId();
-    if (bagId <= 0)
+    if (!bagIdIsSet(bagId))
         return;
     m_pendingSelfWrites++;
     m_bagStorage->requestUpdateBag(bagId, {{field, value}});

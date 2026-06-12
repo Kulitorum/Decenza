@@ -8,6 +8,8 @@
 #include <atomic>
 #include <memory>
 
+#include "history/bagid.h"
+
 class QSqlDatabase;
 class BeanBaseClient;
 class CoffeeBagStorage;
@@ -55,11 +57,12 @@ public:
     };
     Q_ENUM(Tier)
 
-    // Cross-role invariant: a positive bag id is exclusive to Inventory-tier
+    // Cross-role invariant: a real (set) bag id is exclusive to Inventory-tier
     // rows (every other tier carries bagId == -1). Expressed in enum terms so
-    // mergeLanes and the tests can assert it directly.
+    // mergeLanes and the tests can assert it directly. Shares the bag-id
+    // threshold with bagIdIsSet() so the two can't drift.
     static constexpr bool bagIdInvariantHolds(Tier tier, qint64 bagId) {
-        return bagId <= 0 || tier == Tier::Inventory;
+        return !bagIdIsSet(bagId) || tier == Tier::Inventory;
     }
 
     enum Roles {
