@@ -1427,9 +1427,16 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
         auto attemptSave = [&](bool& locked) -> bool {
             shotId = -1;
             locked = false;
-            if (!db.transaction()) {
-                locked = isLockError(db.lastError());
-                qWarning() << "ShotHistoryStorage: Failed to start transaction:" << db.lastError().text();
+            // BEGIN IMMEDIATE takes the write lock up front. db.transaction()'s plain
+            // BEGIN is DEFERRED — it acquires a read lock first, so the INSERT then has
+            // to upgrade while a concurrent writer (e.g. the post-shot bags_update bag
+            // stamp) holds the lock, and SQLite returns SQLITE_BUSY immediately without
+            // waiting out busy_timeout (deadlock avoidance). With IMMEDIATE the busy
+            // handler rides out the brief writer, so the lock no longer surfaces.
+            QSqlQuery beginQuery(db);
+            if (!beginQuery.exec(QStringLiteral("BEGIN IMMEDIATE"))) {
+                locked = isLockError(beginQuery.lastError());
+                qWarning() << "ShotHistoryStorage: Failed to start transaction:" << beginQuery.lastError().text();
                 return false;
             }
 
@@ -1509,7 +1516,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                 locked = isLockError(query.lastError());
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text()
                            << "(sqlite code" << query.lastError().nativeErrorCode() << ")";
-                db.rollback();
+                QSqlQuery(db).exec(QStringLiteral("ROLLBACK"));
                 return false;
             }
 
@@ -1524,7 +1531,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             if (!query.exec()) {
                 locked = isLockError(query.lastError());
                 qWarning() << "ShotHistoryStorage: Failed to insert samples:" << query.lastError().text();
-                db.rollback();
+                QSqlQuery(db).exec(QStringLiteral("ROLLBACK"));
                 shotId = -1;
                 return false;
             }
@@ -1544,13 +1551,14 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                 query.exec();  // Non-critical if markers fail
             }
 
-            if (!db.commit()) {
-                // COMMIT can lose a WAL write-write race even when both INSERTs
-                // succeeded — classify it so the attempt is retried, not reported
-                // as a saved shot that never landed.
-                locked = isLockError(db.lastError());
-                qWarning() << "ShotHistoryStorage: Failed to commit shot:" << db.lastError().text();
-                db.rollback();
+            QSqlQuery commitQuery(db);
+            if (!commitQuery.exec(QStringLiteral("COMMIT"))) {
+                // COMMIT can still lose a race even when both INSERTs succeeded —
+                // classify it so the attempt is retried, not reported as a saved shot
+                // that never landed.
+                locked = isLockError(commitQuery.lastError());
+                qWarning() << "ShotHistoryStorage: Failed to commit shot:" << commitQuery.lastError().text();
+                QSqlQuery(db).exec(QStringLiteral("ROLLBACK"));
                 shotId = -1;
                 return false;
             }
