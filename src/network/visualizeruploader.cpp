@@ -154,6 +154,7 @@ void VisualizerUploader::uploadShot(ShotDataModel* shotData,
         return;
 
     m_uploadingDbShotId = dbShotId;
+    m_uploadRetries = 0;
     QByteArray jsonData = buildShotJson(shotData, profile, finalWeight, doseWeight, metadata, debugLog, shotEpoch);
     sendUpload(jsonData);
 }
@@ -178,6 +179,7 @@ void VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
         return;
 
     m_uploadingDbShotId = shotData.id;
+    m_uploadRetries = 0;
     QByteArray jsonData = buildHistoryShotJson(shotData);
     sendUpload(jsonData);
 }
@@ -498,9 +500,8 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             emit uploadSucceededForShot(m_uploadingDbShotId, shotId, m_lastShotUrl);
             qDebug() << "Visualizer: Upload successful, ID:" << shotId
                      << "for local shot" << m_uploadingDbShotId;
-            // Coffee Management: link the shot to its bag (and probe the CM
-            // state on first contact). The upload POST ignores coffee_bag_id,
-            // so this post-upload step is the only link path.
+            // Coffee Management: the server auto-links the shot to its bag on
+            // upload; read that link back and enrich the bag's descriptive fields.
             syncCoffeeBagAfterUpload(m_uploadingDbShotId, shotId);
         } else {
             // A 200 with no parseable shot id is a failure, not a success: the
@@ -514,6 +515,22 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             emit uploadFailed(m_lastUploadStatus);
         }
     } else {
+        // Transient failures (transport error/timeout = no HTTP status, or a 5xx
+        // server blip) auto-retry the same payload a bounded number of times.
+        // Auth (401), validation (422), and rate-limit (429 — retrying worsens
+        // it) are permanent here; the once-per-device reconciliation backfill
+        // recovers anything that still slips through.
+        const bool transient = (statusCode == 0 || statusCode >= 500);
+        if (transient && m_uploadRetries < kMaxUploadRetries && !m_lastUploadJson.isEmpty()) {
+            ++m_uploadRetries;
+            qWarning() << "Visualizer: upload transient failure (HTTP" << statusCode
+                       << reply->errorString() << ") - retry" << m_uploadRetries
+                       << "of" << kMaxUploadRetries;
+            reply->deleteLater();
+            sendUpload(m_lastUploadJson);  // keeps m_uploadingDbShotId for the retry
+            return;
+        }
+
         QString errorMsg;
 
         if (statusCode == 401) {
@@ -1241,6 +1258,10 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
         qDebug() << "Visualizer: Failed to save debug JSON to" << debugFile;
     }
 
+    // Retain the payload so onUploadFinished can re-POST it on a transient
+    // failure without rebuilding from (possibly-gone) shot state.
+    m_lastUploadJson = jsonData;
+
     // Build multipart form data
     QString boundary = QUuid::createUuid().toString(QUuid::WithoutBraces);
     QByteArray multipartData = buildMultipartData(jsonData, boundary);
@@ -1583,8 +1604,8 @@ void VisualizerUploader::syncCoffeeBagAfterUpload(qint64 dbShotId, const QString
 {
     if (dbShotId <= 0 || visualizerShotId.isEmpty() || m_localDbPath.isEmpty())
         return;
-    // Negative states: today's canonical-only behavior, no bag/roaster
-    // creation — a CM-off user's remote bag list is dormant server state.
+    // CM-off accounts have no bags to enrich. Cached per session (reset by
+    // testConnection) so toggling Coffee Management converges next upload.
     if (m_cmState == CmState::NoCoffeeManagement || m_cmState == CmState::PremiumNoCm)
         return;
 
@@ -1604,104 +1625,232 @@ void VisualizerUploader::syncCoffeeBagAfterUpload(qint64 dbShotId, const QString
         });
         // QPointer dereference only on the main thread (see loadShotWithMetadata note).
         QMetaObject::invokeMethod(qApp, [self, visualizerShotId, bagMap]() {
-            if (!self || bagMap.isEmpty())
-                return;
-            const QString syncedBagId = bagMap.value("visualizerBagId").toString();
-            const QString canonicalId = bagMap.value("beanBaseId").toString();
-
-            if (self->m_cmState == CmState::Active) {
-                if (!syncedBagId.isEmpty())
-                    self->linkShotToBag(visualizerShotId, syncedBagId, canonicalId);
-                else
-                    self->resolveRoaster(visualizerShotId, bagMap);
-                return;
-            }
-
-            // CmState::Unknown — probe first. The bag's own synced remote id
-            // is the ideal probe (a 200 IS the link, no follow-up needed).
-            if (!syncedBagId.isEmpty()) {
-                self->probeCmState(visualizerShotId, syncedBagId, []() {});
-                return;
-            }
-            // Otherwise borrow any existing remote bag id for the probe; on
-            // 200 the wrong bag is momentarily linked to our own fresh shot,
-            // and the immediate resolveRoaster() chain re-links the right
-            // one. Zero remote bags → create the real bag first (the POST
-            // doubles as the premium check: 403 = NoCoffeeManagement).
-            QNetworkRequest request = self->makeApiJsonRequest(QStringLiteral("/api/coffee_bags?items=1"));
-            QNetworkReply* reply = self->m_networkManager->get(request);
-            connect(reply, &QNetworkReply::finished, self, [self, reply, visualizerShotId, bagMap]() {
-                reply->deleteLater();
-                if (reply->error() != QNetworkReply::NoError) {
-                    qDebug() << "Visualizer CM: bag list probe failed, staying UNKNOWN";
-                    return;
-                }
-                const QJsonArray data = QJsonDocument::fromJson(reply->readAll())
-                                            .object().value("data").toArray();
-                if (data.isEmpty()) {
-                    self->resolveRoaster(visualizerShotId, bagMap);  // creates; probe runs after 201
-                    return;
-                }
-                const QString probeId = data.first().toObject().value("id").toString();
-                self->probeCmState(visualizerShotId, probeId, [self, visualizerShotId, bagMap]() {
-                    self->resolveRoaster(visualizerShotId, bagMap);  // re-link the RIGHT bag
-                });
-            });
+            if (self && !bagMap.isEmpty())
+                self->reconcileShotBag(visualizerShotId, bagMap);
         }, Qt::QueuedConnection);
     });
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
 }
 
-void VisualizerUploader::probeCmState(const QString& visualizerShotId, const QString& probeBagUuid,
-                                      std::function<void()> onCmActive)
+void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const QVariantMap& bag)
 {
-    QJsonObject shotObj;
-    shotObj["coffee_bag_id"] = probeBagUuid;
-    QJsonObject root;
-    root["shot"] = shotObj;
+    // Read back the bag the SERVER linked to this shot. visualizer.coffee's
+    // upload parser find-or-creates the user's coffee_bag from bean_brand/
+    // bean_type/roast_date and links it on EVERY upload (parsers/base.rb
+    // set_coffee_bag; verified live against the API). So we never guess the id,
+    // match on roast_date, or PATCH a shot with an unverified bag id —
+    // shots.coffee_bag_id has a DB foreign key, so a dead id would 500. We read
+    // the authoritative link straight back, then enrich the (server-created,
+    // bare) bag with the descriptive origin fields the server never sets.
+    QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/shots/") + visualizerShotId);
+    QNetworkReply* reply = m_networkManager->get(request);
+    const qint64 localBagId = bag.value("id").toLongLong();
+    connect(reply, &QNetworkReply::finished, this, [this, reply, visualizerShotId, bag, localBagId]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            qDebug() << "Visualizer CM: shot read-back failed - retry next upload";
+            return;
+        }
+        QJsonParseError parseError;
+        const QJsonObject shot = QJsonDocument::fromJson(reply->readAll(), &parseError).object();
+        if (parseError.error != QJsonParseError::NoError) {
+            qDebug() << "Visualizer CM: shot read-back unparseable - retry next upload";
+            return;
+        }
+        const QString serverBagId = shot.value("coffee_bag_id").toString();
+        const QString serverRoasterId = shot.value("roaster_id").toString();
 
+        if (serverBagId.isEmpty()) {
+            // No bag linked though we sent bean tags — usually Coffee Management is
+            // off. But an empty coffee_bag_id is NOT a definitive signal (a server
+            // that returned the shot before its bag link was visible looks the
+            // same), so we must not cache a session-long negative or wipe the
+            // stored id off it. Leave the state Unknown and retry next upload; the
+            // per-upload read-back is cheap and self-corrects. (The only negative
+            // we cache is the definitive 403 in enrichRemoteBag.)
+            //
+            // The canonical link is NOT Coffee-Management-gated, so a known coffee
+            // still attaches in canonical-only mode: PATCH the shot's canonical
+            // when our bag carries one. With no coffee_bag on the shot the server
+            // keeps it (its refresh_coffee_bag_fields only overrides canonical when
+            // a bag is linked). Idempotent, so re-PATCHing each upload is harmless.
+            const QString canonicalId = bag.value("beanBaseId").toString();
+            if (!canonicalId.isEmpty())
+                linkShotCanonical(visualizerShotId, canonicalId);
+            qDebug() << "Visualizer CM: shot has no server bag -"
+                     << (canonicalId.isEmpty() ? "nothing to link" : "linking canonical coffee");
+            return;
+        }
+
+        // A linked bag means CM is active. Capture the authoritative ids — the
+        // server assigns them, Decenza often never had them (bags born entirely
+        // server-side), and they change when a deleted bag is recreated. This is
+        // also the self-heal: a stale local id is simply overwritten with the
+        // server's current one, so a bag deleted on visualizer.coffee converges
+        // the moment its replacement is auto-created on the next upload.
+        setCmState(CmState::Active);
+        if (bag.value("visualizerBagId").toString() != serverBagId)
+            persistBagSyncIds(localBagId, serverBagId, serverRoasterId);
+        enrichRemoteBag(serverBagId, bag);
+
+        // Verified-roaster badge: the server creates the roaster bare, so link it
+        // to its canonical when we have one (best-effort; the badge is cosmetic).
+        const QString canonicalRoasterId = QJsonDocument::fromJson(
+            bag.value("beanBaseData").toString().toUtf8())
+                .object().value("canonicalRoasterId").toString();
+        if (!serverRoasterId.isEmpty() && !canonicalRoasterId.isEmpty())
+            enrichRemoteRoaster(serverRoasterId, canonicalRoasterId);
+    });
+}
+
+void VisualizerUploader::linkShotCanonical(const QString& visualizerShotId, const QString& canonicalId)
+{
+    // PATCH the shot's canonical_coffee_bag_id (permitted regardless of Coffee
+    // Management). The DYE-metadata PATCH (updateShotOnVisualizer) also carries
+    // the canonical, but only fires when there's metadata (rating/notes) to send
+    // — so this guarantees a known coffee links even on a bare, no-bag shot. Same
+    // value as that path, so a double-send is idempotent.
+    QJsonObject shotObj{{QStringLiteral("canonical_coffee_bag_id"), canonicalId}};
+    QJsonObject root{{QStringLiteral("shot"), shotObj}};
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/shots/") + visualizerShotId);
     QNetworkReply* reply = m_networkManager->sendCustomRequest(
         request, "PATCH", QJsonDocument(root).toJson(QJsonDocument::Compact));
-    connect(reply, &QNetworkReply::finished, this,
-            [this, reply, onCmActive = std::move(onCmActive)]() {
+    connect(reply, &QNetworkReply::finished, this, [reply, visualizerShotId, canonicalId]() {
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status == 200) {
-            setCmState(CmState::Active);
-            qDebug() << "Visualizer CM: probe confirmed Coffee Management ACTIVE";
-            onCmActive();
-        } else if (status == 400) {
-            // params.expect found no permitted key — coffee_bag_id is only
-            // permitted when coffee_management_enabled. Definitive negative.
-            setCmState(CmState::PremiumNoCm);
-            qDebug() << "Visualizer CM: probe says Coffee Management is OFF (canonical-only mode)";
+            qDebug() << "Visualizer CM: linked shot" << visualizerShotId << "to canonical" << canonicalId;
         } else {
-            // 401/429/5xx/network — transient; never cache a negative. Warn (not
-            // debug) so a chronically failing probe — which means this shot's bag
-            // link silently never reached Visualizer — is greppable in release logs.
-            qWarning() << "Visualizer CM: probe inconclusive (HTTP" << status
-                       << ") - shot not linked, staying UNKNOWN, retry next upload";
+            // status is 0 on a transport error (no HTTP response) — surface the
+            // network error string then, matching the sibling read-back handlers.
+            qDebug() << "Visualizer CM: shot canonical link failed (HTTP" << status
+                     << reply->errorString() << ") - retry next upload";
         }
     });
 }
 
-void VisualizerUploader::resolveRoaster(const QString& visualizerShotId, const QVariantMap& bag)
+// static
+QJsonObject VisualizerUploader::buildBagEnrichBody(const QJsonObject& remoteBag, const QVariantMap& bag)
 {
-    const QString roasterName = bag.value("roasterName").toString().trimmed();
-    if (roasterName.isEmpty()) {
-        qDebug() << "Visualizer CM: bag has no roaster name - skipping sync (roaster_id is required)";
-        return;
-    }
-    const QString canonicalRoasterId = QJsonDocument::fromJson(
-        bag.value("beanBaseData").toString().toUtf8()).object().value("canonicalRoasterId").toString();
-    // A freshly-created roaster has no bags, so findRemoteBag's list comes back
-    // empty and falls through to createRemoteBag — one harmless extra GET, in
-    // exchange for a single roaster-resolution implementation.
-    resolveRoasterId(roasterName, canonicalRoasterId,
-                     [this, visualizerShotId, bag](const QString& roasterId) {
-        findRemoteBag(visualizerShotId, bag, roasterId);
+    // The PATCH body of descriptive fields to fill on the server bag: only fields
+    // we hold locally AND the server left blank (null/missing/whitespace). The
+    // server-managed name/roast_date/roast_level are deliberately excluded. Pure
+    // (no I/O) so the fill-blanks contract and the blob→API field mapping are
+    // unit-tested directly (tst_coffeebags).
+    QJsonObject body;
+    auto fillBlank = [&](const char* apiKey, const QString& localValue) {
+        if (localValue.isEmpty())
+            return;
+        const QJsonValue rv = remoteBag.value(QLatin1String(apiKey));
+        const bool blank = rv.isNull() || rv.isUndefined()
+                           || (rv.isString() && rv.toString().trimmed().isEmpty());
+        if (blank)
+            body[QLatin1String(apiKey)] = localValue;
+    };
+    const QJsonObject blob = QJsonDocument::fromJson(
+        bag.value("beanBaseData").toString().toUtf8()).object();
+    fillBlank("country",                 blob.value("origin").toString());
+    fillBlank("region",                  blob.value("region").toString());
+    fillBlank("farmer",                  blob.value("producer").toString());
+    fillBlank("variety",                 blob.value("variety").toString());
+    fillBlank("processing",              blob.value("process").toString());
+    fillBlank("harvest_time",            blob.value("harvest").toString());
+    fillBlank("tasting_notes",           blob.value("tastingNotes").toString());
+    fillBlank("elevation",               blob.value("elevation").toString());
+    fillBlank("notes",                   bag.value("notes").toString());
+    fillBlank("frozen_date",             bag.value("frozenDate").toString());
+    fillBlank("defrosted_date",          bag.value("defrostDate").toString());
+    fillBlank("canonical_coffee_bag_id", bag.value("beanBaseId").toString());
+    return body;
+}
+
+void VisualizerUploader::enrichRemoteBag(const QString& serverBagId, const QVariantMap& bag)
+{
+    QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/coffee_bags/") + serverBagId);
+    QNetworkReply* reply = m_networkManager->get(request);
+    const qint64 localBagId = bag.value("id").toLongLong();
+    connect(reply, &QNetworkReply::finished, this, [this, reply, bag, serverBagId, localBagId]() {
+        reply->deleteLater();
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (status == 404) {
+            // Raced a deletion since the shot read-back. Drop the stale id; the
+            // next upload recreates+relinks the bag server-side.
+            persistBagSyncIds(localBagId, QString(), QString());
+            qDebug() << "Visualizer CM: bag" << serverBagId << "gone before enrich - cleared local id";
+            return;
+        }
+        if (reply->error() != QNetworkReply::NoError) {
+            qDebug() << "Visualizer CM: bag read for enrich failed (HTTP" << status
+                     << ") - retry next upload";
+            return;
+        }
+        QJsonParseError parseError;
+        const QJsonObject remote = QJsonDocument::fromJson(reply->readAll(), &parseError).object();
+        if (parseError.error != QJsonParseError::NoError) {
+            // A 200 with an unparseable body would read as "every field blank" and
+            // trigger a full-overwrite PATCH, clobbering the user's server values.
+            qDebug() << "Visualizer CM: bag" << serverBagId << "enrich GET unparseable - retry next upload";
+            return;
+        }
+        // Fill only the fields the server left blank — never clobber a value the
+        // user set on visualizer.coffee, and forward-compatible by construction:
+        // if the server is later fixed to seed descriptive fields from the
+        // canonical bean record, this sees them already populated and skips them
+        // (empty body → no PATCH), so the server's values always win. We re-read
+        // every upload, so no version check is needed.
+        const QJsonObject body = buildBagEnrichBody(remote, bag);
+        if (body.isEmpty()) {
+            qDebug() << "Visualizer CM: bag" << serverBagId << "already complete - nothing to enrich";
+            return;
+        }
+        QNetworkRequest patch = makeApiJsonRequest(QStringLiteral("/api/coffee_bags/") + serverBagId);
+        QNetworkReply* preply = m_networkManager->sendCustomRequest(
+            patch, "PATCH", QJsonDocument(body).toJson(QJsonDocument::Compact));
+        connect(preply, &QNetworkReply::finished, this, [this, preply, serverBagId, localBagId]() {
+            preply->deleteLater();
+            const int st = preply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (st == 200) {
+                qDebug() << "Visualizer CM: enriched bag" << serverBagId << "with descriptive fields";
+            } else if (st == 403) {
+                setCmState(CmState::NoCoffeeManagement);
+                qDebug() << "Visualizer CM: bag enrich 403 - account is not premium";
+            } else if (st == 404) {
+                persistBagSyncIds(localBagId, QString(), QString());
+                qDebug() << "Visualizer CM: bag" << serverBagId << "gone during enrich - cleared local id";
+            } else {
+                qDebug() << "Visualizer CM: bag enrich failed (HTTP" << st << ") - retry next upload";
+            }
+        });
+    });
+}
+
+void VisualizerUploader::enrichRemoteRoaster(const QString& roasterId, const QString& canonicalRoasterId)
+{
+    QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/roasters/") + roasterId);
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, roasterId, canonicalRoasterId]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError)
+            return;  // best-effort: the verified-roaster badge is cosmetic
+        QJsonParseError parseError;
+        const QJsonObject roaster = QJsonDocument::fromJson(reply->readAll(), &parseError).object();
+        if (parseError.error != QJsonParseError::NoError)
+            return;
+        // Only set it when blank — never repoint a roaster the user/server
+        // already linked elsewhere. An unparseable body bails above rather than
+        // reading the field as null and force-linking.
+        if (!roaster.value("canonical_roaster_id").isNull())
+            return;
+        QJsonObject body{{QStringLiteral("canonical_roaster_id"), canonicalRoasterId}};
+        QNetworkRequest patch = makeApiJsonRequest(QStringLiteral("/api/roasters/") + roasterId);
+        QNetworkReply* preply = m_networkManager->sendCustomRequest(
+            patch, "PATCH", QJsonDocument(body).toJson(QJsonDocument::Compact));
+        connect(preply, &QNetworkReply::finished, this, [preply, roasterId]() {
+            preply->deleteLater();
+            const int st = preply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            qDebug() << "Visualizer CM: roaster" << roasterId << "canonical link PATCH HTTP" << st;
+        });
     });
 }
 
@@ -1755,79 +1904,6 @@ void VisualizerUploader::resolveRoasterId(const QString& roasterName, const QStr
     });
 }
 
-void VisualizerUploader::findRemoteBag(const QString& visualizerShotId, const QVariantMap& bag,
-                                       const QString& roasterId, int page)
-{
-    // The index only returns {id, name}; match name here and confirm
-    // roast_date via the detail endpoint (the server's own CM-enable job
-    // dedupes on roaster+name+roast_date — mirror that key).
-    QNetworkRequest request = makeApiJsonRequest(
-        QStringLiteral("/api/coffee_bags?roaster_id=%1&items=100&page=%2").arg(roasterId).arg(page));
-    QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this,
-            [this, reply, visualizerShotId, bag, roasterId]() {
-        reply->deleteLater();
-        if (reply->error() != QNetworkReply::NoError) {
-            qDebug() << "Visualizer CM: bag list failed - retry next upload";
-            return;
-        }
-        const QString bagName = bag.value("coffeeName").toString();
-        QStringList candidates;
-        const QJsonArray data = QJsonDocument::fromJson(reply->readAll())
-                                    .object().value("data").toArray();
-        for (const QJsonValue& value : data) {
-            const QJsonObject remoteBag = value.toObject();
-            if (remoteBag.value("name").toString().compare(bagName, Qt::CaseInsensitive) == 0)
-                candidates << remoteBag.value("id").toString();
-        }
-        if (candidates.isEmpty()) {
-            createRemoteBag(visualizerShotId, bag, roasterId);
-            return;
-        }
-
-        // Walk the name matches and take the one whose roast_date agrees
-        // (both sides ISO yyyy-MM-dd; an empty local date matches null).
-        const QString roastDate = bag.value("roastDate").toString();
-        auto checkNext = std::make_shared<std::function<void(int)>>();
-        *checkNext = [this, candidates, roastDate, visualizerShotId, bag, roasterId, checkNext](int index) {
-            if (index >= candidates.size()) {
-                createRemoteBag(visualizerShotId, bag, roasterId);
-                return;
-            }
-            QNetworkRequest detailRequest = makeApiJsonRequest(
-                QStringLiteral("/api/coffee_bags/") + candidates[index]);
-            QNetworkReply* detailReply = m_networkManager->get(detailRequest);
-            connect(detailReply, &QNetworkReply::finished, this,
-                    [this, detailReply, candidates, index, roastDate, visualizerShotId, bag, checkNext]() {
-                detailReply->deleteLater();
-                // A failed detail fetch must NOT be read as data: an empty body
-                // makes remoteDate "", which would falsely match an empty local
-                // roast date (linking the WRONG bag) or, with a non-empty local
-                // date, falsely mismatch (walking off the end → duplicate bag).
-                // Abort the walk on error and retry on the next upload.
-                if (detailReply->error() != QNetworkReply::NoError) {
-                    const int sc = detailReply->attribute(
-                        QNetworkRequest::HttpStatusCodeAttribute).toInt();
-                    qWarning() << "Visualizer CM: bag detail fetch failed (HTTP" << sc
-                               << ") - skipping link, retry next upload";
-                    return;
-                }
-                const QJsonObject detail = QJsonDocument::fromJson(detailReply->readAll()).object();
-                const QString remoteDate = detail.value("roast_date").toString();
-                if (remoteDate == roastDate || (remoteDate.isEmpty() && roastDate.isEmpty())) {
-                    const QString bagUuid = candidates[index];
-                    persistBagSyncIds(bag.value("id").toLongLong(), bagUuid,
-                                      detail.value("roaster_id").toString());
-                    linkShotToBag(visualizerShotId, bagUuid, bag.value("beanBaseId").toString());
-                } else {
-                    (*checkNext)(index + 1);
-                }
-            });
-        };
-        (*checkNext)(0);
-    });
-}
-
 void VisualizerUploader::addBagDescriptiveFields(QJsonObject& body, const QVariantMap& bag) const
 {
     // Field names spike-verified (note defrosted_date). startWeightG is
@@ -1841,8 +1917,7 @@ void VisualizerUploader::addBagDescriptiveFields(QJsonObject& body, const QVaria
     };
     // No RoastDate::toIso() here, unlike the shot paths: a CoffeeBag's roastDate
     // is ISO yyyy-MM-dd by construction (ChangeBeansDialog only stores a 10-char
-    // yyyy-mm-dd), and findRemoteBag compares this same raw value against the
-    // server's roast_date — normalizing only one side would break that match.
+    // yyyy-mm-dd), which is exactly what the server's roast_date column expects.
     setIf("roast_date", bag.value("roastDate").toString());
     setIf("roast_level", bag.value("roastLevel").toString());
     setIf("frozen_date", bag.value("frozenDate").toString());
@@ -1859,72 +1934,6 @@ void VisualizerUploader::addBagDescriptiveFields(QJsonObject& body, const QVaria
     setIf("harvest_time", blob.value("harvest").toString());
     setIf("tasting_notes", blob.value("tastingNotes").toString());
     setIf("elevation", blob.value("elevation").toString());
-}
-
-void VisualizerUploader::createRemoteBag(const QString& visualizerShotId, const QVariantMap& bag,
-                                         const QString& roasterId)
-{
-    QJsonObject body;
-    body["roaster_id"] = roasterId;
-    addBagDescriptiveFields(body, bag);
-
-    QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/coffee_bags"));
-    QNetworkReply* reply = m_networkManager->post(
-        request, QJsonDocument(body).toJson(QJsonDocument::Compact));
-    connect(reply, &QNetworkReply::finished, this, [this, reply, visualizerShotId, bag]() {
-        reply->deleteLater();
-        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if (status == 201) {
-            const QJsonObject created = QJsonDocument::fromJson(reply->readAll()).object();
-            const QString bagUuid = created.value("id").toString();
-            persistBagSyncIds(bag.value("id").toLongLong(), bagUuid,
-                              created.value("roaster_id").toString());
-            if (m_cmState == CmState::Active) {
-                linkShotToBag(visualizerShotId, bagUuid, bag.value("beanBaseId").toString());
-            } else {
-                // Zero-remote-bag account: this real bag doubles as the
-                // probe vehicle; a 200 IS the link.
-                probeCmState(visualizerShotId, bagUuid, []() {});
-            }
-        } else if (status == 403) {
-            setCmState(CmState::NoCoffeeManagement);
-            qDebug() << "Visualizer CM: bag create 403 - account is not premium";
-        } else {
-            qDebug() << "Visualizer CM: bag create failed (HTTP" << status << ")";
-        }
-    });
-}
-
-void VisualizerUploader::linkShotToBag(const QString& visualizerShotId, const QString& bagUuid,
-                                       const QString& canonicalId)
-{
-    QJsonObject shotObj;
-    shotObj["coffee_bag_id"] = bagUuid;
-    // Always safe alongside (spike-verified); linking a bag also auto-sets
-    // the canonical id server-side from the bag, so this is belt-and-braces
-    // for bags whose remote record predates their canonical link.
-    if (!canonicalId.isEmpty())
-        shotObj["canonical_coffee_bag_id"] = canonicalId;
-    QJsonObject root;
-    root["shot"] = shotObj;
-
-    QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/shots/") + visualizerShotId);
-    QNetworkReply* reply = m_networkManager->sendCustomRequest(
-        request, "PATCH", QJsonDocument(root).toJson(QJsonDocument::Compact));
-    connect(reply, &QNetworkReply::finished, this, [this, reply, visualizerShotId]() {
-        reply->deleteLater();
-        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if (status == 200) {
-            qDebug() << "Visualizer CM: linked shot" << visualizerShotId << "to its coffee bag";
-        } else if (status == 400) {
-            // coffee_bag_id alone + dropped param = CM turned off since the
-            // last probe; converge without retry noise.
-            setCmState(CmState::PremiumNoCm);
-            qDebug() << "Visualizer CM: link rejected - Coffee Management now OFF";
-        } else {
-            qDebug() << "Visualizer CM: shot link failed (HTTP" << status << ") - retry next upload";
-        }
-    });
 }
 
 void VisualizerUploader::persistBagSyncIds(qint64 localBagId, const QString& visualizerBagId,

@@ -140,6 +140,12 @@ public:
     // Thread-safe; does not touch instance state. Reused by ShotHistoryExporter.
     static QByteArray buildHistoryShotJson(const ShotProjection& shotData);
 
+    // The descriptive-field PATCH body to enrich a server coffee bag: only the
+    // fields we hold locally that the server left blank (fill-blanks, never
+    // clobbering a user-set value). Pure (no network) and public so the
+    // blob→API field mapping and the fill-blanks contract are unit-tested.
+    static QJsonObject buildBagEnrichBody(const QJsonObject& remoteBag, const QVariantMap& bag);
+
 signals:
     void uploadingChanged();
     void lastUploadStatusChanged();
@@ -191,41 +197,46 @@ private:
     // exhausted, then emits shotListFetched once.
     void fetchShotListPage(int page, qint64 windowStartEpoch, QVariantList accumulated);
 
-    // --- Coffee Management sync chain (bean-bag-inventory) ---
-    // Entry point, called after a successful upload POST. Loads the shot's
-    // bag from the local DB on a background thread, then drives the chain.
+    // --- Coffee Management sync (bean-bag-inventory) ---
+    // Entry point, called after a successful upload POST. Loads the shot's bag
+    // from the local DB on a background thread, then reconciles it. No-op for
+    // CM-off accounts (cached per session).
     void syncCoffeeBagAfterUpload(qint64 dbShotId, const QString& visualizerShotId);
-    // Single-field probe PATCH on our own shot: 200 → Active, 400 → PremiumNoCm.
-    // onCmActive runs (queued) when the probe confirms CM.
-    void probeCmState(const QString& visualizerShotId, const QString& probeBagUuid,
-                      std::function<void()> onCmActive);
-    void resolveRoaster(const QString& visualizerShotId, const QVariantMap& bag);
+    // Read the shot back to learn the coffee_bag the SERVER auto-linked (it
+    // find-or-creates the bag from bean_brand/bean_type/roast_date on every
+    // upload). An empty coffee_bag_id means CM is off → cache the negative.
+    // Otherwise capture the authoritative ids (self-healing a stale local id)
+    // and enrich. Replaces the old guess/probe/find-or-create chain.
+    void reconcileShotBag(const QString& visualizerShotId, const QVariantMap& bag);
+    // GET the server bag and PATCH only the descriptive fields it left blank
+    // (origin/region/producer/etc. + lifecycle + canonical link). Never touches
+    // server-managed name/roast_date/roast_level, and never clobbers a value the
+    // user set on visualizer.coffee. 404 → bag deleted mid-flight, clear local id.
+    void enrichRemoteBag(const QString& serverBagId, const QVariantMap& bag);
+    // Best-effort verified-roaster badge: link the server-created roaster to its
+    // canonical when blank (the badge is cosmetic, so failures are ignored).
+    void enrichRemoteRoaster(const QString& roasterId, const QString& canonicalRoasterId);
+    // PATCH the shot's canonical_coffee_bag_id (not CM-gated). Canonical-only
+    // mode: attaches a known coffee to a shot with no personal bag.
+    void linkShotCanonical(const QString& visualizerShotId, const QString& canonicalId);
     // Find-or-create a Visualizer roaster by name; calls onResolved(roasterId)
-    // on success (not called on empty name or HTTP/parse failure). Shared by
-    // the create chain (resolveRoaster) and the bag update path. Carries the
+    // on success (not called on empty name or HTTP/parse failure). Carries the
     // canonical roaster UUID onto a freshly-created roaster for the verified
     // badge. A 403 on create caches NoCoffeeManagement (CRUD is premium-gated).
+    // Used by the bag-edit path (updateBagOnVisualizer).
     void resolveRoasterId(const QString& roasterName, const QString& canonicalRoasterId,
                           std::function<void(const QString& roasterId)> onResolved);
-    void findRemoteBag(const QString& visualizerShotId, const QVariantMap& bag,
-                       const QString& roasterId, int page = 1);
-    void createRemoteBag(const QString& visualizerShotId, const QVariantMap& bag,
-                         const QString& roasterId);
     // Add every Visualizer-stored descriptive field to `body` from a bag map
     // (name + roast/lifecycle/canonical + the beanBaseData blob attributes).
-    // Omits roaster_id — the caller sets that. Shared by create and update so
-    // both send the identical field set (the canonical id is a link, never a
-    // substitute for the attributes — the server does not auto-fill them).
+    // Omits roaster_id — the caller sets that. Used by the bag-edit path
+    // (patchRemoteBag), which overwrites the full set on an explicit user edit.
     void addBagDescriptiveFields(QJsonObject& body, const QVariantMap& bag) const;
     // PATCH /api/coffee_bags/:visualizerBagId with the descriptive fields, plus
     // roaster_id when `roasterId` differs from the bag's stored one (rename).
     // Persists the new visualizerRoasterId on a roaster change. 403 → not premium
     // (NoCoffeeManagement); 404 → remote bag deleted, id left stale and re-created
-    // on the next shot upload. A bag PATCH is premium-gated, not CM-gated, so it
-    // never resolves PremiumNoCm (only the shot-link probe can).
+    // on the next shot upload. The bag-edit counterpart to enrichRemoteBag.
     void patchRemoteBag(const QVariantMap& bag, const QString& roasterId);
-    void linkShotToBag(const QString& visualizerShotId, const QString& bagUuid,
-                       const QString& canonicalId);
     void persistBagSyncIds(qint64 localBagId, const QString& visualizerBagId,
                            const QString& visualizerRoasterId);
     QNetworkRequest makeApiJsonRequest(const QString& path) const;
@@ -252,6 +263,16 @@ private:
     // this correlation (it would mis-attribute the returned id).
     // Reset after each terminal outcome.
     qint64 m_uploadingDbShotId = 0;
+
+    // Bounded auto-retry for the upload POST on a transient failure (transport
+    // error/timeout or 5xx — never auth/validation/429). Same single-in-flight
+    // assumption as m_uploadingDbShotId. m_uploadRetries is reset at each public
+    // entry (uploadShot/uploadShotFromHistory); m_lastUploadJson is refreshed in
+    // sendUpload() before every POST (including retries) so the re-POST needs no
+    // shot state.
+    QByteArray m_lastUploadJson;
+    int m_uploadRetries = 0;
+    static constexpr int kMaxUploadRetries = 2;
 
     // Coffee Management sync state (see CmState above).
     CmState m_cmState = CmState::Unknown;
