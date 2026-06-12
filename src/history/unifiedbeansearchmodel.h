@@ -42,12 +42,32 @@ class UnifiedBeanSearchModel : public QAbstractListModel {
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
 
 public:
+    // Search-result tier — the model's core ranking invariant (lower = better).
+    // Emitted as the integer TierRole value; the QML consumers in
+    // ChangeBeansDialog.qml compare against these exact numbers, so the
+    // underlying values must not change.
+    enum class Tier {
+        Inventory       = 0,  // In inventory — selecting applies immediately, no details form
+        HistoryCanonical = 1, // History + canonical, merged (grinder/dose from history, attrs from Bean Base)
+        CanonicalOnly   = 2,  // Bean Base autocomplete only
+        HistoryLinked   = 3,  // History with a canonical link, unabsorbed
+        HistoryFreeText = 4,  // History free text only
+    };
+    Q_ENUM(Tier)
+
+    // Cross-role invariant: a positive bag id is exclusive to Inventory-tier
+    // rows (every other tier carries bagId == -1). Expressed in enum terms so
+    // mergeLanes and the tests can assert it directly.
+    static constexpr bool bagIdInvariantHolds(Tier tier, qint64 bagId) {
+        return bagId <= 0 || tier == Tier::Inventory;
+    }
+
     enum Roles {
         TierRole = Qt::UserRole + 1,
         SourcesRole,       // "inventory" | "beanbase" | "history" | "beanbase+history"
         RoasterNameRole,
         CoffeeNameRole,
-        BagIdRole,         // > 0 only for tier 0
+        BagIdRole,         // > 0 only for Tier::Inventory
         BeanBaseIdRole,
         RoastDateRole,
         FrozenDateRole,
