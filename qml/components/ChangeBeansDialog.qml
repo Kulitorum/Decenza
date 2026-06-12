@@ -1048,8 +1048,8 @@ Dialog {
                         }
 
                         Tr {
-                            key: "changebeans.form.yield"
-                            fallback: "Yield:"
+                            key: "changebeans.form.yieldOverride"
+                            fallback: "Yield override:"
                             font: Theme.bodyFont
                             color: Theme.textSecondaryColor
                             Accessible.ignored: true
@@ -1059,8 +1059,10 @@ Dialog {
                             id: yieldInput
                             Layout.fillWidth: true
                             text: root.fYield
-                            placeholder: TranslationManager.translate("changebeans.form.grams", "g")
-                            accessibleName: TranslationManager.translate("changebeans.form.yield.accessible", "Yield target in grams")
+                            // Blank = follow the profile's target weight; a value
+                            // overrides it for this bean (see yieldOverrideG).
+                            placeholder: TranslationManager.translate("changebeans.form.yieldOverride.placeholder", "Profile default")
+                            accessibleName: TranslationManager.translate("changebeans.form.yieldOverride.accessible", "Yield override in grams, blank to follow the profile default")
                             inputMethodHints: Qt.ImhFormattedNumbersOnly
                             onTextEdited: root.fYield = text
                         }
