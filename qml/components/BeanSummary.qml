@@ -3,11 +3,14 @@ import QtQuick.Layouts
 import Decenza
 
 // Read-only adaptive one-line bean summary ("show less when more is known"):
-//   canonical-linked  ->  "{coffee} · {origin} · {process} · Roasted Nd [· Def Md]"
+//   canonical-linked  ->  "{coffee} · {origin} · {process} · Roasted <date> [· Def Md]"
 //                         with a small verified badge
-//   history only      ->  "{roaster} {coffee} · Roasted Nd" + "Link to Bean Base" nudge
-//   no roast date     ->  roast-age portion silently omitted (no placeholder)
+//   history only      ->  "{roaster} {coffee} · Roasted <date>" + "Link to Bean Base" nudge
+//   no roast date     ->  roast-date portion silently omitted (no placeholder)
 //   no bag selected   ->  "No beans selected"
+//
+// Roast shows the actual date (the user freezes beans, so days-since-roast is
+// misleading); defrost shows days-out-of-freezer (a real freshness clock).
 //
 // Two data sources: live DYE state (default — brew/idle contexts) or
 // explicitly set shot-snapshot properties (useShotData: true — detail pages).
@@ -66,6 +69,15 @@ Item {
         return days >= 0 ? days : -1
     }
 
+    // Locale-formatted short roast date; falls back to the raw stored text
+    // when it isn't a parseable ISO date.
+    function formatRoastDate(raw) {
+        if (!raw || raw.length < 8) return raw || ""
+        var d = new Date(raw.substring(0, 10) + "T00:00:00")
+        if (isNaN(d.getTime())) return raw
+        return Qt.formatDate(d, Qt.locale().dateFormat(Locale.ShortFormat))
+    }
+
     readonly property string summaryText: {
         var _ = TranslationManager.translationVersion  // re-evaluate on language change
         if (!hasBeans)
@@ -81,9 +93,9 @@ Item {
             var name = [effRoaster, effCoffee].filter(function(s) { return s && s.length > 0 }).join(" ")
             if (name.length > 0) parts.push(name)
         }
-        var roastAge = daysSince(effRoastDate)
-        if (roastAge >= 0)
-            parts.push(TranslationManager.translate("beans.summary.roastedDays", "Roasted %1d").arg(roastAge))
+        var roast = formatRoastDate(effRoastDate)
+        if (roast.length > 0)
+            parts.push(TranslationManager.translate("beans.summary.roastedDate", "Roasted %1").arg(roast))
         if (effDefrostDate.length > 0) {
             var defAge = daysSince(effDefrostDate)
             if (defAge >= 0)
