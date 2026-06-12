@@ -709,6 +709,106 @@ Dialog {
                         }
                     }
 
+                    // --- Freeze tracking (under roast level, above grind) ---
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.scaled(20)
+                        Layout.rightMargin: Theme.scaled(20)
+                        spacing: Theme.scaled(8)
+
+                        Tr {
+                            key: "changebeans.form.freeze"
+                            fallback: "Frozen bag"
+                            font: Theme.bodyFont
+                            color: Theme.textSecondaryColor
+                            Accessible.ignored: true
+                        }
+
+                        StyledSwitch {
+                            id: freezeSwitch
+                            checked: root.fFreeze
+                            accessibleName: TranslationManager.translate("changebeans.form.freeze.accessible", "Track this bag as frozen")
+                            onToggled: {
+                                root.fFreeze = checked
+                                if (checked && root.fFrozenDate.replace(/_/g, "").length !== 10)
+                                    root.fFrozenDate = root.todayIso()
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    FieldRow {
+                        visible: root.fFreeze
+                        labelKey: "changebeans.form.frozenDate"
+                        labelFallback: "Frozen:"
+
+                        StyledTextField {
+                            id: frozenDateInput
+                            Layout.fillWidth: true
+                            text: root.fFrozenDate
+                            accessibleName: TranslationManager.translate("changebeans.form.frozenDate.accessible", "Frozen date")
+                            inputMethodHints: Qt.ImhDate
+                            inputMask: "9999-99-99"
+                            onTextEdited: root.fFrozenDate = text.replace(/_/g, "")
+                        }
+
+                        AccessibleButton {
+                            Layout.preferredWidth: Theme.scaled(44)
+                            Layout.preferredHeight: Theme.scaled(44)
+                            accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
+                            leftPadding: Theme.scaled(8)
+                            rightPadding: Theme.scaled(8)
+                            icon.source: "qrc:/emoji/1f4c5.svg"
+                            icon.width: Theme.scaled(20)
+                            icon.height: Theme.scaled(20)
+                            text: ""
+                            onClicked: frozenDatePicker.openWithDate(root.fFrozenDate)
+                        }
+
+                        DatePickerDialog {
+                            id: frozenDatePicker
+                            onDateSelected: function(dateString) { root.fFrozenDate = dateString }
+                        }
+                    }
+
+                    // Defrost date is only directly editable in edit mode
+                    // ("Next Portion" on the bag card is the everyday path)
+                    FieldRow {
+                        visible: root.fFreeze && root.formMode === "edit"
+                        labelKey: "changebeans.form.defrostDate"
+                        labelFallback: "Defrosted:"
+
+                        StyledTextField {
+                            id: defrostDateInput
+                            Layout.fillWidth: true
+                            text: root.fDefrostDate
+                            placeholder: TranslationManager.translate("changebeans.form.roastDate.placeholder", "yyyy-mm-dd (optional)")
+                            accessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Defrost date, optional")
+                            inputMethodHints: Qt.ImhDate
+                            inputMask: "9999-99-99"
+                            onTextEdited: root.fDefrostDate = text.replace(/_/g, "")
+                        }
+
+                        AccessibleButton {
+                            Layout.preferredWidth: Theme.scaled(44)
+                            Layout.preferredHeight: Theme.scaled(44)
+                            accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
+                            leftPadding: Theme.scaled(8)
+                            rightPadding: Theme.scaled(8)
+                            icon.source: "qrc:/emoji/1f4c5.svg"
+                            icon.width: Theme.scaled(20)
+                            icon.height: Theme.scaled(20)
+                            text: ""
+                            onClicked: defrostDatePicker.openWithDate(root.fDefrostDate)
+                        }
+
+                        DatePickerDialog {
+                            id: defrostDatePicker
+                            onDateSelected: function(dateString) { root.fDefrostDate = dateString }
+                        }
+                    }
+
                     // --- Grinder setting + dose (the per-bag dial-in fields) ---
                     FieldRow {
                         labelKey: "changebeans.form.grindSetting"
@@ -824,105 +924,6 @@ Dialog {
                             }
                         }
 
-                        // Freeze toggle
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: Theme.scaled(20)
-                            Layout.rightMargin: Theme.scaled(20)
-                            spacing: Theme.scaled(8)
-
-                            Tr {
-                                key: "changebeans.form.freeze"
-                                fallback: "Frozen bag"
-                                font: Theme.bodyFont
-                                color: Theme.textSecondaryColor
-                                Accessible.ignored: true
-                            }
-
-                            StyledSwitch {
-                                id: freezeSwitch
-                                checked: root.fFreeze
-                                accessibleName: TranslationManager.translate("changebeans.form.freeze.accessible", "Track this bag as frozen")
-                                onToggled: {
-                                    root.fFreeze = checked
-                                    if (checked && root.fFrozenDate.replace(/_/g, "").length !== 10)
-                                        root.fFrozenDate = root.todayIso()
-                                }
-                            }
-
-                            Item { Layout.fillWidth: true }
-                        }
-
-                        FieldRow {
-                            visible: root.fFreeze
-                            labelKey: "changebeans.form.frozenDate"
-                            labelFallback: "Frozen:"
-
-                            StyledTextField {
-                                id: frozenDateInput
-                                Layout.fillWidth: true
-                                text: root.fFrozenDate
-                                accessibleName: TranslationManager.translate("changebeans.form.frozenDate.accessible", "Frozen date")
-                                inputMethodHints: Qt.ImhDate
-                                inputMask: "9999-99-99"
-                                onTextEdited: root.fFrozenDate = text.replace(/_/g, "")
-                            }
-
-                            AccessibleButton {
-                                Layout.preferredWidth: Theme.scaled(44)
-                                Layout.preferredHeight: Theme.scaled(44)
-                                accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
-                                leftPadding: Theme.scaled(8)
-                                rightPadding: Theme.scaled(8)
-                                icon.source: "qrc:/emoji/1f4c5.svg"
-                                icon.width: Theme.scaled(20)
-                                icon.height: Theme.scaled(20)
-                                text: ""
-                                onClicked: frozenDatePicker.openWithDate(root.fFrozenDate)
-                            }
-
-                            DatePickerDialog {
-                                id: frozenDatePicker
-                                onDateSelected: function(dateString) { root.fFrozenDate = dateString }
-                            }
-                        }
-
-                        // Defrost date is only directly editable in edit mode
-                        // ("Next Portion" on the bag card is the everyday path)
-                        FieldRow {
-                            visible: root.fFreeze && root.formMode === "edit"
-                            labelKey: "changebeans.form.defrostDate"
-                            labelFallback: "Defrosted:"
-
-                            StyledTextField {
-                                id: defrostDateInput
-                                Layout.fillWidth: true
-                                text: root.fDefrostDate
-                                placeholder: TranslationManager.translate("changebeans.form.roastDate.placeholder", "yyyy-mm-dd (optional)")
-                                accessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Defrost date, optional")
-                                inputMethodHints: Qt.ImhDate
-                                inputMask: "9999-99-99"
-                                onTextEdited: root.fDefrostDate = text.replace(/_/g, "")
-                            }
-
-                            AccessibleButton {
-                                Layout.preferredWidth: Theme.scaled(44)
-                                Layout.preferredHeight: Theme.scaled(44)
-                                accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
-                                leftPadding: Theme.scaled(8)
-                                rightPadding: Theme.scaled(8)
-                                icon.source: "qrc:/emoji/1f4c5.svg"
-                                icon.width: Theme.scaled(20)
-                                icon.height: Theme.scaled(20)
-                                text: ""
-                                onClicked: defrostDatePicker.openWithDate(root.fDefrostDate)
-                            }
-
-                            DatePickerDialog {
-                                id: defrostDatePicker
-                                onDateSelected: function(dateString) { root.fDefrostDate = dateString }
-                            }
-                        }
                     }
 
                     // Error message (create failure / validation)
