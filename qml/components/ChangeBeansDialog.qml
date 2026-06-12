@@ -77,6 +77,81 @@ Dialog {
         return parts.join(" · ")
     }
 
+    // --- Manual-entry autosuggest (history + Bean Base canonical) ---
+    // Canonical entries for the current form query; refreshed as the user
+    // types in the roaster/coffee fields (C++ debounces + caches).
+    property var formCanonicalEntries: []
+    property string _formCanonicalQuery: ""
+    // Bumped when the shot-history distinct cache refreshes (suggestions
+    // re-evaluate, mirroring BrewDialog's pattern).
+    property int _distinctVersion: 0
+
+    function requestFormCanonical(q) {
+        q = q.trim()
+        if (q.length < 2) {
+            formCanonicalEntries = []
+            _formCanonicalQuery = ""
+            return
+        }
+        _formCanonicalQuery = q.toLowerCase()
+        MainController.beanbase.search(q)
+    }
+
+    function roasterSuggestions() {
+        var _ = _distinctVersion
+        var out = MainController.shotHistory ? MainController.shotHistory.getDistinctBeanBrands().slice() : []
+        for (var i = 0; i < formCanonicalEntries.length; i++) {
+            var name = formCanonicalEntries[i].roasterName
+            if (name && out.indexOf(name) === -1) out.push(name)
+        }
+        return out
+    }
+
+    function coffeeSuggestions() {
+        var _ = _distinctVersion
+        var out = MainController.shotHistory ? MainController.shotHistory.getDistinctBeanTypesForBrand(fRoaster).slice() : []
+        for (var i = 0; i < formCanonicalEntries.length; i++) {
+            var entry = formCanonicalEntries[i]
+            if (fRoaster.length > 0 && entry.roasterName
+                && entry.roasterName.toLowerCase() !== fRoaster.toLowerCase())
+                continue
+            if (entry.roastName && out.indexOf(entry.roastName) === -1) out.push(entry.roastName)
+        }
+        return out
+    }
+
+    // A picked coffee suggestion that came from Bean Base carries the
+    // canonical link — apply it like a search-bar pick (enriched async).
+    function adoptCanonicalByName(coffeeName) {
+        for (var i = 0; i < formCanonicalEntries.length; i++) {
+            var entry = formCanonicalEntries[i]
+            if (entry.roastName !== coffeeName) continue
+            if (fRoaster.length > 0 && entry.roasterName
+                && entry.roasterName.toLowerCase() !== fRoaster.toLowerCase())
+                continue
+            fBeanBaseId = String(entry.id || "")
+            fBeanBaseData = JSON.stringify(entry)
+            if (entry.roasterName) fRoaster = entry.roasterName
+            fLinkDirty = true
+            MainController.beanbase.fetchCanonicalDetails(entry)
+            return
+        }
+    }
+
+    Connections {
+        target: MainController.shotHistory
+        function onDistinctCacheReady() { root._distinctVersion++ }
+    }
+
+    Connections {
+        target: MainController.beanbase
+        function onSearchResults(query, entries) {
+            if (root.mode !== "form") return
+            if (query.toLowerCase() !== root._formCanonicalQuery) return
+            root.formCanonicalEntries = entries
+        }
+    }
+
     function todayIso() {
         var now = new Date()
         return now.getFullYear() + "-"
@@ -319,7 +394,7 @@ Dialog {
         implicitWidth: root.width
         implicitHeight: Math.min(mainColumn.implicitHeight,
                                  root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight)
-        textFields: [searchField, roasterInput, coffeeInput, roastDateInput,
+        textFields: [searchField, roasterInput.textField, coffeeInput.textField, roastDateInput,
                      grindSettingInput, doseInput, yieldInput,
                      grinderBrandInput, grinderModelInput, grinderBurrsInput,
                      startWeightInput, notesInput, frozenDateInput, defrostDateInput]
@@ -733,12 +808,16 @@ Dialog {
                         labelKey: "changebeans.form.roaster"
                         labelFallback: "Roaster:"
 
-                        StyledTextField {
+                        SuggestionField {
                             id: roasterInput
                             Layout.fillWidth: true
                             text: root.fRoaster
+                            suggestions: root.roasterSuggestions()
                             accessibleName: TranslationManager.translate("changebeans.form.roaster.accessible", "Roaster")
-                            onTextEdited: root.fRoaster = text
+                            onTextEdited: function(t) {
+                                root.fRoaster = t
+                                root.requestFormCanonical(t)
+                            }
                         }
                     }
 
@@ -747,12 +826,18 @@ Dialog {
                         labelKey: "changebeans.form.coffee"
                         labelFallback: "Coffee:"
 
-                        StyledTextField {
+                        SuggestionField {
                             id: coffeeInput
                             Layout.fillWidth: true
                             text: root.fCoffee
+                            suggestions: root.coffeeSuggestions()
                             accessibleName: TranslationManager.translate("changebeans.form.coffee.accessible", "Coffee name")
-                            onTextEdited: root.fCoffee = text
+                            onTextEdited: function(t) {
+                                root.fCoffee = t
+                                root.requestFormCanonical(root.fRoaster.length > 0 ? root.fRoaster + " " + t : t)
+                            }
+                            // A Bean Base suggestion pick links the bag too.
+                            onSuggestionSelected: function(t) { root.adoptCanonicalByName(t) }
                         }
                     }
 
