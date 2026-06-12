@@ -10,7 +10,16 @@ Text {
     elide: Text.ElideRight
     horizontalAlignment: Text.AlignHCenter
     font: Theme.bodyFont
-    color: mouseArea.pressed ? Theme.accentColor : Theme.textSecondaryColor
+    // Highlight (espresso-button yellow) whenever a brew override is in effect —
+    // temperature or yield differs from the active profile's default — so the
+    // summary signals "this isn't the plain profile/preset". Mirrors the exact
+    // override conditions used to build the text below.
+    readonly property bool _overrideActive:
+        (Settings.brew.hasTemperatureOverride && Math.abs(overrideTemp - profileTemp) > 0.1)
+        || (Settings.brew.hasBrewYieldOverride && profileYield > 0
+            && Math.abs(targetWeight - profileYield) > 0.1)
+    color: mouseArea.pressed ? Theme.accentColor
+         : (_overrideActive ? Theme.highlightColor : Theme.textSecondaryColor)
 
     // Visibility flags — all default true except roastDate
     property bool showProfile: true
