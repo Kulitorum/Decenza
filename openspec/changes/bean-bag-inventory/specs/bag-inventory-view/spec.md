@@ -79,13 +79,14 @@ There SHALL be no per-card save-as shortcut (removed — it added clutter withou
 - **THEN** the coffee SHALL appear as a history (and/or canonical) result
 - **AND** picking it SHALL pre-fill the creation form with roast date blank
 
-### Requirement: Bags with no linked shots can be deleted
-A bag that no shot references (no `shots.bag_id` rows) SHALL be deletable from the inventory view (e.g., a mistaken creation). Bags with linked shots SHALL only be markable as empty, never deleted.
+### Requirement: One removal action per card, following the bag's life
+Each bag card SHALL show exactly ONE removal action, chosen by whether shots reference the bag (`shotCount` from the inventory query): a delete (trash) action while no shot references it (a mistaken creation — removes the row entirely), and "Bag finished" once shots exist (leaves inventory, history kept). Storage SHALL still refuse deleting a referenced bag as a stale-count safety net.
 
 #### Scenario: Deleting a mistakenly created bag
-- **WHEN** the user deletes a bag with zero linked shots
-- **THEN** the bag row SHALL be removed from the database entirely
+- **WHEN** a bag has zero linked shots
+- **THEN** the card SHALL show the delete action (and not "Bag finished")
+- **AND** activating it SHALL remove the bag row from the database entirely
 
-#### Scenario: Delete unavailable for used bags
-- **WHEN** a bag has at least one linked shot
-- **THEN** no delete action SHALL be offered — only "Bag finished"
+#### Scenario: First shot converts the action
+- **WHEN** the first shot is saved against a bag
+- **THEN** the card SHALL show "Bag finished" instead of delete (inventory refreshes via bagsChanged)

@@ -56,6 +56,7 @@ QVariantMap CoffeeBag::toVariantMap() const
     map["visualizerBagId"] = visualizerBagId;
     map["visualizerRoasterId"] = visualizerRoasterId;
     map["lastUsedEpoch"] = lastUsedEpoch;
+    map["shotCount"] = shotCount;
     return map;
 }
 
@@ -83,6 +84,7 @@ CoffeeBag CoffeeBag::fromVariantMap(const QVariantMap& map)
     bag.visualizerBagId = map.value("visualizerBagId").toString();
     bag.visualizerRoasterId = map.value("visualizerRoasterId").toString();
     bag.lastUsedEpoch = map.value("lastUsedEpoch", 0).toLongLong();
+    bag.shotCount = map.value("shotCount", 0).toLongLong();
     return bag;
 }
 
@@ -364,13 +366,21 @@ QVector<CoffeeBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db)
 {
     QVector<CoffeeBag> bags;
     QSqlQuery query(db);
-    if (!query.exec(QString("SELECT %1 FROM coffee_bags WHERE in_inventory = 1 "
+    // shot_count subquery feeds the card's single delete-vs-finished action:
+    // a bag nothing references is a mistaken creation (trash); one with
+    // shots is history ("Bag finished").
+    if (!query.exec(QString("SELECT %1, "
+                            "(SELECT COUNT(*) FROM shots WHERE bag_id = coffee_bags.id) AS shot_count "
+                            "FROM coffee_bags WHERE in_inventory = 1 "
                             "ORDER BY last_used DESC, id DESC").arg(kBagColumns))) {
         qWarning() << "CoffeeBagStorage: inventory query failed:" << query.lastError().text();
         return bags;
     }
-    while (query.next())
-        bags.append(bagFromQueryRow(query));
+    while (query.next()) {
+        CoffeeBag bag = bagFromQueryRow(query);
+        bag.shotCount = query.value(21).toLongLong();
+        bags.append(bag);
+    }
     return bags;
 }
 

@@ -53,6 +53,11 @@ struct CoffeeBag {
 
     qint64 lastUsedEpoch = 0; // bumped on selection and shot save (MRU ordering)
 
+    // Transient: number of shots referencing this bag. Populated by
+    // loadInventoryStatic's subquery only (not a coffee_bags column) —
+    // drives the card's delete-vs-finished action. 0 from other loaders.
+    qint64 shotCount = 0;
+
     bool isValid() const { return id > 0; }
     QVariantMap toVariantMap() const;
     static CoffeeBag fromVariantMap(const QVariantMap& map);

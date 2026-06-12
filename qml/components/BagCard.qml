@@ -7,8 +7,11 @@ import Decenza
 // bags show a dense attribute line + verified badge; partial bags show only
 // what is available plus a subtle "Find in Bean Base" nudge. Tapping the card
 // selects the bag (sets activeBagId). Action row: Next Portion (frozen bags),
-// Bag finished, Edit, Delete (refused by storage when shots reference the
-// bag — a brief message explains).
+// Edit, and ONE removal action that follows the bag's life: a trash icon
+// while no shot references it (a mistaken creation — deletes the row), then
+// "Bag finished" once shots exist (leaves inventory, history kept). Storage
+// still refuses deleting a referenced bag — a brief message explains if the
+// count was stale.
 Rectangle {
     id: card
 
@@ -17,6 +20,7 @@ Rectangle {
     signal editRequested(var bag)
 
     readonly property bool selected: bag && bag.id !== undefined && bag.id === Settings.dye.activeBagId
+    readonly property bool hasShots: bag && (bag.shotCount ?? 0) > 0
     readonly property bool hasCanonical: bag && bag.beanBaseId !== undefined && String(bag.beanBaseId).length > 0
     readonly property bool isFrozen: bag && bag.frozenDate !== undefined && String(bag.frozenDate).length > 0
     readonly property string defrostDate: bag && bag.defrostDate !== undefined ? String(bag.defrostDate) : ""
@@ -227,6 +231,7 @@ Rectangle {
             }
 
             AccessibleButton {
+                visible: card.hasShots
                 height: Theme.scaled(36)
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
@@ -244,12 +249,16 @@ Rectangle {
                 onClicked: card.editRequested(card.bag)
             }
 
+            // No shots yet: the bag is a mistaken creation — offer delete
+            // instead of finishing. Swaps to "Bag finished" above once the
+            // first shot lands (inventory refreshes via bagsChanged).
             StyledIconButton {
+                visible: !card.hasShots
                 width: Theme.scaled(36)
                 height: Theme.scaled(36)
                 icon.source: "qrc:/icons/trash.svg"
                 accessibleName: TranslationManager.translate("bagcard.accessible.delete", "Delete bag")
-                accessibleDescription: TranslationManager.translate("bagcard.accessible.deleteHint", "Only bags with no linked shots can be deleted")
+                accessibleDescription: TranslationManager.translate("bagcard.accessible.deleteHint", "Deletes this unused bag entirely")
                 onClicked: MainController.bagStorage.requestDeleteBag(card.bag.id)
             }
         }

@@ -299,6 +299,32 @@ private slots:
     // findBagForShot
     // ==========================================
 
+    void inventoryCarriesShotCount() {
+        // shotCount drives the card's single removal action (trash while 0,
+        // "Bag finished" once shots exist).
+        const QString path = freshDb();
+        withRawDb(path, "shotcount", [&](QSqlDatabase& db) {
+            CoffeeBag used;
+            used.roasterName = "Used";
+            used.coffeeName = "Bag";
+            const qint64 usedId = CoffeeBagStorage::insertBagStatic(db, used);
+            insertShot(db, "Used", "Bag", 1000, QString(), usedId);
+            insertShot(db, "Used", "Bag", 1001, QString(), usedId);
+            CoffeeBag fresh;
+            fresh.roasterName = "Fresh";
+            fresh.coffeeName = "Bag";
+            CoffeeBagStorage::insertBagStatic(db, fresh);
+
+            const QVector<CoffeeBag> inventory = CoffeeBagStorage::loadInventoryStatic(db);
+            QCOMPARE(inventory.size(), 2);
+            QHash<QString, qint64> countByRoaster;
+            for (const CoffeeBag& bag : inventory)
+                countByRoaster.insert(bag.roasterName, bag.shotCount);
+            QCOMPARE(countByRoaster.value("Used"), qint64(2));
+            QCOMPARE(countByRoaster.value("Fresh"), qint64(0));
+        });
+    }
+
     void findBagForShotPrefersLinkThenIdentity() {
         const QString path = freshDb();
         withRawDb(path, "findbag", [&](QSqlDatabase& db) {
