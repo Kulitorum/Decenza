@@ -1679,7 +1679,7 @@ void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const
             if (!canonicalId.isEmpty())
                 linkShotCanonical(visualizerShotId, canonicalId);
             qDebug() << "Visualizer CM: shot has no server bag -"
-                     << (canonicalId.isEmpty() ? "nothing to link" : "linked canonical coffee");
+                     << (canonicalId.isEmpty() ? "nothing to link" : "linking canonical coffee");
             return;
         }
 
@@ -1707,8 +1707,10 @@ void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const
 void VisualizerUploader::linkShotCanonical(const QString& visualizerShotId, const QString& canonicalId)
 {
     // PATCH the shot's canonical_coffee_bag_id (permitted regardless of Coffee
-    // Management). Used in canonical-only mode so a known coffee shows on the
-    // shot even when there is no personal bag and no DYE-metadata PATCH.
+    // Management). The DYE-metadata PATCH (updateShotOnVisualizer) also carries
+    // the canonical, but only fires when there's metadata (rating/notes) to send
+    // — so this guarantees a known coffee links even on a bare, no-bag shot. Same
+    // value as that path, so a double-send is idempotent.
     QJsonObject shotObj{{QStringLiteral("canonical_coffee_bag_id"), canonicalId}};
     QJsonObject root{{QStringLiteral("shot"), shotObj}};
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/shots/") + visualizerShotId);
@@ -1717,11 +1719,14 @@ void VisualizerUploader::linkShotCanonical(const QString& visualizerShotId, cons
     connect(reply, &QNetworkReply::finished, this, [reply, visualizerShotId, canonicalId]() {
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if (status == 200)
+        if (status == 200) {
             qDebug() << "Visualizer CM: linked shot" << visualizerShotId << "to canonical" << canonicalId;
-        else
+        } else {
+            // status is 0 on a transport error (no HTTP response) — surface the
+            // network error string then, matching the sibling read-back handlers.
             qDebug() << "Visualizer CM: shot canonical link failed (HTTP" << status
-                     << ") - retry next upload";
+                     << reply->errorString() << ") - retry next upload";
+        }
     });
 }
 
