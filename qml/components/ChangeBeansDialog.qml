@@ -195,7 +195,7 @@ Dialog {
         fGrinderBurrs = bag.grinderBurrs || ""
         fGrinderSetting = bag.grinderSetting || ""
         fDose = (bag.doseWeightG ?? 0) > 0 ? String(bag.doseWeightG) : ""
-        fYield = (bag.yieldTargetG ?? 0) > 0 ? String(bag.yieldTargetG) : ""
+        fYield = (bag.yieldOverrideG ?? 0) > 0 ? String(bag.yieldOverrideG) : ""
     }
 
     // Tier 1-4 search result -> creation form. Roast date is ALWAYS blank and
@@ -342,7 +342,7 @@ Dialog {
             "grinderBurrs": fGrinderBurrs.trim(),
             "grinderSetting": fGrinderSetting.trim(),
             "doseWeightG": parseWeight(fDose),
-            "yieldTargetG": parseWeight(fYield),
+            "yieldOverrideG": parseWeight(fYield),
             "notes": fNotes,
             "frozenDate": fFreeze ? (fFrozenDate.replace(/_/g, "").length === 10 ? fFrozenDate : todayIso()) : ""
         }

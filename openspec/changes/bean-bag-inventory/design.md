@@ -48,7 +48,7 @@ On startup, if the `bean/presets` QSettings key is present, convert each preset 
 
 ### Decision: Bean/grinder edits write through to the active bag; shot save stamps dose
 
-The bag IS the state. Any pre-shot edit to grinder fields (brew dialog, bag card edit) writes directly to the active bag — there is no intermediate live-DYE copy that can diverge, which is precisely the failure mode this change eliminates. At shot save, the active bag's `doseWeightG` and `yieldTargetG` are additionally stamped from the actual shot values (dose may come from SAW/profile settings rather than a manual edit). No explicit "save to bag" action, no `beansModified` computed property.
+The bag IS the state. Any pre-shot edit to grinder fields (brew dialog, bag card edit) writes directly to the active bag — there is no intermediate live-DYE copy that can diverge, which is precisely the failure mode this change eliminates. At shot save, the active bag's `doseWeightG` is additionally stamped from the actual shot dose (which may come from SAW/profile settings rather than a manual edit), and `yieldOverrideG` from the shot target only when it differs from the profile default (else 0 — no override). No explicit "save to bag" action, no `beansModified` computed property.
 
 **Alternative considered:** Only write to the bag at shot save (edits live in DYE state until then). Rejected — recreates the live-state-vs-saved divergence under a new name.
 
@@ -91,7 +91,7 @@ A result present in both history and Bean Base canonical (matched on `beanBaseId
 
 ### Decision: Bag selection applies dose/yield to the next shot
 
-`doseWeightG`/`yieldTargetG` on the bag are not passive metadata — selecting a bag applies them as the next shot's dose and target weight (the values that feed brew-by-ratio / SAW via `ProfileManager`, today sourced from `dyeBeanWeight`/`dyeDrinkWeight`). "The bag knows my last setting" must include the setting that actually drives the machine. A newly created bag with no dose yet inherits the current global values and adopts them on first edit or shot. The `dyeBeanWeight`/`dyeDrinkWeight` properties become read-through proxies of the active bag (falling back to the stored global values when no bag is active) so `ProfileManager` and existing QML consumers keep working during the transition.
+`doseWeightG`/`yieldOverrideG` on the bag are not passive metadata — selecting a bag applies them to the machine. Dose drives the next shot's dose via `dyeBeanWeight`. Yield is modelled as an **override of the active profile's target weight**, not a standalone target: on a user bean switch the brew overrides are first reset to the profile's defaults, then the bag's `yieldOverrideG` (> 0) is applied to `Settings.brew`'s `brewYieldOverride` (the SAW / brew-by-ratio target), turning the idle brew-settings widget yellow. The override is persisted back to the bag at the single brew-settings commit point (`ProfileManager::activateBrewWithOverrides`) and at shot save, storing 0 whenever the yield equals the profile default — so the profile's own target stays useful and a bag only pins a yield when it genuinely differs. `yieldOverrideG` is deliberately NOT routed through `dyeDrinkWeight`, which stays plain DYE drink-weight metadata. A newly created bag with no dose/override inherits the current global dose and the profile-default yield, adopting the dose on first edit/shot and the override when the user commits one.
 
 ### Decision: Bags survive device transfer and backup restore
 

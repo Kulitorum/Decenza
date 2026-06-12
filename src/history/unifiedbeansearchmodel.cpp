@@ -175,7 +175,7 @@ QVariantList UnifiedBeanSearchModel::queryHistoryStatic(QSqlDatabase& db, const 
         row["grinderBurrs"] = query.value(7).toString();
         row["grinderSetting"] = query.value(8).toString();
         row["doseWeightG"] = query.value(9).toDouble();
-        row["yieldTargetG"] = query.value(10).toDouble();
+        row["yieldOverrideG"] = query.value(10).toDouble();
         row["lastUsedEpoch"] = query.value(11).toLongLong();
 
         const QString key = identityKey(row["roasterName"].toString(), row["coffeeName"].toString());
@@ -272,7 +272,7 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
             row["grinderBurrs"] = h.value("grinderBurrs");
             row["grinderSetting"] = h.value("grinderSetting");
             row["doseWeightG"] = h.value("doseWeightG");
-            row["yieldTargetG"] = h.value("yieldTargetG");
+            row["yieldOverrideG"] = h.value("yieldOverrideG");
             row["roastLevel"] = h.value("roastLevel");
             row["beanBaseData"] = h.value("beanBaseData");
             row["lastUsedEpoch"] = h.value("lastUsedEpoch");

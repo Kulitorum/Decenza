@@ -45,7 +45,7 @@ struct CoffeeBag {
     QString grinderBurrs;
     QString grinderSetting;
     double doseWeightG = 0;  // 0 = unset
-    double yieldTargetG = 0; // 0 = unset
+    double yieldOverrideG = 0; // 0 = unset
 
     // Visualizer Coffee Management sync state
     QString visualizerBagId;

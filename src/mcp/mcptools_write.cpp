@@ -1472,7 +1472,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         if (!bag.grinderBurrs.isEmpty()) obj["grinderBurrs"] = bag.grinderBurrs;
         if (!bag.grinderSetting.isEmpty()) obj["grinderSetting"] = bag.grinderSetting;
         if (bag.doseWeightG > 0) obj["doseWeightG"] = bag.doseWeightG;
-        if (bag.yieldTargetG > 0) obj["yieldTargetG"] = bag.yieldTargetG;
+        if (bag.yieldOverrideG > 0) obj["yieldOverrideG"] = bag.yieldOverrideG;
         if (!bag.beanBaseData.isEmpty()) {
             const QJsonDocument doc = QJsonDocument::fromJson(bag.beanBaseData.toUtf8());
             if (doc.isObject())
@@ -1553,7 +1553,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"grinderBurrs", QJsonObject{{"type", "string"}}},
                 {"grinderSetting", QJsonObject{{"type", "string"}}},
                 {"doseWeightG", QJsonObject{{"type", "number"}}},
-                {"yieldTargetG", QJsonObject{{"type", "number"}}},
+                {"yieldOverrideG", QJsonObject{{"type", "number"}}},
                 {"inInventory", QJsonObject{{"type", "boolean"}, {"description", "false = mark the bag empty"}}}
             }},
             {"required", QJsonArray{"bagId"}}
@@ -1573,7 +1573,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 "roasterName", "coffeeName", "roastDate", "roastLevel",
                 "frozenDate", "defrostDate", "notes",
                 "grinderBrand", "grinderModel", "grinderBurrs", "grinderSetting",
-                "doseWeightG", "yieldTargetG", "inInventory"};
+                "doseWeightG", "yieldOverrideG", "inInventory"};
             for (const QString& key : kEditable) {
                 if (args.contains(key))
                     fields.insert(key, args[key].toVariant());

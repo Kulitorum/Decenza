@@ -19,7 +19,7 @@ namespace {
 const char* kBagColumns =
     "id, roaster_name, coffee_name, roast_date, roast_level, beanbase_id, beanbase_json, "
     "frozen_date, defrost_date, notes, start_weight_g, in_inventory, "
-    "grinder_brand, grinder_model, grinder_burrs, grinder_setting, dose_weight_g, yield_target_g, "
+    "grinder_brand, grinder_model, grinder_burrs, grinder_setting, dose_weight_g, yield_override_g, "
     "visualizer_bag_id, visualizer_roaster_id, last_used";
 
 QVariant nullIfEmpty(const QString& s) {
@@ -52,7 +52,7 @@ QVariantMap CoffeeBag::toVariantMap() const
     map["grinderBurrs"] = grinderBurrs;
     map["grinderSetting"] = grinderSetting;
     map["doseWeightG"] = doseWeightG;
-    map["yieldTargetG"] = yieldTargetG;
+    map["yieldOverrideG"] = yieldOverrideG;
     map["visualizerBagId"] = visualizerBagId;
     map["visualizerRoasterId"] = visualizerRoasterId;
     map["lastUsedEpoch"] = lastUsedEpoch;
@@ -80,7 +80,7 @@ CoffeeBag CoffeeBag::fromVariantMap(const QVariantMap& map)
     bag.grinderBurrs = map.value("grinderBurrs").toString();
     bag.grinderSetting = map.value("grinderSetting").toString();
     bag.doseWeightG = map.value("doseWeightG", 0.0).toDouble();
-    bag.yieldTargetG = map.value("yieldTargetG", 0.0).toDouble();
+    bag.yieldOverrideG = map.value("yieldOverrideG", 0.0).toDouble();
     bag.visualizerBagId = map.value("visualizerBagId").toString();
     bag.visualizerRoasterId = map.value("visualizerRoasterId").toString();
     bag.lastUsedEpoch = map.value("lastUsedEpoch", 0).toLongLong();
@@ -261,7 +261,7 @@ bool CoffeeBagStorage::ensureTableStatic(QSqlDatabase& db)
             grinder_burrs TEXT,
             grinder_setting TEXT,
             dose_weight_g REAL,
-            yield_target_g REAL,
+            yield_override_g REAL,
             visualizer_bag_id TEXT,
             visualizer_roaster_id TEXT,
             last_used INTEGER,
@@ -297,7 +297,7 @@ CoffeeBag CoffeeBagStorage::bagFromQueryRow(const QSqlQuery& query)
     bag.grinderBurrs = query.value(14).toString();
     bag.grinderSetting = query.value(15).toString();
     bag.doseWeightG = query.value(16).toDouble();
-    bag.yieldTargetG = query.value(17).toDouble();
+    bag.yieldOverrideG = query.value(17).toDouble();
     bag.visualizerBagId = query.value(18).toString();
     bag.visualizerRoasterId = query.value(19).toString();
     bag.lastUsedEpoch = query.value(20).toLongLong();
@@ -312,13 +312,13 @@ qint64 CoffeeBagStorage::insertBagStatic(QSqlDatabase& db, const CoffeeBag& bag)
             roaster_name, coffee_name, roast_date, roast_level, beanbase_id, beanbase_json,
             frozen_date, defrost_date, notes, start_weight_g, in_inventory,
             grinder_brand, grinder_model, grinder_burrs, grinder_setting,
-            dose_weight_g, yield_target_g,
+            dose_weight_g, yield_override_g,
             visualizer_bag_id, visualizer_roaster_id, last_used
         ) VALUES (
             :roaster_name, :coffee_name, :roast_date, :roast_level, :beanbase_id, :beanbase_json,
             :frozen_date, :defrost_date, :notes, :start_weight_g, :in_inventory,
             :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
-            :dose_weight_g, :yield_target_g,
+            :dose_weight_g, :yield_override_g,
             :visualizer_bag_id, :visualizer_roaster_id, :last_used
         )
     )");
@@ -338,7 +338,7 @@ qint64 CoffeeBagStorage::insertBagStatic(QSqlDatabase& db, const CoffeeBag& bag)
     query.bindValue(":grinder_burrs", nullIfEmpty(bag.grinderBurrs));
     query.bindValue(":grinder_setting", nullIfEmpty(bag.grinderSetting));
     query.bindValue(":dose_weight_g", nullIfZero(bag.doseWeightG));
-    query.bindValue(":yield_target_g", nullIfZero(bag.yieldTargetG));
+    query.bindValue(":yield_override_g", nullIfZero(bag.yieldOverrideG));
     query.bindValue(":visualizer_bag_id", nullIfEmpty(bag.visualizerBagId));
     query.bindValue(":visualizer_roaster_id", nullIfEmpty(bag.visualizerRoasterId));
     query.bindValue(":last_used", bag.lastUsedEpoch > 0 ? QVariant(bag.lastUsedEpoch) : QVariant());
@@ -402,7 +402,7 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, con
         {"grinderBurrs", "grinder_burrs"},
         {"grinderSetting", "grinder_setting"},
         {"doseWeightG", "dose_weight_g"},
-        {"yieldTargetG", "yield_target_g"},
+        {"yieldOverrideG", "yield_override_g"},
         {"visualizerBagId", "visualizer_bag_id"},
         {"visualizerRoasterId", "visualizer_roaster_id"},
         {"lastUsedEpoch", "last_used"},

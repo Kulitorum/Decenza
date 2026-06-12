@@ -1048,6 +1048,23 @@ bool ShotHistoryStorage::runMigrations()
         currentVersion = 20;
     }
 
+    // Migration 21: rename coffee_bags.yield_target_g -> yield_override_g
+    // (bean-bag-inventory yield-override model). The bag's yield is the
+    // bean's override of the profile's target weight, not a separate target —
+    // the column name now says so. Unreleased feature, so this only repairs
+    // dev databases already migrated to 19/20; fresh DBs get the new name
+    // straight from ensureTableStatic. RENAME COLUMN needs SQLite >= 3.25
+    // (we require >= 3.35). Whitespace before the open-paren dodges the
+    // QSqlQuery permission-hook false-positive, as elsewhere.
+    if (currentVersion < 21) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 21 (yield_target_g -> yield_override_g)";
+        if (hasColumn("coffee_bags", "yield_target_g") && !hasColumn("coffee_bags", "yield_override_g"))
+            query.exec ("ALTER TABLE coffee_bags RENAME COLUMN yield_target_g TO yield_override_g");
+        query.exec ("DELETE FROM schema_version");
+        query.exec ("INSERT INTO schema_version (version) VALUES (21)");
+        currentVersion = 21;
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }

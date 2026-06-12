@@ -691,10 +691,10 @@ private slots:
             bagId = CoffeeBagStorage::insertBagStatic(db, bag);
 
             QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, bagId, {
-                {"doseWeightG", 18.5}, {"yieldTargetG", 38.0}, {"lastUsedEpoch", 9999}}));
+                {"doseWeightG", 18.5}, {"yieldOverrideG", 38.0}, {"lastUsedEpoch", 9999}}));
             const CoffeeBag stamped = CoffeeBagStorage::loadBagStatic(db, bagId);
             QCOMPARE(stamped.doseWeightG, 18.5);
-            QCOMPARE(stamped.yieldTargetG, 38.0);
+            QCOMPARE(stamped.yieldOverrideG, 38.0);
             QCOMPARE(stamped.lastUsedEpoch, qint64(9999));
             QCOMPARE(stamped.roasterName, QString("Stamp"));
         });

@@ -249,7 +249,9 @@ void SettingsDye::setDyeDrinkWeight(double value) {
     if (!qFuzzyCompare(1.0 + dyeDrinkWeight(), 1.0 + value)) {
         m_dyeDrinkWeightCache = value;
         m_settings.setValue("dye/drinkWeight", value);
-        writeThroughToBag("yieldTargetG", value);
+        // dyeDrinkWeight is the recorded drink weight (DYE metadata), not the
+        // bag's yield override — the override lives in Settings.brew and is
+        // persisted to the bag via persistYieldOverrideToBag(). No write-through.
         emit dyeDrinkWeightChanged();
     }
 }
@@ -388,6 +390,7 @@ void SettingsDye::setActiveBagId(int bagId) {
         m_applyingBag = false;
         m_activeBagFrozenDate.clear();
         m_activeBagDefrostDate.clear();
+        m_activeBagYieldOverrideG = 0;  // no bag → no override
         emit activeBagChanged();
         return;
     }
@@ -450,9 +453,6 @@ void SettingsDye::applyActiveBag(const QVariantMap& bag)
     const double dose = bag.value("doseWeightG", 0.0).toDouble();
     if (dose > 0)
         setDyeBeanWeight(dose);
-    const double yield = bag.value("yieldTargetG", 0.0).toDouble();
-    if (yield > 0)
-        setDyeDrinkWeight(yield);
 
     m_applyingBag = false;
 
@@ -463,6 +463,22 @@ void SettingsDye::applyActiveBag(const QVariantMap& bag)
         m_activeBagDefrostDate = defrost;
         emit activeBagChanged();
     }
+
+    // The bag's yield override drives Settings.brew, not the DYE drink weight.
+    // Emit last (after m_applyingBag clears) so the MainController applies it
+    // to brewYieldOverride on top of the switch's clear-to-profile reset. 0 =
+    // no override → the brew stays at the profile default the clear restored.
+    m_activeBagYieldOverrideG = bag.value("yieldOverrideG", 0.0).toDouble();
+    emit activeBagYieldOverrideApplied(m_activeBagYieldOverrideG);
+}
+
+void SettingsDye::persistYieldOverrideToBag(double yieldOverrideG)
+{
+    // Store 0 for "no override" so the bag follows the profile default when
+    // re-selected. Goes through writeThroughToBag (skips when no bag/storage
+    // is attached, and dodges the bagUpdated echo via m_pendingSelfWrites).
+    m_activeBagYieldOverrideG = yieldOverrideG > 0 ? yieldOverrideG : 0.0;
+    writeThroughToBag("yieldOverrideG", m_activeBagYieldOverrideG);
 }
 
 void SettingsDye::writeThroughToBag(const QString& field, const QVariant& value)

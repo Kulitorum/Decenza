@@ -48,7 +48,7 @@
 ## 8. Shot Save Modifications
 
 - [x] 8.1 In the shot save path (`MainController::onShotEnded()` → `ShotHistoryStorage::saveShot()`), snapshot `bagId`, `frozenDate`, `defrostDate` from the active bag and populate `shots.beanbase_id` directly
-- [x] 8.2 After shot save, stamp the active bag's `doseWeightG`/`yieldTargetG` from the shot values (background DB thread, no user prompt; failure logged, never blocks shot save)
+- [x] 8.2 After shot save, stamp the active bag's `doseWeightG` from the shot dose, and `yieldOverrideG` from the shot target only when it differs from the profile default (else 0) — background DB thread, no user prompt; failure logged, never blocks shot save
 - [x] 8.3 Remove `beansModified`-driven save-to-preset prompts from QML and C++
 
 ## 9. Unified Bean Search Model

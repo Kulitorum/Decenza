@@ -4,7 +4,8 @@
 The system SHALL define a `CoffeeBag` value type with the following fields:
 - Identity: `id` (int, DB primary key), `roasterName`, `coffeeName`, `roastDate`, `roastLevel`, `beanBaseId` (canonical UUID, nullable), `beanBaseData` (JSON blob, nullable)
 - Lifecycle: `frozenDate` (nullable), `defrostDate` (nullable), `notes` (nullable), `startWeightG` (double, nullable — column retained but UNSURFACED: the UI field was removed as low-value and Visualizer has no equivalent), `inInventory` (bool, default true)
-- Last-used grinder/dose: `grinderBrand`, `grinderModel`, `grinderBurrs`, `grinderSetting`, `doseWeightG`, `yieldTargetG` (all nullable)
+- Last-used grinder/dose: `grinderBrand`, `grinderModel`, `grinderBurrs`, `grinderSetting`, `doseWeightG` (all nullable)
+- Yield override: `yieldOverrideG` (double, 0 = none) — the bean's override of the active profile's target weight, NOT a standalone target. 0 means the bag follows the profile default.
 - Visualizer sync: `visualizerBagId` (nullable UUID string), `visualizerRoasterId` (nullable UUID string)
 
 #### Scenario: Bag creation with full canonical data
@@ -63,14 +64,16 @@ The system SHALL maintain a single global `activeBagId` in `SettingsDye` (replac
 - **WHEN** the user selects a bag (from inventory or Change Beans dialog)
 - **THEN** all bag fields SHALL become the active state for the next shot
 
-#### Scenario: Bag selection applies dose and target weight to the machine
-- **WHEN** a bag with stored `doseWeightG`/`yieldTargetG` is selected
-- **THEN** those values SHALL drive the next shot's dose and brew-by-ratio / SAW target weight (the `ProfileManager` path currently fed by `dyeBeanWeight`/`dyeDrinkWeight`)
+#### Scenario: Bag selection applies dose and yield override to the machine
+- **WHEN** a bag with stored `doseWeightG`/`yieldOverrideG` is selected
+- **THEN** the dose SHALL drive the next shot's dose (`dyeBeanWeight`)
+- **AND** switching the bean SHALL first reset the brew overrides to the active profile's defaults, then re-apply the bag's `yieldOverrideG` (> 0) to `Settings.brew`'s `brewYieldOverride` — so a bag with an override turns the idle brew-settings widget yellow and a bag without one stays at the profile default
+- **AND** `yieldOverrideG` is NOT routed through `dyeDrinkWeight` (which remains plain DYE drink-weight metadata)
 
-#### Scenario: New bag with no dose yet
-- **WHEN** a bag with null `doseWeightG`/`yieldTargetG` is selected
-- **THEN** the current global dose/target values SHALL remain in effect
-- **AND** the bag SHALL adopt them on the first edit or shot save
+#### Scenario: New bag with no dose or override yet
+- **WHEN** a bag with null/0 `doseWeightG`/`yieldOverrideG` is selected
+- **THEN** the current global dose SHALL remain in effect and the brew yield SHALL follow the profile default
+- **AND** the bag SHALL adopt the dose on the first edit or shot save, and the yield override when the user commits one in brew settings
 
 #### Scenario: No active bag
 - **WHEN** no bag is selected (`activeBagId` is null or references a deleted bag)
@@ -88,12 +91,17 @@ Pre-shot edits to grinder fields (brew dialog, bag editing surfaces) SHALL write
 - **WHEN** the user corrects the grinder setting or dose on the post-shot review page (e.g. the recorded value was wrong)
 - **THEN** both the just-saved shot's record AND the active bag SHALL be updated (preserving today's dual-write behaviour)
 
-### Requirement: Dose/yield stamped on shot save
-The system SHALL update the active bag's `doseWeightG` and `yieldTargetG` to match the shot's actual values whenever a shot is saved (dose may originate from SAW/profile settings rather than a manual edit).
+### Requirement: Dose/yield-override stamped on shot save
+The system SHALL update the active bag's `doseWeightG` to the shot's actual dose whenever a shot is saved (dose may originate from SAW/profile settings rather than a manual edit). The active bag's `yieldOverrideG` SHALL be set to the shot's target weight only when that target differs from the active profile's default weight; a shot pulled at the profile default SHALL store 0 (no override) so the bag is not pinned to the profile's own number.
 
 #### Scenario: Auto-stamp after dial-in adjustment
 - **WHEN** a shot is saved with a different dose than the active bag stored
 - **THEN** the active bag's `doseWeightG` SHALL be updated to the shot's value with no user prompt
+
+#### Scenario: Yield override committed in brew settings
+- **WHEN** the user commits a yield in brew settings that differs from the profile's target weight
+- **THEN** the active bag's `yieldOverrideG` SHALL be set to that yield (single commit point: `ProfileManager::activateBrewWithOverrides`)
+- **AND WHEN** the committed yield equals the profile default (e.g. after Clear), the active bag's `yieldOverrideG` SHALL be reset to 0
 
 ### Requirement: Shot snapshot includes bag lifecycle fields
 The system SHALL snapshot `frozenDate` and `defrostDate` from the active bag into the shot record at save time.

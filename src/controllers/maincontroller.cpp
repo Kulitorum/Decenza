@@ -214,6 +214,17 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             m_profileManager->clearBrewOverrides();
     });
 
+    // A user bean switch carries the bag's yield override (fires only from
+    // applyActiveBag, never on a keep-fields historical/favorite load). It
+    // arrives after the clear-to-profile reset above, so a bag with a saved
+    // override re-establishes it (idle brew-settings widget turns yellow); a
+    // bag with none (0) leaves the brew at the profile default the clear set.
+    connect(m_settings->dye(), &SettingsDye::activeBagYieldOverrideApplied, this,
+            [this](double yieldOverrideG) {
+        if (yieldOverrideG > 0 && m_settings && m_settings->brew())
+            m_settings->brew()->setBrewYieldOverride(yieldOverrideG);
+    });
+
     // Unified bean search (Change Beans dialog): inventory + canonical
     // autocomplete + shot history in one ranked model.
     m_beanSearch = new UnifiedBeanSearchModel(this);
@@ -2147,8 +2158,17 @@ void MainController::onShotEnded() {
                 QVariantMap stamp;
                 if (doseWeight > 0)
                     stamp.insert(QStringLiteral("doseWeightG"), doseWeight);
-                if (shotTargetWeight > 0)
-                    stamp.insert(QStringLiteral("yieldTargetG"), shotTargetWeight);
+                // Yield is an OVERRIDE: stamp it only when the shot's target
+                // differs from the profile's default weight, else 0 so the bag
+                // follows the profile baseline. A plain profile-default pour
+                // must not pin the bag to that number.
+                if (m_profileManager) {
+                    const double profileTarget = m_profileManager->currentProfile().targetWeight();
+                    const double override = (shotTargetWeight > 0
+                                             && qAbs(shotTargetWeight - profileTarget) > 0.1)
+                                            ? shotTargetWeight : 0.0;
+                    stamp.insert(QStringLiteral("yieldOverrideG"), override);
+                }
                 stamp.insert(QStringLiteral("lastUsedEpoch"), QDateTime::currentSecsSinceEpoch());
                 m_bagStorage->requestUpdateBag(metadata.bagId, stamp);
             }

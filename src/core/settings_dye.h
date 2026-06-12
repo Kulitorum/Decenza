@@ -145,6 +145,18 @@ public:
     QString activeBagFrozenDate() const { return m_activeBagFrozenDate; }
     QString activeBagDefrostDate() const { return m_activeBagDefrostDate; }
 
+    // The active bag's yield override (grams). 0 = no override; the bag
+    // follows the profile's target weight. Applied to Settings.brew's
+    // brewYieldOverride on a user bean switch (see applyActiveBag); the
+    // brew-settings commit writes it back via persistYieldOverrideToBag().
+    double activeBagYieldOverrideG() const { return m_activeBagYieldOverrideG; }
+    // Persist the brew-settings yield override to the active bag. yieldOverrideG
+    // <= 0 stores 0 (no override — the bag follows the profile default). Called
+    // from ProfileManager::activateBrewWithOverrides (the single brew-settings
+    // commit point), not on every override change, so there is no race with the
+    // clear-on-switch reset.
+    void persistYieldOverrideToBag(double yieldOverrideG);
+
     // Invalidate cached DYE values so the next getter re-reads from QSettings.
     // Called by Settings::factoryReset() after wiping the store. Also zeros
     // the session-scratch TDS/EY since they don't live in QSettings.
@@ -175,6 +187,12 @@ signals:
     void dyeBeanBaseDataChanged();
     void activeBagIdChanged();
     void activeBagChanged();
+    // Emitted only from applyActiveBag (a user bean switch, not a keep-fields
+    // historical/favorite load) carrying the new bag's yield override. The
+    // MainController applies it to Settings.brew after the switch's
+    // clear-to-profile-default reset, so a bag with an override turns the idle
+    // brew-settings widget yellow and a bag without one stays at the default.
+    void activeBagYieldOverrideApplied(double yieldOverrideG);
 
 private:
     void ensureDyeCacheLoaded() const;
@@ -196,6 +214,7 @@ private:
     int m_pendingSelfWrites = 0; // Outstanding write-throughs whose bagUpdated echo to skip
     QString m_activeBagFrozenDate;
     QString m_activeBagDefrostDate;
+    double m_activeBagYieldOverrideG = 0;  // active bag's yield override (0 = none)
 
     // Cached DYE values (avoid QSettings::value() → CFPreferences on every QML binding read)
     mutable QString m_dyeGrinderBrandCache;
