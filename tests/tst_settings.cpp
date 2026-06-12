@@ -8,7 +8,6 @@
 #include "core/settings_dye.h"
 #include "core/settings_theme.h"
 #include "core/settings_visualizer.h"
-#include "core/settings_beanbase.h"
 #include "core/settingsserializer.h"
 #include <QJsonObject>
 #include <QRegularExpression>
@@ -68,7 +67,6 @@ private:
     QString m_origDyeBeanBrand;
     QString m_origAutoLoadFilename;
     int m_origAutoLoadRevertMinutes;
-    QString m_origBeanBaseApiKey;
     QString m_origDyeBeanBaseId;
     QString m_origDyeBeanBaseData;
 
@@ -86,7 +84,6 @@ private slots:
         m_origDyeBeanBrand = m_settings.dye()->dyeBeanBrand();
         m_origAutoLoadFilename = m_settings.app()->autoLoadProfileFilename();
         m_origAutoLoadRevertMinutes = m_settings.app()->autoLoadRevertMinutes();
-        m_origBeanBaseApiKey = m_settings.beanbase()->beanBaseApiKey();
         m_origDyeBeanBaseId = m_settings.dye()->dyeBeanBaseId();
         m_origDyeBeanBaseData = m_settings.dye()->dyeBeanBaseData();
     }
@@ -103,7 +100,6 @@ private slots:
         m_settings.dye()->setDyeBeanBrand(m_origDyeBeanBrand);
         m_settings.app()->setAutoLoadProfileFilename(m_origAutoLoadFilename);
         m_settings.app()->setAutoLoadRevertMinutes(m_origAutoLoadRevertMinutes);
-        m_settings.beanbase()->setBeanBaseApiKey(m_origBeanBaseApiKey);
         m_settings.dye()->setDyeBeanBaseId(m_origDyeBeanBaseId);
         m_settings.dye()->setDyeBeanBaseData(m_origDyeBeanBaseData);
     }
@@ -165,35 +161,6 @@ private slots:
         QCOMPARE(m_settings.brew()->ignoreVolumeWithScale(), !original);
     }
 
-    // ==========================================
-    // Bean Base (Loffee Labs) API key
-    // ==========================================
-
-    void beanBaseApiKeyDefaultIsEmpty() {
-        // Fresh key (never written) reads back as empty string.
-        QSettings raw("DecentEspresso", "DE1Qt");
-        raw.remove("beanbase/apiKey");
-        raw.sync();
-        Settings fresh;
-        QCOMPARE(fresh.beanbase()->beanBaseApiKey(), QString());
-    }
-
-    void beanBaseApiKeyRoundTrip() {
-        m_settings.beanbase()->setBeanBaseApiKey("loffee_test_key_123");
-        QCOMPARE(m_settings.beanbase()->beanBaseApiKey(), QString("loffee_test_key_123"));
-        m_settings.beanbase()->setBeanBaseApiKey("");
-        QCOMPARE(m_settings.beanbase()->beanBaseApiKey(), QString());
-    }
-
-    void beanBaseApiKeySignalEmitted() {
-        QSignalSpy spy(m_settings.beanbase(), &SettingsBeanBase::beanBaseApiKeyChanged);
-        m_settings.beanbase()->setBeanBaseApiKey("abc");
-        QCOMPARE(spy.count(), 1);
-        // Setting the same value again does not re-emit.
-        m_settings.beanbase()->setBeanBaseApiKey("abc");
-        QCOMPARE(spy.count(), 1);
-    }
-
     void dyeBeanBaseLinkRoundTripAndClear() {
         m_settings.dye()->setDyeBeanBaseId("5188");
         m_settings.dye()->setDyeBeanBaseData("{\"id\":\"5188\",\"origin\":\"Colombia\"}");
@@ -236,19 +203,6 @@ private slots:
         QCOMPARE(m_settings.dye()->dyeBeanBaseId(), QString("keep-me"));
 
         m_settings.dye()->clearBeanBaseLink();
-    }
-
-    void beanBaseApiKeyExcludedFromNonSensitiveExport() {
-        // The key is a sensitive credential — it must only appear in the
-        // export when includeSensitive is true.
-        m_settings.beanbase()->setBeanBaseApiKey("secret_key");
-
-        QJsonObject withoutSensitive = SettingsSerializer::exportToJson(&m_settings, false);
-        QVERIFY(!withoutSensitive.contains("beanbase"));
-
-        QJsonObject withSensitive = SettingsSerializer::exportToJson(&m_settings, true);
-        QVERIFY(withSensitive.contains("beanbase"));
-        QCOMPARE(withSensitive["beanbase"].toObject()["apiKey"].toString(), QString("secret_key"));
     }
 
     // ==========================================

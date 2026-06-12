@@ -333,15 +333,9 @@ Item {
                 font.pixelSize: Theme.scaled(14)
                 text: {
                     if (root.searchState === "error") {
-                        // invalid/ratelimited/quota are unreachable from the
-                        // keyless canonical path — kept as defensive cover
-                        // for a future searchBeanBase()-backed mode.
-                        if (root.errorToken === "invalid")
-                            return TranslationManager.translate("beaninfo.beanbase.errorInvalid", "Invalid API key — check Settings")
-                        if (root.errorToken === "ratelimited")
-                            return TranslationManager.translate("beaninfo.beanbase.errorRateLimited", "Searching too fast — pause a moment and try again")
-                        if (root.errorToken === "quota")
-                            return TranslationManager.translate("beaninfo.beanbase.errorQuota", "Daily Bean Base limit reached — search resumes tomorrow")
+                        // The keyless canonical path emits only "parse"
+                        // (markup drift) and "network"; everything else falls
+                        // through to the generic reach-failure message.
                         if (root.errorToken === "parse")
                             return TranslationManager.translate("beaninfo.beanbase.errorParse", "Bean search is temporarily unavailable")
                         return TranslationManager.translate("beaninfo.beanbase.errorNetwork", "Could not reach the bean database")

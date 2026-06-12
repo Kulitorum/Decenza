@@ -50,7 +50,6 @@
 #include "core/settings_network.h"
 #include "core/settings_app.h"
 #include "core/settings_calibration.h"
-#include "core/settings_beanbase.h"
 #include "core/translationmanager.h"
 #include "core/batterymanager.h"
 #include "core/memorymonitor.h"
@@ -2417,8 +2416,6 @@ int main(int argc, char *argv[])
         "SettingsApp is created in C++");
     qmlRegisterUncreatableType<SettingsCalibration>("Decenza", 1, 0, "SettingsCalibrationType",
         "SettingsCalibration is created in C++");
-    qmlRegisterUncreatableType<SettingsBeanBase>("Decenza", 1, 0, "SettingsBeanBaseType",
-        "SettingsBeanBase is created in C++");
 
     // ShotProjection is a Q_GADGET value type used as the parameter of
     // ShotHistoryStorage::shotReady. qmlRegisterUncreatableMetaObject registers

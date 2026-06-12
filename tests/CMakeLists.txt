@@ -56,7 +56,6 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/settings_network.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_app.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_calibration.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/settings_beanbase.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/scaletypeids.cpp
 )
 

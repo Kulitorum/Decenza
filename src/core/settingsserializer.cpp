@@ -11,7 +11,6 @@
 #include "settings_theme.h"
 #include "settings_visualizer.h"
 #include "settings_calibration.h"
-#include "settings_beanbase.h"
 #include "history/coffeebagstorage.h"
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -27,8 +26,7 @@ QStringList SettingsSerializer::sensitiveKeys()
         "anthropicApiKey",
         "geminiApiKey",
         "openrouterApiKey",
-        "mqttPassword",
-        "beanBaseApiKey"
+        "mqttPassword"
     };
 }
 
@@ -248,14 +246,6 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     visualizer["clearNotesOnStart"] = settings->visualizer()->visualizerClearNotesOnStart();
     visualizer["defaultShotRating"] = settings->visualizer()->defaultShotRating();
     root["visualizer"] = visualizer;
-
-    // Bean Base (Loffee Labs) credentials — the API key is a sensitive
-    // per-user credential, gated behind includeSensitive like the other keys.
-    if (includeSensitive) {
-        QJsonObject beanbase;
-        beanbase["apiKey"] = settings->beanbase()->beanBaseApiKey();
-        root["beanbase"] = beanbase;
-    }
 
     // AI settings
     QJsonObject ai;
@@ -662,14 +652,6 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (visualizer.contains("showAfterShot")) settings->visualizer()->setVisualizerShowAfterShot(visualizer["showAfterShot"].toBool());
         if (visualizer.contains("clearNotesOnStart")) settings->visualizer()->setVisualizerClearNotesOnStart(visualizer["clearNotesOnStart"].toBool());
         if (visualizer.contains("defaultShotRating")) settings->visualizer()->setDefaultShotRating(visualizer["defaultShotRating"].toInt());
-    }
-
-    // Bean Base (Loffee Labs) credentials
-    if (json.contains("beanbase") && !excludeKeys.contains("beanbase")) {
-        QJsonObject beanbase = json["beanbase"].toObject();
-        if (beanbase.contains("apiKey") && !excludeKeys.contains("beanBaseApiKey")) {
-            settings->beanbase()->setBeanBaseApiKey(beanbase["apiKey"].toString());
-        }
     }
 
     // AI settings
