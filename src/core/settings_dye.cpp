@@ -97,7 +97,7 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
                     m_bagStorage->requestBag(bagId);
             });
 
-    if (activeBagId() > 0)
+    if (bagIdIsSet(activeBagId()))
         m_bagStorage->requestBag(activeBagId());
 }
 

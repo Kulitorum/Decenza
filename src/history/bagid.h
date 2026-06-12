@@ -7,7 +7,9 @@
 //
 // A bag id is a coffee_bags row id. The sentinel for "no bag" is bagId <= 0
 // (or a NULL shots.bag_id column, which the DB read maps to -1); the struct
-// default is -1. A positive id references a real bag.
+// default is -1. A positive id references a real bag. This predicate is the
+// read side — it accepts the whole "no bag" class; -1 is the canonical value
+// to WRITE for "none" (struct defaults, the "clear selection" path).
 //
 // This one predicate is shared by every site that asks the question: the
 // per-shot snapshot fields (ShotRecord / ShotSaveData / ShotMetadata /
