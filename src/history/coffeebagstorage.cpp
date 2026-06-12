@@ -174,6 +174,16 @@ void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
 void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
                                         bool propagateBeanBase)
 {
+    // Guarantee a terminal bagUpdated even when uninitialized: runAsync drops
+    // the job (no done callback) if m_dbPath is empty, and callers like the MCP
+    // bag_update tool arm a one-shot bagUpdated to send their response — without
+    // this they would hang forever. (A *destroyed shutdown race still drops the
+    // callback, but the app is exiting, so an abandoned response is acceptable.)
+    if (m_dbPath.isEmpty()) {
+        qWarning() << "CoffeeBagStorage: requestUpdateBag on uninitialized storage, bag" << bagId;
+        emit bagUpdated(bagId, false);
+        return;
+    }
     auto success = std::make_shared<bool>(false);
     runAsync("bags_update",
         [bagId, fields, success, propagateBeanBase](QSqlDatabase& db) {

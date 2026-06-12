@@ -1559,7 +1559,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }},
             {"required", QJsonArray{"bagId"}}
         },
-        [shotHistory, settings, bagToJson, bagStorage](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [shotHistory, bagToJson, bagStorage](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Storage not available"}});
                 return;
@@ -1592,7 +1592,15 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     withTempDb(dbPath, "mcp_bagupd_read", [&](QSqlDatabase& db) {
                         updated = CoffeeBagStorage::loadBagStatic(db, bagId);
                     });
-                    QMetaObject::invokeMethod(qApp, [updated, bagToJson, respond]() {
+                    QMetaObject::invokeMethod(qApp, [updated, bagToJson, bagId, respond]() {
+                        // The update succeeded, but the read-back can come up empty
+                        // if the row was deleted (or the read failed) in between —
+                        // surface that rather than reporting a hollow bag as success.
+                        if (!updated.isValid()) {
+                            respond(QJsonObject{{"error", "Bag " + QString::number(bagId)
+                                + " updated but reload failed (it may have been deleted)"}});
+                            return;
+                        }
                         respond(QJsonObject{{"success", true}, {"bag", bagToJson(updated)}});
                     }, Qt::QueuedConnection);
                 });
