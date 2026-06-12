@@ -1422,15 +1422,15 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
         // real shot. busy_timeout covers most contention, but a WAL write-write
         // race can still surface as "database is locked" — retry the whole
         // transaction a few times before giving up.
-        for (int attempt = 1; attempt <= 4; ++attempt) {
-        shotId = -1;
-        bool locked = false;
-        // Use do-while(false) so error paths 'break' out while db/query are still
-        // in scope.
-        do {
+        // attemptSave runs one full INSERT transaction. Returns true on commit;
+        // on a lock-induced failure it sets `locked` so the caller retries.
+        auto attemptSave = [&](bool& locked) -> bool {
+            shotId = -1;
+            locked = false;
             if (!db.transaction()) {
+                locked = isLockError(db.lastError());
                 qWarning() << "ShotHistoryStorage: Failed to start transaction:" << db.lastError().text();
-                break;
+                return false;
             }
 
             QSqlQuery query(db);
@@ -1509,7 +1509,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                 locked = isLockError(query.lastError());
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
                 db.rollback();
-                break;
+                return false;
             }
 
             shotId = query.lastInsertId().toLongLong();
@@ -1525,7 +1525,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                 qWarning() << "ShotHistoryStorage: Failed to insert samples:" << query.lastError().text();
                 db.rollback();
                 shotId = -1;
-                break;
+                return false;
             }
 
             // Insert phase markers
@@ -1543,21 +1543,33 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                 query.exec();  // Non-critical if markers fail
             }
 
-            db.commit();
+            if (!db.commit()) {
+                // COMMIT can lose a WAL write-write race even when both INSERTs
+                // succeeded — classify it so the attempt is retried, not reported
+                // as a saved shot that never landed.
+                locked = isLockError(db.lastError());
+                qWarning() << "ShotHistoryStorage: Failed to commit shot:" << db.lastError().text();
+                db.rollback();
+                shotId = -1;
+                return false;
+            }
 
             // Checkpoint WAL
             QSqlQuery walQuery(db);
             walQuery.exec("PRAGMA wal_checkpoint(PASSIVE)");
-        } while (false);
+            return true;
+        };
 
         // Retry only a lock-induced miss; success or a real error (constraint,
         // etc.) exits immediately. Short escalating backoff lets the competing
         // writer finish before the next attempt.
-        if (shotId >= 0 || !locked)
-            break;
-        qWarning() << "ShotHistoryStorage: shot save hit a transient lock, retrying ("
-                   << attempt << "of 4)";
-        QThread::msleep(static_cast<unsigned long>(50 * attempt));
+        for (int attempt = 1; attempt <= 4; ++attempt) {
+            bool locked = false;
+            if (attemptSave(locked) || !locked)
+                break;
+            qWarning() << "ShotHistoryStorage: shot save hit a transient lock, retrying ("
+                       << attempt << "of 4)";
+            QThread::msleep(static_cast<unsigned long>(50 * attempt));
         }
     });
 

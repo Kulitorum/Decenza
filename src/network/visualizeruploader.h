@@ -140,6 +140,12 @@ public:
     // Thread-safe; does not touch instance state. Reused by ShotHistoryExporter.
     static QByteArray buildHistoryShotJson(const ShotProjection& shotData);
 
+    // The descriptive-field PATCH body to enrich a server coffee bag: only the
+    // fields we hold locally that the server left blank (fill-blanks, never
+    // clobbering a user-set value). Pure (no network) and public so the
+    // blob→API field mapping and the fill-blanks contract are unit-tested.
+    static QJsonObject buildBagEnrichBody(const QJsonObject& remoteBag, const QVariantMap& bag);
+
 signals:
     void uploadingChanged();
     void lastUploadStatusChanged();
@@ -256,9 +262,11 @@ private:
     qint64 m_uploadingDbShotId = 0;
 
     // Bounded auto-retry for the upload POST on a transient failure (transport
-    // error/timeout or 5xx — never auth/validation/429). The payload is retained
-    // so onUploadFinished can re-POST it without rebuilding from shot state. Same
-    // single-in-flight assumption as m_uploadingDbShotId; reset at each entry.
+    // error/timeout or 5xx — never auth/validation/429). Same single-in-flight
+    // assumption as m_uploadingDbShotId. m_uploadRetries is reset at each public
+    // entry (uploadShot/uploadShotFromHistory); m_lastUploadJson is refreshed in
+    // sendUpload() before every POST (including retries) so the re-POST needs no
+    // shot state.
     QByteArray m_lastUploadJson;
     int m_uploadRetries = 0;
     static constexpr int kMaxUploadRetries = 2;

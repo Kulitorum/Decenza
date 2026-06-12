@@ -500,9 +500,8 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             emit uploadSucceededForShot(m_uploadingDbShotId, shotId, m_lastShotUrl);
             qDebug() << "Visualizer: Upload successful, ID:" << shotId
                      << "for local shot" << m_uploadingDbShotId;
-            // Coffee Management: link the shot to its bag (and probe the CM
-            // state on first contact). The upload POST ignores coffee_bag_id,
-            // so this post-upload step is the only link path.
+            // Coffee Management: the server auto-links the shot to its bag on
+            // upload; read that link back and enrich the bag's descriptive fields.
             syncCoffeeBagAfterUpload(m_uploadingDbShotId, shotId);
         } else {
             // A 200 with no parseable shot id is a failure, not a success: the
@@ -1653,19 +1652,25 @@ void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const
             qDebug() << "Visualizer CM: shot read-back failed - retry next upload";
             return;
         }
-        const QJsonObject shot = QJsonDocument::fromJson(reply->readAll()).object();
+        QJsonParseError parseError;
+        const QJsonObject shot = QJsonDocument::fromJson(reply->readAll(), &parseError).object();
+        if (parseError.error != QJsonParseError::NoError) {
+            qDebug() << "Visualizer CM: shot read-back unparseable - retry next upload";
+            return;
+        }
         const QString serverBagId = shot.value("coffee_bag_id").toString();
         const QString serverRoasterId = shot.value("roaster_id").toString();
 
         if (serverBagId.isEmpty()) {
-            // We sent bean tags yet the server linked no bag → Coffee Management
-            // is off for this account. Cache the negative (skips this whole chain
-            // next upload) and drop any now-stale local id so a later CM-enable
-            // re-discovers cleanly.
-            setCmState(CmState::PremiumNoCm);
-            if (!bag.value("visualizerBagId").toString().isEmpty())
-                persistBagSyncIds(localBagId, QString(), QString());
-            qDebug() << "Visualizer CM: shot has no server bag - Coffee Management off";
+            // No bag linked though we sent bean tags — usually Coffee Management is
+            // off. But an empty coffee_bag_id is NOT a definitive signal (a server
+            // that returned the shot before its bag link was visible looks the
+            // same), so we must not cache a session-long negative or wipe the
+            // stored id off it. Leave the state Unknown and retry next upload; the
+            // per-upload read-back is cheap and self-corrects. A genuinely CM-off
+            // account simply keeps landing here, which is harmless. (The only
+            // negative we cache is the definitive 403 in enrichRemoteBag.)
+            qDebug() << "Visualizer CM: shot has no server bag yet - retry next upload";
             return;
         }
 
@@ -1690,6 +1695,41 @@ void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const
     });
 }
 
+// static
+QJsonObject VisualizerUploader::buildBagEnrichBody(const QJsonObject& remoteBag, const QVariantMap& bag)
+{
+    // The PATCH body of descriptive fields to fill on the server bag: only fields
+    // we hold locally AND the server left blank (null/missing/whitespace). The
+    // server-managed name/roast_date/roast_level are deliberately excluded. Pure
+    // (no I/O) so the fill-blanks contract and the blob→API field mapping are
+    // unit-tested directly (tst_coffeebags).
+    QJsonObject body;
+    auto fillBlank = [&](const char* apiKey, const QString& localValue) {
+        if (localValue.isEmpty())
+            return;
+        const QJsonValue rv = remoteBag.value(QLatin1String(apiKey));
+        const bool blank = rv.isNull() || rv.isUndefined()
+                           || (rv.isString() && rv.toString().trimmed().isEmpty());
+        if (blank)
+            body[QLatin1String(apiKey)] = localValue;
+    };
+    const QJsonObject blob = QJsonDocument::fromJson(
+        bag.value("beanBaseData").toString().toUtf8()).object();
+    fillBlank("country",                 blob.value("origin").toString());
+    fillBlank("region",                  blob.value("region").toString());
+    fillBlank("farmer",                  blob.value("producer").toString());
+    fillBlank("variety",                 blob.value("variety").toString());
+    fillBlank("processing",              blob.value("process").toString());
+    fillBlank("harvest_time",            blob.value("harvest").toString());
+    fillBlank("tasting_notes",           blob.value("tastingNotes").toString());
+    fillBlank("elevation",               blob.value("elevation").toString());
+    fillBlank("notes",                   bag.value("notes").toString());
+    fillBlank("frozen_date",             bag.value("frozenDate").toString());
+    fillBlank("defrosted_date",          bag.value("defrostDate").toString());
+    fillBlank("canonical_coffee_bag_id", bag.value("beanBaseId").toString());
+    return body;
+}
+
 void VisualizerUploader::enrichRemoteBag(const QString& serverBagId, const QVariantMap& bag)
 {
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/coffee_bags/") + serverBagId);
@@ -1710,39 +1750,21 @@ void VisualizerUploader::enrichRemoteBag(const QString& serverBagId, const QVari
                      << ") - retry next upload";
             return;
         }
+        QJsonParseError parseError;
+        const QJsonObject remote = QJsonDocument::fromJson(reply->readAll(), &parseError).object();
+        if (parseError.error != QJsonParseError::NoError) {
+            // A 200 with an unparseable body would read as "every field blank" and
+            // trigger a full-overwrite PATCH, clobbering the user's server values.
+            qDebug() << "Visualizer CM: bag" << serverBagId << "enrich GET unparseable - retry next upload";
+            return;
+        }
         // Fill only the fields the server left blank — never clobber a value the
         // user set on visualizer.coffee, and forward-compatible by construction:
         // if the server is later fixed to seed descriptive fields from the
-        // canonical bean record, this GET sees them already populated and skips
-        // them (body ends up empty → no PATCH), so the server's values always
-        // win. We re-read every upload, so no version check is needed. The
-        // server-managed name/roast_date/roast_level we deliberately never touch.
-        const QJsonObject remote = QJsonDocument::fromJson(reply->readAll()).object();
-        QJsonObject body;
-        auto fillBlank = [&](const char* apiKey, const QString& localValue) {
-            if (localValue.isEmpty())
-                return;
-            const QJsonValue rv = remote.value(QLatin1String(apiKey));
-            const bool blank = rv.isNull() || rv.isUndefined()
-                               || (rv.isString() && rv.toString().trimmed().isEmpty());
-            if (blank)
-                body[QLatin1String(apiKey)] = localValue;
-        };
-        const QJsonObject blob = QJsonDocument::fromJson(
-            bag.value("beanBaseData").toString().toUtf8()).object();
-        fillBlank("country",                 blob.value("origin").toString());
-        fillBlank("region",                  blob.value("region").toString());
-        fillBlank("farmer",                  blob.value("producer").toString());
-        fillBlank("variety",                 blob.value("variety").toString());
-        fillBlank("processing",              blob.value("process").toString());
-        fillBlank("harvest_time",            blob.value("harvest").toString());
-        fillBlank("tasting_notes",           blob.value("tastingNotes").toString());
-        fillBlank("elevation",               blob.value("elevation").toString());
-        fillBlank("notes",                   bag.value("notes").toString());
-        fillBlank("frozen_date",             bag.value("frozenDate").toString());
-        fillBlank("defrosted_date",          bag.value("defrostDate").toString());
-        fillBlank("canonical_coffee_bag_id", bag.value("beanBaseId").toString());
-
+        // canonical bean record, this sees them already populated and skips them
+        // (empty body → no PATCH), so the server's values always win. We re-read
+        // every upload, so no version check is needed.
+        const QJsonObject body = buildBagEnrichBody(remote, bag);
         if (body.isEmpty()) {
             qDebug() << "Visualizer CM: bag" << serverBagId << "already complete - nothing to enrich";
             return;
@@ -1776,9 +1798,13 @@ void VisualizerUploader::enrichRemoteRoaster(const QString& roasterId, const QSt
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError)
             return;  // best-effort: the verified-roaster badge is cosmetic
-        const QJsonObject roaster = QJsonDocument::fromJson(reply->readAll()).object();
+        QJsonParseError parseError;
+        const QJsonObject roaster = QJsonDocument::fromJson(reply->readAll(), &parseError).object();
+        if (parseError.error != QJsonParseError::NoError)
+            return;
         // Only set it when blank — never repoint a roaster the user/server
-        // already linked elsewhere.
+        // already linked elsewhere. An unparseable body bails above rather than
+        // reading the field as null and force-linking.
         if (!roaster.value("canonical_roaster_id").isNull())
             return;
         QJsonObject body{{QStringLiteral("canonical_roaster_id"), canonicalRoasterId}};

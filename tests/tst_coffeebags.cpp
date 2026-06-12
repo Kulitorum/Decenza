@@ -16,6 +16,7 @@
 #include "history/unifiedbeansearchmodel.h"
 #include "core/settings_dye.h"
 #include "core/settings_visualizer.h"
+#include "network/visualizeruploader.h"
 
 using Tier = UnifiedBeanSearchModel::Tier;
 
@@ -937,6 +938,59 @@ private slots:
         // would qWarning on stderr — the suite requires silence).
         for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+    }
+
+    // VisualizerUploader::buildBagEnrichBody — the pure fill-blanks diff that
+    // decides which descriptive fields get PATCHed onto the server's coffee bag.
+    // Locks the blob->API field mapping (a typo here silently drops a field) and
+    // the never-clobber contract.
+    void enrichBody_fillsOnlyServerBlanksFromLocalBlob() {
+        QVariantMap bag;
+        bag.insert("beanBaseData", QStringLiteral(
+            R"({"origin":"Brazil","region":"Carmo De Minas","producer":"Smallholders",)"
+            R"("process":"Natural","tastingNotes":"Cacao","elevation":"1100m"})"));
+        bag.insert("beanBaseId", "canon-123");
+        bag.insert("notes", "my notes");
+
+        QJsonObject remote;                              // server bag, mostly bare
+        remote.insert("country", "Peru");                // already set by user
+        remote.insert("region", QJsonValue(QJsonValue::Null));
+        remote.insert("farmer", "");                     // empty string == blank
+
+        const QJsonObject body = VisualizerUploader::buildBagEnrichBody(remote, bag);
+
+        QVERIFY(!body.contains("country"));              // server value wins, untouched
+        QCOMPARE(body.value("region").toString(), QStringLiteral("Carmo De Minas"));
+        QCOMPARE(body.value("farmer").toString(), QStringLiteral("Smallholders"));
+        QCOMPARE(body.value("processing").toString(), QStringLiteral("Natural"));
+        QCOMPARE(body.value("tasting_notes").toString(), QStringLiteral("Cacao"));
+        QCOMPARE(body.value("elevation").toString(), QStringLiteral("1100m"));
+        QCOMPARE(body.value("notes").toString(), QStringLiteral("my notes"));
+        QCOMPARE(body.value("canonical_coffee_bag_id").toString(), QStringLiteral("canon-123"));
+        QVERIFY(!body.contains("variety"));              // absent in blob -> nothing to send
+    }
+
+    void enrichBody_treatsWhitespaceRemoteAsBlank_andSkipsEmptyLocal() {
+        QVariantMap bag;
+        bag.insert("beanBaseData", QStringLiteral(R"({"origin":"Brazil"})"));  // country only
+        QJsonObject remote;
+        remote.insert("country", "   ");                 // whitespace -> blank
+
+        const QJsonObject body = VisualizerUploader::buildBagEnrichBody(remote, bag);
+
+        QCOMPARE(body.value("country").toString(), QStringLiteral("Brazil"));  // filled over whitespace
+        QVERIFY(!body.contains("region"));               // no local region -> nothing
+    }
+
+    void enrichBody_returnsEmptyWhenServerAlreadyComplete() {
+        QVariantMap bag;
+        bag.insert("beanBaseData", QStringLiteral(R"({"origin":"Brazil","region":"Sul"})"));
+        QJsonObject remote;
+        remote.insert("country", "Brazil");
+        remote.insert("region", "Sul");
+
+        // Nothing to fill -> empty body -> the caller skips the PATCH entirely.
+        QVERIFY(VisualizerUploader::buildBagEnrichBody(remote, bag).isEmpty());
     }
 };
 
