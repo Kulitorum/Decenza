@@ -1507,7 +1507,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
 
             if (!query.exec()) {
                 locked = isLockError(query.lastError());
-                qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
+                qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text()
+                           << "(sqlite code" << query.lastError().nativeErrorCode() << ")";
                 db.rollback();
                 return false;
             }
@@ -1568,7 +1569,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             if (attemptSave(locked) || !locked)
                 break;
             qWarning() << "ShotHistoryStorage: shot save hit a transient lock, retrying ("
-                       << attempt << "of 4)";
+                       << attempt << "of 4) - other DB connections open now:"
+                       << dbDiagActiveConnections(QStringLiteral("shs_save"));
             QThread::msleep(static_cast<unsigned long>(50 * attempt));
         }
     });
