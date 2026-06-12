@@ -166,8 +166,8 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                     bean["bagId"] = settings->dye()->activeBagId();
                 // Days out of the freezer, not a raw date: the AI shouldn't have
                 // to do date math (and may not reliably know today's date). This
-                // is the freshness clock the user already sees ("Def Nd" in
-                // BeanSummary). Omitted when there's no defrost date, it's
+                // is the freshness clock the user already sees (the "Def %1d"
+                // line in BeanSummary). Omitted when there's no defrost date, it's
                 // unparseable, or it's in the future.
                 const QString defrostDate = settings->dye()->activeBagDefrostDate();
                 if (!defrostDate.isEmpty()) {
