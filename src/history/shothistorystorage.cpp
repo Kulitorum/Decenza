@@ -1417,11 +1417,11 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                 || e.text().contains(QLatin1String("locked"), Qt::CaseInsensitive)
                 || e.text().contains(QLatin1String("busy"), Qt::CaseInsensitive);
         };
-        // A transient SQLITE_BUSY/locked from a concurrent writer (the
-        // reconciliation drain, daily backup, WAL checkpoint) must not drop a
-        // real shot. busy_timeout covers most contention, but a WAL write-write
-        // race can still surface as "database is locked" — retry the whole
-        // transaction a few times before giving up.
+        // A transient SQLITE_BUSY/locked from a concurrent writer (the post-shot
+        // bags_update stamp, reconciliation drain, daily backup, WAL checkpoint)
+        // must not drop a real shot. BEGIN IMMEDIATE (below) lets busy_timeout
+        // absorb that contention; the retry loop is a backstop for the rare case a
+        // writer is held past busy_timeout — retry the transaction before giving up.
         // attemptSave runs one full INSERT transaction. Returns true on commit;
         // on a lock-induced failure it sets `locked` so the caller retries.
         auto attemptSave = [&](bool& locked) -> bool {
@@ -1551,16 +1551,24 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                 query.exec();  // Non-critical if markers fail
             }
 
+            // COMMIT. On a transient lock SQLite keeps the transaction staged, so
+            // retry the COMMIT itself rather than rolling back — a ROLLBACK here
+            // would discard the inserted row + sample blob + phase markers and force
+            // the outer loop to redo the whole insert. (Rare in WAL after BEGIN
+            // IMMEDIATE; only a non-lock error or exhausting the commit retries
+            // falls through to ROLLBACK + a full-transaction retry.)
             QSqlQuery commitQuery(db);
-            if (!commitQuery.exec(QStringLiteral("COMMIT"))) {
-                // COMMIT can still lose a race even when both INSERTs succeeded —
-                // classify it so the attempt is retried, not reported as a saved shot
-                // that never landed.
-                locked = isLockError(commitQuery.lastError());
-                qWarning() << "ShotHistoryStorage: Failed to commit shot:" << commitQuery.lastError().text();
-                QSqlQuery(db).exec(QStringLiteral("ROLLBACK"));
-                shotId = -1;
-                return false;
+            for (int commitTry = 1; !commitQuery.exec(QStringLiteral("COMMIT")); ++commitTry) {
+                const bool commitLocked = isLockError(commitQuery.lastError());
+                if (!commitLocked || commitTry >= 4) {
+                    locked = commitLocked;
+                    qWarning() << "ShotHistoryStorage: Failed to commit shot:"
+                               << commitQuery.lastError().text();
+                    QSqlQuery(db).exec(QStringLiteral("ROLLBACK"));
+                    shotId = -1;
+                    return false;
+                }
+                QThread::msleep(static_cast<unsigned long>(50 * commitTry));
             }
 
             // Checkpoint WAL
