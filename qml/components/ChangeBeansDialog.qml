@@ -284,12 +284,37 @@ Dialog {
     function selectResult(row) {
         var bagId = resolveBagId(row)
         if (row.tier === 0 && bagId > 0) {
-            // Inventory bag: apply immediately, no details form
-            applySelection(bagId, row)
-            root.close()
+            if (root.context === "inventory") {
+                // "Add New Bag" → picking an existing inventory bag means
+                // "another bag of the same coffee" (e.g. a fresh purchase):
+                // open the creation form pre-filled from it, identity
+                // editable, roast date blank. A separate bag is created —
+                // two bags of one coffee, with their own dates/freeze, is
+                // expected and fine.
+                openSaveAsFromBag(row)
+            } else {
+                // Switching contexts (brew / idle / post-shot / historical):
+                // pick the existing bag, no new row.
+                applySelection(bagId, row)
+                root.close()
+            }
         } else {
             openFormFromResult(row)
         }
+    }
+
+    // Pre-fill the creation form from an existing bag (identity, link,
+    // grinder, dose, notes), roast date blank, all fields editable so the
+    // user can adjust before saving the new bag.
+    function openSaveAsFromBag(row) {
+        resetForm()
+        formMode = "create"
+        editBagId = -1
+        prefillFromBag(row)
+        fRoastDate = ""
+        fNotes = row.notes || ""
+        identityKnown = false
+        mode = "form"
     }
 
     function parseWeight(text) {

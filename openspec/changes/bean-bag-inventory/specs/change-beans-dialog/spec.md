@@ -17,7 +17,7 @@ The Change Beans dialog SHALL search both the Visualizer canonical Bean Base aut
 
 ### Requirement: Quality-ranked search results
 Results SHALL be ranked by data quality and recency using the following tiers:
-- **Tier 0**: Bags currently in inventory (`inInventory = true`) — shown first, labelled "In inventory"; selecting one selects the existing bag directly (no details form, no new bag)
+- **Tier 0**: Bags currently in inventory (`inInventory = true`) — shown first, labelled "In inventory". Selecting one is context-dependent: from the Add New Bag (inventory) entry point it opens the creation form pre-filled from that bag (a new bag of the same coffee, roast date blank, identity editable); from every other context it selects the existing bag directly (no details form, no new bag)
 - **Tier 1**: Present in both shot history AND Bean Base canonical (matched on `beanBaseId` or case-insensitive roaster+name) — shown with both source labels
 - **Tier 2**: Bean Base canonical only (no history match)
 - **Tier 3**: Shot history with a `beanBaseId` (previously linked, not in current search results)
@@ -26,10 +26,14 @@ Results SHALL be ranked by data quality and recency using the following tiers:
 
 Within each tier, results SHALL be sorted by most recent use date. A history or canonical result that corresponds to an existing inventory bag (matched on `beanBaseId` or case-insensitive roaster+name+roastDate) SHALL be absorbed into that bag's Tier 0 entry rather than shown separately — the dialog must never offer to re-create a coffee that is already in inventory. Within the history lane, the same coffee appearing both linked and unlinked (e.g. shots before and after canonical linking) SHALL be merged into one entry.
 
-#### Scenario: Switching to a bag already in inventory
-- **WHEN** the dialog opens (even with an empty query) and inventory contains bags
-- **THEN** inventory bags SHALL appear first as Tier 0 results
-- **AND** selecting one SHALL apply the context's selection semantics immediately, with no details form and no new bag created
+#### Scenario: Switching to a bag already in inventory (non-inventory contexts)
+- **WHEN** the dialog is opened from brew settings, the idle page, post-shot review, or a historical shot, and the user picks a Tier 0 inventory bag
+- **THEN** that existing bag SHALL be selected per the context's semantics immediately, with no details form and no new bag created
+
+#### Scenario: Another bag of the same coffee (Add New Bag)
+- **WHEN** the dialog is opened from the Beans window's Add New Bag action and the user picks a Tier 0 inventory bag
+- **THEN** the creation form SHALL open pre-filled from that bag (identity, canonical link, grinder/dose, notes) with the roast date blank and identity editable
+- **AND** confirming SHALL create a SEPARATE new bag — two bags of the same coffee, each with its own roast date / freeze state, is supported
 
 #### Scenario: Inventory bag absorbs its own history/canonical match
 - **WHEN** a search query matches both an inventory bag and that same coffee's history or canonical entry
