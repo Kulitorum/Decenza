@@ -201,6 +201,19 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         m_settings->dye()->setActiveBagId(static_cast<int>(m_shotHistory->migratedActiveBagId()));
     m_settings->dye()->setBagStorage(m_bagStorage);
 
+    // Switching beans resets the brew overrides to the active profile's
+    // defaults — a new coffee starts from the profile + bean baseline, not
+    // the previous coffee's manual tweaks (the bag's own dose is applied by
+    // SettingsDye when the bag loads). Loading a favorite or historical shot
+    // is NOT affected: applyLoadedShotMetadata re-applies that shot's saved
+    // overrides AFTER the bag change (this is a synchronous direct
+    // connection), so the loaded settings win. Connected here — after the
+    // startup migration adoption above — so adoption doesn't reset anything.
+    connect(m_settings->dye(), &SettingsDye::activeBagIdChanged, this, [this]() {
+        if (m_profileManager)
+            m_profileManager->clearBrewOverrides();
+    });
+
     // Unified bean search (Change Beans dialog): inventory + canonical
     // autocomplete + shot history in one ranked model.
     m_beanSearch = new UnifiedBeanSearchModel(this);
