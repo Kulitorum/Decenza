@@ -699,6 +699,37 @@ private slots:
             QCOMPARE(stamped.roasterName, QString("Stamp"));
         });
     }
+
+    // touchesVisualizerFields drives the bagVisualizerFieldsChanged signal, so
+    // it must fire for fields Visualizer stores on the bean and stay silent for
+    // local-only columns (grinder/dose/yield/lastUsed/inInventory/sync-ids) —
+    // otherwise a grinder dial-in write-through or a dose/yield stamp would
+    // trigger a needless Visualizer PATCH.
+    void touchesVisualizerFieldsMembership() {
+        // Each Visualizer-stored key fires on its own.
+        const QStringList visualizerKeys = {
+            "roasterName", "coffeeName", "roastDate", "roastLevel",
+            "frozenDate", "defrostDate", "notes", "beanBaseId", "beanBaseData"};
+        for (const QString& key : visualizerKeys)
+            QVERIFY2(CoffeeBagStorage::touchesVisualizerFields({{key, "x"}}),
+                     qPrintable("expected " + key + " to be a Visualizer field"));
+
+        // Local-only keys never fire, alone or together.
+        const QStringList localKeys = {
+            "grinderBrand", "grinderModel", "grinderBurrs", "grinderSetting",
+            "doseWeightG", "yieldOverrideG", "startWeightG", "lastUsedEpoch",
+            "inInventory", "visualizerBagId", "visualizerRoasterId"};
+        for (const QString& key : localKeys)
+            QVERIFY2(!CoffeeBagStorage::touchesVisualizerFields({{key, "x"}}),
+                     qPrintable("expected " + key + " to be local-only"));
+        QVERIFY(!CoffeeBagStorage::touchesVisualizerFields({
+            {"grinderSetting", "5"}, {"doseWeightG", 18.0}, {"lastUsedEpoch", 1}}));
+        QVERIFY(!CoffeeBagStorage::touchesVisualizerFields({}));
+
+        // A mixed update (dose stamp alongside a roast-date edit) still fires.
+        QVERIFY(CoffeeBagStorage::touchesVisualizerFields({
+            {"doseWeightG", 18.0}, {"roastDate", "2026-06-01"}}));
+    }
 };
 
 QTEST_MAIN(tst_CoffeeBags)

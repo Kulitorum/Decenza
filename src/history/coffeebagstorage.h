@@ -111,6 +111,15 @@ public:
     // Update only the columns named in `fields` (camelCase CoffeeBag keys).
     static bool updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& fields);
 
+    // True when `fields` (camelCase CoffeeBag keys) contains at least one field
+    // that Visualizer stores on its coffee bag — the identity/lifecycle/canonical
+    // fields, NOT the local-only grinder/dose/yield/lifecycle-id columns. Drives
+    // the bagVisualizerFieldsChanged signal so a Visualizer PATCH fires only for
+    // edits the remote bean record actually reflects (a grinder write-through or
+    // dose/yield stamp must not hit the network). Single source of truth for the
+    // local-key → Visualizer-field mapping.
+    static bool touchesVisualizerFields(const QVariantMap& fields);
+
     // Convert one legacy bean preset JSON object (SettingsDye "bean/presets"
     // entry: name/brand/type/roastDate/roastLevel/grinder*/barista/showOnIdle/
     // beanBaseId/beanBaseData) into a CoffeeBag. Preset `name` lands in notes
@@ -176,6 +185,10 @@ signals:
     void bagCreated(qint64 bagId, const QVariantMap& bag); // bagId -1 on failure
     void bagUpdated(qint64 bagId, bool success);
     void bagDeleted(qint64 bagId, bool success);
+    // Emitted (after a successful update) only when the edit touched a field
+    // Visualizer stores on the bean — see touchesVisualizerFields(). The
+    // MainController gates on visualizerAutoUpdate + CM-active before PATCHing.
+    void bagVisualizerFieldsChanged(qint64 bagId);
     // Coarse "something changed" signal so views can re-request the inventory.
     void bagsChanged();
 

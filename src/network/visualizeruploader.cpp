@@ -1658,13 +1658,27 @@ void VisualizerUploader::resolveRoaster(const QString& visualizerShotId, const Q
         qDebug() << "Visualizer CM: bag has no roaster name - skipping sync (roaster_id is required)";
         return;
     }
+    const QString canonicalRoasterId = QJsonDocument::fromJson(
+        bag.value("beanBaseData").toString().toUtf8()).object().value("canonicalRoasterId").toString();
+    // A freshly-created roaster has no bags, so findRemoteBag's list comes back
+    // empty and falls through to createRemoteBag — one harmless extra GET, in
+    // exchange for a single roaster-resolution implementation.
+    resolveRoasterId(roasterName, canonicalRoasterId,
+                     [this, visualizerShotId, bag](const QString& roasterId) {
+        findRemoteBag(visualizerShotId, bag, roasterId);
+    });
+}
 
+void VisualizerUploader::resolveRoasterId(const QString& roasterName, const QString& canonicalRoasterId,
+                                          std::function<void(const QString&)> onResolved)
+{
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/roasters?items=100"));
     QNetworkReply* reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, visualizerShotId, bag, roasterName]() {
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, roasterName, canonicalRoasterId, onResolved = std::move(onResolved)]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
-            qDebug() << "Visualizer CM: roaster list failed - retry next upload";
+            qDebug() << "Visualizer CM: roaster list failed - retry next time";
             return;
         }
         const QJsonArray data = QJsonDocument::fromJson(reply->readAll())
@@ -1672,18 +1686,15 @@ void VisualizerUploader::resolveRoaster(const QString& visualizerShotId, const Q
         for (const QJsonValue& value : data) {
             const QJsonObject roaster = value.toObject();
             if (roaster.value("name").toString().compare(roasterName, Qt::CaseInsensitive) == 0) {
-                findRemoteBag(visualizerShotId, bag, roaster.value("id").toString());
+                onResolved(roaster.value("id").toString());
                 return;
             }
         }
 
-        // Create the roaster; carry the canonical roaster UUID from the
-        // blob when present (verified-badge linking on visualizer.coffee).
+        // Create the roaster; carry the canonical roaster UUID when present
+        // (verified-badge linking on visualizer.coffee).
         QJsonObject body;
         body["name"] = roasterName;
-        const QJsonObject blob = QJsonDocument::fromJson(
-            bag.value("beanBaseData").toString().toUtf8()).object();
-        const QString canonicalRoasterId = blob.value("canonicalRoasterId").toString();
         if (!canonicalRoasterId.isEmpty())
             body["canonical_roaster_id"] = canonicalRoasterId;
 
@@ -1691,13 +1702,12 @@ void VisualizerUploader::resolveRoaster(const QString& visualizerShotId, const Q
         QNetworkReply* createReply = m_networkManager->post(
             createRequest, QJsonDocument(body).toJson(QJsonDocument::Compact));
         connect(createReply, &QNetworkReply::finished, this,
-                [this, createReply, visualizerShotId, bag]() {
+                [this, createReply, onResolved]() {
             createReply->deleteLater();
             const int status = createReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (status == 201) {
-                const QString roasterId = QJsonDocument::fromJson(createReply->readAll())
-                                              .object().value("id").toString();
-                createRemoteBag(visualizerShotId, bag, roasterId);
+                onResolved(QJsonDocument::fromJson(createReply->readAll())
+                               .object().value("id").toString());
             } else if (status == 403) {
                 // Bag/roaster CRUD is premium-gated: a 403 means not premium.
                 m_cmState = CmState::NoCoffeeManagement;
@@ -1770,14 +1780,13 @@ void VisualizerUploader::findRemoteBag(const QString& visualizerShotId, const QV
     });
 }
 
-void VisualizerUploader::createRemoteBag(const QString& visualizerShotId, const QVariantMap& bag,
-                                         const QString& roasterId)
+void VisualizerUploader::addBagDescriptiveFields(QJsonObject& body, const QVariantMap& bag) const
 {
     // Field names spike-verified (note defrosted_date). startWeightG is
     // local-only: no server field, and `metadata` is the user's own space.
-    QJsonObject body;
+    // The canonical id is a LINK, not a substitute for the attributes — the
+    // server does not auto-fill them, so we always send the blob fields.
     body["name"] = bag.value("coffeeName").toString();
-    body["roaster_id"] = roasterId;
     auto setIf = [&body](const char* key, const QString& value) {
         if (!value.isEmpty())
             body[QLatin1String(key)] = value;
@@ -1798,6 +1807,14 @@ void VisualizerUploader::createRemoteBag(const QString& visualizerShotId, const 
     setIf("harvest_time", blob.value("harvest").toString());
     setIf("tasting_notes", blob.value("tastingNotes").toString());
     setIf("elevation", blob.value("elevation").toString());
+}
+
+void VisualizerUploader::createRemoteBag(const QString& visualizerShotId, const QVariantMap& bag,
+                                         const QString& roasterId)
+{
+    QJsonObject body;
+    body["roaster_id"] = roasterId;
+    addBagDescriptiveFields(body, bag);
 
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/coffee_bags"));
     QNetworkReply* reply = m_networkManager->post(
@@ -1875,4 +1892,97 @@ void VisualizerUploader::persistBagSyncIds(qint64 localBagId, const QString& vis
     });
     QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
     thread->start();
+}
+
+void VisualizerUploader::updateBagOnVisualizer(qint64 localBagId)
+{
+    if (localBagId <= 0 || m_localDbPath.isEmpty())
+        return;
+    // Only push to CM-active accounts — matches the create path; a CM-off
+    // user's remote bag list is dormant state we never add to. Unknown (pre
+    // first-upload this session) also skips: a bag PATCH is premium-gated, NOT
+    // CM-gated, so it cannot double as a CM probe — the edit propagates once a
+    // shot upload confirms CM.
+    if (m_cmState != CmState::Active)
+        return;
+
+    const QString dbPath = m_localDbPath;
+    QPointer<VisualizerUploader> self(this);
+    QThread* thread = QThread::create([self, dbPath, localBagId]() {
+        QVariantMap bagMap;
+        withTempDb(dbPath, "viz_bagupd", [&](QSqlDatabase& db) {
+            const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, localBagId);
+            if (bag.isValid())
+                bagMap = bag.toVariantMap();
+        });
+        // QPointer dereference only on the main thread.
+        QMetaObject::invokeMethod(qApp, [self, bagMap]() {
+            if (!self || bagMap.isEmpty())
+                return;
+            // Not synced yet → nothing to update; the bag is created later on
+            // its next shot upload (gated by auto-upload).
+            if (bagMap.value("visualizerBagId").toString().isEmpty())
+                return;
+            const QString roasterName = bagMap.value("roasterName").toString().trimmed();
+            if (roasterName.isEmpty()) {
+                // No roaster to (re)resolve — PATCH descriptive fields only,
+                // leaving the remote roaster_id untouched.
+                self->patchRemoteBag(bagMap, QString());
+                return;
+            }
+            const QString canonicalRoasterId = QJsonDocument::fromJson(
+                bagMap.value("beanBaseData").toString().toUtf8())
+                    .object().value("canonicalRoasterId").toString();
+            // Re-resolve so a roaster rename re-points roaster_id; patchRemoteBag
+            // writes roaster_id only when it actually changed.
+            self->resolveRoasterId(roasterName, canonicalRoasterId,
+                                   [self, bagMap](const QString& roasterId) {
+                if (self)
+                    self->patchRemoteBag(bagMap, roasterId);
+            });
+        }, Qt::QueuedConnection);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
+void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& roasterId)
+{
+    const QString bagUuid = bag.value("visualizerBagId").toString();
+    if (bagUuid.isEmpty())
+        return;
+
+    QJsonObject body;
+    addBagDescriptiveFields(body, bag);
+    const QString storedRoasterId = bag.value("visualizerRoasterId").toString();
+    const bool roasterChanged = !roasterId.isEmpty() && roasterId != storedRoasterId;
+    if (roasterChanged)
+        body["roaster_id"] = roasterId;
+
+    const qint64 localBagId = bag.value("id").toLongLong();
+    QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/coffee_bags/") + bagUuid);
+    QNetworkReply* reply = m_networkManager->sendCustomRequest(
+        request, "PATCH", QJsonDocument(body).toJson(QJsonDocument::Compact));
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, bagUuid, roasterId, roasterChanged, localBagId]() {
+        reply->deleteLater();
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (status == 200) {
+            qDebug() << "Visualizer CM: updated coffee bag" << bagUuid;
+            // A roaster rename moved the bag to a different roaster_id — persist
+            // it so the next update diffs against the new value.
+            if (roasterChanged)
+                persistBagSyncIds(localBagId, bagUuid, roasterId);
+        } else if (status == 403) {
+            // Bag CRUD is premium-gated: a 403 means not premium.
+            m_cmState = CmState::NoCoffeeManagement;
+            qDebug() << "Visualizer CM: bag update 403 - account is not premium";
+        } else if (status == 404) {
+            // The remote bag was deleted on visualizer.coffee; our id is stale.
+            // Leave it — the next shot upload re-creates and re-links the bag.
+            qDebug() << "Visualizer CM: bag update 404 - remote bag" << bagUuid << "gone";
+        } else {
+            qDebug() << "Visualizer CM: bag update failed (HTTP" << status << ") - retry next edit";
+        }
+    });
 }

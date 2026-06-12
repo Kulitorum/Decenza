@@ -10,6 +10,7 @@
 #include <QDate>
 #include <QDateTime>
 #include <QSettings>
+#include <QSet>
 #include <QThread>
 #include <QDebug>
 
@@ -180,10 +181,13 @@ void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
             if (*success && propagateBeanBase)
                 propagateBeanBaseStatic(db, bagId);
         },
-        [this, bagId, success]() {
+        [this, bagId, fields, success]() {
             emit bagUpdated(bagId, *success);
-            if (*success)
+            if (*success) {
                 emit bagsChanged();
+                if (touchesVisualizerFields(fields))
+                    emit bagVisualizerFieldsChanged(bagId);
+            }
         });
 }
 
@@ -440,6 +444,25 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, con
         return false;
     }
     return query.numRowsAffected() > 0;
+}
+
+bool CoffeeBagStorage::touchesVisualizerFields(const QVariantMap& fields)
+{
+    // The camelCase keys whose values Visualizer stores on its coffee bag.
+    // beanBaseId -> canonical_coffee_bag_id; beanBaseData -> the descriptive
+    // blob (country/variety/process/tasting/...). roasterName maps to the
+    // bag's roaster_id (re-resolved on rename). Deliberately EXCLUDES the
+    // local-only columns (grinder*/dose/yield/startWeight/lastUsed/inInventory
+    // and the visualizer_* sync ids themselves) so a grinder write-through or
+    // dose/yield stamp never triggers a network PATCH.
+    static const QSet<QString> kVisualizerKeys = {
+        "roasterName", "coffeeName", "roastDate", "roastLevel",
+        "frozenDate", "defrostDate", "notes", "beanBaseId", "beanBaseData",
+    };
+    for (auto it = fields.constBegin(); it != fields.constEnd(); ++it)
+        if (kVisualizerKeys.contains(it.key()))
+            return true;
+    return false;
 }
 
 CoffeeBag CoffeeBagStorage::bagFromLegacyPreset(const QJsonObject& preset)

@@ -234,6 +234,18 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // bag and persist the remote ids back onto it.
     m_visualizer->setLocalDbPath(m_shotHistory->databasePath());
 
+    // Push a bag edit to its already-synced Visualizer bag, gated on the SAME
+    // toggle as shot metadata updates (bag sync follows shot sync). The signal
+    // fires only when a Visualizer-stored field changed (CoffeeBagStorage owns
+    // that test); updateBagOnVisualizer additionally no-ops unless CM is Active
+    // and the bag has a visualizerBagId. Create/link still rides auto-upload via
+    // the post-upload sync chain — this handles the edit-an-existing-bag case.
+    connect(m_bagStorage, &CoffeeBagStorage::bagVisualizerFieldsChanged, this,
+            [this](qint64 bagId) {
+        if (m_visualizer && m_settings && m_settings->visualizer()->visualizerAutoUpdate())
+            m_visualizer->updateBagOnVisualizer(bagId);
+    });
+
     // Authoritative C++ writeback: a successful Visualizer upload
     // persists its returned id to the originating local shot row here,
     // independent of any UI page. (Previously only a transient

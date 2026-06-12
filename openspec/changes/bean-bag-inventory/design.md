@@ -122,6 +122,30 @@ The device-to-device transfer and backup/restore path (`ShotHistoryStorage::impo
 - When `PREMIUM_NO_CM` or `NO_COFFEE_MANAGEMENT`: today's behavior exactly — `canonical_coffee_bag_id` only, and do NOT create bags (a CM-off user's bag list is dormant server state; adding to it is clutter they never see).
 - Map our `defrostDate` → `defrosted_date` on the wire; `startWeightG` stays local (no server field — `metadata` exists but is the user's own free-form space, leave it alone).
 
+### Decision: bag sync to Visualizer follows the shot auto-upload / auto-update toggles
+
+Bag writes to Visualizer mirror the shot toggles in `Settings.visualizer`, so the user controls bag sync with the controls they already understand — there is no separate "sync bags" switch:
+
+- **Create / link a remote bag** is gated by `visualizerAutoUpload`. It is already part of the upload pipeline (`syncCoffeeBagAfterUpload` runs only after a shot POST succeeds), so this needs no new gate — a shot that does not auto-upload never creates its bag.
+- **Update a synced bag's fields** is gated by `visualizerAutoUpdate`. When the user edits a bag that already has a `visualizerBagId` and auto-update is on, the app `PATCH`es `/api/coffee_bags/:id`, mirroring the shot `maybeAutoUpdateVisualizer()` path. With auto-update off, bag edits stay local.
+
+The PATCH fires ONLY when the local update touches a field that Visualizer actually stores on the bean. Those local `CoffeeBag` keys are: `coffeeName`, `roasterName`, `roastDate`, `roastLevel`, `frozenDate`, `defrostDate`, `notes`, `beanBaseId` (→ `canonical_coffee_bag_id`), and `beanBaseData` (the blob source for `tasting_notes`/`country`/`region`/`farmer`/`variety`/`processing`/`harvest_time`/`elevation`). A change confined to local-only keys (`grinderBrand`/`grinderModel`/`grinderBurrs`/`grinderSetting`, `doseWeightG`, `yieldOverrideG`, `startWeightG`, `lastUsedEpoch`, `inInventory`, `visualizerBagId`/`visualizerRoasterId`) does NOT hit the network — so grinder dial-in write-throughs and per-shot dose/yield stamps never trigger a PATCH. `CoffeeBagStorage` owns this membership test (it knows the column mapping) and emits a dedicated signal only when a Visualizer-stored field changed; the `visualizerAutoUpdate` + CM-active gating lives in `MainController`.
+
+Consequences: a bag with no `visualizerBagId` yet cannot be "updated" — its edits stay local until its first shot upload creates it (under auto-upload). CM gating still applies on top: bag CRUD only runs when `m_cmState == Active`, so the update path is `Active && visualizerAutoUpdate && visualizerBagId != ""`.
+
+**Roaster rename IS propagated.** `updateBagOnVisualizer` re-resolves the roaster by the bag's current name (find-or-create, via the shared `resolveRoasterId` that the create chain also uses) and includes `roaster_id` in the PATCH only when it differs from the stored `visualizerRoasterId`, persisting the new id. A rename to a roaster that doesn't exist on visualizer.coffee creates it and re-points the bag, leaving the old roaster record as-is (Visualizer's own model). v1 limitations: **clearing** a field locally does not blank it remotely (we send non-empty fields, mirroring create — avoids guessing `""` vs `null`, which the spike did not cover); and an edit made before this session's first shot upload (CM state still `Unknown`) propagates only once a subsequent upload confirms CM, since a premium-gated bag PATCH cannot itself probe CM.
+
+**Implemented:** `CoffeeBagStorage::touchesVisualizerFields()` + `bagVisualizerFieldsChanged(bagId)` signal; `VisualizerUploader::updateBagOnVisualizer()` / `patchRemoteBag()` with the shared `resolveRoasterId()` and `addBagDescriptiveFields()` helpers; `MainController` gates the signal on `visualizerAutoUpdate`. Membership test covered by `tst_coffeebags::touchesVisualizerFieldsMembership`.
+
+**Spike-verified (2026-06-11, throwaway-bag lifecycle: create → PATCH → read-back → delete, both bags 404 after delete):**
+
+- `PATCH /api/coffee_bags/:id` returns **200**; premium-gated only (confirmed live, not just inferred from the controller).
+- The update whitelist **matches create's** — all sent fields persisted: `name`, `roast_date`, `roast_level`, `frozen_date`, `defrosted_date`, `notes`, `tasting_notes`, `country`, `region`, `farmer`, `variety`, `processing`, `harvest_time`, `elevation`.
+- `canonical_coffee_bag_id` (our `beanBaseId`, a Visualizer canonical UUID) is **accepted and persisted on both POST and PATCH** — so Bean Base–linked bags sync fine.
+- **No server-side auto-fill from the canonical id.** Setting `canonical_coffee_bag_id` alone leaves the descriptive fields (`country`/`variety`/`processing`/`tasting_notes`/…) NULL on the bag record. The enrichment must be sent by us from the `beanBaseData` blob — which `createRemoteBag` already does. The update path must do the same: send the full attribute set every time, treating the canonical id as a link, not a substitute for the fields.
+
+Trigger scope decided: descriptive-field (Visualizer-stored) changes only — see the membership list above.
+
 ### Decision: canonical_roaster_id added to beanBaseData blob
 
 `parseCanonicalPayload` in `beanbaseclient.cpp` gains a `canonicalRoasterId` key, stored in `beanBaseData` alongside origin/variety/etc. This enables Visualizer roaster creation with the verified badge. Currently the roaster UUID is only in the in-memory `m_roasterUuidCache` and lost on restart.

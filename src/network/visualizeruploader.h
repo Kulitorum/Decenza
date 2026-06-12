@@ -117,6 +117,15 @@ public:
     // persist visualizerBagId/visualizerRoasterId back. Set by MainController.
     void setLocalDbPath(const QString& dbPath) { m_localDbPath = dbPath; }
 
+    // Push a local bag edit to its already-synced Visualizer bag (PATCH
+    // /api/coffee_bags/:id). No-op unless CM is Active and the bag has a
+    // visualizerBagId (an unsynced bag is created later, on its next shot
+    // upload). Re-resolves the roaster by the bag's current name so a roaster
+    // rename re-points roaster_id. Caller (MainController) gates on
+    // visualizerAutoUpdate and only invokes this for Visualizer-stored field
+    // edits (CoffeeBagStorage::bagVisualizerFieldsChanged).
+    Q_INVOKABLE void updateBagOnVisualizer(qint64 localBagId);
+
     // One-time reconciliation support: fetch the user's shot list
     // (GET /api/shots, paged) for shots whose start time (clock) is at
     // or after windowStartEpoch. Emits shotListFetched with a
@@ -189,10 +198,28 @@ private:
     void probeCmState(const QString& visualizerShotId, const QString& probeBagUuid,
                       std::function<void()> onCmActive);
     void resolveRoaster(const QString& visualizerShotId, const QVariantMap& bag);
+    // Find-or-create a Visualizer roaster by name; calls onResolved(roasterId)
+    // on success (not called on empty name or HTTP/parse failure). Shared by
+    // the create chain (resolveRoaster) and the bag update path. Carries the
+    // canonical roaster UUID onto a freshly-created roaster for the verified
+    // badge. A 403 on create caches NoCoffeeManagement (CRUD is premium-gated).
+    void resolveRoasterId(const QString& roasterName, const QString& canonicalRoasterId,
+                          std::function<void(const QString& roasterId)> onResolved);
     void findRemoteBag(const QString& visualizerShotId, const QVariantMap& bag,
                        const QString& roasterId, int page = 1);
     void createRemoteBag(const QString& visualizerShotId, const QVariantMap& bag,
                          const QString& roasterId);
+    // Add every Visualizer-stored descriptive field to `body` from a bag map
+    // (name + roast/lifecycle/canonical + the beanBaseData blob attributes).
+    // Omits roaster_id — the caller sets that. Shared by create and update so
+    // both send the identical field set (the canonical id is a link, never a
+    // substitute for the attributes — the server does not auto-fill them).
+    void addBagDescriptiveFields(QJsonObject& body, const QVariantMap& bag) const;
+    // PATCH /api/coffee_bags/:visualizerBagId with the descriptive fields, plus
+    // roaster_id when `roasterId` differs from the bag's stored one (rename).
+    // Persists the new visualizerRoasterId on a roaster change. 400 → CM turned
+    // off (PremiumNoCm); 403 → not premium (NoCoffeeManagement).
+    void patchRemoteBag(const QVariantMap& bag, const QString& roasterId);
     void linkShotToBag(const QString& visualizerShotId, const QString& bagUuid,
                        const QString& canonicalId);
     void persistBagSyncIds(qint64 localBagId, const QString& visualizerBagId,
