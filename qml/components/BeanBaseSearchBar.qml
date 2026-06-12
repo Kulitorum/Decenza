@@ -37,7 +37,14 @@ Item {
     property string errorToken: ""
     property var results: []
 
+    // Screen reader (TalkBack/VoiceOver) active. A Qt Popup can't trap focus, so
+    // in this mode the typing dropdown is suppressed and the results are offered
+    // through a focus-trapping SelectionDialog opened from a labelled button —
+    // same dual-path SuggestionField uses for its own typing popup.
+    readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+
     implicitHeight: headerRow.height + Theme.scaled(2) + searchInput.height
+        + (a11yResultsButton.visible ? a11yResultsButton.height + Theme.scaled(4) : 0)
 
     // The query string whose results we're waiting for (stale-result guard).
     property string _pendingQuery: ""
@@ -220,7 +227,15 @@ Item {
             // _openOnResult covers programmatic prefillAndSearch (no focus yet).
             if (searchInput.activeFocus || root._openOnResult) {
                 root._openOnResult = false
-                resultsPopup.open()
+                if (root._accessibilityMode) {
+                    // Screen-reader path: announce so the user knows to open the
+                    // navigable results dialog from the button below the field.
+                    if (entries.length > 0)
+                        AccessibilityManager.announce(entries.length + " "
+                            + TranslationManager.translate("beaninfo.beanbase.resultsAvailable", "bean results available"))
+                } else {
+                    resultsPopup.open()
+                }
             }
         }
 
@@ -236,7 +251,7 @@ Item {
             root.results = []
             root.errorToken = status
             root.searchState = "error"
-            if (searchInput.activeFocus) resultsPopup.open()
+            if (searchInput.activeFocus && !root._accessibilityMode) resultsPopup.open()
         }
     }
 
@@ -347,6 +362,43 @@ Item {
                     }
                     return TranslationManager.translate("beaninfo.beanbase.noMatches", "No matches — your bean may not be in the community database yet")
                 }
+            }
+        }
+    }
+
+    // --- Accessibility path (screen reader active) ---
+    // The Popup above can't trap TalkBack focus; a labelled button opens the
+    // results in a focus-trapping SelectionDialog instead.
+    AccessibleButton {
+        id: a11yResultsButton
+        visible: root._accessibilityMode && root.results.length > 0 && !root.linked
+        anchors.left: searchInput.left
+        anchors.right: searchInput.right
+        anchors.top: searchInput.bottom
+        anchors.topMargin: Theme.scaled(4)
+        height: Theme.scaled(44)
+        text: TranslationManager.translate("beaninfo.beanbase.openResults", "Show bean results")
+        accessibleName: root.results.length + " "
+            + TranslationManager.translate("beaninfo.beanbase.resultsAvailable", "bean results available")
+        onClicked: resultsDialog.open()
+    }
+
+    SelectionDialog {
+        id: resultsDialog
+        title: TranslationManager.translate("beaninfo.beanbase.resultsTitle", "Bean Base results")
+        options: root.results.map(function(r) {
+            return r.roastName + " (" + r.roasterName + ")"
+                + (r.soldout ? " — " + TranslationManager.translate("beaninfo.beanbase.soldout", "sold out") : "")
+        })
+        emptyStateText: TranslationManager.translate("beaninfo.beanbase.noMatches", "No matches — your bean may not be in the community database yet")
+        onSelected: function(index, value) {
+            var entry = root.results[index]
+            if (entry) {
+                root.entrySelected(entry)
+                Qt.callLater(function() {
+                    root.forceActiveFocus()
+                    Qt.inputMethod.hide()
+                })
             }
         }
     }
