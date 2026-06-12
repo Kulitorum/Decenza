@@ -1123,6 +1123,9 @@ private slots:
 
         withRawDb(path, "v20_after_retry", [&](QSqlDatabase& db) {
             QCOMPARE(getSchemaVersion(db), 21);
+            // The retry ran the WHOLE deferred chain, not just migration 20:
+            // migration 21's rename landed too (post-condition column present).
+            QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
             QSqlQuery q(db);
             q.exec("SELECT bag_id FROM shots WHERE uuid = 'orphan-1'");
             QVERIFY(q.next());

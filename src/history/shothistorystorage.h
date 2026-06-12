@@ -353,11 +353,14 @@ private:
 #ifdef DECENZA_TESTING
 public:
     // Fault-injection seam for migration retry tests (tst_dbmigration). When set
-    // to a migration number, runMigrations() forces that migration's gated
-    // operation to fail exactly once — modelling a transient locked DB at
-    // migration time — then clears itself so the next initialize() retries
-    // cleanly. 0 (default) = no fault. Honoured values: 20 (orphan-link) and
-    // 21 (column rename). Production builds never compile this member.
+    // to a migration number, runMigrations() makes that migration fail to
+    // complete exactly once — modelling a transient locked DB at migration
+    // time — then clears itself so the next initialize() retries cleanly. The
+    // mechanism differs per migration: 20 forces the orphan-link to report
+    // failure (and aborts the pass, as a real lock would fail the later
+    // migrations' writes too); 21 skips the RENAME so its post-condition gate
+    // stays unmet. Either way the schema_version is not bumped. 0 (default) =
+    // no fault. Production builds never compile this member.
     static int s_faultInjectMigration;
 #endif
 };
