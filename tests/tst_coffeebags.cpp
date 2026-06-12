@@ -299,6 +299,59 @@ private slots:
     // findBagForShot
     // ==========================================
 
+    void linkOrphanShotsAdoptsPreBagHistory() {
+        // Migration-20 repair: shots saved before bags existed (bag_id NULL)
+        // are linked by identity so migrated favorites carry their history.
+        const QString path = freshDb();
+        withRawDb(path, "orphan_link", [&](QSqlDatabase& db) {
+            // Pre-bag shots: two for Prodigal (one with a roast date), one
+            // for an unknown coffee.
+            QSqlQuery shotInsert(db);
+            shotInsert.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                               "bean_brand, bean_type, roast_date) VALUES (:u, :ts, 'P', 30, :b, :t, :rd)");
+            auto addShot = [&](const char* uuid, const char* brand, const char* type, const char* roastDate) {
+                shotInsert.bindValue(":u", uuid);
+                shotInsert.bindValue(":ts", 1000);
+                shotInsert.bindValue(":b", brand);
+                shotInsert.bindValue(":t", type);
+                shotInsert.bindValue(":rd", QString(roastDate).isEmpty() ? QVariant() : QVariant(roastDate));
+                QVERIFY(shotInsert.exec());
+            };
+            addShot("s-exact", "Prodigal", "Espresso Milk Blend", "2026-01-01");
+            addShot("s-dateless", "prodigal", "espresso milk blend", "");   // case-insensitive, no date
+            addShot("s-unknown", "Someone", "Else", "");
+
+            // Two Prodigal bags: an old one and the current (MRU) one.
+            CoffeeBag oldBag;
+            oldBag.roasterName = "Prodigal";
+            oldBag.coffeeName = "Espresso Milk Blend";
+            oldBag.roastDate = "2026-01-01";
+            oldBag.lastUsedEpoch = 100;
+            const qint64 oldBagId = CoffeeBagStorage::insertBagStatic(db, oldBag);
+            CoffeeBag newBag = oldBag;
+            newBag.roastDate = "2026-06-01";
+            newBag.lastUsedEpoch = 200;
+            const qint64 newBagId = CoffeeBagStorage::insertBagStatic(db, newBag);
+
+            QVERIFY(CoffeeBagStorage::linkOrphanShotsStatic(db) >= 0);
+
+            auto bagOf = [&](const char* uuid) {
+                QSqlQuery q(db);
+                q.prepare("SELECT bag_id FROM shots WHERE uuid = :u");
+                q.bindValue(":u", uuid);
+                if (!q.exec() || !q.next()) return qint64(-2);
+                return q.value(0).isNull() ? qint64(-1) : q.value(0).toLongLong();
+            };
+            QCOMPARE(bagOf("s-exact"), oldBagId);     // exact roast-date match wins
+            QCOMPARE(bagOf("s-dateless"), newBagId);  // identity fallback -> MRU bag
+            QCOMPARE(bagOf("s-unknown"), qint64(-1)); // no matching bag -> stays NULL
+
+            // Idempotent: a second run changes nothing.
+            QVERIFY(CoffeeBagStorage::linkOrphanShotsStatic(db) >= 0);
+            QCOMPARE(bagOf("s-exact"), oldBagId);
+        });
+    }
+
     void inventoryCarriesShotCount() {
         // shotCount drives the card's single removal action (trash while 0,
         // "Bag finished" once shots exist).

@@ -1031,6 +1031,23 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 20: link pre-bag shots to their bags by identity
+    // (bean-bag-inventory follow-up). Migration 19 created bags from presets
+    // but shots saved before the upgrade carry bag_id NULL, so migrated
+    // favorites looked shot-less (the card offered delete instead of "Bag
+    // finished"). Idempotent identity backfill; on a FRESH upgrade the bags
+    // don't exist yet at this point (the preset import runs after
+    // migrations) — that path is covered by the same link call inside
+    // convertLegacyPresetSettings. This migration repairs devices that
+    // upgraded before the link existed.
+    if (currentVersion < 20) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 20 (link pre-bag shots to bags)";
+        CoffeeBagStorage::linkOrphanShotsStatic(m_db);  // -1 logged inside; retry is implicit (idempotent)
+        query.exec ("DELETE FROM schema_version");
+        query.exec ("INSERT INTO schema_version (version) VALUES (20)");
+        currentVersion = 20;
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -2856,6 +2873,9 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                                            "WHERE beanbase_id IS NULL AND beanbase_json IS NOT NULL"))
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: beanbase_id backfill failed:"
                                << beanbaseBackfill.lastError().text();
+                // Pre-bag sources also have no bag_id — adopt their shots
+                // into existing bags by identity (idempotent, NULL-only).
+                CoffeeBagStorage::linkOrphanShotsStatic(destDb);
                 if (!destDb.commit()) {
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill commit failed:" << destDb.lastError().text();
                     destDb.rollback();

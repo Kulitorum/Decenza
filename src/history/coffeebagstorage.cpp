@@ -471,6 +471,49 @@ CoffeeBag CoffeeBagStorage::bagFromLegacyPreset(const QJsonObject& preset)
     return bag;
 }
 
+int CoffeeBagStorage::linkOrphanShotsStatic(QSqlDatabase& db)
+{
+    int linked = 0;
+
+    // Pass 1: exact identity — roaster + coffee + roast date. The correlated
+    // subquery returns NULL when nothing matches, which re-writes NULL over
+    // NULL (a no-op), so no WHERE-EXISTS guard is needed.
+    QSqlQuery exactPass(db);
+    if (!exactPass.exec(
+            "UPDATE shots SET bag_id = ("
+            "  SELECT b.id FROM coffee_bags b"
+            "  WHERE LOWER(COALESCE(b.roaster_name,'')) = LOWER(COALESCE(shots.bean_brand,''))"
+            "    AND LOWER(COALESCE(b.coffee_name,''))  = LOWER(COALESCE(shots.bean_type,''))"
+            "    AND COALESCE(b.roast_date,'') = COALESCE(shots.roast_date,'')"
+            "  ORDER BY b.last_used DESC, b.id DESC LIMIT 1) "
+            "WHERE bag_id IS NULL"
+            "  AND (COALESCE(bean_brand,'') <> '' OR COALESCE(bean_type,'') <> '')")) {
+        qWarning() << "CoffeeBagStorage: orphan-shot link pass 1 failed:" << exactPass.lastError().text();
+        return -1;
+    }
+
+    // Pass 2: identity only (roaster + coffee) for leftovers — pre-bag shots
+    // whose snapshot roast date doesn't match any bag (stale preset dates,
+    // format drift). Most recently used bag of that coffee wins.
+    QSqlQuery identityPass(db);
+    if (!identityPass.exec(
+            "UPDATE shots SET bag_id = ("
+            "  SELECT b.id FROM coffee_bags b"
+            "  WHERE LOWER(COALESCE(b.roaster_name,'')) = LOWER(COALESCE(shots.bean_brand,''))"
+            "    AND LOWER(COALESCE(b.coffee_name,''))  = LOWER(COALESCE(shots.bean_type,''))"
+            "  ORDER BY b.last_used DESC, b.id DESC LIMIT 1) "
+            "WHERE bag_id IS NULL"
+            "  AND (COALESCE(bean_brand,'') <> '' OR COALESCE(bean_type,'') <> '')")) {
+        qWarning() << "CoffeeBagStorage: orphan-shot link pass 2 failed:" << identityPass.lastError().text();
+        return -1;
+    }
+
+    QSqlQuery countQuery(db);
+    if (countQuery.exec("SELECT COUNT(*) FROM shots WHERE bag_id IS NOT NULL") && countQuery.next())
+        linked = countQuery.value(0).toInt();
+    return linked;
+}
+
 qint64 CoffeeBagStorage::findBagForShotStatic(QSqlDatabase& db, qint64 shotId,
                                               const QString& roasterName, const QString& coffeeName)
 {
@@ -556,6 +599,13 @@ qint64 CoffeeBagStorage::convertLegacyPresetSettings(const QString& dbPath)
     appSettings.remove(QStringLiteral("bean/selectedPreset"));
     qDebug() << "CoffeeBagStorage: imported" << imported << "of" << presets.size()
              << "legacy bean presets as bags; selected bag id" << selectedBagId;
+
+    // Adopt the pre-bag shot history: link orphan shots to the bags the
+    // presets just became, so a migrated favorite carries its shots (and the
+    // card shows "Bag finished", not delete).
+    withTempDb(dbPath, "bags_link", [&](QSqlDatabase& db) {
+        linkOrphanShotsStatic(db);
+    });
     return selectedBagId;
 }
 

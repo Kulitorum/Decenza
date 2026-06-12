@@ -122,6 +122,15 @@ public:
                                          int selectedIndex = -1,
                                          qint64* outSelectedBagId = nullptr);
 
+    // Link orphan shots (bag_id NULL) to bags by identity — two passes:
+    // exact (case-insensitive roaster+coffee+roast_date), then identity-only
+    // for the leftovers, preferring the most recently used bag. Idempotent
+    // (only touches NULL bag_id rows). Used by migration 20 (repairs
+    // upgraded devices whose migrated preset-bags predate their shots) and
+    // by importDatabaseStatic for pre-bag backup sources. Returns the
+    // number of shots linked, -1 on failure.
+    static int linkOrphanShotsStatic(QSqlDatabase& db);
+
     // Resolve which bag a historical shot belongs to: the shot's own bag_id
     // link when it exists (snapshot from save time), else the best identity
     // match (case-insensitive roaster+coffee; in-inventory and most recently
