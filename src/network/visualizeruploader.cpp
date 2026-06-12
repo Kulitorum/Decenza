@@ -1711,8 +1711,12 @@ void VisualizerUploader::enrichRemoteBag(const QString& serverBagId, const QVari
             return;
         }
         // Fill only the fields the server left blank — never clobber a value the
-        // user set on visualizer.coffee. name/roast_date/roast_level are
-        // server-managed from the shot, so we deliberately don't touch them.
+        // user set on visualizer.coffee, and forward-compatible by construction:
+        // if the server is later fixed to seed descriptive fields from the
+        // canonical bean record, this GET sees them already populated and skips
+        // them (body ends up empty → no PATCH), so the server's values always
+        // win. We re-read every upload, so no version check is needed. The
+        // server-managed name/roast_date/roast_level we deliberately never touch.
         const QJsonObject remote = QJsonDocument::fromJson(reply->readAll()).object();
         QJsonObject body;
         auto fillBlank = [&](const char* apiKey, const QString& localValue) {
