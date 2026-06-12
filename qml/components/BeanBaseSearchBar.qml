@@ -50,6 +50,28 @@ Item {
         _settingTextProgrammatically = false
     }
 
+    // Programmatic pre-fill (edit-bag link flow): seed the input with a
+    // likely query so one tap on the field searches it. Does NOT search.
+    function prefill(q) {
+        if (linked) return
+        _setInputText(q)
+    }
+
+    // Pre-fill AND run the search immediately — the results popup opens on
+    // arrival even while the field is unfocused ("Find in Bean Base" on the
+    // bag card lands here).
+    property bool _openOnResult: false
+    function prefillAndSearch(q) {
+        if (linked) return
+        _setInputText(q)
+        const t = q.trim()
+        if (t.length < 2) return
+        _pendingQuery = t.toLowerCase()
+        searchState = "loading"
+        _openOnResult = true
+        MainController.beanbase.search(t)
+    }
+
     onLinkedChanged: {
         if (linked) {
             resultsPopup.close()
@@ -189,7 +211,12 @@ Item {
             if (query.toLowerCase() !== root._pendingQuery) return
             root.results = entries
             root.searchState = "idle"
-            if (searchInput.activeFocus) resultsPopup.open()  // Open even when empty: the no-matches message lives in the popup
+            // Open even when empty: the no-matches message lives in the popup.
+            // _openOnResult covers programmatic prefillAndSearch (no focus yet).
+            if (searchInput.activeFocus || root._openOnResult) {
+                root._openOnResult = false
+                resultsPopup.open()
+            }
         }
 
         function onSearchFailed(query, status) {
@@ -235,15 +262,42 @@ Item {
 
                 property var entry: modelData
 
-                contentItem: Text {
-                    // Visualizer's format: "RoastName (Roaster)"
-                    text: resultDelegate.entry.roastName + " (" + resultDelegate.entry.roasterName + ")"
-                          + (resultDelegate.entry.soldout ? " — " + TranslationManager.translate("beaninfo.beanbase.soldout", "sold out") : "")
-                    color: resultDelegate.entry.soldout ? Theme.textSecondaryColor : Theme.textColor
-                    font.pixelSize: Theme.scaled(16)
-                    elide: Text.ElideRight
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: Theme.scaled(12)
+                contentItem: RowLayout {
+                    spacing: Theme.scaled(8)
+
+                    Text {
+                        Layout.fillWidth: true
+                        // Visualizer's format: "RoastName (Roaster)"
+                        text: resultDelegate.entry.roastName + " (" + resultDelegate.entry.roasterName + ")"
+                              + (resultDelegate.entry.soldout ? " — " + TranslationManager.translate("beaninfo.beanbase.soldout", "sold out") : "")
+                        color: resultDelegate.entry.soldout ? Theme.textSecondaryColor : Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        elide: Text.ElideRight
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: Theme.scaled(12)
+                    }
+
+                    // Source chip — same "Bean Base" annotation the Change
+                    // Beans search shows, so the edit-link search is labelled
+                    // consistently.
+                    Rectangle {
+                        Layout.alignment: Qt.AlignVCenter
+                        Layout.rightMargin: Theme.scaled(10)
+                        implicitWidth: chipLabel.implicitWidth + Theme.scaled(16)
+                        implicitHeight: chipLabel.implicitHeight + Theme.scaled(8)
+                        radius: height / 2
+                        color: Theme.backgroundColor
+                        border.width: 1
+                        border.color: Theme.textSecondaryColor
+
+                        Text {
+                            id: chipLabel
+                            anchors.centerIn: parent
+                            text: TranslationManager.translate("changebeans.source.beanbase", "Bean Base")
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                        }
+                    }
                 }
 
                 background: Rectangle {
@@ -279,15 +333,9 @@ Item {
                 font.pixelSize: Theme.scaled(14)
                 text: {
                     if (root.searchState === "error") {
-                        // invalid/ratelimited/quota are unreachable from the
-                        // keyless canonical path — kept as defensive cover
-                        // for a future searchBeanBase()-backed mode.
-                        if (root.errorToken === "invalid")
-                            return TranslationManager.translate("beaninfo.beanbase.errorInvalid", "Invalid API key — check Settings")
-                        if (root.errorToken === "ratelimited")
-                            return TranslationManager.translate("beaninfo.beanbase.errorRateLimited", "Searching too fast — pause a moment and try again")
-                        if (root.errorToken === "quota")
-                            return TranslationManager.translate("beaninfo.beanbase.errorQuota", "Daily Bean Base limit reached — search resumes tomorrow")
+                        // The keyless canonical path emits only "parse"
+                        // (markup drift) and "network"; everything else falls
+                        // through to the generic reach-failure message.
                         if (root.errorToken === "parse")
                             return TranslationManager.translate("beaninfo.beanbase.errorParse", "Bean search is temporarily unavailable")
                         return TranslationManager.translate("beaninfo.beanbase.errorNetwork", "Could not reach the bean database")

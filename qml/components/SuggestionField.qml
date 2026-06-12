@@ -187,6 +187,29 @@ Item {
         }
 
         Keys.onReturnPressed: {
+            // If the popup is open with matches, Return selects a suggestion:
+            // the keyboard-highlighted one, else the single match, else the
+            // top match when the typed text isn't already an exact entry.
+            // Otherwise commit the typed text (keeps brand-new names intact).
+            if (suggestionPopup.visible && suggestionList.count > 0) {
+                var matches = getFilteredSuggestions()
+                var pick = -1
+                if (suggestionList.currentIndex >= 0)
+                    pick = suggestionList.currentIndex
+                else if (matches.length === 1)
+                    pick = 0
+                else {
+                    var exact = false
+                    for (var i = 0; i < matches.length; i++)
+                        if (matches[i].toLowerCase() === text.toLowerCase()) { exact = true; break }
+                    if (!exact && matches.length > 0) pick = 0
+                }
+                if (pick >= 0 && pick < matches.length) {
+                    root.selectSuggestion(matches[pick])
+                    focus = false
+                    return
+                }
+            }
             // Accept current text and close
             // Don't set root.text = text - that breaks the parent binding!
             root.textEdited(text)

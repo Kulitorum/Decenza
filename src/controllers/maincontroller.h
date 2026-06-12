@@ -14,6 +14,8 @@
 #include "../models/steamdatamodel.h"
 #include "../machine/steamhealthtracker.h"
 #include "../history/shothistorystorage.h"
+#include "../history/coffeebagstorage.h"
+#include "../history/unifiedbeansearchmodel.h"
 #include "../history/shotimporter.h"
 #include "../profile/profileconverter.h"
 #include "../profile/profileimporter.h"
@@ -55,6 +57,8 @@ class MainController : public QObject {
     Q_PROPERTY(double filteredGoalPressure READ filteredGoalPressure NOTIFY goalsChanged)
     Q_PROPERTY(double filteredGoalFlow READ filteredGoalFlow NOTIFY goalsChanged)
     Q_PROPERTY(ShotHistoryStorage* shotHistory READ shotHistory CONSTANT)
+    Q_PROPERTY(CoffeeBagStorage* bagStorage READ bagStorage CONSTANT)
+    Q_PROPERTY(UnifiedBeanSearchModel* beanSearch READ beanSearch CONSTANT)
     Q_PROPERTY(ShotImporter* shotImporter READ shotImporter CONSTANT)
     Q_PROPERTY(ProfileConverter* profileConverter READ profileConverter CONSTANT)
     Q_PROPERTY(ProfileImporter* profileImporter READ profileImporter CONSTANT)
@@ -110,6 +114,8 @@ public:
     bool isSawSettling() const;
     QString currentFrameName() const { return m_currentFrameName; }
     ShotHistoryStorage* shotHistory() const { return m_shotHistory; }
+    CoffeeBagStorage* bagStorage() const { return m_bagStorage; }
+    UnifiedBeanSearchModel* beanSearch() const { return m_beanSearch; }
     ShotImporter* shotImporter() const { return m_shotImporter; }
     ProfileConverter* profileConverter() const { return m_profileConverter; }
     ProfileImporter* profileImporter() const { return m_profileImporter; }
@@ -243,7 +249,8 @@ private slots:
 
 private:
     void applyAllSettings();
-    void applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride = 0);
+    void applyLoadedShotMetadata(qint64 shotId, const ShotRecord& shotRecord, double doseOverride = 0,
+                                 qint64 matchedBagId = -1);
     void applyWaterRefillLevel();
     void applyRefillKitOverride();
     void applyHeaterTweaks();
@@ -350,6 +357,8 @@ private:
 
     // Shot history and comparison
     ShotHistoryStorage* m_shotHistory = nullptr;
+    CoffeeBagStorage* m_bagStorage = nullptr;
+    UnifiedBeanSearchModel* m_beanSearch = nullptr;
     ShotImporter* m_shotImporter = nullptr;
     ProfileConverter* m_profileConverter = nullptr;
     ProfileImporter* m_profileImporter = nullptr;

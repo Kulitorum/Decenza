@@ -1,5 +1,6 @@
 #include "shothistorystorage.h"
 #include "shothistorystorage_internal.h"
+#include "coffeebagstorage.h"
 #include "ai/conductance.h"
 #include "ai/shotanalysis.h"
 #include "ai/shotsummarizer.h"
@@ -8,9 +9,11 @@
 #include "models/shotdatamodel.h"
 #include "profile/profile.h"
 #include "network/visualizeruploader.h"
+#include "network/beanbase_blob.h"
 
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QSqlRecord>
 #include <QStandardPaths>
 #include <QDir>
 #include <QUuid>
@@ -99,6 +102,15 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
         qWarning() << "ShotHistoryStorage: Failed to run migrations";
         return false;
     }
+
+#ifndef DECENZA_TESTING
+    // Test builds skip the automatic legacy-preset import: it reads AND
+    // CLEARS the real bean/presets QSettings store, so a unit test calling
+    // initialize() on a temp DB would silently consume the developer's own
+    // presets. Tests drive CoffeeBagStorage::convertLegacyPresetSettings
+    // directly with save/restore guards.
+    importLegacyBeanPresets();
+#endif
 
     // Checkpoint any existing WAL data from previous sessions
     // This ensures all data is in the main .db file
@@ -971,8 +983,122 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 19: coffee bags (bean-bag-inventory). Creates the coffee_bags
+    // table and adds nullable bag_id / frozen_date / defrost_date /
+    // beanbase_id columns to shots, backfilling beanbase_id from the
+    // beanbase_json blob so the Change Beans history lane can GROUP BY an
+    // indexed column instead of json_extract'ing every row at query time.
+    // The legacy preset import is deliberately NOT version-gated — see
+    // importLegacyBeanPresets(), which runs every launch and also covers
+    // keys reintroduced by old-version device transfer. Check-before-bump
+    // (migration-18 precedent): saveShotStatic names the new columns
+    // unconditionally, so version 19 is only recorded when they all exist.
+    // Whitespace before the open-paren dodges the QSqlQuery permission-hook
+    // false-positive, as elsewhere. Do not auto-format.
+    if (currentVersion < 19) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 19 (coffee bags)";
+
+        const bool tableOk = CoffeeBagStorage::ensureTableStatic(m_db);
+
+        if (!hasColumn("shots", "bag_id"))
+            query.exec ("ALTER TABLE shots ADD COLUMN bag_id INTEGER");
+        if (!hasColumn("shots", "frozen_date"))
+            query.exec ("ALTER TABLE shots ADD COLUMN frozen_date TEXT");
+        if (!hasColumn("shots", "defrost_date"))
+            query.exec ("ALTER TABLE shots ADD COLUMN defrost_date TEXT");
+        if (!hasColumn("shots", "beanbase_id")) {
+            if (query.exec ("ALTER TABLE shots ADD COLUMN beanbase_id TEXT")) {
+                // One-time backfill from the blob. json_extract returns NULL
+                // for NULL/invalid JSON, so unlinked shots stay NULL. Failure
+                // is non-fatal: the history lane falls back to brand|type
+                // grouping for pre-migration rows.
+                if (!query.exec("UPDATE shots SET beanbase_id = json_extract(beanbase_json, '$.id') "
+                                "WHERE beanbase_json IS NOT NULL"))
+                    qWarning() << "ShotHistoryStorage: migration 19 beanbase_id backfill failed:"
+                               << query.lastError().text();
+            }
+        }
+        query.exec("CREATE INDEX IF NOT EXISTS idx_shots_beanbase_id ON shots(beanbase_id)");
+
+        if (tableOk && hasColumn("shots", "bag_id") && hasColumn("shots", "frozen_date")
+            && hasColumn("shots", "defrost_date") && hasColumn("shots", "beanbase_id")) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (19)");
+            currentVersion = 19;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 19 incomplete:"
+                       << query.lastError().text() << "- will retry next launch";
+        }
+    }
+
+    // Migration 20: link pre-bag shots to their bags by identity
+    // (bean-bag-inventory follow-up). Migration 19 created bags from presets
+    // but shots saved before the upgrade carry bag_id NULL, so migrated
+    // favorites looked shot-less (the card offered delete instead of "Bag
+    // finished"). Idempotent identity backfill; on a FRESH upgrade the bags
+    // don't exist yet at this point (the preset import runs after
+    // migrations) — that path is covered by the same link call inside
+    // convertLegacyPresetSettings. This migration repairs devices that
+    // upgraded before the link existed.
+    if (currentVersion < 20) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 20 (link pre-bag shots to bags)";
+        // Gate the bump on success: linkOrphanShotsStatic returns -1 on a SQL
+        // failure (e.g. a locked DB at migration time). The op is idempotent,
+        // so if we DON'T bump on failure it simply retries next launch; bumping
+        // unconditionally would strand the shots orphaned forever (the < 20
+        // block never runs again). Mirrors migration 19's check-before-bump.
+        if (CoffeeBagStorage::linkOrphanShotsStatic(m_db) >= 0) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (20)");
+            currentVersion = 20;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 20 orphan-link failed - will retry next launch";
+        }
+    }
+
+    // Migration 21: rename coffee_bags.yield_target_g -> yield_override_g
+    // (bean-bag-inventory yield-override model). The bag's yield is the
+    // bean's override of the profile's target weight, not a separate target —
+    // the column name now says so. Unreleased feature, so this only repairs
+    // dev databases already migrated to 19/20; fresh DBs get the new name
+    // straight from ensureTableStatic. RENAME COLUMN needs SQLite >= 3.25
+    // (we require >= 3.35). Whitespace before the open-paren dodges the
+    // QSqlQuery permission-hook false-positive, as elsewhere.
+    if (currentVersion < 21) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 21 (yield_target_g -> yield_override_g)";
+        if (hasColumn("coffee_bags", "yield_target_g") && !hasColumn("coffee_bags", "yield_override_g"))
+            query.exec ("ALTER TABLE coffee_bags RENAME COLUMN yield_target_g TO yield_override_g");
+        // Gate the bump on the post-condition (the new column exists): bumping
+        // after a failed RENAME would leave code reading a missing column with
+        // no retry. Fresh DBs already satisfy it via ensureTableStatic.
+        if (hasColumn("coffee_bags", "yield_override_g")) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (21)");
+            currentVersion = 21;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 21 column rename failed - will retry next launch";
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
+}
+
+void ShotHistoryStorage::importLegacyBeanPresets()
+{
+    // Version-independent merge-import of legacy bean presets (bean-bag-
+    // inventory). Runs every launch: converts any non-empty bean/presets
+    // QSettings array — the initial upgrade, a previously failed import, or
+    // a key reintroduced by old-version device transfer — into coffee_bags
+    // rows. The shared static clears the keys only after a successful
+    // commit, so a failure retries next launch with the preset data intact.
+    if (m_schemaVersion < 19)
+        return;  // coffee_bags table not ready; presets stay put for next launch
+
+    // SettingsDye adopts the returned id through setActiveBagId() after
+    // storage init — a raw QSettings write here would bypass the settings
+    // cache and NOTIFY.
+    m_migratedActiveBagId = CoffeeBagStorage::convertLegacyPresetSettings(m_dbPath);
 }
 
 QJsonObject ShotHistoryStorage::pointsToJsonObject(const QVector<QPointF>& points)
@@ -1120,6 +1246,9 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     data.profileNotes = profile ? profile->profileNotes() : QString();
     data.debugLog = debugLog;
     data.beanBaseJson = metadata.beanBaseJson;
+    data.bagId = metadata.bagId;
+    data.frozenDate = metadata.frozenDate;
+    data.defrostDate = metadata.defrostDate;
 
     if (profile) {
         data.profileKbId = ShotSummarizer::computeProfileKbId(profile->title(), profile->editorType());
@@ -1272,7 +1401,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     temperature_override, yield_override, profile_kb_id,
                     channeling_detected, grind_issue_detected,
                     skip_first_frame_detected, pour_truncated_detected,
-                    stopped_by, beanbase_json
+                    stopped_by, beanbase_json, beanbase_id,
+                    bag_id, frozen_date, defrost_date
                 ) VALUES (
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
@@ -1283,7 +1413,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :temperature_override, :yield_override, :profile_kb_id,
                     :channeling_detected, :grind_issue_detected,
                     :skip_first_frame_detected, :pour_truncated_detected,
-                    :stopped_by, :beanbase_json
+                    :stopped_by, :beanbase_json, :beanbase_id,
+                    :bag_id, :frozen_date, :defrost_date
                 )
             )");
 
@@ -1320,6 +1451,15 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":pour_truncated_detected", data.pourTruncatedDetected ? 1 : 0);
             query.bindValue(":stopped_by", data.stoppedBy);
             query.bindValue(":beanbase_json", data.beanBaseJson.isEmpty() ? QVariant() : data.beanBaseJson);
+            // beanbase_id is the indexed canonical UUID for the history
+            // search lane — derived from the same blob the row stores.
+            {
+                const QString canonicalId = BeanBaseBlob::canonicalId(data.beanBaseJson);
+                query.bindValue(":beanbase_id", canonicalId.isEmpty() ? QVariant() : canonicalId);
+            }
+            query.bindValue(":bag_id", data.bagId > 0 ? QVariant(data.bagId) : QVariant());
+            query.bindValue(":frozen_date", data.frozenDate.isEmpty() ? QVariant() : data.frozenDate);
+            query.bindValue(":defrost_date", data.defrostDate.isEmpty() ? QVariant() : data.defrostDate);
 
             if (!query.exec()) {
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
@@ -1757,7 +1897,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                temperature_override, yield_override, beverage_type, profile_kb_id,
                channeling_detected, grind_issue_detected,
                skip_first_frame_detected, pour_truncated_detected,
-               stopped_by, beanbase_json
+               stopped_by, beanbase_json,
+               bag_id, frozen_date, defrost_date
         FROM shots WHERE id = ?
     )")) {
         qWarning() << "ShotHistoryStorage::loadShotRecordStatic: prepare failed:" << query.lastError().text();
@@ -1806,6 +1947,9 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.pourTruncatedDetected = query.value(33).toInt() != 0;
     record.stoppedBy = query.value(34).toString();
     record.beanBaseJson = query.value(35).toString();
+    record.bagId = query.value(36).isNull() ? -1 : query.value(36).toLongLong();
+    record.frozenDate = query.value(37).toString();
+    record.defrostDate = query.value(38).toString();
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so
@@ -2088,6 +2232,14 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
         // Bean Base snapshot: pass "" to clear (unlink), JSON string to
         // re-link — edit mode must be able to fix a wrong bean after the fact.
         {"beanBaseJson",    "beanbase_json"},
+        // Indexed canonical UUID for the history search lane — callers that
+        // set beanBaseJson should set this too (BeanBaseBlob::canonicalId).
+        {"beanBaseId",      "beanbase_id"},
+        // Coffee bag snapshot (bean-bag-inventory): the post-shot "wrong bag"
+        // fix and the historical re-link path rewrite these.
+        {"bagId",           "bag_id"},
+        {"frozenDate",      "frozen_date"},
+        {"defrostDate",     "defrost_date"},
     };
 
     // Build SET clause from only the keys present in the metadata.
@@ -2528,6 +2680,17 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
         }
 
         {
+            // Import coffee bags first so shots.bag_id can be remapped
+            // (bean-bag-inventory): bag row ids change on insert, exactly
+            // like shot ids. Pre-migration-19 sources have no coffee_bags
+            // table and yield an empty map.
+            QHash<qint64, qint64> bagIdMap;
+            if (!CoffeeBagStorage::importBagsStatic(srcDb, destDb, merge, bagIdMap)) {
+                qWarning() << "ShotHistoryStorage::importDatabaseStatic: Bag import failed";
+                destDb.rollback();
+                goto cleanup;
+            }
+
             // Get existing UUIDs for merge mode
             QSet<QString> existingUuids;
             if (merge) {
@@ -2548,6 +2711,20 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 goto cleanup;
             }
 
+            // Columns that may be absent in older source databases — resolve
+            // indexes once instead of QSqlQuery::value(name) per row (which
+            // logs an "unknown field" warning for every missing access).
+            const QSqlRecord srcRecord = srcShots.record();
+            const int idxStoppedBy = srcRecord.indexOf("stopped_by");
+            const int idxBeanBaseJson = srcRecord.indexOf("beanbase_json");
+            const int idxBeanBaseId = srcRecord.indexOf("beanbase_id");
+            const int idxBagId = srcRecord.indexOf("bag_id");
+            const int idxFrozenDate = srcRecord.indexOf("frozen_date");
+            const int idxDefrostDate = srcRecord.indexOf("defrost_date");
+            auto srcValueOrNull = [&srcShots](int idx) {
+                return idx >= 0 ? srcShots.value(idx) : QVariant();
+            };
+
             while (srcShots.next()) {
                 QString uuid = srcShots.value("uuid").toString();
                 if (merge && existingUuids.contains(uuid)) {
@@ -2566,8 +2743,10 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         profile_notes, visualizer_id, visualizer_url, debug_log,
                         temperature_override, yield_override, profile_kb_id,
                         channeling_detected, grind_issue_detected,
-                        skip_first_frame_detected, pour_truncated_detected)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        skip_first_frame_detected, pour_truncated_detected,
+                        stopped_by, beanbase_json, beanbase_id,
+                        bag_id, frozen_date, defrost_date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 insert.addBindValue(uuid);
@@ -2609,6 +2788,18 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue((sf.isValid() && !sf.isNull()) ? sf : QVariant(0));
                 QVariant pt = srcShots.value("pour_truncated_detected");
                 insert.addBindValue((pt.isValid() && !pt.isNull()) ? pt : QVariant(0));
+                insert.addBindValue(srcValueOrNull(idxStoppedBy));
+                insert.addBindValue(srcValueOrNull(idxBeanBaseJson));
+                insert.addBindValue(srcValueOrNull(idxBeanBaseId));
+                // bag_id is a row id in the SOURCE database — remap to the
+                // imported bag's new id, or NULL when the bag wasn't imported.
+                {
+                    const QVariant srcBagId = srcValueOrNull(idxBagId);
+                    const qint64 mapped = bagIdMap.value(srcBagId.toLongLong(), -1);
+                    insert.addBindValue(mapped > 0 ? QVariant(mapped) : QVariant());
+                }
+                insert.addBindValue(srcValueOrNull(idxFrozenDate));
+                insert.addBindValue(srcValueOrNull(idxDefrostDate));
 
                 if (!insert.exec()) {
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Failed to import shot:" << insert.lastError().text();
@@ -2706,6 +2897,17 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         update.exec();
                     }
                 }
+                // Shots from pre-migration-19 sources carry beanbase_json but
+                // no beanbase_id column — derive it so the history search
+                // lane covers imported shots too.
+                QSqlQuery beanbaseBackfill(destDb);
+                if (!beanbaseBackfill.exec("UPDATE shots SET beanbase_id = json_extract(beanbase_json, '$.id') "
+                                           "WHERE beanbase_id IS NULL AND beanbase_json IS NOT NULL"))
+                    qWarning() << "ShotHistoryStorage::importDatabaseStatic: beanbase_id backfill failed:"
+                               << beanbaseBackfill.lastError().text();
+                // Pre-bag sources also have no bag_id — adopt their shots
+                // into existing bags by identity (idempotent, NULL-only).
+                CoffeeBagStorage::linkOrphanShotsStatic(destDb);
                 if (!destDb.commit()) {
                     qWarning() << "ShotHistoryStorage::importDatabaseStatic: Backfill commit failed:" << destDb.lastError().text();
                     destDb.rollback();

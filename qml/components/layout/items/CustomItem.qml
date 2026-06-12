@@ -39,7 +39,19 @@ Item {
     }
 
     readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? "#555555" : Theme.surfaceColor)
-    readonly property color _effectiveBackground: _parsedBgColor
+
+    // A brew-settings widget highlights (yellow, like the espresso button
+    // when no favorite is selected) whenever a brew override is in effect —
+    // i.e. temperature or yield differs from the active profile's default.
+    readonly property bool _isBrewSettingsWidget: action === "brewSettings"
+        || longPressAction === "brewSettings" || doubleclickAction === "brewSettings"
+    readonly property bool _brewOverrideActive: {
+        var tempOverridden = Settings.brew.hasTemperatureOverride
+            && Math.abs(Settings.brew.temperatureOverride - ProfileManager.profileTargetTemperature) > 0.1
+        return tempOverridden || ProfileManager.brewByRatioActive
+    }
+    readonly property color _effectiveBackground:
+        (_isBrewSettingsWidget && _brewOverrideActive) ? Theme.highlightColor : _parsedBgColor
     // Content color for text and icon tinting on the button background
     readonly property color _contentColor: Theme.primaryContrastColor
 

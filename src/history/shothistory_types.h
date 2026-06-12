@@ -60,6 +60,13 @@ struct ShotRecord {
     // see docs/CLAUDE_MD/BEAN_BASE.md and ShotSaveData::beanBaseJson.
     QString beanBaseJson;
 
+    // Coffee bag snapshot (bean-bag-inventory, migration 19): the bag this
+    // shot was pulled with (-1/0 = none or pre-bag shot) and its freeze
+    // lifecycle at shot time.
+    qint64 bagId = -1;
+    QString frozenDate;
+    QString defrostDate;
+
     // Time-series data (lazily loaded)
     QVector<QPointF> pressure;
     QVector<QPointF> flow;
@@ -237,6 +244,11 @@ struct ShotSaveData {
     // Snapshotted per shot so history stays accurate after the preset is
     // edited or deleted.
     QString beanBaseJson;
+
+    // Coffee bag snapshot (bean-bag-inventory): see ShotRecord.
+    qint64 bagId = -1;
+    QString frozenDate;
+    QString defrostDate;
 
     // AI knowledge base ID (e.g. "d-flow", "blooming espresso") — computed at save time
     QString profileKbId;

@@ -32,6 +32,7 @@ class AccessibilityManager;
 class ScreensaverVideoManager;
 class TranslationManager;
 class BatteryManager;
+class CoffeeBagStorage;
 void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                                AccessibilityManager* accessibility,
                                ScreensaverVideoManager* screensaver,
@@ -46,6 +47,7 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
 void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
                         VisualizerUploader* visualizerUploader,
+                        CoffeeBagStorage* bagStorage,
                         AccessibilityManager* accessibility,
                         ScreensaverVideoManager* screensaver,
                         TranslationManager* translation,
@@ -157,6 +159,7 @@ void McpServer::registerAllTools()
                          m_mainController, m_settings);
     registerWriteTools(m_toolRegistry, m_profileManager, m_shotHistory, m_settings,
                        m_mainController ? m_mainController->visualizer() : nullptr,
+                       m_mainController ? m_mainController->bagStorage() : nullptr,
                        m_accessibilityManager, m_screensaverManager,
                        m_translationManager, m_batteryManager);
     registerScaleTools(m_toolRegistry, m_machineState);

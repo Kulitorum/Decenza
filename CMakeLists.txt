@@ -227,7 +227,6 @@ set(SOURCES
     src/core/settings_network.cpp
     src/core/settings_app.cpp
     src/core/settings_calibration.cpp
-    src/core/settings_beanbase.cpp
     src/core/widgetlibrary.cpp
     src/widget/machinestatussnapshot.cpp
     src/core/batterymanager.cpp
@@ -307,6 +306,8 @@ set(SOURCES
     src/history/shothistorystorage_internal.cpp
     src/history/shothistorystorage_serialize.cpp
     src/history/shothistorystorage_queries.cpp
+    src/history/coffeebagstorage.cpp
+    src/history/unifiedbeansearchmodel.cpp
     src/history/shotprojection.cpp
     src/history/shotdebuglogger.cpp
     src/history/shotfileparser.cpp
@@ -413,7 +414,6 @@ set(HEADERS
     src/core/settings_network.h
     src/core/settings_app.h
     src/core/settings_calibration.h
-    src/core/settings_beanbase.h
     src/core/grinderaliases.h
     src/core/widgetlibrary.h
     src/core/batterymanager.h
@@ -488,6 +488,8 @@ set(HEADERS
     src/history/shothistory_types.h
     src/history/shothistorystorage.h
     src/history/shothistorystorage_internal.h
+    src/history/coffeebagstorage.h
+    src/history/unifiedbeansearchmodel.h
     src/history/shotprojection.h
     src/history/shotdebuglogger.h
     src/history/shotfileparser.h
@@ -751,6 +753,9 @@ set(QML_FILES
     qml/components/BeanBaseSearchBar.qml
     qml/components/BeanBaseDetailsPopup.qml
     qml/components/BeanBaseDetailsRow.qml
+    qml/components/BeanSummary.qml
+    qml/components/ChangeBeansDialog.qml
+    qml/components/BagCard.qml
     qml/components/KeyboardAwareContainer.qml
     qml/components/AIConversationPanel.qml
     qml/components/ConversationOverlay.qml
@@ -1174,10 +1179,10 @@ if(NOT ANDROID AND NOT IOS)
         src/core/settings_mcp.cpp
         src/core/settings_brew.cpp
         src/core/settings_dye.cpp
+        src/history/coffeebagstorage.cpp
         src/core/settings_network.cpp
         src/core/settings_app.cpp
         src/core/settings_calibration.cpp
-        src/core/settings_beanbase.cpp
         src/ble/scales/scaletypeids.cpp
     )
     target_link_libraries(saw_parity PRIVATE Qt6::Core Qt6::Sql Qt6::Network Qt6::Gui Qt6::Bluetooth)

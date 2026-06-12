@@ -1,5 +1,6 @@
 #include <QSignalSpy>
 #include <QtTest>
+#include <QRegularExpression>
 
 #include "ble/protocol/de1characteristics.h"
 #include "ble/refractometers/aes128.h"
@@ -149,6 +150,9 @@ private slots:
         QSignalSpy completeSpy(&r1, &RefractometerDevice::measurementComplete);
 
         // m_phase starts at Disconnected. Any valid-sized ct must be dropped.
+        // The drop is logged as a warning — that's the behaviour under test.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("Measurement frame arrived before key derivation"));
         const QByteArray ct = hexToBytes("5A 06 A0 05 22 D2 33 4D 0F 0B 28 F6 78 D9 DE CA");
         r1.handleMeasurementFrame(ct);
 
@@ -179,7 +183,10 @@ private slots:
         r1.m_phase = DiFluidR1::Phase::Ready;
         QSignalSpy logSpy(&r1, &RefractometerDevice::logMessage);
 
-        // RI = 1.20 — below the [1.30, 1.50] band.
+        // RI = 1.20 — below the [1.30, 1.50] band; the out-of-band warning
+        // is the behaviour under test.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("outside the plausible band"));
         const QByteArray pt = makePlaintext(25.0, 2.0, 1.20, 2.0);
         r1.handleMeasurementFrame(encryptUnderTestKey(pt, key));
 
@@ -214,7 +221,9 @@ private slots:
         DiFluidR1 r1(nullptr);
         QSignalSpy measuringSpy(&r1, &RefractometerDevice::measuringChanged);
 
-        // Disconnected — must not flip measuring.
+        // Disconnected — must not flip measuring. Each no-op read logs a
+        // warning (one per requestMeasurement call below).
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cannot read — not connected"));
         r1.requestMeasurement();
         QCOMPARE(measuringSpy.count(), 0);
         QVERIFY(!r1.isMeasuring());
@@ -222,6 +231,7 @@ private slots:
 
         // CharacteristicsReady (chars discovered, key not derived yet).
         r1.m_phase = DiFluidR1::Phase::CharacteristicsReady;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Cannot read — not connected"));
         r1.requestMeasurement();
         QCOMPARE(measuringSpy.count(), 0);
         QVERIFY(!r1.isMeasuring());
@@ -236,6 +246,8 @@ private slots:
         // Directly fire the singleshot timeout slot via QMetaObject — the
         // timer is already wired in the constructor. setInterval(0) + start
         // ensures the lambda runs on the next event loop tick.
+        // The timeout slot logs a warning — expected.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Measurement timeout"));
         r1.m_measurementTimer.setInterval(0);
         r1.m_measurementTimer.start();
         QTRY_COMPARE(spy.count(), 1);
@@ -289,6 +301,8 @@ private slots:
         r1.m_initTimer.start(60000);
         r1.m_saltWatchdog.start(60000);
 
+        // onTransportError logs the reason — expected.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Transport error: simulated error"));
         r1.onTransportError("simulated error");
 
         QCOMPARE(r1.m_phase, DiFluidR1::Phase::Disconnected);
@@ -306,6 +320,8 @@ private slots:
         QSignalSpy errSpy(&r1, &RefractometerDevice::errorOccurred);
         QSignalSpy measSpy(&r1, &RefractometerDevice::measuringChanged);
 
+        // Out-of-range Brix is rejected with a warning — that's the test.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Brix out of range"));
         r1.emitTdsResult(40.0, 25.0);  // above 35.0 ceiling
 
         QCOMPARE(tdsSpy.count(), 0);
@@ -321,6 +337,7 @@ private slots:
         r1.m_phase = DiFluidR1::Phase::Ready;
         QSignalSpy errSpy(&r1, &RefractometerDevice::errorOccurred);
 
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Brix out of range"));
         r1.emitTdsResult(-40.0, 25.0);  // R1 gates symmetrically (R2 does not)
 
         QCOMPARE(errSpy.count(), 1);
@@ -348,7 +365,9 @@ private slots:
         r1.m_phase = DiFluidR1::Phase::CharacteristicsReady;
         QSignalSpy connSpy(&r1, &RefractometerDevice::connectedChanged);
 
-        // 5 bytes — below the 6-byte minimum.
+        // 5 bytes — below the 6-byte minimum; the short-salt teardown logs
+        // a warning, which is the behaviour under test.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Salt read returned too few bytes"));
         r1.onCharacteristicRead(Refractometer::DiFluidR1::SALT,
                                 QByteArray::fromHex("0102030405"));
 

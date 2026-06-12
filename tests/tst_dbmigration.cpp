@@ -166,7 +166,7 @@ private slots:
             QVERIFY(hasTable(db, "shot_samples"));
             QVERIFY(hasTable(db, "shot_phases"));
             QVERIFY(hasTable(db, "schema_version"));
-            QCOMPARE(getSchemaVersion(db), 18);
+            QCOMPARE(getSchemaVersion(db), 21);
         });
     }
 
@@ -232,7 +232,7 @@ private slots:
         initAndClose(path, storage);
 
         withRawDb(path, "v1_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 18);
+            QCOMPARE(getSchemaVersion(db), 21);
             QVERIFY(hasColumn(db, "shots", "temperature_override"));
             QVERIFY(hasColumn(db, "shots", "yield_override"));
             QVERIFY(hasColumn(db, "shots", "beverage_type"));
@@ -348,7 +348,7 @@ private slots:
         withRawDb(path, "v9_verify", [](QSqlDatabase& db) {
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasIndex(db, "idx_shots_profile_kb_id"));
-            QCOMPARE(getSchemaVersion(db), 18);
+            QCOMPARE(getSchemaVersion(db), 21);
         });
     }
 
@@ -362,7 +362,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "idempotent", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 18);
+            QCOMPARE(getSchemaVersion(db), 21);
         });
     }
 
@@ -382,7 +382,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "empty_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 18);
+            QCOMPARE(getSchemaVersion(db), 21);
         });
     }
 
@@ -405,7 +405,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "null_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 18);
+            QCOMPARE(getSchemaVersion(db), 21);
             QSqlQuery q(db);
             q.exec("SELECT grinder_brand FROM shots WHERE uuid = 'test-null'");
             QVERIFY(q.next());
@@ -582,7 +582,7 @@ private slots:
                 }
             }
         });
-        QCOMPARE(versionFound, 18);
+        QCOMPARE(versionFound, 21);
         QVERIFY2(!hasEnjoymentSource,
                  "enjoyment_source column must be absent after migration 16");
     }
@@ -684,7 +684,7 @@ private slots:
             }
         });
 
-        QCOMPARE(versionFound, 18);
+        QCOMPARE(versionFound, 21);
         QVERIFY2(columnGone, "enjoyment_source column must be dropped");
         QCOMPARE(enjoy1, 50);
         QCOMPARE(enjoy2, 50);
@@ -995,6 +995,42 @@ private slots:
             s.close();
             for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
         }
+    }
+
+    // ==========================================
+    // Migration 21: coffee_bags.yield_target_g -> yield_override_g
+    // ==========================================
+    // The bag yield column was renamed when the yield-override model landed
+    // (bean-bag-inventory). Fresh DBs get yield_override_g from CREATE TABLE;
+    // dev DBs already at v19/v20 carry the old name and are repaired by
+    // migration 21. Simulate the old state by renaming the column back and
+    // resetting the version, then re-initialize and verify the rename plus
+    // that the stored value survived the ALTER.
+    void v21_renamesYieldColumn() {
+        const QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        // Force the pre-rename schema: new name -> old name, version 20.
+        withRawDb(path, "v21_setup", [](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("ALTER TABLE coffee_bags RENAME COLUMN yield_override_g TO yield_target_g"));
+            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, yield_target_g, in_inventory) "
+                           "VALUES ('Onyx', 'Geometry', 42.0, 1)"));
+            q.exec("DELETE FROM schema_version");
+            q.exec("INSERT INTO schema_version (version) VALUES (20)");
+        });
+
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        withRawDb(path, "v21_verify", [](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), 21);
+            QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
+            QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT yield_override_g FROM coffee_bags WHERE coffee_name = 'Geometry'"));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toDouble(), 42.0);
+        });
     }
 };
 

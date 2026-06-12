@@ -4,16 +4,23 @@
 #include <QSettings>
 #include <QString>
 #include <QStringList>
-#include <QVariantList>
 #include <QVariantMap>
-#include <QJsonArray>
 
 class SettingsVisualizer;
+class CoffeeBagStorage;
 
-// DYE (Describe Your Espresso) metadata + bean preset CRUD. Split from Settings
-// to keep settings.h's transitive-include footprint small. Holds a non-owning
+// DYE (Describe Your Espresso) metadata. Split from Settings to keep
+// settings.h's transitive-include footprint small. Holds a non-owning
 // pointer to SettingsVisualizer so dyeEspressoEnjoyment can fall back to the
 // user-configured defaultShotRating when no per-shot value has been written.
+//
+// Bean model (bean-bag-inventory): the active coffee bag IS the bean state.
+// The dye/* QSettings keys act as a synchronous write-through cache of the
+// active bag — selecting a bag copies its fields in (applyActiveBag), and
+// every bean/grinder/dose setter writes through to the bag row on a
+// background thread. There is no separate preset list and no modified-state
+// tracking; the old bean/presets QSettings array is migrated to the
+// coffee_bags table by ShotHistoryStorage.
 class SettingsDye : public QObject {
     Q_OBJECT
 
@@ -43,19 +50,23 @@ class SettingsDye : public QObject {
     Q_PROPERTY(QString dyeBeanBaseId READ dyeBeanBaseId WRITE setDyeBeanBaseId NOTIFY dyeBeanBaseIdChanged)
     Q_PROPERTY(QString dyeBeanBaseData READ dyeBeanBaseData WRITE setDyeBeanBaseData NOTIFY dyeBeanBaseDataChanged)
 
-    // Bean presets
-    Q_PROPERTY(QVariantList beanPresets READ beanPresets NOTIFY beanPresetsChanged)
-    // Filtered view of beanPresets: only rows where showOnIdle == true. Each row gains
-    // an `originalIndex` field mapping back into beanPresets for selection/apply calls.
-    Q_PROPERTY(QVariantList idleBeanPresets READ idleBeanPresets NOTIFY beanPresetsChanged)
-    Q_PROPERTY(int selectedBeanPreset READ selectedBeanPreset WRITE setSelectedBeanPreset NOTIFY selectedBeanPresetChanged)
-    // True when selectedBeanPreset >= 0 AND any DYE bean/grinder field diverges from the preset's stored value.
-    // Mirrors the ProfileManager.profileModified concept so the beans pill can show an "unsaved" indicator.
-    Q_PROPERTY(bool beansModified READ beansModified NOTIFY beansModifiedChanged)
+    // The active coffee bag (DB row id in coffee_bags), -1 = no bag selected.
+    // Setting it loads the bag and applies its fields to the dye cache.
+    Q_PROPERTY(int activeBagId READ activeBagId WRITE setActiveBagId NOTIFY activeBagIdChanged)
+    // Lifecycle fields of the active bag, mirrored for QML display and the
+    // shot snapshot (read-only here; edited via CoffeeBagStorage).
+    Q_PROPERTY(QString activeBagFrozenDate READ activeBagFrozenDate NOTIFY activeBagChanged)
+    Q_PROPERTY(QString activeBagDefrostDate READ activeBagDefrostDate NOTIFY activeBagChanged)
 
 public:
     // visualizer is non-owning and must outlive this object (Settings owns both).
     explicit SettingsDye(SettingsVisualizer* visualizer, QObject* parent = nullptr);
+
+    // Non-owning; attached by main.cpp once ShotHistoryStorage has run the
+    // migrations. Loads the active bag into the dye cache and subscribes to
+    // bag updates so external edits (bag edit dialog, Next Portion, dose
+    // stamp) refresh the cache.
+    void setBagStorage(CoffeeBagStorage* storage);
 
     // DYE metadata
     QString dyeBeanBrand() const;
@@ -117,37 +128,34 @@ public:
     QString dyeBeanBaseData() const;
     void setDyeBeanBaseData(const QString& value);
 
-    // Convenience: clear all three Bean Base link fields (Unlink action).
+    // Convenience: clear all Bean Base link fields (Unlink action). Writes
+    // through to the active bag like any other bean-field edit.
     Q_INVOKABLE void clearBeanBaseLink();
 
-    // Bean presets
-    QVariantList beanPresets() const;
-    int selectedBeanPreset() const;
-    void setSelectedBeanPreset(int index);
+    // Active bag
+    int activeBagId() const;
+    void setActiveBagId(int bagId);
+    // Select a bag WITHOUT copying its stored fields into the dye cache —
+    // for callers about to apply field values of their own (loading a
+    // historical shot's setup, where the shot's grind/dose should win over
+    // the bag's last-used values; the subsequent setters write through, so
+    // the bag adopts the shot's values). Lifecycle display fields still
+    // refresh.
+    Q_INVOKABLE void setActiveBagKeepFields(int bagId);
+    QString activeBagFrozenDate() const { return m_activeBagFrozenDate; }
+    QString activeBagDefrostDate() const { return m_activeBagDefrostDate; }
 
-    Q_INVOKABLE void addBeanPreset(const QString& name, const QString& brand, const QString& type,
-                                   const QString& roastDate, const QString& roastLevel,
-                                   const QString& grinderBrand, const QString& grinderModel,
-                                   const QString& grinderBurrs, const QString& grinderSetting,
-                                   const QString& barista);
-    Q_INVOKABLE void updateBeanPreset(int index, const QString& name, const QString& brand,
-                                      const QString& type, const QString& roastDate,
-                                      const QString& roastLevel, const QString& grinderBrand,
-                                      const QString& grinderModel, const QString& grinderBurrs,
-                                      const QString& grinderSetting, const QString& barista);
-    Q_INVOKABLE void removeBeanPreset(int index);
-    Q_INVOKABLE void moveBeanPreset(int from, int to);
-    Q_INVOKABLE void setBeanPresetShowOnIdle(int index, bool show);
-    QVariantList idleBeanPresets() const;
-    Q_INVOKABLE QVariantMap getBeanPreset(int index) const;
-    Q_INVOKABLE void applyBeanPreset(int index);              // Sets all DYE fields from preset
-    Q_INVOKABLE void saveBeanPresetFromCurrent(const QString& name);
-    Q_INVOKABLE int findBeanPresetByContent(const QString& brand, const QString& type) const;
-    Q_INVOKABLE int findBeanPresetByName(const QString& name) const;
-    // Canonical-id match — preferred over brand+type when the bean is linked.
-    Q_INVOKABLE int findBeanPresetByBeanBaseId(const QString& beanBaseId) const;
-
-    bool beansModified() const { return m_beansModified; }
+    // The active bag's yield override (grams). 0 = no override; the bag
+    // follows the profile's target weight. Applied to Settings.brew's
+    // brewYieldOverride on a user bean switch (see applyActiveBag); the
+    // brew-settings commit writes it back via persistYieldOverrideToBag().
+    double activeBagYieldOverrideG() const { return m_activeBagYieldOverrideG; }
+    // Persist the brew-settings yield override to the active bag. yieldOverrideG
+    // <= 0 stores 0 (no override — the bag follows the profile default). Called
+    // from ProfileManager::activateBrewWithOverrides (the single brew-settings
+    // commit point), not on every override change, so there is no race with the
+    // clear-on-switch reset.
+    void persistYieldOverrideToBag(double yieldOverrideG);
 
     // Invalidate cached DYE values so the next getter re-reads from QSettings.
     // Called by Settings::factoryReset() after wiping the store. Also zeros
@@ -177,19 +185,36 @@ signals:
     void dyeShotDateTimeChanged();
     void dyeBeanBaseIdChanged();
     void dyeBeanBaseDataChanged();
-    void beanPresetsChanged();
-    void selectedBeanPresetChanged();
-    void beansModifiedChanged();
+    void activeBagIdChanged();
+    void activeBagChanged();
+    // Emitted only from applyActiveBag (a user bean switch, not a keep-fields
+    // historical/favorite load) carrying the new bag's yield override. The
+    // MainController applies it to Settings.brew after the switch's
+    // clear-to-profile-default reset, so a bag with an override turns the idle
+    // brew-settings widget yellow and a bag without one stays at the default.
+    void activeBagYieldOverrideApplied(double yieldOverrideG);
 
 private:
-    QJsonArray getBeanPresetsArray() const;
-    void recomputeBeansModified();
     void ensureDyeCacheLoaded() const;
+    // Copy the bag's fields into the dye cache (bean identity always —
+    // including empties, absence is silence; grinder/dose only when the bag
+    // has values, so a fresh bag inherits the current setup and adopts it
+    // via write-through later).
+    void applyActiveBag(const QVariantMap& bag);
+    // Queue an async write of one field to the active bag (no-op while
+    // applyActiveBag is running or when no bag/storage is attached).
+    void writeThroughToBag(const QString& field, const QVariant& value);
 
     mutable QSettings m_settings;
     SettingsVisualizer* m_visualizer = nullptr;  // Non-owning; for default-rating fallback.
+    CoffeeBagStorage* m_bagStorage = nullptr;    // Non-owning; attached post-init.
 
-    bool m_beansModified = false;
+    bool m_applyingBag = false;  // Suppress write-through echo during applyActiveBag
+    bool m_keepFieldsOnNextApply = false;  // setActiveBagKeepFields: next bagReady only refreshes lifecycle
+    int m_pendingSelfWrites = 0; // Outstanding write-throughs whose bagUpdated echo to skip
+    QString m_activeBagFrozenDate;
+    QString m_activeBagDefrostDate;
+    double m_activeBagYieldOverrideG = 0;  // active bag's yield override (0 = none)
 
     // Cached DYE values (avoid QSettings::value() → CFPreferences on every QML binding read)
     mutable QString m_dyeGrinderBrandCache;

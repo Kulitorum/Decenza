@@ -52,10 +52,10 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/settings_mcp.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_brew.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_dye.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp  # SettingsDye write-through dependency
     ${CMAKE_SOURCE_DIR}/src/core/settings_network.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_app.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_calibration.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/settings_beanbase.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/scales/scaletypeids.cpp
 )
 
@@ -290,6 +290,7 @@ add_decenza_test(tst_aimanager
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
     ${PROFILE_SOURCES}
     ${CORE_SOURCES}
     ${CODEC_SOURCES}
@@ -421,6 +422,7 @@ set(HISTORY_SOURCES
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
@@ -431,6 +433,25 @@ set(HISTORY_SOURCES
     ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
     ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
 )
+
+# --- tst_coffeebags: coffee bag storage, preset->bag migration, transfer
+# survival, and the unified bean search merge logic (bean-bag-inventory) ---
+find_package(Qt6 REQUIRED COMPONENTS Quick)
+add_decenza_test(tst_coffeebags
+    tst_coffeebags.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
+    ${CMAKE_SOURCE_DIR}/src/history/unifiedbeansearchmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/beanbaseclient.cpp
+    ${HISTORY_SOURCES}
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_coffeebags PRIVATE Qt6::Graphs Qt6::Quick)
+target_include_directories(tst_coffeebags PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_dbmigration: DB schema creation and migration chain ---
 find_package(Qt6 REQUIRED COMPONENTS Quick)
@@ -689,6 +710,7 @@ add_decenza_test(tst_mcptools_write
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
@@ -718,6 +740,7 @@ add_decenza_test(tst_mcpserver_session
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
@@ -748,6 +771,7 @@ add_decenza_test(tst_mcpserver_protocol
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp

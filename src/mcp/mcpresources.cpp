@@ -156,8 +156,15 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
             QJsonObject bean;
             QJsonObject grinder;
             if (settings) {
+                // The dye fields are read-throughs of the active coffee bag
+                // (bean-bag-inventory), so this block describes the active
+                // bag without needing a separate lookup.
                 bean["brand"] = settings->dye()->dyeBeanBrand();
                 bean["type"] = settings->dye()->dyeBeanType();
+                if (settings->dye()->activeBagId() > 0)
+                    bean["bagId"] = settings->dye()->activeBagId();
+                if (!settings->dye()->activeBagDefrostDate().isEmpty())
+                    bean["defrostDate"] = settings->dye()->activeBagDefrostDate();
                 // Normalize roast date to ISO 8601 if parseable, otherwise pass through as user text
                 QString rawDate = settings->dye()->dyeRoastDate();
                 QDate parsed = QDate::fromString(rawDate, Qt::ISODate);

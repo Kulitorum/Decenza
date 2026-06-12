@@ -62,6 +62,12 @@ class ShotProjection {
     Q_PROPERTY(QString profileJson MEMBER profileJson)
     Q_PROPERTY(QString profileKbId MEMBER profileKbId)
     Q_PROPERTY(QString beanBaseJson MEMBER beanBaseJson)
+    // Coffee bag snapshot (bean-bag-inventory): the bag this shot was pulled
+    // with (-1 = none / pre-bag shot) and the beans' freeze lifecycle at
+    // shot time (ISO dates, "" = unset).
+    Q_PROPERTY(qint64 bagId MEMBER bagId)
+    Q_PROPERTY(QString frozenDate MEMBER frozenDate)
+    Q_PROPERTY(QString defrostDate MEMBER defrostDate)
 
     Q_PROPERTY(bool channelingDetected MEMBER channelingDetected)
     Q_PROPERTY(bool grindIssueDetected MEMBER grindIssueDetected)
@@ -131,6 +137,9 @@ public:
     // Compact-JSON linked-bean snapshot ("" = unlinked) — Visualizer canonical
     // or Bean Base sourced; see ShotRecord::beanBaseJson.
     QString beanBaseJson;
+    qint64 bagId = -1;
+    QString frozenDate;
+    QString defrostDate;
 
     bool channelingDetected = false;
     bool grindIssueDetected = false;

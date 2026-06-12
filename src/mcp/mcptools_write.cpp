@@ -3,6 +3,7 @@
 #include "mcptoolregistry.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotprojection.h"
+#include "../history/coffeebagstorage.h"
 #include "../network/visualizeruploader.h"
 #include "../controllers/profilemanager.h"
 #include "../core/settings.h"
@@ -38,6 +39,7 @@
 void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
                         VisualizerUploader* visualizerUploader,
+                        CoffeeBagStorage* bagStorage,
                         AccessibilityManager* accessibility,
                         ScreensaverVideoManager* screensaver,
                         TranslationManager* translation,
@@ -1450,5 +1452,262 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }, Qt::QueuedConnection);
         },
         "settings");
+
+    // --- Coffee bag tools (bean-bag-inventory) ---
+
+    // Shared bag -> MCP JSON shape: units in field names, ISO dates as-is,
+    // Bean Base snapshot parsed into an object (matching shots_get_detail).
+    auto bagToJson = [settings](const CoffeeBag& bag) {
+        QJsonObject obj;
+        obj["bagId"] = bag.id;
+        obj["roasterName"] = bag.roasterName;
+        obj["coffeeName"] = bag.coffeeName;
+        if (!bag.roastDate.isEmpty()) obj["roastDate"] = bag.roastDate;
+        if (!bag.roastLevel.isEmpty()) obj["roastLevel"] = bag.roastLevel;
+        if (!bag.frozenDate.isEmpty()) obj["frozenDate"] = bag.frozenDate;
+        if (!bag.defrostDate.isEmpty()) obj["defrostDate"] = bag.defrostDate;
+        if (!bag.notes.isEmpty()) obj["notes"] = bag.notes;
+        obj["inInventory"] = bag.inInventory;
+        if (!bag.grinderBrand.isEmpty()) obj["grinderBrand"] = bag.grinderBrand;
+        if (!bag.grinderModel.isEmpty()) obj["grinderModel"] = bag.grinderModel;
+        if (!bag.grinderBurrs.isEmpty()) obj["grinderBurrs"] = bag.grinderBurrs;
+        if (!bag.grinderSetting.isEmpty()) obj["grinderSetting"] = bag.grinderSetting;
+        if (bag.doseWeightG > 0) obj["doseWeightG"] = bag.doseWeightG;
+        if (bag.yieldOverrideG > 0) obj["yieldOverrideG"] = bag.yieldOverrideG;
+        if (!bag.beanBaseData.isEmpty()) {
+            const QJsonDocument doc = QJsonDocument::fromJson(bag.beanBaseData.toUtf8());
+            if (doc.isObject())
+                obj["beanBase"] = doc.object();
+        }
+        obj["isActive"] = settings && settings->dye()->activeBagId() == bag.id;
+        return obj;
+    };
+
+    // bag_list — read the coffee bag inventory.
+    registry->registerAsyncTool(
+        "bag_list",
+        "List the user's coffee bags. By default only bags in inventory (open bags currently in "
+        "use); pass includeEmpty=true to also list bags marked empty. The bag with isActive=true "
+        "is what the next shot will be pulled with.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"includeEmpty", QJsonObject{{"type", "boolean"},
+                    {"description", "Also include bags no longer in inventory (marked empty)"}}}
+            }}
+        },
+        [shotHistory, bagToJson](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            if (!shotHistory || !shotHistory->isReady()) {
+                respond(QJsonObject{{"error", "Storage not available"}});
+                return;
+            }
+            const bool includeEmpty = args["includeEmpty"].toBool();
+            const QString dbPath = shotHistory->databasePath();
+            QThread* thread = QThread::create([dbPath, includeEmpty, bagToJson, respond]() {
+                QJsonArray bags;
+                const bool opened = withTempDb(dbPath, "mcp_bags", [&](QSqlDatabase& db) {
+                    QSqlQuery query(db);
+                    const QString sql = includeEmpty
+                        ? QStringLiteral("SELECT id FROM coffee_bags ORDER BY in_inventory DESC, last_used DESC, id DESC")
+                        : QStringLiteral("SELECT id FROM coffee_bags WHERE in_inventory = 1 ORDER BY last_used DESC, id DESC");
+                    if (!query.exec(sql))
+                        return;
+                    while (query.next()) {
+                        const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, query.value(0).toLongLong());
+                        if (bag.isValid())
+                            bags.append(bagToJson(bag));
+                    }
+                });
+                QMetaObject::invokeMethod(qApp, [opened, bags, respond]() {
+                    if (!opened) {
+                        respond(QJsonObject{{"error", "Could not open shot database"}});
+                        return;
+                    }
+                    respond(QJsonObject{{"bags", bags}, {"count", bags.size()}});
+                }, Qt::QueuedConnection);
+            });
+            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+            thread->start();
+        },
+        "read");
+
+    // bag_update — edit a bag's metadata / lifecycle.
+    registry->registerAsyncTool(
+        "bag_update",
+        "Update fields on a coffee bag (metadata and freeze lifecycle). Only provided fields "
+        "change. Pass an empty string to clear a text/date field. Setting inInventory=false marks "
+        "the bag empty (removes it from the inventory view; shots keep their snapshots). "
+        "Setting defrostDate records a thaw (the latest portion leaving the freezer).",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"bagId", QJsonObject{{"type", "integer"}, {"description", "Bag ID (from bag_list)"}}},
+                {"roasterName", QJsonObject{{"type", "string"}}},
+                {"coffeeName", QJsonObject{{"type", "string"}}},
+                {"roastDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear"}}},
+                {"roastLevel", QJsonObject{{"type", "string"}}},
+                {"frozenDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear"}}},
+                {"defrostDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear"}}},
+                {"notes", QJsonObject{{"type", "string"}}},
+                {"grinderBrand", QJsonObject{{"type", "string"}}},
+                {"grinderModel", QJsonObject{{"type", "string"}}},
+                {"grinderBurrs", QJsonObject{{"type", "string"}}},
+                {"grinderSetting", QJsonObject{{"type", "string"}}},
+                {"doseWeightG", QJsonObject{{"type", "number"}}},
+                {"yieldOverrideG", QJsonObject{{"type", "number"}}},
+                {"inInventory", QJsonObject{{"type", "boolean"}, {"description", "false = mark the bag empty"}}}
+            }},
+            {"required", QJsonArray{"bagId"}}
+        },
+        [shotHistory, bagToJson, bagStorage](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            if (!shotHistory || !shotHistory->isReady()) {
+                respond(QJsonObject{{"error", "Storage not available"}});
+                return;
+            }
+            const qint64 bagId = args["bagId"].toInteger();
+            if (bagId <= 0) {
+                respond(QJsonObject{{"error", "Valid bagId is required"}});
+                return;
+            }
+            QVariantMap fields;
+            static const QStringList kEditable = {
+                "roasterName", "coffeeName", "roastDate", "roastLevel",
+                "frozenDate", "defrostDate", "notes",
+                "grinderBrand", "grinderModel", "grinderBurrs", "grinderSetting",
+                "doseWeightG", "yieldOverrideG", "inInventory"};
+            for (const QString& key : kEditable) {
+                if (args.contains(key))
+                    fields.insert(key, args[key].toVariant());
+            }
+            if (fields.isEmpty()) {
+                respond(QJsonObject{{"error", "No fields to update"}});
+                return;
+            }
+            const QString dbPath = shotHistory->databasePath();
+
+            // Load the just-updated bag on a background thread and respond.
+            auto respondWithBag = [dbPath, bagId, bagToJson, respond]() {
+                QThread* t = QThread::create([dbPath, bagId, bagToJson, respond]() {
+                    CoffeeBag updated;
+                    withTempDb(dbPath, "mcp_bagupd_read", [&](QSqlDatabase& db) {
+                        updated = CoffeeBagStorage::loadBagStatic(db, bagId);
+                    });
+                    QMetaObject::invokeMethod(qApp, [updated, bagToJson, bagId, respond]() {
+                        // The update succeeded, but the read-back can come up empty
+                        // if the row was deleted (or the read failed) in between —
+                        // surface that rather than reporting a hollow bag as success.
+                        if (!updated.isValid()) {
+                            respond(QJsonObject{{"error", "Bag " + QString::number(bagId)
+                                + " updated but reload failed (it may have been deleted)"}});
+                            return;
+                        }
+                        respond(QJsonObject{{"success", true}, {"bag", bagToJson(updated)}});
+                    }, Qt::QueuedConnection);
+                });
+                QObject::connect(t, &QThread::finished, t, &QObject::deleteLater);
+                t->start();
+            };
+
+            if (bagStorage) {
+                // Route through the storage INSTANCE so the write fires
+                // bagsChanged (open inventory views refresh), bagVisualizer-
+                // FieldsChanged (push the edit to the synced Visualizer bag),
+                // and the active-bag dye refresh via SettingsDye's bagUpdated
+                // handler. That refresh is a no-op re-apply, so it does NOT
+                // reset the user's brew overrides — unlike the old
+                // setActiveBagId(-1) toggle, which fired clearBrewOverrides.
+                QMetaObject::invokeMethod(qApp, [bagStorage, bagId, fields, respondWithBag, respond]() {
+                    auto conn = std::make_shared<QMetaObject::Connection>();
+                    *conn = QObject::connect(bagStorage, &CoffeeBagStorage::bagUpdated, bagStorage,
+                        [conn, bagId, respondWithBag, respond](qint64 updatedId, bool success) {
+                            if (updatedId != bagId)
+                                return;  // a concurrent update of a different bag
+                            QObject::disconnect(*conn);
+                            if (!success) {
+                                respond(QJsonObject{{"error", "Bag not found or update failed: "
+                                                              + QString::number(bagId)}});
+                                return;
+                            }
+                            respondWithBag();
+                        });
+                    bagStorage->requestUpdateBag(bagId, fields);
+                }, Qt::QueuedConnection);
+                return;
+            }
+
+            // Fallback (no storage instance — e.g. headless tests): direct
+            // static write. Skips the in-app refresh/sync signals.
+            QThread* thread = QThread::create([dbPath, bagId, fields, respondWithBag, respond]() {
+                bool success = false;
+                withTempDb(dbPath, "mcp_bagupd", [&](QSqlDatabase& db) {
+                    success = CoffeeBagStorage::updateBagFieldsStatic(db, bagId, fields);
+                });
+                if (success) {
+                    respondWithBag();
+                } else {
+                    QMetaObject::invokeMethod(qApp, [bagId, respond]() {
+                        respond(QJsonObject{{"error", "Bag not found or update failed: "
+                                                      + QString::number(bagId)}});
+                    }, Qt::QueuedConnection);
+                }
+            });
+            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+            thread->start();
+        },
+        "settings");
+
+    // bag_select — set the active bag (what the next shot is pulled with).
+    registry->registerAsyncTool(
+        "bag_select",
+        "Select the active coffee bag — the bag the next shot will be pulled with. Applies the "
+        "bag's bean identity and last-used grinder/dose to the next-shot setup. Pass bagId 0 to "
+        "clear the selection (no beans selected).",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"bagId", QJsonObject{{"type", "integer"},
+                    {"description", "Bag ID from bag_list, or 0 to clear the selection"}}}
+            }},
+            {"required", QJsonArray{"bagId"}}
+        },
+        [shotHistory, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            if (!settings) {
+                respond(QJsonObject{{"error", "Settings not available"}});
+                return;
+            }
+            const qint64 bagId = args["bagId"].toInteger();
+            if (bagId <= 0) {
+                QMetaObject::invokeMethod(qApp, [settings, respond]() {
+                    settings->dye()->setActiveBagId(-1);
+                    respond(QJsonObject{{"success", true}, {"message", "Bean selection cleared"}});
+                }, Qt::QueuedConnection);
+                return;
+            }
+            if (!shotHistory || !shotHistory->isReady()) {
+                respond(QJsonObject{{"error", "Storage not available"}});
+                return;
+            }
+            // Validate the bag exists before selecting it.
+            const QString dbPath = shotHistory->databasePath();
+            QThread* thread = QThread::create([dbPath, bagId, settings, respond]() {
+                CoffeeBag bag;
+                withTempDb(dbPath, "mcp_bagsel", [&](QSqlDatabase& db) {
+                    bag = CoffeeBagStorage::loadBagStatic(db, bagId);
+                });
+                QMetaObject::invokeMethod(qApp, [bag, bagId, settings, respond]() {
+                    if (!bag.isValid()) {
+                        respond(QJsonObject{{"error", "Bag not found: " + QString::number(bagId)}});
+                        return;
+                    }
+                    settings->dye()->setActiveBagId(static_cast<int>(bagId));
+                    respond(QJsonObject{{"success", true},
+                                        {"message", QString("Active bag: %1 %2")
+                                            .arg(bag.roasterName, bag.coffeeName).trimmed()}});
+                }, Qt::QueuedConnection);
+            });
+            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+            thread->start();
+        },
+        "control");
 
 }
