@@ -412,21 +412,21 @@ KeyboardAwareContainer {
                                 text: TranslationManager.translate("settings.homeautomation.apiState", "GET /api/state - Machine state")
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(10)
-                                font.family: "monospace"
+                                font.family: Theme.monoFontFamily
                             }
 
                             Text {
                                 text: TranslationManager.translate("settings.homeautomation.apiTelemetry", "GET /api/telemetry - All sensor data")
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(10)
-                                font.family: "monospace"
+                                font.family: Theme.monoFontFamily
                             }
 
                             Text {
                                 text: TranslationManager.translate("settings.homeautomation.apiCommand", "POST /api/command - Send wake/sleep")
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(10)
-                                font.family: "monospace"
+                                font.family: Theme.monoFontFamily
                             }
 
                             Text {

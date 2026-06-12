@@ -256,7 +256,7 @@ KeyboardAwareContainer {
                                 id: hexField
                                 Layout.preferredWidth: Theme.scaled(120)
                                 text: themesTab.colorToHex(selectedColorValue)
-                                font.family: "monospace"
+                                font.family: Theme.monoFontFamily
                                 font.pixelSize: Theme.bodyFont.pixelSize
                                 inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
 

@@ -1648,7 +1648,7 @@ KeyboardAwareContainer {
                                 anchors.centerIn: parent
                                 text: totpSetupDialog.totpSecret
                                 color: Theme.textColor
-                                font.family: "monospace"
+                                font.family: Theme.monoFontFamily
                                 font.pixelSize: Theme.scaled(11)
                                 font.bold: true
 

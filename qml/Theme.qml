@@ -301,6 +301,19 @@ QtObject {
     readonly property font valueFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.valueSize || 48), bold: true })
     readonly property font timerFont: Qt.font({ pixelSize: scaled(Settings.theme.customFontSizes.timerSize || 72), bold: true })
 
+    // Real monospace family per platform. "monospace" is NOT a registered font
+    // family on macOS/iOS/Windows — using it triggers a slow font-alias scan and
+    // a Qt warning at startup. Resolve to a family that actually exists. Always
+    // use Theme.monoFontFamily for monospaced text, never the literal "monospace".
+    readonly property string monoFontFamily: {
+        switch (Qt.platform.os) {
+            case "osx":
+            case "ios": return "Menlo"
+            case "windows": return "Consolas"
+            default: return "monospace"  // android / linux: the generic resolves
+        }
+    }
+
     // Scaled dimensions
     readonly property int buttonRadius: scaled(12)
     readonly property int cardRadius: scaled(16)

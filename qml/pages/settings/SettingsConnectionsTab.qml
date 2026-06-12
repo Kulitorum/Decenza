@@ -624,7 +624,7 @@ Item {
                                 readOnly: true
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(11)
-                                font.family: "monospace"
+                                font.family: Theme.monoFontFamily
                                 wrapMode: Text.Wrap
                                 background: null
                                 text: ""
@@ -810,7 +810,7 @@ Item {
                                 readOnly: true
                                 color: Theme.textSecondaryColor
                                 font.pixelSize: Theme.scaled(11)
-                                font.family: "monospace"
+                                font.family: Theme.monoFontFamily
                                 wrapMode: Text.Wrap
                                 background: null
                                 text: ""
@@ -1803,7 +1803,7 @@ Item {
                                     readOnly: true
                                     color: Theme.textSecondaryColor
                                     font.pixelSize: Theme.scaled(11)
-                                    font.family: "monospace"
+                                    font.family: Theme.monoFontFamily
                                     wrapMode: Text.Wrap
                                     background: null
                                     text: ""
