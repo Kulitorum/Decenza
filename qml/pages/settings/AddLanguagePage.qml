@@ -119,7 +119,7 @@ Page {
                         Text {
                             text: modelData.code.toUpperCase()
                             font.pixelSize: Theme.scaled(14)
-                            font.family: "monospace"
+                            font.family: Theme.monoFontFamily
                             font.bold: true
                             color: langMouseArea.pressed ? Theme.primaryContrastColor : Theme.primaryColor
                             Layout.preferredWidth: Theme.scaled(30)

@@ -164,8 +164,20 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                 bean["type"] = settings->dye()->dyeBeanType();
                 if (bagIdIsSet(settings->dye()->activeBagId()))
                     bean["bagId"] = settings->dye()->activeBagId();
-                if (!settings->dye()->activeBagDefrostDate().isEmpty())
-                    bean["defrostDate"] = settings->dye()->activeBagDefrostDate();
+                // Days out of the freezer, not a raw date: the AI shouldn't have
+                // to do date math (and may not reliably know today's date). This
+                // is the freshness clock the user already sees (the "Def %1d"
+                // line in BeanSummary). Omitted when there's no defrost date, it's
+                // unparseable, or it's in the future.
+                const QString defrostDate = settings->dye()->activeBagDefrostDate();
+                if (!defrostDate.isEmpty()) {
+                    const QDate def = QDate::fromString(defrostDate.left(10), Qt::ISODate);
+                    if (def.isValid()) {
+                        const qint64 daysOut = def.daysTo(QDate::currentDate());
+                        if (daysOut >= 0)
+                            bean["daysOutOfFreezer"] = daysOut;
+                    }
+                }
                 // Normalize roast date to ISO 8601 if parseable, otherwise pass through as user text
                 QString rawDate = settings->dye()->dyeRoastDate();
                 QDate parsed = QDate::fromString(rawDate, Qt::ISODate);

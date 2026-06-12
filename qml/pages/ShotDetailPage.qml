@@ -1047,7 +1047,7 @@ Page {
 
                 TextArea {
                     text: shotData.debugLog || TranslationManager.translate("shotdetail.nodebuglog", "No debug log available")
-                    font.family: "monospace"
+                    font.family: Theme.monoFontFamily
                     font.pixelSize: Theme.scaled(12)
                     color: Theme.textColor
                     readOnly: true

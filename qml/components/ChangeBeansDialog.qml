@@ -194,8 +194,10 @@ Dialog {
         fGrinderModel = bag.grinderModel || ""
         fGrinderBurrs = bag.grinderBurrs || ""
         fGrinderSetting = bag.grinderSetting || ""
-        fDose = (bag.doseWeightG ?? 0) > 0 ? String(bag.doseWeightG) : ""
-        fYield = (bag.yieldOverrideG ?? 0) > 0 ? String(bag.yieldOverrideG) : ""
+        // toFixed(1) (not String()) so a non-exact double like 37.8 prefills as
+        // "37.8", not "37.800000000000004" — matching the brew-settings format.
+        fDose = (bag.doseWeightG ?? 0) > 0 ? Number(bag.doseWeightG).toFixed(1) : ""
+        fYield = (bag.yieldOverrideG ?? 0) > 0 ? Number(bag.yieldOverrideG).toFixed(1) : ""
     }
 
     // Tier 1-4 search result -> creation form. Roast date is ALWAYS blank and
@@ -287,11 +289,11 @@ Dialog {
             if (root.context === "inventory") {
                 // "Add New Bag" → picking an existing inventory bag means
                 // "another bag of the same coffee" (e.g. a fresh purchase):
-                // open the creation form pre-filled from it, identity
-                // editable, roast date blank. A separate bag is created —
-                // two bags of one coffee, with their own dates/freeze, is
-                // expected and fine.
-                openSaveAsFromBag(row)
+                // open the creation form pre-filled from it with the bean
+                // identity LOCKED — same as picking a History result — and the
+                // roast date blank. A separate bag is created; two bags of one
+                // coffee, with their own dates/freeze, is expected and fine.
+                openFormFromResult(row)
             } else {
                 // Switching contexts (brew / idle / post-shot / historical):
                 // pick the existing bag, no new row.
@@ -301,20 +303,6 @@ Dialog {
         } else {
             openFormFromResult(row)
         }
-    }
-
-    // Pre-fill the creation form from an existing bag (identity, link,
-    // grinder, dose, notes), roast date blank, all fields editable so the
-    // user can adjust before saving the new bag.
-    function openSaveAsFromBag(row) {
-        resetForm()
-        formMode = "create"
-        editBagId = -1
-        prefillFromBag(row)
-        fRoastDate = ""
-        fNotes = row.notes || ""
-        identityKnown = false
-        mode = "form"
     }
 
     function parseWeight(text) {
@@ -619,7 +607,7 @@ Dialog {
                         AccessibleMouseArea {
                             anchors.fill: parent
                             accessibleName: resultRow.primaryText + ", " + root.sourceLabel(model.sources, model.tier)
-                                + (model.tier === 0 && model.bagId === Settings.dye.activeBagId
+                                + (resultRow.isActiveBag
                                     ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                             accessibleItem: resultRow
                             onAccessibleClicked: {

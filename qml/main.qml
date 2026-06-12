@@ -27,21 +27,6 @@ ApplicationWindow {
     leftPadding: 0
     rightPadding: 0
 
-    // [a11y-dbg] TEMP diagnostic for issue #1300 — remove before merge.
-    // Logs every soft-keyboard show/hide and which item is focused, so we can
-    // reproduce the TalkBack "keyboard opens on focus / focus trap" on the tablet.
-    // If `IME visible=true` appears right after a field gains focus WITHOUT a
-    // preceding onPressAction (double-tap), that is the trap reproduced.
-    Connections {
-        target: Qt.inputMethod
-        function onVisibleChanged() {
-            console.log("[a11y-dbg] IME visible=" + Qt.inputMethod.visible
-                        + " a11yEnabled=" + (typeof AccessibilityManager !== "undefined"
-                                             && AccessibilityManager.enabled)
-                        + " focusItem=" + root.activeFocusItem)
-        }
-    }
-
     // Debug flag to force live view on operation pages (for development)
     property bool debugLiveView: false
 
@@ -2354,7 +2339,7 @@ ApplicationWindow {
                     readOnly: true
                     selectByMouse: true
                     wrapMode: TextEdit.Wrap
-                    font.family: "monospace"
+                    font.family: Theme.monoFontFamily
                     font.pixelSize: Theme.bodyFont.pixelSize
                     color: Theme.textColor
 
@@ -2461,7 +2446,7 @@ ApplicationWindow {
                     readOnly: true
                     selectByMouse: true
                     wrapMode: TextEdit.Wrap
-                    font.family: "monospace"
+                    font.family: Theme.monoFontFamily
                     font.pixelSize: Theme.bodyFont.pixelSize
                     color: Theme.textColor
 

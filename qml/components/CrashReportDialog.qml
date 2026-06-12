@@ -175,7 +175,7 @@ Dialog {
                         TextArea {
                             readOnly: true
                             text: crashLog
-                            font.family: "monospace"
+                            font.family: Theme.monoFontFamily
                             font.pixelSize: Theme.scaled(10)
                             color: Theme.textColor
                             wrapMode: TextArea.Wrap

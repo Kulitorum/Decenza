@@ -210,7 +210,7 @@ Item {
                 Text {
                     text: Math.round(currentVal)
                     color: Theme.textColor
-                    font.family: "monospace"
+                    font.family: Theme.monoFontFamily
                     font.pixelSize: Theme.labelFont.pixelSize
                     Layout.preferredWidth: Theme.scaled(30)
                     horizontalAlignment: Text.AlignRight

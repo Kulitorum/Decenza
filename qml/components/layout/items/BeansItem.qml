@@ -140,9 +140,16 @@ Item {
     }
 
     // --- BAG PILL POPUP ---
-    Popup {
+    // Dialog (not Popup) so TalkBack can trap focus inside the pill list — a Qt
+    // Popup leaks focus and the pills are unreachable by swipe. modal traps
+    // focus; dim:false keeps it looking like a dropdown, header/footer:null
+    // strip the Dialog chrome so it renders like the old bare popup.
+    Dialog {
         id: presetPopup
-        modal: false
+        modal: true
+        dim: false
+        header: null
+        footer: null
         padding: Theme.spacingMedium
         closePolicy: Popup.CloseOnPressOutside
 
