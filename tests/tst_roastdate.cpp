@@ -46,6 +46,7 @@ void TstRoastDate::iso_passesThroughCanonical()
 {
     QCOMPARE(RoastDate::toIso(QStringLiteral("2025-12-15")), QStringLiteral("2025-12-15"));
     QCOMPARE(RoastDate::toIso(QStringLiteral("2025-01-02")), QStringLiteral("2025-01-02"));
+    QCOMPARE(RoastDate::toIso(QStringLiteral("2024-02-29")), QStringLiteral("2024-02-29"));  // leap day
 }
 
 void TstRoastDate::yearFirst_separators_normalize()
@@ -56,10 +57,10 @@ void TstRoastDate::yearFirst_separators_normalize()
 
 void TstRoastDate::usDisplay_unambiguous_normalize()
 {
-    // The actual legacy shape: US MM.DD.YYYY with dots, day > 12.
+    // The actual legacy shape: US MM.DD.YYYY with dots. Unambiguous because the
+    // day component exceeds 12, so month-first is the only valid calendar parse.
     QCOMPARE(RoastDate::toIso(QStringLiteral("12.15.2025")), QStringLiteral("2025-12-15"));
     QCOMPARE(RoastDate::toIso(QStringLiteral("12/15/2025")), QStringLiteral("2025-12-15"));
-    QCOMPARE(RoastDate::toIso(QStringLiteral("1/2/2025")), QStringLiteral("2025-01-02"));
 }
 
 void TstRoastDate::dayFirst_unambiguous_normalize()
@@ -67,16 +68,21 @@ void TstRoastDate::dayFirst_unambiguous_normalize()
     // Month 15 is impossible, so only day-first parses — locale is irrelevant.
     QCOMPARE(RoastDate::toIso(QStringLiteral("15.12.2025")), QStringLiteral("2025-12-15"));
     QCOMPARE(RoastDate::toIso(QStringLiteral("31/01/2025")), QStringLiteral("2025-01-31"));
+    QCOMPARE(RoastDate::toIso(QStringLiteral("29.02.2024")), QStringLiteral("2024-02-29"));  // leap day, day-first
 }
 
 void TstRoastDate::ambiguous_resolvesByLocale()
 {
-    // 01.02.2025 parses validly both ways — the locale order decides.
+    // Both groups <= 12, so both orders are valid calendar dates and the locale
+    // order (the order the legacy display string was written in) decides.
+    // Single-digit "1/2/2025" is equally ambiguous despite looking US-shaped.
     QLocale::setDefault(QLocale(QLocale::English, QLocale::UnitedStates));  // M/d
     QCOMPARE(RoastDate::toIso(QStringLiteral("01.02.2025")), QStringLiteral("2025-01-02"));
+    QCOMPARE(RoastDate::toIso(QStringLiteral("1/2/2025")), QStringLiteral("2025-01-02"));
 
     QLocale::setDefault(QLocale(QLocale::English, QLocale::UnitedKingdom));  // d/M
     QCOMPARE(RoastDate::toIso(QStringLiteral("01.02.2025")), QStringLiteral("2025-02-01"));
+    QCOMPARE(RoastDate::toIso(QStringLiteral("1/2/2025")), QStringLiteral("2025-02-01"));
 }
 
 void TstRoastDate::unparseable_passThrough_data()
@@ -89,6 +95,10 @@ void TstRoastDate::unparseable_passThrough_data()
     QTest::newRow("two digit year") << QStringLiteral("12.15.25");
     QTest::newRow("invalid both orders") << QStringLiteral("13.13.2025");
     QTest::newRow("iso datetime") << QStringLiteral("2025-12-15T10:00:00");
+    // Year-first shape but not a real calendar date: must pass through, never
+    // get silently mangled or cleared (exercises the isValid() guard).
+    QTest::newRow("year-first bad month") << QStringLiteral("2025-13-01");
+    QTest::newRow("year-first bad day") << QStringLiteral("2025.02.30");
 }
 
 void TstRoastDate::unparseable_passThrough()

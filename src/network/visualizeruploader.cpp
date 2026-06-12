@@ -1839,6 +1839,10 @@ void VisualizerUploader::addBagDescriptiveFields(QJsonObject& body, const QVaria
         if (!value.isEmpty())
             body[QLatin1String(key)] = value;
     };
+    // No RoastDate::toIso() here, unlike the shot paths: a CoffeeBag's roastDate
+    // is ISO yyyy-MM-dd by construction (ChangeBeansDialog only stores a 10-char
+    // yyyy-mm-dd), and findRemoteBag compares this same raw value against the
+    // server's roast_date — normalizing only one side would break that match.
     setIf("roast_date", bag.value("roastDate").toString());
     setIf("roast_level", bag.value("roastLevel").toString());
     setIf("frozen_date", bag.value("frozenDate").toString());

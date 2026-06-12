@@ -15,7 +15,8 @@
 // (app/models/concerns/date_parseable.rb). A dot-separated localized string is
 // therefore parsed correctly only when it matches the viewer's date setting,
 // and is otherwise misread or dropped. An unambiguous dash-separated ISO date
-// always misses every (dotted) strptime format and takes the Date.parse
+// always misses the strptime path (Visualizer's UI only offers dot-separated
+// formats: dd.mm.yyyy / mm.dd.yyyy / yyyy.mm.dd) and takes the Date.parse
 // fallback, resolving identically for every user — which keeps Coffee
 // Management's (roaster, name, parsed-date) bag matching correct.
 //
@@ -29,8 +30,8 @@ namespace RoastDate {
 inline bool localePrefersMonthFirst()
 {
     const QString fmt = QLocale().dateFormat(QLocale::ShortFormat);
-    const int mPos = fmt.indexOf(QLatin1Char('M'));
-    const int dPos = fmt.indexOf(QLatin1Char('d'));
+    const qsizetype mPos = fmt.indexOf(QLatin1Char('M'));
+    const qsizetype dPos = fmt.indexOf(QLatin1Char('d'));
     if (mPos < 0 || dPos < 0)
         return true;  // no order to read — default to month-first
     return mPos < dPos;
