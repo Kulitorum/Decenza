@@ -1577,8 +1577,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             if (attemptSave(locked) || !locked)
                 break;
             qWarning() << "ShotHistoryStorage: shot save hit a transient lock, retrying ("
-                       << attempt << "of 4) - other DB connections open now:"
-                       << dbDiagActiveConnections(QStringLiteral("shs_save"));
+                       << attempt << "of 4)";
             QThread::msleep(static_cast<unsigned long>(50 * attempt));
         }
     });
