@@ -154,6 +154,7 @@ void VisualizerUploader::uploadShot(ShotDataModel* shotData,
         return;
 
     m_uploadingDbShotId = dbShotId;
+    m_uploadRetries = 0;
     QByteArray jsonData = buildShotJson(shotData, profile, finalWeight, doseWeight, metadata, debugLog, shotEpoch);
     sendUpload(jsonData);
 }
@@ -178,6 +179,7 @@ void VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
         return;
 
     m_uploadingDbShotId = shotData.id;
+    m_uploadRetries = 0;
     QByteArray jsonData = buildHistoryShotJson(shotData);
     sendUpload(jsonData);
 }
@@ -514,6 +516,22 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             emit uploadFailed(m_lastUploadStatus);
         }
     } else {
+        // Transient failures (transport error/timeout = no HTTP status, or a 5xx
+        // server blip) auto-retry the same payload a bounded number of times.
+        // Auth (401), validation (422), and rate-limit (429 — retrying worsens
+        // it) are permanent here; the once-per-device reconciliation backfill
+        // recovers anything that still slips through.
+        const bool transient = (statusCode == 0 || statusCode >= 500);
+        if (transient && m_uploadRetries < kMaxUploadRetries && !m_lastUploadJson.isEmpty()) {
+            ++m_uploadRetries;
+            qWarning() << "Visualizer: upload transient failure (HTTP" << statusCode
+                       << reply->errorString() << ") - retry" << m_uploadRetries
+                       << "of" << kMaxUploadRetries;
+            reply->deleteLater();
+            sendUpload(m_lastUploadJson);  // keeps m_uploadingDbShotId for the retry
+            return;
+        }
+
         QString errorMsg;
 
         if (statusCode == 401) {
@@ -1240,6 +1258,10 @@ void VisualizerUploader::sendUpload(const QByteArray& jsonData)
     } else {
         qDebug() << "Visualizer: Failed to save debug JSON to" << debugFile;
     }
+
+    // Retain the payload so onUploadFinished can re-POST it on a transient
+    // failure without rebuilding from (possibly-gone) shot state.
+    m_lastUploadJson = jsonData;
 
     // Build multipart form data
     QString boundary = QUuid::createUuid().toString(QUuid::WithoutBraces);

@@ -1411,6 +1411,20 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
 
     qint64 shotId = -1;
     withTempDb(dbPath, "shs_save", [&](QSqlDatabase& db) {
+        auto isLockError = [](const QSqlError& e) {
+            const QString code = e.nativeErrorCode();
+            return code == QLatin1String("5") || code == QLatin1String("6")
+                || e.text().contains(QLatin1String("locked"), Qt::CaseInsensitive)
+                || e.text().contains(QLatin1String("busy"), Qt::CaseInsensitive);
+        };
+        // A transient SQLITE_BUSY/locked from a concurrent writer (the
+        // reconciliation drain, daily backup, WAL checkpoint) must not drop a
+        // real shot. busy_timeout covers most contention, but a WAL write-write
+        // race can still surface as "database is locked" — retry the whole
+        // transaction a few times before giving up.
+        for (int attempt = 1; attempt <= 4; ++attempt) {
+        shotId = -1;
+        bool locked = false;
         // Use do-while(false) so error paths 'break' out while db/query are still
         // in scope.
         do {
@@ -1492,6 +1506,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":defrost_date", data.defrostDate.isEmpty() ? QVariant() : data.defrostDate);
 
             if (!query.exec()) {
+                locked = isLockError(query.lastError());
                 qWarning() << "ShotHistoryStorage: Failed to insert shot:" << query.lastError().text();
                 db.rollback();
                 break;
@@ -1506,6 +1521,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":blob", data.compressedSamples);
 
             if (!query.exec()) {
+                locked = isLockError(query.lastError());
                 qWarning() << "ShotHistoryStorage: Failed to insert samples:" << query.lastError().text();
                 db.rollback();
                 shotId = -1;
@@ -1533,6 +1549,16 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             QSqlQuery walQuery(db);
             walQuery.exec("PRAGMA wal_checkpoint(PASSIVE)");
         } while (false);
+
+        // Retry only a lock-induced miss; success or a real error (constraint,
+        // etc.) exits immediately. Short escalating backoff lets the competing
+        // writer finish before the next attempt.
+        if (shotId >= 0 || !locked)
+            break;
+        qWarning() << "ShotHistoryStorage: shot save hit a transient lock, retrying ("
+                   << attempt << "of 4)";
+        QThread::msleep(static_cast<unsigned long>(50 * attempt));
+        }
     });
 
     return shotId;

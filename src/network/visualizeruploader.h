@@ -255,6 +255,14 @@ private:
     // Reset after each terminal outcome.
     qint64 m_uploadingDbShotId = 0;
 
+    // Bounded auto-retry for the upload POST on a transient failure (transport
+    // error/timeout or 5xx — never auth/validation/429). The payload is retained
+    // so onUploadFinished can re-POST it without rebuilding from shot state. Same
+    // single-in-flight assumption as m_uploadingDbShotId; reset at each entry.
+    QByteArray m_lastUploadJson;
+    int m_uploadRetries = 0;
+    static constexpr int kMaxUploadRetries = 2;
+
     // Coffee Management sync state (see CmState above).
     CmState m_cmState = CmState::Unknown;
     QString m_localDbPath;
