@@ -7,6 +7,9 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QSettings>
+#include <QRegularExpression>
+#include <QCoreApplication>
+#include <QThread>
 
 #include "history/shothistorystorage.h"
 #include "history/coffeebagstorage.h"
@@ -95,14 +98,28 @@ private:
     QTemporaryDir m_tempDir;
     int m_dbCounter = 0;
 
+    // initialize() + close(), draining the background thread. Mirrors
+    // tst_dbmigration::initAndClose: ShotHistoryStorage::close() removes its
+    // connection while the initialize()-spawned distinct-cache thread may
+    // still hold a QSqlQuery — Qt warns (harmless, ignored) and the thread
+    // MUST be drained before the storage destructs or it SIGSEGVs.
+    bool initAndClose(const QString& path, ShotHistoryStorage& storage) {
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
+        if (!storage.initialize(path))
+            return false;
+        storage.close();
+        for (int i = 0; i < 20; i++) {
+            QCoreApplication::processEvents();
+            QThread::msleep(25);
+        }
+        return true;
+    }
+
     // Fresh fully-migrated DB via the real migration chain.
     QString freshDb() {
         const QString path = m_tempDir.filePath(QString("bags_%1.db").arg(m_dbCounter++));
         ShotHistoryStorage storage;
-        if (!storage.initialize(path))
-            return QString();
-        storage.close();
-        return path;
+        return initAndClose(path, storage) ? path : QString();
     }
 
 private slots:
@@ -133,8 +150,7 @@ private slots:
         const QString path = m_tempDir.filePath("backfill.db");
         {
             ShotHistoryStorage storage;
-            QVERIFY(storage.initialize(path));
-            storage.close();
+            QVERIFY(initAndClose(path, storage));
         }
         withRawDb(path, "backfill_prep", [&](QSqlDatabase& db) {
             // Strip the migration-19 artifacts to fake a v18 database.
@@ -162,8 +178,7 @@ private slots:
         });
         {
             ShotHistoryStorage storage;
-            QVERIFY(storage.initialize(path));  // runs migration 19 again
-            storage.close();
+            QVERIFY(initAndClose(path, storage));  // runs migration 19 again
         }
         withRawDb(path, "backfill_check", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
@@ -276,7 +291,9 @@ private slots:
         appSettings.setValue("bean/presets", QJsonDocument(presets).toJson());
         appSettings.setValue("bean/selectedPreset", 0);
 
-        // Failure path: nonexistent directory -> keys stay for retry.
+        // Failure path: nonexistent directory -> keys stay for retry. The
+        // open failure is expected and logged — assert+silence it.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("DB open failed"));
         const qint64 failed = CoffeeBagStorage::convertLegacyPresetSettings(
             m_tempDir.filePath("no/such/dir/x.db"));
         QCOMPARE(failed, -1);
@@ -476,6 +493,8 @@ private slots:
         });
 
         QSignalSpy deletedSpy(&storage, &CoffeeBagStorage::bagDeleted);
+        // The guard logs its refusal — expected, assert+silence it.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("refusing to delete bag"));
         storage.requestDeleteBag(usedBagId);   // refused: has a linked shot
         storage.requestDeleteBag(freshBagId);  // allowed
         QTRY_COMPARE(deletedSpy.count(), 2);

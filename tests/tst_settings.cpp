@@ -230,6 +230,8 @@ private slots:
         legacyDye["beanBaseId"] = "stale-id";
         legacyDye["beanBrand"] = "Stale Roaster";
         legacy["dye"] = legacyDye;
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
         SettingsSerializer::importFromJson(&m_settings, legacy);
         QCOMPARE(m_settings.dye()->dyeBeanBaseId(), QString("keep-me"));
 
