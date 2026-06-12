@@ -344,7 +344,9 @@ Dialog {
                     text: {
                         var _ = TranslationManager.translationVersion
                         if (root.mode === "search")
-                            return TranslationManager.translate("changebeans.title", "Change Beans")
+                            return root.context === "inventory"
+                                ? TranslationManager.translate("changebeans.title.addBag", "Add Bag")
+                                : TranslationManager.translate("changebeans.title", "Change Beans")
                         return root.formMode === "edit"
                             ? TranslationManager.translate("changebeans.title.editBag", "Edit Bag")
                             : TranslationManager.translate("changebeans.title.newBag", "New Bag")
@@ -530,8 +532,15 @@ Dialog {
                         }
                     }
 
-                    // Tier 5: manual entry — static last row, not in the model
-                    footer: Item {
+                    // Tier 5: manual entry — static row, not in the model.
+                    // Top of the list while the search is empty (a fresh bag
+                    // is one tap away); last row once a query narrows things.
+                    header: MainController.beanSearch.query.length === 0 ? manualEntryComponent : null
+                    footer: MainController.beanSearch.query.length > 0 ? manualEntryComponent : null
+
+                    Component {
+                        id: manualEntryComponent
+                        Item {
                         width: resultsList.width
                         height: Theme.scaled(60)
 
@@ -539,6 +548,7 @@ Dialog {
                             id: manualRow
                             anchors.fill: parent
                             anchors.topMargin: Theme.scaled(4)
+                            anchors.bottomMargin: Theme.scaled(4)
                             radius: Theme.scaled(8)
                             color: "transparent"
                             border.width: 1
@@ -577,6 +587,7 @@ Dialog {
                                     root.openManualEntry()
                                 }
                             }
+                        }
                         }
                     }
                 }
