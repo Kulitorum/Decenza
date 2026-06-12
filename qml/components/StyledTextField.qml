@@ -29,19 +29,12 @@ TextField {
     // Show the keyboard only then — not when TalkBack explore-by-touch gives focus.
     // Non-accessibility mode: still activate the field so VoiceOver/switch-access work.
     Accessible.onPressAction: {
-        // [a11y-dbg] TEMP (#1300) — remove before merge
-        console.log("[a11y-dbg] onPressAction (double-tap) field='"
-                    + (accessibleName || placeholder) + "' a11yMode=" + _accessibilityMode)
         if (_accessibilityMode) {
             _a11yActivated = true
         }
         control.forceActiveFocus()
         Qt.inputMethod.show()
     }
-
-    // [a11y-dbg] TEMP (#1300) — confirms user edits reach QML (Claim 2 echo). Remove before merge.
-    onTextEdited: console.log("[a11y-dbg] textEdited field='"
-                              + (accessibleName || placeholder) + "' len=" + text.length)
 
     // When TalkBack cursor lands on the field, Qt gives it activeFocus and auto-shows
     // the keyboard. In accessibility mode, suppress this so the user can hear the
@@ -51,15 +44,7 @@ TextField {
     Connections {
         target: control
         function onActiveFocusChanged() {
-            // [a11y-dbg] TEMP (#1300) — remove before merge
-            console.log("[a11y-dbg] focusChanged field='" + (control.accessibleName || control.placeholder)
-                        + "' activeFocus=" + control.activeFocus
-                        + " a11yMode=" + control._accessibilityMode
-                        + " a11yActivated=" + control._a11yActivated
-                        + " imeVisible=" + Qt.inputMethod.visible)
             if (control.activeFocus && control._accessibilityMode && !control._a11yActivated) {
-                console.log("[a11y-dbg] -> suppressing keyboard (inputMethod.hide) for '"
-                            + (control.accessibleName || control.placeholder) + "'")
                 Qt.inputMethod.hide()
             }
             if (!control.activeFocus) {

@@ -42,10 +42,18 @@ Popup {
         border.width: 1
     }
 
-    Accessible.role: Accessible.Dialog
-    Accessible.name: TranslationManager.translate("beanbase.details.title", "Bean details")
-
     contentItem: Flickable {
+        // Accessible.* must attach to an Item (Popup is not one), so the dialog
+        // role/name live on the content Flickable, not the Popup root.
+        Accessible.role: Accessible.Dialog
+        // Announce WHICH bean this is, not just a generic title — the identity
+        // Texts below are Accessible.ignored so they aren't read twice.
+        Accessible.name: {
+            var title = TranslationManager.translate("beanbase.details.title", "Bean details")
+            var parts = [root.fieldOrEmpty("roastName"), root.fieldOrEmpty("roasterName")]
+                .filter(function(p) { return p.length > 0 })
+            return parts.length > 0 ? title + ": " + parts.join(", ") : title
+        }
         contentHeight: contentColumn.implicitHeight
         clip: true
         boundsBehavior: Flickable.StopAtBounds
@@ -71,6 +79,7 @@ Popup {
                         font.pixelSize: Theme.scaled(18)
                         font.bold: true
                         wrapMode: Text.WordWrap
+                        Accessible.ignored: true  // in the dialog name
                     }
                     Text {
                         Layout.fillWidth: true
@@ -78,6 +87,7 @@ Popup {
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(14)
                         wrapMode: Text.WordWrap
+                        Accessible.ignored: true  // in the dialog name
                     }
                 }
 
@@ -212,6 +222,7 @@ Popup {
                 text: TranslationManager.translate("beanbase.details.viewAtRoaster", "View at roaster")
                 color: Theme.primaryColor
                 font.pixelSize: Theme.scaled(13)
+                Accessible.ignored: true  // accessibleItem; node carried by AccessibleMouseArea
 
                 AccessibleMouseArea {
                     anchors.fill: parent

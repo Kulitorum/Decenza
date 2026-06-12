@@ -108,6 +108,7 @@ Item {
             color: Theme.successColor
             font.pixelSize: Theme.scaled(12)
             font.bold: true
+            Accessible.ignored: true  // status conveyed by the unlink/view buttons
         }
 
         Text {
@@ -116,6 +117,9 @@ Item {
             text: TranslationManager.translate("beaninfo.beanbase.unlink", "Unlink")
             color: Theme.primaryColor
             font.pixelSize: Theme.scaled(12)
+            // accessibleItem of the AccessibleMouseArea below — ignore this Text
+            // node so it doesn't overlap the button node (BagCard infoArea pattern).
+            Accessible.ignored: true
 
             AccessibleMouseArea {
                 anchors.fill: parent
@@ -135,6 +139,7 @@ Item {
             text: TranslationManager.translate("beaninfo.beanbase.openUrl", "View at roaster")
             color: Theme.primaryColor
             font.pixelSize: Theme.scaled(12)
+            Accessible.ignored: true  // accessibleItem; node carried by AccessibleMouseArea
 
             AccessibleMouseArea {
                 anchors.fill: parent
