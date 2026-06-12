@@ -262,15 +262,42 @@ Item {
 
                 property var entry: modelData
 
-                contentItem: Text {
-                    // Visualizer's format: "RoastName (Roaster)"
-                    text: resultDelegate.entry.roastName + " (" + resultDelegate.entry.roasterName + ")"
-                          + (resultDelegate.entry.soldout ? " — " + TranslationManager.translate("beaninfo.beanbase.soldout", "sold out") : "")
-                    color: resultDelegate.entry.soldout ? Theme.textSecondaryColor : Theme.textColor
-                    font.pixelSize: Theme.scaled(16)
-                    elide: Text.ElideRight
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: Theme.scaled(12)
+                contentItem: RowLayout {
+                    spacing: Theme.scaled(8)
+
+                    Text {
+                        Layout.fillWidth: true
+                        // Visualizer's format: "RoastName (Roaster)"
+                        text: resultDelegate.entry.roastName + " (" + resultDelegate.entry.roasterName + ")"
+                              + (resultDelegate.entry.soldout ? " — " + TranslationManager.translate("beaninfo.beanbase.soldout", "sold out") : "")
+                        color: resultDelegate.entry.soldout ? Theme.textSecondaryColor : Theme.textColor
+                        font.pixelSize: Theme.scaled(16)
+                        elide: Text.ElideRight
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: Theme.scaled(12)
+                    }
+
+                    // Source chip — same "Bean Base" annotation the Change
+                    // Beans search shows, so the edit-link search is labelled
+                    // consistently.
+                    Rectangle {
+                        Layout.alignment: Qt.AlignVCenter
+                        Layout.rightMargin: Theme.scaled(10)
+                        implicitWidth: chipLabel.implicitWidth + Theme.scaled(16)
+                        implicitHeight: chipLabel.implicitHeight + Theme.scaled(8)
+                        radius: height / 2
+                        color: Theme.backgroundColor
+                        border.width: 1
+                        border.color: Theme.textSecondaryColor
+
+                        Text {
+                            id: chipLabel
+                            anchors.centerIn: parent
+                            text: TranslationManager.translate("changebeans.source.beanbase", "Bean Base")
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                        }
+                    }
                 }
 
                 background: Rectangle {
