@@ -130,7 +130,6 @@ Page {
                             return (avail - (columns - 1) * Theme.spacingMedium) / columns
                         }
                         onEditRequested: function(b) { changeBeansDialog.openForEdit(b) }
-                        onSaveAsRequested: function(b) { changeBeansDialog.openForSaveAs(b) }
                     }
                 }
             }

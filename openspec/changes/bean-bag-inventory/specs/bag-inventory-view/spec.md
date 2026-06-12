@@ -71,13 +71,13 @@ Each bag SHALL be editable from its card via an Edit action, opening the Bag Det
 - **WHEN** the user edits a bag that was created without a roast date and enters one
 - **THEN** the bag SHALL store it and roast-age displays SHALL appear from then on
 
-### Requirement: New Bag from existing bag (save-as template)
-Each bag card SHALL offer a "New Bag" (save-as) action that opens the Bag Details form in creation mode pre-filled from that bag — identity, canonical link, grinder/dose, notes — with the roast date blank (a new bag is a new roast date). Confirming creates a separate bag row; the source bag is untouched.
+### Requirement: Re-buying the same coffee flows through Change Beans
+There SHALL be no per-card save-as shortcut (removed — it added clutter without saving meaningful effort). Buying the same coffee again: finish the old bag, then the coffee surfaces in the Change Beans search as a history/canonical result whose selection pre-fills the creation form (roast date blank).
 
-#### Scenario: New bag of the same coffee
-- **WHEN** the user activates "New Bag" on an existing bag (e.g. they bought the same coffee again)
-- **THEN** the details form SHALL open pre-filled from the source bag with roast date blank
-- **AND** confirming SHALL create a new bag in inventory, leaving the source bag unchanged (e.g. still markable as empty separately)
+#### Scenario: New bag of a previously finished coffee
+- **WHEN** the user finishes a bag and later searches for the same coffee in Change Beans
+- **THEN** the coffee SHALL appear as a history (and/or canonical) result
+- **AND** picking it SHALL pre-fill the creation form with roast date blank
 
 ### Requirement: Bags with no linked shots can be deleted
 A bag that no shot references (no `shots.bag_id` rows) SHALL be deletable from the inventory view (e.g., a mistaken creation). Bags with linked shots SHALL only be markable as empty, never deleted.

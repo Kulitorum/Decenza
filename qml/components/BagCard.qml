@@ -7,15 +7,14 @@ import Decenza
 // bags show a dense attribute line + verified badge; partial bags show only
 // what is available plus a subtle "Find in Bean Base" nudge. Tapping the card
 // selects the bag (sets activeBagId). Action row: Next Portion (frozen bags),
-// Edit, New Bag (save-as), Bag finished, Delete (refused by storage when
-// shots reference the bag — a brief message explains).
+// Bag finished, Edit, Delete (refused by storage when shots reference the
+// bag — a brief message explains).
 Rectangle {
     id: card
 
     property var bag: ({})
 
     signal editRequested(var bag)
-    signal saveAsRequested(var bag)
 
     readonly property bool selected: bag && bag.id !== undefined && bag.id === Settings.dye.activeBagId
     readonly property bool hasCanonical: bag && bag.beanBaseId !== undefined && String(bag.beanBaseId).length > 0
@@ -243,14 +242,6 @@ Rectangle {
                 icon.source: "qrc:/icons/edit.svg"
                 accessibleName: TranslationManager.translate("bagcard.accessible.edit", "Edit bag details")
                 onClicked: card.editRequested(card.bag)
-            }
-
-            StyledIconButton {
-                width: Theme.scaled(36)
-                height: Theme.scaled(36)
-                icon.source: "qrc:/icons/plus.svg"
-                accessibleName: TranslationManager.translate("bagcard.accessible.saveAs", "New bag of this coffee")
-                onClicked: card.saveAsRequested(card.bag)
             }
 
             StyledIconButton {

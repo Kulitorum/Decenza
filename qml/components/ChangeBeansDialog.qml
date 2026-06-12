@@ -13,9 +13,8 @@ import Decenza
 //   "historicalShot"               ->  rewrite only that shot's snapshot;
 //                                      activeBagId untouched
 //
-// Extra entry points (bag inventory page): openForEdit(bag) updates the same
-// bag row in place; openForSaveAs(bag) creates a new bag pre-filled from an
-// existing one with the roast date blank (a new bag is a new roast date).
+// Extra entry point (bag inventory page): openForEdit(bag) updates the same
+// bag row in place.
 Dialog {
     id: root
     parent: Overlay.overlay
@@ -41,7 +40,7 @@ Dialog {
     // not editable fields ("show fields only for unknown values").
     property bool identityKnown: false
     property bool _awaitingCreate: false
-    property bool _armedForm: false   // openForEdit/openForSaveAs pre-armed the form
+    property bool _armedForm: false   // openForEdit pre-armed the form
     property string errorMessage: ""
 
     // Form state (editable controls write back via onTextEdited)
@@ -153,21 +152,6 @@ Dialog {
         fFrozenDate = bag.frozenDate || ""
         fDefrostDate = bag.defrostDate || ""
         fFreeze = fFrozenDate.length > 0
-        mode = "form"
-        _armedForm = true
-        open()
-    }
-
-    // Save-as: creation mode pre-filled from an existing bag, roast date
-    // forced blank ("bought the same coffee again").
-    function openForSaveAs(bag) {
-        resetForm()
-        formMode = "create"
-        editBagId = -1
-        prefillFromBag(bag)
-        fRoastDate = ""
-        fNotes = bag.notes || ""
-        identityKnown = fRoaster.length > 0 || fCoffee.length > 0
         mode = "form"
         _armedForm = true
         open()

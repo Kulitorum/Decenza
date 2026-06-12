@@ -71,9 +71,9 @@ The canonical UUID currently lives only inside the `beanbase_json` blob — ther
 
 **Alternative considered:** `json_extract()` at query time over all shots. Rejected — unindexable without a generated column, and a real column is simpler than a generated one given we control all write paths.
 
-### Decision: Bags are editable in place and reusable as save-as templates
+### Decision: Bags are editable in place
 
-The Bag Details form has two modes. **Edit mode** (from a bag card's Edit action) modifies the existing row in place — typo fixes, adding a roast date later, updating notes — without touching `activeBagId` or any shot snapshots. **Create mode** is used by the Change Beans dialog (Tier 1–5) and by a "New Bag" save-as action on each bag card, which pre-fills the form from the source bag (identity, canonical link, grinder/dose, notes) with the roast date blank. Save-as is the fastest path for "bought the same coffee again" without going through search.
+The Bag Details form has two modes. **Edit mode** (from a bag card's Edit action) modifies the existing row in place — typo fixes, adding a roast date later, updating notes — without touching `activeBagId` or any shot snapshots. **Create mode** is used by the Change Beans dialog (Tier 1–5). A per-card "New Bag" save-as shortcut existed briefly but was removed (it just added clutter); "bought the same coffee again" flows through Change Beans — finish the old bag, then the coffee surfaces as a history/canonical result that pre-fills the form.
 
 ### Decision: Roast date is optional — blank, never inferred, but skippable
 
