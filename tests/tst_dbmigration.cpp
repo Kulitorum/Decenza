@@ -11,6 +11,7 @@
 #include <QSettings>
 
 #include "history/shothistorystorage.h"
+#include "history/coffeebagstorage.h"
 
 // Test the ShotHistoryStorage schema creation and migration chain (v1->v15).
 //
@@ -146,10 +147,32 @@ private:
         }
     }
 
+    // Like initAndClose(), but for an initialize() that is expected to emit a
+    // single migration-failure qWarning (a gated migration that did NOT bump).
+    // The migration warning is registered before the close-time "connection
+    // still in use" warning so the FIFO ignore queue matches emission order.
+    void initExpectingMigrationWarning(const QString& path, const QString& warnRegex) {
+        ShotHistoryStorage storage;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(warnRegex));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
+        QVERIFY(storage.initialize(path));
+        storage.close();
+        for (int i = 0; i < 20; i++) {
+            QCoreApplication::processEvents();
+            QThread::msleep(25);
+        }
+    }
+
 private slots:
 
     void initTestCase() {
         QVERIFY(m_tempDir.isValid());
+    }
+
+    // Reset the migration fault-injection seam before every test so a one-shot
+    // fault set by one test can never leak into the next.
+    void init() {
+        ShotHistoryStorage::s_faultInjectMigration = 0;
     }
 
     // ==========================================
@@ -1030,6 +1053,155 @@ private slots:
             QVERIFY(q.exec("SELECT yield_override_g FROM coffee_bags WHERE coffee_name = 'Geometry'"));
             QVERIFY(q.next());
             QCOMPARE(q.value(0).toDouble(), 42.0);
+        });
+    }
+
+    // ==========================================
+    // Migration failure / retry branches (bean-bag-inventory #1327 follow-up)
+    // ==========================================
+
+    // The producer behind migration 20's gate: linkOrphanShotsStatic returns
+    // -1 (not 0) when its UPDATE can't run. createV1Schema gives a shots table
+    // with no bag_id column and no coffee_bags table, so pass-1 fails to
+    // prepare. This is the SQL-failure signal the migration relies on to know
+    // it must NOT bump the schema version.
+    void linkOrphanShotsStatic_returnsMinusOneOnSqlFailure() {
+        const QString path = freshDbPath();
+        int result = 0;
+        withRawDb(path, "orphan_minus1", [&](QSqlDatabase& db) {
+            createV1Schema(db);  // shots without bag_id; no coffee_bags table
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression("orphan-shot link pass 1 failed"));
+            result = CoffeeBagStorage::linkOrphanShotsStatic(db);
+        });
+        QCOMPARE(result, -1);
+    }
+
+    // Migration 20 gate + retry. A transient failure (modelled with the
+    // fault-injection seam) must leave the schema version UNbumped so the
+    // whole chain retries cleanly next launch — bumping past it would strand
+    // the orphan shots forever. First init: orphan-link "fails", version stays
+    // at 19, the orphan shot is untouched. Second init (fault auto-cleared):
+    // the chain runs to completion, reaching v21 and linking the shot to its
+    // bag — proving migration 20 actually did its work on the retry, not just
+    // bumped the counter.
+    void v20_orphanLinkFailureRetriesCleanly() {
+        const QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        // Seed a bag and a pre-bag orphan shot (bag_id NULL) that identity-
+        // matches it, then rewind to v19 so migrations 20+21 re-run next init.
+        qint64 bagId = -1, shotId = -1;
+        withRawDb(path, "v20_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, in_inventory) "
+                           "VALUES ('Onyx', 'Geometry', 1)"));
+            bagId = q.lastInsertId().toLongLong();
+            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                           "bean_brand, bean_type) "
+                           "VALUES ('orphan-1', 1000, 'P', 30.0, 'Onyx', 'Geometry')"));
+            shotId = q.lastInsertId().toLongLong();
+            q.exec("DELETE FROM schema_version");
+            q.exec("INSERT INTO schema_version (version) VALUES (19)");
+        });
+        QVERIFY(bagId > 0 && shotId > 0);
+
+        // First launch: orphan-link fails -> version NOT bumped, shot stays orphan.
+        ShotHistoryStorage::s_faultInjectMigration = 20;
+        initExpectingMigrationWarning(path, "migration 20 orphan-link failed");
+
+        withRawDb(path, "v20_after_fail", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), 19);  // gated: stayed put for a retry
+            QSqlQuery q(db);
+            q.exec("SELECT bag_id FROM shots WHERE uuid = 'orphan-1'");
+            QVERIFY(q.next());
+            QVERIFY2(q.value(0).isNull(), "orphan shot must remain unlinked after the failed pass");
+        });
+
+        // Second launch: fault auto-cleared -> full chain runs, shot is linked.
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        withRawDb(path, "v20_after_retry", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), 21);
+            // The retry ran the WHOLE deferred chain, not just migration 20:
+            // migration 21's rename landed too (post-condition column present).
+            QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
+            QSqlQuery q(db);
+            q.exec("SELECT bag_id FROM shots WHERE uuid = 'orphan-1'");
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toLongLong(), bagId);
+        });
+    }
+
+    // Migration 21 gate + retry. The yield column rename is gated on its
+    // post-condition (the new column exists). A transient failure of the
+    // RENAME (modelled with the seam) must leave the version at 20 with the
+    // OLD column name intact, so the next launch retries. Second init renames
+    // for real, preserves the stored value, and reaches v21.
+    void v21_renameFailureRetriesCleanly() {
+        const QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        // Force the pre-rename schema: new name -> old name, a stored value,
+        // version 20.
+        withRawDb(path, "v21_fail_setup", [](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("ALTER TABLE coffee_bags RENAME COLUMN yield_override_g TO yield_target_g"));
+            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, yield_target_g, in_inventory) "
+                           "VALUES ('Onyx', 'Geometry', 42.0, 1)"));
+            q.exec("DELETE FROM schema_version");
+            q.exec("INSERT INTO schema_version (version) VALUES (20)");
+        });
+
+        // First launch: rename "fails" -> version NOT bumped, old column kept.
+        ShotHistoryStorage::s_faultInjectMigration = 21;
+        initExpectingMigrationWarning(path, "migration 21 column rename failed");
+
+        withRawDb(path, "v21_after_fail", [](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), 20);  // gated: stayed put for a retry
+            QVERIFY(hasColumn(db, "coffee_bags", "yield_target_g"));
+            QVERIFY(!hasColumn(db, "coffee_bags", "yield_override_g"));
+        });
+
+        // Second launch: fault auto-cleared -> rename succeeds, value survives.
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        withRawDb(path, "v21_after_retry", [](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), 21);
+            QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
+            QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT yield_override_g FROM coffee_bags WHERE coffee_name = 'Geometry'"));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toDouble(), 42.0);
+        });
+    }
+
+    // Migration 21 guard edge: coffee_bags has NEITHER yield_target_g (nothing
+    // to rename) NOR yield_override_g (post-condition unmet). The guard must
+    // refuse to bump rather than recording v21 over a table that lacks the
+    // column production code reads. Contrived (a fresh DB always has the
+    // column), but it pins the both-absent branch of the post-condition check.
+    void v21_neitherYieldColumnLeavesVersionUnbumped() {
+        const QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        // Drop the new column without adding the old one, then rewind to v20.
+        withRawDb(path, "v21_neither_setup", [](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN yield_override_g"));
+            q.exec("DELETE FROM schema_version");
+            q.exec("INSERT INTO schema_version (version) VALUES (20)");
+        });
+
+        // Neither column present -> rename skipped, post-condition unmet,
+        // version held at 20 with the "column rename failed" warning.
+        initExpectingMigrationWarning(path, "migration 21 column rename failed");
+
+        withRawDb(path, "v21_neither_verify", [](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), 20);
+            QVERIFY(!hasColumn(db, "coffee_bags", "yield_override_g"));
+            QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
         });
     }
 };
