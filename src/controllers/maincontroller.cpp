@@ -2172,14 +2172,12 @@ void MainController::onShotEnded() {
                     stamp.insert(QStringLiteral("doseWeightG"), doseWeight);
                 // Yield is an OVERRIDE: stamp it only when the shot's target
                 // differs from the profile's default weight, else 0 so the bag
-                // follows the profile baseline. A plain profile-default pour
-                // must not pin the bag to that number.
+                // follows the profile baseline (shared, tested rule).
                 if (m_profileManager) {
-                    const double profileTarget = m_profileManager->currentProfile().targetWeight();
-                    const double override = (shotTargetWeight > 0
-                                             && qAbs(shotTargetWeight - profileTarget) > 0.1)
-                                            ? shotTargetWeight : 0.0;
-                    stamp.insert(QStringLiteral("yieldOverrideG"), override);
+                    stamp.insert(QStringLiteral("yieldOverrideG"),
+                                 CoffeeBagStorage::yieldOverrideForTarget(
+                                     shotTargetWeight,
+                                     m_profileManager->currentProfile().targetWeight()));
                 }
                 stamp.insert(QStringLiteral("lastUsedEpoch"), QDateTime::currentSecsSinceEpoch());
                 m_bagStorage->requestUpdateBag(metadata.bagId, stamp);

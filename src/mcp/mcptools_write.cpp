@@ -39,6 +39,7 @@
 void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
                         VisualizerUploader* visualizerUploader,
+                        CoffeeBagStorage* bagStorage,
                         AccessibilityManager* accessibility,
                         ScreensaverVideoManager* screensaver,
                         TranslationManager* translation,
@@ -1558,7 +1559,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }},
             {"required", QJsonArray{"bagId"}}
         },
-        [shotHistory, settings, bagToJson](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [shotHistory, settings, bagToJson, bagStorage](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!shotHistory || !shotHistory->isReady()) {
                 respond(QJsonObject{{"error", "Storage not available"}});
                 return;
@@ -1583,29 +1584,64 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 return;
             }
             const QString dbPath = shotHistory->databasePath();
-            QThread* thread = QThread::create([dbPath, bagId, fields, bagToJson, settings, respond]() {
+
+            // Load the just-updated bag on a background thread and respond.
+            auto respondWithBag = [dbPath, bagId, bagToJson, respond]() {
+                QThread* t = QThread::create([dbPath, bagId, bagToJson, respond]() {
+                    CoffeeBag updated;
+                    withTempDb(dbPath, "mcp_bagupd_read", [&](QSqlDatabase& db) {
+                        updated = CoffeeBagStorage::loadBagStatic(db, bagId);
+                    });
+                    QMetaObject::invokeMethod(qApp, [updated, bagToJson, respond]() {
+                        respond(QJsonObject{{"success", true}, {"bag", bagToJson(updated)}});
+                    }, Qt::QueuedConnection);
+                });
+                QObject::connect(t, &QThread::finished, t, &QObject::deleteLater);
+                t->start();
+            };
+
+            if (bagStorage) {
+                // Route through the storage INSTANCE so the write fires
+                // bagsChanged (open inventory views refresh), bagVisualizer-
+                // FieldsChanged (push the edit to the synced Visualizer bag),
+                // and the active-bag dye refresh via SettingsDye's bagUpdated
+                // handler. That refresh is a no-op re-apply, so it does NOT
+                // reset the user's brew overrides — unlike the old
+                // setActiveBagId(-1) toggle, which fired clearBrewOverrides.
+                QMetaObject::invokeMethod(qApp, [bagStorage, bagId, fields, respondWithBag, respond]() {
+                    auto conn = std::make_shared<QMetaObject::Connection>();
+                    *conn = QObject::connect(bagStorage, &CoffeeBagStorage::bagUpdated, bagStorage,
+                        [conn, bagId, respondWithBag, respond](qint64 updatedId, bool success) {
+                            if (updatedId != bagId)
+                                return;  // a concurrent update of a different bag
+                            QObject::disconnect(*conn);
+                            if (!success) {
+                                respond(QJsonObject{{"error", "Bag not found or update failed: "
+                                                              + QString::number(bagId)}});
+                                return;
+                            }
+                            respondWithBag();
+                        });
+                    bagStorage->requestUpdateBag(bagId, fields);
+                }, Qt::QueuedConnection);
+                return;
+            }
+
+            // Fallback (no storage instance — e.g. headless tests): direct
+            // static write. Skips the in-app refresh/sync signals.
+            QThread* thread = QThread::create([dbPath, bagId, fields, respondWithBag, respond]() {
                 bool success = false;
-                CoffeeBag updated;
                 withTempDb(dbPath, "mcp_bagupd", [&](QSqlDatabase& db) {
                     success = CoffeeBagStorage::updateBagFieldsStatic(db, bagId, fields);
-                    if (success)
-                        updated = CoffeeBagStorage::loadBagStatic(db, bagId);
                 });
-                QMetaObject::invokeMethod(qApp, [success, updated, bagId, bagToJson, settings, respond]() {
-                    if (!success) {
-                        respond(QJsonObject{{"error", "Bag not found or update failed: " + QString::number(bagId)}});
-                        return;
-                    }
-                    // Refresh the dye cache when the active bag was edited:
-                    // this tool wrote the DB directly (not through the
-                    // CoffeeBagStorage instance), so the in-app bagUpdated
-                    // refresh never fires. Re-selecting forces a reload.
-                    if (settings && settings->dye()->activeBagId() == bagId) {
-                        settings->dye()->setActiveBagId(-1);
-                        settings->dye()->setActiveBagId(static_cast<int>(bagId));
-                    }
-                    respond(QJsonObject{{"success", true}, {"bag", bagToJson(updated)}});
-                }, Qt::QueuedConnection);
+                if (success) {
+                    respondWithBag();
+                } else {
+                    QMetaObject::invokeMethod(qApp, [bagId, respond]() {
+                        respond(QJsonObject{{"error", "Bag not found or update failed: "
+                                                      + QString::number(bagId)}});
+                    }, Qt::QueuedConnection);
+                }
             });
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();

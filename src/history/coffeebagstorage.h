@@ -120,6 +120,14 @@ public:
     // local-key → Visualizer-field mapping.
     static bool touchesVisualizerFields(const QVariantMap& fields);
 
+    // The bag's yield override is the shot's target weight ONLY when it differs
+    // from the profile's default target; a plain profile-default pour stores 0
+    // (no override), so it doesn't pin the bag to the profile's own number (and
+    // doesn't turn the idle brew-settings widget yellow). Shared by the shot-save
+    // stamp (MainController) and the brew-settings commit (ProfileManager) so the
+    // "is this an override?" rule lives in exactly one tested place.
+    static double yieldOverrideForTarget(double shotTargetWeightG, double profileTargetWeightG);
+
     // Convert one legacy bean preset JSON object (SettingsDye "bean/presets"
     // entry: name/brand/type/roastDate/roastLevel/grinder*/barista/showOnIdle/
     // beanBaseId/beanBaseData) into a CoffeeBag. Preset `name` lands in notes

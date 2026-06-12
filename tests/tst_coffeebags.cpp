@@ -14,6 +14,8 @@
 #include "history/shothistorystorage.h"
 #include "history/coffeebagstorage.h"
 #include "history/unifiedbeansearchmodel.h"
+#include "core/settings_dye.h"
+#include "core/settings_visualizer.h"
 
 // Coffee bag storage, the preset -> bag migration, transfer survival, and the
 // unified bean search merge logic (openspec change bean-bag-inventory).
@@ -676,6 +678,52 @@ private slots:
         QCOMPARE(merged[0].toMap().value("roasterName").toString(), QString("Alpha"));
     }
 
+    // The previous test deliberately has "No tier2" and no standalone tier3.
+    // Cover both: a canonical-only result (tier 2) and a linked-history result
+    // that matches neither inventory nor a canonical result (tier 3), alongside
+    // a free-text history row (tier 4). Order is tier0+tier1+tier2+tier34.
+    void mergeLanesTier2AndTier3() {
+        QVariantList canonical;  // canonical-only X → tier 2
+        canonical.append(QVariantMap{{"id", "canon-X"}, {"roasterName", "R"}, {"roastName", "X"}});
+
+        QVariantList history;
+        history.append(QVariantMap{  // linked but unabsorbed → tier 3
+            {"roasterName", "R"}, {"coffeeName", "Y"}, {"beanBaseId", "canon-Y"},
+            {"lastUsedEpoch", 200}});
+        history.append(QVariantMap{  // free text → tier 4
+            {"roasterName", "R"}, {"coffeeName", "Z"}, {"beanBaseId", ""},
+            {"lastUsedEpoch", 100}});
+
+        const QVariantList merged = UnifiedBeanSearchModel::mergeLanes({}, canonical, history, QString());
+        QCOMPARE(merged.size(), 3);
+
+        QCOMPARE(merged[0].toMap().value("tier").toInt(), 2);
+        QCOMPARE(merged[0].toMap().value("coffeeName").toString(), QString("X"));
+        QCOMPARE(merged[0].toMap().value("sources").toString(), QString("beanbase"));
+
+        QCOMPARE(merged[1].toMap().value("tier").toInt(), 3);  // tier 3 before tier 4
+        QCOMPARE(merged[1].toMap().value("coffeeName").toString(), QString("Y"));
+        QCOMPARE(merged[1].toMap().value("sources").toString(), QString("history"));
+
+        QCOMPARE(merged[2].toMap().value("tier").toInt(), 4);
+        QCOMPARE(merged[2].toMap().value("coffeeName").toString(), QString("Z"));
+    }
+
+    // Within-tier MRU ordering: two inventory bags out of epoch order must come
+    // back most-recently-used first (guards the stable_sort comparator).
+    void mergeLanesOrdersByMruWithinTier() {
+        QVariantList inventory;
+        inventory.append(QVariantMap{{"id", 1}, {"roasterName", "R"}, {"coffeeName", "Old"},
+                                     {"beanBaseId", ""}, {"lastUsedEpoch", 100}});
+        inventory.append(QVariantMap{{"id", 2}, {"roasterName", "R"}, {"coffeeName", "New"},
+                                     {"beanBaseId", ""}, {"lastUsedEpoch", 900}});
+
+        const QVariantList merged = UnifiedBeanSearchModel::mergeLanes(inventory, {}, {}, QString());
+        QCOMPARE(merged.size(), 2);
+        QCOMPARE(merged[0].toMap().value("coffeeName").toString(), QString("New"));  // MRU first
+        QCOMPARE(merged[1].toMap().value("coffeeName").toString(), QString("Old"));
+    }
+
     // ==========================================
     // Dose/yield stamp primitive
     // ==========================================
@@ -729,6 +777,88 @@ private slots:
         // A mixed update (dose stamp alongside a roast-date edit) still fires.
         QVERIFY(CoffeeBagStorage::touchesVisualizerFields({
             {"doseWeightG", 18.0}, {"roastDate", "2026-06-01"}}));
+    }
+
+    // yieldOverrideForTarget is the shared "is this an override?" rule used by
+    // the shot-save stamp and the brew-settings commit. The realistic bug it
+    // guards: a flipped comparison or dropped epsilon would pin the bag to the
+    // profile default after a plain pour, turning the idle widget yellow forever.
+    void yieldOverrideForTargetRule() {
+        // Plain profile-default pour → 0 (no override, bag follows profile).
+        QCOMPARE(CoffeeBagStorage::yieldOverrideForTarget(36.0, 36.0), 0.0);
+        // Within epsilon of the default → still 0.
+        QCOMPARE(CoffeeBagStorage::yieldOverrideForTarget(36.05, 36.0), 0.0);
+        // A real override → the shot target is recorded.
+        QCOMPARE(CoffeeBagStorage::yieldOverrideForTarget(50.0, 36.0), 50.0);
+        QCOMPARE(CoffeeBagStorage::yieldOverrideForTarget(30.0, 36.0), 30.0);
+        // No target weight (SAW with no reading / non-SAW fallback) → 0.
+        QCOMPARE(CoffeeBagStorage::yieldOverrideForTarget(0.0, 36.0), 0.0);
+        // Just past the epsilon → recorded.
+        QCOMPARE(CoffeeBagStorage::yieldOverrideForTarget(36.2, 36.0), 36.2);
+    }
+
+    // SettingsDye is the bag-as-bean-state orchestrator and had no coverage of
+    // its yield-override path (no test attached a CoffeeBagStorage before). This
+    // drives the real async apply chain (setActiveBagId -> bagReady ->
+    // applyActiveBag -> activeBagYieldOverrideApplied), the write-through, and the
+    // persist clamp — using only the public API.
+    void settingsDyeYieldOverridePath() {
+        // Isolate from any developer/CI dye state in the test app's QSettings.
+        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+
+        const QString path = freshDb();
+        CoffeeBagStorage storage;
+        storage.initialize(path);
+
+        // A bag WITH an override and one WITHOUT, inserted directly.
+        qint64 bagOverride = -1, bagPlain = -1;
+        withRawDb(path, "dye_seed", [&](QSqlDatabase& db) {
+            CoffeeBag a; a.roasterName = "R"; a.coffeeName = "Override"; a.yieldOverrideG = 42.0;
+            bagOverride = CoffeeBagStorage::insertBagStatic(db, a);
+            CoffeeBag b; b.roasterName = "R"; b.coffeeName = "Plain";  // yieldOverrideG defaults 0
+            bagPlain = CoffeeBagStorage::insertBagStatic(db, b);
+        });
+        QVERIFY(bagOverride > 0 && bagPlain > 0);
+
+        SettingsVisualizer viz;
+        SettingsDye dye(&viz);
+        dye.setBagStorage(&storage);
+
+        // Selecting the override bag re-applies its override and exposes it.
+        QSignalSpy overrideSpy(&dye, &SettingsDye::activeBagYieldOverrideApplied);
+        dye.setActiveBagId(static_cast<int>(bagOverride));
+        QTRY_VERIFY(overrideSpy.count() >= 1);
+        QCOMPARE(overrideSpy.last().at(0).toDouble(), 42.0);
+        QCOMPARE(dye.activeBagYieldOverrideG(), 42.0);
+
+        // Switching to the plain bag emits 0 (no override → follow profile).
+        overrideSpy.clear();
+        dye.setActiveBagId(static_cast<int>(bagPlain));
+        QTRY_VERIFY(overrideSpy.count() >= 1);
+        QCOMPARE(overrideSpy.last().at(0).toDouble(), 0.0);
+        QCOMPARE(dye.activeBagYieldOverrideG(), 0.0);
+
+        // A grinder edit writes through to the active (plain) bag.
+        dye.setDyeGrinderSetting(QStringLiteral("14"));
+        QString persisted;
+        QTRY_VERIFY([&]() {
+            withRawDb(path, "dye_check", [&](QSqlDatabase& db) {
+                persisted = CoffeeBagStorage::loadBagStatic(db, bagPlain).grinderSetting;
+            });
+            return persisted == QStringLiteral("14");
+        }());
+
+        // persistYieldOverrideToBag clamps <=0 to 0 (no override) and keeps >0.
+        dye.persistYieldOverrideToBag(50.0);
+        QCOMPARE(dye.activeBagYieldOverrideG(), 50.0);
+        dye.persistYieldOverrideToBag(-5.0);
+        QCOMPARE(dye.activeBagYieldOverrideG(), 0.0);
+        dye.persistYieldOverrideToBag(0.0);
+        QCOMPARE(dye.activeBagYieldOverrideG(), 0.0);
+
+        // Drain the storage's async writes before teardown, then clean up.
+        for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
+        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
     }
 };
 

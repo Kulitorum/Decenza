@@ -495,9 +495,15 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             // so this post-upload step is the only link path.
             syncCoffeeBagAfterUpload(m_uploadingDbShotId, shotId);
         } else {
-            m_lastUploadStatus = "Upload completed (no ID returned)";
+            // A 200 with no parseable shot id is a failure, not a success: the
+            // local shot row never gets its visualizer_id and the bag sync
+            // chain never runs. Surface it so the user sees an error and a
+            // retry path, instead of a benign-looking "completed" status.
+            m_lastUploadStatus = "Upload returned no shot id (unexpected response)";
             emit lastUploadStatusChanged();
-            qDebug() << "Visualizer: Upload response:" << response;
+            qWarning() << "Visualizer: upload succeeded (HTTP" << statusCode
+                       << ") but response had no shot id:" << response.left(200);
+            emit uploadFailed(m_lastUploadStatus);
         }
     } else {
         QString errorMsg;
@@ -1645,8 +1651,11 @@ void VisualizerUploader::probeCmState(const QString& visualizerShotId, const QSt
             m_cmState = CmState::PremiumNoCm;
             qDebug() << "Visualizer CM: probe says Coffee Management is OFF (canonical-only mode)";
         } else {
-            // 401/429/5xx/network — transient; never cache a negative.
-            qDebug() << "Visualizer CM: probe inconclusive (HTTP" << status << "), staying UNKNOWN";
+            // 401/429/5xx/network — transient; never cache a negative. Warn (not
+            // debug) so a chronically failing probe — which means this shot's bag
+            // link silently never reached Visualizer — is greppable in release logs.
+            qWarning() << "Visualizer CM: probe inconclusive (HTTP" << status
+                       << ") - shot not linked, staying UNKNOWN, retry next upload";
         }
     });
 }
@@ -1764,6 +1773,18 @@ void VisualizerUploader::findRemoteBag(const QString& visualizerShotId, const QV
             connect(detailReply, &QNetworkReply::finished, this,
                     [this, detailReply, candidates, index, roastDate, visualizerShotId, bag, checkNext]() {
                 detailReply->deleteLater();
+                // A failed detail fetch must NOT be read as data: an empty body
+                // makes remoteDate "", which would falsely match an empty local
+                // roast date (linking the WRONG bag) or, with a non-empty local
+                // date, falsely mismatch (walking off the end → duplicate bag).
+                // Abort the walk on error and retry on the next upload.
+                if (detailReply->error() != QNetworkReply::NoError) {
+                    const int sc = detailReply->attribute(
+                        QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                    qWarning() << "Visualizer CM: bag detail fetch failed (HTTP" << sc
+                               << ") - skipping link, retry next upload";
+                    return;
+                }
                 const QJsonObject detail = QJsonDocument::fromJson(detailReply->readAll()).object();
                 const QString remoteDate = detail.value("roast_date").toString();
                 if (remoteDate == roastDate || (remoteDate.isEmpty() && roastDate.isEmpty())) {

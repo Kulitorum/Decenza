@@ -1042,10 +1042,18 @@ bool ShotHistoryStorage::runMigrations()
     // upgraded before the link existed.
     if (currentVersion < 20) {
         qDebug() << "ShotHistoryStorage: Running migration to version 20 (link pre-bag shots to bags)";
-        CoffeeBagStorage::linkOrphanShotsStatic(m_db);  // -1 logged inside; retry is implicit (idempotent)
-        query.exec ("DELETE FROM schema_version");
-        query.exec ("INSERT INTO schema_version (version) VALUES (20)");
-        currentVersion = 20;
+        // Gate the bump on success: linkOrphanShotsStatic returns -1 on a SQL
+        // failure (e.g. a locked DB at migration time). The op is idempotent,
+        // so if we DON'T bump on failure it simply retries next launch; bumping
+        // unconditionally would strand the shots orphaned forever (the < 20
+        // block never runs again). Mirrors migration 19's check-before-bump.
+        if (CoffeeBagStorage::linkOrphanShotsStatic(m_db) >= 0) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (20)");
+            currentVersion = 20;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 20 orphan-link failed - will retry next launch";
+        }
     }
 
     // Migration 21: rename coffee_bags.yield_target_g -> yield_override_g
@@ -1060,9 +1068,16 @@ bool ShotHistoryStorage::runMigrations()
         qDebug() << "ShotHistoryStorage: Running migration to version 21 (yield_target_g -> yield_override_g)";
         if (hasColumn("coffee_bags", "yield_target_g") && !hasColumn("coffee_bags", "yield_override_g"))
             query.exec ("ALTER TABLE coffee_bags RENAME COLUMN yield_target_g TO yield_override_g");
-        query.exec ("DELETE FROM schema_version");
-        query.exec ("INSERT INTO schema_version (version) VALUES (21)");
-        currentVersion = 21;
+        // Gate the bump on the post-condition (the new column exists): bumping
+        // after a failed RENAME would leave code reading a missing column with
+        // no retry. Fresh DBs already satisfy it via ensureTableStatic.
+        if (hasColumn("coffee_bags", "yield_override_g")) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (21)");
+            currentVersion = 21;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 21 column rename failed - will retry next launch";
+        }
     }
 
     m_schemaVersion = currentVersion;

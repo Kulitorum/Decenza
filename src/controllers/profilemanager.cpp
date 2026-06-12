@@ -5,6 +5,7 @@
 #include "../core/settings_dye.h"
 #include "../core/settings_calibration.h"
 #include "../core/profilestorage.h"
+#include "../history/coffeebagstorage.h"
 #include "../ble/de1device.h"
 #include "../ble/protocol/de1characteristics.h"
 #include "../machine/machinestate.h"
@@ -429,12 +430,12 @@ void ProfileManager::activateBrewWithOverrides(double dose, double yield, double
 
         // Write the yield through to the active bag so the bean remembers its
         // override: store it only when it differs from the profile's target
-        // weight, else 0 so the bag follows the profile default on re-select.
-        // This is the single brew-settings commit point — the bag is updated
-        // here, not on every override change, avoiding a race with the
-        // clear-to-profile reset fired by a bean switch.
-        const double override = qAbs(yield - m_currentProfile.targetWeight()) > 0.1 ? yield : 0.0;
-        m_settings->dye()->persistYieldOverrideToBag(override);
+        // weight, else 0 so the bag follows the profile default on re-select
+        // (shared, tested rule). This is the single brew-settings commit point —
+        // the bag is updated here, not on every override change, avoiding a race
+        // with the clear-to-profile reset fired by a bean switch.
+        m_settings->dye()->persistYieldOverrideToBag(
+            CoffeeBagStorage::yieldOverrideForTarget(yield, m_currentProfile.targetWeight()));
     }
 
     double ratio = dose > 0 ? yield / dose : 2.0;

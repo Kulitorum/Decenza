@@ -465,6 +465,14 @@ bool CoffeeBagStorage::touchesVisualizerFields(const QVariantMap& fields)
     return false;
 }
 
+double CoffeeBagStorage::yieldOverrideForTarget(double shotTargetWeightG, double profileTargetWeightG)
+{
+    // 0.1 g epsilon absorbs float noise / display rounding so a target that
+    // equals the profile default isn't recorded as an override.
+    return (shotTargetWeightG > 0.0 && qAbs(shotTargetWeightG - profileTargetWeightG) > 0.1)
+               ? shotTargetWeightG : 0.0;
+}
+
 CoffeeBag CoffeeBagStorage::bagFromLegacyPreset(const QJsonObject& preset)
 {
     CoffeeBag bag;

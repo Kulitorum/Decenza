@@ -120,8 +120,9 @@ public:
     // Push a local bag edit to its already-synced Visualizer bag (PATCH
     // /api/coffee_bags/:id). No-op unless CM is Active and the bag has a
     // visualizerBagId (an unsynced bag is created later, on its next shot
-    // upload). Re-resolves the roaster by the bag's current name so a roaster
-    // rename re-points roaster_id. Caller (MainController) gates on
+    // upload). When the bag has a roaster name, re-resolves the roaster by that
+    // name so a rename re-points roaster_id; with no roaster name it PATCHes the
+    // descriptive fields alone. Caller (MainController) gates on
     // visualizerAutoUpdate and only invokes this for Visualizer-stored field
     // edits (CoffeeBagStorage::bagVisualizerFieldsChanged).
     Q_INVOKABLE void updateBagOnVisualizer(qint64 localBagId);
@@ -217,8 +218,10 @@ private:
     void addBagDescriptiveFields(QJsonObject& body, const QVariantMap& bag) const;
     // PATCH /api/coffee_bags/:visualizerBagId with the descriptive fields, plus
     // roaster_id when `roasterId` differs from the bag's stored one (rename).
-    // Persists the new visualizerRoasterId on a roaster change. 400 → CM turned
-    // off (PremiumNoCm); 403 → not premium (NoCoffeeManagement).
+    // Persists the new visualizerRoasterId on a roaster change. 403 → not premium
+    // (NoCoffeeManagement); 404 → remote bag deleted, id left stale and re-created
+    // on the next shot upload. A bag PATCH is premium-gated, not CM-gated, so it
+    // never resolves PremiumNoCm (only the shot-link probe can).
     void patchRemoteBag(const QVariantMap& bag, const QString& roasterId);
     void linkShotToBag(const QString& visualizerShotId, const QString& bagUuid,
                        const QString& canonicalId);

@@ -77,14 +77,22 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
             });
     connect(m_bagStorage, &CoffeeBagStorage::bagUpdated, this,
             [this](qint64 bagId, bool success) {
+                // Only the active bag concerns the dye cache. Gating here keeps
+                // an update to a DIFFERENT bag (a shot-save dose/yield stamp on a
+                // non-active bag, a concurrent edit elsewhere) from spuriously
+                // consuming a pending-self-write token — write-throughs only ever
+                // target the active bag, so a non-active bagUpdated is never our echo.
+                if (bagId != activeBagId())
+                    return;
                 // Skip the refresh for our own write-throughs — the dye cache
                 // is already the source of those values; re-reading per
-                // keystroke would just churn.
+                // keystroke would just churn. (requestUpdateBag always emits
+                // bagUpdated, success or fail, so the token is always consumed.)
                 if (m_pendingSelfWrites > 0) {
                     m_pendingSelfWrites--;
                     return;
                 }
-                if (success && bagId == activeBagId())
+                if (success)
                     m_bagStorage->requestBag(bagId);
             });
 

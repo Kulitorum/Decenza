@@ -21,9 +21,11 @@ class AccessibilityManager;
 class ScreensaverVideoManager;
 class TranslationManager;
 class BatteryManager;
+class CoffeeBagStorage;
 void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManager,
                         ShotHistoryStorage* shotHistory, Settings* settings,
                         VisualizerUploader* visualizerUploader,
+                        CoffeeBagStorage* bagStorage,
                         AccessibilityManager* accessibility,
                         ScreensaverVideoManager* screensaver,
                         TranslationManager* translation,
@@ -137,8 +139,9 @@ private:
     void registerTools(McpTestFixture& f)
     {
         // Pass nullptr for dependencies not needed by the profile paths under test
+        // (visualizer, bagStorage, accessibility, screensaver, translation, battery).
         registerWriteTools(&f.registry, &f.profileManager, nullptr, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
     }
 
 private slots:
