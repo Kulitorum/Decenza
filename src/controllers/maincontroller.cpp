@@ -1957,6 +1957,14 @@ void MainController::onShotEnded() {
     if (finalWeight <= 0 && m_profileManager->currentProfile().targetWeight() > 0)
         finalWeight = m_profileManager->currentProfile().targetWeight();
 
+    // Record at the scale's real resolution (~0.1 g). The raw cumulative-weight
+    // reading carries float noise (e.g. 35.36518272805495 g); rounding once here,
+    // at the source, keeps every consumer rational — the shot record, the DYE
+    // drink-weight metadata, the Visualizer upload, MCP, and exports — without
+    // sprinkling rounding across each of them.
+    if (finalWeight > 0)
+        finalWeight = std::round(finalWeight * 10.0) / 10.0;
+
     // Trim trailing zero-pressure samples from SAW settling period before saving.
     // During settling the DE1 reports 0 pressure/flow while the scale settles — these
     // cause a vertical drop to 0 at the end of the graph. Weight data is preserved.
