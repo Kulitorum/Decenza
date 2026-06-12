@@ -661,6 +661,7 @@ private slots:
         QCOMPARE(tierOf(merged[0]), Tier::Inventory);
         QCOMPARE(first.value("coffeeName").toString(), QString("A"));
         QCOMPARE(first.value("id").toInt(), 7);
+        QCOMPARE(first.value("bagId").toInt(), 7);  // inventory rows mirror id into bagId
 
         const QVariantMap second = merged[1].toMap();
         QCOMPARE(tierOf(merged[1]), Tier::HistoryCanonical);
@@ -743,6 +744,24 @@ private slots:
         QCOMPARE(static_cast<int>(Tier::CanonicalOnly), 2);
         QCOMPARE(static_cast<int>(Tier::HistoryLinked), 3);
         QCOMPARE(static_cast<int>(Tier::HistoryFreeText), 4);
+    }
+
+    // BagIdRole must expose the real bag id for an inventory row (mirrored from
+    // "id"), not -1. ChangeBeansDialog.qml compares `model.bagId ===
+    // Settings.dye.activeBagId` to mark the active bag, so a -1 here would
+    // never highlight it. Drives the model through data() directly.
+    void modelBagIdRoleExposesInventoryBagId() {
+        UnifiedBeanSearchModel model;
+        model.m_inventory = QVariantList{
+            QVariantMap{{"id", 7}, {"roasterName", "Roaster"}, {"coffeeName", "A"},
+                        {"beanBaseId", ""}, {"inInventory", true}, {"lastUsedEpoch", 100}}};
+        model.rebuild();
+
+        QCOMPARE(model.rowCount(), 1);
+        const QModelIndex idx = model.index(0);
+        QCOMPARE(model.data(idx, UnifiedBeanSearchModel::TierRole).toInt(),
+                 static_cast<int>(Tier::Inventory));
+        QCOMPARE(model.data(idx, UnifiedBeanSearchModel::BagIdRole).toLongLong(), qint64(7));
     }
 
     // ==========================================

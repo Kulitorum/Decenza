@@ -213,6 +213,10 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
             continue;
         bag["tier"] = static_cast<int>(Tier::Inventory);
         bag["sources"] = QStringLiteral("inventory");
+        // Mirror the bag's "id" into "bagId" so BagIdRole carries the real bag
+        // id for inventory rows (every other lane sets bagId == -1). Single
+        // source of truth for the cross-role invariant and QML's bagId checks.
+        bag["bagId"] = bag.value("id", -1);
         const int idx = static_cast<int>(tier0.size());
         const QString canonicalId = bag.value("beanBaseId").toString();
         if (!canonicalId.isEmpty())
@@ -325,13 +329,13 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
 
     const QVariantList merged = tier0 + tier1 + tier2 + tier34;
 #ifndef QT_NO_DEBUG
-    // A positive bag id must only ever ride on a Tier::Inventory row. Inventory
-    // rows carry it under "id" (CoffeeBag::toVariantMap); all other lanes set
-    // bagId == -1 by construction.
+    // A positive bagId must only ever ride on a Tier::Inventory row: inventory
+    // rows mirror the bag's id into "bagId" above, every other lane sets it to
+    // -1 by construction.
     for (const QVariant& v : merged) {
         const QVariantMap m = v.toMap();
         const auto tier = static_cast<Tier>(m.value("tier").toInt());
-        const qint64 bagId = m.value("id", m.value("bagId", -1)).toLongLong();
+        const qint64 bagId = m.value("bagId", -1).toLongLong();
         Q_ASSERT(bagIdInvariantHolds(tier, bagId));
     }
 #endif

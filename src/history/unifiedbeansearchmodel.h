@@ -67,7 +67,7 @@ public:
         SourcesRole,       // "inventory" | "beanbase" | "history" | "beanbase+history"
         RoasterNameRole,
         CoffeeNameRole,
-        BagIdRole,         // always -1; the inventory bag id rides on the "id" key (CoffeeBag::toVariantMap), read via get()/ChangeBeansDialog.resolveBagId()
+        BagIdRole,         // > 0 only for Tier::Inventory (mirrors the bag's "id"); -1 for every other tier
         BeanBaseIdRole,
         RoastDateRole,
         FrozenDateRole,
@@ -134,4 +134,8 @@ private:
     bool m_historyPending = false;   // query changed while a history query ran
 
     std::shared_ptr<std::atomic<bool>> m_destroyed = std::make_shared<std::atomic<bool>>(false);
+
+#ifdef DECENZA_TESTING
+    friend class tst_CoffeeBags;  // populates m_inventory + rebuild() to exercise data() roles
+#endif
 };
