@@ -4,6 +4,7 @@
 #include <QTcpSocket>
 #include <QHostAddress>
 #include <QNetworkAccessManager>
+#include <QRegularExpression>
 
 #include "network/beanbaseclient.h"
 #include "network/beanbase_blob.h"
@@ -452,6 +453,11 @@ private slots:
 
         McpToolRegistry registry;
         registerBeanSearchTool(&registry, &client);
+
+        // The payload-less response means enrichment can't parse — the
+        // resulting warning is exactly the stall path under test.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("enrichment payload missing/unparseable"));
 
         QString error;
         QJsonObject result;
