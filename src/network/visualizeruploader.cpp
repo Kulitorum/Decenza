@@ -24,6 +24,7 @@
 
 #include "visualizeruploader.h"
 #include "beanbase_blob.h"
+#include "roastdate.h"
 #include "../history/coffeebagstorage.h"
 #include "../core/dbutils.h"
 #include "../models/shotdatamodel.h"
@@ -319,7 +320,14 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     setStr("bean_brand", &ShotProjection::beanBrand);
     setStr("bean_type", &ShotProjection::beanType);
     setStr("roast_level", &ShotProjection::roastLevel);
-    setStr("roast_date", &ShotProjection::roastDate);
+    // roast_date is the one field that can carry a legacy non-ISO display
+    // string (the migration-16 back-sync drains pre-bag shots through this
+    // PATCH), so normalize it here rather than via the generic setStr. Empty
+    // still clears to null; an unparseable value passes through unchanged.
+    {
+        const QString iso = RoastDate::toIso(shotData.roastDate);
+        shotObj["roast_date"] = iso.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(iso);
+    }
     setDouble("bean_weight", &ShotProjection::doseWeightG);
     setDouble("drink_weight", &ShotProjection::finalWeightG);
     // Combine brand + model for visualizer (no separate brand field in API)
@@ -856,7 +864,7 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
     if (!metadata.beanType.isEmpty())
         bean["type"] = metadata.beanType;
     if (!metadata.roastDate.isEmpty())
-        bean["roast_date"] = metadata.roastDate;
+        bean["roast_date"] = RoastDate::toIso(metadata.roastDate);
     if (!metadata.roastLevel.isEmpty())
         bean["roast_level"] = metadata.roastLevel;
     meta["bean"] = bean;
@@ -915,7 +923,7 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
     if (!metadata.beanType.isEmpty())
         settings["bean_type"] = metadata.beanType;
     if (!metadata.roastDate.isEmpty())
-        settings["roast_date"] = metadata.roastDate;
+        settings["roast_date"] = RoastDate::toIso(metadata.roastDate);
     if (!metadata.roastLevel.isEmpty())
         settings["roast_level"] = metadata.roastLevel;
     if (!grinderDisplay.isEmpty())
@@ -1438,7 +1446,7 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
     QJsonObject bean;
     if (!shotData.beanBrand.isEmpty()) bean["brand"] = shotData.beanBrand;
     if (!shotData.beanType.isEmpty()) bean["type"] = shotData.beanType;
-    if (!shotData.roastDate.isEmpty()) bean["roast_date"] = shotData.roastDate;
+    if (!shotData.roastDate.isEmpty()) bean["roast_date"] = RoastDate::toIso(shotData.roastDate);
     if (!shotData.roastLevel.isEmpty()) bean["roast_level"] = shotData.roastLevel;
     meta["bean"] = bean;
 
@@ -1475,7 +1483,7 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
     QJsonObject settings;
     if (!shotData.beanBrand.isEmpty()) settings["bean_brand"] = shotData.beanBrand;
     if (!shotData.beanType.isEmpty()) settings["bean_type"] = shotData.beanType;
-    if (!shotData.roastDate.isEmpty()) settings["roast_date"] = shotData.roastDate;
+    if (!shotData.roastDate.isEmpty()) settings["roast_date"] = RoastDate::toIso(shotData.roastDate);
     if (!shotData.roastLevel.isEmpty()) settings["roast_level"] = shotData.roastLevel;
     if (!grinderDisplay2.isEmpty()) settings["grinder_model"] = grinderDisplay2;
     if (!shotData.grinderSetting.isEmpty()) settings["grinder_setting"] = shotData.grinderSetting;

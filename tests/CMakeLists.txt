@@ -176,6 +176,11 @@ add_decenza_test(tst_shotprojection
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
 )
 
+# --- tst_roastdate: RoastDate::toIso() roast-date normalizer (header-only) ---
+add_decenza_test(tst_roastdate
+    tst_roastdate.cpp
+)
+
 # --- tst_settings: Settings persistence and defaults ---
 add_decenza_test(tst_settings
     tst_settings.cpp
