@@ -50,6 +50,9 @@ Dialog {
     property string fRoastLevel: ""
     property string fBeanBaseId: ""
     property string fBeanBaseData: ""
+    // True when the user linked/unlinked Bean Base in this edit session —
+    // Save then propagates the bag's link to all its shots.
+    property bool fLinkDirty: false
     property string fGrinderBrand: ""
     property string fGrinderModel: ""
     property string fGrinderBurrs: ""
@@ -99,6 +102,7 @@ Dialog {
     function resetForm() {
         fRoaster = ""; fCoffee = ""; fRoastDate = ""; fRoastLevel = ""
         fBeanBaseId = ""; fBeanBaseData = ""
+        fLinkDirty = false
         fGrinderBrand = ""; fGrinderModel = ""; fGrinderBurrs = ""; fGrinderSetting = ""
         fDose = ""; fYield = ""; fStartWeight = ""; fNotes = ""
         fFreeze = false; fFrozenDate = ""; fDefrostDate = ""
@@ -155,6 +159,16 @@ Dialog {
         mode = "form"
         _armedForm = true
         open()
+        if (fBeanBaseId.length === 0)
+            editLinkBar.prefill([fRoaster, fCoffee].filter(function(x) { return x.length > 0 }).join(" "))
+    }
+
+    // "Find in Bean Base" on the bag card: edit mode with the link search
+    // pre-run, so the canonical results pop up immediately.
+    function openForEditAndLink(bag) {
+        openForEdit(bag)
+        if (fBeanBaseId.length === 0)
+            editLinkBar.prefillAndSearch([fRoaster, fCoffee].filter(function(x) { return x.length > 0 }).join(" "))
     }
 
     // Context-dependent selection semantics. `bag` must carry the bag-shaped keys.
@@ -237,7 +251,9 @@ Dialog {
         }
         if (formMode === "edit") {
             fields["defrostDate"] = fFreeze ? (fDefrostDate.replace(/_/g, "").length === 10 ? fDefrostDate : "") : ""
-            MainController.bagStorage.requestUpdateBag(editBagId, fields)
+            // A link change fixes the whole bag: propagate the (new or
+            // cleared) canonical link onto every shot referencing it.
+            MainController.bagStorage.requestUpdateBag(editBagId, fields, fLinkDirty)
             root.close()
         } else {
             fields["defrostDate"] = ""
@@ -640,6 +656,63 @@ Dialog {
                             color: Theme.textSecondaryColor
                             elide: Text.ElideRight
                             Accessible.ignored: true
+                        }
+                    }
+
+                    // --- Bean Base link (edit mode): upgrade a free-text bag
+                    // to its canonical record. Saving then propagates the
+                    // link to every shot pulled with this bag.
+                    Item {
+                        visible: root.formMode === "edit"
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.scaled(20)
+                        Layout.rightMargin: Theme.scaled(20)
+                        implicitHeight: editLinkBar.implicitHeight
+
+                        BeanBaseSearchBar {
+                            id: editLinkBar
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            linked: root.fBeanBaseId.length > 0
+                            linkedLabel: {
+                                var bb = root.formBeanBase
+                                var name = [bb.roasterName || root.fRoaster, bb.roastName || root.fCoffee]
+                                    .filter(function(x) { return x && x.length > 0 }).join(" ")
+                                return name
+                            }
+
+                            onEntrySelected: function(entry) {
+                                root.fBeanBaseId = String(entry.id || "")
+                                root.fBeanBaseData = JSON.stringify(entry)
+                                if (entry.roasterName) root.fRoaster = entry.roasterName
+                                if (entry.roastName) root.fCoffee = entry.roastName
+                                root.fLinkDirty = true
+                                // Best-effort attribute enrichment (origin,
+                                // variety, process, ...) — merged below when
+                                // canonicalDetails arrives.
+                                MainController.beanbase.fetchCanonicalDetails(entry)
+                            }
+                            onUnlinkRequested: {
+                                root.fBeanBaseId = ""
+                                root.fBeanBaseData = ""
+                                root.fLinkDirty = true
+                            }
+                        }
+                    }
+
+                    Connections {
+                        target: MainController.beanbase
+                        function onCanonicalDetails(canonicalId, attrs) {
+                            if (root.mode !== "form" || root.fBeanBaseId !== canonicalId)
+                                return
+                            try {
+                                var blob = JSON.parse(root.fBeanBaseData)
+                                for (var key in attrs)
+                                    blob[key] = attrs[key]
+                                root.fBeanBaseData = JSON.stringify(blob)
+                            } catch (e) {
+                                // Corrupt staged blob: keep the minimal entry
+                            }
                         }
                     }
 

@@ -86,7 +86,14 @@ public:
 
     // Async writes — all emit bagsChanged() on success.
     Q_INVOKABLE void requestCreateBag(const QVariantMap& bag);          // bagCreated()
-    Q_INVOKABLE void requestUpdateBag(qint64 bagId, const QVariantMap& fields); // bagUpdated()
+    // propagateBeanBase: after the update, copy the bag's (possibly empty)
+    // canonical link onto ALL shots referencing it — the edit-dialog
+    // "upgrade this bag to Bean Base" flow, where linking the bag fixes its
+    // whole history. Runs in the same background job so it cannot race the
+    // field update. Default off: routine edits and write-throughs must not
+    // rewrite shot snapshots.
+    Q_INVOKABLE void requestUpdateBag(qint64 bagId, const QVariantMap& fields,
+                                      bool propagateBeanBase = false); // bagUpdated()
     Q_INVOKABLE void requestMarkEmpty(qint64 bagId);                    // bagUpdated()
     Q_INVOKABLE void requestSetDefrostToday(qint64 bagId);              // "Next Portion": defrostDate = today
     Q_INVOKABLE void requestTouchLastUsed(qint64 bagId);                // bump MRU timestamp (no bagUpdated)
@@ -121,6 +128,11 @@ public:
     static int importLegacyPresetsStatic(QSqlDatabase& db, const QJsonArray& presets,
                                          int selectedIndex = -1,
                                          qint64* outSelectedBagId = nullptr);
+
+    // Copy the bag's canonical link (beanbase_id + beanbase_json, possibly
+    // empty = unlink) onto every shot whose bag_id references it. Returns
+    // the number of shots updated, -1 on failure.
+    static int propagateBeanBaseStatic(QSqlDatabase& db, qint64 bagId);
 
     // Link orphan shots (bag_id NULL) to bags by identity — two passes:
     // exact (case-insensitive roaster+coffee+roast_date), then identity-only

@@ -352,6 +352,45 @@ private slots:
         });
     }
 
+    void propagateBeanBaseFixesLinkedShots() {
+        // Linking a bag to Bean Base in the edit dialog rewrites the
+        // canonical snapshot of every shot pulled with that bag; clearing
+        // the link propagates the unlink the same way.
+        const QString path = freshDb();
+        withRawDb(path, "propagate", [&](QSqlDatabase& db) {
+            CoffeeBag bag;
+            bag.roasterName = "Prodigal";
+            bag.coffeeName = "Espresso Milk Blend";
+            const qint64 bagId = CoffeeBagStorage::insertBagStatic(db, bag);
+            const qint64 linkedShot = insertShot(db, "Prodigal", "Espresso Milk Blend", 1000, QString(), bagId);
+            const qint64 otherShot = insertShot(db, "Other", "Coffee", 1001);
+
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, bagId, {
+                {"beanBaseId", "canon-77"},
+                {"beanBaseData", R"({"id":"canon-77","origin":"Colombia"})"}}));
+            QCOMPARE(CoffeeBagStorage::propagateBeanBaseStatic(db, bagId), 1);
+
+            QSqlQuery q(db);
+            q.prepare("SELECT beanbase_id, beanbase_json FROM shots WHERE id = :id");
+            q.bindValue(":id", linkedShot);
+            QVERIFY(q.exec() && q.next());
+            QCOMPARE(q.value(0).toString(), QString("canon-77"));
+            QVERIFY(q.value(1).toString().contains("Colombia"));
+
+            q.bindValue(":id", otherShot);
+            QVERIFY(q.exec() && q.next());
+            QVERIFY(q.value(0).isNull());  // unrelated shot untouched
+
+            // Unlink propagates the clear.
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, bagId, {
+                {"beanBaseId", ""}, {"beanBaseData", ""}}));
+            QCOMPARE(CoffeeBagStorage::propagateBeanBaseStatic(db, bagId), 1);
+            q.bindValue(":id", linkedShot);
+            QVERIFY(q.exec() && q.next());
+            QVERIFY(q.value(0).isNull());
+        });
+    }
+
     void inventoryCarriesShotCount() {
         // shotCount drives the card's single removal action (trash while 0,
         // "Bag finished" once shots exist).

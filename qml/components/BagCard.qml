@@ -18,6 +18,9 @@ Rectangle {
     property var bag: ({})
 
     signal editRequested(var bag)
+    // "Find in Bean Base": open the edit dialog with the canonical link
+    // search pre-run for this bag.
+    signal linkRequested(var bag)
 
     readonly property bool selected: bag && bag.id !== undefined && bag.id === Settings.dye.activeBagId
     readonly property bool hasShots: bag && (bag.shotCount ?? 0) > 0
@@ -180,15 +183,6 @@ Rectangle {
                     Accessible.ignored: true
                 }
 
-                // Subtle nudge for bags without a canonical link
-                Tr {
-                    visible: !card.hasCanonical
-                    key: "bagcard.findInBeanBase"
-                    fallback: "Find in Bean Base"
-                    font: Theme.captionFont
-                    color: Theme.textSecondaryColor
-                    Accessible.ignored: true
-                }
             }
 
             AccessibleMouseArea {
@@ -218,6 +212,19 @@ Rectangle {
         Flow {
             Layout.fillWidth: true
             spacing: Theme.scaled(6)
+
+            // Unlinked bag: one tap opens the edit dialog with the Bean Base
+            // search already run for this coffee (was a passive hint before).
+            AccessibleButton {
+                visible: !card.hasCanonical
+                height: Theme.scaled(36)
+                _customFontSize: Theme.captionFont.pixelSize
+                leftPadding: Theme.scaled(10)
+                rightPadding: Theme.scaled(10)
+                text: TranslationManager.translate("bagcard.findInBeanBase", "Find in Bean Base")
+                accessibleName: TranslationManager.translate("bagcard.accessible.findInBeanBase", "Find this coffee in Bean Base and link it")
+                onClicked: card.linkRequested(card.bag)
+            }
 
             AccessibleButton {
                 visible: card.isFrozen

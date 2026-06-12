@@ -170,12 +170,15 @@ void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
         });
 }
 
-void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields)
+void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
+                                        bool propagateBeanBase)
 {
     auto success = std::make_shared<bool>(false);
     runAsync("bags_update",
-        [bagId, fields, success](QSqlDatabase& db) {
+        [bagId, fields, success, propagateBeanBase](QSqlDatabase& db) {
             *success = updateBagFieldsStatic(db, bagId, fields);
+            if (*success && propagateBeanBase)
+                propagateBeanBaseStatic(db, bagId);
         },
         [this, bagId, success]() {
             emit bagUpdated(bagId, *success);
@@ -469,6 +472,29 @@ CoffeeBag CoffeeBagStorage::bagFromLegacyPreset(const QJsonObject& preset)
         bag.notes = name;
 
     return bag;
+}
+
+int CoffeeBagStorage::propagateBeanBaseStatic(QSqlDatabase& db, qint64 bagId)
+{
+    const CoffeeBag bag = loadBagStatic(db, bagId);
+    if (!bag.isValid())
+        return -1;
+
+    QSqlQuery query(db);
+    query.prepare("UPDATE shots SET beanbase_id = :id, beanbase_json = :blob, "
+                  "updated_at = strftime('%s', 'now') WHERE bag_id = :bag");
+    query.bindValue(":id", bag.beanBaseId.isEmpty() ? QVariant() : bag.beanBaseId);
+    query.bindValue(":blob", bag.beanBaseData.isEmpty() ? QVariant() : bag.beanBaseData);
+    query.bindValue(":bag", bagId);
+    if (!query.exec()) {
+        qWarning() << "CoffeeBagStorage: beanbase propagation failed for bag" << bagId
+                   << ":" << query.lastError().text();
+        return -1;
+    }
+    const int updated = query.numRowsAffected();
+    qDebug() << "CoffeeBagStorage: propagated bean base link of bag" << bagId
+             << "to" << updated << "shots";
+    return updated;
 }
 
 int CoffeeBagStorage::linkOrphanShotsStatic(QSqlDatabase& db)

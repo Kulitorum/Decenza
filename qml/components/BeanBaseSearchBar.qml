@@ -50,6 +50,28 @@ Item {
         _settingTextProgrammatically = false
     }
 
+    // Programmatic pre-fill (edit-bag link flow): seed the input with a
+    // likely query so one tap on the field searches it. Does NOT search.
+    function prefill(q) {
+        if (linked) return
+        _setInputText(q)
+    }
+
+    // Pre-fill AND run the search immediately — the results popup opens on
+    // arrival even while the field is unfocused ("Find in Bean Base" on the
+    // bag card lands here).
+    property bool _openOnResult: false
+    function prefillAndSearch(q) {
+        if (linked) return
+        _setInputText(q)
+        const t = q.trim()
+        if (t.length < 2) return
+        _pendingQuery = t.toLowerCase()
+        searchState = "loading"
+        _openOnResult = true
+        MainController.beanbase.search(t)
+    }
+
     onLinkedChanged: {
         if (linked) {
             resultsPopup.close()
@@ -189,7 +211,12 @@ Item {
             if (query.toLowerCase() !== root._pendingQuery) return
             root.results = entries
             root.searchState = "idle"
-            if (searchInput.activeFocus) resultsPopup.open()  // Open even when empty: the no-matches message lives in the popup
+            // Open even when empty: the no-matches message lives in the popup.
+            // _openOnResult covers programmatic prefillAndSearch (no focus yet).
+            if (searchInput.activeFocus || root._openOnResult) {
+                root._openOnResult = false
+                resultsPopup.open()
+            }
         }
 
         function onSearchFailed(query, status) {
