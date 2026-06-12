@@ -732,6 +732,19 @@ private slots:
         QCOMPARE(merged[1].toMap().value("coffeeName").toString(), QString("Old"));
     }
 
+    // The TierRole int values are a hard cross-language contract: the emitted
+    // role is the raw enum value and ChangeBeansDialog.qml compares it against
+    // these literals (notably `model.tier === 0` for Inventory). Pin the
+    // numbers so a future enumerator reorder can't silently break QML — the
+    // enum-vs-enum assertions elsewhere would not catch that.
+    void tierEnumValuesMatchQmlContract() {
+        QCOMPARE(static_cast<int>(Tier::Inventory), 0);
+        QCOMPARE(static_cast<int>(Tier::HistoryCanonical), 1);
+        QCOMPARE(static_cast<int>(Tier::CanonicalOnly), 2);
+        QCOMPARE(static_cast<int>(Tier::HistoryLinked), 3);
+        QCOMPARE(static_cast<int>(Tier::HistoryFreeText), 4);
+    }
+
     // ==========================================
     // Dose/yield stamp primitive
     // ==========================================

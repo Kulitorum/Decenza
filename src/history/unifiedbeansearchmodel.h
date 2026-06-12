@@ -67,7 +67,7 @@ public:
         SourcesRole,       // "inventory" | "beanbase" | "history" | "beanbase+history"
         RoasterNameRole,
         CoffeeNameRole,
-        BagIdRole,         // > 0 only for Tier::Inventory
+        BagIdRole,         // always -1; the inventory bag id rides on the "id" key (CoffeeBag::toVariantMap), read via get()/ChangeBeansDialog.resolveBagId()
         BeanBaseIdRole,
         RoastDateRole,
         FrozenDateRole,
