@@ -349,4 +349,15 @@ private:
     std::shared_ptr<std::atomic<bool>> m_destroyed = std::make_shared<std::atomic<bool>>(false);
 
     static const QString DB_CONNECTION_NAME;
+
+#ifdef DECENZA_TESTING
+public:
+    // Fault-injection seam for migration retry tests (tst_dbmigration). When set
+    // to a migration number, runMigrations() forces that migration's gated
+    // operation to fail exactly once — modelling a transient locked DB at
+    // migration time — then clears itself so the next initialize() retries
+    // cleanly. 0 (default) = no fault. Honoured values: 20 (orphan-link) and
+    // 21 (column rename). Production builds never compile this member.
+    static int s_faultInjectMigration;
+#endif
 };

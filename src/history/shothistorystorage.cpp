@@ -42,6 +42,10 @@ using decenza::storage::detail::prepareAnalysisInputs;
 
 const QString ShotHistoryStorage::DB_CONNECTION_NAME = "ShotHistoryConnection";
 
+#ifdef DECENZA_TESTING
+int ShotHistoryStorage::s_faultInjectMigration = 0;
+#endif
+
 ShotHistoryStorage::ShotHistoryStorage(QObject* parent)
     : QObject(parent)
 {
@@ -1047,12 +1051,31 @@ bool ShotHistoryStorage::runMigrations()
         // so if we DON'T bump on failure it simply retries next launch; bumping
         // unconditionally would strand the shots orphaned forever (the < 20
         // block never runs again). Mirrors migration 19's check-before-bump.
-        if (CoffeeBagStorage::linkOrphanShotsStatic(m_db) >= 0) {
+        bool linkFaulted = false;
+#ifdef DECENZA_TESTING
+        linkFaulted = (s_faultInjectMigration == 20);
+        if (linkFaulted)
+            s_faultInjectMigration = 0;  // one-shot: clears so the retry succeeds
+#endif
+        const int linked = linkFaulted ? -1 : CoffeeBagStorage::linkOrphanShotsStatic(m_db);
+        if (linked >= 0) {
             query.exec ("DELETE FROM schema_version");
             query.exec ("INSERT INTO schema_version (version) VALUES (20)");
             currentVersion = 20;
         } else {
             qWarning() << "ShotHistoryStorage: migration 20 orphan-link failed - will retry next launch";
+#ifdef DECENZA_TESTING
+            // Model the locked DB faithfully: the same lock that failed the
+            // orphan-link also fails every later migration's writes this pass,
+            // so nothing persists past version 19 and the WHOLE chain (incl.
+            // migration 21) retries next launch. Without this abort, the
+            // independently-gated migration 21 would still bump to 21 here and
+            // the < 20 block would never run again.
+            if (linkFaulted) {
+                m_schemaVersion = currentVersion;
+                return true;
+            }
+#endif
         }
     }
 
@@ -1066,7 +1089,14 @@ bool ShotHistoryStorage::runMigrations()
     // QSqlQuery permission-hook false-positive, as elsewhere.
     if (currentVersion < 21) {
         qDebug() << "ShotHistoryStorage: Running migration to version 21 (yield_target_g -> yield_override_g)";
-        if (hasColumn("coffee_bags", "yield_target_g") && !hasColumn("coffee_bags", "yield_override_g"))
+        bool renameFaulted = false;
+#ifdef DECENZA_TESTING
+        renameFaulted = (s_faultInjectMigration == 21);
+        if (renameFaulted)
+            s_faultInjectMigration = 0;  // one-shot: clears so the retry succeeds
+#endif
+        if (!renameFaulted
+            && hasColumn("coffee_bags", "yield_target_g") && !hasColumn("coffee_bags", "yield_override_g"))
             query.exec ("ALTER TABLE coffee_bags RENAME COLUMN yield_target_g TO yield_override_g");
         // Gate the bump on the post-condition (the new column exists): bumping
         // after a failed RENAME would leave code reading a missing column with
