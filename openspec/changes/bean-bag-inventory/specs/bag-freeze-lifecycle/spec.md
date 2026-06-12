@@ -15,18 +15,21 @@ A bag SHALL store `frozenDate` (nullable date) and `defrostDate` (nullable date)
 - **WHEN** both `frozenDate` and `defrostDate` are null
 - **THEN** no freeze-related indicators SHALL appear on the bag card
 
-### Requirement: "Next Portion" action stamps defrostDate
-The system SHALL provide a "Next Portion" action on frozen bag cards (where `frozenDate` is non-null). Activating it SHALL set `defrostDate` to the current date with no dialog required.
+### Requirement: "Thaw" action records the latest portion leaving the freezer
+The system SHALL provide a "Thaw" action on frozen bag cards ONLY (where `frozenDate` is non-null). Activating it SHALL open a calendar picker (pre-set to the current `defrostDate`, else today); picking a date sets `defrostDate`.
 
-#### Scenario: One-tap defrost
-- **WHEN** the user activates "Next Portion" on a frozen bag card
-- **THEN** `defrostDate` SHALL be set to today's date
+#### Scenario: Thawing a portion
+- **WHEN** the user activates "Thaw" on a frozen bag card and picks a date
+- **THEN** `defrostDate` SHALL be set to the picked date
 - **AND** the bag card SHALL update to show the new defrost age immediately
-- **AND** no dialog or confirmation SHALL be required
+
+#### Scenario: Not visible on unfrozen bags
+- **WHEN** a bag has no `frozenDate`
+- **THEN** no "Thaw" action SHALL appear on its card
 
 #### Scenario: Multiple portions over time
-- **WHEN** the user activates "Next Portion" multiple times across different dates
-- **THEN** each activation overwrites `defrostDate` with the current date
+- **WHEN** the user thaws portions across different dates
+- **THEN** each thaw overwrites `defrostDate`
 - **AND** the bag card always shows the most recent defrost age
 - **AND** prior defrost events are preserved implicitly via shot snapshots
 

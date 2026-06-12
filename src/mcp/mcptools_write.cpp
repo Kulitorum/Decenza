@@ -1466,7 +1466,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         if (!bag.frozenDate.isEmpty()) obj["frozenDate"] = bag.frozenDate;
         if (!bag.defrostDate.isEmpty()) obj["defrostDate"] = bag.defrostDate;
         if (!bag.notes.isEmpty()) obj["notes"] = bag.notes;
-        if (bag.startWeightG > 0) obj["startWeightG"] = bag.startWeightG;
         obj["inInventory"] = bag.inInventory;
         if (!bag.grinderBrand.isEmpty()) obj["grinderBrand"] = bag.grinderBrand;
         if (!bag.grinderModel.isEmpty()) obj["grinderModel"] = bag.grinderModel;
@@ -1537,7 +1536,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "Update fields on a coffee bag (metadata and freeze lifecycle). Only provided fields "
         "change. Pass an empty string to clear a text/date field. Setting inInventory=false marks "
         "the bag empty (removes it from the inventory view; shots keep their snapshots). "
-        "defrostDate=today is the 'Next Portion' action for frozen bags.",
+        "Setting defrostDate records a thaw (the latest portion leaving the freezer).",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -1549,7 +1548,6 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"frozenDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear"}}},
                 {"defrostDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear"}}},
                 {"notes", QJsonObject{{"type", "string"}}},
-                {"startWeightG", QJsonObject{{"type", "number"}, {"description", "Starting bag weight in grams"}}},
                 {"grinderBrand", QJsonObject{{"type", "string"}}},
                 {"grinderModel", QJsonObject{{"type", "string"}}},
                 {"grinderBurrs", QJsonObject{{"type", "string"}}},
@@ -1573,7 +1571,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             QVariantMap fields;
             static const QStringList kEditable = {
                 "roasterName", "coffeeName", "roastDate", "roastLevel",
-                "frozenDate", "defrostDate", "notes", "startWeightG",
+                "frozenDate", "defrostDate", "notes",
                 "grinderBrand", "grinderModel", "grinderBurrs", "grinderSetting",
                 "doseWeightG", "yieldTargetG", "inInventory"};
             for (const QString& key : kEditable) {

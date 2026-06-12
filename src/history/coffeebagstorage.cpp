@@ -192,11 +192,6 @@ void CoffeeBagStorage::requestMarkEmpty(qint64 bagId)
     requestUpdateBag(bagId, {{"inInventory", false}});
 }
 
-void CoffeeBagStorage::requestSetDefrostToday(qint64 bagId)
-{
-    requestUpdateBag(bagId, {{"defrostDate", QDate::currentDate().toString(Qt::ISODate)}});
-}
-
 void CoffeeBagStorage::requestTouchLastUsed(qint64 bagId)
 {
     runAsync("bags_touch",

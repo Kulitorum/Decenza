@@ -186,7 +186,7 @@ This avoids holding HTTP connections and works naturally with the conversational
 |------|-------------|----------|
 | `bag_list` | List coffee bags (inventory by default; `includeEmpty=true` adds bags marked empty). Each bag carries identity, freeze lifecycle, last-used grinder/dose, a parsed `beanBase` snapshot, and `isActive`. | read |
 | `bag_select` | Set the active bag — what the next shot is pulled with (applies bean identity + last-used grinder/dose). `bagId: 0` clears the selection. | control |
-| `bag_update` | Update bag fields (metadata + freeze lifecycle). Partial: only provided keys change; `""` clears a text/date field. `inInventory=false` = "Bag finished" (marks the bag empty); `defrostDate=today` = Next Portion. | settings |
+| `bag_update` | Update bag fields (metadata + freeze lifecycle). Partial: only provided keys change; `""` clears a text/date field. `inInventory=false` = "Bag finished" (marks the bag empty); setting `defrostDate` records a thaw. | settings |
 
 ### Profile Management
 | Tool | Description | Category |

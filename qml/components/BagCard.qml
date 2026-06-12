@@ -6,7 +6,7 @@ import Decenza
 // Inventory bag card (bean-bag-inventory). Adaptive content: canonical-linked
 // bags show a dense attribute line + verified badge; partial bags show only
 // what is available plus a subtle "Find in Bean Base" nudge. Tapping the card
-// selects the bag (sets activeBagId). Action row: Next Portion (frozen bags),
+// selects the bag (sets activeBagId). Action row: Thaw (frozen bags),
 // Edit, and ONE removal action that follows the bag's life: a trash icon
 // while no shot references it (a mistaken creation — deletes the row), then
 // "Bag finished" once shots exist (leaves inventory, history kept). Storage
@@ -92,6 +92,13 @@ Rectangle {
     BeanBaseDetailsPopup {
         id: beanDetailsPopup
         beanBaseJson: (card.bag && card.bag.beanBaseData) || ""
+    }
+
+    DatePickerDialog {
+        id: thawDatePicker
+        onDateSelected: function(dateString) {
+            MainController.bagStorage.requestUpdateBag(card.bag.id, { "defrostDate": dateString })
+        }
     }
 
     Timer {
@@ -247,17 +254,6 @@ Rectangle {
             }
 
             AccessibleButton {
-                visible: card.isFrozen
-                height: Theme.scaled(36)
-                _customFontSize: Theme.captionFont.pixelSize
-                leftPadding: Theme.scaled(10)
-                rightPadding: Theme.scaled(10)
-                text: TranslationManager.translate("bagcard.nextPortion", "Next Portion")
-                accessibleName: TranslationManager.translate("bagcard.accessible.nextPortion", "Next portion: mark a new portion defrosted today")
-                onClicked: MainController.bagStorage.requestSetDefrostToday(card.bag.id)
-            }
-
-            AccessibleButton {
                 visible: card.hasShots
                 height: Theme.scaled(36)
                 _customFontSize: Theme.captionFont.pixelSize
@@ -285,6 +281,19 @@ Rectangle {
                 icon.source: "qrc:/icons/info.svg"
                 accessibleName: TranslationManager.translate("bagcard.accessible.details", "Show all bean details")
                 onClicked: beanDetailsPopup.open()
+            }
+
+            // Frozen bag: "Thaw" records the latest portion leaving the
+            // freezer — calendar picker, defaulting to today.
+            AccessibleButton {
+                visible: card.isFrozen
+                height: Theme.scaled(36)
+                _customFontSize: Theme.captionFont.pixelSize
+                leftPadding: Theme.scaled(10)
+                rightPadding: Theme.scaled(10)
+                text: TranslationManager.translate("bagcard.thaw", "Thaw")
+                accessibleName: TranslationManager.translate("bagcard.accessible.thaw", "Thaw: pick the date the latest portion left the freezer")
+                onClicked: thawDatePicker.openWithDate(card.defrostDate)
             }
 
             // No shots yet: the bag is a mistaken creation — offer delete

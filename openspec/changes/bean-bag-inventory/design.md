@@ -126,9 +126,9 @@ The device-to-device transfer and backup/restore path (`ShotHistoryStorage::impo
 
 `parseCanonicalPayload` in `beanbaseclient.cpp` gains a `canonicalRoasterId` key, stored in `beanBaseData` alongside origin/variety/etc. This enables Visualizer roaster creation with the verified badge. Currently the roaster UUID is only in the in-memory `m_roasterUuidCache` and lost on restart.
 
-### Decision: startWeightG is local-only
+### Decision: startWeightG removed from the UI (column retained)
 
-Visualizer's CoffeeBag has no weight field. `startWeightG` is stored locally, used to display approximate remaining weight (startWeightG minus sum of shot doseWeightG for this bag). It is not included in Visualizer sync payloads.
+Visualizer's CoffeeBag has no weight field, and the "Bag size" form field added little value — it was removed from the bag details form and the MCP surface. The `start_weight_g` column and struct field remain (dormant) so no schema churn is needed; a future remaining-weight feature can resurface it.
 
 ## Risks / Trade-offs
 

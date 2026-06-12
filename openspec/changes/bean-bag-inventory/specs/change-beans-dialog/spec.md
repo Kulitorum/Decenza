@@ -56,7 +56,7 @@ After selecting any result, the dialog SHALL show a Bag Details form pre-filled 
 #### Scenario: Picking a canonical + history result
 - **WHEN** the user picks a Tier 1 result (both sources)
 - **THEN** the form SHALL show: roast date (blank — optional), and collapse all fields already known (canonical attributes, grinder from history, dose from history)
-- **AND** starting weight, notes, grinder hardware, and the freeze toggle SHALL be visible inline (no expander — it only added a click)
+- **AND** notes, grinder hardware, and the freeze toggle SHALL be visible inline (no expander — it only added a click)
 
 #### Scenario: Picking a canonical-only result
 - **WHEN** the user picks a Tier 2 Bean Base result with no history

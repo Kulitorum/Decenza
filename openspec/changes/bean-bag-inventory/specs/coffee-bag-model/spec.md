@@ -3,7 +3,7 @@
 ### Requirement: CoffeeBag data model
 The system SHALL define a `CoffeeBag` value type with the following fields:
 - Identity: `id` (int, DB primary key), `roasterName`, `coffeeName`, `roastDate`, `roastLevel`, `beanBaseId` (canonical UUID, nullable), `beanBaseData` (JSON blob, nullable)
-- Lifecycle: `frozenDate` (nullable), `defrostDate` (nullable), `notes` (nullable), `startWeightG` (double, nullable), `inInventory` (bool, default true)
+- Lifecycle: `frozenDate` (nullable), `defrostDate` (nullable), `notes` (nullable), `startWeightG` (double, nullable — column retained but UNSURFACED: the UI field was removed as low-value and Visualizer has no equivalent), `inInventory` (bool, default true)
 - Last-used grinder/dose: `grinderBrand`, `grinderModel`, `grinderBurrs`, `grinderSetting`, `doseWeightG`, `yieldTargetG` (all nullable)
 - Visualizer sync: `visualizerBagId` (nullable UUID string), `visualizerRoasterId` (nullable UUID string)
 

@@ -59,7 +59,6 @@ Dialog {
     property string fGrinderSetting: ""
     property string fDose: ""         // text form; "" = unset
     property string fYield: ""
-    property string fStartWeight: ""
     property string fNotes: ""
     property bool fFreeze: false
     property string fFrozenDate: ""
@@ -179,7 +178,7 @@ Dialog {
         fBeanBaseId = ""; fBeanBaseData = ""
         fLinkDirty = false
         fGrinderBrand = ""; fGrinderModel = ""; fGrinderBurrs = ""; fGrinderSetting = ""
-        fDose = ""; fYield = ""; fStartWeight = ""; fNotes = ""
+        fDose = ""; fYield = ""; fNotes = ""
         fFreeze = false; fFrozenDate = ""; fDefrostDate = ""
         identityKnown = false
         errorMessage = ""
@@ -226,7 +225,6 @@ Dialog {
         editBagId = bag.id
         prefillFromBag(bag)
         fRoastDate = bag.roastDate || ""
-        fStartWeight = (bag.startWeightG ?? 0) > 0 ? String(bag.startWeightG) : ""
         fNotes = bag.notes || ""
         fFrozenDate = bag.frozenDate || ""
         fDefrostDate = bag.defrostDate || ""
@@ -320,7 +318,6 @@ Dialog {
             "grinderSetting": fGrinderSetting.trim(),
             "doseWeightG": parseWeight(fDose),
             "yieldTargetG": parseWeight(fYield),
-            "startWeightG": parseWeight(fStartWeight),
             "notes": fNotes,
             "frozenDate": fFreeze ? (fFrozenDate.replace(/_/g, "").length === 10 ? fFrozenDate : todayIso()) : ""
         }
@@ -397,7 +394,7 @@ Dialog {
         textFields: [searchField, roasterInput.textField, coffeeInput.textField, roastDateInput,
                      grindSettingInput, doseInput, yieldInput,
                      grinderBrandInput, grinderModelInput, grinderBurrsInput,
-                     startWeightInput, notesInput, frozenDateInput, defrostDateInput]
+                     notesInput, frozenDateInput, defrostDateInput]
         targetFlickable: formFlickable
 
         ColumnLayout {
@@ -1044,27 +1041,11 @@ Dialog {
                         }
                     }
 
-                    // Starting weight / notes / grinder hardware / freeze —
-                    // always visible (the "More options" expander was removed:
-                    // it only added a click).
+                    // Notes / grinder hardware — always visible (the "More
+                    // options" expander was removed: it only added a click).
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(10)
-
-                        FieldRow {
-                            labelKey: "changebeans.form.startWeight"
-                            labelFallback: "Bag size:"
-
-                            StyledTextField {
-                                id: startWeightInput
-                                Layout.fillWidth: true
-                                text: root.fStartWeight
-                                placeholder: TranslationManager.translate("changebeans.form.startWeight.placeholder", "Starting weight (g)")
-                                accessibleName: TranslationManager.translate("changebeans.form.startWeight.accessible", "Starting weight in grams")
-                                inputMethodHints: Qt.ImhFormattedNumbersOnly
-                                onTextEdited: root.fStartWeight = text
-                            }
-                        }
 
                         FieldRow {
                             labelKey: "changebeans.form.notes"

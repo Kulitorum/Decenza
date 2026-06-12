@@ -95,7 +95,6 @@ public:
     Q_INVOKABLE void requestUpdateBag(qint64 bagId, const QVariantMap& fields,
                                       bool propagateBeanBase = false); // bagUpdated()
     Q_INVOKABLE void requestMarkEmpty(qint64 bagId);                    // bagUpdated()
-    Q_INVOKABLE void requestSetDefrostToday(qint64 bagId);              // "Next Portion": defrostDate = today
     Q_INVOKABLE void requestTouchLastUsed(qint64 bagId);                // bump MRU timestamp (no bagUpdated)
     // Deletes only when no shot references the bag (shots.bag_id count = 0);
     // emits bagDeleted(bagId, success) — success false when shots exist.
