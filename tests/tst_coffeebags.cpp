@@ -433,14 +433,53 @@ private slots:
             fresh.coffeeName = "Bag";
             CoffeeBagStorage::insertBagStatic(db, fresh);
 
-            const QVector<CoffeeBag> inventory = CoffeeBagStorage::loadInventoryStatic(db);
+            const QVector<InventoryBag> inventory = CoffeeBagStorage::loadInventoryStatic(db);
             QCOMPARE(inventory.size(), 2);
             QHash<QString, qint64> countByRoaster;
-            for (const CoffeeBag& bag : inventory)
-                countByRoaster.insert(bag.roasterName, bag.shotCount);
+            for (const InventoryBag& entry : inventory)
+                countByRoaster.insert(entry.bag.roasterName, entry.shotCount);
             QCOMPARE(countByRoaster.value("Used"), qint64(2));
             QCOMPARE(countByRoaster.value("Fresh"), qint64(0));
         });
+    }
+
+    void requestInventoryInjectsShotCountIntoMap() {
+        // shotCount is no longer a CoffeeBag field: requestInventory injects it
+        // into the variant map the QML card reads. Assert that C++->QML contract
+        // through the async signal, not just the loader struct (the field could
+        // be present on InventoryBag yet dropped from the emitted map).
+        const QString path = freshDb();
+        withRawDb(path, "inv_map", [&](QSqlDatabase& db) {
+            CoffeeBag used;
+            used.roasterName = "Used";
+            used.coffeeName = "Bag";
+            const qint64 usedId = CoffeeBagStorage::insertBagStatic(db, used);
+            insertShot(db, "Used", "Bag", 1000, QString(), usedId);
+            insertShot(db, "Used", "Bag", 1001, QString(), usedId);
+            CoffeeBag fresh;
+            fresh.roasterName = "Fresh";
+            fresh.coffeeName = "Bag";
+            CoffeeBagStorage::insertBagStatic(db, fresh);
+        });
+
+        CoffeeBagStorage storage;
+        storage.initialize(path);
+        QSignalSpy readySpy(&storage, &CoffeeBagStorage::inventoryReady);
+        storage.requestInventory();
+        QTRY_COMPARE(readySpy.count(), 1);
+
+        const QVariantList bags = readySpy.at(0).at(0).toList();
+        QCOMPARE(bags.size(), 2);
+        QHash<QString, qint64> countByRoaster;
+        for (const QVariant& v : bags) {
+            const QVariantMap map = v.toMap();
+            QVERIFY2(map.contains(QStringLiteral("shotCount")),
+                     "inventory map must carry the injected shotCount key");
+            countByRoaster.insert(map.value(QStringLiteral("roasterName")).toString(),
+                                  map.value(QStringLiteral("shotCount")).toLongLong());
+        }
+        QCOMPARE(countByRoaster.value("Used"), qint64(2));
+        QCOMPARE(countByRoaster.value("Fresh"), qint64(0));
     }
 
     void findBagForShotPrefersLinkThenIdentity() {
@@ -494,7 +533,7 @@ private slots:
         storage.initialize(path);
         qint64 usedBagId = -1, freshBagId = -1;
         withRawDb(path, "delete_ids", [&](QSqlDatabase& db) {
-            usedBagId = CoffeeBagStorage::loadInventoryStatic(db).first().id;
+            usedBagId = CoffeeBagStorage::loadInventoryStatic(db).first().bag.id;
             CoffeeBag fresh;
             fresh.roasterName = "Mistake";
             fresh.coffeeName = "Bag";

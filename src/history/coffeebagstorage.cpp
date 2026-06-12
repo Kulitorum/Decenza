@@ -44,9 +44,11 @@ QVariant nullIfZero(double v) {
 // columns, which kCols does not model) and the migrations. Adding a column is a
 // kCols row here PLUS a matching schema/migration edit there.
 //
-// `shotCount` is intentionally NOT in this table: it is a transient field fed
-// by loadInventoryStatic's subquery alias, not a coffee_bags column. The two
-// places that round-trip it (toVariantMap/fromVariantMap) handle it explicitly.
+// `shotCount` is intentionally NOT in this table, and not a CoffeeBag field at
+// all: it is a per-query aggregate fed by loadInventoryStatic's subquery alias.
+// It rides on InventoryBag (the inventory loader's return type) and is injected
+// into the variant map by requestInventory, so toVariantMap/fromVariantMap stay
+// pure column round-trips.
 //
 // Per-column behaviour is parameterised on the CoffeeBag member pointer so the
 // member is named exactly once per row (via the COL_* macros below). The
@@ -186,7 +188,6 @@ QVariantMap CoffeeBag::toVariantMap() const
     QVariantMap map;
     for (const BagCol& c : kCols)
         map.insert(QString::fromLatin1(c.key), c.get(*this));
-    map.insert(QStringLiteral("shotCount"), shotCount);  // transient, not a column
     return map;
 }
 
@@ -201,8 +202,6 @@ CoffeeBag CoffeeBag::fromVariantMap(const QVariantMap& map)
         if (map.contains(key))
             c.set(bag, map.value(key));
     }
-    if (map.contains(QStringLiteral("shotCount")))  // transient, not a column
-        bag.shotCount = map.value(QStringLiteral("shotCount")).toLongLong();
     return bag;
 }
 
@@ -250,9 +249,14 @@ void CoffeeBagStorage::requestInventory()
     auto bags = std::make_shared<QVariantList>();
     runAsync("bags_inv",
         [bags](QSqlDatabase& db) {
-            const QVector<CoffeeBag> inventory = loadInventoryStatic(db);
-            for (const CoffeeBag& bag : inventory)
-                bags->append(bag.toVariantMap());
+            const QVector<InventoryBag> inventory = loadInventoryStatic(db);
+            for (const InventoryBag& entry : inventory) {
+                // shotCount is an inventory-only aggregate, not a CoffeeBag
+                // field — inject it into the map the QML card reads.
+                QVariantMap map = entry.bag.toVariantMap();
+                map.insert(QStringLiteral("shotCount"), entry.shotCount);
+                bags->append(map);
+            }
         },
         [this, bags]() { emit inventoryReady(*bags); });
 }
@@ -458,9 +462,9 @@ CoffeeBag CoffeeBagStorage::loadBagStatic(QSqlDatabase& db, qint64 bagId)
     return bagFromQueryRow(query);
 }
 
-QVector<CoffeeBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db)
+QVector<InventoryBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db)
 {
-    QVector<CoffeeBag> bags;
+    QVector<InventoryBag> bags;
     QSqlQuery query(db);
     // shot_count subquery feeds the card's single delete-vs-finished action:
     // a bag nothing references is a mistaken creation (trash); one with
@@ -476,10 +480,11 @@ QVector<CoffeeBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db)
     // silently depends on the bag column count.
     const int shotCountCol = query.record().indexOf("shot_count");
     while (query.next()) {
-        CoffeeBag bag = bagFromQueryRow(query);
+        InventoryBag entry;
+        entry.bag = bagFromQueryRow(query);
         if (shotCountCol >= 0)
-            bag.shotCount = query.value(shotCountCol).toLongLong();
-        bags.append(bag);
+            entry.shotCount = query.value(shotCountCol).toLongLong();
+        bags.append(entry);
     }
     return bags;
 }

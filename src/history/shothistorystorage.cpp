@@ -1487,7 +1487,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                 const QString canonicalId = BeanBaseBlob::canonicalId(data.beanBaseJson);
                 query.bindValue(":beanbase_id", canonicalId.isEmpty() ? QVariant() : canonicalId);
             }
-            query.bindValue(":bag_id", data.bagId > 0 ? QVariant(data.bagId) : QVariant());
+            query.bindValue(":bag_id", bagIdIsSet(data.bagId) ? QVariant(data.bagId) : QVariant());
             query.bindValue(":frozen_date", data.frozenDate.isEmpty() ? QVariant() : data.frozenDate);
             query.bindValue(":defrost_date", data.defrostDate.isEmpty() ? QVariant() : data.defrostDate);
 

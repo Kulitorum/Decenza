@@ -57,7 +57,7 @@ QVariantMap ShotProjection::toVariantMap() const
         m["beanBaseJson"] = beanBaseJson;
     // Coffee bag snapshot — sparse-emit like the other optional fields:
     // pre-bag shots and unfrozen beans simply omit them.
-    if (bagId > 0)
+    if (hasBag())
         m["bagId"] = bagId;
     if (!frozenDate.isEmpty())
         m["frozenDate"] = frozenDate;

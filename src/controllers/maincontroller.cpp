@@ -2166,7 +2166,7 @@ void MainController::onShotEnded() {
             // rather than a manual edit). Independent of save success:
             // a failed stamp is logged inside storage and never blocks the
             // shot save. No user prompt (bean-bag-inventory).
-            if (m_bagStorage && metadata.bagId > 0) {
+            if (m_bagStorage && bagIdIsSet(metadata.bagId)) {
                 QVariantMap stamp;
                 if (doseWeight > 0)
                     stamp.insert(QStringLiteral("doseWeightG"), doseWeight);

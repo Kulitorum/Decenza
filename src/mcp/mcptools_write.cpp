@@ -4,6 +4,7 @@
 #include "../history/shothistorystorage.h"
 #include "../history/shotprojection.h"
 #include "../history/coffeebagstorage.h"
+#include "../history/bagid.h"
 #include "../network/visualizeruploader.h"
 #include "../controllers/profilemanager.h"
 #include "../core/settings.h"
@@ -1565,7 +1566,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 return;
             }
             const qint64 bagId = args["bagId"].toInteger();
-            if (bagId <= 0) {
+            if (!bagIdIsSet(bagId)) {
                 respond(QJsonObject{{"error", "Valid bagId is required"}});
                 return;
             }
@@ -1676,7 +1677,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 return;
             }
             const qint64 bagId = args["bagId"].toInteger();
-            if (bagId <= 0) {
+            if (!bagIdIsSet(bagId)) {
                 QMetaObject::invokeMethod(qApp, [settings, respond]() {
                     settings->dye()->setActiveBagId(-1);
                     respond(QJsonObject{{"success", true}, {"message", "Bean selection cleared"}});

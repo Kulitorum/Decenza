@@ -22,6 +22,8 @@
 #include <QVariantMap>
 #include <QJsonObject>
 
+#include "history/bagid.h"
+
 struct ShotRecord;
 
 class ShotProjection {
@@ -63,8 +65,10 @@ class ShotProjection {
     Q_PROPERTY(QString profileKbId MEMBER profileKbId)
     Q_PROPERTY(QString beanBaseJson MEMBER beanBaseJson)
     // Coffee bag snapshot (bean-bag-inventory): the bag this shot was pulled
-    // with (-1 = none / pre-bag shot) and the beans' freeze lifecycle at
-    // shot time (ISO dates, "" = unset).
+    // with and the beans' freeze lifecycle at shot time (ISO dates, "" = unset).
+    // "No bag" sentinel is bagId <= 0 (default -1; the DB read maps NULL to -1)
+    // — see bagIdIsSet() in bagid.h for the canonical rule; hasBag() is the
+    // ShotProjection-typed form.
     Q_PROPERTY(qint64 bagId MEMBER bagId)
     Q_PROPERTY(QString frozenDate MEMBER frozenDate)
     Q_PROPERTY(QString defrostDate MEMBER defrostDate)
@@ -170,6 +174,10 @@ public:
     // returns a default-constructed ShotProjection on lookup failure; isValid()
     // is the cheapest reliable way to detect that.
     bool isValid() const { return id != 0; }
+
+    // "Is this shot linked to a coffee bag?" — the ShotProjection-typed form of
+    // the shared bagIdIsSet() predicate. Q_INVOKABLE so QML can ask the same.
+    Q_INVOKABLE bool hasBag() const { return bagIdIsSet(bagId); }
 
     // Build the legacy QVariantMap shape — same keys, same nested types as the
     // pre-Q_GADGET convertShotRecord() return value. Today's only callers are

@@ -53,14 +53,20 @@ struct CoffeeBag {
 
     qint64 lastUsedEpoch = 0; // bumped on selection and shot save (MRU ordering)
 
-    // Transient: number of shots referencing this bag. Populated by
-    // loadInventoryStatic's subquery only (not a coffee_bags column) —
-    // drives the card's delete-vs-finished action. 0 from other loaders.
-    qint64 shotCount = 0;
-
     bool isValid() const { return id > 0; }
     QVariantMap toVariantMap() const;
     static CoffeeBag fromVariantMap(const QVariantMap& map);
+};
+
+// An inventory row: a bag plus its shot count. The count is NOT a CoffeeBag
+// field — it is a per-query aggregate (a subquery on shots.bag_id) that only
+// the inventory listing computes, and it drives the card's delete-vs-finished
+// action (0 shots = mistaken creation, trashable; >0 = history, "Bag finished").
+// Keeping it out of CoffeeBag makes "this count is inventory-view-only" a type
+// fact: the other loaders return bare CoffeeBags and can't expose a stale 0.
+struct InventoryBag {
+    CoffeeBag bag;
+    qint64 shotCount = 0;
 };
 
 // SQLite-backed bag storage in the shot history database (coffee_bags table,
@@ -107,7 +113,7 @@ public:
 
     static qint64 insertBagStatic(QSqlDatabase& db, const CoffeeBag& bag);
     static CoffeeBag loadBagStatic(QSqlDatabase& db, qint64 bagId);
-    static QVector<CoffeeBag> loadInventoryStatic(QSqlDatabase& db);
+    static QVector<InventoryBag> loadInventoryStatic(QSqlDatabase& db);
     // Update only the columns named in `fields` (camelCase CoffeeBag keys).
     static bool updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& fields);
 

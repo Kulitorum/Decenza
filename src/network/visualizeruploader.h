@@ -36,9 +36,10 @@ struct ShotMetadata {
     QString beanBaseJson;
 
     // Active coffee bag snapshot (bean-bag-inventory): the bag the shot was
-    // pulled with (-1 = no bag) and its freeze lifecycle at shot time. The
-    // dates record the beans' thermal history permanently, even after the
-    // bag's defrostDate moves on to the next portion.
+    // pulled with and its freeze lifecycle at shot time. "No bag" sentinel is
+    // bagId <= 0 (default -1) — see bagIdIsSet() in bagid.h. The dates record
+    // the beans' thermal history permanently, even after the bag's defrostDate
+    // moves on to the next portion.
     qint64 bagId = -1;
     QString frozenDate;   // ISO yyyy-MM-dd, "" = not frozen
     QString defrostDate;  // ISO yyyy-MM-dd, "" = not defrosted
@@ -228,6 +229,12 @@ private:
     void persistBagSyncIds(qint64 localBagId, const QString& visualizerBagId,
                            const QString& visualizerRoasterId);
     QNetworkRequest makeApiJsonRequest(const QString& path) const;
+
+    // Single mutation point for m_cmState — every CM-probe transition flows
+    // through here so there is one place to log old->new. The CM probing is
+    // notoriously fiddly to debug; reads still use m_cmState / cmState()
+    // directly. No-op when the state is unchanged.
+    void setCmState(CmState state);
 
     Settings* m_settings;
     QNetworkAccessManager* m_networkManager;

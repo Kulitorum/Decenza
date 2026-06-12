@@ -5,6 +5,7 @@
 #include "../machine/machinestate.h"
 #include "../controllers/profilemanager.h"
 #include "../history/shothistorystorage.h"
+#include "../history/bagid.h"
 #include "../core/memorymonitor.h"
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
@@ -161,7 +162,7 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                 // bag without needing a separate lookup.
                 bean["brand"] = settings->dye()->dyeBeanBrand();
                 bean["type"] = settings->dye()->dyeBeanType();
-                if (settings->dye()->activeBagId() > 0)
+                if (bagIdIsSet(settings->dye()->activeBagId()))
                     bean["bagId"] = settings->dye()->activeBagId();
                 if (!settings->dye()->activeBagDefrostDate().isEmpty())
                     bean["defrostDate"] = settings->dye()->activeBagDefrostDate();
