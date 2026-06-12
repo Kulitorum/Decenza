@@ -4,6 +4,7 @@
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QSqlDatabase>
+#include <QSqlRecord>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -14,14 +15,11 @@
 #include <QThread>
 #include <QDebug>
 
-namespace {
+#include <iterator>
+#include <type_traits>
+#include <utility>
 
-// Column list shared by every SELECT — order must match bagFromQueryRow.
-const char* kBagColumns =
-    "id, roaster_name, coffee_name, roast_date, roast_level, beanbase_id, beanbase_json, "
-    "frozen_date, defrost_date, notes, start_weight_g, in_inventory, "
-    "grinder_brand, grinder_model, grinder_burrs, grinder_setting, dose_weight_g, yield_override_g, "
-    "visualizer_bag_id, visualizer_roaster_id, last_used";
+namespace {
 
 QVariant nullIfEmpty(const QString& s) {
     return s.isEmpty() ? QVariant() : QVariant(s);
@@ -31,61 +29,180 @@ QVariant nullIfZero(double v) {
     return v > 0 ? QVariant(v) : QVariant();
 }
 
+// -------------------------------------------------------------------------
+// Single source of truth for the coffee_bags column set.
+//
+// Every per-column code representation — the SELECT list, the positional read
+// in bagFromQueryRow, the INSERT list + binds, the camelCase->column update
+// map, the Visualizer-stored subset, and the QVariantMap round-trip — is
+// DERIVED from this one ordered table, so those can't drift out of sync, and
+// bagFromQueryRow can no longer read the wrong column positionally because it
+// indexes the SAME array the SELECT is built from.
+//
+// The one thing NOT generated from this table is the physical schema: the
+// CREATE TABLE in ensureTableStatic (plus its created_at/updated_at bookkeeping
+// columns, which kCols does not model) and the migrations. Adding a column is a
+// kCols row here PLUS a matching schema/migration edit there.
+//
+// `shotCount` is intentionally NOT in this table: it is a transient field fed
+// by loadInventoryStatic's subquery alias, not a coffee_bags column. The two
+// places that round-trip it (toVariantMap/fromVariantMap) handle it explicitly.
+//
+// Per-column behaviour is parameterised on the CoffeeBag member pointer so the
+// member is named exactly once per row (via the COL_* macros below). The
+// static_asserts pin each hook to the member type its conversion expects, so a
+// future row built with the wrong COL_* macro (e.g. COL_DBL on a qint64 member,
+// which would silently truncate) is a compile error rather than silent
+// data corruption.
+template<auto M> using BagMemberT = std::remove_reference_t<decltype(std::declval<CoffeeBag&>().*M)>;
+
+template<auto M> void readStr (CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, QString>); b.*M = v.toString(); }
+template<auto M> void readDbl (CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, double>);  b.*M = v.toDouble(); }
+template<auto M> void readI64 (CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, qint64>);  b.*M = v.toLongLong(); }
+template<auto M> void readBool(CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, bool>);    b.*M = v.toInt() != 0; }
+
+template<auto M> QVariant bindStr  (const CoffeeBag& b) { static_assert(std::is_same_v<BagMemberT<M>, QString>); return nullIfEmpty(b.*M); }
+template<auto M> QVariant bindDbl  (const CoffeeBag& b) { static_assert(std::is_same_v<BagMemberT<M>, double>);  return nullIfZero(b.*M); }
+template<auto M> QVariant bindBool (const CoffeeBag& b) { static_assert(std::is_same_v<BagMemberT<M>, bool>);    return (b.*M) ? 1 : 0; }
+template<auto M> QVariant bindEpoch(const CoffeeBag& b) { static_assert(std::is_same_v<BagMemberT<M>, qint64>);  return (b.*M) > 0 ? QVariant(b.*M) : QVariant(); }
+
+template<auto M> QVariant getMember(const CoffeeBag& b) { return QVariant::fromValue(b.*M); }
+template<auto M> void setStr (CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, QString>); b.*M = v.toString(); }
+template<auto M> void setDbl (CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, double>);  b.*M = v.toDouble(); }
+template<auto M> void setI64 (CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, qint64>);  b.*M = v.toLongLong(); }
+template<auto M> void setBool(CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, bool>);    b.*M = v.toBool(); }
+
+struct BagCol {
+    const char* sql;                              // SQLite column name
+    const char* key;                              // camelCase CoffeeBag / QVariantMap key
+    bool visualizer;                              // Visualizer stores this on its bean record
+    bool writable;                                // in INSERT + the update map (false only for autoincrement id)
+    void (*read)(CoffeeBag&, const QVariant&);    // SELECT row value -> field (read positionally)
+    QVariant (*bind)(const CoffeeBag&);           // field -> INSERT bind (NULL-collapsing); null when !writable
+    QVariant (*get)(const CoffeeBag&);            // field -> QVariantMap value
+    void (*set)(CoffeeBag&, const QVariant&);     // QVariantMap value -> field
+};
+
+// String columns carry an explicit Visualizer flag (the identity/lifecycle
+// strings sync; the grinder/visualizer-id strings do not). The numeric/bool
+// columns are all local-only.
+#define COL_STR(sqlName, member, viz) \
+    BagCol{ sqlName, #member, viz, true, \
+            &readStr<&CoffeeBag::member>, &bindStr<&CoffeeBag::member>, \
+            &getMember<&CoffeeBag::member>, &setStr<&CoffeeBag::member> }
+#define COL_DBL(sqlName, member) \
+    BagCol{ sqlName, #member, false, true, \
+            &readDbl<&CoffeeBag::member>, &bindDbl<&CoffeeBag::member>, \
+            &getMember<&CoffeeBag::member>, &setDbl<&CoffeeBag::member> }
+#define COL_BOOL(sqlName, member) \
+    BagCol{ sqlName, #member, false, true, \
+            &readBool<&CoffeeBag::member>, &bindBool<&CoffeeBag::member>, \
+            &getMember<&CoffeeBag::member>, &setBool<&CoffeeBag::member> }
+#define COL_EPOCH(sqlName, member) \
+    BagCol{ sqlName, #member, false, true, \
+            &readI64<&CoffeeBag::member>, &bindEpoch<&CoffeeBag::member>, \
+            &getMember<&CoffeeBag::member>, &setI64<&CoffeeBag::member> }
+#define COL_ID(sqlName, member) \
+    BagCol{ sqlName, #member, false, false, \
+            &readI64<&CoffeeBag::member>, nullptr, \
+            &getMember<&CoffeeBag::member>, &setI64<&CoffeeBag::member> }
+
+const BagCol kCols[] = {
+    COL_ID   ("id",                    id),
+    COL_STR  ("roaster_name",          roasterName,         true),
+    COL_STR  ("coffee_name",           coffeeName,          true),
+    COL_STR  ("roast_date",            roastDate,           true),
+    COL_STR  ("roast_level",           roastLevel,          true),
+    COL_STR  ("beanbase_id",           beanBaseId,          true),
+    COL_STR  ("beanbase_json",         beanBaseData,        true),
+    COL_STR  ("frozen_date",           frozenDate,          true),
+    COL_STR  ("defrost_date",          defrostDate,         true),
+    COL_STR  ("notes",                 notes,               true),
+    COL_DBL  ("start_weight_g",        startWeightG),
+    COL_BOOL ("in_inventory",          inInventory),
+    COL_STR  ("grinder_brand",         grinderBrand,        false),
+    COL_STR  ("grinder_model",         grinderModel,        false),
+    COL_STR  ("grinder_burrs",         grinderBurrs,        false),
+    COL_STR  ("grinder_setting",       grinderSetting,      false),
+    COL_DBL  ("dose_weight_g",         doseWeightG),
+    COL_DBL  ("yield_override_g",      yieldOverrideG),
+    COL_STR  ("visualizer_bag_id",     visualizerBagId,     false),
+    COL_STR  ("visualizer_roaster_id", visualizerRoasterId, false),
+    COL_EPOCH("last_used",             lastUsedEpoch),
+};
+
+#undef COL_STR
+#undef COL_DBL
+#undef COL_BOOL
+#undef COL_EPOCH
+#undef COL_ID
+
+constexpr int kColCount = static_cast<int>(std::size(kCols));
+
+// Comma-joined SELECT column list (also the INSERT column order), derived
+// once from kCols.
+const QString& bagColumnList() {
+    static const QString cols = []() {
+        QStringList names;
+        for (const BagCol& c : kCols)
+            names << QLatin1String(c.sql);
+        return names.join(QStringLiteral(", "));
+    }();
+    return cols;
+}
+
+// camelCase CoffeeBag key -> column descriptor, for the writable columns only
+// (everything but the autoincrement id). Drives updateBagFieldsStatic, which
+// reaches through the descriptor to the column's sql name and its set/bind
+// hooks so update-time value coercion is the SAME logic as insert.
+const QHash<QString, const BagCol*>& bagColumnForKey() {
+    static const QHash<QString, const BagCol*> map = []() {
+        QHash<QString, const BagCol*> m;
+        for (const BagCol& c : kCols)
+            if (c.writable)
+                m.insert(QString::fromLatin1(c.key), &c);
+        return m;
+    }();
+    return map;
+}
+
+// The camelCase keys whose values Visualizer stores on its bean record.
+// Drives touchesVisualizerFields.
+const QSet<QString>& bagVisualizerKeys() {
+    static const QSet<QString> keys = []() {
+        QSet<QString> s;
+        for (const BagCol& c : kCols)
+            if (c.visualizer)
+                s.insert(QString::fromLatin1(c.key));
+        return s;
+    }();
+    return keys;
+}
+
 } // namespace
 
 QVariantMap CoffeeBag::toVariantMap() const
 {
     QVariantMap map;
-    map["id"] = id;
-    map["roasterName"] = roasterName;
-    map["coffeeName"] = coffeeName;
-    map["roastDate"] = roastDate;
-    map["roastLevel"] = roastLevel;
-    map["beanBaseId"] = beanBaseId;
-    map["beanBaseData"] = beanBaseData;
-    map["frozenDate"] = frozenDate;
-    map["defrostDate"] = defrostDate;
-    map["notes"] = notes;
-    map["startWeightG"] = startWeightG;
-    map["inInventory"] = inInventory;
-    map["grinderBrand"] = grinderBrand;
-    map["grinderModel"] = grinderModel;
-    map["grinderBurrs"] = grinderBurrs;
-    map["grinderSetting"] = grinderSetting;
-    map["doseWeightG"] = doseWeightG;
-    map["yieldOverrideG"] = yieldOverrideG;
-    map["visualizerBagId"] = visualizerBagId;
-    map["visualizerRoasterId"] = visualizerRoasterId;
-    map["lastUsedEpoch"] = lastUsedEpoch;
-    map["shotCount"] = shotCount;
+    for (const BagCol& c : kCols)
+        map.insert(QString::fromLatin1(c.key), c.get(*this));
+    map.insert(QStringLiteral("shotCount"), shotCount);  // transient, not a column
     return map;
 }
 
 CoffeeBag CoffeeBag::fromVariantMap(const QVariantMap& map)
 {
+    // Absent keys keep the struct's member defaults, which match the previous
+    // map.value(key, <default>) defaults exactly (inInventory = true, the rest
+    // 0 / empty string) — so the round-trip behaviour is unchanged.
     CoffeeBag bag;
-    bag.id = map.value("id", 0).toLongLong();
-    bag.roasterName = map.value("roasterName").toString();
-    bag.coffeeName = map.value("coffeeName").toString();
-    bag.roastDate = map.value("roastDate").toString();
-    bag.roastLevel = map.value("roastLevel").toString();
-    bag.beanBaseId = map.value("beanBaseId").toString();
-    bag.beanBaseData = map.value("beanBaseData").toString();
-    bag.frozenDate = map.value("frozenDate").toString();
-    bag.defrostDate = map.value("defrostDate").toString();
-    bag.notes = map.value("notes").toString();
-    bag.startWeightG = map.value("startWeightG", 0.0).toDouble();
-    bag.inInventory = map.value("inInventory", true).toBool();
-    bag.grinderBrand = map.value("grinderBrand").toString();
-    bag.grinderModel = map.value("grinderModel").toString();
-    bag.grinderBurrs = map.value("grinderBurrs").toString();
-    bag.grinderSetting = map.value("grinderSetting").toString();
-    bag.doseWeightG = map.value("doseWeightG", 0.0).toDouble();
-    bag.yieldOverrideG = map.value("yieldOverrideG", 0.0).toDouble();
-    bag.visualizerBagId = map.value("visualizerBagId").toString();
-    bag.visualizerRoasterId = map.value("visualizerRoasterId").toString();
-    bag.lastUsedEpoch = map.value("lastUsedEpoch", 0).toLongLong();
-    bag.shotCount = map.value("shotCount", 0).toLongLong();
+    for (const BagCol& c : kCols) {
+        const QString key = QString::fromLatin1(c.key);
+        if (map.contains(key))
+            c.set(bag, map.value(key));
+    }
+    if (map.contains(QStringLiteral("shotCount")))  // transient, not a column
+        bag.shotCount = map.value(QStringLiteral("shotCount")).toLongLong();
     return bag;
 }
 
@@ -293,69 +410,36 @@ bool CoffeeBagStorage::ensureTableStatic(QSqlDatabase& db)
 
 CoffeeBag CoffeeBagStorage::bagFromQueryRow(const QSqlQuery& query)
 {
+    // Read positionally from the SAME table the SELECT list is built from, so
+    // a column's read can never drift from its SELECT position. The first
+    // kColCount columns are the bag columns (a trailing shot_count alias, when
+    // present, is read separately by loadInventoryStatic).
     CoffeeBag bag;
-    bag.id = query.value(0).toLongLong();
-    bag.roasterName = query.value(1).toString();
-    bag.coffeeName = query.value(2).toString();
-    bag.roastDate = query.value(3).toString();
-    bag.roastLevel = query.value(4).toString();
-    bag.beanBaseId = query.value(5).toString();
-    bag.beanBaseData = query.value(6).toString();
-    bag.frozenDate = query.value(7).toString();
-    bag.defrostDate = query.value(8).toString();
-    bag.notes = query.value(9).toString();
-    bag.startWeightG = query.value(10).toDouble();
-    bag.inInventory = query.value(11).toInt() != 0;
-    bag.grinderBrand = query.value(12).toString();
-    bag.grinderModel = query.value(13).toString();
-    bag.grinderBurrs = query.value(14).toString();
-    bag.grinderSetting = query.value(15).toString();
-    bag.doseWeightG = query.value(16).toDouble();
-    bag.yieldOverrideG = query.value(17).toDouble();
-    bag.visualizerBagId = query.value(18).toString();
-    bag.visualizerRoasterId = query.value(19).toString();
-    bag.lastUsedEpoch = query.value(20).toLongLong();
+    for (int i = 0; i < kColCount; ++i)
+        kCols[i].read(bag, query.value(i));
     return bag;
 }
 
 qint64 CoffeeBagStorage::insertBagStatic(QSqlDatabase& db, const CoffeeBag& bag)
 {
+    // Column list, placeholders, and binds all derived from the writable
+    // columns of kCols (every column but the autoincrement id), in table order
+    // — so adding a column needs no edit in this function, just a kCols row.
+    QStringList columns, placeholders;
+    QVariantList binds;
+    for (const BagCol& c : kCols) {
+        if (!c.writable)
+            continue;
+        columns << QString::fromLatin1(c.sql);
+        placeholders << QStringLiteral("?");
+        binds << c.bind(bag);
+    }
+
     QSqlQuery query(db);
-    query.prepare(R"(
-        INSERT INTO coffee_bags (
-            roaster_name, coffee_name, roast_date, roast_level, beanbase_id, beanbase_json,
-            frozen_date, defrost_date, notes, start_weight_g, in_inventory,
-            grinder_brand, grinder_model, grinder_burrs, grinder_setting,
-            dose_weight_g, yield_override_g,
-            visualizer_bag_id, visualizer_roaster_id, last_used
-        ) VALUES (
-            :roaster_name, :coffee_name, :roast_date, :roast_level, :beanbase_id, :beanbase_json,
-            :frozen_date, :defrost_date, :notes, :start_weight_g, :in_inventory,
-            :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
-            :dose_weight_g, :yield_override_g,
-            :visualizer_bag_id, :visualizer_roaster_id, :last_used
-        )
-    )");
-    query.bindValue(":roaster_name", nullIfEmpty(bag.roasterName));
-    query.bindValue(":coffee_name", nullIfEmpty(bag.coffeeName));
-    query.bindValue(":roast_date", nullIfEmpty(bag.roastDate));
-    query.bindValue(":roast_level", nullIfEmpty(bag.roastLevel));
-    query.bindValue(":beanbase_id", nullIfEmpty(bag.beanBaseId));
-    query.bindValue(":beanbase_json", nullIfEmpty(bag.beanBaseData));
-    query.bindValue(":frozen_date", nullIfEmpty(bag.frozenDate));
-    query.bindValue(":defrost_date", nullIfEmpty(bag.defrostDate));
-    query.bindValue(":notes", nullIfEmpty(bag.notes));
-    query.bindValue(":start_weight_g", nullIfZero(bag.startWeightG));
-    query.bindValue(":in_inventory", bag.inInventory ? 1 : 0);
-    query.bindValue(":grinder_brand", nullIfEmpty(bag.grinderBrand));
-    query.bindValue(":grinder_model", nullIfEmpty(bag.grinderModel));
-    query.bindValue(":grinder_burrs", nullIfEmpty(bag.grinderBurrs));
-    query.bindValue(":grinder_setting", nullIfEmpty(bag.grinderSetting));
-    query.bindValue(":dose_weight_g", nullIfZero(bag.doseWeightG));
-    query.bindValue(":yield_override_g", nullIfZero(bag.yieldOverrideG));
-    query.bindValue(":visualizer_bag_id", nullIfEmpty(bag.visualizerBagId));
-    query.bindValue(":visualizer_roaster_id", nullIfEmpty(bag.visualizerRoasterId));
-    query.bindValue(":last_used", bag.lastUsedEpoch > 0 ? QVariant(bag.lastUsedEpoch) : QVariant());
+    query.prepare(QString("INSERT INTO coffee_bags (%1) VALUES (%2)")
+                      .arg(columns.join(QStringLiteral(", ")), placeholders.join(QStringLiteral(", "))));
+    for (int i = 0; i < binds.size(); ++i)
+        query.bindValue(i, binds.at(i));
 
     if (!query.exec()) {
         qWarning() << "CoffeeBagStorage: insert failed:" << query.lastError().text();
@@ -367,7 +451,7 @@ qint64 CoffeeBagStorage::insertBagStatic(QSqlDatabase& db, const CoffeeBag& bag)
 CoffeeBag CoffeeBagStorage::loadBagStatic(QSqlDatabase& db, qint64 bagId)
 {
     QSqlQuery query(db);
-    query.prepare(QString("SELECT %1 FROM coffee_bags WHERE id = :id").arg(kBagColumns));
+    query.prepare(QString("SELECT %1 FROM coffee_bags WHERE id = :id").arg(bagColumnList()));
     query.bindValue(":id", bagId);
     if (!query.exec() || !query.next())
         return CoffeeBag();
@@ -384,13 +468,17 @@ QVector<CoffeeBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db)
     if (!query.exec(QString("SELECT %1, "
                             "(SELECT COUNT(*) FROM shots WHERE bag_id = coffee_bags.id) AS shot_count "
                             "FROM coffee_bags WHERE in_inventory = 1 "
-                            "ORDER BY last_used DESC, id DESC").arg(kBagColumns))) {
+                            "ORDER BY last_used DESC, id DESC").arg(bagColumnList()))) {
         qWarning() << "CoffeeBagStorage: inventory query failed:" << query.lastError().text();
         return bags;
     }
+    // Read shot_count by its alias, not a hardcoded position, so it no longer
+    // silently depends on the bag column count.
+    const int shotCountCol = query.record().indexOf("shot_count");
     while (query.next()) {
         CoffeeBag bag = bagFromQueryRow(query);
-        bag.shotCount = query.value(21).toLongLong();
+        if (shotCountCol >= 0)
+            bag.shotCount = query.value(shotCountCol).toLongLong();
         bags.append(bag);
     }
     return bags;
@@ -398,45 +486,26 @@ QVector<CoffeeBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db)
 
 bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& fields)
 {
-    // camelCase CoffeeBag key -> column. Only listed keys are updatable.
-    static const QHash<QString, QString> kColumnFor = {
-        {"roasterName", "roaster_name"},
-        {"coffeeName", "coffee_name"},
-        {"roastDate", "roast_date"},
-        {"roastLevel", "roast_level"},
-        {"beanBaseId", "beanbase_id"},
-        {"beanBaseData", "beanbase_json"},
-        {"frozenDate", "frozen_date"},
-        {"defrostDate", "defrost_date"},
-        {"notes", "notes"},
-        {"startWeightG", "start_weight_g"},
-        {"inInventory", "in_inventory"},
-        {"grinderBrand", "grinder_brand"},
-        {"grinderModel", "grinder_model"},
-        {"grinderBurrs", "grinder_burrs"},
-        {"grinderSetting", "grinder_setting"},
-        {"doseWeightG", "dose_weight_g"},
-        {"yieldOverrideG", "yield_override_g"},
-        {"visualizerBagId", "visualizer_bag_id"},
-        {"visualizerRoasterId", "visualizer_roaster_id"},
-        {"lastUsedEpoch", "last_used"},
-    };
+    // camelCase CoffeeBag key -> column descriptor (writable columns only),
+    // derived from kCols. Only listed keys are updatable.
+    const QHash<QString, const BagCol*>& kColumnFor = bagColumnForKey();
 
     QStringList assignments;
     QVariantList values;
     for (auto it = fields.constBegin(); it != fields.constEnd(); ++it) {
-        const QString column = kColumnFor.value(it.key());
-        if (column.isEmpty()) {
+        const BagCol* col = kColumnFor.value(it.key(), nullptr);
+        if (!col) {
             qWarning() << "CoffeeBagStorage: ignoring unknown field" << it.key();
             continue;
         }
-        assignments << QString("%1 = ?").arg(column);
-        QVariant value = it.value();
-        if (it.key() == "inInventory")
-            value = it.value().toBool() ? 1 : 0;
-        else if (value.metaType().id() == QMetaType::QString && value.toString().isEmpty())
-            value = QVariant();  // empty string clears to NULL
-        values << value;
+        assignments << QString("%1 = ?").arg(QString::fromLatin1(col->sql));
+        // Coerce through the column's own set+bind hooks so update-time value
+        // handling is identical to insert: empty string -> NULL, inInventory ->
+        // 0/1, an unset (0) numeric -> NULL. The round-trip into a throwaway bag
+        // keeps the "is this NULL?" rule in exactly one place (the bind hook).
+        CoffeeBag scratch;
+        col->set(scratch, it.value());
+        values << col->bind(scratch);
     }
     if (assignments.isEmpty())
         return false;
@@ -458,17 +527,15 @@ bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, con
 
 bool CoffeeBagStorage::touchesVisualizerFields(const QVariantMap& fields)
 {
-    // The camelCase keys whose values Visualizer stores on its coffee bag.
-    // beanBaseId -> canonical_coffee_bag_id; beanBaseData -> the descriptive
-    // blob (country/variety/process/tasting/...). roasterName maps to the
-    // bag's roaster_id (re-resolved on rename). Deliberately EXCLUDES the
-    // local-only columns (grinder*/dose/yield/startWeight/lastUsed/inInventory
-    // and the visualizer_* sync ids themselves) so a grinder write-through or
-    // dose/yield stamp never triggers a network PATCH.
-    static const QSet<QString> kVisualizerKeys = {
-        "roasterName", "coffeeName", "roastDate", "roastLevel",
-        "frozenDate", "defrostDate", "notes", "beanBaseId", "beanBaseData",
-    };
+    // The camelCase keys whose values Visualizer stores on its coffee bag
+    // (the columns flagged visualizer==true in kCols): beanBaseId ->
+    // canonical_coffee_bag_id; beanBaseData -> the descriptive blob
+    // (country/variety/process/tasting/...); roasterName maps to the bag's
+    // roaster_id (re-resolved on rename). Deliberately EXCLUDES the local-only
+    // columns (grinder*/dose/yield/startWeight/lastUsed/inInventory and the
+    // visualizer_* sync ids themselves) so a grinder write-through or dose/yield
+    // stamp never triggers a network PATCH.
+    const QSet<QString>& kVisualizerKeys = bagVisualizerKeys();
     for (auto it = fields.constBegin(); it != fields.constEnd(); ++it)
         if (kVisualizerKeys.contains(it.key()))
             return true;
@@ -691,7 +758,7 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     }
 
     QSqlQuery srcBags(srcDb);
-    if (!srcBags.exec(QString("SELECT %1 FROM coffee_bags").arg(kBagColumns))) {
+    if (!srcBags.exec(QString("SELECT %1 FROM coffee_bags").arg(bagColumnList()))) {
         qWarning() << "CoffeeBagStorage: failed to query source bags:" << srcBags.lastError().text();
         return false;
     }
