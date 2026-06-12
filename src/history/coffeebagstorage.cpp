@@ -16,6 +16,8 @@
 #include <QDebug>
 
 #include <iterator>
+#include <type_traits>
+#include <utility>
 
 namespace {
 
@@ -47,22 +49,28 @@ QVariant nullIfZero(double v) {
 // places that round-trip it (toVariantMap/fromVariantMap) handle it explicitly.
 //
 // Per-column behaviour is parameterised on the CoffeeBag member pointer so the
-// member is named exactly once per row (via the COL_* macros below).
-template<auto M> void readStr (CoffeeBag& b, const QVariant& v) { b.*M = v.toString(); }
-template<auto M> void readDbl (CoffeeBag& b, const QVariant& v) { b.*M = v.toDouble(); }
-template<auto M> void readI64 (CoffeeBag& b, const QVariant& v) { b.*M = v.toLongLong(); }
-template<auto M> void readBool(CoffeeBag& b, const QVariant& v) { b.*M = v.toInt() != 0; }
+// member is named exactly once per row (via the COL_* macros below). The
+// static_asserts pin each hook to the member type its conversion expects, so a
+// future row built with the wrong COL_* macro (e.g. COL_DBL on a qint64 member,
+// which would silently truncate) is a compile error rather than silent
+// data corruption.
+template<auto M> using BagMemberT = std::remove_reference_t<decltype(std::declval<CoffeeBag&>().*M)>;
 
-template<auto M> QVariant bindStr  (const CoffeeBag& b) { return nullIfEmpty(b.*M); }
-template<auto M> QVariant bindDbl  (const CoffeeBag& b) { return nullIfZero(b.*M); }
-template<auto M> QVariant bindBool (const CoffeeBag& b) { return (b.*M) ? 1 : 0; }
-template<auto M> QVariant bindEpoch(const CoffeeBag& b) { return (b.*M) > 0 ? QVariant(b.*M) : QVariant(); }
+template<auto M> void readStr (CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, QString>); b.*M = v.toString(); }
+template<auto M> void readDbl (CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, double>);  b.*M = v.toDouble(); }
+template<auto M> void readI64 (CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, qint64>);  b.*M = v.toLongLong(); }
+template<auto M> void readBool(CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, bool>);    b.*M = v.toInt() != 0; }
+
+template<auto M> QVariant bindStr  (const CoffeeBag& b) { static_assert(std::is_same_v<BagMemberT<M>, QString>); return nullIfEmpty(b.*M); }
+template<auto M> QVariant bindDbl  (const CoffeeBag& b) { static_assert(std::is_same_v<BagMemberT<M>, double>);  return nullIfZero(b.*M); }
+template<auto M> QVariant bindBool (const CoffeeBag& b) { static_assert(std::is_same_v<BagMemberT<M>, bool>);    return (b.*M) ? 1 : 0; }
+template<auto M> QVariant bindEpoch(const CoffeeBag& b) { static_assert(std::is_same_v<BagMemberT<M>, qint64>);  return (b.*M) > 0 ? QVariant(b.*M) : QVariant(); }
 
 template<auto M> QVariant getMember(const CoffeeBag& b) { return QVariant::fromValue(b.*M); }
-template<auto M> void setStr (CoffeeBag& b, const QVariant& v) { b.*M = v.toString(); }
-template<auto M> void setDbl (CoffeeBag& b, const QVariant& v) { b.*M = v.toDouble(); }
-template<auto M> void setI64 (CoffeeBag& b, const QVariant& v) { b.*M = v.toLongLong(); }
-template<auto M> void setBool(CoffeeBag& b, const QVariant& v) { b.*M = v.toBool(); }
+template<auto M> void setStr (CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, QString>); b.*M = v.toString(); }
+template<auto M> void setDbl (CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, double>);  b.*M = v.toDouble(); }
+template<auto M> void setI64 (CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, qint64>);  b.*M = v.toLongLong(); }
+template<auto M> void setBool(CoffeeBag& b, const QVariant& v) { static_assert(std::is_same_v<BagMemberT<M>, bool>);    b.*M = v.toBool(); }
 
 struct BagCol {
     const char* sql;                              // SQLite column name
@@ -143,14 +151,16 @@ const QString& bagColumnList() {
     return cols;
 }
 
-// camelCase CoffeeBag key -> SQLite column, for the writable columns only
-// (everything but the autoincrement id). Drives updateBagFieldsStatic.
-const QHash<QString, QString>& bagColumnForKey() {
-    static const QHash<QString, QString> map = []() {
-        QHash<QString, QString> m;
+// camelCase CoffeeBag key -> column descriptor, for the writable columns only
+// (everything but the autoincrement id). Drives updateBagFieldsStatic, which
+// reaches through the descriptor to the column's sql name and its set/bind
+// hooks so update-time value coercion is the SAME logic as insert.
+const QHash<QString, const BagCol*>& bagColumnForKey() {
+    static const QHash<QString, const BagCol*> map = []() {
+        QHash<QString, const BagCol*> m;
         for (const BagCol& c : kCols)
             if (c.writable)
-                m.insert(QString::fromLatin1(c.key), QString::fromLatin1(c.sql));
+                m.insert(QString::fromLatin1(c.key), &c);
         return m;
     }();
     return map;
@@ -476,25 +486,26 @@ QVector<CoffeeBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db)
 
 bool CoffeeBagStorage::updateBagFieldsStatic(QSqlDatabase& db, qint64 bagId, const QVariantMap& fields)
 {
-    // camelCase CoffeeBag key -> column (writable columns only), derived from
-    // kCols. Only listed keys are updatable.
-    const QHash<QString, QString>& kColumnFor = bagColumnForKey();
+    // camelCase CoffeeBag key -> column descriptor (writable columns only),
+    // derived from kCols. Only listed keys are updatable.
+    const QHash<QString, const BagCol*>& kColumnFor = bagColumnForKey();
 
     QStringList assignments;
     QVariantList values;
     for (auto it = fields.constBegin(); it != fields.constEnd(); ++it) {
-        const QString column = kColumnFor.value(it.key());
-        if (column.isEmpty()) {
+        const BagCol* col = kColumnFor.value(it.key(), nullptr);
+        if (!col) {
             qWarning() << "CoffeeBagStorage: ignoring unknown field" << it.key();
             continue;
         }
-        assignments << QString("%1 = ?").arg(column);
-        QVariant value = it.value();
-        if (it.key() == "inInventory")
-            value = it.value().toBool() ? 1 : 0;
-        else if (value.metaType().id() == QMetaType::QString && value.toString().isEmpty())
-            value = QVariant();  // empty string clears to NULL
-        values << value;
+        assignments << QString("%1 = ?").arg(QString::fromLatin1(col->sql));
+        // Coerce through the column's own set+bind hooks so update-time value
+        // handling is identical to insert: empty string -> NULL, inInventory ->
+        // 0/1, an unset (0) numeric -> NULL. The round-trip into a throwaway bag
+        // keeps the "is this NULL?" rule in exactly one place (the bind hook).
+        CoffeeBag scratch;
+        col->set(scratch, it.value());
+        values << col->bind(scratch);
     }
     if (assignments.isEmpty())
         return false;
