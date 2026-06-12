@@ -216,6 +216,9 @@ private:
     // Best-effort verified-roaster badge: link the server-created roaster to its
     // canonical when blank (the badge is cosmetic, so failures are ignored).
     void enrichRemoteRoaster(const QString& roasterId, const QString& canonicalRoasterId);
+    // PATCH the shot's canonical_coffee_bag_id (not CM-gated). Canonical-only
+    // mode: attaches a known coffee to a shot with no personal bag.
+    void linkShotCanonical(const QString& visualizerShotId, const QString& canonicalId);
     // Find-or-create a Visualizer roaster by name; calls onResolved(roasterId)
     // on success (not called on empty name or HTTP/parse failure). Carries the
     // canonical roaster UUID onto a freshly-created roaster for the verified

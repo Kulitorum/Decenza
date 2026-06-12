@@ -1646,7 +1646,7 @@ void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/shots/") + visualizerShotId);
     QNetworkReply* reply = m_networkManager->get(request);
     const qint64 localBagId = bag.value("id").toLongLong();
-    connect(reply, &QNetworkReply::finished, this, [this, reply, bag, localBagId]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, visualizerShotId, bag, localBagId]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
             qDebug() << "Visualizer CM: shot read-back failed - retry next upload";
@@ -1667,10 +1667,19 @@ void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const
             // that returned the shot before its bag link was visible looks the
             // same), so we must not cache a session-long negative or wipe the
             // stored id off it. Leave the state Unknown and retry next upload; the
-            // per-upload read-back is cheap and self-corrects. A genuinely CM-off
-            // account simply keeps landing here, which is harmless. (The only
-            // negative we cache is the definitive 403 in enrichRemoteBag.)
-            qDebug() << "Visualizer CM: shot has no server bag yet - retry next upload";
+            // per-upload read-back is cheap and self-corrects. (The only negative
+            // we cache is the definitive 403 in enrichRemoteBag.)
+            //
+            // The canonical link is NOT Coffee-Management-gated, so a known coffee
+            // still attaches in canonical-only mode: PATCH the shot's canonical
+            // when our bag carries one. With no coffee_bag on the shot the server
+            // keeps it (its refresh_coffee_bag_fields only overrides canonical when
+            // a bag is linked). Idempotent, so re-PATCHing each upload is harmless.
+            const QString canonicalId = bag.value("beanBaseId").toString();
+            if (!canonicalId.isEmpty())
+                linkShotCanonical(visualizerShotId, canonicalId);
+            qDebug() << "Visualizer CM: shot has no server bag -"
+                     << (canonicalId.isEmpty() ? "nothing to link" : "linked canonical coffee");
             return;
         }
 
@@ -1692,6 +1701,27 @@ void VisualizerUploader::reconcileShotBag(const QString& visualizerShotId, const
                 .object().value("canonicalRoasterId").toString();
         if (!serverRoasterId.isEmpty() && !canonicalRoasterId.isEmpty())
             enrichRemoteRoaster(serverRoasterId, canonicalRoasterId);
+    });
+}
+
+void VisualizerUploader::linkShotCanonical(const QString& visualizerShotId, const QString& canonicalId)
+{
+    // PATCH the shot's canonical_coffee_bag_id (permitted regardless of Coffee
+    // Management). Used in canonical-only mode so a known coffee shows on the
+    // shot even when there is no personal bag and no DYE-metadata PATCH.
+    QJsonObject shotObj{{QStringLiteral("canonical_coffee_bag_id"), canonicalId}};
+    QJsonObject root{{QStringLiteral("shot"), shotObj}};
+    QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/shots/") + visualizerShotId);
+    QNetworkReply* reply = m_networkManager->sendCustomRequest(
+        request, "PATCH", QJsonDocument(root).toJson(QJsonDocument::Compact));
+    connect(reply, &QNetworkReply::finished, this, [reply, visualizerShotId, canonicalId]() {
+        reply->deleteLater();
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (status == 200)
+            qDebug() << "Visualizer CM: linked shot" << visualizerShotId << "to canonical" << canonicalId;
+        else
+            qDebug() << "Visualizer CM: shot canonical link failed (HTTP" << status
+                     << ") - retry next upload";
     });
 }
 
