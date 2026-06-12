@@ -211,8 +211,12 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
         QVariantMap bag = v.toMap();
         if (!matchesQuery(bag, query))
             continue;
-        bag["tier"] = 0;
+        bag["tier"] = static_cast<int>(Tier::Inventory);
         bag["sources"] = QStringLiteral("inventory");
+        // Mirror the bag's "id" into "bagId" so BagIdRole carries the real bag
+        // id for inventory rows (every other lane sets bagId == -1). Single
+        // source of truth for the cross-role invariant and QML's bagId checks.
+        bag["bagId"] = bag.value("id", -1);
         const int idx = static_cast<int>(tier0.size());
         const QString canonicalId = bag.value("beanBaseId").toString();
         if (!canonicalId.isEmpty())
@@ -276,11 +280,11 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
             row["roastLevel"] = h.value("roastLevel");
             row["beanBaseData"] = h.value("beanBaseData");
             row["lastUsedEpoch"] = h.value("lastUsedEpoch");
-            row["tier"] = 1;
+            row["tier"] = static_cast<int>(Tier::HistoryCanonical);
             row["sources"] = QStringLiteral("beanbase+history");
             tier1.append(row);
         } else {
-            row["tier"] = 2;
+            row["tier"] = static_cast<int>(Tier::CanonicalOnly);
             row["sources"] = QStringLiteral("beanbase");
             tier2.append(row);
         }
@@ -300,7 +304,8 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
             || invByName.contains(nameKey))
             continue;  // absorbed into the bag's Tier 0 row
         h["bagId"] = -1;
-        h["tier"] = canonicalId.isEmpty() ? 4 : 3;
+        h["tier"] = static_cast<int>(canonicalId.isEmpty() ? Tier::HistoryFreeText
+                                                            : Tier::HistoryLinked);
         h["sources"] = QStringLiteral("history");
         tier34.append(h);
     }
@@ -315,12 +320,26 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
     std::stable_sort(tier1.begin(), tier1.end(), byEpochDesc);
     std::stable_sort(tier34.begin(), tier34.end(), [](const QVariant& a, const QVariant& b) {
         const QVariantMap ma = a.toMap(), mb = b.toMap();
-        if (ma.value("tier").toInt() != mb.value("tier").toInt())
-            return ma.value("tier").toInt() < mb.value("tier").toInt();
+        const auto ta = static_cast<Tier>(ma.value("tier").toInt());
+        const auto tb = static_cast<Tier>(mb.value("tier").toInt());
+        if (ta != tb)
+            return ta < tb;  // HistoryLinked (3) before HistoryFreeText (4)
         return ma.value("lastUsedEpoch").toLongLong() > mb.value("lastUsedEpoch").toLongLong();
     });
 
-    return tier0 + tier1 + tier2 + tier34;
+    const QVariantList merged = tier0 + tier1 + tier2 + tier34;
+#ifndef QT_NO_DEBUG
+    // A positive bagId must only ever ride on a Tier::Inventory row: inventory
+    // rows mirror the bag's id into "bagId" above, every other lane sets it to
+    // -1 by construction.
+    for (const QVariant& v : merged) {
+        const QVariantMap m = v.toMap();
+        const auto tier = static_cast<Tier>(m.value("tier").toInt());
+        const qint64 bagId = m.value("bagId", -1).toLongLong();
+        Q_ASSERT(bagIdInvariantHolds(tier, bagId));
+    }
+#endif
+    return merged;
 }
 
 void UnifiedBeanSearchModel::rebuild()

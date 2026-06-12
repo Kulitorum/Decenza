@@ -17,6 +17,13 @@
 #include "core/settings_dye.h"
 #include "core/settings_visualizer.h"
 
+using Tier = UnifiedBeanSearchModel::Tier;
+
+// Read a merged row's tier role back as the typed enum.
+static Tier tierOf(const QVariant& row) {
+    return static_cast<Tier>(row.toMap().value("tier").toInt());
+}
+
 // Coffee bag storage, the preset -> bag migration, transfer survival, and the
 // unified bean search merge logic (openspec change bean-bag-inventory).
 //
@@ -647,21 +654,23 @@ private slots:
 
         const QVariantList merged = UnifiedBeanSearchModel::mergeLanes(inventory, canonical, history, QString());
 
-        // Expect: tier0 A (canonical absorbed), tier1 B (merged), tier4 C. No tier2.
+        // Expect: Inventory A (canonical absorbed), HistoryCanonical B (merged),
+        // HistoryFreeText C. No CanonicalOnly row.
         QCOMPARE(merged.size(), 3);
         const QVariantMap first = merged[0].toMap();
-        QCOMPARE(first.value("tier").toInt(), 0);
+        QCOMPARE(tierOf(merged[0]), Tier::Inventory);
         QCOMPARE(first.value("coffeeName").toString(), QString("A"));
         QCOMPARE(first.value("id").toInt(), 7);
+        QCOMPARE(first.value("bagId").toInt(), 7);  // inventory rows mirror id into bagId
 
         const QVariantMap second = merged[1].toMap();
-        QCOMPARE(second.value("tier").toInt(), 1);
+        QCOMPARE(tierOf(merged[1]), Tier::HistoryCanonical);
         QCOMPARE(second.value("coffeeName").toString(), QString("B"));
         QCOMPARE(second.value("sources").toString(), QString("beanbase+history"));
         QCOMPARE(second.value("grinderSetting").toString(), QString("15"));  // history grinder carried
 
         const QVariantMap third = merged[2].toMap();
-        QCOMPARE(third.value("tier").toInt(), 4);
+        QCOMPARE(tierOf(merged[2]), Tier::HistoryFreeText);
         QCOMPARE(third.value("coffeeName").toString(), QString("C"));
         QCOMPARE(third.value("sources").toString(), QString("history"));
     }
@@ -697,15 +706,15 @@ private slots:
         const QVariantList merged = UnifiedBeanSearchModel::mergeLanes({}, canonical, history, QString());
         QCOMPARE(merged.size(), 3);
 
-        QCOMPARE(merged[0].toMap().value("tier").toInt(), 2);
+        QCOMPARE(tierOf(merged[0]), Tier::CanonicalOnly);
         QCOMPARE(merged[0].toMap().value("coffeeName").toString(), QString("X"));
         QCOMPARE(merged[0].toMap().value("sources").toString(), QString("beanbase"));
 
-        QCOMPARE(merged[1].toMap().value("tier").toInt(), 3);  // tier 3 before tier 4
+        QCOMPARE(tierOf(merged[1]), Tier::HistoryLinked);  // HistoryLinked before HistoryFreeText
         QCOMPARE(merged[1].toMap().value("coffeeName").toString(), QString("Y"));
         QCOMPARE(merged[1].toMap().value("sources").toString(), QString("history"));
 
-        QCOMPARE(merged[2].toMap().value("tier").toInt(), 4);
+        QCOMPARE(tierOf(merged[2]), Tier::HistoryFreeText);
         QCOMPARE(merged[2].toMap().value("coffeeName").toString(), QString("Z"));
     }
 
@@ -722,6 +731,37 @@ private slots:
         QCOMPARE(merged.size(), 2);
         QCOMPARE(merged[0].toMap().value("coffeeName").toString(), QString("New"));  // MRU first
         QCOMPARE(merged[1].toMap().value("coffeeName").toString(), QString("Old"));
+    }
+
+    // The TierRole int values are a hard cross-language contract: the emitted
+    // role is the raw enum value and ChangeBeansDialog.qml compares it against
+    // these literals (notably `model.tier === 0` for Inventory). Pin the
+    // numbers so a future enumerator reorder can't silently break QML — the
+    // enum-vs-enum assertions elsewhere would not catch that.
+    void tierEnumValuesMatchQmlContract() {
+        QCOMPARE(static_cast<int>(Tier::Inventory), 0);
+        QCOMPARE(static_cast<int>(Tier::HistoryCanonical), 1);
+        QCOMPARE(static_cast<int>(Tier::CanonicalOnly), 2);
+        QCOMPARE(static_cast<int>(Tier::HistoryLinked), 3);
+        QCOMPARE(static_cast<int>(Tier::HistoryFreeText), 4);
+    }
+
+    // BagIdRole must expose the real bag id for an inventory row (mirrored from
+    // "id"), not -1. ChangeBeansDialog.qml compares `model.bagId ===
+    // Settings.dye.activeBagId` to mark the active bag, so a -1 here would
+    // never highlight it. Drives the model through data() directly.
+    void modelBagIdRoleExposesInventoryBagId() {
+        UnifiedBeanSearchModel model;
+        model.m_inventory = QVariantList{
+            QVariantMap{{"id", 7}, {"roasterName", "Roaster"}, {"coffeeName", "A"},
+                        {"beanBaseId", ""}, {"inInventory", true}, {"lastUsedEpoch", 100}}};
+        model.rebuild();
+
+        QCOMPARE(model.rowCount(), 1);
+        const QModelIndex idx = model.index(0);
+        QCOMPARE(model.data(idx, UnifiedBeanSearchModel::TierRole).toInt(),
+                 static_cast<int>(Tier::Inventory));
+        QCOMPARE(model.data(idx, UnifiedBeanSearchModel::BagIdRole).toLongLong(), qint64(7));
     }
 
     // ==========================================
