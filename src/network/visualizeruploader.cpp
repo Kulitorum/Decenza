@@ -1819,6 +1819,19 @@ void VisualizerUploader::findRemoteBag(const QString& visualizerShotId, const QV
                     persistBagSyncIds(bag.value("id").toLongLong(), bagUuid,
                                       detail.value("roaster_id").toString());
                     linkShotToBag(visualizerShotId, bagUuid, bag.value("beanBaseId").toString());
+                    // Push our descriptive fields onto the matched bag. The match
+                    // is almost always the bag Visualizer auto-created from the
+                    // shot's canonical reference — it carries only roaster/name/
+                    // roast_date, so country/region/producer/tasting_notes/etc.
+                    // would otherwise stay blank forever (link alone never sends
+                    // them). findRemoteBag is reached only on a bag's FIRST sync
+                    // (no synced id yet → resolveRoaster), so this is naturally a
+                    // first-link-only push and won't re-clobber on later shots.
+                    QVariantMap linkedBag = bag;
+                    linkedBag.insert(QStringLiteral("visualizerBagId"), bagUuid);
+                    linkedBag.insert(QStringLiteral("visualizerRoasterId"),
+                                     detail.value("roaster_id").toString());
+                    patchRemoteBag(linkedBag, QString());
                 } else {
                     (*checkNext)(index + 1);
                 }
