@@ -89,6 +89,11 @@ Rectangle {
 
     Accessible.ignored: true  // AccessibleMouseArea below carries the card's accessibility
 
+    BeanBaseDetailsPopup {
+        id: beanDetailsPopup
+        beanBaseJson: (card.bag && card.bag.beanBaseData) || ""
+    }
+
     Timer {
         id: deleteRefusedTimer
         interval: 4000  // UI auto-dismiss (allowed timer use)
@@ -168,6 +173,21 @@ Rectangle {
                     visible: card.attrLine.length > 0
                     text: card.attrLine
                     font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                    elide: Text.ElideRight
+                    Accessible.ignored: true
+                }
+
+                // Tasting notes earn a line of their own — the most
+                // interesting canonical data. One elided line; the info
+                // button opens the full record.
+                Text {
+                    Layout.fillWidth: true
+                    visible: !!(card.beanBase.tastingNotes)
+                    text: card.beanBase.tastingNotes || ""
+                    font.family: Theme.captionFont.family
+                    font.pixelSize: Theme.captionFont.pixelSize
+                    font.italic: true
                     color: Theme.textSecondaryColor
                     elide: Text.ElideRight
                     Accessible.ignored: true
@@ -254,6 +274,17 @@ Rectangle {
                 icon.source: "qrc:/icons/edit.svg"
                 accessibleName: TranslationManager.translate("bagcard.accessible.edit", "Edit bag details")
                 onClicked: card.editRequested(card.bag)
+            }
+
+            // Everything we know about the bean, on demand — the card keeps
+            // its dense subset (attrs + tasting notes), the popup shows all.
+            StyledIconButton {
+                visible: card.hasCanonical
+                width: Theme.scaled(36)
+                height: Theme.scaled(36)
+                icon.source: "qrc:/icons/info.svg"
+                accessibleName: TranslationManager.translate("bagcard.accessible.details", "Show all bean details")
+                onClicked: beanDetailsPopup.open()
             }
 
             // No shots yet: the bag is a mistaken creation — offer delete
