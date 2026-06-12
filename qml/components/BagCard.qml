@@ -53,13 +53,24 @@ Rectangle {
         return days >= 0 ? days : -1
     }
 
-    // Roast age · freeze state line (omits anything unknown — no placeholders)
+    // Roast date as a short, locale-formatted string; falls back to the raw
+    // stored text if it isn't a parseable ISO date.
+    function formatRoastDate(raw) {
+        if (!raw || raw.length < 8) return raw || ""
+        var d = new Date(raw.substring(0, 10) + "T00:00:00")
+        if (isNaN(d.getTime())) return raw
+        return Qt.formatDate(d, Qt.locale().dateFormat(Locale.ShortFormat))
+    }
+
+    // Roast date · freeze state line (omits anything unknown — no
+    // placeholders). The user freezes beans, so the actual roast date is more
+    // meaningful than days-since-roast.
     readonly property string metaLine: {
         var _ = TranslationManager.translationVersion
         var parts = []
-        var roastAge = daysSince(bag && bag.roastDate ? String(bag.roastDate) : "")
-        if (roastAge >= 0)
-            parts.push(TranslationManager.translate("beans.summary.roastedDays", "Roasted %1d").arg(roastAge))
+        var roast = formatRoastDate(bag && bag.roastDate ? String(bag.roastDate) : "")
+        if (roast.length > 0)
+            parts.push(TranslationManager.translate("beans.summary.roastedDate", "Roasted %1").arg(roast))
         if (defrostDate.length > 0) {
             var defAge = daysSince(defrostDate)
             if (defAge >= 0)
