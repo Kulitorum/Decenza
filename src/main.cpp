@@ -1416,10 +1416,17 @@ int main(int argc, char *argv[])
     // DE1 auto-reconnect after disconnect. Matches de1app behaviour: on Android it
     // retries essentially forever (99999999 attempts) because the DE1 may be in deep
     // sleep and take a while to become reachable. We use backoff: 5s, 30s, then 60s
-    // repeated. After 12 total attempts (5s + 30s + 10×60s ≈ 10.5 min) we stop —
-    // the DE1 is likely powered off, and we'd just be wasting BLE scans. The user
-    // can wake it manually or the app resume handler will retry.
-    constexpr int kDE1MaxReconnectAttempts = 12;  // 5s + 30s + 10*60s = ~10.5 min
+    // repeated for the first 12 attempts (5s + 30s + 10×60s ≈ 10.5 min), then drop to
+    // a slow background retry that continues indefinitely.
+    //
+    // We deliberately do NOT give up permanently (#1309): the original code stopped
+    // after 12 attempts, which left a DE1 unreachable for ~22h in a real log — a
+    // screensaver/screen-tap wake fired one connect but couldn't restart the dead
+    // ladder. A slow forever-retry costs one connect attempt per 5 min (negligible)
+    // and (a) reconnects a DE1 that was simply powered off for >10 min and (b) keeps
+    // the BLE-stack-wedge detector fed so its adapter power-cycle stays viable.
+    constexpr int kDE1MaxReconnectAttempts = 12;     // 5s + 30s + 10*60s = ~10.5 min of fast retries
+    constexpr int kDE1SlowReconnectMs = 5 * 60 * 1000;  // then every 5 min, forever
 
     QObject::connect(&de1ReconnectTimer, &QTimer::timeout,
                      [&bleManager, &de1Device, &settings, &de1ReconnectAttempt, &de1ReconnectTimer]() {
@@ -1431,7 +1438,9 @@ int main(int argc, char *argv[])
             qDebug() << "DE1 reconnect: already connected/connecting, stopping retries";
             return;
         }
-        de1ReconnectAttempt++;
+        // Clamp the counter at the cap so it doesn't grow without bound across
+        // days of slow retries; once capped we stay on the slow tier.
+        if (de1ReconnectAttempt < kDE1MaxReconnectAttempts) de1ReconnectAttempt++;
         qDebug() << "DE1 reconnect: attempt" << de1ReconnectAttempt << "of" << kDE1MaxReconnectAttempts;
         bleManager.tryDirectConnectToDE1();
 
@@ -1441,7 +1450,9 @@ int main(int argc, char *argv[])
             int delay = de1ReconnectAttempt == 1 ? 30000 : 60000;
             de1ReconnectTimer.start(delay);
         } else {
-            qDebug() << "DE1 reconnect: retries exhausted after" << de1ReconnectAttempt << "attempts";
+            qDebug() << "DE1 reconnect: fast retries exhausted — slow background retry in"
+                     << kDE1SlowReconnectMs << "ms";
+            de1ReconnectTimer.start(kDE1SlowReconnectMs);
         }
     });
 
@@ -1451,6 +1462,32 @@ int main(int argc, char *argv[])
     QObject::connect(&de1Device, &DE1Device::connectingChanged,
                      [&de1Device, &de1WasActive]() {
         if (de1Device.isConnecting()) de1WasActive = true;
+    });
+
+    // Feed DE1 controller faults to the BLE-stack-wedge detector (#1309). This
+    // is separate from the dual-HIGH scale-transport wiring below (which only
+    // exists when a BLE scale is present) — the wedge detector must hear faults
+    // regardless of whether a scale transport was ever created.
+    QObject::connect(&de1Device, &DE1Device::de1LinkFault,
+                     &bleManager, &BLEManager::onDe1LinkFault);
+
+    // Surface DE1 BLE errors to the UI. DE1Device::errorOccurred had no consumer,
+    // so DE1 connection problems (incl. the "try toggling Bluetooth off/on" hint)
+    // never reached the user — only scale/scan errors did. onDe1Error debounces
+    // so the reconnect ladder doesn't re-pop the same dialog. (#1309)
+    QObject::connect(&de1Device, &DE1Device::errorOccurred,
+                     &bleManager, &BLEManager::onDe1Error);
+
+    // After an automatic adapter power-cycle clears a wedged stack, reset the
+    // DE1 reconnect budget and kick a fresh attempt immediately — mirrors the
+    // AutoWake re-arm path. Without this the slow-tier timer would wait up to
+    // 5 min before retrying a stack that's now healthy. (#1309)
+    QObject::connect(&bleManager, &BLEManager::bleStackRecovered,
+                     [&de1Device, &de1ReconnectTimer, &de1ReconnectAttempt]() {
+        if (de1Device.isConnected() || de1Device.isConnecting()) return;
+        de1ReconnectAttempt = 0;
+        de1ReconnectTimer.start(500);
+        qDebug() << "DE1 reconnect: BLE stack recovered — restarting reconnect ladder (#1309)";
     });
 
     // When DE1 connects or disconnects, manage reconnect timer.
@@ -1473,6 +1510,8 @@ int main(int argc, char *argv[])
                      ]() {
         const bool isConnected = de1Device.isConnected();
         const bool isActive = isConnected || de1Device.isConnecting();
+        // Feed the BLE-stack-wedge detector the DE1 link state (#1309).
+        bleManager.noteDe1Connected(isConnected);
         if (!de1WasActive && !isActive) {
             return;  // Spurious inactive→inactive emission — ignore
         }
@@ -1525,8 +1564,10 @@ int main(int argc, char *argv[])
                     qDebug() << "DE1 reconnect: attempt" << de1ReconnectAttempt
                              << "failed, next retry in" << delay << "ms";
                 } else {
-                    qDebug() << "DE1 reconnect: retries exhausted after"
-                             << de1ReconnectAttempt << "attempts";
+                    // Don't give up permanently (#1309) — fall to the slow tier.
+                    de1ReconnectTimer.start(kDE1SlowReconnectMs);
+                    qDebug() << "DE1 reconnect: fast retries exhausted — slow background retry in"
+                             << kDE1SlowReconnectMs << "ms";
                 }
             }
         }
