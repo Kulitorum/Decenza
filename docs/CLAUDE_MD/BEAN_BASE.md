@@ -2,7 +2,7 @@
 
 Canonical coffee-database integration: users link beans to Visualizer canonical coffee-bag entries, and the snapshot enriches shot history, Visualizer uploads, and the AI advisor. OpenSpec change: `add-bean-base-integration` (design.md §§ Context 5–9 hold the historical empirical API findings).
 
-> **Note (June 2026):** The Loffee Labs Bean Base API path (`searchBeanBase()`, `testApiKey()`, the per-user `beanBaseApiKey` setting, and the whole `SettingsBeanBase` domain) was **removed** — it was never wired into production. Search is now 100% Visualizer canonical autocomplete (keyless). The sections below that describe the loffeelabs API, its rate/quota contract, and `searchBeanBase()` are kept only as historical context for the design doc; none of that code exists anymore.
+> **Note (June 2026):** The Loffee Labs Bean Base API path (`searchBeanBase()`, `testApiKey()`, the per-user `beanBaseApiKey` setting, and the whole `SettingsBeanBase` domain) was **removed** — it was never wired into production. Search is now 100% Visualizer canonical search (keyless). The sections below that describe the loffeelabs API, its rate/quota contract, and `searchBeanBase()` are kept only as historical context for the design doc; none of that code exists anymore.
 
 ## Architecture
 
@@ -11,7 +11,7 @@ BeanBaseSearchBar (BeanInfoPage + PostShotReviewPage)
    └─ MainController.beanbase
         BeanBaseClient
           └─ search() → visualizer.coffee
-               canonical autocomplete (keyless)
+               canonical search API (keyless)
    user picks entry → DYE link state (SettingsDye: dyeBeanBaseId/RoasterId/Data)
         ├─ bean presets carry the link (apply/save/rename handled)
         └─ shot save snapshots the blob → shots.beanbase_json (migration 18)
@@ -34,7 +34,7 @@ The notes below describe the loffeelabs API that the integration originally ship
 
 ## Canonical search (the only path, June 2026)
 
-`BeanBaseClient::search()` hits Visualizer's open `GET /canonical/autocomplete_coffee_bags?q=` (keyless, substring + multi-word; internal endpoint — parse defensively, expect drift). It is debounced 350 ms (latest-wins) with a session cache by normalized query; `searchFailed` emits only `network`, `parse`, or `superseded`. Entries carry `visualizerCanonicalId` (UUID) = the identity stored locally and sent on shot PATCH (`shot[canonical_coffee_bag_id]`, accepted for all users) so the same bag id lands in both systems. `fetchCanonicalDetails()` runs the two-stage flow (`autocomplete_roasters` → `require_roaster=true&canonical_roaster_id=`) for the attribute payload. MCP tool: `bean_search` (canonical + per-result enrichment).
+`BeanBaseClient::search()` hits Visualizer's **official** `GET /api/canonical_coffee_bags?q=` (keyless, substring + multi-word; documented in `miharekar/visualizer` openapi.yaml, returns `{data:[…],paging:{…}}`). It is debounced 350 ms (latest-wins) with a session cache by normalized query; together they keep usage under the endpoint's rate limit (50 req/min per IP, 200/10 min). `searchFailed` emits only `network`, `parse`, or `superseded` (HTTP 429 → `network`, never an empty "no matches"). Entries carry `visualizerCanonicalId` (UUID) = the identity stored locally and sent on shot PATCH (`shot[canonical_coffee_bag_id]`, accepted for all users) so the same bag id lands in both systems. The search response already includes every descriptive field, so it is a **single call**: each entry carries the descriptive blob + `canonicalRoasterId`, and `fetchCanonicalDetails()` is a local **deferred re-emit** of `canonicalDetails` with no network round-trip (silent when the entry has no descriptive values). MCP tool: `bean_search` (canonical search; enrichment from the same response). The old `/canonical/autocomplete_*` HTML endpoints are no longer used (migrate-canonical-search-api).
 
 ## The entry / blob vocabulary (schema of record)
 
@@ -66,7 +66,7 @@ From the open-source `miharekar/visualizer` repo: `canonical_coffee_bags.id` is 
 
 ## Testing
 
-`tests/tst_beanbaseclient.cpp` runs against a canned-response local HTTP server (`FakeBeanBaseServer`): canonical debounce coalescing, cache hits, canonical autocomplete/payload parsing, two-stage enrichment, and the `bean_search` gather bridge (grace window + superseded). Gotcha: **no raw string literals in moc'd test files** — moc miscounts braces inside `R"(...)"` and silently drops subsequent classes (vtable link error).
+`tests/tst_beanbaseclient.cpp` runs against a canned-response local HTTP server (`FakeBeanBaseServer`): canonical debounce coalescing, cache hits, `/api/canonical_coffee_bags` JSON parsing (`parseCanonicalCoffeeBags`), single-call enrichment (re-emit from the entry, zero requests), and the `bean_search` gather bridge (grace window + superseded). Gotcha: **no raw string literals in moc'd test files** — moc miscounts braces inside `R"(...)"` and silently drops subsequent classes (vtable link error).
 
 ## Coffee bag model (bean-bag-inventory)
 
@@ -77,7 +77,7 @@ Bags replaced bean presets entirely — one concept, no live-state divergence. K
 - **Legacy presets**: `bean/presets` + `bean/selectedPreset` QSettings are merge-imported into bags by `CoffeeBagStorage::convertLegacyPresetSettings()` — version-independent, runs at launch AND from `SettingsSerializer` legacy imports; keys cleared only after commit. Guarded out of test builds (`DECENZA_TESTING`) so unit tests don't consume the developer's real presets.
 - **Transfer**: `importDatabaseStatic` migrates bags with `shots.bag_id` id-remap; `dye/activeBagId` is excluded from settings export (device-local row id).
 - **Freeze lifecycle**: `frozenDate`/`defrostDate` on the bag describe the CURRENT portion only; per-shot snapshots are the permanent thermal history. "Thaw" on the bag card opens a calendar and writes `defrostDate` via `requestUpdateBag`.
-- **Search**: `UnifiedBeanSearchModel` (`src/history/unifiedbeansearchmodel.{h,cpp}`) merges inventory (Tier 0) + canonical autocomplete + shot history into the Change Beans dialog's ranked list; a history/canonical result matching an inventory bag is absorbed into its Tier 0 row.
-- **canonicalRoasterId** is persisted in the beanBaseData blob by `fetchCanonicalPayload` (was previously in-memory only) for future Visualizer Coffee Management roaster linking.
+- **Search**: `UnifiedBeanSearchModel` (`src/history/unifiedbeansearchmodel.{h,cpp}`) merges inventory (Tier 0) + canonical search + shot history into the Change Beans dialog's ranked list; a history/canonical result matching an inventory bag is absorbed into its Tier 0 row.
+- **canonicalRoasterId** rides along on each canonical search entry (mapped from the API's `canonical_roaster_id` by `parseCanonicalCoffeeBags`) and is persisted in the beanBaseData blob for future Visualizer Coffee Management roaster linking.
 - **MCP**: `bag_list` / `bag_select` / `bag_update` tools; `shots_get_detail` carries the bag snapshot.
 - Visualizer Coffee Management sync (CM detection, bag CRUD at upload time) is specced in `openspec/changes/bean-bag-inventory/specs/visualizer-coffee-management/spec.md` but blocked on a live-API verification spike.
