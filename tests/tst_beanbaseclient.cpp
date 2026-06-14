@@ -32,6 +32,9 @@ public:
                     const QString line = QString::fromUtf8(
                         lineEnd > 0 ? req.left(lineEnd) : req);
                     m_requestLines.append(line);
+                    if (m_hang)
+                        return;  // hold the socket open, never respond: the
+                                 // client's reply stays in-flight until aborted.
                     // Per-path routing; falls back to the single canned response.
                     QByteArray body = m_responseBody;
                     for (const auto& [pathPart, pathBody] : m_pathBodies) {
@@ -68,6 +71,10 @@ public:
         m_pathBodies.append({pathPart, body});
     }
 
+    // Accept the request but never answer it — used to keep a reply in-flight so
+    // the in-flight supersede/abort path is exercisable.
+    void hangWithoutResponding() { m_hang = true; }
+
     int requestCount() const { return m_requestLines.size(); }
     QStringList requestLines() const { return m_requestLines; }
 
@@ -80,6 +87,7 @@ private:
     QByteArray m_responseBody = "{\"data\":[]}";
     QList<QPair<QString, QByteArray>> m_pathBodies;
     QStringList m_requestLines;
+    bool m_hang = false;
 };
 
 class tst_BeanBaseClient : public QObject {
@@ -156,6 +164,67 @@ private slots:
         bool okEmpty = false;
         QCOMPARE(BeanBaseClient::parseCanonicalCoffeeBags("{\"data\":[]}", &okEmpty).size(), 0);
         QVERIFY(okEmpty);
+    }
+
+    void errorPathsSurfaceSearchFailed() {
+        // The migration's two new error branches, driven through the network
+        // seam: HTTP 429 (the new rate limit) — and any non-200 — must surface
+        // searchFailed("network"), never an empty success; a 200 with a
+        // non-JSON body must surface searchFailed("parse") and not cache.
+        {
+            FakeBeanBaseServer server;
+            server.respondWith("429 Too Many Requests", "{\"data\":[]}");
+            BeanBaseClient client(&m_nam, &m_settings);
+            client.setVisualizerBaseUrl(server.baseUrl());
+            QSignalSpy ok(&client, &BeanBaseClient::searchResults);
+            QSignalSpy fail(&client, &BeanBaseClient::searchFailed);
+            client.search("ethiopia");
+            QVERIFY(fail.wait(3000));
+            QCOMPARE(fail.first().at(1).toString(), QString("network"));
+            QCOMPARE(ok.count(), 0);  // throttled response is NOT "no matches"
+        }
+        {
+            FakeBeanBaseServer server;
+            server.respondWith("200 OK", "not json at all");
+            BeanBaseClient client(&m_nam, &m_settings);
+            client.setVisualizerBaseUrl(server.baseUrl());
+            QSignalSpy ok(&client, &BeanBaseClient::searchResults);
+            QSignalSpy fail(&client, &BeanBaseClient::searchFailed);
+            client.search("ethiopia");
+            QVERIFY(fail.wait(3000));
+            QCOMPARE(fail.first().at(1).toString(), QString("parse"));
+            QCOMPARE(ok.count(), 0);  // junk body must not emit/cache a result
+        }
+    }
+
+    void inFlightSupersedeEmitsSingleTerminalSignal() {
+        // A query that reached the wire is superseded by a distinct query while
+        // its reply is still in flight. The displaced query must get EXACTLY ONE
+        // terminal signal ("superseded") — not "superseded" followed by a
+        // spurious "network" from abort()'s synchronous finished().
+        FakeBeanBaseServer server;
+        server.hangWithoutResponding();  // keep reply A in flight
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setVisualizerBaseUrl(server.baseUrl());
+
+        QSignalSpy fail(&client, &BeanBaseClient::searchFailed);
+        client.search("ethiopia");
+        QTest::qWait(600);                    // debounce fires; A sent and hung
+        QCOMPARE(server.requestCount(), 1);   // A really is in flight
+
+        client.search("colombia");            // distinct query supersedes A
+        QTest::qWait(600);                    // debounce fires; doSend aborts A
+
+        int ethiopiaTerminals = 0;
+        QString status;
+        for (const QList<QVariant>& sig : fail) {
+            if (sig.at(0).toString() == QString("ethiopia")) {
+                ++ethiopiaTerminals;
+                status = sig.at(1).toString();
+            }
+        }
+        QCOMPARE(ethiopiaTerminals, 1);       // abort stayed silent
+        QCOMPARE(status, QString("superseded"));
     }
 
     // ====================================================

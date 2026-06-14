@@ -94,11 +94,15 @@ void BeanBaseClient::doSendCanonicalSearch(const QString& query) {
         return;
     }
     if (m_activeCanonicalReply) {
-        // Aborting the in-flight request: its handler stays silent for the
-        // abort itself, so emit the never-coming-answer signal here.
-        emit searchFailed(m_activeCanonicalQuery, QStringLiteral("superseded"));
-        m_activeCanonicalReply->abort();
+        // Supersede the in-flight request. abort() emits finished() SYNCHRONOUSLY
+        // (same-thread direct connection), so detach the pointer FIRST: the
+        // handler then sees wasActive == false and stays silent, leaving this the
+        // single terminal signal ("superseded") for the displaced query. Aborting
+        // before clearing would let the handler also emit a spurious "network".
+        QNetworkReply* superseded = m_activeCanonicalReply;
         m_activeCanonicalReply.clear();
+        emit searchFailed(m_activeCanonicalQuery, QStringLiteral("superseded"));
+        superseded->abort();
     }
 
     QUrl url(QStringLiteral("%1/api/canonical_coffee_bags").arg(m_visualizerBaseUrl));

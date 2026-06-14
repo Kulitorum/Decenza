@@ -2,7 +2,7 @@
 
 Canonical coffee-database integration: users link beans to Visualizer canonical coffee-bag entries, and the snapshot enriches shot history, Visualizer uploads, and the AI advisor. OpenSpec change: `add-bean-base-integration` (design.md §§ Context 5–9 hold the historical empirical API findings).
 
-> **Note (June 2026):** The Loffee Labs Bean Base API path (`searchBeanBase()`, `testApiKey()`, the per-user `beanBaseApiKey` setting, and the whole `SettingsBeanBase` domain) was **removed** — it was never wired into production. Search is now 100% Visualizer canonical autocomplete (keyless). The sections below that describe the loffeelabs API, its rate/quota contract, and `searchBeanBase()` are kept only as historical context for the design doc; none of that code exists anymore.
+> **Note (June 2026):** The Loffee Labs Bean Base API path (`searchBeanBase()`, `testApiKey()`, the per-user `beanBaseApiKey` setting, and the whole `SettingsBeanBase` domain) was **removed** — it was never wired into production. Search is now 100% Visualizer canonical search (keyless). The sections below that describe the loffeelabs API, its rate/quota contract, and `searchBeanBase()` are kept only as historical context for the design doc; none of that code exists anymore.
 
 ## Architecture
 
@@ -77,7 +77,7 @@ Bags replaced bean presets entirely — one concept, no live-state divergence. K
 - **Legacy presets**: `bean/presets` + `bean/selectedPreset` QSettings are merge-imported into bags by `CoffeeBagStorage::convertLegacyPresetSettings()` — version-independent, runs at launch AND from `SettingsSerializer` legacy imports; keys cleared only after commit. Guarded out of test builds (`DECENZA_TESTING`) so unit tests don't consume the developer's real presets.
 - **Transfer**: `importDatabaseStatic` migrates bags with `shots.bag_id` id-remap; `dye/activeBagId` is excluded from settings export (device-local row id).
 - **Freeze lifecycle**: `frozenDate`/`defrostDate` on the bag describe the CURRENT portion only; per-shot snapshots are the permanent thermal history. "Thaw" on the bag card opens a calendar and writes `defrostDate` via `requestUpdateBag`.
-- **Search**: `UnifiedBeanSearchModel` (`src/history/unifiedbeansearchmodel.{h,cpp}`) merges inventory (Tier 0) + canonical autocomplete + shot history into the Change Beans dialog's ranked list; a history/canonical result matching an inventory bag is absorbed into its Tier 0 row.
-- **canonicalRoasterId** is persisted in the beanBaseData blob by `fetchCanonicalPayload` (was previously in-memory only) for future Visualizer Coffee Management roaster linking.
+- **Search**: `UnifiedBeanSearchModel` (`src/history/unifiedbeansearchmodel.{h,cpp}`) merges inventory (Tier 0) + canonical search + shot history into the Change Beans dialog's ranked list; a history/canonical result matching an inventory bag is absorbed into its Tier 0 row.
+- **canonicalRoasterId** rides along on each canonical search entry (mapped from the API's `canonical_roaster_id` by `parseCanonicalCoffeeBags`) and is persisted in the beanBaseData blob for future Visualizer Coffee Management roaster linking.
 - **MCP**: `bag_list` / `bag_select` / `bag_update` tools; `shots_get_detail` carries the bag snapshot.
 - Visualizer Coffee Management sync (CM detection, bag CRUD at upload time) is specced in `openspec/changes/bean-bag-inventory/specs/visualizer-coffee-management/spec.md` but blocked on a live-API verification spike.
