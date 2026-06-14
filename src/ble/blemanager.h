@@ -595,12 +595,12 @@ private:
     // silently) and flag it so the next attempt powers it on rather than
     // mistaking it for a user-disabled adapter — and we do NOT claim recovery.
     void finishAdapterRecovery(bool adapterOn);
-    // Turn the Bluetooth adapter on/off for the wedge power-cycle. Platform-split:
-    // on Android, QBluetoothLocalDevice has NO powerOff() (only powerOn(), which
-    // also routes through a consent dialog), so we toggle the framework adapter
-    // directly via JNI — BluetoothAdapter.disable()/enable(), the silent path on
-    // API ≤ 32. On other desktop platforms QBluetoothLocalDevice::powerOff()/
-    // powerOn() exist and are used. No-op where unsupported.
+    // Turn the Bluetooth adapter on/off for the wedge power-cycle. Android-only:
+    // QBluetoothLocalDevice has NO powerOff() (it exists on neither Android nor
+    // macOS in this Qt build; powerOn() also routes through a consent dialog), so
+    // we toggle the framework adapter directly via JNI — BluetoothAdapter
+    // .disable()/enable(), the silent path on API ≤ 32. No-op on every other
+    // platform (wedge recovery is Android-only — see maybeRecoverWedgedStack).
     void setAdapterPower(bool on);
     // True for ≥45s of sustained both-links-down + recent DE1 controller fault
     // before we treat it as a wedge — avoids cycling on a one-off blip.
