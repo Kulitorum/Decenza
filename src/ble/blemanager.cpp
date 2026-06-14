@@ -120,7 +120,7 @@ BLEManager::BLEManager(QObject* parent)
             // let finishAdapterRecovery(false) surface it — never leave BT off.
             qWarning() << "BLEManager: adapter still powered off"
                        << (kAdapterRecoverySafetyMs / 1000) << "s into recovery — forcing power-on (#1309)";
-            m_localDevice->powerOn();
+            setAdapterPower(true);
             finishAdapterRecovery(false);
         } else {
             // Adapter is on but we missed the HostConnectable event (or powerOff
@@ -192,7 +192,7 @@ void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
             // leave the radio off).
             m_recoverySawPoweredOff = true;
             qDebug() << "BLEManager: adapter powered off during recovery — powering back on (#1309)";
-            m_localDevice->powerOn();
+            setAdapterPower(true);
             m_adapterRecoverySafetyTimer->start();
         } else {
             // HostConnectable / HostDiscoverable — adapter is back up.
@@ -202,6 +202,30 @@ void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
 #endif
 
     emit bluetoothAvailableChanged();
+}
+
+void BLEManager::setAdapterPower(bool on)
+{
+#if defined(Q_OS_ANDROID)
+    // Qt's QBluetoothLocalDevice has no powerOff() on Android (and powerOn()
+    // shows the system consent dialog), so drive the framework adapter directly.
+    // BluetoothAdapter.disable()/enable() are silent on API ≤ 32 and no-ops on
+    // 33+; BLUETOOTH_ADMIN/BLUETOOTH_CONNECT are declared in the manifest.
+    // Qt still observes the resulting state change and emits hostModeStateChanged.
+    QJniObject adapter = QJniObject::callStaticObjectMethod(
+        "android/bluetooth/BluetoothAdapter", "getDefaultAdapter",
+        "()Landroid/bluetooth/BluetoothAdapter;");
+    if (!adapter.isValid()) {
+        qWarning() << "BLEManager: no BluetoothAdapter — cannot" << (on ? "enable" : "disable") << "(#1309)";
+        return;
+    }
+    adapter.callMethod<jboolean>(on ? "enable" : "disable");
+#else
+    // Wedge recovery is Android-only (maybeRecoverWedgedStack returns early
+    // elsewhere), and QBluetoothLocalDevice has no portable powerOff() — it
+    // exists on neither Android nor macOS in this Qt build. No-op everywhere else.
+    Q_UNUSED(on);
+#endif
 }
 
 void BLEManager::finishAdapterRecovery(bool adapterOn)
@@ -320,7 +344,7 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
                 m_lastAdapterRecovery = t;
                 qWarning() << "BLEManager: adapter still off from a prior failed recovery — "
                               "retrying power-on (#1309)";
-                m_localDevice->powerOn();
+                setAdapterPower(true);
             }
         }
         return;
@@ -348,7 +372,7 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
     // powerOff() is async; the host-mode handler powers it back on once it sees
     // HostPoweredOff, and the safety timer re-enables it if that event never lands.
     m_adapterRecoverySafetyTimer->start();
-    m_localDevice->powerOff();
+    setAdapterPower(false);
 #endif
 }
 
