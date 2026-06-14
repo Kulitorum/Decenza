@@ -100,6 +100,28 @@ BLEManager::BLEManager(QObject* parent)
         }
     });
 
+    // Fail-safe for the BLE-stack-wedge adapter power-cycle (#1309): if
+    // powerOff() never reports HostPoweredOff (so the host-mode handler never
+    // calls powerOn()), force the adapter back on here so a wedged radio is
+    // never left switched off. Normally stopped by the HostConnectable event
+    // before it fires. Single-shot — not a logic guard, a last-resort re-enable.
+    m_adapterRecoverySafetyTimer = new QTimer(this);
+    m_adapterRecoverySafetyTimer->setSingleShot(true);
+    m_adapterRecoverySafetyTimer->setInterval(kAdapterRecoverySafetyMs);
+    connect(m_adapterRecoverySafetyTimer, &QTimer::timeout, this, [this]() {
+#ifndef Q_OS_IOS
+        if (!m_adapterRecoveryInFlight || !m_localDevice) return;
+        qWarning() << "BLEManager: adapter did not report powered-off within"
+                   << (kAdapterRecoverySafetyMs / 1000) << "s — forcing power-on (#1309)";
+        m_localDevice->powerOn();
+        // Clear in-flight so a future wedge can still trigger recovery even if
+        // the HostConnectable event for this cycle is also missed.
+        m_adapterRecoveryInFlight = false;
+        m_wedgeSince = QDateTime();
+        emit bleStackRecovered();
+#endif
+    });
+
     // Eagerly run the Linux capability check so any qWarning lands early in
     // startup logs; subsequent calls hit the cached result.
     (void) BleCapability::linuxMissing();
@@ -147,7 +169,119 @@ bool BLEManager::isBluetoothAvailable() const
 void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
 {
     qDebug() << "BLEManager: Bluetooth host mode changed to" << mode;
+
+#ifndef Q_OS_IOS
+    // Drive the wedge-recovery power-cycle off observed adapter transitions
+    // rather than a fixed delay (the adapter takes a variable time to power
+    // down): once we see it actually off, turn it back on; once it's back on,
+    // re-arm the reconnect paths. (#1309)
+    if (m_adapterRecoveryInFlight && m_localDevice) {
+        if (mode == QBluetoothLocalDevice::HostPoweredOff) {
+            qDebug() << "BLEManager: adapter powered off during recovery — powering back on (#1309)";
+            m_localDevice->powerOn();
+        } else {
+            // HostConnectable / HostDiscoverable — adapter is back up.
+            m_adapterRecoverySafetyTimer->stop();
+            m_adapterRecoveryInFlight = false;
+            m_wedgeSince = QDateTime();
+            m_lastDe1FaultTime = QDateTime();  // stale faults shouldn't re-trip immediately
+            qDebug() << "BLEManager: adapter powered back on — re-arming DE1 + scale reconnect (#1309)";
+            emit bleStackRecovered();          // main.cpp resets the DE1 reconnect budget + retries
+            if (!m_savedScaleAddress.isEmpty())
+                tryDirectConnectToScale();     // scale side re-arm
+        }
+    }
+#endif
+
     emit bluetoothAvailableChanged();
+}
+
+void BLEManager::noteDe1Connected(bool connected)
+{
+    m_de1Connected = connected;
+    if (connected) {
+        // A working DE1 link means the stack is healthy — clear any wedge state.
+        m_anyBleSuccessThisSession = true;
+        m_wedgeSince = QDateTime();
+        m_lastDe1FaultTime = QDateTime();
+    }
+}
+
+void BLEManager::onDe1LinkFault(const QString& kind)
+{
+    // de1LinkFault fires only on genuine controller errors, never on plain
+    // device-absence — so this timestamp is the load-bearing "stack in trouble"
+    // signal the wedge detector keys off.
+    m_lastDe1FaultTime = QDateTime::currentDateTime();
+    evaluateBleWedge(QStringLiteral("de1-fault:%1").arg(kind));
+}
+
+void BLEManager::evaluateBleWedge(const QString& reason)
+{
+    // The wedge fingerprint (#1309): a saved DE1 that won't connect, throwing
+    // controller faults, WHILE the physical scale also can't connect. A single
+    // absent device never satisfies all three — only a stack that's failing
+    // every link does. m_scaleDevice is always the physical scale (FlowScale is
+    // never assigned here), so its disconnected state is real, not a fallback.
+    const bool scaleConnected = m_scaleDevice && m_scaleDevice->isConnected();
+    const bool de1FaultFresh = m_lastDe1FaultTime.isValid()
+        && m_lastDe1FaultTime.msecsTo(QDateTime::currentDateTime()) <= kWedgeFaultFreshnessMs;
+
+    const bool wedgeSuspected = hasSavedDE1() && !m_de1Connected
+                                && de1FaultFresh && !scaleConnected;
+
+    if (!wedgeSuspected) {
+        m_wedgeSince = QDateTime();  // condition broken — reset the confirm window
+        return;
+    }
+
+    const QDateTime now = QDateTime::currentDateTime();
+    if (!m_wedgeSince.isValid()) {
+        m_wedgeSince = now;  // start of a sustained-wedge window
+        return;
+    }
+    if (m_wedgeSince.msecsTo(now) >= kWedgeConfirmMs) {
+        maybeRecoverWedgedStack(reason);
+    }
+}
+
+void BLEManager::maybeRecoverWedgedStack(const QString& reason)
+{
+#ifndef Q_OS_ANDROID
+    // Only Android exhibits the wedge, and it's the only platform where a
+    // non-privileged app can cycle the adapter. Elsewhere this is a no-op —
+    // the existing "Try toggling Bluetooth off/on" error guidance stands.
+    Q_UNUSED(reason);
+    return;
+#else
+    if (m_disabled || !m_localDevice) return;
+    if (m_adapterRecoveryInFlight) return;
+    // Respect a user-disabled adapter: if they turned Bluetooth off, leave it off.
+    if (m_localDevice->hostMode() == QBluetoothLocalDevice::HostPoweredOff) return;
+
+    const QDateTime now = QDateTime::currentDateTime();
+    if (m_lastAdapterRecovery.isValid()
+        && m_lastAdapterRecovery.msecsTo(now) < kAdapterRecoveryBackoffMs) {
+        qDebug() << "BLEManager: BLE stack still appears wedged (" << reason
+                 << ") but within recovery backoff — not cycling adapter yet (#1309)";
+        return;
+    }
+
+    m_adapterRecoveryInFlight = true;
+    m_lastAdapterRecovery = now;
+    m_adapterRecoveryCount++;
+    m_wedgeSince = QDateTime();
+    qWarning() << "BLEManager: BLE stack appears wedged (" << reason
+               << ") — power-cycling Bluetooth adapter, recovery #" << m_adapterRecoveryCount
+               << "this session (#1309)";
+    appendScaleLog(QStringLiteral("BLE stack wedged — auto power-cycling Bluetooth adapter (#1309)"));
+    emit bleStackRecoveryStarted();
+
+    // powerOff() is async; the host-mode handler powers it back on once it sees
+    // HostPoweredOff, and the safety timer re-enables it if that event never lands.
+    m_adapterRecoverySafetyTimer->start();
+    m_localDevice->powerOff();
+#endif
 }
 
 void BLEManager::ensureDiscoveryAgent() {
@@ -1126,6 +1260,7 @@ void BLEManager::onScaleConnectedChanged() {
         m_lastScanErrorShown.clear();       // Healthy state — allow a future fresh scan error to pop again
         m_anyBleSuccessThisSession = true;  // Permission proven good (WiFi scales hit this too — see note below)
         m_flowScaleFallbackEmitted = false;  // Allow dialog again if scale disconnects and reconnect fails
+        m_wedgeSince = QDateTime();          // A connecting scale proves the stack isn't wedged (#1309)
         if (m_scaleConnectionFailed) {
             m_scaleConnectionFailed = false;
             emit scaleConnectionFailedChanged();
@@ -1199,6 +1334,12 @@ void BLEManager::onScaleConnectionTimeout() {
     m_manualWifiConnect = false;
 
     qWarning() << "BLEManager: Scale connection timeout - not found";
+
+    // Heartbeat for the BLE-stack-wedge detector (#1309): a scale that keeps
+    // failing to connect is one half of the wedge fingerprint. The detector
+    // only acts if the DE1 is also down and recently faulting, so a merely
+    // absent scale here can't trigger an adapter cycle on its own.
+    evaluateBleWedge(QStringLiteral("scale-timeout"));
 
     // Manual "Add WiFi Scale" entry that didn't validate (no HDS frame within
     // the connection-timer window): surface a clear, user-visible error and

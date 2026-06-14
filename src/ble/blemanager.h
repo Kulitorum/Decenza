@@ -123,6 +123,17 @@ public:
     void switchToWifiPrimary();
 
     bool hasSavedDE1() const { return !m_savedDE1Address.isEmpty(); }
+
+    // BLE-stack-wedge recovery (#1309). On some tablets (Teclast P80X) the
+    // Android BLE stack wedges so every connect fails — DE1 and scale alike —
+    // and survives even an app restart; only cycling the Bluetooth adapter
+    // off/on clears it. main.cpp feeds the detector its two inputs:
+    //  - noteDe1Connected(): the DE1 link's connected state (BLEManager doesn't
+    //    own DE1Device, so it can't observe this directly).
+    //  - onDe1LinkFault(): controller-error faults re-emitted by DE1Device.
+    // See onDe1LinkFault()/onScaleConnectionTimeout() for the discriminator and
+    // maybeRecoverWedgedStack() for the Android-only adapter power-cycle.
+    void noteDe1Connected(bool connected);
     bool linuxBleCapabilityMissing() const { return BleCapability::linuxMissing(); }
     QString linuxBleSetcapCommand() const { return BleCapability::linuxSetcapCommand(); }
 
@@ -440,6 +451,13 @@ public slots:
     // main.cpp. See #1176 — scale heartbeat writes that race DE1 char discovery
     // fail with CharacteristicWriteError on weaker radios (Samsung Tab A8).
     void setDe1ServiceDiscoveryActive(bool active);
+    // DE1 controller-error fault, re-emitted from DE1Device::de1LinkFault. Feeds
+    // the BLE-stack-wedge detector (#1309). These faults fire ONLY for real
+    // controller errors (Connection/Authorization/RemoteHostClosed/write-failed)
+    // — an absent or sleeping DE1 produces a watchdog timeout with no fault — so
+    // a recent fault is a reliable "the stack is in trouble" signal, not mere
+    // device absence.
+    void onDe1LinkFault(const QString& kind);
     Q_INVOKABLE void scanForDevices();  // User-initiated scan for DE1, scales, and refractometers
     Q_INVOKABLE void startScan();  // Start scanning for DE1 and scales
     void stopScan();
@@ -503,6 +521,12 @@ signals:
     void refractometerDiscovered(const QBluetoothDeviceInfo& device);
     void disconnectRefractometerRequested();
     void linuxBlueZCacheHintNeeded();  // Request the BlueZ-cache recovery dialog (Linux, caps OK).
+    // Emitted when an automatic BLE-adapter power-cycle begins / completes
+    // (#1309). main.cpp uses bleStackRecovered() to reset the DE1 reconnect
+    // budget and kick a fresh reconnect once the adapter is back, mirroring the
+    // AutoWake re-arm path. bleStackRecoveryStarted() is informational (UI/log).
+    void bleStackRecoveryStarted();
+    void bleStackRecovered();
 
 
 private slots:
@@ -544,6 +568,30 @@ private:
     // Tear down any in-flight WiFi-primary reachability probe (socket + timeout
     // timer) without emitting a result. Safe to call when no probe is active.
     void cancelWifiProbe();
+
+    // --- BLE-stack-wedge auto-recovery (#1309) ---------------------------------
+    // Re-evaluate whether the BLE stack is wedged and, if so, trigger an adapter
+    // power-cycle. Called from the two failure heartbeats (de1LinkFault and the
+    // scale connection timeout). `reason` is for the debug log only.
+    void evaluateBleWedge(const QString& reason);
+    // Power-cycle the Bluetooth adapter to clear a wedged stack. Android-only
+    // (the only platform with the wedge, and the only one where a non-privileged
+    // app can toggle the adapter — silently on API ≤ 32, via a system consent
+    // dialog on 33+). No-op on other platforms. Respects a user-disabled
+    // adapter and a per-cycle backoff.
+    void maybeRecoverWedgedStack(const QString& reason);
+    // True for ≥45s of sustained both-links-down + recent DE1 controller fault
+    // before we treat it as a wedge — avoids cycling on a one-off blip.
+    static constexpr int kWedgeConfirmMs = 45 * 1000;
+    // A DE1 controller fault older than this no longer counts as "the stack is
+    // in trouble". Sized above the slow DE1 reconnect cadence (main.cpp) so a
+    // persistently-wedged stack stays flagged between slow retries.
+    static constexpr int kWedgeFaultFreshnessMs = 7 * 60 * 1000;
+    // Minimum gap between automatic adapter power-cycles.
+    static constexpr int kAdapterRecoveryBackoffMs = 5 * 60 * 1000;
+    // Fail-safe: if powerOff() never reports HostPoweredOff, force powerOn()
+    // after this so a wedged adapter is never left switched off.
+    static constexpr int kAdapterRecoverySafetyMs = 10 * 1000;
 
 #ifndef Q_OS_IOS
     QBluetoothLocalDevice* m_localDevice = nullptr;
@@ -618,6 +666,15 @@ private:
     // attempt or a successful connect stops any stale pending abort.
     QTimer* m_scaleDirectAbortTimer = nullptr;
     bool m_de1ServiceDiscoveryActive = false;
+
+    // --- BLE-stack-wedge auto-recovery state (#1309) ---------------------------
+    bool m_de1Connected = false;            // Fed by noteDe1Connected() from main.cpp
+    QDateTime m_lastDe1FaultTime;           // Last DE1 controller fault (onDe1LinkFault)
+    QDateTime m_wedgeSince;                 // When the wedge condition first held (invalid = not currently wedged)
+    bool m_adapterRecoveryInFlight = false; // A powerOff→powerOn cycle is underway
+    QDateTime m_lastAdapterRecovery;        // For the inter-cycle backoff
+    int m_adapterRecoveryCount = 0;         // Diagnostic: cycles this session
+    QTimer* m_adapterRecoverySafetyTimer = nullptr;  // Fail-safe re-power-on
 
     // Saved scale for direct wake connection
     QString m_savedScaleAddress;
