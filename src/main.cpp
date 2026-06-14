@@ -1471,6 +1471,13 @@ int main(int argc, char *argv[])
     QObject::connect(&de1Device, &DE1Device::de1LinkFault,
                      &bleManager, &BLEManager::onDe1LinkFault);
 
+    // Surface DE1 BLE errors to the UI. DE1Device::errorOccurred had no consumer,
+    // so DE1 connection problems (incl. the "try toggling Bluetooth off/on" hint)
+    // never reached the user — only scale/scan errors did. onDe1Error debounces
+    // so the reconnect ladder doesn't re-pop the same dialog. (#1309)
+    QObject::connect(&de1Device, &DE1Device::errorOccurred,
+                     &bleManager, &BLEManager::onDe1Error);
+
     // After an automatic adapter power-cycle clears a wedged stack, reset the
     // DE1 reconnect budget and kick a fresh attempt immediately — mirrors the
     // AutoWake re-arm path. Without this the slow-tier timer would wait up to

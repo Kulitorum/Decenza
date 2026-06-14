@@ -204,7 +204,18 @@ void BLEManager::noteDe1Connected(bool connected)
         m_anyBleSuccessThisSession = true;
         m_wedgeSince = QDateTime();
         m_lastDe1FaultTime = QDateTime();
+        m_lastDe1ErrorShown.clear();  // Healthy again — allow a future DE1 error to surface
     }
+}
+
+void BLEManager::onDe1Error(const QString& error)
+{
+    // Debounce: the reconnect ladder emits the same "Connection error" on every
+    // failed attempt (~once/60s during a wedge), so show each distinct message
+    // only once until the DE1 reconnects. Mirrors the onScanError debounce.
+    if (error.isEmpty() || error == m_lastDe1ErrorShown) return;
+    m_lastDe1ErrorShown = error;
+    emit errorOccurred(error);
 }
 
 void BLEManager::onDe1LinkFault(const QString& kind)

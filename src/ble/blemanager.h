@@ -458,6 +458,14 @@ public slots:
     // a recent fault is a reliable "the stack is in trouble" signal, not mere
     // device absence.
     void onDe1LinkFault(const QString& kind);
+    // Surface a DE1 BLE error to the UI. DE1Device::errorOccurred was previously
+    // a dead-end signal — nothing consumed it — so DE1 connection problems
+    // (including the "service not found … try toggling Bluetooth off/on" hint)
+    // never reached the user; only scale + scan errors did. Forwarded here so
+    // the same QML error dialog shows DE1 faults too, debounced to once per
+    // distinct message until the DE1 next connects (the reconnect ladder would
+    // otherwise pop the same "Connection error" dialog every ~60s).
+    void onDe1Error(const QString& error);
     Q_INVOKABLE void scanForDevices();  // User-initiated scan for DE1, scales, and refractometers
     Q_INVOKABLE void startScan();  // Start scanning for DE1 and scales
     void stopScan();
@@ -645,6 +653,11 @@ private:
     // would re-fire the same error toast indefinitely. We pop a given error
     // string at most once between successful connects.
     QString m_lastScanErrorShown;
+    // Same debounce, for DE1 errors forwarded via onDe1Error(): show each
+    // distinct message at most once until the DE1 connects (cleared in
+    // noteDe1Connected()). Separate from m_lastScanErrorShown so a DE1 fault
+    // and a scan error don't suppress each other.
+    QString m_lastDe1ErrorShown;
     // True once ANY BLE device (DE1 or scale) has been successfully seen this
     // session. Used to suppress transient QBluetoothDeviceDiscoveryAgent
     // MissingPermissionsError reports that fire on macOS Tahoe + Qt 6.11
