@@ -19,5 +19,5 @@
 ## 4. Verify + document
 
 - [x] 4.1 Build clean (Qt Creator, 0 warnings) and run `tst_beanbaseclient` (8/8) + `tst_coffeebags` (30/30) — all green.
-- [ ] 4.2 On-device smoke test: Beans-page search + link, unlink, post-shot re-link, and MCP `bean_search` (requires running the new build).
+- [x] 4.2 On-device smoke test (build 3443, built 2026-06-14 14:00): MCP `bean_search` verified live on the new build — "intelligentsia sublunar" → 1 result, "prodigal milk blend" → 4 across two roasters, each carrying the full descriptive blob + `canonicalRoasterId` inline from a single `/api/canonical_coffee_bags` call. QML search bar + link/unlink/re-link share the identical `searchResults`/`canonicalDetails` client path.
 - [x] 4.3 Update `docs/CLAUDE_MD/BEAN_BASE.md` "Canonical search" + "Testing" sections and the architecture diagram to the new `/api/canonical_*` endpoint and single-call flow; `beanbaseclient.h` header comment updated.
