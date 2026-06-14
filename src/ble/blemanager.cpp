@@ -100,25 +100,35 @@ BLEManager::BLEManager(QObject* parent)
         }
     });
 
-    // Fail-safe for the BLE-stack-wedge adapter power-cycle (#1309): if
-    // powerOff() never reports HostPoweredOff (so the host-mode handler never
-    // calls powerOn()), force the adapter back on here so a wedged radio is
-    // never left switched off. Normally stopped by the HostConnectable event
-    // before it fires. Single-shot — not a logic guard, a last-resort re-enable.
+    // Fail-safe watchdog for the BLE-stack-wedge adapter power-cycle (#1309).
+    // The cycle is normally event-driven (HostPoweredOff → powerOn() →
+    // HostConnectable → done); this timer guards each leg in case the OS never
+    // delivers the expected host-mode transition, so we never silently strand
+    // the radio off. It re-checks the ACTUAL adapter state and finalises
+    // accordingly — it does not blindly assume success. Single-shot, re-armed
+    // for the power-on leg; not a logic guard, a last-resort verifier.
     m_adapterRecoverySafetyTimer = new QTimer(this);
     m_adapterRecoverySafetyTimer->setSingleShot(true);
     m_adapterRecoverySafetyTimer->setInterval(kAdapterRecoverySafetyMs);
     connect(m_adapterRecoverySafetyTimer, &QTimer::timeout, this, [this]() {
 #ifndef Q_OS_IOS
         if (!m_adapterRecoveryInFlight || !m_localDevice) return;
-        qWarning() << "BLEManager: adapter did not report powered-off within"
-                   << (kAdapterRecoverySafetyMs / 1000) << "s — forcing power-on (#1309)";
-        m_localDevice->powerOn();
-        // Clear in-flight so a future wedge can still trigger recovery even if
-        // the HostConnectable event for this cycle is also missed.
-        m_adapterRecoveryInFlight = false;
-        m_wedgeSince = QDateTime();
-        emit bleStackRecovered();
+        const bool adapterOff = m_localDevice->hostMode() == QBluetoothLocalDevice::HostPoweredOff;
+        if (adapterOff) {
+            // Either powerOff() never reported HostPoweredOff, or the power-on
+            // leg never brought it back. Make one more attempt to re-enable, then
+            // let finishAdapterRecovery(false) surface it — never leave BT off.
+            qWarning() << "BLEManager: adapter still powered off"
+                       << (kAdapterRecoverySafetyMs / 1000) << "s into recovery — forcing power-on (#1309)";
+            m_localDevice->powerOn();
+            finishAdapterRecovery(false);
+        } else {
+            // Adapter is on but we missed the HostConnectable event (or powerOff
+            // was a no-op and it was never actually off). Treat as recovered.
+            qWarning() << "BLEManager: recovery watchdog — adapter is on without an explicit "
+                          "HostConnectable event; treating as recovered (#1309)";
+            finishAdapterRecovery(true);
+        }
 #endif
     });
 
@@ -177,23 +187,54 @@ void BLEManager::onHostModeStateChanged(QBluetoothLocalDevice::HostMode mode)
     // re-arm the reconnect paths. (#1309)
     if (m_adapterRecoveryInFlight && m_localDevice) {
         if (mode == QBluetoothLocalDevice::HostPoweredOff) {
+            // Power-off leg done — bring it back up, and re-arm the watchdog so
+            // the power-ON leg is itself covered (powerOn never landing must not
+            // leave the radio off).
+            m_recoverySawPoweredOff = true;
             qDebug() << "BLEManager: adapter powered off during recovery — powering back on (#1309)";
             m_localDevice->powerOn();
+            m_adapterRecoverySafetyTimer->start();
         } else {
             // HostConnectable / HostDiscoverable — adapter is back up.
-            m_adapterRecoverySafetyTimer->stop();
-            m_adapterRecoveryInFlight = false;
-            m_wedgeSince = QDateTime();
-            m_lastDe1FaultTime = QDateTime();  // stale faults shouldn't re-trip immediately
-            qDebug() << "BLEManager: adapter powered back on — re-arming DE1 + scale reconnect (#1309)";
-            emit bleStackRecovered();          // main.cpp resets the DE1 reconnect budget + retries
-            if (!m_savedScaleAddress.isEmpty())
-                tryDirectConnectToScale();     // scale side re-arm
+            finishAdapterRecovery(true);
         }
     }
 #endif
 
     emit bluetoothAvailableChanged();
+}
+
+void BLEManager::finishAdapterRecovery(bool adapterOn)
+{
+#ifndef Q_OS_IOS
+    m_adapterRecoverySafetyTimer->stop();
+    m_adapterRecoveryInFlight = false;
+    m_recoverySawPoweredOff = false;
+    m_wedgeSince = QDateTime();
+
+    if (adapterOn) {
+        m_recoveryLeftAdapterOff = false;
+        m_lastDe1FaultTime = QDateTime();  // stale faults shouldn't re-trip immediately
+        qDebug() << "BLEManager: adapter recovered — re-arming DE1 + scale reconnect (#1309)";
+        emit bleStackRecovered();          // main.cpp resets the DE1 reconnect budget + retries
+        if (!m_savedScaleAddress.isEmpty())
+            tryDirectConnectToScale();     // scale side re-arm
+    } else {
+        // We could not bring the radio back up. Flag it (so the next attempt
+        // powers it on instead of treating OFF as user intent) and tell the
+        // user — do NOT emit bleStackRecovered(), the stack is not recovered.
+        m_recoveryLeftAdapterOff = true;
+        qWarning() << "BLEManager: automatic Bluetooth restart did not bring the adapter "
+                      "back up — asking the user to toggle it manually (#1309)";
+        appendScaleLog(QStringLiteral("Auto Bluetooth restart failed — adapter still off (#1309)"));
+        emit errorOccurred(translateUiString(
+            QStringLiteral("ble.error.bluetoothRestartFailed"),
+            QStringLiteral("Decenza tried to restart Bluetooth but it's still off. "
+                           "Please turn Bluetooth off and on in your device settings.")));
+    }
+#else
+    Q_UNUSED(adapterOn);
+#endif
 }
 
 void BLEManager::noteDe1Connected(bool connected)
@@ -267,8 +308,23 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
 #else
     if (m_disabled || !m_localDevice) return;
     if (m_adapterRecoveryInFlight) return;
-    // Respect a user-disabled adapter: if they turned Bluetooth off, leave it off.
-    if (m_localDevice->hostMode() == QBluetoothLocalDevice::HostPoweredOff) return;
+    if (m_localDevice->hostMode() == QBluetoothLocalDevice::HostPoweredOff) {
+        // Adapter is off. If a PRIOR recovery cycle of ours left it off, keep
+        // trying to power it back on (subject to backoff) rather than mistaking
+        // our own failure for a deliberate user power-off. If the user turned it
+        // off, m_recoveryLeftAdapterOff is false and we respect that — leave it.
+        if (m_recoveryLeftAdapterOff) {
+            const QDateTime t = QDateTime::currentDateTime();
+            if (!m_lastAdapterRecovery.isValid()
+                || m_lastAdapterRecovery.msecsTo(t) >= kAdapterRecoveryBackoffMs) {
+                m_lastAdapterRecovery = t;
+                qWarning() << "BLEManager: adapter still off from a prior failed recovery — "
+                              "retrying power-on (#1309)";
+                m_localDevice->powerOn();
+            }
+        }
+        return;
+    }
 
     const QDateTime now = QDateTime::currentDateTime();
     if (m_lastAdapterRecovery.isValid()
@@ -279,6 +335,7 @@ void BLEManager::maybeRecoverWedgedStack(const QString& reason)
     }
 
     m_adapterRecoveryInFlight = true;
+    m_recoverySawPoweredOff = false;
     m_lastAdapterRecovery = now;
     m_adapterRecoveryCount++;
     m_wedgeSince = QDateTime();

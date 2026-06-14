@@ -588,6 +588,13 @@ private:
     // dialog on 33+). No-op on other platforms. Respects a user-disabled
     // adapter and a per-cycle backoff.
     void maybeRecoverWedgedStack(const QString& reason);
+    // Terminate an in-flight adapter power-cycle. `adapterOn` == the adapter is
+    // confirmed back up: clears recovery state, re-arms DE1 + scale reconnect,
+    // and emits bleStackRecovered(). `adapterOn` == false means we could not
+    // bring the radio back: we surface an actionable error (never leave BT off
+    // silently) and flag it so the next attempt powers it on rather than
+    // mistaking it for a user-disabled adapter — and we do NOT claim recovery.
+    void finishAdapterRecovery(bool adapterOn);
     // True for ≥45s of sustained both-links-down + recent DE1 controller fault
     // before we treat it as a wedge — avoids cycling on a one-off blip.
     static constexpr int kWedgeConfirmMs = 45 * 1000;
@@ -685,9 +692,11 @@ private:
     QDateTime m_lastDe1FaultTime;           // Last DE1 controller fault (onDe1LinkFault)
     QDateTime m_wedgeSince;                 // When the wedge condition first held (invalid = not currently wedged)
     bool m_adapterRecoveryInFlight = false; // A powerOff→powerOn cycle is underway
+    bool m_recoverySawPoweredOff = false;   // powerOff took effect; now awaiting power-on
+    bool m_recoveryLeftAdapterOff = false;  // A cycle ended with the adapter still off (our doing, not the user's)
     QDateTime m_lastAdapterRecovery;        // For the inter-cycle backoff
     int m_adapterRecoveryCount = 0;         // Diagnostic: cycles this session
-    QTimer* m_adapterRecoverySafetyTimer = nullptr;  // Fail-safe re-power-on
+    QTimer* m_adapterRecoverySafetyTimer = nullptr;  // Fail-safe watchdog for each power-cycle leg
 
     // Saved scale for direct wake connection
     QString m_savedScaleAddress;
