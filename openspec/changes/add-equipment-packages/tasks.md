@@ -62,13 +62,13 @@
 - [x] 9.4 `equipment_update` tool (edit grinder identity/name; re-derives `rpmCapable`)
 
 ## 10. i18n, accessibility, tests
-- [ ] 10.1 Translation keys for Equipment page, dialog, Brew Settings labels, idle button
-- [ ] 10.2 Accessibility on all new interactive elements (roles, names, focus order) per `ACCESSIBILITY.md`
+- [x] 10.1 All new UI strings use `TranslationManager.translate(key, fallback)` / `Tr` with `equipment.*`, `idle.button.equipment`, `brewDialog.equipment*`/`grindLabel`/`rpm*` keys. (English is the fallback; there is no checked-in base JSON — other languages register at runtime.)
+- [x] 10.2 Accessibility on new interactive elements: `AccessibleButton`/`AccessibleMouseArea`/`AccessibleTapHandler`, `Accessible.role/name`, headings on page/dialog titles
 - [x] 10.3 Unit tests (`tst_equipment`): grind/rpm split heuristic, package dedup, `rpmCapable` derivation, package CRUD (14 cases). (Dual write-through is exercised via the live SettingsDye path, not unit-tested.)
 - [x] 10.4 Migration test (`tst_equipment::migrationSplitsAndLinks`): bag/shot corpus → expected packages + links + split values
-- [ ] 10.5 Verify Android build for the DB-migration + layout-migration paths
+- [ ] 10.5 Verify Android build — **pending** (recommended before release). This change has no `#ifdef Q_OS_ANDROID` branches; the DB + layout migrations are platform-agnostic, so the macOS build/tests are representative.
 
 ## 11. Docs
-- [ ] 11.1 Update `docs/CLAUDE_MD/RECIPE_PROFILES.md` / relevant domain doc for the equipment-package model
-- [ ] 11.2 Update `docs/CLAUDE_MD/MCP_SERVER.md` with the new equipment tools
-- [ ] 11.3 Note the wiki Manual page for Equipment (user-visible feature)
+- [~] 11.1 Equipment-package model documented in the OpenSpec proposal/design (source of truth); no separate `RECIPE_PROFILES.md` section added
+- [x] 11.2 `docs/CLAUDE_MD/MCP_SERVER.md` updated with the new equipment tools + access levels + dialing fields
+- [ ] 11.3 Wiki Manual page for Equipment — **pending** (user-visible feature; update on release)
