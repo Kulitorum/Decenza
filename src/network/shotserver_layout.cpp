@@ -2308,6 +2308,7 @@ QString ShotServer::generateLayoutPage() const
         // Actions & readouts (white)
         {type:"beans",label:"Beans"},
         {type:"connectionStatus",label:"Connection"},
+        {type:"equipment",label:"Equipment"},
         {type:"espresso",label:"Espresso"},
         {type:"autofavorites",label:"Favorites"},
         {type:"flush",label:"Flush"},
@@ -2343,7 +2344,7 @@ QString ShotServer::generateLayoutPage() const
 
     var DISPLAY_NAMES = {
         espresso:"Espresso",steam:"Steam",hotwater:"Hot Water",flush:"Flush",
-        beans:"Beans",history:"History",autofavorites:"Favorites",sleep:"Sleep",
+        beans:"Beans",equipment:"Equipment",history:"History",autofavorites:"Favorites",sleep:"Sleep",
         settings:"Settings",temperature:"Temp",steamTemperature:"Steam",
         batteryLevel:"Battery",scaleBattery:"Scale Bat",waterLevel:"Water",connectionStatus:"Connection",scaleWeight:"Scale",
         shotPlan:"Shot Plan",pageTitle:"Title",spacer:"Spacer",separator:"Sep",

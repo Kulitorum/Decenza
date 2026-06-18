@@ -31,18 +31,18 @@
 - [ ] 4.4 **Migration 23**: drop `grinder_brand`/`grinder_model`/`grinder_burrs` from `coffee_bags` and `shots` (SQLite ≥3.35 `DROP COLUMN`) — only after 3.1/4.1/4.2 switch every reader to `equipment_id`; remove those columns from `CoffeeBagStorage::kCols`
 
 ## 5. Equipment window & idle button
-- [ ] 5.1 `EquipmentPage.qml` (mirror `BeanInfoPage.qml`): empty state + Add Equipment + package cards
-- [ ] 5.2 `EquipmentCard.qml`: grinder identity, burrs subtitle, edit + remove-from-inventory actions
-- [ ] 5.3 `EquipmentItem.qml` idle widget + 4-place registration (`CMakeLists.txt`, `LayoutItemDelegate.qml`, editor palette + chip label map, `shotserver_layout.cpp`)
-- [ ] 5.4 Add `equipment` to `defaultLayoutJson()` next to `beans`
-- [ ] 5.5 Idempotent run-once layout-injection migration in `getLayoutObject()` (insert after `beans`, fallback append to `bottomRight`)
-- [ ] 5.6 Register `EquipmentPage` in `main.qml` page stack + page-title map; nav from idle button
+- [x] 5.1 `EquipmentPage.qml` (mirror `BeanInfoPage.qml`): empty state + Add Equipment + package cards
+- [x] 5.2 `EquipmentCard.qml`: grinder identity, burrs subtitle, last-dial + RPM-adjustable captions, edit + remove actions
+- [x] 5.3 `EquipmentItem.qml` idle widget + 4-place registration (`CMakeLists.txt`, `LayoutItemDelegate.qml` switch+compile, `CustomItem.qml` navigate map, `shotserver_layout.cpp` list+labels)
+- [x] 5.4 Add `equipment` to `defaultLayoutJson()` next to `beans`
+- [x] 5.5 Idempotent run-once layout-injection migration in `getLayoutObject()` (insert after `beans`, fallback append to `bottomRight`)
+- [x] 5.6 Register `EquipmentPage` page-title map; nav from idle button + CustomItem `navigate:equipment` (pushed by URL)
 
 ## 6. Switch Equipment dialog
-- [ ] 6.1 `SwitchEquipmentDialog.qml` (mirror `ChangeBeansDialog.qml`): pick existing or create new
-- [ ] 6.2 Registry-backed grinder suggestions (brand/model/burrs) + shot-history distincts
-- [ ] 6.3 Create flow derives `rpmCapable`; select flow applies package last-dial
-- [ ] 6.4 Edit flow (reference semantics, re-derive `rpmCapable`)
+- [~] 6.1 `SwitchEquipmentDialog.qml`: create + edit done; **picking an existing package to switch the active bag pending** (needs `SettingsDye.activeEquipmentId` — Section 3)
+- [x] 6.2 Registry-backed grinder suggestions (brand/model/burrs) + shot-history distincts
+- [~] 6.3 Create flow derives `rpmCapable` (in storage) ✓; **select-applies-last-dial pending** (Section 3)
+- [x] 6.4 Edit flow (reference semantics, re-derive `rpmCapable`)
 
 ## 7. Brew Settings rework
 - [ ] 7.1 `BrewDialog.qml`: replace grinder brand/model/burrs inputs with read-only Equipment summary + Switch Equipment button

@@ -690,6 +690,7 @@ set(QML_FILES
     qml/pages/ProfileImportPage.qml
     qml/pages/VisualizerMultiImportPage.qml
     qml/pages/BeanInfoPage.qml
+    qml/pages/EquipmentPage.qml
     qml/pages/PostShotReviewPage.qml
     qml/pages/AISettingsPage.qml
     qml/pages/DialingAssistantPage.qml
@@ -758,6 +759,8 @@ set(QML_FILES
     qml/components/BeanSummary.qml
     qml/components/ChangeBeansDialog.qml
     qml/components/BagCard.qml
+    qml/components/SwitchEquipmentDialog.qml
+    qml/components/EquipmentCard.qml
     qml/components/KeyboardAwareContainer.qml
     qml/components/AIConversationPanel.qml
     qml/components/ConversationOverlay.qml
@@ -810,6 +813,7 @@ set(QML_FILES
     qml/components/layout/items/HotWaterItem.qml
     qml/components/layout/items/FlushItem.qml
     qml/components/layout/items/BeansItem.qml
+    qml/components/layout/items/EquipmentItem.qml
     qml/components/layout/items/HistoryItem.qml
     qml/components/layout/items/DiscussItem.qml
     qml/components/layout/items/AutoFavoritesItem.qml

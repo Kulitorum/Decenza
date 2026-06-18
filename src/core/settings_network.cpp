@@ -278,6 +278,7 @@ QString SettingsNetwork::defaultLayoutJson() const {
         QJsonObject({{"type", "history"}, {"id", "history1"}}),
         QJsonObject({{"type", "spacer"}, {"id", "spacer2"}}),
         QJsonObject({{"type", "beans"}, {"id", "beans1"}}),
+        QJsonObject({{"type", "equipment"}, {"id", "equipment1"}}),
         QJsonObject({{"type", "autofavorites"}, {"id", "autofavorites1"}}),
         QJsonObject({{"type", "settings"}, {"id", "settings1"}}),
     });
@@ -346,7 +347,51 @@ QJsonObject SettingsNetwork::getLayoutObject() const {
         if (textMigrated)
             zones[zoneName] = items;
     }
-    if (textMigrated) {
+    // Migration: ensure an Equipment idle button exists (add-equipment-packages).
+    // Inject it immediately after the beans item so every upgraded user gets it
+    // in a sensible default place regardless of their custom layout (fall back to
+    // appending to bottomRight if beans was removed). Idempotent + persisted once
+    // so it never duplicates.
+    bool equipmentInjected = false;
+    {
+        bool hasEquipment = false;
+        for (const QString& zoneName : zones.keys()) {
+            const QJsonArray items = zones[zoneName].toArray();
+            for (const QJsonValue& v : items) {
+                if (v.toObject()["type"].toString() == "equipment") {
+                    hasEquipment = true;
+                    break;
+                }
+            }
+            if (hasEquipment)
+                break;
+        }
+        if (!hasEquipment) {
+            const QJsonObject equipmentItem{{"type", "equipment"}, {"id", "equipment1"}};
+            bool placed = false;
+            for (const QString& zoneName : zones.keys()) {
+                QJsonArray items = zones[zoneName].toArray();
+                for (int i = 0; i < items.size(); ++i) {
+                    if (items[i].toObject()["type"].toString() == "beans") {
+                        items.insert(i + 1, equipmentItem);
+                        zones[zoneName] = items;
+                        placed = true;
+                        break;
+                    }
+                }
+                if (placed)
+                    break;
+            }
+            if (!placed) {
+                QJsonArray br = zones.value("bottomRight").toArray();
+                br.append(equipmentItem);
+                zones["bottomRight"] = br;
+            }
+            equipmentInjected = true;
+        }
+    }
+
+    if (textMigrated || equipmentInjected) {
         layout["zones"] = zones;
         // Persist the migration so it only runs once
         const_cast<SettingsNetwork*>(this)->saveLayoutObject(layout);

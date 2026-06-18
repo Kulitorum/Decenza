@@ -1186,6 +1186,7 @@ ApplicationWindow {
             "profileImportPage": TranslationManager.translate("main.pageImportProfiles", "Import profiles"),
             "postShotReviewPage": TranslationManager.translate("main.pageShotReview", "Shot review"),
             "beanInfoPage": TranslationManager.translate("main.pageBeanInfo", "Bean info"),
+            "equipmentPage": TranslationManager.translate("main.pageEquipment", "Equipment"),
             "dialingAssistantPage": TranslationManager.translate("main.pageAiAssistant", "AI assistant"),
             "shotDetailPage": TranslationManager.translate("main.pageShotDetail", "Shot detail"),
             "shotComparisonPage": TranslationManager.translate("main.pageShotComparison", "Shot comparison")
