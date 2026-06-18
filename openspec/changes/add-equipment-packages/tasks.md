@@ -64,8 +64,8 @@
 ## 10. i18n, accessibility, tests
 - [ ] 10.1 Translation keys for Equipment page, dialog, Brew Settings labels, idle button
 - [ ] 10.2 Accessibility on all new interactive elements (roles, names, focus order) per `ACCESSIBILITY.md`
-- [ ] 10.3 Unit tests: grind/rpm split heuristic, package dedup, `rpmCapable` derivation, dual write-through
-- [ ] 10.4 Migration test: representative bag/shot corpus → expected packages + links + split values
+- [x] 10.3 Unit tests (`tst_equipment`): grind/rpm split heuristic, package dedup, `rpmCapable` derivation, package CRUD (14 cases). (Dual write-through is exercised via the live SettingsDye path, not unit-tested.)
+- [x] 10.4 Migration test (`tst_equipment::migrationSplitsAndLinks`): bag/shot corpus → expected packages + links + split values
 - [ ] 10.5 Verify Android build for the DB-migration + layout-migration paths
 
 ## 11. Docs

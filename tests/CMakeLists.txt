@@ -477,6 +477,17 @@ add_decenza_test(tst_dbmigration
 target_link_libraries(tst_dbmigration PRIVATE Qt6::Graphs Qt6::Quick)
 target_include_directories(tst_dbmigration PRIVATE ${CMAKE_BINARY_DIR})
 
+# --- tst_equipment: equipment package storage statics — grind/rpm split,
+# rpmCapable derivation, package CRUD + identity dedup, migration-22 data step
+# (add-equipment-packages). Static helpers only, so a minimal source set. ---
+add_decenza_test(tst_equipment
+    tst_equipment.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_include_directories(tst_equipment PRIVATE ${CMAKE_BINARY_DIR})
+
 # --- tst_dialing_blocks: DB-backed coverage for the four shared
 # block builders that drive both `dialing_get_context` (MCP) and the
 # in-app advisor's user-prompt enrichment (issue #1044). Stands up a
