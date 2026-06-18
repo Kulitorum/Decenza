@@ -47,6 +47,13 @@ struct CoffeeBag {
     double doseWeightG = 0;  // 0 = unset
     double yieldOverrideG = 0; // 0 = unset
 
+    // Equipment (add-equipment-packages). equipmentId points at the bag's
+    // grinder package; rpm is the grinder rpm dial-in (sibling of grinderSetting).
+    // The grinderBrand/Model/Burrs columns above are retained transitionally and
+    // dropped in migration 23 once all readers resolve identity via equipmentId.
+    qint64 equipmentId = 0;  // FK -> equipment_packages.id; 0 = unset
+    qint64 rpm = 0;          // 0 = unset
+
     // Visualizer Coffee Management sync state
     QString visualizerBagId;
     QString visualizerRoasterId;

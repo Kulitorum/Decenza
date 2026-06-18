@@ -18,11 +18,11 @@
 - [ ] 2.8 `importDatabaseStatic`: migrate equipment tables + remap `coffee_bags.equipment_id` / `shots.equipment_id`
 
 ## 3. SettingsDye & dial memory
-- [ ] 3.1 `dyeGrinderBrand/Model/Burrs` → read-only, resolved via active bag's `equipment_id`
-- [ ] 3.2 Add `activeEquipmentId` + switch logic that applies the package's `lastGrindSetting`/`lastRpm`
-- [ ] 3.3 Add `dyeGrinderRpm`; grind setting + rpm edits fan out to BOTH active bag and active package
-- [ ] 3.4 `rpmCapable` derivation helper (registry match → `variableRpm`; custom → true); re-derive on identity edit
-- [ ] 3.5 `SettingsSerializer`: exclude `dye/activeEquipmentId` from export
+- [ ] 3.1 `dyeGrinderBrand/Model/Burrs` → read-only, resolved via active bag's `equipment_id` — **deferred** (transitional: still QSettings-backed + bag write-through; identity applied from the package on switch). Required before migration 23 (4.4).
+- [x] 3.2 Add `activeEquipmentId` + `switchToEquipment` that applies the package's `lastGrindSetting`/`lastRpm` and points the active bag at it
+- [x] 3.3 Add `dyeGrinderRpm`; grind setting + rpm edits fan out to BOTH active bag and active package (`writeThroughToActivePackage`)
+- [x] 3.4 `rpmCapable` derivation helper (`EquipmentStorage::deriveRpmCapable`: registry → `variableRpm`; custom → true); re-derived on identity edit in `updateGrinderItemStatic`
+- [x] 3.5 `SettingsSerializer`: `dye/activeEquipmentId` excluded from export (field-by-field export never emits it; comment updated)
 
 ## 4. Shot projection & history queries
 - [ ] 4.1 `ShotProjection` resolves grinder brand/model/burrs via `equipment_id` JOIN; add `rpm`
@@ -39,9 +39,9 @@
 - [x] 5.6 Register `EquipmentPage` page-title map; nav from idle button + CustomItem `navigate:equipment` (pushed by URL)
 
 ## 6. Switch Equipment dialog
-- [~] 6.1 `SwitchEquipmentDialog.qml`: create + edit done; **picking an existing package to switch the active bag pending** (needs `SettingsDye.activeEquipmentId` — Section 3)
+- [x] 6.1 `SwitchEquipmentDialog.qml`: create + edit; tapping a card / creating a package switches the active bag via `Settings.dye.switchToEquipment`
 - [x] 6.2 Registry-backed grinder suggestions (brand/model/burrs) + shot-history distincts
-- [~] 6.3 Create flow derives `rpmCapable` (in storage) ✓; **select-applies-last-dial pending** (Section 3)
+- [x] 6.3 Create flow derives `rpmCapable` (in storage); select flow applies the package's last dial
 - [x] 6.4 Edit flow (reference semantics, re-derive `rpmCapable`)
 
 ## 7. Brew Settings rework

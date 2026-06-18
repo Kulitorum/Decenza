@@ -17,6 +17,7 @@ Rectangle {
 
     signal editRequested(var pkg)
 
+    readonly property bool selected: pkg && pkg.id !== undefined && pkg.id === Settings.dye.activeEquipmentId
     readonly property bool hasReferences: pkg && (pkg.shotCount ?? 0) > 0
     readonly property string grinderTitle: {
         var brand = (pkg && pkg.grinderBrand) || ""
@@ -42,13 +43,14 @@ Rectangle {
     readonly property string accessibleSummary: {
         var bits = [grinderTitle, burrs].filter(function(s) { return s.length > 0 })
         if (lastDialLine.length > 0) bits.push(lastDialLine)
+        if (selected) bits.push(TranslationManager.translate("accessibility.selected", "selected"))
         return bits.join(", ")
     }
 
     color: Theme.surfaceColor
     radius: Theme.cardRadius
-    border.width: 1
-    border.color: Theme.borderColor
+    border.width: selected ? 2 : 1
+    border.color: selected ? Theme.primaryColor : Theme.borderColor
 
     implicitWidth: Theme.scaled(360)
     implicitHeight: cardColumn.implicitHeight + Theme.scaled(24)
@@ -137,7 +139,10 @@ Rectangle {
                 anchors.fill: parent
                 accessibleName: card.accessibleSummary
                 accessibleItem: infoArea
-                onAccessibleClicked: card.editRequested(card.pkg)
+                onAccessibleClicked: {
+                    if (card.pkg && card.pkg.id !== undefined)
+                        Settings.dye.switchToEquipment(card.pkg)
+                }
             }
         }
 

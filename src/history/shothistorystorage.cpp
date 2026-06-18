@@ -1121,9 +1121,14 @@ bool ShotHistoryStorage::runMigrations()
     // shot projection) keep working; they are dropped in migration 23 once every
     // reader resolves identity via equipment_id. The data step is NOT idempotent
     // (it would re-create packages), so the version bumps on the additive part;
-    // the < 22 block then never re-runs. Whitespace before the open-paren dodges
+    // the block then never re-runs. Whitespace before the open-paren dodges
     // the QSqlQuery permission-hook false-positive, as elsewhere.
-    if (currentVersion < 22) {
+    //
+    // Gate on "== 21" (advance only from a completed 21), NOT "< 22": migration
+    // 21's RENAME is gated on its post-condition and holds the version at 20 on
+    // failure so it retries next launch. A "< 22" gate would let migration 22 run
+    // and bump straight to 22 after a faulted 21, stranding the yield rename.
+    if (currentVersion >= 21 && currentVersion < 22) {
         qDebug() << "ShotHistoryStorage: Running migration to version 22 (equipment packages)";
 
         const bool tablesOk = EquipmentStorage::ensureTablesStatic(m_db);

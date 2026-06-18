@@ -163,6 +163,7 @@ void SettingsDye::ensureDyeCacheLoaded() const {
         m_dyeGrinderModelCache = m_settings.value("dye/grinderModel", "").toString();
         m_dyeGrinderBurrsCache = m_settings.value("dye/grinderBurrs", "").toString();
         m_dyeGrinderSettingCache = m_settings.value("dye/grinderSetting", "").toString();
+        m_dyeGrinderRpmCache = m_settings.value("dye/grinderRpm", 0).toInt();
         m_dyeBeanWeightCache = m_settings.value("dye/beanWeight", 18.0).toDouble();
         m_dyeDrinkWeightCache = m_settings.value("dye/drinkWeight", 36.0).toDouble();
         m_dyeCacheInitialized = true;
@@ -221,8 +222,57 @@ void SettingsDye::setDyeGrinderSetting(const QString& value) {
         m_dyeGrinderSettingCache = value;
         m_settings.setValue("dye/grinderSetting", value);
         writeThroughToBag("grinderSetting", value);
+        // Dual write-through: the grind setting is grinder-scoped too, so keep
+        // the active package's last dial current (add-equipment-packages).
+        writeThroughToActivePackage("lastGrindSetting", value);
         emit dyeGrinderSettingChanged();
     }
+}
+
+int SettingsDye::dyeGrinderRpm() const {
+    ensureDyeCacheLoaded();
+    return m_dyeGrinderRpmCache;
+}
+
+void SettingsDye::setDyeGrinderRpm(int value) {
+    if (dyeGrinderRpm() != value) {
+        m_dyeGrinderRpmCache = value;
+        m_settings.setValue("dye/grinderRpm", value);
+        writeThroughToBag("rpm", value > 0 ? QVariant(value) : QVariant());
+        writeThroughToActivePackage("lastRpm", value > 0 ? QVariant(value) : QVariant());
+        emit dyeGrinderRpmChanged();
+    }
+}
+
+int SettingsDye::activeEquipmentId() const {
+    return m_settings.value("dye/activeEquipmentId", -1).toInt();
+}
+
+void SettingsDye::setActiveEquipmentId(int id) {
+    if (activeEquipmentId() == id)
+        return;
+    m_settings.setValue("dye/activeEquipmentId", id);
+    // The active bag adopts the package (skipped during applyActiveBag via the
+    // m_applyingBag guard inside writeThroughToBag).
+    writeThroughToBag("equipmentId", id > 0 ? QVariant(id) : QVariant());
+    emit activeEquipmentIdChanged();
+}
+
+void SettingsDye::switchToEquipment(const QVariantMap& pkg) {
+    const int id = pkg.value("id").toInt();
+    if (id <= 0)
+        return;
+    setActiveEquipmentId(id);
+    // Apply the package's grinder identity (transitional: still cached in
+    // QSettings + bag grinder_* columns via the existing setters).
+    setDyeGrinderBrand(pkg.value("grinderBrand").toString());
+    setDyeGrinderModel(pkg.value("grinderModel").toString());
+    setDyeGrinderBurrs(pkg.value("grinderBurrs").toString());
+    // Apply the package's last dial — grinder-scoped memory, never blank, editable.
+    setDyeGrinderSetting(pkg.value("lastGrindSetting").toString());
+    setDyeGrinderRpm(pkg.value("lastRpm").toInt());
+    if (m_equipmentStorage)
+        m_equipmentStorage->requestTouchLastUsed(id);
 }
 
 QStringList SettingsDye::suggestedBurrs(const QString& brand, const QString& model) const {
@@ -469,6 +519,12 @@ void SettingsDye::applyActiveBag(const QVariantMap& bag)
     if (dose > 0)
         setDyeBeanWeight(dose);
 
+    // Equipment package the bag points at, plus its rpm dial-in (bean-scoped
+    // memory). Guarded by m_applyingBag so these don't write back to bag/package.
+    // The grind setting above is the bag's; rpm follows the same bean-scoped rule.
+    setActiveEquipmentId(bag.value("equipmentId", -1).toInt());
+    setDyeGrinderRpm(bag.value("rpm", 0).toInt());
+
     m_applyingBag = false;
 
     const QString frozen = bag.value("frozenDate").toString();
@@ -505,4 +561,14 @@ void SettingsDye::writeThroughToBag(const QString& field, const QVariant& value)
         return;
     m_pendingSelfWrites++;
     m_bagStorage->requestUpdateBag(bagId, {{field, value}});
+}
+
+void SettingsDye::writeThroughToActivePackage(const QString& field, const QVariant& value)
+{
+    if (m_applyingBag || !m_equipmentStorage)
+        return;
+    const int eqId = activeEquipmentId();
+    if (eqId <= 0)
+        return;
+    m_equipmentStorage->requestUpdatePackage(eqId, {{field, value}});
 }

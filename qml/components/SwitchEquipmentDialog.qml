@@ -186,8 +186,11 @@ Dialog {
         function onPackageCreated(packageId, pkg) {
             if (!root._awaitingCreate) return
             root._awaitingCreate = false
-            if (packageId > 0)
+            if (packageId > 0) {
+                // A freshly added package becomes the active equipment.
+                Settings.dye.switchToEquipment(pkg)
                 root.packageSaved(packageId)
+            }
             root.close()
         }
     }

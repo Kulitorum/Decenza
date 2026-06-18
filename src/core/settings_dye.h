@@ -34,6 +34,12 @@ class SettingsDye : public QObject {
     Q_PROPERTY(QString dyeGrinderModel READ dyeGrinderModel WRITE setDyeGrinderModel NOTIFY dyeGrinderModelChanged)
     Q_PROPERTY(QString dyeGrinderBurrs READ dyeGrinderBurrs WRITE setDyeGrinderBurrs NOTIFY dyeGrinderBurrsChanged)
     Q_PROPERTY(QString dyeGrinderSetting READ dyeGrinderSetting WRITE setDyeGrinderSetting NOTIFY dyeGrinderSettingChanged)
+    // Grinder rpm dial-in (add-equipment-packages); shown only when the active
+    // package's grinder is rpmCapable. 0 = unset.
+    Q_PROPERTY(int dyeGrinderRpm READ dyeGrinderRpm WRITE setDyeGrinderRpm NOTIFY dyeGrinderRpmChanged)
+    // The active equipment package id (the grinder the next shot is ground on).
+    // Switching it applies the package's grinder identity + last dial.
+    Q_PROPERTY(int activeEquipmentId READ activeEquipmentId WRITE setActiveEquipmentId NOTIFY activeEquipmentIdChanged)
     Q_PROPERTY(double dyeBeanWeight READ dyeBeanWeight WRITE setDyeBeanWeight NOTIFY dyeBeanWeightChanged)
     Q_PROPERTY(double dyeDrinkWeight READ dyeDrinkWeight WRITE setDyeDrinkWeight NOTIFY dyeDrinkWeightChanged)
     Q_PROPERTY(double dyeDrinkTds READ dyeDrinkTds WRITE setDyeDrinkTds NOTIFY dyeDrinkTdsChanged)
@@ -98,6 +104,18 @@ public:
 
     QString dyeGrinderSetting() const;
     void setDyeGrinderSetting(const QString& value);
+
+    int dyeGrinderRpm() const;
+    void setDyeGrinderRpm(int value);
+
+    int activeEquipmentId() const;
+    void setActiveEquipmentId(int id);
+
+    // User-facing equipment switch: adopt the package's grinder identity and its
+    // last dial (grind setting + rpm), and point the active bag at it. `pkg` is a
+    // package map from EquipmentStorage (id, grinderBrand/Model/Burrs,
+    // lastGrindSetting, lastRpm).
+    Q_INVOKABLE void switchToEquipment(const QVariantMap& pkg);
 
     Q_INVOKABLE QStringList suggestedBurrs(const QString& brand, const QString& model) const;
     Q_INVOKABLE bool isBurrSwappable(const QString& brand, const QString& model) const;
@@ -181,6 +199,8 @@ signals:
     void dyeGrinderModelChanged();
     void dyeGrinderBurrsChanged();
     void dyeGrinderSettingChanged();
+    void dyeGrinderRpmChanged();
+    void activeEquipmentIdChanged();
     void dyeBeanWeightChanged();
     void dyeDrinkWeightChanged();
     void dyeDrinkTdsChanged();
@@ -210,6 +230,9 @@ private:
     // Queue an async write of one field to the active bag (no-op while
     // applyActiveBag is running or when no bag/storage is attached).
     void writeThroughToBag(const QString& field, const QVariant& value);
+    // Queue an async write of one field to the active equipment package (no-op
+    // while applyActiveBag is running or when no package/storage is attached).
+    void writeThroughToActivePackage(const QString& field, const QVariant& value);
 
     mutable QSettings m_settings;
     SettingsVisualizer* m_visualizer = nullptr;  // Non-owning; for default-rating fallback.
@@ -228,6 +251,7 @@ private:
     mutable QString m_dyeGrinderModelCache;
     mutable QString m_dyeGrinderBurrsCache;
     mutable QString m_dyeGrinderSettingCache;
+    mutable int m_dyeGrinderRpmCache = 0;
     mutable double m_dyeBeanWeightCache = 18.0;
     mutable double m_dyeDrinkWeightCache = 36.0;
     mutable bool m_dyeCacheInitialized = false;

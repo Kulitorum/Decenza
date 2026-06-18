@@ -126,6 +126,8 @@ const BagCol kCols[] = {
     COL_STR  ("grinder_model",         grinderModel,        false),
     COL_STR  ("grinder_burrs",         grinderBurrs,        false),
     COL_STR  ("grinder_setting",       grinderSetting,      false),
+    COL_EPOCH("equipment_id",          equipmentId),
+    COL_EPOCH("rpm",                   rpm),
     COL_DBL  ("dose_weight_g",         doseWeightG),
     COL_DBL  ("yield_override_g",      yieldOverrideG),
     COL_STR  ("visualizer_bag_id",     visualizerBagId,     false),
@@ -395,6 +397,8 @@ bool CoffeeBagStorage::ensureTableStatic(QSqlDatabase& db)
             grinder_model TEXT,
             grinder_burrs TEXT,
             grinder_setting TEXT,
+            equipment_id INTEGER,
+            rpm INTEGER,
             dose_weight_g REAL,
             yield_override_g REAL,
             visualizer_bag_id TEXT,
@@ -770,7 +774,11 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
 
     int imported = 0, matched = 0;
     while (srcBags.next()) {
-        const CoffeeBag bag = bagFromQueryRow(srcBags);
+        CoffeeBag bag = bagFromQueryRow(srcBags);
+        // Equipment packages are not transferred yet (add-equipment-packages
+        // task 2.8); drop the source equipment_id so it can't mislink to an
+        // unrelated dest package. rpm (a plain dial-in number) carries fine.
+        bag.equipmentId = 0;
 
         qint64 destId = -1;
         if (merge) {
