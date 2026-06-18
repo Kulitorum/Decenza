@@ -45,10 +45,10 @@
 - [x] 6.4 Edit flow (reference semantics, re-derive `rpmCapable`)
 
 ## 7. Brew Settings rework
-- [ ] 7.1 `BrewDialog.qml`: replace grinder brand/model/burrs inputs with read-only Equipment summary + Switch Equipment button
-- [ ] 7.2 Keep grind setting dial-in; add RPM dial-in shown only when `rpmCapable`
-- [ ] 7.3 Empty-state ("Equipment: not set → Add Equipment")
-- [ ] 7.4 Dial edits use dual write-through
+- [x] 7.1 `BrewDialog.qml`: grinder brand/model/burrs inputs replaced by read-only Equipment summary + burrs line + Switch Equipment button (opens `SwitchEquipmentDialog` picker)
+- [x] 7.2 Grind setting dial-in kept; RPM dial-in added, shown only when `Settings.dye.grinderRpmCapable(...)`
+- [x] 7.3 Empty-state ("Equipment: Not set" + Add button)
+- [x] 7.4 Dial edits use dual write-through (`setDyeGrinderSetting`/`setDyeGrinderRpm`)
 
 ## 8. Visualizer
 - [ ] 8.1 Upload: resolve `equipment_id` → "brand model"; omit when null

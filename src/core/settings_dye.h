@@ -117,6 +117,11 @@ public:
     // lastGrindSetting, lastRpm).
     Q_INVOKABLE void switchToEquipment(const QVariantMap& pkg);
 
+    // True when the grinder identity is rpm-adjustable (registry variableRpm, or
+    // a custom grinder not in the registry). Drives the rpm field's visibility in
+    // Brew Settings.
+    Q_INVOKABLE bool grinderRpmCapable(const QString& brand, const QString& model) const;
+
     Q_INVOKABLE QStringList suggestedBurrs(const QString& brand, const QString& model) const;
     Q_INVOKABLE bool isBurrSwappable(const QString& brand, const QString& model) const;
     Q_INVOKABLE QStringList knownGrinderBrands() const;

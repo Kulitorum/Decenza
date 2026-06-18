@@ -275,6 +275,10 @@ void SettingsDye::switchToEquipment(const QVariantMap& pkg) {
         m_equipmentStorage->requestTouchLastUsed(id);
 }
 
+bool SettingsDye::grinderRpmCapable(const QString& brand, const QString& model) const {
+    return EquipmentStorage::deriveRpmCapable(brand, model);
+}
+
 QStringList SettingsDye::suggestedBurrs(const QString& brand, const QString& model) const {
     return GrinderAliases::suggestedBurrs(brand, model);
 }

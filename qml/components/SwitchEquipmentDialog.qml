@@ -3,12 +3,14 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-// Create / edit an equipment package (add-equipment-packages). v1 covers the
-// grinder component: brand / model / burrs with registry-backed suggestions
-// (the same sources the old Brew Settings grinder fields used). rpmCapable is
-// derived from the registry in storage, not entered here. Picking an existing
-// package to switch the active bag is handled inline on the Equipment page /
-// Brew Settings; this dialog is the add/edit form.
+// Switch / create / edit an equipment package (add-equipment-packages). Two
+// modes, mirroring ChangeBeansDialog:
+//   "list" -> pick an existing package (tap switches the active bag to it) or
+//             add a new one
+//   "form" -> create or edit a grinder package (brand/model/burrs with
+//             registry-backed suggestions; rpmCapable is derived in storage)
+// Opening with open() shows the picker; openForCreate()/openForEdit() jump
+// straight to the form.
 Dialog {
     id: root
     parent: Overlay.overlay
@@ -18,22 +20,49 @@ Dialog {
     closePolicy: Dialog.CloseOnEscape
     padding: 0
 
-    // "create" -> requestCreatePackage; "edit" -> requestUpdatePackage
-    property string formMode: "create"
+    property string mode: "list"          // "list" | "form"
+    property string formMode: "create"    // "create" | "edit"
     property int editPackageId: -1
 
+    property var packages: []
     property string fBrand: ""
     property string fModel: ""
     property string fBurrs: ""
 
     signal packageSaved(int packageId)
 
+    onAboutToShow: if (mode === "list") MainController.equipmentStorage.requestInventory()
+
+    Connections {
+        target: MainController.equipmentStorage
+        function onInventoryReady(list) { root.packages = list }
+        function onPackagesChanged() {
+            if (root.visible && root.mode === "list")
+                MainController.equipmentStorage.requestInventory()
+        }
+        function onPackageCreated(packageId, pkg) {
+            if (!root._awaitingCreate) return
+            root._awaitingCreate = false
+            if (packageId > 0) {
+                // A freshly added package becomes the active equipment.
+                Settings.dye.switchToEquipment(pkg)
+                root.packageSaved(packageId)
+            }
+            root.close()
+        }
+    }
+
+    // Open the picker (list of packages). onAboutToShow requests the inventory.
+    function openPicker() {
+        mode = "list"
+        open()
+    }
+
     function openForCreate() {
         formMode = "create"
         editPackageId = -1
-        fBrand = ""
-        fModel = ""
-        fBurrs = ""
+        fBrand = ""; fModel = ""; fBurrs = ""
+        mode = "form"
         open()
     }
 
@@ -43,6 +72,7 @@ Dialog {
         fBrand = (pkg && pkg.grinderBrand) || ""
         fModel = (pkg && pkg.grinderModel) || ""
         fBurrs = (pkg && pkg.grinderBurrs) || ""
+        mode = "form"
         open()
     }
 
@@ -54,18 +84,19 @@ Dialog {
         for (var j = 0; j < history.length; ++j) { if (history[j] && !seen[history[j]]) { seen[history[j]] = true; out.push(history[j]) } }
         return out
     }
-
-    function modelSuggestions() {
-        return Settings.dye.knownGrinderModels(root.fBrand)
-    }
-
+    function modelSuggestions() { return Settings.dye.knownGrinderModels(root.fBrand) }
     function burrsSuggestions() {
-        if (!Settings.dye.isBurrSwappable(root.fBrand, root.fModel))
-            return []
+        if (!Settings.dye.isBurrSwappable(root.fBrand, root.fModel)) return []
         return Settings.dye.suggestedBurrs(root.fBrand, root.fModel)
     }
 
+    function packageTitle(pkg) {
+        if (pkg && pkg.name && String(pkg.name).length > 0) return String(pkg.name)
+        return [pkg.grinderBrand || "", pkg.grinderModel || ""].filter(function(s) { return s.length > 0 }).join(" ")
+    }
+
     readonly property bool canSave: fBrand.trim().length > 0 || fModel.trim().length > 0
+    property bool _awaitingCreate: false
 
     background: Rectangle {
         color: Theme.surfaceColor
@@ -74,88 +105,152 @@ Dialog {
         border.width: 1
     }
 
-    contentItem: KeyboardAwareContainer {
-        textFields: [brandField.textField, modelField.textField, burrsField.textField]
+    contentItem: Item {
+        implicitHeight: (root.mode === "list" ? listColumn.implicitHeight : formContainer.implicitHeight)
+                        + 2 * Theme.spacingMedium
 
+        // --- LIST (picker) ---
         ColumnLayout {
-            anchors.fill: parent
+            id: listColumn
+            visible: root.mode === "list"
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
             anchors.margins: Theme.spacingMedium
             spacing: Theme.spacingMedium
 
             Tr {
                 Layout.fillWidth: true
-                key: root.formMode === "edit" ? "equipment.dialog.editTitle" : "equipment.dialog.addTitle"
-                fallback: root.formMode === "edit" ? "Edit Equipment" : "Add Equipment"
+                key: "equipment.dialog.switchTitle"
+                fallback: "Switch Equipment"
                 font: Theme.titleFont
                 color: Theme.textColor
                 Accessible.role: Accessible.Heading
                 Accessible.name: text
             }
 
-            SuggestionField {
-                id: brandField
-                Layout.fillWidth: true
-                label: TranslationManager.translate("equipment.dialog.brand", "Grinder brand")
-                accessibleName: label
-                text: root.fBrand
-                suggestions: root.brandSuggestions()
-                onTextEdited: function(t) { root.fBrand = t }
-                onSuggestionSelected: function(t) {
-                    root.fBrand = t
-                    var models = Settings.dye.knownGrinderModels(t)
-                    if (models.length === 1) {
-                        root.fModel = models[0]
-                        var burrs = Settings.dye.suggestedBurrs(t, models[0])
-                        if (burrs.length === 1) root.fBurrs = burrs[0]
+            Repeater {
+                model: root.packages
+                AccessibleButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.scaled(44)
+                    primary: modelData.id === Settings.dye.activeEquipmentId
+                    text: root.packageTitle(modelData)
+                          + (modelData.grinderBurrs && String(modelData.grinderBurrs).length > 0
+                             ? " · " + modelData.grinderBurrs : "")
+                    accessibleName: text + (modelData.id === Settings.dye.activeEquipmentId
+                                            ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                    onClicked: {
+                        Settings.dye.switchToEquipment(modelData)
+                        root.packageSaved(modelData.id)
+                        root.close()
                     }
                 }
             }
 
-            SuggestionField {
-                id: modelField
+            AccessibleButton {
                 Layout.fillWidth: true
-                label: TranslationManager.translate("equipment.dialog.model", "Grinder model")
-                accessibleName: label
-                text: root.fModel
-                suggestions: root.modelSuggestions()
-                onTextEdited: function(t) { root.fModel = t }
-                onSuggestionSelected: function(t) {
-                    root.fModel = t
-                    var burrs = Settings.dye.suggestedBurrs(root.fBrand, t)
-                    if (burrs.length === 1) root.fBurrs = burrs[0]
-                }
+                Layout.preferredHeight: Theme.scaled(44)
+                icon.source: "qrc:/icons/plus.svg"
+                text: TranslationManager.translate("equipment.dialog.addNew", "Add New Equipment")
+                accessibleName: text
+                onClicked: root.openForCreate()
             }
 
-            SuggestionField {
-                id: burrsField
-                Layout.fillWidth: true
-                label: TranslationManager.translate("equipment.dialog.burrs", "Burrs")
-                accessibleName: label
-                text: root.fBurrs
-                suggestions: root.burrsSuggestions()
-                onTextEdited: function(t) { root.fBurrs = t }
-                onSuggestionSelected: function(t) { root.fBurrs = t }
+            AccessibleButton {
+                Layout.alignment: Qt.AlignRight
+                text: TranslationManager.translate("common.button.cancel", "Cancel")
+                accessibleName: text
+                onClicked: root.close()
             }
+        }
 
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.spacingSmall
+        // --- FORM (create / edit) ---
+        KeyboardAwareContainer {
+            id: formContainer
+            visible: root.mode === "form"
+            anchors.fill: parent
+            textFields: [brandField.textField, modelField.textField, burrsField.textField]
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingMedium
                 spacing: Theme.spacingMedium
 
-                Item { Layout.fillWidth: true }
-
-                AccessibleButton {
-                    text: TranslationManager.translate("common.button.cancel", "Cancel")
-                    accessibleName: text
-                    onClicked: root.close()
+                Tr {
+                    Layout.fillWidth: true
+                    key: root.formMode === "edit" ? "equipment.dialog.editTitle" : "equipment.dialog.addTitle"
+                    fallback: root.formMode === "edit" ? "Edit Equipment" : "Add Equipment"
+                    font: Theme.titleFont
+                    color: Theme.textColor
+                    Accessible.role: Accessible.Heading
+                    Accessible.name: text
                 }
 
-                AccessibleButton {
-                    primary: true
-                    enabled: root.canSave
-                    text: TranslationManager.translate("common.button.save", "Save")
-                    accessibleName: text
-                    onClicked: root.save()
+                SuggestionField {
+                    id: brandField
+                    Layout.fillWidth: true
+                    label: TranslationManager.translate("equipment.dialog.brand", "Grinder brand")
+                    accessibleName: label
+                    text: root.fBrand
+                    suggestions: root.brandSuggestions()
+                    onTextEdited: function(t) { root.fBrand = t }
+                    onSuggestionSelected: function(t) {
+                        root.fBrand = t
+                        var models = Settings.dye.knownGrinderModels(t)
+                        if (models.length === 1) {
+                            root.fModel = models[0]
+                            var burrs = Settings.dye.suggestedBurrs(t, models[0])
+                            if (burrs.length === 1) root.fBurrs = burrs[0]
+                        }
+                    }
+                }
+
+                SuggestionField {
+                    id: modelField
+                    Layout.fillWidth: true
+                    label: TranslationManager.translate("equipment.dialog.model", "Grinder model")
+                    accessibleName: label
+                    text: root.fModel
+                    suggestions: root.modelSuggestions()
+                    onTextEdited: function(t) { root.fModel = t }
+                    onSuggestionSelected: function(t) {
+                        var burrs = Settings.dye.suggestedBurrs(root.fBrand, t)
+                        if (burrs.length === 1) root.fBurrs = burrs[0]
+                    }
+                }
+
+                SuggestionField {
+                    id: burrsField
+                    Layout.fillWidth: true
+                    label: TranslationManager.translate("equipment.dialog.burrs", "Burrs")
+                    accessibleName: label
+                    text: root.fBurrs
+                    suggestions: root.burrsSuggestions()
+                    onTextEdited: function(t) { root.fBurrs = t }
+                    onSuggestionSelected: function(t) { root.fBurrs = t }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingSmall
+                    spacing: Theme.spacingMedium
+
+                    Item { Layout.fillWidth: true }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("common.button.cancel", "Cancel")
+                        accessibleName: text
+                        onClicked: root.close()
+                    }
+
+                    AccessibleButton {
+                        primary: true
+                        enabled: root.canSave
+                        text: TranslationManager.translate("common.button.save", "Save")
+                        accessibleName: text
+                        onClicked: root.save()
+                    }
                 }
             }
         }
@@ -174,24 +269,7 @@ Dialog {
             close()
         } else {
             MainController.equipmentStorage.requestCreatePackage(fields)
-            // packageCreated carries the new id; surface it then close.
             _awaitingCreate = true
-        }
-    }
-
-    property bool _awaitingCreate: false
-
-    Connections {
-        target: MainController.equipmentStorage
-        function onPackageCreated(packageId, pkg) {
-            if (!root._awaitingCreate) return
-            root._awaitingCreate = false
-            if (packageId > 0) {
-                // A freshly added package becomes the active equipment.
-                Settings.dye.switchToEquipment(pkg)
-                root.packageSaved(packageId)
-            }
-            root.close()
         }
     }
 }
