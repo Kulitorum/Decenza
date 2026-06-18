@@ -8,6 +8,7 @@
 
 class SettingsVisualizer;
 class CoffeeBagStorage;
+class EquipmentStorage;
 
 // DYE (Describe Your Espresso) metadata. Split from Settings to keep
 // settings.h's transitive-include footprint small. Holds a non-owning
@@ -67,6 +68,11 @@ public:
     // bag updates so external edits (bag edit dialog, Next Portion, dose
     // stamp) refresh the cache.
     void setBagStorage(CoffeeBagStorage* storage);
+
+    // Non-owning; attached by MainController after storage init. The active
+    // bag's equipment_id points at a package here; the dye grinder identity is
+    // resolved through it (add-equipment-packages).
+    void setEquipmentStorage(EquipmentStorage* storage);
 
     // DYE metadata
     QString dyeBeanBrand() const;
@@ -208,6 +214,7 @@ private:
     mutable QSettings m_settings;
     SettingsVisualizer* m_visualizer = nullptr;  // Non-owning; for default-rating fallback.
     CoffeeBagStorage* m_bagStorage = nullptr;    // Non-owning; attached post-init.
+    EquipmentStorage* m_equipmentStorage = nullptr; // Non-owning; attached post-init.
 
     bool m_applyingBag = false;  // Suppress write-through echo during applyActiveBag
     bool m_keepFieldsOnNextApply = false;  // setActiveBagKeepFields: next bagReady only refreshes lifecycle

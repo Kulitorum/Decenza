@@ -1,6 +1,7 @@
 #include "settings_dye.h"
 #include "../history/bagid.h"
 #include "../history/coffeebagstorage.h"
+#include "../history/equipmentstorage.h"
 #include "settings_visualizer.h"
 #include "grinderaliases.h"
 
@@ -99,6 +100,11 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
 
     if (bagIdIsSet(activeBagId()))
         m_bagStorage->requestBag(activeBagId());
+}
+
+void SettingsDye::setEquipmentStorage(EquipmentStorage* storage)
+{
+    m_equipmentStorage = storage;
 }
 
 // DYE metadata

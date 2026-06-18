@@ -307,6 +307,7 @@ set(SOURCES
     src/history/shothistorystorage_serialize.cpp
     src/history/shothistorystorage_queries.cpp
     src/history/coffeebagstorage.cpp
+    src/history/equipmentstorage.cpp
     src/history/unifiedbeansearchmodel.cpp
     src/history/shotprojection.cpp
     src/history/shotdebuglogger.cpp
@@ -489,6 +490,7 @@ set(HEADERS
     src/history/shothistorystorage.h
     src/history/shothistorystorage_internal.h
     src/history/coffeebagstorage.h
+    src/history/equipmentstorage.h
     src/history/unifiedbeansearchmodel.h
     src/history/shotprojection.h
     src/history/shotdebuglogger.h
@@ -1180,6 +1182,7 @@ if(NOT ANDROID AND NOT IOS)
         src/core/settings_brew.cpp
         src/core/settings_dye.cpp
         src/history/coffeebagstorage.cpp
+        src/history/equipmentstorage.cpp
         src/core/settings_network.cpp
         src/core/settings_app.cpp
         src/core/settings_calibration.cpp

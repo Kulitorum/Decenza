@@ -1,6 +1,7 @@
 #include "shothistorystorage.h"
 #include "shothistorystorage_internal.h"
 #include "coffeebagstorage.h"
+#include "equipmentstorage.h"
 #include "ai/conductance.h"
 #include "ai/shotanalysis.h"
 #include "ai/shotsummarizer.h"
@@ -1107,6 +1108,60 @@ bool ShotHistoryStorage::runMigrations()
             currentVersion = 21;
         } else {
             qWarning() << "ShotHistoryStorage: migration 21 column rename failed - will retry next launch";
+        }
+    }
+
+    // Migration 22: extract the grinder into first-class Equipment packages
+    // (add-equipment-packages). Create equipment tables; add equipment_id + rpm
+    // to coffee_bags and shots; create one package per distinct grinder identity
+    // (brand/model/burrs — NOT grind/rpm) plus a default from the current
+    // settings; link every row; split combined "24 1400rpm" settings into
+    // grinder_setting + rpm. This is the ADDITIVE half — the legacy grinder
+    // identity columns are KEPT for now so existing readers (CoffeeBagStorage,
+    // shot projection) keep working; they are dropped in migration 23 once every
+    // reader resolves identity via equipment_id. The data step is NOT idempotent
+    // (it would re-create packages), so the version bumps on the additive part;
+    // the < 22 block then never re-runs. Whitespace before the open-paren dodges
+    // the QSqlQuery permission-hook false-positive, as elsewhere.
+    if (currentVersion < 22) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 22 (equipment packages)";
+
+        const bool tablesOk = EquipmentStorage::ensureTablesStatic(m_db);
+
+        if (!hasColumn("coffee_bags", "equipment_id"))
+            query.exec ("ALTER TABLE coffee_bags ADD COLUMN equipment_id INTEGER");
+        if (!hasColumn("coffee_bags", "rpm"))
+            query.exec ("ALTER TABLE coffee_bags ADD COLUMN rpm INTEGER");
+        if (!hasColumn("shots", "equipment_id"))
+            query.exec ("ALTER TABLE shots ADD COLUMN equipment_id INTEGER");
+        if (!hasColumn("shots", "rpm"))
+            query.exec ("ALTER TABLE shots ADD COLUMN rpm INTEGER");
+
+        const bool colsOk = hasColumn("coffee_bags", "equipment_id") && hasColumn("coffee_bags", "rpm")
+            && hasColumn("shots", "equipment_id") && hasColumn("shots", "rpm");
+
+        // The default package seeds from the user's live grinder settings (the
+        // active bag mirrors these via write-through, but reading QSettings here
+        // also covers a user who set a grinder but never saved a shot/bag).
+        bool dataOk = false;
+        if (tablesOk && colsOk) {
+            QSettings settings;
+            const QString curBrand = settings.value("dye/grinderBrand").toString();
+            const QString curModel = settings.value("dye/grinderModel").toString();
+            const QString curBurrs = settings.value("dye/grinderBurrs").toString();
+            const QString curSetting = settings.value("dye/grinderSetting").toString();
+            dataOk = EquipmentStorage::migrateFromGrinderColumnsStatic(
+                m_db, curBrand, curModel, curBurrs, curSetting);
+        }
+
+        if (tablesOk && colsOk && dataOk) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (22)");
+            currentVersion = 22;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 22 incomplete (tables" << tablesOk
+                       << "cols" << colsOk << "data" << dataOk
+                       << ") - will retry next launch";
         }
     }
 

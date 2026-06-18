@@ -53,6 +53,7 @@ set(CORE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/core/settings_brew.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_dye.cpp
     ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp  # SettingsDye write-through dependency
+    ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_network.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_app.cpp
     ${CMAKE_SOURCE_DIR}/src/core/settings_calibration.cpp
@@ -296,6 +297,7 @@ add_decenza_test(tst_aimanager
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
     ${PROFILE_SOURCES}
     ${CORE_SOURCES}
     ${CODEC_SOURCES}
@@ -428,6 +430,7 @@ set(HISTORY_SOURCES
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
@@ -716,6 +719,7 @@ add_decenza_test(tst_mcptools_write
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
@@ -746,6 +750,7 @@ add_decenza_test(tst_mcpserver_session
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
@@ -777,6 +782,7 @@ add_decenza_test(tst_mcpserver_protocol
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp

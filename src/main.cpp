@@ -2413,6 +2413,8 @@ int main(int argc, char *argv[])
         "AIConversation is created in C++");
     qmlRegisterUncreatableType<CoffeeBagStorage>("Decenza", 1, 0, "CoffeeBagStorageType",
         "CoffeeBagStorage is created in C++ (MainController.bagStorage)");
+    qmlRegisterUncreatableType<EquipmentStorage>("Decenza", 1, 0, "EquipmentStorageType",
+        "EquipmentStorage is created in C++ (MainController.equipmentStorage)");
     qmlRegisterUncreatableType<UnifiedBeanSearchModel>("Decenza", 1, 0, "UnifiedBeanSearchModelType",
         "UnifiedBeanSearchModel is created in C++ (MainController.beanSearch)");
     // Exposes SteamHealthTracker::BaselineState enum values to QML
