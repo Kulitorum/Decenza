@@ -189,6 +189,13 @@ void registerMcpResources(McpResourceRegistry* registry, DE1Device* device,
                 grinder["brand"] = settings->dye()->dyeGrinderBrand();
                 grinder["model"] = settings->dye()->dyeGrinderModel();
                 grinder["setting"] = settings->dye()->dyeGrinderSetting();
+                // Equipment package (add-equipment-packages): the active package
+                // and its rpm dial-in. rpm is only meaningful when adjustable.
+                grinder["packageId"] = settings->dye()->activeEquipmentId();
+                grinder["rpmAdjustable"] = settings->dye()->grinderRpmCapable(
+                    settings->dye()->dyeGrinderBrand(), settings->dye()->dyeGrinderModel());
+                if (settings->dye()->dyeGrinderRpm() > 0)
+                    grinder["rpm"] = settings->dye()->dyeGrinderRpm();
             }
 
             QJsonObject activeProfile;

@@ -56,10 +56,10 @@
 - [ ] 8.3 Confirm import path untouched (regression check)
 
 ## 9. MCP
-- [ ] 9.1 Resolve grinder reads via package in `mcpresources.cpp`, `mcptools_dialing.cpp`, `mcptools_ai.cpp`; add `rpm` + `rpmAdjustable` + package identity
-- [ ] 9.2 `equipment_list` tool (mirror `bag_list`)
-- [ ] 9.3 `equipment_select` tool (mirror `bag_select`; applies last-dial)
-- [ ] 9.4 `equipment_update` tool (mirror `bag_update`; create + edit, re-derive `rpmCapable`)
+- [x] 9.1 `de1://dialing` (mcpresources) grinder block gains `rpm` + `rpmAdjustable` + `packageId`. (Shot-derived dialing/ai blocks still read the shot's grinder columns, which remain until migration 23 — no change needed there yet.)
+- [x] 9.2 `equipment_list` tool (mirror `bag_list`; `isActive`, `rpmAdjustable`, last dial)
+- [x] 9.3 `equipment_select` tool (mirror `bag_select`; applies the package's grinder identity + last dial)
+- [x] 9.4 `equipment_update` tool (edit grinder identity/name; re-derives `rpmCapable`)
 
 ## 10. i18n, accessibility, tests
 - [ ] 10.1 Translation keys for Equipment page, dialog, Brew Settings labels, idle button

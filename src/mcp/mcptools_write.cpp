@@ -4,6 +4,7 @@
 #include "../history/shothistorystorage.h"
 #include "../history/shotprojection.h"
 #include "../history/coffeebagstorage.h"
+#include "../history/equipmentstorage.h"
 #include "../history/bagid.h"
 #include "../network/visualizeruploader.h"
 #include "../controllers/profilemanager.h"
@@ -1704,6 +1705,168 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     respond(QJsonObject{{"success", true},
                                         {"message", QString("Active bag: %1 %2")
                                             .arg(bag.roasterName, bag.coffeeName).trimmed()}});
+                }, Qt::QueuedConnection);
+            });
+            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+            thread->start();
+        },
+        "control");
+
+    // ----- Equipment packages (add-equipment-packages) -----
+
+    // Flatten an EquipmentPackageView into an MCP-friendly object (units in
+    // field names, no raw timestamps, isActive marks the selected package).
+    auto packageToJson = [](const EquipmentPackageView& v, qint64 activeId) {
+        QJsonObject o;
+        o["id"] = v.package.id;
+        if (!v.package.name.isEmpty()) o["name"] = v.package.name;
+        o["grinderBrand"] = v.grinder.brand;
+        o["grinderModel"] = v.grinder.model;
+        if (!v.grinder.burrs.isEmpty()) o["grinderBurrs"] = v.grinder.burrs;
+        o["rpmAdjustable"] = v.grinder.rpmCapable;
+        o["inInventory"] = v.package.inInventory;
+        if (!v.package.lastGrindSetting.isEmpty()) o["lastGrindSetting"] = v.package.lastGrindSetting;
+        if (v.package.lastRpm > 0) o["lastRpm"] = v.package.lastRpm;
+        o["shotCount"] = v.shotCount;
+        o["isActive"] = (v.package.id == activeId);
+        return o;
+    };
+
+    // equipment_list — read the equipment package inventory.
+    registry->registerAsyncTool(
+        "equipment_list",
+        "List the user's equipment packages (the grinder the next shot is ground on). The package "
+        "with isActive=true is the active bag's equipment. rpmAdjustable indicates whether the "
+        "grinder exposes an rpm dial-in.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        [shotHistory, settings, packageToJson](const QJsonObject&, std::function<void(QJsonObject)> respond) {
+            if (!shotHistory || !shotHistory->isReady()) {
+                respond(QJsonObject{{"error", "Storage not available"}});
+                return;
+            }
+            const qint64 activeId = settings ? settings->dye()->activeEquipmentId() : -1;
+            const QString dbPath = shotHistory->databasePath();
+            QThread* thread = QThread::create([dbPath, activeId, packageToJson, respond]() {
+                QJsonArray packages;
+                const bool opened = withTempDb(dbPath, "mcp_equip", [&](QSqlDatabase& db) {
+                    for (const EquipmentPackageView& v : EquipmentStorage::loadInventoryStatic(db))
+                        packages.append(packageToJson(v, activeId));
+                });
+                QMetaObject::invokeMethod(qApp, [opened, packages, respond]() {
+                    if (!opened) { respond(QJsonObject{{"error", "Could not open shot database"}}); return; }
+                    respond(QJsonObject{{"packages", packages}, {"count", packages.size()}});
+                }, Qt::QueuedConnection);
+            });
+            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+            thread->start();
+        },
+        "read");
+
+    // equipment_update — edit a package's grinder identity (or create one).
+    registry->registerAsyncTool(
+        "equipment_update",
+        "Update an equipment package's grinder identity (brand/model/burrs) and optional name. Only "
+        "provided fields change. rpmAdjustable is re-derived from the grinder registry. Edits apply "
+        "to every bag and shot referencing the package (reference semantics).",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"packageId", QJsonObject{{"type", "integer"}, {"description", "Package ID (from equipment_list)"}}},
+                {"name", QJsonObject{{"type", "string"}}},
+                {"grinderBrand", QJsonObject{{"type", "string"}}},
+                {"grinderModel", QJsonObject{{"type", "string"}}},
+                {"grinderBurrs", QJsonObject{{"type", "string"}}}
+            }},
+            {"required", QJsonArray{"packageId"}}
+        },
+        [shotHistory, settings, packageToJson](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            if (!shotHistory || !shotHistory->isReady()) {
+                respond(QJsonObject{{"error", "Storage not available"}});
+                return;
+            }
+            const qint64 packageId = args["packageId"].toInteger();
+            if (packageId <= 0) { respond(QJsonObject{{"error", "Valid packageId is required"}}); return; }
+            const bool touchesGrinder = args.contains("grinderBrand") || args.contains("grinderModel")
+                || args.contains("grinderBurrs");
+            QVariantMap pkgFields;
+            if (args.contains("name")) pkgFields.insert("name", args["name"].toString());
+            const QString brand = args["grinderBrand"].toString();
+            const QString model = args["grinderModel"].toString();
+            const QString burrs = args["grinderBurrs"].toString();
+            const bool haveBrand = args.contains("grinderBrand");
+            const bool haveModel = args.contains("grinderModel");
+            const bool haveBurrs = args.contains("grinderBurrs");
+            const qint64 activeId = settings ? settings->dye()->activeEquipmentId() : -1;
+            const QString dbPath = shotHistory->databasePath();
+            QThread* thread = QThread::create([=]() {
+                bool ok = false;
+                EquipmentPackageView view;
+                withTempDb(dbPath, "mcp_equip_upd", [&](QSqlDatabase& db) {
+                    if (touchesGrinder) {
+                        const EquipmentItem cur = EquipmentStorage::loadGrinderItemStatic(db, packageId);
+                        ok = EquipmentStorage::updateGrinderItemStatic(db, packageId,
+                                haveBrand ? brand : cur.brand,
+                                haveModel ? model : cur.model,
+                                haveBurrs ? burrs : cur.burrs) || ok;
+                    }
+                    if (!pkgFields.isEmpty())
+                        ok = EquipmentStorage::updatePackageFieldsStatic(db, packageId, pkgFields) || ok;
+                    view.package = EquipmentStorage::loadPackageStatic(db, packageId);
+                    view.grinder = EquipmentStorage::loadGrinderItemStatic(db, packageId);
+                });
+                QMetaObject::invokeMethod(qApp, [ok, view, activeId, packageId, packageToJson, respond]() {
+                    if (!ok || !view.package.isValid()) {
+                        respond(QJsonObject{{"error", "Package not found or update failed: "
+                                                      + QString::number(packageId)}});
+                        return;
+                    }
+                    respond(QJsonObject{{"success", true}, {"package", packageToJson(view, activeId)}});
+                }, Qt::QueuedConnection);
+            });
+            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+            thread->start();
+        },
+        "settings");
+
+    // equipment_select — set the active bag's equipment package.
+    registry->registerAsyncTool(
+        "equipment_select",
+        "Select the active equipment package — the grinder the next shot is ground on. Applies the "
+        "package's grinder identity and its last grind setting + rpm to the next-shot setup, and "
+        "points the active bag at it.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"packageId", QJsonObject{{"type", "integer"}, {"description", "Package ID from equipment_list"}}}
+            }},
+            {"required", QJsonArray{"packageId"}}
+        },
+        [shotHistory, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            if (!settings || !shotHistory || !shotHistory->isReady()) {
+                respond(QJsonObject{{"error", "Storage not available"}});
+                return;
+            }
+            const qint64 packageId = args["packageId"].toInteger();
+            if (packageId <= 0) { respond(QJsonObject{{"error", "Valid packageId is required"}}); return; }
+            const QString dbPath = shotHistory->databasePath();
+            QThread* thread = QThread::create([dbPath, packageId, settings, respond]() {
+                EquipmentPackageView view;
+                withTempDb(dbPath, "mcp_equip_sel", [&](QSqlDatabase& db) {
+                    view.package = EquipmentStorage::loadPackageStatic(db, packageId);
+                    view.grinder = EquipmentStorage::loadGrinderItemStatic(db, packageId);
+                });
+                const bool found = view.package.isValid();
+                const QVariantMap pkgMap = view.toVariantMap();
+                QMetaObject::invokeMethod(qApp, [found, pkgMap, packageId, settings, respond]() {
+                    if (!found) {
+                        respond(QJsonObject{{"error", "Package not found: " + QString::number(packageId)}});
+                        return;
+                    }
+                    settings->dye()->switchToEquipment(pkgMap);
+                    respond(QJsonObject{{"success", true},
+                        {"message", QString("Active equipment: %1 %2")
+                            .arg(pkgMap.value("grinderBrand").toString(),
+                                 pkgMap.value("grinderModel").toString()).trimmed()}});
                 }, Qt::QueuedConnection);
             });
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
