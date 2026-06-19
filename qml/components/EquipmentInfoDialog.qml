@@ -86,18 +86,6 @@ Dialog {
                 label: TranslationManager.translate("equipment.info.burrs", "Burrs")
                 value: (root.pkg && root.pkg.grinderBurrs) || ""
             }
-            // Basket identity + its registry summary (add-basket-equipment). Both
-            // rows self-hide when the package has no basket; the details row also
-            // hides for a custom (off-registry) basket with no resolved specs.
-            InfoRow {
-                label: TranslationManager.translate("equipment.info.basket", "Basket")
-                value: [(root.pkg && root.pkg.basketBrand) || "", (root.pkg && root.pkg.basketModel) || ""]
-                           .filter(function(s) { return s.length > 0 }).join(" ")
-            }
-            InfoRow {
-                label: TranslationManager.translate("equipment.info.basketDetails", "Basket details")
-                value: (root.pkg && root.pkg.basketSummary) || ""
-            }
             // Last dial — grind setting, plus the last RPM appended only when the
             // grinder is rpm-adjustable (saves a row vs. a separate RPM line).
             InfoRow {
@@ -109,6 +97,18 @@ Dialog {
                                                    : root.pkg.lastRpm + " rpm")
                                    : g
                 }
+            }
+            // Basket last — separate equipment, so it follows the grinder identity +
+            // its dial. Both rows self-hide when the package has no basket; the
+            // details row also hides for a custom basket with no resolved specs.
+            InfoRow {
+                label: TranslationManager.translate("equipment.info.basket", "Basket")
+                value: [(root.pkg && root.pkg.basketBrand) || "", (root.pkg && root.pkg.basketModel) || ""]
+                           .filter(function(s) { return s.length > 0 }).join(" ")
+            }
+            InfoRow {
+                label: TranslationManager.translate("equipment.info.basketDetails", "Basket details")
+                value: (root.pkg && root.pkg.basketSummary) || ""
             }
 
             AccessibleButton {
