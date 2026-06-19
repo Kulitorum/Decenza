@@ -7,7 +7,7 @@ TBD - created by archiving change add-closed-loop-advisor. Update Purpose after 
 
 `AIConversation` SHALL extend each turn entry in `m_messages` to optionally carry a `shotId` (qint64) recording which shot the advisor was asked about for that turn. The field SHALL be a soft-schema extension:
 
-- New entries created by `AIConversation::addUserMessage` / `addAssistantMessage` SHALL carry `shotId` only when explicitly set via `setShotIdForCurrentTurn(qint64)` (or equivalent) — typically called from `AIManager::analyzeShotWithMetadata` once the resolved shot is known.
+- New entries created by `AIConversation::addUserMessage` / `addAssistantMessage` SHALL carry `shotId` only when explicitly set via `setShotIdForCurrentTurn(qint64)` (or equivalent) — set once the resolved shot for the turn is known.
 - A turn without `shotId` (e.g., a free-form "general question" follow-up that does not target a specific shot) SHALL persist without the key. Omission is the documented null state — there SHALL NOT be a placeholder `shotId: 0`.
 - Loading older conversations (saved before this change) — entries without `shotId` — SHALL succeed without error, with `shotId` reading as absent / `0`.
 

@@ -22,7 +22,6 @@ class Profile;
 class Settings;
 class ShotHistoryStorage;
 class ProfileManager;
-struct ShotMetadata;
 
 class AIManager : public QObject {
     Q_OBJECT
