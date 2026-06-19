@@ -156,23 +156,25 @@ Dialog {
             Repeater {
                 model: root.packages
                 AccessibleButton {
-                    // modelData is transiently undefined while the var-array model
-                    // is reassigned (onInventoryReady) — fall back to an empty
-                    // object so the bindings below never dereference undefined.
-                    readonly property var pkg: modelData || ({})
+                    // Read the package by index from the source array rather than
+                    // modelData: inside this Dialog-content delegate modelData did
+                    // not resolve the QVariantMap (rows rendered blank). index is
+                    // always valid; guard against the transient reassignment window.
+                    readonly property var pkg: (root.packages && index >= 0 && index < root.packages.length)
+                                               ? root.packages[index] : null
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(44)
-                    primary: pkg.id === Settings.dye.activeEquipmentId
+                    primary: !!pkg && pkg.id === Settings.dye.activeEquipmentId
                     text: root.packageTitle(pkg)
-                          + (pkg.grinderBurrs && String(pkg.grinderBurrs).length > 0
+                          + (pkg && pkg.grinderBurrs && String(pkg.grinderBurrs).length > 0
                              ? " · " + pkg.grinderBurrs : "")
-                    accessibleName: text + (pkg.id === Settings.dye.activeEquipmentId
+                    accessibleName: text + (!!pkg && pkg.id === Settings.dye.activeEquipmentId
                                             ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                     onClicked: {
-                        if (!modelData) return
+                        if (!pkg || pkg.id === undefined) return
                         if (root.applyToActiveBag)
-                            Settings.dye.switchToEquipment(modelData)
-                        root.packageSaved(modelData.id)
+                            Settings.dye.switchToEquipment(pkg)
+                        root.packageSaved(pkg.id)
                         root.close()
                     }
                 }
