@@ -56,6 +56,11 @@ struct EquipmentPackage {
 
     qint64 lastUsedEpoch = 0; // MRU ordering (bumped on selection / shot save)
 
+    // Copy-on-write lineage: when an identity edit forks a new package, the old
+    // one is soft-deleted (inInventory=0) and points here at the fork's id. 0 =
+    // not superseded. Powers "older version" display + dial-history-across-edits.
+    qint64 supersededBy = 0;
+
     bool isValid() const { return id > 0; }
     QVariantMap toVariantMap() const;
     static EquipmentPackage fromVariantMap(const QVariantMap& map);
@@ -128,11 +133,27 @@ public:
                                         const QString& brand, const QString& model,
                                         const QString& burrs);
 
+    // Apply a grinder identity edit honoring copy-on-write immutability + merge,
+    // and return the package id the caller should now treat as active:
+    //   - identity unchanged                      -> same id (no-op)
+    //   - another in-inventory package matches     -> merge: repoint this
+    //       package's bags to it, delete this package if unused else soft-delete
+    //       it with superseded_by -> that id
+    //   - package unused (no shots)                -> edit in place -> same id
+    //   - package used (>=1 shot)                  -> fork a new package (copies
+    //       name + last dial), repoint bags, soft-delete old (superseded_by) -> new id
+    // Bag repointing is done here; the active-equipment selection is the caller's
+    // to update from the returned id.
+    static qint64 supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 packageId,
+                                               const QString& brand, const QString& model,
+                                               const QString& burrs);
+
     // Find an existing in-inventory package whose grinder identity matches
     // (case-insensitive brand+model+burrs), or 0 if none. Used by the migration
     // and create flows to dedup on identity (NOT on grind/rpm).
     static qint64 findPackageByGrinderIdentityStatic(QSqlDatabase& db, const QString& brand,
-                                                     const QString& model, const QString& burrs);
+                                                     const QString& model, const QString& burrs,
+                                                     qint64 excludeId = 0);
 
     // rpmCapable for a grinder identity: the registry's variableRpm when the
     // brand/model matches an alias, else true (a custom grinder shows the rpm

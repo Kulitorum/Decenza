@@ -1800,19 +1800,22 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             const QString dbPath = shotHistory->databasePath();
             QThread* thread = QThread::create([=]() {
                 bool ok = false;
+                qint64 resultId = packageId;
                 EquipmentPackageView view;
                 withTempDb(dbPath, "mcp_equip_upd", [&](QSqlDatabase& db) {
                     if (touchesGrinder) {
+                        // Copy-on-write/merge: identity edit may yield a new id.
                         const EquipmentItem cur = EquipmentStorage::loadGrinderItemStatic(db, packageId);
-                        ok = EquipmentStorage::updateGrinderItemStatic(db, packageId,
+                        resultId = EquipmentStorage::supersedeOrEditGrinderStatic(db, packageId,
                                 haveBrand ? brand : cur.brand,
                                 haveModel ? model : cur.model,
-                                haveBurrs ? burrs : cur.burrs) || ok;
+                                haveBurrs ? burrs : cur.burrs);
+                        ok = (resultId > 0);
                     }
                     if (!pkgFields.isEmpty())
-                        ok = EquipmentStorage::updatePackageFieldsStatic(db, packageId, pkgFields) || ok;
-                    view.package = EquipmentStorage::loadPackageStatic(db, packageId);
-                    view.grinder = EquipmentStorage::loadGrinderItemStatic(db, packageId);
+                        ok = EquipmentStorage::updatePackageFieldsStatic(db, resultId, pkgFields) || ok;
+                    view.package = EquipmentStorage::loadPackageStatic(db, resultId);
+                    view.grinder = EquipmentStorage::loadGrinderItemStatic(db, resultId);
                 });
                 QMetaObject::invokeMethod(qApp, [ok, view, activeId, packageId, packageToJson, respond]() {
                     if (!ok || !view.package.isValid()) {

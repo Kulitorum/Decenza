@@ -83,6 +83,7 @@ const PkgCol kCols[] = {
     COL_STR ("last_grind_setting", lastGrindSetting),
     COL_POS ("last_rpm",           lastRpm),
     COL_POS ("last_used",          lastUsedEpoch),
+    COL_POS ("superseded_by",      supersededBy),
 };
 
 #undef COL_STR
@@ -292,11 +293,13 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
         return;
     }
     auto success = std::make_shared<bool>(false);
+    // Grinder identity edits honor copy-on-write/merge and may return a DIFFERENT
+    // package id (a fork or a merge target); the result is emitted so the caller
+    // can repoint the active selection. Non-identity fields (e.g. name) apply to
+    // the resulting package.
+    auto resultId = std::make_shared<qint64>(packageId);
     runAsync("equip_update",
-        [packageId, fields, success](QSqlDatabase& db) {
-            // Package-column fields and grinder-identity fields can both arrive
-            // in one map; route each to its table. Grinder edits re-derive
-            // rpmCapable (handled in updateGrinderItemStatic).
+        [packageId, fields, success, resultId](QSqlDatabase& db) {
             bool any = false;
             const bool touchesGrinder = fields.contains(QStringLiteral("grinderBrand"))
                 || fields.contains(QStringLiteral("grinderModel"))
@@ -306,19 +309,21 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
                 const QString brand = fields.value(QStringLiteral("grinderBrand"), cur.brand).toString();
                 const QString model = fields.value(QStringLiteral("grinderModel"), cur.model).toString();
                 const QString burrs = fields.value(QStringLiteral("grinderBurrs"), cur.burrs).toString();
-                any = updateGrinderItemStatic(db, packageId, brand, model, burrs) || any;
+                *resultId = supersedeOrEditGrinderStatic(db, packageId, brand, model, burrs);
+                any = (*resultId > 0);
             }
-            // Strip grinder keys before the package-column update.
+            // Strip grinder keys before the package-column update; apply the rest
+            // (e.g. name) to the RESULT package.
             QVariantMap pkgFields = fields;
             pkgFields.remove(QStringLiteral("grinderBrand"));
             pkgFields.remove(QStringLiteral("grinderModel"));
             pkgFields.remove(QStringLiteral("grinderBurrs"));
             if (!pkgFields.isEmpty())
-                any = updatePackageFieldsStatic(db, packageId, pkgFields) || any;
+                any = updatePackageFieldsStatic(db, *resultId, pkgFields) || any;
             *success = any;
         },
-        [this, packageId, success]() {
-            emit packageUpdated(packageId, *success);
+        [this, resultId, success]() {
+            emit packageUpdated(*resultId, *success);
             if (*success)
                 emit packagesChanged();
         });
@@ -396,6 +401,7 @@ bool EquipmentStorage::ensureTablesStatic(QSqlDatabase& db)
             last_grind_setting TEXT,
             last_rpm INTEGER,
             last_used INTEGER,
+            superseded_by INTEGER,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
             updated_at INTEGER DEFAULT (strftime('%s', 'now'))
         )
@@ -594,22 +600,98 @@ bool EquipmentStorage::updateGrinderItemStatic(QSqlDatabase& db, qint64 packageI
 }
 
 qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, const QString& brand,
-                                                            const QString& model, const QString& burrs)
+                                                            const QString& model, const QString& burrs,
+                                                            qint64 excludeId)
 {
     QSqlQuery query(db);
     query.prepare("SELECT i.package_id FROM equipment_items i "
                   "JOIN equipment_packages p ON p.id = i.package_id "
                   "WHERE i.kind = 'grinder' AND p.in_inventory = 1 "
+                  "AND p.id != :exclude "
                   "AND LOWER(IFNULL(i.brand,'')) = LOWER(:brand) "
                   "AND LOWER(IFNULL(i.model,'')) = LOWER(:model) "
                   "AND LOWER(IFNULL(json_extract(i.attrs,'$.burrs'),'')) = LOWER(:burrs) "
                   "ORDER BY p.id LIMIT 1");
+    query.bindValue(":exclude", excludeId);
     query.bindValue(":brand", brand);
     query.bindValue(":model", model);
     query.bindValue(":burrs", burrs);
     if (!query.exec() || !query.next())
         return 0;
     return query.value(0).toLongLong();
+}
+
+qint64 EquipmentStorage::supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 packageId,
+                                                      const QString& brand, const QString& model,
+                                                      const QString& burrs)
+{
+    const EquipmentItem cur = loadGrinderItemStatic(db, packageId);
+
+    auto norm = [](const QString& s) { return s.trimmed().toLower(); };
+    const bool unchanged = norm(cur.brand) == norm(brand)
+        && norm(cur.model) == norm(model)
+        && norm(cur.burrs) == norm(burrs);
+    if (unchanged)
+        return packageId;  // no identity change
+
+    auto shotCount = [&]() -> qint64 {
+        QSqlQuery q(db);
+        q.prepare("SELECT COUNT(*) FROM shots WHERE equipment_id = :id");
+        q.bindValue(":id", packageId);
+        return (q.exec() && q.next()) ? q.value(0).toLongLong() : 0;
+    };
+    auto repointBags = [&](qint64 from, qint64 to) {
+        QSqlQuery q(db);
+        q.prepare("UPDATE coffee_bags SET equipment_id = :to WHERE equipment_id = :from");
+        q.bindValue(":to", to);
+        q.bindValue(":from", from);
+        q.exec();
+    };
+    auto softDelete = [&](qint64 id, qint64 supersededBy) {
+        QSqlQuery q(db);
+        q.prepare("UPDATE equipment_packages SET in_inventory = 0, superseded_by = :by, "
+                  "updated_at = strftime('%s','now') WHERE id = :id");
+        q.bindValue(":by", supersededBy > 0 ? QVariant(supersededBy) : QVariant());
+        q.bindValue(":id", id);
+        q.exec();
+    };
+
+    // Merge: another current package already has this exact identity.
+    const qint64 mergeTarget = findPackageByGrinderIdentityStatic(db, brand, model, burrs, packageId);
+    if (mergeTarget > 0) {
+        repointBags(packageId, mergeTarget);
+        if (shotCount() == 0) {
+            QSqlQuery di(db);
+            di.prepare("DELETE FROM equipment_items WHERE package_id = :id");
+            di.bindValue(":id", packageId); di.exec();
+            QSqlQuery dp(db);
+            dp.prepare("DELETE FROM equipment_packages WHERE id = :id");
+            dp.bindValue(":id", packageId); dp.exec();
+        } else {
+            softDelete(packageId, mergeTarget);
+        }
+        return mergeTarget;
+    }
+
+    // Unused package: safe to edit in place.
+    if (shotCount() == 0) {
+        updateGrinderItemStatic(db, packageId, brand, model, burrs);
+        return packageId;
+    }
+
+    // Used package: fork (copy name + last dial), repoint bags, retire the old.
+    const EquipmentPackage old = loadPackageStatic(db, packageId);
+    EquipmentPackage np;
+    np.name = old.name;
+    np.lastGrindSetting = old.lastGrindSetting;
+    np.lastRpm = old.lastRpm;
+    np.lastUsedEpoch = QDateTime::currentSecsSinceEpoch();
+    const qint64 newId = createPackageWithGrinderStatic(db, np, brand, model, burrs);
+    if (newId <= 0)
+        return packageId;  // fork failed; leave as-is
+    repointBags(packageId, newId);
+    softDelete(packageId, newId);
+    return newId;
 }
 
 bool EquipmentStorage::deriveRpmCapable(const QString& brand, const QString& model)

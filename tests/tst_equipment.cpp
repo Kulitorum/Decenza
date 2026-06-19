@@ -130,6 +130,73 @@ private slots:
         });
     }
 
+    // --- copy-on-write immutability + merge on identity edit ---
+    void copyOnWriteAndMerge() {
+        const QString path = freshDbPath();
+        withRawDb(path, "eq_cow", [](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            createMinimalShots(db);
+
+            auto bagEq = [&](qint64 id) {
+                QSqlQuery q(db); q.prepare("SELECT equipment_id FROM coffee_bags WHERE id=?");
+                q.addBindValue(id); q.exec(); q.next(); return q.value(0).toLongLong();
+            };
+            auto shotEq = [&](qint64 id) {
+                QSqlQuery q(db); q.prepare("SELECT equipment_id FROM shots WHERE id=?");
+                q.addBindValue(id); q.exec(); q.next(); return q.value(0).toLongLong();
+            };
+            auto addBag = [&](qint64 eq) {
+                QSqlQuery q(db);
+                q.prepare("INSERT INTO coffee_bags (roaster_name, equipment_id, in_inventory) VALUES ('R', ?, 1)");
+                q.addBindValue(eq); q.exec(); return q.lastInsertId().toLongLong();
+            };
+            auto addShot = [&](qint64 eq) {
+                QSqlQuery q(db);
+                q.prepare("INSERT INTO shots (equipment_id) VALUES (?)");
+                q.addBindValue(eq); q.exec(); return q.lastInsertId().toLongLong();
+            };
+
+            // Package P, used by a shot and pointed at by a bag.
+            EquipmentPackage base;
+            const qint64 P = EquipmentStorage::createPackageWithGrinderStatic(db, base, "Turin", "DF83V", "83mm flat steel");
+            const qint64 bag = addBag(P);
+            const qint64 shot = addShot(P);
+
+            // Edit burrs on a USED package -> fork (copy-on-write).
+            const qint64 fork = EquipmentStorage::supersedeOrEditGrinderStatic(db, P, "Turin", "DF83V", "83mm DLC flat");
+            QVERIFY(fork > 0 && fork != P);
+            // Old P retired + lineage; new fork current.
+            const EquipmentPackage oldP = EquipmentStorage::loadPackageStatic(db, P);
+            QVERIFY(!oldP.inInventory);
+            QCOMPARE(oldP.supersededBy, fork);
+            QCOMPARE(oldP.name, QString("Turin DF83V"));  // name persisted
+            const EquipmentPackage newP = EquipmentStorage::loadPackageStatic(db, fork);
+            QCOMPARE(newP.name, QString("Turin DF83V"));  // name preserved on fork
+            QCOMPARE(EquipmentStorage::loadGrinderItemStatic(db, fork).burrs, QString("83mm DLC flat"));
+            // Bag repointed to the fork; shot stays on the old package (history).
+            QCOMPARE(bagEq(bag), fork);
+            QCOMPARE(shotEq(shot), P);
+
+            // Unchanged identity -> no-op (no new fork).
+            QCOMPARE(EquipmentStorage::supersedeOrEditGrinderStatic(db, fork, "Turin", "DF83V", "83mm DLC flat"), fork);
+
+            // Unused package edits in place (same id).
+            EquipmentPackage q2;
+            const qint64 Q = EquipmentStorage::createPackageWithGrinderStatic(db, q2, "Niche", "Zero", "63mm conical");
+            QCOMPARE(EquipmentStorage::supersedeOrEditGrinderStatic(db, Q, "Niche", "Zero", "swapped"), Q);
+            QCOMPARE(EquipmentStorage::loadGrinderItemStatic(db, Q).burrs, QString("swapped"));
+
+            // Merge: a USED package edited to the fork's identity merges into it.
+            EquipmentPackage s;
+            const qint64 S = EquipmentStorage::createPackageWithGrinderStatic(db, s, "Mazzer", "Major", "83mm");
+            addShot(S);
+            const qint64 merged = EquipmentStorage::supersedeOrEditGrinderStatic(db, S, "Turin", "DF83V", "83mm DLC flat");
+            QCOMPARE(merged, fork);  // repointed to the existing matching package
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, S).supersededBy, fork);
+        });
+    }
+
     // --- migration data step: split + dedup-into-packages + link ---
     void migrationSplitsAndLinks() {
         const QString path = freshDbPath();
