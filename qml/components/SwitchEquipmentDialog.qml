@@ -32,6 +32,35 @@ Dialog {
     // Optional basket identity (add-basket-equipment). Blank brand+model = no basket.
     property string fBasketBrand: ""
     property string fBasketModel: ""
+    // Optional puck-prep flags (add-puckprep-equipment). All false = no puck prep.
+    property var fPuck: ({ wdt: false, shaker: false, puckScreen: false, paperFilter: false, rdt: false })
+    // The checkbox rows, in display order (key + label).
+    readonly property var puckPrepRows: [
+        { key: "wdt",         label: TranslationManager.translate("equipment.dialog.puckWdt", "WDT") },
+        { key: "shaker",      label: TranslationManager.translate("equipment.dialog.puckShaker", "Shaker") },
+        { key: "puckScreen",  label: TranslationManager.translate("equipment.dialog.puckScreen", "Puck screen") },
+        { key: "paperFilter", label: TranslationManager.translate("equipment.dialog.puckPaper", "Bottom paper filter") },
+        { key: "rdt",         label: TranslationManager.translate("equipment.dialog.puckRdt", "RDT (spritz)") }
+    ]
+
+    // Parse a canonical "shaker,wdt" string into the fPuck flag object.
+    function puckFromCanonical(canon) {
+        var keys = (canon || "").split(",")
+        return {
+            wdt: keys.indexOf("wdt") >= 0,
+            shaker: keys.indexOf("shaker") >= 0,
+            puckScreen: keys.indexOf("puckScreen") >= 0,
+            paperFilter: keys.indexOf("paperFilter") >= 0,
+            rdt: keys.indexOf("rdt") >= 0
+        }
+    }
+    // Set one puck flag (QML can't mutate a single key of a var object in place).
+    function setPuck(key, on) {
+        var p = {}
+        for (var k in root.fPuck) p[k] = root.fPuck[k]
+        p[key] = on
+        root.fPuck = p
+    }
 
     // When true (default, the Brew Settings / Equipment-window use), selecting or
     // creating a package switches the ACTIVE bag's equipment. When false, the
@@ -96,6 +125,7 @@ Dialog {
         fBurrs = Settings.dye.dyeGrinderBurrs || ""
         fBasketBrand = Settings.dye.dyeBasketBrand || ""
         fBasketModel = Settings.dye.dyeBasketModel || ""
+        fPuck = puckFromCanonical(Settings.dye.dyePuckPrepCanonical || "")
         mode = "form"
         open()
     }
@@ -109,6 +139,13 @@ Dialog {
         fBurrs = (pkg && pkg.grinderBurrs) || ""
         fBasketBrand = (pkg && pkg.basketBrand) || ""
         fBasketModel = (pkg && pkg.basketModel) || ""
+        fPuck = {
+            wdt: !!(pkg && pkg.puckPrep_wdt),
+            shaker: !!(pkg && pkg.puckPrep_shaker),
+            puckScreen: !!(pkg && pkg.puckPrep_puckScreen),
+            paperFilter: !!(pkg && pkg.puckPrep_paperFilter),
+            rdt: !!(pkg && pkg.puckPrep_rdt)
+        }
         mode = "form"
         open()
     }
@@ -147,14 +184,25 @@ Dialog {
         return [pkg.grinderBrand || "", pkg.grinderModel || ""].filter(function(s) { return s.length > 0 }).join(" ")
     }
 
+    // Canonical puck-prep string for the form (sorted set flags, like C++
+    // PuckPrep::canonical) — the dedup identity and the save payload key.
+    function puckCanonical() {
+        var on = []
+        for (var i = 0; i < puckPrepRows.length; ++i)
+            if (fPuck[puckPrepRows[i].key]) on.push(puckPrepRows[i].key)
+        on.sort()
+        return on.join(",")
+    }
+
     // The id of an existing in-inventory package whose FULL identity (grinder +
-    // basket) matches the form, or -1. Mirrors the storage dedup key so the UI
-    // can't create a duplicate — the same gear is one package, not many. The
-    // package being edited is excluded (an unchanged edit isn't a "duplicate").
+    // basket + puck prep) matches the form, or -1. Mirrors the storage dedup key
+    // so the UI can't create a duplicate — the same gear is one package, not many.
+    // The package being edited is excluded (an unchanged edit isn't a "duplicate").
     readonly property int duplicateOfId: {
         var gb = fBrand.trim().toLowerCase(), gm = fModel.trim().toLowerCase()
         var gbu = fBurrs.trim().toLowerCase()
         var bb = fBasketBrand.trim().toLowerCase(), bm = fBasketModel.trim().toLowerCase()
+        var pc = puckCanonical()
         for (var i = 0; i < packages.length; ++i) {
             var p = packages[i]
             if (!p || p.id === undefined) continue
@@ -163,7 +211,8 @@ Dialog {
                 && String(p.grinderModel || "").trim().toLowerCase() === gm
                 && String(p.grinderBurrs || "").trim().toLowerCase() === gbu
                 && String(p.basketBrand || "").trim().toLowerCase() === bb
-                && String(p.basketModel || "").trim().toLowerCase() === bm)
+                && String(p.basketModel || "").trim().toLowerCase() === bm
+                && String(p.puckPrepCanonical || "") === pc)
                 return p.id
         }
         return -1
@@ -462,6 +511,35 @@ Dialog {
                                 onSuggestionSelected: function(t) { root.fBasketModel = t }
                             }
                         }
+
+                        // --- Puck prep (optional) — checkbox flags (add-puckprep-equipment).
+                        //     All unchecked = no puck prep. ---
+                        Text {
+                            Layout.fillWidth: true
+                            Layout.topMargin: Theme.spacingSmall
+                            text: TranslationManager.translate("equipment.dialog.puckPrep", "Puck prep (optional)")
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: Theme.spacingMedium
+                            rowSpacing: Theme.spacingSmall
+
+                            Repeater {
+                                model: root.puckPrepRows
+                                StyledSwitch {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    accessibleName: modelData.label
+                                    checked: !!root.fPuck[modelData.key]
+                                    onToggled: root.setPuck(modelData.key, checked)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -481,6 +559,10 @@ Dialog {
             "basketBrand": fBasketBrand.trim(),
             "basketModel": fBasketModel.trim()
         }
+        // Puck-prep flags as namespaced keys (storage builds the canonical form;
+        // all-false clears any existing puck prep).
+        for (var i = 0; i < puckPrepRows.length; ++i)
+            fields["puckPrep_" + puckPrepRows[i].key] = !!fPuck[puckPrepRows[i].key]
         if (formMode === "edit" && editPackageId > 0) {
             // Editing identity may copy-on-write into a new package id; wait for
             // the result so we can repoint the active selection if needed.

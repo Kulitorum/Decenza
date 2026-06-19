@@ -62,6 +62,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.grinderBurrs = record.grinderBurrs;
     p.basketBrand = record.basketBrand;
     p.basketModel = record.basketModel;
+    p.puckPrep = record.puckPrep;
     p.grinderSetting = record.grinderSetting;
     p.rpm = record.rpm;
     p.equipmentId = record.equipmentId;

@@ -50,6 +50,9 @@ struct ShotRecord {
     // the package has no basket.
     QString basketBrand;
     QString basketModel;
+    // Puck-prep canonical flag string resolved via equipment_id
+    // (add-puckprep-equipment); empty when the package has no puck prep.
+    QString puckPrep;
     QString grinderSetting;
     qint64 equipmentId = 0;  // FK -> equipment_packages.id (add-equipment-packages); 0 = none
     qint64 rpm = 0;          // grinder rpm dial-in; 0 = unset

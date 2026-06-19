@@ -2576,6 +2576,37 @@ private slots:
         QVERIFY(!custom.contains("doseRangeG"));
     }
 
+    // add-puckprep-equipment: the puckPrep sub-object carries the set flags + the
+    // derived distribution rollup the advisor branches channeling guidance on;
+    // omitted when the package has no puck prep.
+    void puckPrepBlockEmitsFlagsAndDistribution()
+    {
+        DialingBlocks::CurrentBeanBlockInputs in;
+        in.beanBrand = "Saka";
+        // No puck prep -> no sub-object.
+        QVERIFY(!DialingBlocks::buildCurrentBeanBlock(in).contains("puckPrep"));
+
+        // Canonical flag string -> flags + derived distribution.
+        in.puckPrep = "shaker,wdt";
+        const QJsonObject bean = DialingBlocks::buildCurrentBeanBlock(in);
+        QVERIFY(bean.contains("puckPrep"));
+        const QJsonObject p = bean["puckPrep"].toObject();
+        QCOMPARE(p["wdt"].toBool(), true);
+        QCOMPARE(p["shaker"].toBool(), true);
+        QCOMPARE(p["puckScreen"].toBool(), false);
+        QCOMPARE(p["paperFilter"].toBool(), false);
+        QCOMPARE(p["rdt"].toBool(), false);
+        QCOMPARE(p["distribution"].toString(), QString("thorough"));  // WDT → thorough
+
+        // Shaker without WDT → light; a non-distribution flag alone → none.
+        in.puckPrep = "shaker";
+        QCOMPARE(DialingBlocks::buildCurrentBeanBlock(in)["puckPrep"].toObject()["distribution"].toString(),
+                 QString("light"));
+        in.puckPrep = "puckScreen";
+        QCOMPARE(DialingBlocks::buildCurrentBeanBlock(in)["puckPrep"].toObject()["distribution"].toString(),
+                 QString("none"));
+    }
+
     // beanbase_json is read by POSITIONAL index in loadShotRecordStatic — a
     // future column inserted mid-SELECT would silently shift the read and
     // every consumer would treat the garbage as "unlinked". Round-trip via

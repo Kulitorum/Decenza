@@ -14,16 +14,18 @@ class QSqlDatabase;
 class QSqlQuery;
 
 // An equipment item: one typed component of a package. The kinds today are
-// "grinder" and the optional "basket" (add-basket-equipment); future kinds
-// (tamper, …) are new rows with a different `kind` and their own `attrs` payload
-// — no schema migration (openspec change add-equipment-packages). Shared fields
-// every kind has (kind/brand/model) are real columns; kind-specific fields live
-// in the `attrs` JSON blob. For a grinder, attrs = { "burrs": "...",
-// "rpmCapable": true }. The `burrs` and `rpmCapable` members below are
-// convenience views of that blob, (de)serialized on load/save — they are not
-// their own columns. A basket has NO kind-specific attrs: its identity is
-// brand+model and every spec (wall/flow/precision/dose) is derived from
-// BasketAliases at read time, so a basket item carries an empty attrs blob.
+// "grinder", the optional "basket" (add-basket-equipment), and the optional
+// "puckprep" (add-puckprep-equipment); future kinds (tamper, …) are new rows with
+// a different `kind` and their own `attrs` payload — no schema migration (openspec
+// change add-equipment-packages). Shared fields every kind has (kind/brand/model)
+// are real columns; kind-specific fields live in the `attrs` JSON blob. For a
+// grinder, attrs = { "burrs": "...", "rpmCapable": true }. The `burrs` and
+// `rpmCapable` members below are convenience views of that blob, (de)serialized on
+// load/save — they are not their own columns. A basket has NO kind-specific attrs:
+// its identity is brand+model and every spec is derived from BasketAliases at read
+// time. A puckprep item stores its canonical flag string (PuckPrep::canonical) in
+// the `model` column and an empty attrs blob; its flags + derived `distribution`
+// are reconstructed from that string at read time (see core/puckprep.h).
 struct EquipmentItem {
     qint64 id = 0;
     qint64 packageId = 0;
@@ -79,9 +81,10 @@ struct EquipmentPackageView {
     EquipmentPackage package;
     EquipmentItem grinder;
     EquipmentItem basket;
+    EquipmentItem puckPrep;  // invalid (id == 0) when the package has no puck prep
     qint64 shotCount = 0;
-    // Flatten package + grinder identity + basket identity/derived specs
-    // (+ shotCount) into one map for QML/MCP.
+    // Flatten package + grinder identity + basket identity/derived specs +
+    // puck-prep flags/derived distribution (+ shotCount) into one map for QML/MCP.
     QVariantMap toVariantMap() const;
 };
 
@@ -131,12 +134,16 @@ public:
                                                  const QString& brand, const QString& model,
                                                  const QString& burrs,
                                                  const QString& basketBrand = QString(),
-                                                 const QString& basketModel = QString());
+                                                 const QString& basketModel = QString(),
+                                                 const QString& puckPrep = QString());
 
     static EquipmentPackage loadPackageStatic(QSqlDatabase& db, qint64 packageId);
     static EquipmentItem loadGrinderItemStatic(QSqlDatabase& db, qint64 packageId);
     // The package's basket item, or an invalid item (id == 0) when none.
     static EquipmentItem loadBasketItemStatic(QSqlDatabase& db, qint64 packageId);
+    // The package's puckprep item (canonical flag string in `model`), or an invalid
+    // item (id == 0) when none.
+    static EquipmentItem loadPuckPrepItemStatic(QSqlDatabase& db, qint64 packageId);
     static QVector<EquipmentPackageView> loadInventoryStatic(QSqlDatabase& db);
 
     static bool updatePackageFieldsStatic(QSqlDatabase& db, qint64 packageId, const QVariantMap& fields);
@@ -153,9 +160,16 @@ public:
     // transaction can roll back on a real error without tripping on a benign no-op.
     static bool setBasketItemStatic(QSqlDatabase& db, qint64 packageId,
                                     const QString& brand, const QString& model);
+    // Set the package's puck-prep identity from a canonical flag string
+    // (PuckPrep::canonical): update the existing puckprep item, insert one when
+    // none exists, or delete it when the string is empty ("no puck prep"). Same
+    // return contract as setBasketItemStatic — false ONLY on a genuine SQL failure.
+    static bool setPuckPrepItemStatic(QSqlDatabase& db, qint64 packageId,
+                                      const QString& puckPrep);
 
-    // Apply a grinder+basket identity edit honoring copy-on-write immutability +
-    // merge, and return the package id the caller should now treat as active:
+    // Apply a grinder+basket+puckprep identity edit honoring copy-on-write
+    // immutability + merge, and return the package id the caller should now treat
+    // as active:
     //   - identity unchanged                      -> same id (no-op)
     //   - another in-inventory package matches     -> merge: repoint this
     //       package's bags to it, delete this package if unused else soft-delete
@@ -163,29 +177,33 @@ public:
     //   - package unused (no shots)                -> edit in place -> same id
     //   - package used (>=1 shot)                  -> fork a new package (copies
     //       name + last dial), repoint bags, soft-delete old (superseded_by) -> new id
-    // Identity is the full (grinder brand/model/burrs + basket brand/model) tuple;
-    // "no basket" is a distinct value. Bag repointing is done here; the
-    // active-equipment selection is the caller's to update from the returned id.
+    // Identity is the full (grinder brand/model/burrs + basket brand/model +
+    // puckprep canonical flag string) tuple; "no basket" / "no puck prep" are
+    // distinct values. Bag repointing is done here; the active-equipment selection
+    // is the caller's to update from the returned id.
     static qint64 supersedeOrEditStatic(QSqlDatabase& db, qint64 packageId,
                                         const QString& brand, const QString& model,
                                         const QString& burrs,
-                                        const QString& basketBrand, const QString& basketModel);
+                                        const QString& basketBrand, const QString& basketModel,
+                                        const QString& puckPrep);
     // Grinder-only convenience: edit the grinder identity while PRESERVING the
-    // package's current basket. Thin wrapper over supersedeOrEditStatic used by
-    // callers that don't touch the basket (MCP grinder edit, tests).
+    // package's current basket + puck prep. Thin wrapper over supersedeOrEditStatic
+    // used by callers that don't touch them (MCP grinder edit, tests).
     static qint64 supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 packageId,
                                                const QString& brand, const QString& model,
                                                const QString& burrs);
 
     // Find an existing in-inventory package whose full identity matches
-    // (case-insensitive grinder brand+model+burrs AND basket brand+model, where
-    // empty basket params match a package with no basket), or 0 if none. Used by
-    // the migration and create/edit flows to dedup on identity (NOT on grind/rpm).
+    // (case-insensitive grinder brand+model+burrs AND basket brand+model AND
+    // puckprep canonical string, where empty params match a package lacking that
+    // component), or 0 if none. Used by the migration and create/edit flows to
+    // dedup on identity (NOT on grind/rpm).
     static qint64 findPackageByGrinderIdentityStatic(QSqlDatabase& db, const QString& brand,
                                                      const QString& model, const QString& burrs,
                                                      qint64 excludeId = 0,
                                                      const QString& basketBrand = QString(),
-                                                     const QString& basketModel = QString());
+                                                     const QString& basketModel = QString(),
+                                                     const QString& puckPrep = QString());
 
     // rpmCapable for a grinder identity: the registry's variableRpm when the
     // brand/model matches an alias, else true (a custom grinder shows the rpm

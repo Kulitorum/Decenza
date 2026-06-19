@@ -2204,10 +2204,12 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                s.bag_id, s.frozen_date, s.defrost_date,
                s.equipment_id, s.rpm,
                ep.in_inventory, ep.superseded_by, ep.name,
-               eb.brand, eb.model
+               eb.brand, eb.model,
+               epp.model
         FROM shots s
         LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder'
         LEFT JOIN equipment_items eb ON eb.package_id = s.equipment_id AND eb.kind = 'basket'
+        LEFT JOIN equipment_items epp ON epp.package_id = s.equipment_id AND epp.kind = 'puckprep'
         LEFT JOIN equipment_packages ep ON ep.id = s.equipment_id
         WHERE s.id = ?
     )")) {
@@ -2283,6 +2285,10 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // downstream from BasketAliases, never stored.
     record.basketBrand = query.value(44).toString();
     record.basketModel = query.value(45).toString();
+    // Puck-prep canonical flag string (col 46) resolved through equipment_id
+    // (add-puckprep-equipment); empty when the package has no puck prep. Flags +
+    // distribution are derived downstream (core/puckprep.h), never stored.
+    record.puckPrep = query.value(46).toString();
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so

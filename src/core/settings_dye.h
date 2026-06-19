@@ -41,6 +41,10 @@ class SettingsDye : public QObject {
     // from the active package like dyeEquipmentName (add-basket-equipment).
     Q_PROPERTY(QString dyeBasketBrand READ dyeBasketBrand NOTIFY dyeBasketChanged)
     Q_PROPERTY(QString dyeBasketModel READ dyeBasketModel NOTIFY dyeBasketChanged)
+    // Active package's puck-prep canonical flag string (e.g. "shaker,wdt"; empty =
+    // none), resolved from the active package (add-puckprep-equipment). The Edit
+    // Equipment form prefills its checkboxes from this when adding new gear.
+    Q_PROPERTY(QString dyePuckPrepCanonical READ dyePuckPrepCanonical NOTIFY dyePuckPrepChanged)
     // One-line registry summary of the active basket (wall/flow/precision/dose),
     // empty for none or a custom off-registry basket.
     Q_PROPERTY(QString dyeBasketSummary READ dyeBasketSummary NOTIFY dyeBasketChanged)
@@ -118,6 +122,7 @@ public:
     QString dyeBasketBrand() const { return m_dyeBasketBrand; }
     QString dyeBasketModel() const { return m_dyeBasketModel; }
     QString dyeBasketSummary() const { return m_dyeBasketSummary; }
+    QString dyePuckPrepCanonical() const { return m_dyePuckPrepCanonical; }
 
     QString dyeGrinderSetting() const;
     void setDyeGrinderSetting(const QString& value);
@@ -229,6 +234,7 @@ signals:
     void dyeGrinderBurrsChanged();
     void dyeEquipmentNameChanged();
     void dyeBasketChanged();
+    void dyePuckPrepChanged();
     void dyeGrinderSettingChanged();
     void dyeGrinderRpmChanged();
     void activeEquipmentIdChanged();
@@ -287,6 +293,7 @@ private:
     QString m_dyeBasketBrand;    // active package basket identity (resolved, not persisted)
     QString m_dyeBasketModel;
     QString m_dyeBasketSummary;  // registry summary of the active basket (resolved)
+    QString m_dyePuckPrepCanonical;  // active package puck-prep canonical string (resolved)
     mutable QString m_dyeGrinderSettingCache;
     mutable int m_dyeGrinderRpmCache = 0;
     mutable double m_dyeBeanWeightCache = 18.0;

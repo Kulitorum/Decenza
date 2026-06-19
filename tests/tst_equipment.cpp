@@ -6,6 +6,7 @@
 
 #include "history/equipmentstorage.h"
 #include "history/coffeebagstorage.h"
+#include "core/puckprep.h"
 
 // Equipment packages: the grind/rpm split heuristic, rpmCapable derivation,
 // package CRUD, identity dedup, and the migration-22 data step
@@ -340,7 +341,7 @@ private slots:
 
             // Changing the basket on a USED package forks (copy-on-write).
             addShot(A);
-            const qint64 fork = EquipmentStorage::supersedeOrEditStatic(db, A, "Turin", "DF83V", "83mm", "IMS", "Competition 18g");
+            const qint64 fork = EquipmentStorage::supersedeOrEditStatic(db, A, "Turin", "DF83V", "83mm", "IMS", "Competition 18g", QString());
             QVERIFY(fork > 0 && fork != A);
             QCOMPARE(EquipmentStorage::loadBasketItemStatic(db, fork).brand, QString("IMS"));
             QCOMPARE(EquipmentStorage::loadPackageStatic(db, A).supersededBy, fork);
@@ -351,6 +352,102 @@ private slots:
             const qint64 c2 = EquipmentStorage::supersedeOrEditGrinderStatic(db, C, "Mazzer", "Major V2", "83mm");
             QCOMPARE(c2, C);  // unused → edit in place
             QCOMPARE(EquipmentStorage::loadBasketItemStatic(db, C).model, QString("20g"));  // basket preserved
+        });
+    }
+
+    // --- puck prep: canonical helper, optional item, derive-at-read, set contract ---
+    void puckPrepOptionalAndDerive() {
+        // Canonical is order-independent + sorted (the identity key).
+        auto canon = [](bool wdt, bool shaker, bool puckScreen, bool paper, bool rdt) {
+            QVariantMap m;
+            m["wdt"] = wdt; m["shaker"] = shaker; m["puckScreen"] = puckScreen;
+            m["paperFilter"] = paper; m["rdt"] = rdt;
+            return PuckPrep::canonical(m);
+        };
+        QCOMPARE(canon(true, true, false, false, false), QString("shaker,wdt"));
+        QCOMPARE(canon(false, false, false, false, false), QString(""));
+        QCOMPARE(PuckPrep::distribution("shaker,wdt"), QString("thorough"));  // wdt wins
+        QCOMPARE(PuckPrep::distribution("shaker"), QString("light"));
+        QCOMPARE(PuckPrep::distribution("puckScreen"), QString("none"));     // no wdt/shaker
+
+        const QString path = freshDbPath();
+        withRawDb(path, "eq_puck", [&](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+
+            // Create a package with puck prep in one call.
+            EquipmentPackage p1;
+            const qint64 g1 = EquipmentStorage::createPackageWithGrinderStatic(
+                db, p1, "Turin", "DF83V", "83mm", QString(), QString(), "shaker,wdt");
+            QVERIFY(g1 > 0);
+            const EquipmentItem pp = EquipmentStorage::loadPuckPrepItemStatic(db, g1);
+            QVERIFY(pp.isValid());
+            QCOMPARE(pp.kind, QString("puckprep"));
+            QCOMPARE(pp.model, QString("shaker,wdt"));  // canonical in `model`
+
+            // Derive-at-read: the view map carries the flags + distribution.
+            EquipmentPackageView v;
+            v.package = EquipmentStorage::loadPackageStatic(db, g1);
+            v.grinder = EquipmentStorage::loadGrinderItemStatic(db, g1);
+            v.puckPrep = pp;
+            const QVariantMap m = v.toVariantMap();
+            QCOMPARE(m.value("puckPrep_wdt").toBool(), true);
+            QCOMPARE(m.value("puckPrep_shaker").toBool(), true);
+            QCOMPARE(m.value("puckPrep_puckScreen").toBool(), false);
+            QCOMPARE(m.value("puckPrepDistribution").toString(), QString("thorough"));
+            QCOMPARE(m.value("puckPrepCanonical").toString(), QString("shaker,wdt"));
+
+            // Grinder-only package: no puckprep item; map omits the fields.
+            EquipmentPackage p0;
+            const qint64 g0 = EquipmentStorage::createPackageWithGrinderStatic(db, p0, "Niche", "Zero", "63mm");
+            QVERIFY(!EquipmentStorage::loadPuckPrepItemStatic(db, g0).isValid());
+
+            // setPuckPrepItemStatic: insert, no-op-clear (true), update, clear.
+            QVERIFY(EquipmentStorage::setPuckPrepItemStatic(db, g0, ""));        // no-op → true
+            QVERIFY(EquipmentStorage::setPuckPrepItemStatic(db, g0, "wdt"));     // insert → true
+            QCOMPARE(EquipmentStorage::loadPuckPrepItemStatic(db, g0).model, QString("wdt"));
+            QVERIFY(EquipmentStorage::setPuckPrepItemStatic(db, g0, "rdt,wdt")); // update → true
+            QCOMPARE(EquipmentStorage::loadPuckPrepItemStatic(db, g0).model, QString("rdt,wdt"));
+            QVERIFY(EquipmentStorage::setPuckPrepItemStatic(db, g0, ""));        // clear → true
+            QVERIFY(!EquipmentStorage::loadPuckPrepItemStatic(db, g0).isValid());
+        });
+    }
+
+    // --- puck prep participates in package identity (dedup + copy-on-write) ---
+    void puckPrepIdentityWidening() {
+        const QString path = freshDbPath();
+        withRawDb(path, "eq_puck_id", [](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            createMinimalShots(db);
+            auto addShot = [&](qint64 eq) {
+                QSqlQuery q(db); q.prepare("INSERT INTO shots (equipment_id) VALUES (?)");
+                q.addBindValue(eq); q.exec(); return q.lastInsertId().toLongLong();
+            };
+
+            // Same grinder, different puck prep → distinct packages.
+            EquipmentPackage a, b;
+            const qint64 A = EquipmentStorage::createPackageWithGrinderStatic(db, a, "Turin", "DF83V", "83mm", QString(), QString(), "wdt");
+            const qint64 B = EquipmentStorage::createPackageWithGrinderStatic(db, b, "Turin", "DF83V", "83mm", QString(), QString(), "shaker,wdt");
+            QVERIFY(A > 0 && B > 0 && A != B);
+
+            // Full-identity dedup keys on puck prep too.
+            QCOMPARE(EquipmentStorage::findPackageByGrinderIdentityStatic(db, "Turin", "DF83V", "83mm", 0, QString(), QString(), "wdt"), A);
+            // "No puck prep" is a distinct value: a grinder+basket-only query matches neither.
+            QCOMPARE(EquipmentStorage::findPackageByGrinderIdentityStatic(db, "Turin", "DF83V", "83mm"), (qint64)0);
+
+            // Changing puck prep on a USED package forks.
+            addShot(A);
+            const qint64 fork = EquipmentStorage::supersedeOrEditStatic(db, A, "Turin", "DF83V", "83mm", QString(), QString(), "rdt,wdt");
+            QVERIFY(fork > 0 && fork != A);
+            QCOMPARE(EquipmentStorage::loadPuckPrepItemStatic(db, fork).model, QString("rdt,wdt"));
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, A).supersededBy, fork);
+
+            // The grinder-only wrapper PRESERVES puck prep.
+            EquipmentPackage cpk;
+            const qint64 C = EquipmentStorage::createPackageWithGrinderStatic(db, cpk, "Mazzer", "Major", "83mm", QString(), QString(), "wdt");
+            const qint64 c2 = EquipmentStorage::supersedeOrEditGrinderStatic(db, C, "Mazzer", "Major V2", "83mm");
+            QCOMPARE(c2, C);  // unused → edit in place
+            QCOMPARE(EquipmentStorage::loadPuckPrepItemStatic(db, C).model, QString("wdt"));  // preserved
         });
     }
 
