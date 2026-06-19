@@ -356,6 +356,25 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
     if (!filter.searchText.isEmpty())
         ftsQuery = formatFtsQuery(filter.searchText);
 
+    // Grinder identity is no longer in shots_fts (migration 23), so a free-text
+    // search resolves the term against equipment_items and matches shots via the
+    // equipment_id pointer (add-equipment-packages 4b.6) — without this, typing a
+    // grinder name like "niche" finds nothing. Substring LIKE on the combined
+    // brand/model/burrs identity, OR'd with the FTS hit below. Built by
+    // concatenation (NOT QString::arg): the escaped LIKE value carries '%'
+    // wildcards that would collide with arg's %N placeholders. The literal is
+    // single-quote- and wildcard-escaped (ESCAPE '\') so user input is inert.
+    QString grinderMatchClause;
+    if (!ftsQuery.isEmpty()) {
+        QString likeVal = filter.searchText.trimmed().toLower();
+        likeVal.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_").replace('\'', "''");
+        grinderMatchClause = QStringLiteral(
+            " OR equipment_id IN (SELECT package_id FROM equipment_items WHERE kind = 'grinder' "
+            "AND LOWER(IFNULL(brand,'') || ' ' || IFNULL(model,'') || ' ' || "
+            "IFNULL(json_extract(attrs,'$.burrs'),'')) LIKE '%") + likeVal
+            + QStringLiteral("%' ESCAPE '\\')");
+    }
+
     QString sql;
     if (!ftsQuery.isEmpty()) {
         QString extraConditions;
@@ -363,20 +382,18 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
             extraConditions = whereClause;
             extraConditions.replace(extraConditions.indexOf("WHERE"), 5, "AND");
         }
-        sql = QString(R"(
-            SELECT id, uuid, timestamp, profile_name, duration_seconds,
-                   final_weight, dose_weight, bean_brand, bean_type,
-                   enjoyment, visualizer_id, grinder_setting,
-                   temperature_override, yield_override, beverage_type,
-                   drink_tds, drink_ey,
-                   channeling_detected, grind_issue_detected,
-                   skip_first_frame_detected, pour_truncated_detected
-            FROM shots
-            WHERE id IN (SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1')
-            %2
-            %3
-            LIMIT ? OFFSET ?
-        )").arg(ftsQuery).arg(extraConditions).arg(orderByClause);
+        const QString ftsMatch = QString("id IN (SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1')")
+                                     .arg(ftsQuery);
+        sql = QStringLiteral(
+            "SELECT id, uuid, timestamp, profile_name, duration_seconds, "
+            "final_weight, dose_weight, bean_brand, bean_type, "
+            "enjoyment, visualizer_id, grinder_setting, "
+            "temperature_override, yield_override, beverage_type, "
+            "drink_tds, drink_ey, "
+            "channeling_detected, grind_issue_detected, "
+            "skip_first_frame_detected, pour_truncated_detected "
+            "FROM shots WHERE (") + ftsMatch + grinderMatchClause + ") "
+            + extraConditions + " " + orderByClause + " LIMIT ? OFFSET ?";
     } else {
         sql = QString(R"(
             SELECT id, uuid, timestamp, profile_name, duration_seconds,
@@ -401,9 +418,10 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
             extraConditions = whereClause;
             extraConditions.replace(extraConditions.indexOf("WHERE"), 5, "AND");
         }
-        countSql = QString("SELECT COUNT(*) FROM shots WHERE id IN "
-                           "(SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1') %2")
-                       .arg(ftsQuery).arg(extraConditions);
+        const QString ftsMatch = QString("id IN (SELECT rowid FROM shots_fts WHERE shots_fts MATCH '%1')")
+                                     .arg(ftsQuery);
+        countSql = QStringLiteral("SELECT COUNT(*) FROM shots WHERE (") + ftsMatch
+                   + grinderMatchClause + ") " + extraConditions;
     } else {
         countSql = "SELECT COUNT(*) FROM shots" + whereClause;
     }

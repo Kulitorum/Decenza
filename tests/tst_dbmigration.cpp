@@ -1414,6 +1414,60 @@ private slots:
             QCOMPARE(r.grinderSetting, QString("12"));           // per-shot dial-in stays on the row
         });
     }
+
+    // Free-text shot-history search must still find a grinder name even though
+    // grinder identity is no longer in shots_fts (migration 23) — it resolves the
+    // term against equipment_items and matches via the equipment_id pointer
+    // (add-equipment-packages 4b.6). Regression guard for "search 'niche' finds
+    // nothing".
+    void v23_grinderFreeTextSearchResolvesViaPointer() {
+        const QString path = freshDbPath();
+        ShotHistoryStorage s;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
+        QVERIFY(s.initialize(path));
+
+        // One shot whose ONLY association with "niche" is its grinder package
+        // (bean/profile/notes deliberately don't contain the term), plus a
+        // control shot on a different grinder.
+        withRawDb(path, "v23_search_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("INSERT INTO equipment_packages (name, in_inventory) VALUES ('Niche Zero', 1)"));
+            const qint64 niche = q.lastInsertId().toLongLong();
+            QVERIFY(q.exec("INSERT INTO equipment_packages (name, in_inventory) VALUES ('Other', 1)"));
+            const qint64 other = q.lastInsertId().toLongLong();
+            auto addGrinder = [&](qint64 pkg, const QString& brand, const QString& model) {
+                QSqlQuery gi(db);
+                gi.prepare("INSERT INTO equipment_items (package_id, kind, brand, model, attrs) "
+                           "VALUES (?, 'grinder', ?, ?, '{\"burrs\":\"63mm\"}')");
+                gi.addBindValue(pkg); gi.addBindValue(brand); gi.addBindValue(model);
+                QVERIFY(gi.exec());
+            };
+            addGrinder(niche, "Niche", "Zero");
+            addGrinder(other, "Mazzer", "Major");
+            QSqlQuery sh(db);
+            sh.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, equipment_id, bean_brand) "
+                       "VALUES ('s-niche', 1000, 'P', 30, ?, 'SomeBean')");
+            sh.addBindValue(niche); QVERIFY(sh.exec());
+            sh.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, equipment_id, bean_brand) "
+                       "VALUES ('s-other', 2000, 'P', 30, ?, 'SomeBean')");
+            sh.addBindValue(other); QVERIFY(sh.exec());
+        });
+
+        QSignalSpy spy(&s, &ShotHistoryStorage::shotsFilteredReady);
+
+        // "niche" matches only the Niche-package shot, via the pointer.
+        s.requestShotsFiltered({{"searchText", "niche"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 1);   // total == 1
+
+        // A term in no grinder/bean/profile matches nothing.
+        s.requestShotsFiltered({{"searchText", "zzz-no-match"}}, 0, 50);
+        QVERIFY(spy.wait(3000));
+        QCOMPARE(spy.last().at(2).toInt(), 0);
+
+        s.close();
+        for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
+    }
 };
 
 QTEST_MAIN(tst_DbMigration)
