@@ -25,6 +25,7 @@ Dialog {
     property int editPackageId: -1
 
     property var packages: []
+    property string fName: ""          // user label; blank -> storage derives "{brand} {model}"
     property string fBrand: ""
     property string fModel: ""
     property string fBurrs: ""
@@ -80,7 +81,7 @@ Dialog {
     function openForCreate() {
         formMode = "create"
         editPackageId = -1
-        fBrand = ""; fModel = ""; fBurrs = ""
+        fName = ""; fBrand = ""; fModel = ""; fBurrs = ""
         mode = "form"
         open()
     }
@@ -88,6 +89,7 @@ Dialog {
     function openForEdit(pkg) {
         formMode = "edit"
         editPackageId = pkg && pkg.id !== undefined ? pkg.id : -1
+        fName = (pkg && pkg.name) || ""
         fBrand = (pkg && pkg.grinderBrand) || ""
         fModel = (pkg && pkg.grinderModel) || ""
         fBurrs = (pkg && pkg.grinderBurrs) || ""
@@ -203,7 +205,7 @@ Dialog {
             id: formContainer
             visible: root.mode === "form"
             anchors.fill: parent
-            textFields: [brandField.textField, modelField.textField, burrsField.textField]
+            textFields: [nameField.textField, brandField.textField, modelField.textField, burrsField.textField]
 
             ColumnLayout {
                 id: formColumn
@@ -219,6 +221,18 @@ Dialog {
                     color: Theme.textColor
                     Accessible.role: Accessible.Heading
                     Accessible.name: text
+                }
+
+                // User-editable label (add-equipment-packages 4b.1). Blank uses the
+                // derived "{brand} {model}"; set it to a kit name like "Espresso setup".
+                SuggestionField {
+                    id: nameField
+                    Layout.fillWidth: true
+                    label: TranslationManager.translate("equipment.dialog.name", "Name (optional)")
+                    accessibleName: label
+                    text: root.fName
+                    suggestions: []
+                    onTextEdited: function(t) { root.fName = t }
                 }
 
                 SuggestionField {
@@ -293,6 +307,9 @@ Dialog {
     function save() {
         Qt.inputMethod.commit()
         var fields = {
+            // Blank name -> storage derives "{brand} {model}" on create, or clears
+            // the custom label (display falls back to brand+model) on edit.
+            "name": fName.trim(),
             "grinderBrand": fBrand.trim(),
             "grinderModel": fModel.trim(),
             "grinderBurrs": fBurrs.trim()
