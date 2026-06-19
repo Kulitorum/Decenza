@@ -14,7 +14,7 @@ TBD - created by archiving change migrate-advisor-user-prompt-to-json. Update Pu
 
 `ShotSummarizer` SHALL also expose `buildUserPromptObject(summary, mode)` returning the unwrapped `QJsonObject` so DB-scoped callers (the in-app advisor's background-thread closure, `ai_advisor_invoke`'s background-thread closure) can append the four enrichment blocks (`dialInSessions`, `bestRecentShot`, `sawPrediction`, `grinderContext`) before serializing. The serialized output of `buildUserPrompt(summary, mode)` SHALL be `QJsonDocument(buildUserPromptObject(summary, mode)).toJson(QJsonDocument::Indented)`.
 
-The four DB-scoped fields (`dialInSessions`, `bestRecentShot`, `sawPrediction`, `grinderContext`) SHALL be added to the user prompt by callers with DB scope (the in-app advisor and `ai_advisor_invoke`), via the shared block-builder helpers. Synchronous callers without DB scope (`generateEmailPrompt`, `generateShotSummary`, the history-block path) SHALL continue to ship the four-key envelope from `buildUserPrompt` without enrichment, and SHALL NOT use `null` placeholders for the absent fields.
+The four DB-scoped fields (`dialInSessions`, `bestRecentShot`, `sawPrediction`, `grinderContext`) SHALL be added to the user prompt by callers with DB scope (the in-app advisor and `ai_advisor_invoke`), via the shared block-builder helpers. Synchronous callers without DB scope (e.g. the plain prose / history-block path) SHALL continue to ship the four-key envelope from `buildUserPrompt` without enrichment, and SHALL NOT use `null` placeholders for the absent fields.
 
 #### Scenario: User prompt carries currentBean with inferred fields
 
@@ -53,7 +53,7 @@ The four DB-scoped fields (`dialInSessions`, `bestRecentShot`, `sawPrediction`, 
 
 #### Scenario: Synchronous callers without DB scope omit enrichment fields
 
-- **GIVEN** a synchronous caller (e.g. `generateEmailPrompt` or the history-block path) that does not have DB / Settings access
+- **GIVEN** a synchronous caller (e.g. the plain prose / history-block path) that does not have DB / Settings access
 - **WHEN** `buildUserPrompt(summary)` runs
 - **THEN** the returned JSON SHALL NOT contain a `dialInSessions` key
 - **AND** SHALL NOT contain a `bestRecentShot` key
@@ -104,7 +104,7 @@ The single-shot `ai_advisor_invoke` MCP path (no follow-up expected) MAY skip th
 
 ### Requirement: User-prompt envelope SHALL carry an optional `recentAdvice` block
 
-The JSON envelope produced by `ShotSummarizer::buildUserPromptObject` and enriched by `AIManager::analyzeShotWithMetadata`'s background-thread path SHALL include an optional top-level `recentAdvice` array. The same block SHALL appear under `userPromptUsed` in `ai_advisor_invoke`'s tool result envelope (parity contract from #1041).
+The JSON envelope produced by `ShotSummarizer::buildUserPromptObject` and enriched by the advisor's DB-scoped background-thread path (`AIManager::enrichUserPromptObject` for `ai_advisor_invoke`; `requestRecentShotContext` for the in-app advisor) SHALL include an optional top-level `recentAdvice` array. The same block SHALL appear under `userPromptUsed` in `ai_advisor_invoke`'s tool result envelope (parity contract from #1041).
 
 The block SHALL be derived from the active `AIConversation` (matched by storage key — bean+profile hash) and from the user's shot history.
 
@@ -220,7 +220,7 @@ The byte-stability requirement on `buildUserPromptObject`'s output SHALL extend 
 
 ### Requirement: Advisor user prompt SHALL carry dialInSessions / bestRecentShot / sawPrediction / grinderContext when DB scope is available
 
-When the in-app advisor (`AIManager::analyzeShotWithMetadata`) and the MCP `ai_advisor_invoke` tool assemble the user prompt, they SHALL enrich the JSON envelope with up to four additional top-level fields, matching `dialing_get_context`'s shape exactly:
+When the in-app advisor (via `AIManager::requestRecentShotContext`) and the MCP `ai_advisor_invoke` tool (via `AIManager::enrichUserPromptObject`) assemble the user prompt, they SHALL enrich the JSON envelope with up to four additional top-level fields, matching `dialing_get_context`'s shape exactly:
 
 - `dialInSessions` — runs of consecutive shots on the same profile within ~60 minutes of each other, with hoisted session-level `context` and per-shot `changeFromPrev` diffs. Same shape `dialing_get_context` produces.
 - `bestRecentShot` — the highest-rated shot on the same profile within the last 90 days (excluding the current shot), with a `changeFromBest` diff against the current shot. Omitted entirely (no key, no `null`) when no rated shot exists in that window.
@@ -232,7 +232,7 @@ These four fields SHALL be produced by shared block-builder helpers exported fro
 #### Scenario: User prompt carries dialInSessions when shots exist on the resolved shot's profile
 
 - **GIVEN** a resolved shot whose `profileKbId` matches 4 prior shots in two distinct sessions
-- **WHEN** `AIManager::analyzeShotWithMetadata` enriches the user prompt
+- **WHEN** the advisor's DB-scoped path enriches the user prompt
 - **THEN** the JSON envelope SHALL contain a `dialInSessions` array with two session objects
 - **AND** each session SHALL carry the hoisted `context` and per-shot `shots[].changeFromPrev` diffs the same way `dialing_get_context` does
 
@@ -266,7 +266,7 @@ These four fields SHALL be produced by shared block-builder helpers exported fro
 
 ### Requirement: Enriched user prompt SHALL be byte-equivalent across in-app and MCP surfaces
 
-The user prompt produced by `AIManager::analyzeShotWithMetadata` (in-app advisor) and the user prompt echoed by `ai_advisor_invoke` (MCP) SHALL be byte-for-byte identical for the same resolved `ShotProjection` + DB state + Settings state. Both surfaces SHALL call the same block-builder helpers and the same `ShotSummarizer::buildUserPromptObject` envelope builder.
+The user prompt assembled by the in-app advisor (`AIManager::requestRecentShotContext`) and the user prompt echoed by `ai_advisor_invoke` (MCP, via `AIManager::enrichUserPromptObject`) SHALL be byte-for-byte identical for the same resolved `ShotProjection` + DB state + Settings state. Both surfaces SHALL call the same block-builder helpers and the same `ShotSummarizer::buildUserPromptObject` envelope builder.
 
 #### Scenario: In-app advisor and ai_advisor_invoke produce identical user prompts
 

@@ -22,7 +22,6 @@ class Profile;
 class Settings;
 class ShotHistoryStorage;
 class ProfileManager;
-struct ShotMetadata;
 
 class AIManager : public QObject {
     Q_OBJECT
@@ -87,59 +86,13 @@ public:
     Q_INVOKABLE bool isSupportedBeverageType(const QString& beverageType) const;
     static QString conversationKey(const QString& beanBrand, const QString& beanType, const QString& profileName);
 
-    // Main analysis entry point - simple version for QML
-    // Note: metadata must be passed (use {} for empty) to avoid QML overload confusion
-    Q_INVOKABLE void analyzeShot(ShotDataModel* shotData,
-                                  Profile* profile,
-                                  double doseWeight,
-                                  double finalWeight,
-                                  const QVariantMap& metadata);
-
-    // Full version for C++ callers. `stoppedBy` (field introduced by
-    // #1161 on ShotProjection; wired through this entry point by #1280)
-    // is the same classification MainController persists to the shot
-    // record — pass it through so the live-path AI prompt carries the
-    // stop-reason anchor the standalone shot block already supports.
-    // QML callers include the same value in the analyzeShot()
-    // QVariantMap under key "stoppedBy".
-    void analyzeShotWithMetadata(ShotDataModel* shotData,
-                                  const Profile* profile,
-                                  double doseWeight,
-                                  double finalWeight,
-                                  const QString& beanBrand,
-                                  const QString& beanType,
-                                  const QString& roastDate,
-                                  const QString& roastLevel,
-                                  const QString& grinderBrand,
-                                  const QString& grinderModel,
-                                  const QString& grinderBurrs,
-                                  const QString& grinderSetting,
-                                  int enjoymentScore,
-                                  const QString& tastingNotes,
-                                  const QString& stoppedBy = QString(),
-                                  int rpm = 0);
-
-    // Email fallback - generates prompt for copying
-    Q_INVOKABLE QString generateEmailPrompt(ShotDataModel* shotData,
-                                             Profile* profile,
-                                             double doseWeight,
-                                             double finalWeight,
-                                             const QVariantMap& metadata);
-
-    // Generate shot summary text for multi-shot conversation
-    Q_INVOKABLE QString generateShotSummary(ShotDataModel* shotData,
-                                             Profile* profile,
-                                             double doseWeight,
-                                             double finalWeight,
-                                             const QVariantMap& metadata);
-
-    // Generate shot summary from historical shot data (for ShotDetailPage)
-    Q_INVOKABLE QString generateHistoryShotSummary(const ShotProjection& shotData);
-
-    // Same envelope `generateHistoryShotSummary` serializes, but returned as
-    // a `QJsonObject` so DB-scoped callers (`ai_advisor_invoke`'s bg-thread
-    // closure) can append the four dialing-context blocks before
-    // serializing. Returns an empty object when summarization fails.
+    // Builds the AI user-prompt envelope for a finished / historical shot,
+    // returned as a `QJsonObject` so DB-scoped callers (`ai_advisor_invoke`'s
+    // bg-thread closure) can append the four dialing-context blocks before
+    // serializing. Returns an empty object when summarization fails. The live
+    // advisor + conversation flows summarize from the ShotProjection directly
+    // (this and buildShotAnalysisProseForShot below) — there is no separate
+    // QVariantMap/ShotMetadata analyze path.
     QJsonObject buildUserPromptObjectForShot(const ShotProjection& shotData);
 
     // Prose-only shot analysis — no JSON envelope, no double-shipped
@@ -305,17 +258,6 @@ private:
     void createProviders();
     AIProvider* providerById(const QString& providerId) const;
     AIProvider* currentProvider() const;
-    ShotMetadata buildMetadata(const QString& beanBrand,
-                                const QString& beanType,
-                                const QString& roastDate,
-                                const QString& roastLevel,
-                                const QString& grinderBrand,
-                                const QString& grinderModel,
-                                const QString& grinderBurrs,
-                                const QString& grinderSetting,
-                                int enjoymentScore,
-                                const QString& tastingNotes,
-                                int rpm = 0) const;
 
     // Logging
     QString logPath() const;

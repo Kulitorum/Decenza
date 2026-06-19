@@ -147,8 +147,8 @@ public:
 
     /**
      * Bind the resolved shot id to the current user/assistant turn pair.
-     * Called by AIManager::analyzeShotWithMetadata once the resolved
-     * shot is known and BEFORE the assistant message is appended; the
+     * Call once the resolved shot for the current turn is known and
+     * BEFORE the assistant message is appended; the
      * id is applied retroactively to the latest user turn AND latched
      * onto the next-appended assistant turn so a turn pair shares one
      * shotId. Calling twice for the same pair is last-write-wins.
