@@ -55,7 +55,15 @@ Dialog {
     property bool fLinkDirty: false
     // Grinder identity (brand/model/burrs) is owned by the equipment package, not
     // the bag (add-equipment-packages); only the grind-setting dial-in stays here.
+    // The bag points at a package via fEquipmentId; brand/model/burrs are the
+    // resolved read-only display (refreshed via EquipmentStorage.packageReady).
     property string fGrinderSetting: ""
+    property int fEquipmentId: -1
+    property string fEquipmentBrand: ""
+    property string fEquipmentModel: ""
+    property string fEquipmentBurrs: ""
+    readonly property string fEquipmentLabel:
+        [fEquipmentBrand, fEquipmentModel].filter(function(s){ return s && s.length > 0 }).join(" ")
     property string fDose: ""         // text form; "" = unset
     property string fYield: ""
     property string fNotes: ""
@@ -177,6 +185,7 @@ Dialog {
         fBeanBaseId = ""; fBeanBaseData = ""
         fLinkDirty = false
         fGrinderSetting = ""
+        fEquipmentId = -1; fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
         fDose = ""; fYield = ""; fNotes = ""
         fFreeze = false; fFrozenDate = ""; fDefrostDate = ""
         identityKnown = false
@@ -190,6 +199,12 @@ Dialog {
         fBeanBaseId = bag.beanBaseId ? String(bag.beanBaseId) : ""
         fBeanBaseData = bag.beanBaseData || ""
         fGrinderSetting = bag.grinderSetting || ""
+        fEquipmentId = bag.equipmentId || -1
+        // Resolve the package's grinder identity for the read-only label
+        // (packageReady fills fEquipmentBrand/Model/Burrs below).
+        fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
+        if (fEquipmentId > 0 && MainController.equipmentStorage)
+            MainController.equipmentStorage.requestPackage(fEquipmentId)
         // toFixed(1) (not String()) so a non-exact double like 37.8 prefills as
         // "37.8", not "37.800000000000004" — matching the brew-settings format.
         fDose = (bag.doseWeightG ?? 0) > 0 ? Number(bag.doseWeightG).toFixed(1) : ""
@@ -329,9 +344,15 @@ Dialog {
         }
         if (formMode === "edit") {
             fields["defrostDate"] = fFreeze ? (fDefrostDate.replace(/_/g, "").length === 10 ? fDefrostDate : "") : ""
+            // Re-point the bag's equipment package (<=0 -> NULL via the column hook).
+            fields["equipmentId"] = fEquipmentId
             // A link change fixes the whole bag: propagate the (new or
             // cleared) canonical link onto every shot referencing it.
             MainController.bagStorage.requestUpdateBag(editBagId, fields, fLinkDirty)
+            // If this is the active bag, sync the active equipment selection so
+            // Brew Settings reflects the change.
+            if (editBagId === Settings.dye.activeBagId)
+                Settings.dye.activeEquipmentId = fEquipmentId > 0 ? fEquipmentId : -1
             root.close()
         } else {
             fields["defrostDate"] = ""
@@ -353,6 +374,31 @@ Dialog {
             }
             root.applySelection(bagId, bag)
             root.close()
+        }
+    }
+
+    // Re-point THIS bag's equipment package. The picker doesn't switch the
+    // active bag (applyToActiveBag:false); we record the chosen id and resolve
+    // its grinder identity for the label via packageReady below. Persisted on
+    // Save (fields.equipmentId).
+    SwitchEquipmentDialog {
+        id: bagEquipmentDialog
+        applyToActiveBag: false
+        onPackageSaved: function(packageId) {
+            root.fEquipmentId = packageId
+            if (MainController.equipmentStorage)
+                MainController.equipmentStorage.requestPackage(packageId)
+        }
+    }
+    Connections {
+        target: MainController.equipmentStorage
+        // Fills the read-only label for whichever package this bag now points at
+        // (both the edit-open prefill and a fresh pick funnel through fEquipmentId).
+        function onPackageReady(packageId, pkg) {
+            if (packageId !== root.fEquipmentId) return
+            root.fEquipmentBrand = pkg.grinderBrand || ""
+            root.fEquipmentModel = pkg.grinderModel || ""
+            root.fEquipmentBurrs = pkg.grinderBurrs || ""
         }
     }
 
@@ -1010,6 +1056,34 @@ Dialog {
                             text: root.fGrinderSetting
                             accessibleName: TranslationManager.translate("changebeans.form.grindSetting.accessible", "Grinder setting")
                             onTextEdited: root.fGrinderSetting = text
+                        }
+                    }
+
+                    // Equipment package (read-only identity + re-point button).
+                    // Grinder brand/model/burrs are owned by the package, not the
+                    // bag; tap Switch/Add to point this bag at a different package.
+                    FieldRow {
+                        labelKey: "changebeans.form.equipment"
+                        labelFallback: "Equipment:"
+
+                        Text {
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            text: root.fEquipmentLabel.length > 0
+                                  ? root.fEquipmentLabel
+                                        + (root.fEquipmentBurrs.length > 0 ? " · " + root.fEquipmentBurrs : "")
+                                  : TranslationManager.translate("changebeans.form.equipmentNotSet", "Not set")
+                            font: Theme.bodyFont
+                            color: root.fEquipmentLabel.length > 0 ? Theme.textColor : Theme.textSecondaryColor
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: TranslationManager.translate("changebeans.form.equipment", "Equipment:") + " " + text
+                        }
+                        AccessibleButton {
+                            text: root.fEquipmentLabel.length > 0
+                                  ? TranslationManager.translate("changebeans.form.switchEquipment", "Switch")
+                                  : TranslationManager.translate("changebeans.form.addEquipment", "Add")
+                            accessibleName: TranslationManager.translate("changebeans.form.switchEquipmentAccessible", "Switch equipment package")
+                            onClicked: bagEquipmentDialog.openPicker()
                         }
                     }
 
