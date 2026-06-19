@@ -120,6 +120,10 @@ Dialog {
     readonly property bool canSave: fBrand.trim().length > 0 || fModel.trim().length > 0
     property bool _awaitingCreate: false
 
+    EquipmentInfoDialog {
+        id: pickerInfoDialog
+    }
+
     background: Rectangle {
         color: Theme.surfaceColor
         radius: Theme.cardRadius
@@ -157,7 +161,8 @@ Dialog {
 
             Repeater {
                 model: root.packages
-                AccessibleButton {
+                RowLayout {
+                    id: pkgRow
                     // Declare modelData required so the Repeater assigns the
                     // QVariantMap element: inside this Dialog-content delegate the
                     // implicit context modelData/index did NOT resolve (rows
@@ -166,19 +171,33 @@ Dialog {
                     required property var modelData
                     readonly property var pkg: modelData || ({})
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(44)
-                    primary: !!modelData && pkg.id === Settings.dye.activeEquipmentId
-                    text: root.packageTitle(pkg)
-                          + (pkg.grinderBurrs && String(pkg.grinderBurrs).length > 0
-                             ? " · " + pkg.grinderBurrs : "")
-                    accessibleName: text + (!!modelData && pkg.id === Settings.dye.activeEquipmentId
-                                            ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
-                    onClicked: {
-                        if (!modelData) return
-                        if (root.applyToActiveBag)
-                            Settings.dye.switchToEquipment(modelData)
-                        root.packageSaved(modelData.id)
-                        root.close()
+                    spacing: Theme.spacingSmall
+
+                    // Select-this-package row — shows the package NAME only
+                    // (burrs/grinder identity live in the info popup).
+                    AccessibleButton {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(44)
+                        primary: !!pkgRow.modelData && pkgRow.pkg.id === Settings.dye.activeEquipmentId
+                        text: root.packageTitle(pkgRow.pkg)
+                        accessibleName: text + (primary
+                                                ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
+                        onClicked: {
+                            if (!pkgRow.modelData) return
+                            if (root.applyToActiveBag)
+                                Settings.dye.switchToEquipment(pkgRow.modelData)
+                            root.packageSaved(pkgRow.modelData.id)
+                            root.close()
+                        }
+                    }
+
+                    // Info: show this package's full contents.
+                    AccessibleButton {
+                        Layout.preferredHeight: Theme.scaled(44)
+                        visible: !!pkgRow.modelData && pkgRow.pkg.id > 0
+                        icon.source: "qrc:/icons/info.svg"
+                        accessibleName: TranslationManager.translate("equipment.info.button", "Equipment details")
+                        onClicked: pickerInfoDialog.openFor(pkgRow.pkg.id)
                     }
                 }
             }
