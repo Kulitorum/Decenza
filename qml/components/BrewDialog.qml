@@ -34,10 +34,10 @@ Dialog {
     // the dial-in fields that live in Brew Settings (grind setting + rpm).
     readonly property string equipmentBrand: Settings.dye.dyeGrinderBrand
     readonly property string equipmentModel: Settings.dye.dyeGrinderModel
-    readonly property string equipmentBurrs: Settings.dye.dyeGrinderBurrs
     readonly property bool equipmentRpmCapable: Settings.dye.grinderRpmCapable(equipmentBrand, equipmentModel)
-    readonly property string equipmentLabel:
-        [equipmentBrand, equipmentModel].filter(function(s) { return s.length > 0 }).join(" ")
+    // Show the package's display name (defaults to "{brand} {model}"), not the
+    // raw grinder identity (add-equipment-packages).
+    readonly property string equipmentLabel: Settings.dye.dyeEquipmentName
     property string grindSetting: ""
     property int grindRpm: 0
 
@@ -144,6 +144,10 @@ Dialog {
 
     SwitchEquipmentDialog {
         id: switchEquipmentDialog
+    }
+
+    EquipmentInfoDialog {
+        id: equipmentInfoDialog
     }
 
     background: Rectangle {
@@ -610,6 +614,15 @@ Dialog {
                         : TranslationManager.translate("brewDialog.equipmentNotSet", "Not set"))
                 }
 
+                // Info: show the active package's full contents.
+                AccessibleButton {
+                    Layout.preferredHeight: Theme.scaled(40)
+                    visible: Settings.dye.activeEquipmentId > 0
+                    icon.source: "qrc:/icons/info.svg"
+                    accessibleName: TranslationManager.translate("equipment.info.button", "Equipment details")
+                    onClicked: equipmentInfoDialog.openFor(Settings.dye.activeEquipmentId)
+                }
+
                 AccessibleButton {
                     Layout.preferredHeight: Theme.scaled(40)
                     text: root.equipmentLabel.length > 0
@@ -617,31 +630,6 @@ Dialog {
                           : TranslationManager.translate("brewDialog.addEquipment", "Add")
                     accessibleName: TranslationManager.translate("brewDialog.switchEquipmentAccessible", "Switch equipment package")
                     onClicked: switchEquipmentDialog.openPicker()
-                }
-            }
-
-            // Burrs (read-only) shown when known
-            RowLayout {
-                Layout.fillWidth: true
-                visible: root.equipmentBurrs.length > 0
-                spacing: Theme.scaled(4)
-
-                Text {
-                    text: TranslationManager.translate("brewDialog.burrsLabel", "Burrs:")
-                    font: Theme.bodyFont
-                    color: Theme.textSecondaryColor
-                    Layout.alignment: Qt.AlignVCenter
-                    Layout.preferredWidth: Theme.scaled(75)
-                    Accessible.ignored: true
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: root.equipmentBurrs
-                    font: Theme.bodyFont
-                    color: Theme.textColor
-                    elide: Text.ElideRight
-                    Accessible.role: Accessible.StaticText
-                    Accessible.name: TranslationManager.translate("brewDialog.burrsAccessible", "Burrs: %1").arg(root.equipmentBurrs)
                 }
             }
 

@@ -33,6 +33,9 @@ class SettingsDye : public QObject {
     Q_PROPERTY(QString dyeGrinderBrand READ dyeGrinderBrand WRITE setDyeGrinderBrand NOTIFY dyeGrinderBrandChanged)
     Q_PROPERTY(QString dyeGrinderModel READ dyeGrinderModel WRITE setDyeGrinderModel NOTIFY dyeGrinderModelChanged)
     Q_PROPERTY(QString dyeGrinderBurrs READ dyeGrinderBurrs WRITE setDyeGrinderBurrs NOTIFY dyeGrinderBurrsChanged)
+    // Active package's display name (read-only; defaults to "{brand} {model}").
+    // UI shows this instead of the raw grinder identity (add-equipment-packages).
+    Q_PROPERTY(QString dyeEquipmentName READ dyeEquipmentName NOTIFY dyeEquipmentNameChanged)
     Q_PROPERTY(QString dyeGrinderSetting READ dyeGrinderSetting WRITE setDyeGrinderSetting NOTIFY dyeGrinderSettingChanged)
     // Grinder rpm dial-in (add-equipment-packages); shown only when the active
     // package's grinder is rpmCapable. 0 = unset.
@@ -101,6 +104,8 @@ public:
 
     QString dyeGrinderBurrs() const;
     void setDyeGrinderBurrs(const QString& value);
+
+    QString dyeEquipmentName() const { return m_dyeEquipmentName; }
 
     QString dyeGrinderSetting() const;
     void setDyeGrinderSetting(const QString& value);
@@ -203,6 +208,7 @@ signals:
     void dyeGrinderBrandChanged();
     void dyeGrinderModelChanged();
     void dyeGrinderBurrsChanged();
+    void dyeEquipmentNameChanged();
     void dyeGrinderSettingChanged();
     void dyeGrinderRpmChanged();
     void activeEquipmentIdChanged();
@@ -257,6 +263,7 @@ private:
     mutable QString m_dyeGrinderBrandCache;
     mutable QString m_dyeGrinderModelCache;
     mutable QString m_dyeGrinderBurrsCache;
+    QString m_dyeEquipmentName;  // active package display name (resolved, not persisted)
     mutable QString m_dyeGrinderSettingCache;
     mutable int m_dyeGrinderRpmCache = 0;
     mutable double m_dyeBeanWeightCache = 18.0;

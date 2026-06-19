@@ -139,6 +139,16 @@ void SettingsDye::applyEquipmentIdentity(const QVariantMap& pkg)
     setDyeGrinderBrand(pkg.value("grinderBrand").toString());
     setDyeGrinderModel(pkg.value("grinderModel").toString());
     setDyeGrinderBurrs(pkg.value("grinderBurrs").toString());
+
+    // The package's display name (user-editable label; defaults to "{brand}
+    // {model}"). Surfaced so UI shows the package name, not the grinder identity.
+    QString name = pkg.value("name").toString().trimmed();
+    if (name.isEmpty())
+        name = (dyeGrinderBrand().trimmed() + QLatin1Char(' ') + dyeGrinderModel().trimmed()).trimmed();
+    if (m_dyeEquipmentName != name) {
+        m_dyeEquipmentName = name;
+        emit dyeEquipmentNameChanged();
+    }
 }
 
 // DYE metadata

@@ -2203,7 +2203,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                s.stopped_by, s.beanbase_json,
                s.bag_id, s.frozen_date, s.defrost_date,
                s.equipment_id, s.rpm,
-               ep.in_inventory, ep.superseded_by
+               ep.in_inventory, ep.superseded_by, ep.name
         FROM shots s
         LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder'
         LEFT JOIN equipment_packages ep ON ep.id = s.equipment_id
@@ -2271,6 +2271,11 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
         if (!inInventory)
             record.equipmentState = hasSuccessor ? QStringLiteral("older") : QStringLiteral("retired");
     }
+    // Package display name (col 43) — UI shows this rather than the raw grinder
+    // identity. Falls back to brand+model when the package has no custom name.
+    record.equipmentName = query.value(43).toString();
+    if (record.equipmentName.isEmpty())
+        record.equipmentName = (record.grinderBrand + QLatin1Char(' ') + record.grinderModel).trimmed();
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so
@@ -2544,6 +2549,7 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
         // setting equipmentId (the picker's package id); brand/model/burrs keys
         // are intentionally ignored. The grind setting stays a per-shot dial-in.
         {"grinderSetting",  "grinder_setting"},
+        {"rpm",             "rpm"},
         {"equipmentId",     "equipment_id"},
         {"drinkTds",        "drink_tds"},
         {"drinkEy",         "drink_ey"},

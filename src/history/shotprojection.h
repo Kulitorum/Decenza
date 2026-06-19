@@ -56,6 +56,9 @@ class ShotProjection {
     // "" = current/none, "older" = superseded by a newer package, "retired" =
     // out of inventory with no successor (add-equipment-packages 4b.7).
     Q_PROPERTY(QString equipmentState MEMBER equipmentState)
+    // Package display name (defaults to "{brand} {model}") — shown instead of the
+    // raw grinder identity.
+    Q_PROPERTY(QString equipmentName MEMBER equipmentName)
     Q_PROPERTY(double drinkTdsPct MEMBER drinkTdsPct)
     Q_PROPERTY(double drinkEyPct MEMBER drinkEyPct)
     Q_PROPERTY(QString espressoNotes MEMBER espressoNotes)
@@ -134,6 +137,7 @@ public:
     qint64 rpm = 0;
     qint64 equipmentId = 0;  // FK -> equipment_packages.id (add-equipment-packages); 0 = none
     QString equipmentState;  // "", "older", or "retired" (add-equipment-packages 4b.7)
+    QString equipmentName;   // package display name (default "{brand} {model}")
     double drinkTdsPct = 0.0;
     double drinkEyPct = 0.0;
     QString espressoNotes;

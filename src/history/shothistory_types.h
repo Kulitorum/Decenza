@@ -54,6 +54,8 @@ struct ShotRecord {
     // package superseded this one (copy-on-write fork), "retired" = removed from
     // inventory with no successor. Rendered as a muted qualifier in history.
     QString equipmentState;
+    // Package display name, resolved at load (defaults to "{brand} {model}").
+    QString equipmentName;
     double drinkTds = 0;
     double drinkEy = 0;
     QString espressoNotes;

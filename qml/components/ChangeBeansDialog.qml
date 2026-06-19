@@ -58,12 +58,18 @@ Dialog {
     // The bag points at a package via fEquipmentId; brand/model/burrs are the
     // resolved read-only display (refreshed via EquipmentStorage.packageReady).
     property string fGrinderSetting: ""
+    property string fRpm: ""           // grinder rpm dial-in (string form; "" = unset)
     property int fEquipmentId: -1
+    property string fEquipmentName: ""  // package display name (resolved via packageReady)
     property string fEquipmentBrand: ""
     property string fEquipmentModel: ""
     property string fEquipmentBurrs: ""
-    readonly property string fEquipmentLabel:
-        [fEquipmentBrand, fEquipmentModel].filter(function(s){ return s && s.length > 0 }).join(" ")
+    readonly property bool fEquipmentRpmCapable:
+        Settings.dye.grinderRpmCapable(fEquipmentBrand, fEquipmentModel)
+    // Display the package name (defaults to "{brand} {model}").
+    readonly property string fEquipmentLabel: fEquipmentName.length > 0
+        ? fEquipmentName
+        : [fEquipmentBrand, fEquipmentModel].filter(function(s){ return s && s.length > 0 }).join(" ")
     property string fDose: ""         // text form; "" = unset
     property string fYield: ""
     property string fNotes: ""
@@ -185,7 +191,8 @@ Dialog {
         fBeanBaseId = ""; fBeanBaseData = ""
         fLinkDirty = false
         fGrinderSetting = ""
-        fEquipmentId = -1; fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
+        fEquipmentId = -1; fEquipmentName = ""; fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
+        fRpm = ""
         fDose = ""; fYield = ""; fNotes = ""
         fFreeze = false; fFrozenDate = ""; fDefrostDate = ""
         identityKnown = false
@@ -200,9 +207,10 @@ Dialog {
         fBeanBaseData = bag.beanBaseData || ""
         fGrinderSetting = bag.grinderSetting || ""
         fEquipmentId = bag.equipmentId || -1
-        // Resolve the package's grinder identity for the read-only label
-        // (packageReady fills fEquipmentBrand/Model/Burrs below).
-        fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
+        fRpm = (bag.rpm ?? 0) > 0 ? String(bag.rpm) : ""
+        // Resolve the package's name + grinder identity for the read-only label
+        // (packageReady fills fEquipmentName/Brand/Model/Burrs below).
+        fEquipmentName = ""; fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
         if (fEquipmentId > 0 && MainController.equipmentStorage)
             MainController.equipmentStorage.requestPackage(fEquipmentId)
         // toFixed(1) (not String()) so a non-exact double like 37.8 prefills as
@@ -337,6 +345,7 @@ Dialog {
             "beanBaseId": fBeanBaseId,
             "beanBaseData": fBeanBaseData,
             "grinderSetting": fGrinderSetting.trim(),
+            "rpm": parseInt(fRpm) || 0,
             "doseWeightG": parseWeight(fDose),
             "yieldOverrideG": parseWeight(fYield),
             "notes": fNotes,
@@ -390,6 +399,9 @@ Dialog {
                 MainController.equipmentStorage.requestPackage(packageId)
         }
     }
+    EquipmentInfoDialog {
+        id: bagEquipmentInfoDialog
+    }
     Connections {
         target: MainController.equipmentStorage
         // Fills the read-only label for whichever package this bag now points at
@@ -399,6 +411,7 @@ Dialog {
             root.fEquipmentBrand = pkg.grinderBrand || ""
             root.fEquipmentModel = pkg.grinderModel || ""
             root.fEquipmentBurrs = pkg.grinderBurrs || ""
+            root.fEquipmentName = (pkg.name && String(pkg.name).length > 0) ? String(pkg.name) : ""
         }
     }
 
@@ -1059,9 +1072,25 @@ Dialog {
                         }
                     }
 
-                    // Equipment package (read-only identity + re-point button).
-                    // Grinder brand/model/burrs are owned by the package, not the
-                    // bag; tap Switch/Add to point this bag at a different package.
+                    // RPM dial-in — only when the bag's grinder is rpm-adjustable.
+                    FieldRow {
+                        labelKey: "changebeans.form.rpm"
+                        labelFallback: "RPM:"
+                        visible: root.fEquipmentRpmCapable
+
+                        StyledTextField {
+                            Layout.fillWidth: true
+                            text: root.fRpm
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            accessibleName: TranslationManager.translate("changebeans.form.rpm.accessible", "Grinder rpm")
+                            onTextEdited: root.fRpm = text
+                        }
+                    }
+
+                    // Equipment package (read-only NAME + info + re-point button).
+                    // Grinder identity is owned by the package, not the bag; tap
+                    // Switch/Add to point this bag at a different package, or the
+                    // info button to see the package's contents.
                     FieldRow {
                         labelKey: "changebeans.form.equipment"
                         labelFallback: "Equipment:"
@@ -1071,12 +1100,17 @@ Dialog {
                             elide: Text.ElideRight
                             text: root.fEquipmentLabel.length > 0
                                   ? root.fEquipmentLabel
-                                        + (root.fEquipmentBurrs.length > 0 ? " · " + root.fEquipmentBurrs : "")
                                   : TranslationManager.translate("changebeans.form.equipmentNotSet", "Not set")
                             font: Theme.bodyFont
                             color: root.fEquipmentLabel.length > 0 ? Theme.textColor : Theme.textSecondaryColor
                             Accessible.role: Accessible.StaticText
                             Accessible.name: TranslationManager.translate("changebeans.form.equipment", "Equipment:") + " " + text
+                        }
+                        AccessibleButton {
+                            visible: root.fEquipmentId > 0
+                            icon.source: "qrc:/icons/info.svg"
+                            accessibleName: TranslationManager.translate("equipment.info.button", "Equipment details")
+                            onClicked: bagEquipmentInfoDialog.openFor(root.fEquipmentId)
                         }
                         AccessibleButton {
                             text: root.fEquipmentLabel.length > 0
