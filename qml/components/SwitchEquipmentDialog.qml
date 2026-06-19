@@ -156,25 +156,26 @@ Dialog {
             Repeater {
                 model: root.packages
                 AccessibleButton {
-                    // Read the package by index from the source array rather than
-                    // modelData: inside this Dialog-content delegate modelData did
-                    // not resolve the QVariantMap (rows rendered blank). index is
-                    // always valid; guard against the transient reassignment window.
-                    readonly property var pkg: (root.packages && index >= 0 && index < root.packages.length)
-                                               ? root.packages[index] : null
+                    // Declare modelData required so the Repeater assigns the
+                    // QVariantMap element: inside this Dialog-content delegate the
+                    // implicit context modelData/index did NOT resolve (rows
+                    // rendered blank; index threw ReferenceError). A required
+                    // property is bound by the view, so pkg gets the real package.
+                    required property var modelData
+                    readonly property var pkg: modelData || ({})
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(44)
-                    primary: !!pkg && pkg.id === Settings.dye.activeEquipmentId
+                    primary: !!modelData && pkg.id === Settings.dye.activeEquipmentId
                     text: root.packageTitle(pkg)
-                          + (pkg && pkg.grinderBurrs && String(pkg.grinderBurrs).length > 0
+                          + (pkg.grinderBurrs && String(pkg.grinderBurrs).length > 0
                              ? " · " + pkg.grinderBurrs : "")
-                    accessibleName: text + (!!pkg && pkg.id === Settings.dye.activeEquipmentId
+                    accessibleName: text + (!!modelData && pkg.id === Settings.dye.activeEquipmentId
                                             ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                     onClicked: {
-                        if (!pkg || pkg.id === undefined) return
+                        if (!modelData) return
                         if (root.applyToActiveBag)
-                            Settings.dye.switchToEquipment(pkg)
-                        root.packageSaved(pkg.id)
+                            Settings.dye.switchToEquipment(modelData)
+                        root.packageSaved(modelData.id)
                         root.close()
                     }
                 }
