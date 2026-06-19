@@ -481,6 +481,7 @@ private slots:
         shot.doseWeightG = 20.0;
         shot.roastLevel = QStringLiteral("Dark");
         shot.roastDate = QStringLiteral("2026-03-30");
+        shot.rpm = 1400;  // variable-RPM grind axis must reach currentBean
 
         // In-app advisor surface: through ShotSummarizer::buildUserPromptObject
         // off summarizeFromHistory(shot).
@@ -502,11 +503,16 @@ private slots:
         in.grinderModel = shot.grinderModel;
         in.grinderBurrs = shot.grinderBurrs;
         in.grinderSetting = shot.grinderSetting;
+        in.rpm = static_cast<int>(shot.rpm);
         in.doseWeightG = shot.doseWeightG;
         const QJsonObject mcpCurrentBean = DialingBlocks::buildCurrentBeanBlock(in);
 
         // The contract: byte-equivalent JSON for the same shot.
         QCOMPARE(inAppCurrentBean, mcpCurrentBean);
+
+        // The grinder RPM reaches currentBean on both surfaces (a second grind
+        // axis the advisor needs for variable-RPM grinders).
+        QCOMPARE(inAppCurrentBean.value(QStringLiteral("rpm")).toInt(), 1400);
 
         // Spot-check the shot values won the source-of-truth contest
         // against the live DYE values, on both surfaces.
