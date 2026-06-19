@@ -26,7 +26,7 @@
 
 ## 5. Verification
 - [x] 5.1 Quick compile check via Qt Creator MCP; run equipment / dbmigration / dialing_blocks / mcptools_write suites
-- [ ] 5.2 Live (simulation) end-to-end: set puck-prep flags on a package via `equipment_update`, pull a simulated shot on it, confirm `dialing_get_context` carries `currentBean.puckPrep` with the right `distribution`; clean up
+- [~] 5.2 Live (simulation) end-to-end. WRITE path confirmed live — `equipment_list` shows `puckPrep` (flags + derived `distribution`) on the active Niche Zero package, set via the UI. DIALING path covered by the `buildCurrentBeanBlock` unit test (the shared helper `dialing_get_context` uses). The live-shot leg (pull a simulated shot → confirm `currentBean.puckPrep`) was declined by the user, so left as a manual check.
 
 ## 6. Follow-ons (NOT in this change — tracked here)
 - [ ] 6.1 Tamper (base shape flat/convex/ripple) as one enum field on the puck-prep item
