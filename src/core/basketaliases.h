@@ -293,8 +293,9 @@ inline const BasketEntry* findEntryByAlias(const QString& raw)
     return r.found ? findEntry(r.brand, r.model) : nullptr;
 }
 
-// Build a compact, AI-facing summary of a basket's brewing-relevant traits,
-// e.g. "58mm straight-wall precision, open flow, 17-19g, 641 holes @300µm".
+// Build a compact, AI-facing summary of a basket's brewing-relevant traits.
+// e.g. the Pesado HE row renders as:
+//   "58mm, straight-wall, precision, open flow, 17-19g, 715 holes @300µm".
 // Empty/zero fields are omitted so unpublished specs don't read as zeros, and
 // the "standard" flow class is omitted (it's the unremarkable default).
 inline QString summary(const BasketEntry& b)
