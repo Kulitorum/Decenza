@@ -188,6 +188,10 @@ struct CurrentBeanBlockInputs {
     QString grinderModel;
     QString grinderBurrs;
     QString grinderSetting;
+    // Grinder RPM the shot was ground at (0 = unset / not an adjustable-RPM
+    // grinder). A second grind axis alongside grinderSetting on variable-RPM
+    // grinders — surfaced so the advisor can qualify numeric recommendations.
+    int rpm = 0;
     double doseWeightG = 0;
     // Compact-JSON linked-bean snapshot ("" = unlinked, Visualizer canonical
     // or Bean Base sourced). Parsed into a
@@ -210,6 +214,9 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
     bean["grinderModel"] = in.grinderModel;
     bean["grinderBurrs"] = in.grinderBurrs;
     bean["grinderSetting"] = in.grinderSetting;
+    // Only emit rpm when set, so non-adjustable grinders don't carry a noisy 0.
+    if (in.rpm > 0)
+        bean["rpm"] = in.rpm;
     bean["doseWeightG"] = in.doseWeightG;
 
     const QJsonObject freshness = DialingHelpers::buildBeanFreshness(in.roastDate);

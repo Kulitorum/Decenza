@@ -142,11 +142,18 @@ QVariantList UnifiedBeanSearchModel::queryHistoryStatic(QSqlDatabase& db, const 
     QSqlQuery query(db);
     // SQLite guarantees bare columns accompany the MAX() row, so the grinder/
     // dose values come from each coffee's most recent shot.
+    // Grinder identity resolves through each shot's equipment_id pointer (the
+    // per-shot grinder_brand/model/burrs columns are dropped in migration 23,
+    // add-equipment-packages task 4.1); the JOINed grinder item rides along the
+    // MAX(timestamp) row the same way the bare shot columns do. burrs is in the
+    // item's attrs JSON blob; grinder_setting stays on the shot.
     query.prepare(QStringLiteral(
         "SELECT bean_brand, bean_type, beanbase_id, beanbase_json, roast_level, "
-        "       grinder_brand, grinder_model, grinder_burrs, grinder_setting, "
+        "       eg.brand AS grinder_brand, eg.model AS grinder_model, "
+        "       json_extract(eg.attrs, '$.burrs') AS grinder_burrs, grinder_setting, "
         "       dose_weight, yield_override, MAX(timestamp) AS last_ts "
-        "FROM shots "
+        "FROM shots s "
+        "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
         "WHERE (COALESCE(bean_brand,'') <> '' OR COALESCE(bean_type,'') <> '') "
         "  AND (:filter = '' OR bean_brand LIKE :like OR bean_type LIKE :like) "
         "GROUP BY COALESCE(beanbase_id, LOWER(COALESCE(bean_brand,'')) || '|' || LOWER(COALESCE(bean_type,''))) "

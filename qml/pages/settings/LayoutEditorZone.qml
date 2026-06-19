@@ -393,6 +393,7 @@ Rectangle {
                         model: [
                             // Actions & readouts (white)
                             { type: "beans", label: TranslationManager.translate("layoutEditor.widgetBeans", "Beans") },
+                            { type: "equipment", label: TranslationManager.translate("layoutEditor.widgetEquipment", "Equipment") },
                             { type: "connectionStatus", label: TranslationManager.translate("layoutEditor.widgetConnection", "Connection") },
                             { type: "espresso", label: TranslationManager.translate("layoutEditor.widgetEspresso", "Espresso") },
                             { type: "autofavorites", label: TranslationManager.translate("layoutEditor.widgetFavorites", "Favorites") },
@@ -529,6 +530,7 @@ Rectangle {
             "hotwater": TranslationManager.translate("layoutEditor.chipHotWater", "Hot Water"),
             "flush": TranslationManager.translate("layoutEditor.chipFlush", "Flush"),
             "beans": TranslationManager.translate("layoutEditor.chipBeans", "Beans"),
+            "equipment": TranslationManager.translate("layoutEditor.chipEquipment", "Equipment"),
             "history": TranslationManager.translate("layoutEditor.chipHistory", "History"),
             "autofavorites": TranslationManager.translate("layoutEditor.chipFavorites", "Favorites"),
             "sleep": TranslationManager.translate("layoutEditor.chipSleep", "Sleep"),

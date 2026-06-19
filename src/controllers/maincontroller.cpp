@@ -201,6 +201,13 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         m_settings->dye()->setActiveBagId(static_cast<int>(m_shotHistory->migratedActiveBagId()));
     m_settings->dye()->setBagStorage(m_bagStorage);
 
+    // Equipment storage shares the same database (equipment_packages +
+    // equipment_items tables, created by migration 22). Switchable grinder
+    // packages the active bag points at via equipment_id.
+    m_equipmentStorage = new EquipmentStorage(this);
+    m_equipmentStorage->initialize(m_shotHistory->databasePath());
+    m_settings->dye()->setEquipmentStorage(m_equipmentStorage);
+
     // Switching beans resets the brew overrides to the active profile's
     // defaults — a new coffee starts from the profile + bean baseline, not
     // the previous coffee's manual tweaks (the bag's own dose is applied by
@@ -2005,6 +2012,8 @@ void MainController::onShotEnded() {
     metadata.grinderModel = m_settings->dye()->dyeGrinderModel();
     metadata.grinderBurrs = m_settings->dye()->dyeGrinderBurrs();
     metadata.grinderSetting = m_settings->dye()->dyeGrinderSetting();
+    metadata.equipmentId = m_settings->dye()->activeEquipmentId();
+    metadata.rpm = m_settings->dye()->dyeGrinderRpm();
     metadata.beanWeight = m_settings->dye()->dyeBeanWeight();
     metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
     metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
@@ -2253,6 +2262,8 @@ void MainController::uploadPendingShot() {
     metadata.grinderModel = m_settings->dye()->dyeGrinderModel();
     metadata.grinderBurrs = m_settings->dye()->dyeGrinderBurrs();
     metadata.grinderSetting = m_settings->dye()->dyeGrinderSetting();
+    metadata.equipmentId = m_settings->dye()->activeEquipmentId();
+    metadata.rpm = m_settings->dye()->dyeGrinderRpm();
     metadata.beanWeight = m_settings->dye()->dyeBeanWeight();
     metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
     metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
@@ -2407,6 +2418,8 @@ void MainController::generateFakeShotData() {
             metadata.grinderModel = m_settings->dye()->dyeGrinderModel();
             metadata.grinderBurrs = m_settings->dye()->dyeGrinderBurrs();
             metadata.grinderSetting = m_settings->dye()->dyeGrinderSetting();
+            metadata.equipmentId = m_settings->dye()->activeEquipmentId();
+            metadata.rpm = m_settings->dye()->dyeGrinderRpm();
             metadata.beanWeight = m_pendingShotDoseWeight;
             metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
             metadata.drinkTds = m_settings->dye()->dyeDrinkTds();

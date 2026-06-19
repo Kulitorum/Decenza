@@ -30,11 +30,16 @@ Dialog {
     property double profileTargetWeight: ProfileManager.profileTargetWeight
     property bool targetManuallySet: false
 
-    // Grinder fields
-    property string grinderBrand: ""
-    property string grinderModel: ""
-    property string grinderBurrs: ""
+    // Equipment (read-only, resolved from the active package via SettingsDye) +
+    // the dial-in fields that live in Brew Settings (grind setting + rpm).
+    readonly property string equipmentBrand: Settings.dye.dyeGrinderBrand
+    readonly property string equipmentModel: Settings.dye.dyeGrinderModel
+    readonly property bool equipmentRpmCapable: Settings.dye.grinderRpmCapable(equipmentBrand, equipmentModel)
+    // Show the package's display name (defaults to "{brand} {model}"), not the
+    // raw grinder identity (add-equipment-packages).
+    readonly property string equipmentLabel: Settings.dye.dyeEquipmentName
     property string grindSetting: ""
+    property int grindRpm: 0
 
     // Profile
     property string selectedProfileTitle: ""
@@ -60,44 +65,10 @@ Dialog {
         }
     }
 
-    function getGrinderBrandSuggestions() {
-        var history = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderBrands() : []
-        var known = Settings.dye.knownGrinderBrands()
-        var merged = history.slice()
-        for (var i = 0; i < known.length; i++) {
-            if (merged.indexOf(known[i]) < 0) merged.push(known[i])
-        }
-        return merged
-    }
-
-    function getGrinderModelSuggestions() {
-        var history = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderModelsForBrand(root.grinderBrand) : []
-        var known = Settings.dye.knownGrinderModels(root.grinderBrand)
-        var merged = history.slice()
-        for (var i = 0; i < known.length; i++) {
-            if (merged.indexOf(known[i]) < 0) merged.push(known[i])
-        }
-        return merged
-    }
-
-    function getGrinderBurrsSuggestions() {
-        var known = Settings.dye.suggestedBurrs(root.grinderBrand, root.grinderModel)
-        // Non-swappable grinders (e.g. Niche Duo) ship with fixed burrs — don't
-        // pollute the suggestion list with stale history entries from a different
-        // grinder model on the same brand.
-        if (!Settings.dye.isBurrSwappable(root.grinderBrand, root.grinderModel)) {
-            return known
-        }
-        var history = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderBurrsForModel(root.grinderBrand, root.grinderModel) : []
-        var merged = history.slice()
-        for (var i = 0; i < known.length; i++) {
-            if (merged.indexOf(known[i]) < 0) merged.push(known[i])
-        }
-        return merged
-    }
-
+    // Grinder identity is now chosen via the Switch Equipment dialog, so only the
+    // grind-setting field keeps a suggestion list (scoped to the active grinder).
     function getGrinderSettingSuggestions() {
-        var suggestions = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(root.grinderModel) : []
+        var suggestions = MainController.shotHistory ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(root.equipmentModel) : []
         if (Settings.dye.dyeGrinderSetting.length > 0 && suggestions.indexOf(Settings.dye.dyeGrinderSetting) === -1) {
             suggestions.unshift(Settings.dye.dyeGrinderSetting)
         }
@@ -155,12 +126,12 @@ Dialog {
         profileTargetWeight = ProfileManager.profileTargetWeight
         temperatureValue = Settings.brew.hasTemperatureOverride ? Settings.brew.temperatureOverride : profileTemperature
 
-        // Use DYE fields for dose and grind (source of truth)
+        // Use DYE fields for dose and grind (source of truth). Grinder identity
+        // is read-only here (resolved from the active package); only the dial-in
+        // (grind setting + rpm) is editable.
         doseValue = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
-        grinderBrand = Settings.dye.dyeGrinderBrand
-        grinderModel = Settings.dye.dyeGrinderModel
-        grinderBurrs = Settings.dye.dyeGrinderBurrs
         grindSetting = Settings.dye.dyeGrinderSetting
+        grindRpm = Settings.dye.dyeGrinderRpm
         selectedProfileTitle = ProfileManager.currentProfileName
         originalProfileFilename = Settings.app.currentProfile
         showScaleWarning = false
@@ -169,6 +140,14 @@ Dialog {
         targetValue = Settings.brew.hasBrewYieldOverride ? Settings.brew.brewYieldOverride : profileTargetWeight
         ratio = doseValue > 0 ? targetValue / doseValue : Settings.brew.lastUsedRatio
         targetManuallySet = Settings.brew.hasBrewYieldOverride
+    }
+
+    SwitchEquipmentDialog {
+        id: switchEquipmentDialog
+    }
+
+    EquipmentInfoDialog {
+        id: equipmentInfoDialog
     }
 
     background: Rectangle {
@@ -186,8 +165,7 @@ Dialog {
         inOverlay: true
         textFields: [
             profileInput.textField,
-            grinderBrandInput.textField, grinderModelInput.textField,
-            grinderBurrsInput.textField, grindInput.textField
+            grindInput.textField, rpmInput
         ]
         targetFlickable: brewFlickable
 
@@ -607,13 +585,14 @@ Dialog {
                 }
             }
 
-            // Grinder brand and model
+            // Equipment package (read-only) + Switch Equipment button. Identity
+            // is managed in the Equipment window / Switch dialog, not edited here.
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(4)
 
                 Text {
-                    text: TranslationManager.translate("brewDialog.grinderLabel", "Grinder:")
+                    text: TranslationManager.translate("brewDialog.equipmentLabel", "Equipment:")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignVCenter
@@ -621,73 +600,50 @@ Dialog {
                     Accessible.ignored: true
                 }
 
-                SuggestionField {
-                    id: grinderBrandInput
+                Text {
                     Layout.fillWidth: true
-                    Layout.preferredWidth: Theme.scaled(120)
-                    label: ""
-                    accessibleName: TranslationManager.translate("brewDialog.grinderBrand", "Grinder brand")
-                    text: root.grinderBrand
-                    suggestions: _distinctCacheVersion >= 0 ? root.getGrinderBrandSuggestions() : []
-                    onTextEdited: function(t) { root.grinderBrand = t }
-                    onSuggestionSelected: function(t) {
-                        root.grinderModel = ""
-                        root.grinderBurrs = ""
-                        var models = Settings.dye.knownGrinderModels(t)
-                        if (models.length === 1) {
-                            root.grinderModel = models[0]
-                            var burrs = Settings.dye.suggestedBurrs(t, models[0])
-                            if (burrs.length === 1) root.grinderBurrs = burrs[0]
-                        }
-                    }
+                    text: root.equipmentLabel.length > 0
+                          ? root.equipmentLabel
+                          : TranslationManager.translate("brewDialog.equipmentNotSet", "Not set")
+                    font: Theme.bodyFont
+                    color: root.equipmentLabel.length > 0 ? Theme.textColor : Theme.textSecondaryColor
+                    elide: Text.ElideRight
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: TranslationManager.translate("brewDialog.equipmentAccessible", "Equipment: %1").arg(
+                        root.equipmentLabel.length > 0 ? root.equipmentLabel
+                        : TranslationManager.translate("brewDialog.equipmentNotSet", "Not set"))
                 }
 
-                SuggestionField {
-                    id: grinderModelInput
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: Theme.scaled(120)
-                    label: ""
-                    accessibleName: TranslationManager.translate("brewDialog.grinderModel", "Grinder model")
-                    text: root.grinderModel
-                    suggestions: _distinctCacheVersion >= 0 ? root.getGrinderModelSuggestions() : []
-                    onTextEdited: function(t) { root.grinderModel = t }
-                    onSuggestionSelected: function(t) {
-                        var burrs = Settings.dye.suggestedBurrs(root.grinderBrand, t)
-                        if (burrs.length === 1) root.grinderBurrs = burrs[0]
-                    }
+                // Info: show the active package's full contents.
+                AccessibleButton {
+                    Layout.preferredHeight: Theme.scaled(40)
+                    visible: Settings.dye.activeEquipmentId > 0
+                    icon.source: "qrc:/icons/info.svg"
+                    accessibleName: TranslationManager.translate("equipment.info.button", "Equipment details")
+                    onClicked: equipmentInfoDialog.openFor(Settings.dye.activeEquipmentId)
+                }
+
+                AccessibleButton {
+                    Layout.preferredHeight: Theme.scaled(40)
+                    text: root.equipmentLabel.length > 0
+                          ? TranslationManager.translate("brewDialog.switchEquipment", "Switch")
+                          : TranslationManager.translate("brewDialog.addEquipment", "Add")
+                    accessibleName: TranslationManager.translate("brewDialog.switchEquipmentAccessible", "Switch equipment package")
+                    onClicked: switchEquipmentDialog.openPicker()
                 }
             }
 
-            // Burrs and setting
+            // Grind setting (+ rpm when the grinder is rpm-adjustable) — dial-in
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(4)
 
                 Text {
-                    text: TranslationManager.translate("brewDialog.burrsLabel", "Burrs:")
+                    text: TranslationManager.translate("brewDialog.grindLabel", "Grind:")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignVCenter
                     Layout.preferredWidth: Theme.scaled(75)
-                    Accessible.ignored: true
-                }
-
-                SuggestionField {
-                    id: grinderBurrsInput
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: Theme.scaled(120)
-                    label: ""
-                    accessibleName: TranslationManager.translate("brewDialog.grinderBurrs", "Grinder burrs")
-                    text: root.grinderBurrs
-                    suggestions: _distinctCacheVersion >= 0 ? root.getGrinderBurrsSuggestions() : []
-                    onTextEdited: function(t) { root.grinderBurrs = t }
-                }
-
-                Text {
-                    text: "@"
-                    font: Theme.bodyFont
-                    color: Theme.textSecondaryColor
-                    Layout.alignment: Qt.AlignVCenter
                     Accessible.ignored: true
                 }
 
@@ -700,6 +656,25 @@ Dialog {
                     text: root.grindSetting
                     suggestions: _distinctCacheVersion >= 0 ? root.getGrinderSettingSuggestions() : []
                     onTextEdited: function(t) { root.grindSetting = t }
+                }
+
+                Text {
+                    visible: root.equipmentRpmCapable
+                    text: TranslationManager.translate("brewDialog.rpmLabel", "RPM:")
+                    font: Theme.bodyFont
+                    color: Theme.textSecondaryColor
+                    Layout.alignment: Qt.AlignVCenter
+                    Accessible.ignored: true
+                }
+
+                StyledTextField {
+                    id: rpmInput
+                    visible: root.equipmentRpmCapable
+                    Layout.preferredWidth: Theme.scaled(80)
+                    inputMethodHints: Qt.ImhDigitsOnly
+                    text: root.grindRpm > 0 ? String(root.grindRpm) : ""
+                    Accessible.name: TranslationManager.translate("brewDialog.rpmAccessible", "Grinder rpm")
+                    onTextEdited: root.grindRpm = parseInt(text) || 0
                 }
             }
         }
@@ -726,10 +701,8 @@ Dialog {
                     // Use the active bag's dose if available, otherwise default 18g
                     root.doseValue = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
                     root.selectedProfileTitle = ProfileManager.currentProfileName
-                    root.grinderBrand = Settings.dye.dyeGrinderBrand
-                    root.grinderModel = Settings.dye.dyeGrinderModel
-                    root.grinderBurrs = Settings.dye.dyeGrinderBurrs
                     root.grindSetting = Settings.dye.dyeGrinderSetting
+                    root.grindRpm = Settings.dye.dyeGrinderRpm
 
                     // Calculate ratio from profile target weight / dose
                     var profileTarget = ProfileManager.profileTargetWeight
@@ -783,10 +756,10 @@ Dialog {
                 onClicked: {
                     Qt.inputMethod.commit()
                     Settings.brew.lastUsedRatio = root.ratio
-                    Settings.dye.dyeGrinderBrand = root.grinderBrand
-                    Settings.dye.dyeGrinderModel = root.grinderModel
-                    Settings.dye.dyeGrinderBurrs = root.grinderBurrs
+                    // Grinder identity is managed via Switch Equipment; only the
+                    // dial-in (grind setting + rpm) is saved from here.
                     Settings.dye.dyeGrinderSetting = root.grindSetting
+                    Settings.dye.dyeGrinderRpm = root.grindRpm
                     // Use the new activateBrewWithOverrides method
                     ProfileManager.activateBrewWithOverrides(
                         root.doseValue,

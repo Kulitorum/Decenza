@@ -122,10 +122,13 @@ const BagCol kCols[] = {
     COL_STR  ("notes",                 notes,               true),
     COL_DBL  ("start_weight_g",        startWeightG),
     COL_BOOL ("in_inventory",          inInventory),
-    COL_STR  ("grinder_brand",         grinderBrand,        false),
-    COL_STR  ("grinder_model",         grinderModel,        false),
-    COL_STR  ("grinder_burrs",         grinderBurrs,        false),
+    // Grinder identity (brand/model/burrs) is no longer stored on the bag —
+    // it resolves through equipment_id to the package's grinder item
+    // (migration 23 dropped the columns). The grind setting + rpm stay as the
+    // bag's bean-scoped dial memory.
     COL_STR  ("grinder_setting",       grinderSetting,      false),
+    COL_EPOCH("equipment_id",          equipmentId),
+    COL_EPOCH("rpm",                   rpm),
     COL_DBL  ("dose_weight_g",         doseWeightG),
     COL_DBL  ("yield_override_g",      yieldOverrideG),
     COL_STR  ("visualizer_bag_id",     visualizerBagId,     false),
@@ -391,10 +394,16 @@ bool CoffeeBagStorage::ensureTableStatic(QSqlDatabase& db)
             notes TEXT,
             start_weight_g REAL,
             in_inventory INTEGER NOT NULL DEFAULT 1,
+            -- Grinder identity columns are created here for the migration chain
+            -- (migration 22 reads them to seed equipment packages) and dropped by
+            -- migration 23 once identity resolves via equipment_id. Runtime
+            -- reads/writes go through kCols, which no longer lists them.
             grinder_brand TEXT,
             grinder_model TEXT,
             grinder_burrs TEXT,
             grinder_setting TEXT,
+            equipment_id INTEGER,
+            rpm INTEGER,
             dose_weight_g REAL,
             yield_override_g REAL,
             visualizer_bag_id TEXT,
@@ -459,7 +468,24 @@ CoffeeBag CoffeeBagStorage::loadBagStatic(QSqlDatabase& db, qint64 bagId)
     query.bindValue(":id", bagId);
     if (!query.exec() || !query.next())
         return CoffeeBag();
-    return bagFromQueryRow(query);
+    CoffeeBag bag = bagFromQueryRow(query);
+    // Materialize the read-only grinder identity from the bag's equipment package
+    // (the bag no longer stores brand/model/burrs — migration 23). Keeps the
+    // CoffeeBag display-cache fields useful for consumers like MCP bag_list;
+    // burrs lives in the grinder item's attrs JSON. Self-contained so there's no
+    // dependency on EquipmentStorage. NULL equipment_id leaves the fields empty.
+    if (bag.equipmentId > 0) {
+        QSqlQuery gi(db);
+        gi.prepare("SELECT brand, model, json_extract(attrs, '$.burrs') FROM equipment_items "
+                   "WHERE package_id = :id AND kind = 'grinder' LIMIT 1");
+        gi.bindValue(":id", bag.equipmentId);
+        if (gi.exec() && gi.next()) {
+            bag.grinderBrand = gi.value(0).toString();
+            bag.grinderModel = gi.value(1).toString();
+            bag.grinderBurrs = gi.value(2).toString();
+        }
+    }
+    return bag;
 }
 
 QVector<InventoryBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db)
@@ -564,9 +590,9 @@ CoffeeBag CoffeeBagStorage::bagFromLegacyPreset(const QJsonObject& preset)
     bag.roastLevel = preset.value("roastLevel").toString();
     bag.beanBaseId = preset.value("beanBaseId").toString();
     bag.beanBaseData = preset.value("beanBaseData").toString();
-    bag.grinderBrand = preset.value("grinderBrand").toString();
-    bag.grinderModel = preset.value("grinderModel").toString();
-    bag.grinderBurrs = preset.value("grinderBurrs").toString();
+    // Grinder identity is no longer a bag column (migration 23) — it resolves
+    // through equipment_id. Legacy presets predate the equipment model and carry
+    // no package linkage, so only the grind setting is carried across.
     bag.grinderSetting = preset.value("grinderSetting").toString();
     bag.inInventory = true;
 
@@ -744,7 +770,8 @@ qint64 CoffeeBagStorage::convertLegacyPresetSettings(const QString& dbPath)
 }
 
 bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
-                                        QHash<qint64, qint64>& outIdMap)
+                                        QHash<qint64, qint64>& outIdMap,
+                                        const QHash<qint64, qint64>& packageIdMap)
 {
     // Pre-migration-19 source: no coffee_bags table, nothing to import.
     {
@@ -770,7 +797,12 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
 
     int imported = 0, matched = 0;
     while (srcBags.next()) {
-        const CoffeeBag bag = bagFromQueryRow(srcBags);
+        CoffeeBag bag = bagFromQueryRow(srcBags);
+        // Remap the source equipment_id to the imported package's new dest id
+        // (add-equipment-packages task 2.8). A source id absent from the map
+        // (older source with no equipment tables, or an unmatched package)
+        // becomes 0 -> NULL. rpm (a plain dial-in number) carries fine as-is.
+        bag.equipmentId = packageIdMap.value(bag.equipmentId, 0);
 
         qint64 destId = -1;
         if (merge) {

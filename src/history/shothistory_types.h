@@ -47,6 +47,15 @@ struct ShotRecord {
     QString grinderModel;
     QString grinderBurrs;
     QString grinderSetting;
+    qint64 equipmentId = 0;  // FK -> equipment_packages.id (add-equipment-packages); 0 = none
+    qint64 rpm = 0;          // grinder rpm dial-in; 0 = unset
+    // Lineage state of the shot's equipment package, resolved at load (add-
+    // equipment-packages 4b.7): "" = current or no equipment, "older" = a newer
+    // package superseded this one (copy-on-write fork), "retired" = removed from
+    // inventory with no successor. Rendered as a muted qualifier in history.
+    QString equipmentState;
+    // Package display name, resolved at load (defaults to "{brand} {model}").
+    QString equipmentName;
     double drinkTds = 0;
     double drinkEy = 0;
     QString espressoNotes;
@@ -233,6 +242,8 @@ struct ShotSaveData {
     QString grinderModel;
     QString grinderBurrs;
     QString grinderSetting;
+    qint64 equipmentId = 0;  // FK -> equipment_packages.id (add-equipment-packages); 0 = none
+    qint64 rpm = 0;          // grinder rpm dial-in; 0 = unset
     double drinkTds = 0;
     double drinkEy = 0;
     int espressoEnjoyment = 0;

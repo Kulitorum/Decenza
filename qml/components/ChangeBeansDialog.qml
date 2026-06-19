@@ -53,10 +53,23 @@ Dialog {
     // True when the user linked/unlinked Bean Base in this edit session —
     // Save then propagates the bag's link to all its shots.
     property bool fLinkDirty: false
-    property string fGrinderBrand: ""
-    property string fGrinderModel: ""
-    property string fGrinderBurrs: ""
+    // Grinder identity (brand/model/burrs) is owned by the equipment package, not
+    // the bag (add-equipment-packages); only the grind-setting dial-in stays here.
+    // The bag points at a package via fEquipmentId; brand/model/burrs are the
+    // resolved read-only display (refreshed via EquipmentStorage.packageReady).
     property string fGrinderSetting: ""
+    property string fRpm: ""           // grinder rpm dial-in (string form; "" = unset)
+    property int fEquipmentId: -1
+    property string fEquipmentName: ""  // package display name (resolved via packageReady)
+    property string fEquipmentBrand: ""
+    property string fEquipmentModel: ""
+    property string fEquipmentBurrs: ""
+    readonly property bool fEquipmentRpmCapable:
+        Settings.dye.grinderRpmCapable(fEquipmentBrand, fEquipmentModel)
+    // Display the package name (defaults to "{brand} {model}").
+    readonly property string fEquipmentLabel: fEquipmentName.length > 0
+        ? fEquipmentName
+        : [fEquipmentBrand, fEquipmentModel].filter(function(s){ return s && s.length > 0 }).join(" ")
     property string fDose: ""         // text form; "" = unset
     property string fYield: ""
     property string fNotes: ""
@@ -177,7 +190,9 @@ Dialog {
         fRoaster = ""; fCoffee = ""; fRoastDate = ""; fRoastLevel = ""
         fBeanBaseId = ""; fBeanBaseData = ""
         fLinkDirty = false
-        fGrinderBrand = ""; fGrinderModel = ""; fGrinderBurrs = ""; fGrinderSetting = ""
+        fGrinderSetting = ""
+        fEquipmentId = -1; fEquipmentName = ""; fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
+        fRpm = ""
         fDose = ""; fYield = ""; fNotes = ""
         fFreeze = false; fFrozenDate = ""; fDefrostDate = ""
         identityKnown = false
@@ -190,10 +205,14 @@ Dialog {
         fRoastLevel = bag.roastLevel || ""
         fBeanBaseId = bag.beanBaseId ? String(bag.beanBaseId) : ""
         fBeanBaseData = bag.beanBaseData || ""
-        fGrinderBrand = bag.grinderBrand || ""
-        fGrinderModel = bag.grinderModel || ""
-        fGrinderBurrs = bag.grinderBurrs || ""
         fGrinderSetting = bag.grinderSetting || ""
+        fEquipmentId = bag.equipmentId || -1
+        fRpm = (bag.rpm ?? 0) > 0 ? String(bag.rpm) : ""
+        // Resolve the package's name + grinder identity for the read-only label
+        // (packageReady fills fEquipmentName/Brand/Model/Burrs below).
+        fEquipmentName = ""; fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
+        if (fEquipmentId > 0 && MainController.equipmentStorage)
+            MainController.equipmentStorage.requestPackage(fEquipmentId)
         // toFixed(1) (not String()) so a non-exact double like 37.8 prefills as
         // "37.8", not "37.800000000000004" — matching the brew-settings format.
         fDose = (bag.doseWeightG ?? 0) > 0 ? Number(bag.doseWeightG).toFixed(1) : ""
@@ -325,10 +344,8 @@ Dialog {
             "roastLevel": fRoastLevel,
             "beanBaseId": fBeanBaseId,
             "beanBaseData": fBeanBaseData,
-            "grinderBrand": fGrinderBrand.trim(),
-            "grinderModel": fGrinderModel.trim(),
-            "grinderBurrs": fGrinderBurrs.trim(),
             "grinderSetting": fGrinderSetting.trim(),
+            "rpm": parseInt(fRpm) || 0,
             "doseWeightG": parseWeight(fDose),
             "yieldOverrideG": parseWeight(fYield),
             "notes": fNotes,
@@ -336,13 +353,22 @@ Dialog {
         }
         if (formMode === "edit") {
             fields["defrostDate"] = fFreeze ? (fDefrostDate.replace(/_/g, "").length === 10 ? fDefrostDate : "") : ""
+            // Re-point the bag's equipment package (<=0 -> NULL via the column hook).
+            fields["equipmentId"] = fEquipmentId
             // A link change fixes the whole bag: propagate the (new or
             // cleared) canonical link onto every shot referencing it.
             MainController.bagStorage.requestUpdateBag(editBagId, fields, fLinkDirty)
+            // If this is the active bag, sync the active equipment selection so
+            // Brew Settings reflects the change.
+            if (editBagId === Settings.dye.activeBagId)
+                Settings.dye.activeEquipmentId = fEquipmentId > 0 ? fEquipmentId : -1
             root.close()
         } else {
             fields["defrostDate"] = ""
             fields["inInventory"] = true
+            // Persist the equipment package picked in the create form too (the
+            // picker row is shown in both modes); <=0 -> NULL via the column hook.
+            fields["equipmentId"] = fEquipmentId
             _awaitingCreate = true
             MainController.bagStorage.requestCreateBag(fields)
         }
@@ -360,6 +386,35 @@ Dialog {
             }
             root.applySelection(bagId, bag)
             root.close()
+        }
+    }
+
+    // Re-point THIS bag's equipment package. The picker doesn't switch the
+    // active bag (applyToActiveBag:false); we record the chosen id and resolve
+    // its grinder identity for the label via packageReady below. Persisted on
+    // Save (fields.equipmentId).
+    SwitchEquipmentDialog {
+        id: bagEquipmentDialog
+        applyToActiveBag: false
+        onPackageSaved: function(packageId) {
+            root.fEquipmentId = packageId
+            if (MainController.equipmentStorage)
+                MainController.equipmentStorage.requestPackage(packageId)
+        }
+    }
+    EquipmentInfoDialog {
+        id: bagEquipmentInfoDialog
+    }
+    Connections {
+        target: MainController.equipmentStorage
+        // Fills the read-only label for whichever package this bag now points at
+        // (both the edit-open prefill and a fresh pick funnel through fEquipmentId).
+        function onPackageReady(packageId, pkg) {
+            if (packageId !== root.fEquipmentId) return
+            root.fEquipmentBrand = pkg.grinderBrand || ""
+            root.fEquipmentModel = pkg.grinderModel || ""
+            root.fEquipmentBurrs = pkg.grinderBurrs || ""
+            root.fEquipmentName = (pkg.name && String(pkg.name).length > 0) ? String(pkg.name) : ""
         }
     }
 
@@ -406,7 +461,6 @@ Dialog {
                                  root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight)
         textFields: [searchField, roasterInput.textField, coffeeInput.textField, roastDateInput,
                      grindSettingInput, doseInput, yieldInput,
-                     grinderBrandInput, grinderModelInput, grinderBurrsInput,
                      notesInput, frozenDateInput, defrostDateInput]
         targetFlickable: formFlickable
 
@@ -1021,6 +1075,55 @@ Dialog {
                         }
                     }
 
+                    // RPM dial-in — only when the bag's grinder is rpm-adjustable.
+                    FieldRow {
+                        labelKey: "changebeans.form.rpm"
+                        labelFallback: "RPM:"
+                        visible: root.fEquipmentRpmCapable
+
+                        StyledTextField {
+                            Layout.fillWidth: true
+                            text: root.fRpm
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            accessibleName: TranslationManager.translate("changebeans.form.rpm.accessible", "Grinder rpm")
+                            onTextEdited: root.fRpm = text
+                        }
+                    }
+
+                    // Equipment package (read-only NAME + info + re-point button).
+                    // Grinder identity is owned by the package, not the bag; tap
+                    // Switch/Add to point this bag at a different package, or the
+                    // info button to see the package's contents.
+                    FieldRow {
+                        labelKey: "changebeans.form.equipment"
+                        labelFallback: "Equipment:"
+
+                        Text {
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            text: root.fEquipmentLabel.length > 0
+                                  ? root.fEquipmentLabel
+                                  : TranslationManager.translate("changebeans.form.equipmentNotSet", "Not set")
+                            font: Theme.bodyFont
+                            color: root.fEquipmentLabel.length > 0 ? Theme.textColor : Theme.textSecondaryColor
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: TranslationManager.translate("changebeans.form.equipment", "Equipment:") + " " + text
+                        }
+                        AccessibleButton {
+                            visible: root.fEquipmentId > 0
+                            icon.source: "qrc:/icons/info.svg"
+                            accessibleName: TranslationManager.translate("equipment.info.button", "Equipment details")
+                            onClicked: bagEquipmentInfoDialog.openFor(root.fEquipmentId)
+                        }
+                        AccessibleButton {
+                            text: root.fEquipmentLabel.length > 0
+                                  ? TranslationManager.translate("changebeans.form.switchEquipment", "Switch")
+                                  : TranslationManager.translate("changebeans.form.addEquipment", "Add")
+                            accessibleName: TranslationManager.translate("changebeans.form.switchEquipmentAccessible", "Switch equipment package")
+                            onClicked: bagEquipmentDialog.openPicker()
+                        }
+                    }
+
                     FieldRow {
                         labelKey: "changebeans.form.dose"
                         labelFallback: "Dose:"
@@ -1056,8 +1159,10 @@ Dialog {
                         }
                     }
 
-                    // Notes / grinder hardware — always visible (the "More
-                    // options" expander was removed: it only added a click).
+                    // Notes — always visible. Grinder IDENTITY is no longer edited
+                    // here: it's owned by the Equipment package (add-equipment-
+                    // packages), set via Switch Equipment in Brew Settings. The bag
+                    // keeps only its grind-setting dial-in (above).
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(10)
@@ -1074,40 +1179,6 @@ Dialog {
                                 onTextEdited: root.fNotes = text
                             }
                         }
-
-                        // Grinder hardware (rarely changes — tucked away)
-                        FieldRow {
-                            labelKey: "changebeans.form.grinder"
-                            labelFallback: "Grinder:"
-
-                            StyledTextField {
-                                id: grinderBrandInput
-                                Layout.fillWidth: true
-                                text: root.fGrinderBrand
-                                placeholder: TranslationManager.translate("changebeans.form.grinderBrand.placeholder", "Brand")
-                                accessibleName: TranslationManager.translate("changebeans.form.grinderBrand.accessible", "Grinder brand")
-                                onTextEdited: root.fGrinderBrand = text
-                            }
-
-                            StyledTextField {
-                                id: grinderModelInput
-                                Layout.fillWidth: true
-                                text: root.fGrinderModel
-                                placeholder: TranslationManager.translate("changebeans.form.grinderModel.placeholder", "Model")
-                                accessibleName: TranslationManager.translate("changebeans.form.grinderModel.accessible", "Grinder model")
-                                onTextEdited: root.fGrinderModel = text
-                            }
-
-                            StyledTextField {
-                                id: grinderBurrsInput
-                                Layout.fillWidth: true
-                                text: root.fGrinderBurrs
-                                placeholder: TranslationManager.translate("changebeans.form.grinderBurrs.placeholder", "Burrs")
-                                accessibleName: TranslationManager.translate("changebeans.form.grinderBurrs.accessible", "Grinder burrs")
-                                onTextEdited: root.fGrinderBurrs = text
-                            }
-                        }
-
                     }
 
                     // Error message (create failure / validation)

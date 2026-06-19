@@ -239,6 +239,7 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     summary.grinderModel = metadata.grinderModel;
     summary.grinderBurrs = metadata.grinderBurrs;
     summary.grinderSetting = metadata.grinderSetting;
+    summary.rpm = static_cast<int>(metadata.rpm);
     summary.drinkTds = metadata.drinkTds;
     summary.drinkEy = metadata.drinkEy;
     summary.enjoymentScore = metadata.espressoEnjoyment;
@@ -388,6 +389,7 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     summary.grinderModel = shotData.grinderModel;
     summary.grinderBurrs = shotData.grinderBurrs;
     summary.grinderSetting = shotData.grinderSetting;
+    summary.rpm = static_cast<int>(shotData.rpm);
     summary.drinkTds = shotData.drinkTdsPct;
     summary.drinkEy = shotData.drinkEyPct;
     summary.enjoymentScore = shotData.enjoyment0to100;
@@ -516,6 +518,7 @@ static QJsonObject buildCurrentBeanBlock(const ShotSummary& summary)
     in.grinderModel = summary.grinderModel;
     in.grinderBurrs = summary.grinderBurrs;
     in.grinderSetting = summary.grinderSetting;
+    in.rpm = summary.rpm;
     in.doseWeightG = summary.doseWeight;
     in.beanBaseJson = summary.beanBaseJson;
     return DialingBlocks::buildCurrentBeanBlock(in);

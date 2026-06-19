@@ -116,7 +116,8 @@ public:
                                   const QString& grinderSetting,
                                   int enjoymentScore,
                                   const QString& tastingNotes,
-                                  const QString& stoppedBy = QString());
+                                  const QString& stoppedBy = QString(),
+                                  int rpm = 0);
 
     // Email fallback - generates prompt for copying
     Q_INVOKABLE QString generateEmailPrompt(ShotDataModel* shotData,
@@ -313,7 +314,8 @@ private:
                                 const QString& grinderBurrs,
                                 const QString& grinderSetting,
                                 int enjoymentScore,
-                                const QString& tastingNotes) const;
+                                const QString& tastingNotes,
+                                int rpm = 0) const;
 
     // Logging
     QString logPath() const;

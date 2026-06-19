@@ -307,6 +307,7 @@ set(SOURCES
     src/history/shothistorystorage_serialize.cpp
     src/history/shothistorystorage_queries.cpp
     src/history/coffeebagstorage.cpp
+    src/history/equipmentstorage.cpp
     src/history/unifiedbeansearchmodel.cpp
     src/history/shotprojection.cpp
     src/history/shotdebuglogger.cpp
@@ -415,6 +416,7 @@ set(HEADERS
     src/core/settings_app.h
     src/core/settings_calibration.h
     src/core/grinderaliases.h
+    src/core/basketaliases.h
     src/core/widgetlibrary.h
     src/core/batterymanager.h
     src/core/memorymonitor.h
@@ -489,6 +491,7 @@ set(HEADERS
     src/history/shothistorystorage.h
     src/history/shothistorystorage_internal.h
     src/history/coffeebagstorage.h
+    src/history/equipmentstorage.h
     src/history/unifiedbeansearchmodel.h
     src/history/shotprojection.h
     src/history/shotdebuglogger.h
@@ -688,6 +691,7 @@ set(QML_FILES
     qml/pages/ProfileImportPage.qml
     qml/pages/VisualizerMultiImportPage.qml
     qml/pages/BeanInfoPage.qml
+    qml/pages/EquipmentPage.qml
     qml/pages/PostShotReviewPage.qml
     qml/pages/AISettingsPage.qml
     qml/pages/DialingAssistantPage.qml
@@ -756,6 +760,9 @@ set(QML_FILES
     qml/components/BeanSummary.qml
     qml/components/ChangeBeansDialog.qml
     qml/components/BagCard.qml
+    qml/components/SwitchEquipmentDialog.qml
+    qml/components/EquipmentCard.qml
+    qml/components/EquipmentInfoDialog.qml
     qml/components/KeyboardAwareContainer.qml
     qml/components/AIConversationPanel.qml
     qml/components/ConversationOverlay.qml
@@ -808,6 +815,7 @@ set(QML_FILES
     qml/components/layout/items/HotWaterItem.qml
     qml/components/layout/items/FlushItem.qml
     qml/components/layout/items/BeansItem.qml
+    qml/components/layout/items/EquipmentItem.qml
     qml/components/layout/items/HistoryItem.qml
     qml/components/layout/items/DiscussItem.qml
     qml/components/layout/items/AutoFavoritesItem.qml
@@ -1180,6 +1188,7 @@ if(NOT ANDROID AND NOT IOS)
         src/core/settings_brew.cpp
         src/core/settings_dye.cpp
         src/history/coffeebagstorage.cpp
+        src/history/equipmentstorage.cpp
         src/core/settings_network.cpp
         src/core/settings_app.cpp
         src/core/settings_calibration.cpp

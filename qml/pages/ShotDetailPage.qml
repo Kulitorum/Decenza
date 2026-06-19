@@ -830,6 +830,24 @@ Page {
                             Accessible.ignored: true
                         }
 
+                        // Equipment lineage qualifier (add-equipment-packages
+                        // 4b.7): when this shot's package is no longer the current
+                        // one, note whether it was superseded by a newer version
+                        // ("older") or retired from inventory. Never baked into
+                        // the grinder name — rendered from the resolved state.
+                        Text {
+                            visible: shotData.equipmentState === "older" || shotData.equipmentState === "retired"
+                            text: shotData.equipmentState === "older"
+                                ? TranslationManager.translate("shotdetail.equipmentOlder", "Older equipment — a newer version is now in use")
+                                : TranslationManager.translate("shotdetail.equipmentRetired", "Retired equipment — no longer in inventory")
+                            font: Theme.labelFont
+                            color: Theme.textSecondaryColor
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
+                        }
+
                         GridLayout {
                             columns: 2
                             columnSpacing: Theme.spacingLarge
@@ -845,8 +863,11 @@ Page {
                             Tr { key: "shotdetail.burrs"; fallback: "Burrs:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderBurrs); Accessible.ignored: true }
                             Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderBurrs || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderBurrs); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
-                            Tr { key: "shotdetail.setting"; fallback: "Setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderSetting); Accessible.ignored: true }
+                            Tr { key: "shotdetail.grindSetting"; fallback: "Grind setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderSetting); Accessible.ignored: true }
                             Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderSetting || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderSetting); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
+
+                            Tr { key: "shotdetail.rpm"; fallback: "RPM:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: shotData.rpm > 0; Accessible.ignored: true }
+                            Text { text: shotData.rpm > 0 ? String(shotData.rpm) : ""; font: Theme.labelFont; color: Theme.textColor; visible: shotData.rpm > 0; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: TranslationManager.translate("shotdetail.rpm", "RPM:") + " " + text }
                         }
                     }
                 }

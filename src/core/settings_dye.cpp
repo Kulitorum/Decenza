@@ -1,6 +1,7 @@
 #include "settings_dye.h"
 #include "../history/bagid.h"
 #include "../history/coffeebagstorage.h"
+#include "../history/equipmentstorage.h"
 #include "settings_visualizer.h"
 #include "grinderaliases.h"
 
@@ -101,6 +102,55 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
         m_bagStorage->requestBag(activeBagId());
 }
 
+void SettingsDye::setEquipmentStorage(EquipmentStorage* storage)
+{
+    if (m_equipmentStorage == storage)
+        return;
+    m_equipmentStorage = storage;
+    if (!m_equipmentStorage)
+        return;
+
+    // The active package is the source of truth for grinder identity; resolve it
+    // here and refresh the display cache whenever it arrives or changes.
+    connect(m_equipmentStorage, &EquipmentStorage::packageReady, this,
+            [this](qint64 packageId, const QVariantMap& pkg) {
+                if (packageId != activeEquipmentId())
+                    return;
+                applyEquipmentIdentity(pkg);  // empty pkg (not found) clears it
+            });
+    connect(m_equipmentStorage, &EquipmentStorage::packagesChanged, this,
+            [this]() {
+                // An edit to the active package (incl. a copy-on-write that left
+                // its identity in place) — re-resolve the current selection.
+                const qint64 id = activeEquipmentId();
+                if (id > 0)
+                    m_equipmentStorage->requestPackage(id);
+            });
+
+    if (activeEquipmentId() > 0)
+        m_equipmentStorage->requestPackage(activeEquipmentId());
+}
+
+// Refresh the grinder-identity display cache from a resolved package map (from
+// EquipmentStorage). Display-only: the setters update the cache + QSettings
+// mirror, never the bag.
+void SettingsDye::applyEquipmentIdentity(const QVariantMap& pkg)
+{
+    setDyeGrinderBrand(pkg.value("grinderBrand").toString());
+    setDyeGrinderModel(pkg.value("grinderModel").toString());
+    setDyeGrinderBurrs(pkg.value("grinderBurrs").toString());
+
+    // The package's display name (user-editable label; defaults to "{brand}
+    // {model}"). Surfaced so UI shows the package name, not the grinder identity.
+    QString name = pkg.value("name").toString().trimmed();
+    if (name.isEmpty())
+        name = (dyeGrinderBrand().trimmed() + QLatin1Char(' ') + dyeGrinderModel().trimmed()).trimmed();
+    if (m_dyeEquipmentName != name) {
+        m_dyeEquipmentName = name;
+        emit dyeEquipmentNameChanged();
+    }
+}
+
 // DYE metadata
 
 QString SettingsDye::dyeBeanBrand() const {
@@ -157,6 +207,7 @@ void SettingsDye::ensureDyeCacheLoaded() const {
         m_dyeGrinderModelCache = m_settings.value("dye/grinderModel", "").toString();
         m_dyeGrinderBurrsCache = m_settings.value("dye/grinderBurrs", "").toString();
         m_dyeGrinderSettingCache = m_settings.value("dye/grinderSetting", "").toString();
+        m_dyeGrinderRpmCache = m_settings.value("dye/grinderRpm", 0).toInt();
         m_dyeBeanWeightCache = m_settings.value("dye/beanWeight", 18.0).toDouble();
         m_dyeDrinkWeightCache = m_settings.value("dye/drinkWeight", 36.0).toDouble();
         m_dyeCacheInitialized = true;
@@ -168,11 +219,17 @@ QString SettingsDye::dyeGrinderBrand() const {
     return m_dyeGrinderBrandCache;
 }
 
+// Grinder identity (brand/model/burrs) is RESOLVED from the active equipment
+// package (add-equipment-packages), not stored on the bag. These setters update
+// the display cache (+ a QSettings mirror for correct cold-start before the
+// package resolves) and emit — they do NOT write through to the bag. The cache
+// is refreshed from the package by applyEquipmentIdentity() whenever the active
+// package changes; callers wanting to *change* identity go through the equipment
+// package (switchToEquipment / equipment_update), not these setters.
 void SettingsDye::setDyeGrinderBrand(const QString& value) {
     if (dyeGrinderBrand() != value) {
         m_dyeGrinderBrandCache = value;
         m_settings.setValue("dye/grinderBrand", value);
-        writeThroughToBag("grinderBrand", value);
         emit dyeGrinderBrandChanged();
     }
 }
@@ -186,7 +243,6 @@ void SettingsDye::setDyeGrinderModel(const QString& value) {
     if (dyeGrinderModel() != value) {
         m_dyeGrinderModelCache = value;
         m_settings.setValue("dye/grinderModel", value);
-        writeThroughToBag("grinderModel", value);
         emit dyeGrinderModelChanged();
     }
 }
@@ -200,7 +256,6 @@ void SettingsDye::setDyeGrinderBurrs(const QString& value) {
     if (dyeGrinderBurrs() != value) {
         m_dyeGrinderBurrsCache = value;
         m_settings.setValue("dye/grinderBurrs", value);
-        writeThroughToBag("grinderBurrs", value);
         emit dyeGrinderBurrsChanged();
     }
 }
@@ -215,8 +270,67 @@ void SettingsDye::setDyeGrinderSetting(const QString& value) {
         m_dyeGrinderSettingCache = value;
         m_settings.setValue("dye/grinderSetting", value);
         writeThroughToBag("grinderSetting", value);
+        // Dual write-through: the grind setting is grinder-scoped too, so keep
+        // the active package's last dial current (add-equipment-packages).
+        writeThroughToActivePackage("lastGrindSetting", value);
         emit dyeGrinderSettingChanged();
     }
+}
+
+int SettingsDye::dyeGrinderRpm() const {
+    ensureDyeCacheLoaded();
+    return m_dyeGrinderRpmCache;
+}
+
+void SettingsDye::setDyeGrinderRpm(int value) {
+    if (dyeGrinderRpm() != value) {
+        m_dyeGrinderRpmCache = value;
+        m_settings.setValue("dye/grinderRpm", value);
+        writeThroughToBag("rpm", value > 0 ? QVariant(value) : QVariant());
+        writeThroughToActivePackage("lastRpm", value > 0 ? QVariant(value) : QVariant());
+        emit dyeGrinderRpmChanged();
+    }
+}
+
+qint64 SettingsDye::activeEquipmentId() const {
+    return m_settings.value("dye/activeEquipmentId", -1).toLongLong();
+}
+
+void SettingsDye::setActiveEquipmentId(qint64 id) {
+    if (activeEquipmentId() == id)
+        return;
+    m_settings.setValue("dye/activeEquipmentId", id);
+    // The active bag adopts the package (skipped during applyActiveBag via the
+    // m_applyingBag guard inside writeThroughToBag).
+    writeThroughToBag("equipmentId", id > 0 ? QVariant(id) : QVariant());
+    emit activeEquipmentIdChanged();
+    // Resolve the package to refresh the grinder-identity display cache.
+    if (id > 0 && m_equipmentStorage)
+        m_equipmentStorage->requestPackage(id);   // -> packageReady -> applyEquipmentIdentity
+    else if (id <= 0)
+        applyEquipmentIdentity({});               // no equipment -> clear identity
+}
+
+void SettingsDye::switchToEquipment(const QVariantMap& pkg) {
+    const qint64 id = pkg.value("id").toLongLong();
+    if (id <= 0)
+        return;
+    setActiveEquipmentId(id);
+    // Apply the package's grinder identity to the display cache. The setters
+    // cache in QSettings only (no bag write-through); identity is owned by the
+    // equipment package and re-resolved from it on activeEquipmentId changes.
+    setDyeGrinderBrand(pkg.value("grinderBrand").toString());
+    setDyeGrinderModel(pkg.value("grinderModel").toString());
+    setDyeGrinderBurrs(pkg.value("grinderBurrs").toString());
+    // Apply the package's last dial — grinder-scoped memory, never blank, editable.
+    setDyeGrinderSetting(pkg.value("lastGrindSetting").toString());
+    setDyeGrinderRpm(pkg.value("lastRpm").toInt());
+    if (m_equipmentStorage)
+        m_equipmentStorage->requestTouchLastUsed(id);
+}
+
+bool SettingsDye::grinderRpmCapable(const QString& brand, const QString& model) const {
+    return EquipmentStorage::deriveRpmCapable(brand, model);
 }
 
 QStringList SettingsDye::suggestedBurrs(const QString& brand, const QString& model) const {
@@ -448,17 +562,18 @@ void SettingsDye::applyActiveBag(const QVariantMap& bag)
     setDyeBeanBaseId(bag.value("beanBaseId").toString());
     setDyeBeanBaseData(bag.value("beanBaseData").toString());
 
-    // Grinder/dose are "last used with this bag": only applied when the bag
-    // has them. A fresh bag keeps the current setup and adopts it through
-    // write-through on the next edit / dose stamp on the next shot.
-    const QString grinderBrand = bag.value("grinderBrand").toString();
-    const QString grinderModel = bag.value("grinderModel").toString();
-    if (!grinderBrand.isEmpty() || !grinderModel.isEmpty()) {
-        setDyeGrinderBrand(grinderBrand);
-        setDyeGrinderModel(grinderModel);
-        setDyeGrinderBurrs(bag.value("grinderBurrs").toString());
-        setDyeGrinderSetting(bag.value("grinderSetting").toString());
-    }
+    // Grinder IDENTITY is not on the bag — it resolves from the equipment
+    // package the bag points at (equipment_id). Grind setting + rpm are the
+    // bag's bean-scoped dial-in; apply when present (a fresh bag with none keeps
+    // the current dial and adopts it on the next edit / shot stamp). Guarded by
+    // m_applyingBag so none of this writes back to the bag/package.
+    setActiveEquipmentId(bag.value("equipmentId", -1).toLongLong());
+    const QString grindSetting = bag.value("grinderSetting").toString();
+    if (!grindSetting.isEmpty())
+        setDyeGrinderSetting(grindSetting);
+    const int bagRpm = bag.value("rpm", 0).toInt();
+    if (bagRpm > 0)
+        setDyeGrinderRpm(bagRpm);
     const double dose = bag.value("doseWeightG", 0.0).toDouble();
     if (dose > 0)
         setDyeBeanWeight(dose);
@@ -499,4 +614,14 @@ void SettingsDye::writeThroughToBag(const QString& field, const QVariant& value)
         return;
     m_pendingSelfWrites++;
     m_bagStorage->requestUpdateBag(bagId, {{field, value}});
+}
+
+void SettingsDye::writeThroughToActivePackage(const QString& field, const QVariant& value)
+{
+    if (m_applyingBag || !m_equipmentStorage)
+        return;
+    const qint64 eqId = activeEquipmentId();
+    if (eqId <= 0)
+        return;
+    m_equipmentStorage->requestUpdatePackage(eqId, {{field, value}});
 }

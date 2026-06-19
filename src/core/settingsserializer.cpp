@@ -130,7 +130,8 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     // Bean presets were replaced by coffee bags (bean-bag-inventory). Bags
     // live in the shot history database, which transfers via the DB import
     // path (with id remapping) — not through settings JSON. dye/activeBagId
-    // is also deliberately NOT exported: it is a device-local DB row id.
+    // and dye/activeEquipmentId (the active equipment package) are likewise
+    // deliberately NOT exported: both are device-local DB row ids.
     // importFromJson still understands the legacy "beans" section from
     // old-version exports.
 

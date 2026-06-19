@@ -21,6 +21,7 @@ Item {
             case "hotwater":
             case "flush":
             case "beans":
+            case "equipment":
             case "history":
             case "settings":
             case "autofavorites":
@@ -81,6 +82,14 @@ Item {
                 longPressAction: "navigate:beaninfo",
                 doubleclickAction: "navigate:beaninfo",
                 backgroundColor: Settings.dye.activeBagId <= 0 ? Theme.highlightColor : Theme.primaryColor
+            }
+            case "equipment": return {
+                emoji: "qrc:/icons/grind.svg",
+                content: TranslationManager.translate("idle.button.equipment", "Equipment"),
+                action: "navigate:equipment",
+                longPressAction: "",
+                doubleclickAction: "",
+                backgroundColor: Theme.primaryColor
             }
             case "history": return {
                 emoji: "qrc:/icons/history.svg",
@@ -155,6 +164,7 @@ Item {
                 case "hotwater":         src = "items/HotWaterItem.qml"; break
                 case "flush":            src = "items/FlushItem.qml"; break
                 case "beans":            src = "items/BeansItem.qml"; break
+                case "equipment":        src = "items/EquipmentItem.qml"; break
                 case "history":          src = "items/HistoryItem.qml"; break
                 case "autofavorites":    src = "items/AutoFavoritesItem.qml"; break
                 case "sleep":            src = "items/SleepItem.qml"; break

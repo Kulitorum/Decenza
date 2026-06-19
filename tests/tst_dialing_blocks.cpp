@@ -30,6 +30,7 @@
 
 #include "history/shothistorystorage.h"
 #include "history/shotprojection.h"
+#include "history/equipmentstorage.h"
 #include "ai/dialing_blocks.h"
 #include "ai/shotsummarizer.h"  // initTestCase pins the missing-resource qWarning
 
@@ -87,20 +88,36 @@ void withRawDb(const QString& path, const QString& connName, Work&& work)
 
 qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
 {
+    // Grinder identity is no longer a per-shot column (migration 23) — it
+    // resolves through equipment_id to a package's grinder item. Mirror the
+    // production save path: find-or-create a package for this row's grinder
+    // identity and link the shot to it. The per-shot grind setting stays on the
+    // row. An empty identity leaves equipment_id NULL.
+    qint64 equipmentId = 0;
+    if (!(r.grinderBrand.isEmpty() && r.grinderModel.isEmpty() && r.grinderBurrs.isEmpty())) {
+        equipmentId = EquipmentStorage::findPackageByGrinderIdentityStatic(
+            db, r.grinderBrand, r.grinderModel, r.grinderBurrs);
+        if (equipmentId <= 0) {
+            EquipmentPackage pkg;
+            equipmentId = EquipmentStorage::createPackageWithGrinderStatic(
+                db, pkg, r.grinderBrand, r.grinderModel, r.grinderBurrs);
+        }
+    }
+
     QSqlQuery q(db);
     q.prepare(QStringLiteral(R"(
         INSERT INTO shots (
             uuid, timestamp, profile_name, beverage_type,
             duration_seconds, final_weight, dose_weight,
             bean_brand, bean_type, roast_level,
-            grinder_brand, grinder_model, grinder_burrs, grinder_setting,
+            grinder_setting, equipment_id,
             enjoyment, espresso_notes, profile_kb_id,
             profile_json, yield_override, temperature_override, stopped_by
         ) VALUES (
             :uuid, :timestamp, :profile_name, :beverage_type,
             :duration, :final_weight, :dose_weight,
             :bean_brand, :bean_type, :roast_level,
-            :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
+            :grinder_setting, :equipment_id,
             :enjoyment, :espresso_notes, :profile_kb_id,
             :profile_json, :yield_override, :temperature_override, :stopped_by
         )
@@ -115,10 +132,8 @@ qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
     q.bindValue(":bean_brand", r.beanBrand);
     q.bindValue(":bean_type", r.beanType);
     q.bindValue(":roast_level", r.roastLevel);
-    q.bindValue(":grinder_brand", r.grinderBrand);
-    q.bindValue(":grinder_model", r.grinderModel);
-    q.bindValue(":grinder_burrs", r.grinderBurrs);
     q.bindValue(":grinder_setting", r.grinderSetting);
+    q.bindValue(":equipment_id", equipmentId > 0 ? QVariant(equipmentId) : QVariant());
     q.bindValue(":enjoyment", r.enjoyment);
     q.bindValue(":espresso_notes", r.espressoNotes);
     q.bindValue(":profile_kb_id", r.profileKbId.isEmpty() ? QVariant() : r.profileKbId);

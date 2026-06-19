@@ -8,6 +8,7 @@
 
 class SettingsVisualizer;
 class CoffeeBagStorage;
+class EquipmentStorage;
 
 // DYE (Describe Your Espresso) metadata. Split from Settings to keep
 // settings.h's transitive-include footprint small. Holds a non-owning
@@ -32,7 +33,16 @@ class SettingsDye : public QObject {
     Q_PROPERTY(QString dyeGrinderBrand READ dyeGrinderBrand WRITE setDyeGrinderBrand NOTIFY dyeGrinderBrandChanged)
     Q_PROPERTY(QString dyeGrinderModel READ dyeGrinderModel WRITE setDyeGrinderModel NOTIFY dyeGrinderModelChanged)
     Q_PROPERTY(QString dyeGrinderBurrs READ dyeGrinderBurrs WRITE setDyeGrinderBurrs NOTIFY dyeGrinderBurrsChanged)
+    // Active package's display name (read-only; defaults to "{brand} {model}").
+    // UI shows this instead of the raw grinder identity (add-equipment-packages).
+    Q_PROPERTY(QString dyeEquipmentName READ dyeEquipmentName NOTIFY dyeEquipmentNameChanged)
     Q_PROPERTY(QString dyeGrinderSetting READ dyeGrinderSetting WRITE setDyeGrinderSetting NOTIFY dyeGrinderSettingChanged)
+    // Grinder rpm dial-in (add-equipment-packages); shown only when the active
+    // package's grinder is rpmCapable. 0 = unset.
+    Q_PROPERTY(int dyeGrinderRpm READ dyeGrinderRpm WRITE setDyeGrinderRpm NOTIFY dyeGrinderRpmChanged)
+    // The active equipment package id (the grinder the next shot is ground on).
+    // Switching it applies the package's grinder identity + last dial.
+    Q_PROPERTY(qint64 activeEquipmentId READ activeEquipmentId WRITE setActiveEquipmentId NOTIFY activeEquipmentIdChanged)
     Q_PROPERTY(double dyeBeanWeight READ dyeBeanWeight WRITE setDyeBeanWeight NOTIFY dyeBeanWeightChanged)
     Q_PROPERTY(double dyeDrinkWeight READ dyeDrinkWeight WRITE setDyeDrinkWeight NOTIFY dyeDrinkWeightChanged)
     Q_PROPERTY(double dyeDrinkTds READ dyeDrinkTds WRITE setDyeDrinkTds NOTIFY dyeDrinkTdsChanged)
@@ -68,6 +78,11 @@ public:
     // stamp) refresh the cache.
     void setBagStorage(CoffeeBagStorage* storage);
 
+    // Non-owning; attached by MainController after storage init. The active
+    // bag's equipment_id points at a package here; the dye grinder identity is
+    // resolved through it (add-equipment-packages).
+    void setEquipmentStorage(EquipmentStorage* storage);
+
     // DYE metadata
     QString dyeBeanBrand() const;
     void setDyeBeanBrand(const QString& value);
@@ -90,8 +105,27 @@ public:
     QString dyeGrinderBurrs() const;
     void setDyeGrinderBurrs(const QString& value);
 
+    QString dyeEquipmentName() const { return m_dyeEquipmentName; }
+
     QString dyeGrinderSetting() const;
     void setDyeGrinderSetting(const QString& value);
+
+    int dyeGrinderRpm() const;
+    void setDyeGrinderRpm(int value);
+
+    qint64 activeEquipmentId() const;
+    void setActiveEquipmentId(qint64 id);
+
+    // User-facing equipment switch: adopt the package's grinder identity and its
+    // last dial (grind setting + rpm), and point the active bag at it. `pkg` is a
+    // package map from EquipmentStorage (id, grinderBrand/Model/Burrs,
+    // lastGrindSetting, lastRpm).
+    Q_INVOKABLE void switchToEquipment(const QVariantMap& pkg);
+
+    // True when the grinder identity is rpm-adjustable (registry variableRpm, or
+    // a custom grinder not in the registry). Drives the rpm field's visibility in
+    // Brew Settings.
+    Q_INVOKABLE bool grinderRpmCapable(const QString& brand, const QString& model) const;
 
     Q_INVOKABLE QStringList suggestedBurrs(const QString& brand, const QString& model) const;
     Q_INVOKABLE bool isBurrSwappable(const QString& brand, const QString& model) const;
@@ -174,7 +208,10 @@ signals:
     void dyeGrinderBrandChanged();
     void dyeGrinderModelChanged();
     void dyeGrinderBurrsChanged();
+    void dyeEquipmentNameChanged();
     void dyeGrinderSettingChanged();
+    void dyeGrinderRpmChanged();
+    void activeEquipmentIdChanged();
     void dyeBeanWeightChanged();
     void dyeDrinkWeightChanged();
     void dyeDrinkTdsChanged();
@@ -204,10 +241,16 @@ private:
     // Queue an async write of one field to the active bag (no-op while
     // applyActiveBag is running or when no bag/storage is attached).
     void writeThroughToBag(const QString& field, const QVariant& value);
+    // Queue an async write of one field to the active equipment package (no-op
+    // while applyActiveBag is running or when no package/storage is attached).
+    void writeThroughToActivePackage(const QString& field, const QVariant& value);
+    // Refresh the grinder-identity display cache from a resolved package map.
+    void applyEquipmentIdentity(const QVariantMap& pkg);
 
     mutable QSettings m_settings;
     SettingsVisualizer* m_visualizer = nullptr;  // Non-owning; for default-rating fallback.
     CoffeeBagStorage* m_bagStorage = nullptr;    // Non-owning; attached post-init.
+    EquipmentStorage* m_equipmentStorage = nullptr; // Non-owning; attached post-init.
 
     bool m_applyingBag = false;  // Suppress write-through echo during applyActiveBag
     bool m_keepFieldsOnNextApply = false;  // setActiveBagKeepFields: next bagReady only refreshes lifecycle
@@ -220,7 +263,9 @@ private:
     mutable QString m_dyeGrinderBrandCache;
     mutable QString m_dyeGrinderModelCache;
     mutable QString m_dyeGrinderBurrsCache;
+    QString m_dyeEquipmentName;  // active package display name (resolved, not persisted)
     mutable QString m_dyeGrinderSettingCache;
+    mutable int m_dyeGrinderRpmCache = 0;
     mutable double m_dyeBeanWeightCache = 18.0;
     mutable double m_dyeDrinkWeightCache = 36.0;
     mutable bool m_dyeCacheInitialized = false;

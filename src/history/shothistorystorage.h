@@ -173,11 +173,6 @@ public:
     Q_INVOKABLE QStringList getDistinctGrinderBurrsForModel(const QString& grinderBrand, const QString& grinderModel);
     Q_INVOKABLE QStringList getDistinctGrinderSettingsForGrinder(const QString& grinderModel);
 
-    // Bulk update grinder fields for historical shots matching old values
-    Q_INVOKABLE void requestUpdateGrinderFields(const QString& oldBrand, const QString& oldModel,
-                                                 const QString& newBrand, const QString& newModel,
-                                                 const QString& newBurrs);
-
     // Async: runs query on background thread, emits autoFavoritesReady()
     Q_INVOKABLE void requestAutoFavorites(const QString& groupBy, int maxItems);
 
@@ -280,7 +275,6 @@ signals:
     void visualizerLinksReconciled(bool ok, const QVariantList& linked);
     void mostRecentShotIdReady(qint64 shotId);
     void distinctCacheReady();
-    void grinderFieldsUpdated(int updatedCount);
     void shotBadgesUpdated(qint64 shotId, bool channelingDetected, bool grindIssueDetected, bool skipFirstFrameDetected, bool pourTruncatedDetected);
 
 private:

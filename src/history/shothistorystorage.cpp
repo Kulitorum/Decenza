@@ -1,6 +1,7 @@
 #include "shothistorystorage.h"
 #include "shothistorystorage_internal.h"
 #include "coffeebagstorage.h"
+#include "equipmentstorage.h"
 #include "ai/conductance.h"
 #include "ai/shotanalysis.h"
 #include "ai/shotsummarizer.h"
@@ -289,7 +290,10 @@ bool ShotHistoryStorage::createTables()
     query.exec("CREATE INDEX IF NOT EXISTS idx_shots_timestamp ON shots(timestamp DESC)");
     query.exec("CREATE INDEX IF NOT EXISTS idx_shots_profile ON shots(profile_name)");
     query.exec("CREATE INDEX IF NOT EXISTS idx_shots_bean ON shots(bean_brand, bean_type)");
-    query.exec("CREATE INDEX IF NOT EXISTS idx_shots_grinder ON shots(grinder_brand, grinder_model)");
+    // No idx_shots_grinder: grinder_brand/model are dropped by migration 23 and
+    // grinder identity resolves via equipment_id. Re-creating it here would error
+    // ("no such column") on every post-migration-23 launch. Pre-23 DBs that still
+    // have the index get it dropped by migration 23.
     query.exec("CREATE INDEX IF NOT EXISTS idx_shots_enjoyment ON shots(enjoyment)");
     query.exec("CREATE INDEX IF NOT EXISTS idx_shot_phases_shot ON shot_phases(shot_id)");
 
@@ -1067,10 +1071,11 @@ bool ShotHistoryStorage::runMigrations()
 #ifdef DECENZA_TESTING
             // Model the locked DB faithfully: the same lock that failed the
             // orphan-link also fails every later migration's writes this pass,
-            // so nothing persists past version 19 and the WHOLE chain (incl.
-            // migration 21) retries next launch. Without this abort, the
-            // independently-gated migration 21 would still bump to 21 here and
-            // the < 20 block would never run again.
+            // so nothing persists past version 19 and the WHOLE deferred chain
+            // (migrations 21, 22, and 23) retries next launch. Without this abort,
+            // the independently-gated later migrations would advance the version
+            // via their own ">= N" gates (ending at 23) and the < 20 block would
+            // never run again, stranding the orphan bag_id links.
             if (linkFaulted) {
                 m_schemaVersion = currentVersion;
                 return true;
@@ -1107,6 +1112,205 @@ bool ShotHistoryStorage::runMigrations()
             currentVersion = 21;
         } else {
             qWarning() << "ShotHistoryStorage: migration 21 column rename failed - will retry next launch";
+        }
+    }
+
+    // Migration 22: extract the grinder into first-class Equipment packages
+    // (add-equipment-packages). Create equipment tables; add equipment_id + rpm
+    // to coffee_bags and shots; create one package per distinct grinder identity
+    // (brand/model/burrs — NOT grind/rpm) plus a default from the current
+    // settings; link every row; split combined "24 1400rpm" settings into
+    // grinder_setting + rpm. This is the ADDITIVE half — the legacy grinder
+    // identity columns are KEPT for now so existing readers (CoffeeBagStorage,
+    // shot projection) keep working; they are dropped in migration 23 once every
+    // reader resolves identity via equipment_id. The data step is NOT idempotent
+    // (it would re-create packages), so the version bumps on the additive part;
+    // the block then never re-runs. Whitespace before the open-paren dodges
+    // the QSqlQuery permission-hook false-positive, as elsewhere.
+    //
+    // Gate on ">= 21 && < 22" (advance only from a completed 21), NOT "< 22":
+    // migration 21's RENAME is gated on its post-condition and holds the version
+    // at 20 on failure so it retries next launch. A "< 22" gate would let
+    // migration 22 run and bump straight to 22 after a faulted 21, stranding the
+    // yield rename. The whole step is wrapped in a transaction (like migrations
+    // 7/8/16) so a failure rolls back the partial package inserts — the data step
+    // is NOT idempotent, so a half-applied retry would duplicate packages.
+    if (currentVersion >= 21 && currentVersion < 22) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 22 (equipment packages)";
+
+        const bool txn = m_db.transaction();
+        const bool tablesOk = EquipmentStorage::ensureTablesStatic(m_db);
+
+        if (!hasColumn("coffee_bags", "equipment_id"))
+            query.exec ("ALTER TABLE coffee_bags ADD COLUMN equipment_id INTEGER");
+        if (!hasColumn("coffee_bags", "rpm"))
+            query.exec ("ALTER TABLE coffee_bags ADD COLUMN rpm INTEGER");
+        if (!hasColumn("shots", "equipment_id"))
+            query.exec ("ALTER TABLE shots ADD COLUMN equipment_id INTEGER");
+        if (!hasColumn("shots", "rpm"))
+            query.exec ("ALTER TABLE shots ADD COLUMN rpm INTEGER");
+
+        const bool colsOk = hasColumn("coffee_bags", "equipment_id") && hasColumn("coffee_bags", "rpm")
+            && hasColumn("shots", "equipment_id") && hasColumn("shots", "rpm");
+
+        // The default package seeds from the user's live grinder settings (the
+        // active bag mirrors these via write-through, but reading QSettings here
+        // also covers a user who set a grinder but never saved a shot/bag).
+        bool dataOk = false;
+        if (tablesOk && colsOk) {
+            // Read the SAME QSettings scope SettingsDye writes to — a bare
+            // QSettings() depends on QCoreApplication org/app being set, which
+            // isn't guaranteed (the scope-mismatch bug migration 16 fixed).
+            QSettings settings(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
+            const QString curBrand = settings.value("dye/grinderBrand").toString();
+            const QString curModel = settings.value("dye/grinderModel").toString();
+            const QString curBurrs = settings.value("dye/grinderBurrs").toString();
+            const QString curSetting = settings.value("dye/grinderSetting").toString();
+            dataOk = EquipmentStorage::migrateFromGrinderColumnsStatic(
+                m_db, curBrand, curModel, curBurrs, curSetting);
+        }
+
+        if (tablesOk && colsOk && dataOk) {
+            // Bump the version INSIDE the transaction so the data + version commit
+            // atomically — a crash between them would otherwise leave migrated
+            // data at version 21 and re-run the non-idempotent step next launch.
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (22)");
+            if (!txn || m_db.commit()) {
+                currentVersion = 22;
+            } else {
+                if (txn) m_db.rollback();
+                qWarning() << "ShotHistoryStorage: migration 22 commit failed - will retry next launch";
+            }
+        } else {
+            if (txn)
+                m_db.rollback();  // undo partial package inserts so the retry is clean
+            qWarning() << "ShotHistoryStorage: migration 22 incomplete (tables" << tablesOk
+                       << "cols" << colsOk << "data" << dataOk
+                       << ") - will retry next launch";
+        }
+    }
+
+    // Migration 23: drop the legacy grinder identity columns now that every
+    // reader resolves brand/model/burrs through equipment_id (add-equipment-
+    // packages). Migration 22 deliberately KEPT grinder_brand/model/burrs on
+    // shots + coffee_bags so the upgrade could seed packages from them and
+    // existing readers kept working; with the reader sweep complete, the
+    // pointer-to-immutable-package is the only identity path and the snapshot
+    // columns are dead weight, so they go.
+    //
+    // Ordering inside the step matters: shots_fts is an external-content FTS5
+    // index over the grinder columns and its triggers reference new./old.grinder_*,
+    // and idx_shots_grinder is built on them. SQLite refuses DROP COLUMN on a
+    // column referenced by a trigger or index, so the FTS index/triggers are
+    // rebuilt WITHOUT the grinder columns and the index is dropped BEFORE the
+    // columns. DROP COLUMN needs SQLite >= 3.35 (we require it). The whole step
+    // is wrapped in a transaction and gated on the post-condition (columns gone)
+    // so a failure rolls back and retries next launch — it is idempotent
+    // (hasColumn guards each drop). Gate ">= 22 && < 23" so it only advances
+    // from a committed migration 22 (mirrors migration 22's gate on 21).
+    if (currentVersion >= 22 && currentVersion < 23) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 23 (drop legacy grinder columns)";
+
+        const bool txn = m_db.transaction();
+        bool ok = true;
+
+        // 1. Rebuild shots_fts without the grinder columns (mirror migration 8's
+        //    rebuild). Drop the triggers + FTS table, recreate over the
+        //    non-grinder text columns, then repopulate from shots.
+        query.exec("DROP TRIGGER IF EXISTS shots_ai");
+        query.exec("DROP TRIGGER IF EXISTS shots_ad");
+        query.exec("DROP TRIGGER IF EXISTS shots_au");
+        query.exec("DROP TABLE IF EXISTS shots_fts");
+
+        if (!query.exec(R"(
+            CREATE VIRTUAL TABLE IF NOT EXISTS shots_fts USING fts5(
+                espresso_notes, bean_brand, bean_type, profile_name,
+                content='shots', content_rowid='id'
+            )
+        )")) {
+            qWarning() << "ShotHistoryStorage: migration 23 failed to recreate FTS table:"
+                       << query.lastError().text();
+            ok = false;
+        }
+
+        if (ok) {
+            query.exec(R"(
+                CREATE TRIGGER IF NOT EXISTS shots_ai AFTER INSERT ON shots BEGIN
+                    INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name)
+                    VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name);
+                END
+            )");
+            query.exec(R"(
+                CREATE TRIGGER IF NOT EXISTS shots_ad AFTER DELETE ON shots BEGIN
+                    INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name)
+                    VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name);
+                END
+            )");
+            query.exec(R"(
+                CREATE TRIGGER IF NOT EXISTS shots_au AFTER UPDATE ON shots BEGIN
+                    INSERT INTO shots_fts(shots_fts, rowid, espresso_notes, bean_brand, bean_type, profile_name)
+                    VALUES ('delete', old.id, old.espresso_notes, old.bean_brand, old.bean_type, old.profile_name);
+                    INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name)
+                    VALUES (new.id, new.espresso_notes, new.bean_brand, new.bean_type, new.profile_name);
+                END
+            )");
+            if (!query.exec(R"(
+                INSERT INTO shots_fts(rowid, espresso_notes, bean_brand, bean_type, profile_name)
+                SELECT id, espresso_notes, bean_brand, bean_type, profile_name FROM shots
+            )")) {
+                qWarning() << "ShotHistoryStorage: migration 23 failed to repopulate FTS index:"
+                           << query.lastError().text();
+                ok = false;
+            }
+        }
+
+        // 2. Drop the grinder index (DROP COLUMN refuses an indexed column).
+        if (ok)
+            query.exec ("DROP INDEX IF EXISTS idx_shots_grinder");
+
+        // 3. Drop grinder_brand/model/burrs from both shots and coffee_bags.
+        //    Idempotent: hasColumn skips a column already gone (e.g. a retried
+        //    run after a mid-step crash). coffee_bags is guaranteed to exist
+        //    here (created by migration 19, earlier in the chain).
+        if (ok) {
+            for (const char* col : {"grinder_brand", "grinder_model", "grinder_burrs"}) {
+                for (const char* table : {"shots", "coffee_bags"}) {
+                    if (hasColumn(table, col)) {
+                        QSqlQuery drop(m_db);
+                        if (!drop.exec (QStringLiteral("ALTER TABLE %1 DROP COLUMN %2")
+                                            .arg(QLatin1String(table), QLatin1String(col)))) {
+                            qWarning() << "ShotHistoryStorage: migration 23 failed to drop" << table << col << ":"
+                                       << drop.lastError().text();
+                            ok = false;
+                        }
+                    }
+                }
+            }
+        }
+
+        const bool dropped =
+            !hasColumn("shots", "grinder_brand") && !hasColumn("shots", "grinder_model")
+            && !hasColumn("shots", "grinder_burrs")
+            && !hasColumn("coffee_bags", "grinder_brand") && !hasColumn("coffee_bags", "grinder_model")
+            && !hasColumn("coffee_bags", "grinder_burrs");
+
+        if (ok && dropped) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (23)");
+            if (!txn || m_db.commit()) {
+                currentVersion = 23;
+                qInfo() << "ShotHistoryStorage: migration 23 complete - dropped grinder identity"
+                           " columns from shots + coffee_bags, rebuilt shots_fts without them";
+            } else {
+                if (txn) m_db.rollback();
+                qWarning() << "ShotHistoryStorage: migration 23 commit failed - will retry next launch";
+            }
+        } else {
+            if (txn)
+                m_db.rollback();
+            qWarning() << "ShotHistoryStorage: migration 23 incomplete (ok" << ok
+                       << "dropped" << dropped << ") - will retry next launch";
         }
     }
 
@@ -1268,6 +1472,8 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     data.grinderModel = metadata.grinderModel;
     data.grinderBurrs = metadata.grinderBurrs;
     data.grinderSetting = metadata.grinderSetting;
+    data.equipmentId = metadata.equipmentId;
+    data.rpm = metadata.rpm;
     data.drinkTds = metadata.drinkTds;
     data.drinkEy = metadata.drinkEy;
     data.espressoEnjoyment = metadata.espressoEnjoyment;
@@ -1446,7 +1652,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     uuid, timestamp, profile_name, profile_json, beverage_type,
                     duration_seconds, final_weight, dose_weight,
                     bean_brand, bean_type, roast_date, roast_level,
-                    grinder_brand, grinder_model, grinder_burrs, grinder_setting,
+                    grinder_setting,
+                    equipment_id, rpm,
                     drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                     profile_notes, debug_log,
                     temperature_override, yield_override, profile_kb_id,
@@ -1458,7 +1665,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
                     :bean_brand, :bean_type, :roast_date, :roast_level,
-                    :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
+                    :grinder_setting,
+                    :equipment_id, :rpm,
                     :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
                     :profile_notes, :debug_log,
                     :temperature_override, :yield_override, :profile_kb_id,
@@ -1481,10 +1689,12 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":bean_type", data.beanType);
             query.bindValue(":roast_date", data.roastDate);
             query.bindValue(":roast_level", data.roastLevel);
-            query.bindValue(":grinder_brand", data.grinderBrand);
-            query.bindValue(":grinder_model", data.grinderModel);
-            query.bindValue(":grinder_burrs", data.grinderBurrs);
+            // Grinder identity (brand/model/burrs) is no longer snapshotted on the
+            // shot — it resolves through equipment_id to the package's immutable
+            // grinder item (migration 23). Only the per-shot dial-in is stored.
             query.bindValue(":grinder_setting", data.grinderSetting);
+            query.bindValue(":equipment_id", data.equipmentId > 0 ? QVariant(data.equipmentId) : QVariant());
+            query.bindValue(":rpm", data.rpm > 0 ? QVariant(data.rpm) : QVariant());
             query.bindValue(":drink_tds", data.drinkTds);
             query.bindValue(":drink_ey", data.drinkEy);
             query.bindValue(":enjoyment", data.espressoEnjoyment);
@@ -1972,19 +2182,32 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     ShotRecord record;
 
     QSqlQuery query(db);
+    // Grinder identity (brand/model/burrs) is resolved by following the shot's
+    // equipment_id pointer to its package's grinder item, not from per-shot
+    // snapshot columns (add-equipment-packages task 4.1). The legacy
+    // grinder_brand/model/burrs columns are dropped in migration 23; this JOIN
+    // is the single read path so the snapshot columns can go away. burrs lives
+    // in the item's attrs JSON blob (json_extract). A NULL equipment_id (shot
+    // with no grinder identity) LEFT-JOINs to NULLs — same empty strings the old
+    // columns held.
     if (!query.prepare(R"(
-        SELECT id, uuid, timestamp, profile_name, profile_json,
-               duration_seconds, final_weight, dose_weight,
-               bean_brand, bean_type, roast_date, roast_level,
-               grinder_brand, grinder_model, grinder_burrs, grinder_setting,
-               drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
-               profile_notes, visualizer_id, visualizer_url, debug_log,
-               temperature_override, yield_override, beverage_type, profile_kb_id,
-               channeling_detected, grind_issue_detected,
-               skip_first_frame_detected, pour_truncated_detected,
-               stopped_by, beanbase_json,
-               bag_id, frozen_date, defrost_date
-        FROM shots WHERE id = ?
+        SELECT s.id, s.uuid, s.timestamp, s.profile_name, s.profile_json,
+               s.duration_seconds, s.final_weight, s.dose_weight,
+               s.bean_brand, s.bean_type, s.roast_date, s.roast_level,
+               eg.brand, eg.model, json_extract(eg.attrs, '$.burrs'), s.grinder_setting,
+               s.drink_tds, s.drink_ey, s.enjoyment, s.espresso_notes, s.bean_notes, s.barista,
+               s.profile_notes, s.visualizer_id, s.visualizer_url, s.debug_log,
+               s.temperature_override, s.yield_override, s.beverage_type, s.profile_kb_id,
+               s.channeling_detected, s.grind_issue_detected,
+               s.skip_first_frame_detected, s.pour_truncated_detected,
+               s.stopped_by, s.beanbase_json,
+               s.bag_id, s.frozen_date, s.defrost_date,
+               s.equipment_id, s.rpm,
+               ep.in_inventory, ep.superseded_by, ep.name
+        FROM shots s
+        LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder'
+        LEFT JOIN equipment_packages ep ON ep.id = s.equipment_id
+        WHERE s.id = ?
     )")) {
         qWarning() << "ShotHistoryStorage::loadShotRecordStatic: prepare failed:" << query.lastError().text();
         return record;
@@ -2035,6 +2258,24 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.bagId = query.value(36).isNull() ? -1 : query.value(36).toLongLong();
     record.frozenDate = query.value(37).toString();
     record.defrostDate = query.value(38).toString();
+    record.equipmentId = query.value(39).isNull() ? 0 : query.value(39).toLongLong();
+    record.rpm = query.value(40).toLongLong();
+    // Equipment lineage state for history display (add-equipment-packages 4b.7).
+    // A NULL in_inventory means the shot has no linked package (LEFT JOIN miss) —
+    // leave the state empty. Otherwise: in inventory = current (""), out of
+    // inventory with a superseded_by pointer = "older" (a newer fork exists),
+    // out of inventory without one = "retired".
+    if (record.equipmentId > 0 && !query.value(41).isNull()) {
+        const bool inInventory = query.value(41).toInt() != 0;
+        const bool hasSuccessor = !query.value(42).isNull() && query.value(42).toLongLong() > 0;
+        if (!inInventory)
+            record.equipmentState = hasSuccessor ? QStringLiteral("older") : QStringLiteral("retired");
+    }
+    // Package display name (col 43) — UI shows this rather than the raw grinder
+    // identity. Falls back to brand+model when the package has no custom name.
+    record.equipmentName = query.value(43).toString();
+    if (record.equipmentName.isEmpty())
+        record.equipmentName = (record.grinderBrand + QLatin1Char(' ') + record.grinderModel).trimmed();
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so
@@ -2302,10 +2543,14 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
         {"beanType",        "bean_type"},
         {"roastDate",       "roast_date"},
         {"roastLevel",      "roast_level"},
-        {"grinderBrand",    "grinder_brand"},
-        {"grinderModel",    "grinder_model"},
-        {"grinderBurrs",    "grinder_burrs"},
+        // Grinder identity (brand/model/burrs) is no longer a per-shot column —
+        // it resolves through equipment_id to the immutable package (migration 23).
+        // To correct a shot's grinder, re-point it at a different package by
+        // setting equipmentId (the picker's package id); brand/model/burrs keys
+        // are intentionally ignored. The grind setting stays a per-shot dial-in.
         {"grinderSetting",  "grinder_setting"},
+        {"rpm",             "rpm"},
+        {"equipmentId",     "equipment_id"},
         {"drinkTds",        "drink_tds"},
         {"drinkEy",         "drink_ey"},
         {"enjoyment",       "enjoyment"},
@@ -2351,8 +2596,14 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
 
     // Bind only the columns present in the metadata.
     for (const auto& [metaKey, dbCol] : fieldMap) {
-        if (metadata.contains(metaKey))
-            query.bindValue(QString(":%1").arg(dbCol), metadata.value(metaKey));
+        if (!metadata.contains(metaKey))
+            continue;
+        QVariant v = metadata.value(metaKey);
+        // equipment_id is an FK — an unset/zero re-point clears the link to NULL
+        // rather than pointing at a non-existent package 0.
+        if (dbCol == QLatin1String("equipment_id") && v.toLongLong() <= 0)
+            v = QVariant();
+        query.bindValue(QString(":%1").arg(dbCol), v);
     }
     query.bindValue(":id", shotId);
 
@@ -2400,8 +2651,7 @@ void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariant
 }
 
 // Note: getDistinctValues / requestDistinct* / requestAutoFavorites* /
-// queryGrinderContext / requestUpdateGrinderFields all live in
-// shothistorystorage_queries.cpp.
+// queryGrinderContext all live in shothistorystorage_queries.cpp.
 
 void ShotHistoryStorage::updateTotalShots()
 {
@@ -2765,12 +3015,24 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
         }
 
         {
-            // Import coffee bags first so shots.bag_id can be remapped
+            // Import equipment packages first so both bags and shots can remap
+            // their equipment_id to the new package ids (add-equipment-packages
+            // task 2.8). Pre-equipment sources have no tables and yield an empty
+            // map — bags/shots then null their equipment_id, same as before.
+            QHash<qint64, qint64> packageIdMap;
+            if (!EquipmentStorage::importEquipmentStatic(srcDb, destDb, merge, packageIdMap)) {
+                qWarning() << "ShotHistoryStorage::importDatabaseStatic: Equipment import failed";
+                destDb.rollback();
+                goto cleanup;
+            }
+
+            // Import coffee bags next so shots.bag_id can be remapped
             // (bean-bag-inventory): bag row ids change on insert, exactly
             // like shot ids. Pre-migration-19 sources have no coffee_bags
-            // table and yield an empty map.
+            // table and yield an empty map. packageIdMap remaps each bag's
+            // equipment_id.
             QHash<qint64, qint64> bagIdMap;
-            if (!CoffeeBagStorage::importBagsStatic(srcDb, destDb, merge, bagIdMap)) {
+            if (!CoffeeBagStorage::importBagsStatic(srcDb, destDb, merge, bagIdMap, packageIdMap)) {
                 qWarning() << "ShotHistoryStorage::importDatabaseStatic: Bag import failed";
                 destDb.rollback();
                 goto cleanup;
@@ -2806,6 +3068,11 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             const int idxBagId = srcRecord.indexOf("bag_id");
             const int idxFrozenDate = srcRecord.indexOf("frozen_date");
             const int idxDefrostDate = srcRecord.indexOf("defrost_date");
+            // equipment_id (a source package row id, remapped) + rpm exist only
+            // on post-migration-22 sources (add-equipment-packages). Older
+            // sources lack both — they resolve to NULL.
+            const int idxEquipmentId = srcRecord.indexOf("equipment_id");
+            const int idxRpm = srcRecord.indexOf("rpm");
             auto srcValueOrNull = [&srcShots](int idx) {
                 return idx >= 0 ? srcShots.value(idx) : QVariant();
             };
@@ -2822,7 +3089,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                     INSERT INTO shots (uuid, timestamp, profile_name, profile_json, beverage_type,
                         duration_seconds, final_weight, dose_weight,
                         bean_brand, bean_type, roast_date, roast_level,
-                        grinder_brand, grinder_model, grinder_burrs, grinder_setting,
+                        grinder_setting, equipment_id, rpm,
                         drink_tds, drink_ey,
                         enjoyment, espresso_notes, bean_notes, barista,
                         profile_notes, visualizer_id, visualizer_url, debug_log,
@@ -2831,7 +3098,7 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                         skip_first_frame_detected, pour_truncated_detected,
                         stopped_by, beanbase_json, beanbase_id,
                         bag_id, frozen_date, defrost_date)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 )");
 
                 insert.addBindValue(uuid);
@@ -2847,10 +3114,15 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
                 insert.addBindValue(srcShots.value("bean_type"));
                 insert.addBindValue(srcShots.value("roast_date"));
                 insert.addBindValue(srcShots.value("roast_level"));
-                insert.addBindValue(srcShots.value("grinder_brand"));
-                insert.addBindValue(srcShots.value("grinder_model"));
-                insert.addBindValue(srcShots.value("grinder_burrs"));
                 insert.addBindValue(srcShots.value("grinder_setting"));
+                // equipment_id is a source package row id — remap to the imported
+                // package's new dest id (add-equipment-packages task 2.8); a source
+                // id absent from the map becomes NULL. rpm carries verbatim.
+                {
+                    const qint64 mappedPkg = packageIdMap.value(srcValueOrNull(idxEquipmentId).toLongLong(), 0);
+                    insert.addBindValue(mappedPkg > 0 ? QVariant(mappedPkg) : QVariant());
+                }
+                insert.addBindValue(srcValueOrNull(idxRpm));
                 insert.addBindValue(srcShots.value("drink_tds"));
                 insert.addBindValue(srcShots.value("drink_ey"));
                 insert.addBindValue(srcShots.value("enjoyment"));
@@ -3066,13 +3338,29 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     // Begin transaction
     m_db.transaction();
 
+    // Resolve the parsed grinder identity to an equipment package so the
+    // imported shot keeps its grinder (the per-shot grinder_brand/model/burrs
+    // columns are gone — migration 23; identity lives only on a package now).
+    // Find-or-create on grinder identity, mirroring the live shot-save path,
+    // then link via equipment_id. Empty identity → no package, NULL link.
+    qint64 importEquipmentId = 0;
+    if (!(record.grinderBrand.isEmpty() && record.grinderModel.isEmpty() && record.grinderBurrs.isEmpty())) {
+        importEquipmentId = EquipmentStorage::findPackageByGrinderIdentityStatic(
+            m_db, record.grinderBrand, record.grinderModel, record.grinderBurrs);
+        if (importEquipmentId <= 0) {
+            EquipmentPackage pkg;
+            importEquipmentId = EquipmentStorage::createPackageWithGrinderStatic(
+                m_db, pkg, record.grinderBrand, record.grinderModel, record.grinderBurrs);
+        }
+    }
+
     // Insert main shot record
     query.prepare(R"(
         INSERT INTO shots (
             uuid, timestamp, profile_name, profile_json, beverage_type,
             duration_seconds, final_weight, dose_weight,
             bean_brand, bean_type, roast_date, roast_level,
-            grinder_brand, grinder_model, grinder_burrs, grinder_setting,
+            grinder_setting, equipment_id, rpm,
             drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
             profile_notes, debug_log,
             temperature_override, yield_override, profile_kb_id,
@@ -3082,7 +3370,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
             :duration, :final_weight, :dose_weight,
             :bean_brand, :bean_type, :roast_date, :roast_level,
-            :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
+            :grinder_setting, :equipment_id, :rpm,
             :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
             :profile_notes, :debug_log,
             :temperature_override, :yield_override, :profile_kb_id,
@@ -3103,10 +3391,13 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     query.bindValue(":bean_type", record.summary.beanType);
     query.bindValue(":roast_date", record.roastDate);
     query.bindValue(":roast_level", record.roastLevel);
-    query.bindValue(":grinder_brand", record.grinderBrand);
-    query.bindValue(":grinder_model", record.grinderModel);
-    query.bindValue(":grinder_burrs", record.grinderBurrs);
+    // Grinder identity is not snapshotted on the shot row (migration 23 dropped
+    // the columns); it resolves via equipment_id to the package found/created
+    // above from the parsed identity. The grind setting + rpm stay as per-shot
+    // dial-in.
     query.bindValue(":grinder_setting", record.grinderSetting);
+    query.bindValue(":equipment_id", importEquipmentId > 0 ? QVariant(importEquipmentId) : QVariant());
+    query.bindValue(":rpm", record.rpm > 0 ? QVariant(record.rpm) : QVariant());
     query.bindValue(":drink_tds", record.drinkTds);
     query.bindValue(":drink_ey", record.drinkEy);
     query.bindValue(":enjoyment", record.summary.enjoyment);

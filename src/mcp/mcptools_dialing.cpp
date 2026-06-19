@@ -303,6 +303,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         in.grinderModel = sd.grinderModel;
                         in.grinderBurrs = sd.grinderBurrs;
                         in.grinderSetting = sd.grinderSetting;
+                        in.rpm = static_cast<int>(sd.rpm);
                         in.doseWeightG = sd.doseWeightG;
                         in.beanBaseJson = sd.beanBaseJson;
                         result["currentBean"] = DialingBlocks::buildCurrentBeanBlock(in);

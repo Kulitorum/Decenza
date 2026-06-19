@@ -49,6 +49,16 @@ class ShotProjection {
     Q_PROPERTY(QString grinderModel MEMBER grinderModel)
     Q_PROPERTY(QString grinderBurrs MEMBER grinderBurrs)
     Q_PROPERTY(QString grinderSetting MEMBER grinderSetting)
+    Q_PROPERTY(qlonglong rpm MEMBER rpm)
+    // The shot's equipment package id (add-equipment-packages) — exposed so the
+    // shot editor can re-point a shot to a different package; 0 = none.
+    Q_PROPERTY(qlonglong equipmentId MEMBER equipmentId)
+    // "" = current/none, "older" = superseded by a newer package, "retired" =
+    // out of inventory with no successor (add-equipment-packages 4b.7).
+    Q_PROPERTY(QString equipmentState MEMBER equipmentState)
+    // Package display name (defaults to "{brand} {model}") — shown instead of the
+    // raw grinder identity.
+    Q_PROPERTY(QString equipmentName MEMBER equipmentName)
     Q_PROPERTY(double drinkTdsPct MEMBER drinkTdsPct)
     Q_PROPERTY(double drinkEyPct MEMBER drinkEyPct)
     Q_PROPERTY(QString espressoNotes MEMBER espressoNotes)
@@ -124,6 +134,10 @@ public:
     QString grinderModel;
     QString grinderBurrs;
     QString grinderSetting;
+    qint64 rpm = 0;
+    qint64 equipmentId = 0;  // FK -> equipment_packages.id (add-equipment-packages); 0 = none
+    QString equipmentState;  // "", "older", or "retired" (add-equipment-packages 4b.7)
+    QString equipmentName;   // package display name (default "{brand} {model}")
     double drinkTdsPct = 0.0;
     double drinkEyPct = 0.0;
     QString espressoNotes;

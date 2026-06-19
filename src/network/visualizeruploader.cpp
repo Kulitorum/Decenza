@@ -55,6 +55,18 @@
 #include <QDir>
 #include <QBuffer>
 
+namespace {
+// Visualizer has no rpm field, so the grinder rpm dial-in is appended to the
+// grind setting using the community convention ("2.4 1400rpm") that the grinder
+// parser already tolerates (add-equipment-packages).
+QString grinderSettingWithRpm(const QString& setting, qint64 rpm) {
+    if (rpm <= 0)
+        return setting;
+    return setting.isEmpty() ? QStringLiteral("%1rpm").arg(rpm)
+                             : QStringLiteral("%1 %2rpm").arg(setting).arg(rpm);
+}
+} // namespace
+
 VisualizerUploader::VisualizerUploader(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent)
     : QObject(parent)
     , m_settings(settings)
@@ -905,8 +917,10 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
            : metadata.grinderBrand + " " + metadata.grinderModel);
     if (!grinderDisplay.isEmpty())
         grinder["model"] = grinderDisplay;
-    if (!metadata.grinderSetting.isEmpty())
-        grinder["setting"] = metadata.grinderSetting;
+    {
+        const QString gs = grinderSettingWithRpm(metadata.grinderSetting, metadata.rpm);
+        if (!gs.isEmpty()) grinder["setting"] = gs;
+    }
     meta["grinder"] = grinder;
 
     // Weights
@@ -945,8 +959,10 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
         settings["roast_level"] = metadata.roastLevel;
     if (!grinderDisplay.isEmpty())
         settings["grinder_model"] = grinderDisplay;
-    if (!metadata.grinderSetting.isEmpty())
-        settings["grinder_setting"] = metadata.grinderSetting;
+    {
+        const QString gs = grinderSettingWithRpm(metadata.grinderSetting, metadata.rpm);
+        if (!gs.isEmpty()) settings["grinder_setting"] = gs;
+    }
     if (beanWeight > 0)
         settings["grinder_dose_weight"] = beanWeight;
     if (drinkWeight > 0)
@@ -1485,7 +1501,8 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
         : (shotData.grinderModel.isEmpty() ? shotData.grinderBrand
                                            : shotData.grinderBrand + " " + shotData.grinderModel);
     if (!grinderDisplay2.isEmpty()) grinder["model"] = grinderDisplay2;
-    if (!shotData.grinderSetting.isEmpty()) grinder["setting"] = shotData.grinderSetting;
+    { const QString gs = grinderSettingWithRpm(shotData.grinderSetting, shotData.rpm);
+      if (!gs.isEmpty()) grinder["setting"] = gs; }
     meta["grinder"] = grinder;
 
     // Weights: use stored final weight from history; fall back to flow-integrated volume if missing
@@ -1507,7 +1524,8 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
     if (!shotData.roastDate.isEmpty()) settings["roast_date"] = RoastDate::toIso(shotData.roastDate);
     if (!shotData.roastLevel.isEmpty()) settings["roast_level"] = shotData.roastLevel;
     if (!grinderDisplay2.isEmpty()) settings["grinder_model"] = grinderDisplay2;
-    if (!shotData.grinderSetting.isEmpty()) settings["grinder_setting"] = shotData.grinderSetting;
+    { const QString gs = grinderSettingWithRpm(shotData.grinderSetting, shotData.rpm);
+      if (!gs.isEmpty()) settings["grinder_setting"] = gs; }
     if (shotData.doseWeightG > 0) settings["grinder_dose_weight"] = shotData.doseWeightG;
     if (finalWeight > 0) settings["drink_weight"] = finalWeight;
     if (shotData.drinkTdsPct > 0) settings["drink_tds"] = shotData.drinkTdsPct;

@@ -268,6 +268,7 @@ Item {
                 "hotwater": "HotWaterPage.qml",
                 "flush": "FlushPage.qml",
                 "beaninfo": "BeanInfoPage.qml",
+                "equipment": "EquipmentPage.qml",
                 "espresso": "EspressoPage.qml",
                 "community": "CommunityBrowserPage.qml",
                 "flowCalibration": "FlowCalibrationPage.qml",

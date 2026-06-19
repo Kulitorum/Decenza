@@ -86,9 +86,9 @@ Each tool has a `category` that determines the minimum access level required:
 
 | Category | Min Access Level | Tools |
 |----------|-----------------|-------|
-| `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, profiles_get_auto_load, settings_get, dialing_get_context, dialing_get_grinder_calibration, bag_list |
-| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, shots_upload_to_visualizer, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority, bag_select |
-| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, apply_theme, bag_update |
+| `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, profiles_get_auto_load, settings_get, dialing_get_context, dialing_get_grinder_calibration, bag_list, equipment_list |
+| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, shots_upload_to_visualizer, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority, bag_select, equipment_select |
+| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, apply_theme, bag_update, equipment_update |
 
 ### Tool → Confirmation Level Mapping
 
@@ -187,6 +187,16 @@ This avoids holding HTTP connections and works naturally with the conversational
 | `bag_list` | List coffee bags (inventory by default; `includeEmpty=true` adds bags marked empty). Each bag carries identity, freeze lifecycle, last-used grinder/dose, a parsed `beanBase` snapshot, and `isActive`. | read |
 | `bag_select` | Set the active bag — what the next shot is pulled with (applies bean identity + last-used grinder/dose). `bagId: 0` clears the selection. | control |
 | `bag_update` | Update bag fields (metadata + freeze lifecycle). Partial: only provided keys change; `""` clears a text/date field. `inInventory=false` = "Bag finished" (marks the bag empty); setting `defrostDate` records a thaw. | settings |
+
+### Equipment Packages (add-equipment-packages)
+The grinder is a first-class, switchable **equipment package** (the active bag points at one via `equipment_id`). The grind setting + `rpm` stay as per-bag dial-in.
+| Tool | Description | Category |
+|------|-------------|----------|
+| `equipment_list` | List equipment packages. Each carries `id`, `name`, `grinderBrand/Model/Burrs`, `rpmAdjustable`, `inInventory`, last dial (`lastGrindSetting`/`lastRpm`), `shotCount`, and `isActive`. | read |
+| `equipment_select` | Set the active equipment package — the grinder the next shot is ground on. Applies the package's grinder identity + last grind/rpm and points the active bag at it. | control |
+| `equipment_update` | Edit a package's grinder identity (`grinderBrand/Model/Burrs`) and/or `name`. Partial; re-derives `rpmAdjustable`. Reference semantics (applies to all referencing bags/shots). | settings |
+
+The `de1://dialing` resource's grinder block also exposes `packageId`, `rpmAdjustable`, and `rpm`.
 
 ### Profile Management
 | Tool | Description | Category |

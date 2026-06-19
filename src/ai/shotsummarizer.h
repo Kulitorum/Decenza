@@ -119,6 +119,7 @@ struct ShotSummary {
     QString grinderModel;
     QString grinderBurrs;
     QString grinderSetting;
+    int rpm = 0;  // grinder rpm dial-in (0 = unset / non-adjustable grinder)
     // Compact-JSON Bean Base snapshot ("" = unlinked); flows into
     // currentBean.beanBase via the shared block builder.
     QString beanBaseJson;
