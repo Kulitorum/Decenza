@@ -27,7 +27,7 @@
 ## 4. Shot projection & history queries
 - [ ] 4.1 `ShotProjection` resolves grinder brand/model/burrs via `equipment_id` JOIN; add `rpm`
 - [ ] 4.2 Re-scope `getDistinctGrinderBrands/ModelsForBrand/BurrsForModel/SettingsForGrinder` to `equipment_items WHERE kind='grinder'`
-- [ ] 4.3 Shot save captures `equipment_id` + `rpm` (stops writing grinder identity once columns are dropped)
+- [x] 4.3 Shot save captures `equipment_id` + `rpm` (ShotMetadata→ShotSaveData→INSERT; ShotRecord/ShotProjection read them back). Still writes the grinder identity snapshot columns until migration 23.
 - [ ] 4.4 **Migration 23**: drop `grinder_brand`/`grinder_model`/`grinder_burrs` from `coffee_bags` AND `shots` (SQLite ≥3.35 `DROP COLUMN`); remove from `CoffeeBagStorage::kCols`; rework `shots_fts` to drop grinder columns — only after all readers (4.1/4.2/4b) resolve via `equipment_id`
 
 ## 4b. Copy-on-write immutability + pointer-only normalization (REVISED model — see design §2b)
@@ -60,9 +60,9 @@
 - [x] 7.4 Dial edits use dual write-through (`setDyeGrinderSetting`/`setDyeGrinderRpm`)
 
 ## 8. Visualizer
-- [ ] 8.1 Upload: resolve `equipment_id` → "brand model"; omit when null
-- [ ] 8.2 Upload: append rpm to `grinder_setting` (`"{setting} {rpm}rpm"`) when rpm present
-- [ ] 8.3 Confirm import path untouched (regression check)
+- [~] 8.1 Upload still sends the grinder identity snapshot strings (present until migration 23); pure-pointer resolution folds into the projection JOIN (4.1)
+- [x] 8.2 Upload appends rpm to `grinder_setting` (`"{setting} {rpm}rpm"`) at all payload sites via `grinderSettingWithRpm`
+- [x] 8.3 Import path untouched (profile-only; no equipment linkage) — confirmed earlier
 
 ## 9. MCP
 - [x] 9.1 `de1://dialing` (mcpresources) grinder block gains `rpm` + `rpmAdjustable` + `packageId`. (Shot-derived dialing/ai blocks still read the shot's grinder columns, which remain until migration 23 — no change needed there yet.)

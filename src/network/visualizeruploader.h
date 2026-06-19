@@ -23,6 +23,8 @@ struct ShotMetadata {
     QString grinderModel;
     QString grinderBurrs;
     QString grinderSetting;
+    qint64 equipmentId = 0; // Equipment package (add-equipment-packages); 0 = none
+    int rpm = 0;            // Grinder rpm dial-in; 0 = unset
     double beanWeight = 0;  // Dose weight in grams
     double drinkWeight = 0; // Output weight in grams
     double drinkTds = 0;

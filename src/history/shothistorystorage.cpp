@@ -1328,6 +1328,8 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     data.grinderModel = metadata.grinderModel;
     data.grinderBurrs = metadata.grinderBurrs;
     data.grinderSetting = metadata.grinderSetting;
+    data.equipmentId = metadata.equipmentId;
+    data.rpm = metadata.rpm;
     data.drinkTds = metadata.drinkTds;
     data.drinkEy = metadata.drinkEy;
     data.espressoEnjoyment = metadata.espressoEnjoyment;
@@ -1507,6 +1509,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     duration_seconds, final_weight, dose_weight,
                     bean_brand, bean_type, roast_date, roast_level,
                     grinder_brand, grinder_model, grinder_burrs, grinder_setting,
+                    equipment_id, rpm,
                     drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
                     profile_notes, debug_log,
                     temperature_override, yield_override, profile_kb_id,
@@ -1519,6 +1522,7 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :duration, :final_weight, :dose_weight,
                     :bean_brand, :bean_type, :roast_date, :roast_level,
                     :grinder_brand, :grinder_model, :grinder_burrs, :grinder_setting,
+                    :equipment_id, :rpm,
                     :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
                     :profile_notes, :debug_log,
                     :temperature_override, :yield_override, :profile_kb_id,
@@ -1545,6 +1549,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":grinder_model", data.grinderModel);
             query.bindValue(":grinder_burrs", data.grinderBurrs);
             query.bindValue(":grinder_setting", data.grinderSetting);
+            query.bindValue(":equipment_id", data.equipmentId > 0 ? QVariant(data.equipmentId) : QVariant());
+            query.bindValue(":rpm", data.rpm > 0 ? QVariant(data.rpm) : QVariant());
             query.bindValue(":drink_tds", data.drinkTds);
             query.bindValue(":drink_ey", data.drinkEy);
             query.bindValue(":enjoyment", data.espressoEnjoyment);
@@ -2043,7 +2049,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                channeling_detected, grind_issue_detected,
                skip_first_frame_detected, pour_truncated_detected,
                stopped_by, beanbase_json,
-               bag_id, frozen_date, defrost_date
+               bag_id, frozen_date, defrost_date,
+               equipment_id, rpm
         FROM shots WHERE id = ?
     )")) {
         qWarning() << "ShotHistoryStorage::loadShotRecordStatic: prepare failed:" << query.lastError().text();
@@ -2095,6 +2102,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.bagId = query.value(36).isNull() ? -1 : query.value(36).toLongLong();
     record.frozenDate = query.value(37).toString();
     record.defrostDate = query.value(38).toString();
+    record.equipmentId = query.value(39).isNull() ? 0 : query.value(39).toLongLong();
+    record.rpm = query.value(40).toInt();
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so

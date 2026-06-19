@@ -2012,6 +2012,8 @@ void MainController::onShotEnded() {
     metadata.grinderModel = m_settings->dye()->dyeGrinderModel();
     metadata.grinderBurrs = m_settings->dye()->dyeGrinderBurrs();
     metadata.grinderSetting = m_settings->dye()->dyeGrinderSetting();
+    metadata.equipmentId = m_settings->dye()->activeEquipmentId();
+    metadata.rpm = m_settings->dye()->dyeGrinderRpm();
     metadata.beanWeight = m_settings->dye()->dyeBeanWeight();
     metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
     metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
@@ -2260,6 +2262,8 @@ void MainController::uploadPendingShot() {
     metadata.grinderModel = m_settings->dye()->dyeGrinderModel();
     metadata.grinderBurrs = m_settings->dye()->dyeGrinderBurrs();
     metadata.grinderSetting = m_settings->dye()->dyeGrinderSetting();
+    metadata.equipmentId = m_settings->dye()->activeEquipmentId();
+    metadata.rpm = m_settings->dye()->dyeGrinderRpm();
     metadata.beanWeight = m_settings->dye()->dyeBeanWeight();
     metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
     metadata.drinkTds = m_settings->dye()->dyeDrinkTds();
@@ -2414,6 +2418,10 @@ void MainController::generateFakeShotData() {
             metadata.grinderModel = m_settings->dye()->dyeGrinderModel();
             metadata.grinderBurrs = m_settings->dye()->dyeGrinderBurrs();
             metadata.grinderSetting = m_settings->dye()->dyeGrinderSetting();
+            metadata.equipmentId = m_settings->dye()->activeEquipmentId();
+            metadata.rpm = m_settings->dye()->dyeGrinderRpm();
+    metadata.equipmentId = m_settings->dye()->activeEquipmentId();
+    metadata.rpm = m_settings->dye()->dyeGrinderRpm();
             metadata.beanWeight = m_pendingShotDoseWeight;
             metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
             metadata.drinkTds = m_settings->dye()->dyeDrinkTds();

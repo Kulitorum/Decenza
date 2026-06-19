@@ -61,6 +61,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.grinderModel = record.grinderModel;
     p.grinderBurrs = record.grinderBurrs;
     p.grinderSetting = record.grinderSetting;
+    p.rpm = record.rpm;
     p.drinkTdsPct = record.drinkTds;
     p.drinkEyPct = record.drinkEy;
     p.espressoNotes = record.espressoNotes;
