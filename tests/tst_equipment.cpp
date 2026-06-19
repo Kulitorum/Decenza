@@ -366,9 +366,10 @@ private slots:
         };
         QCOMPARE(canon(true, true, false, false, false), QString("shaker,wdt"));
         QCOMPARE(canon(false, false, false, false, false), QString(""));
-        QCOMPARE(PuckPrep::distribution("shaker,wdt"), QString("thorough"));  // wdt wins
-        QCOMPARE(PuckPrep::distribution("shaker"), QString("light"));
-        QCOMPARE(PuckPrep::distribution("puckScreen"), QString("none"));     // no wdt/shaker
+        QCOMPARE(PuckPrep::distribution("shaker,wdt"), QString("thorough"));
+        QCOMPARE(PuckPrep::distribution("shaker"), QString("thorough"));     // shaker == WDT (equal weight)
+        QCOMPARE(PuckPrep::distribution("rdt"), QString("light"));           // anti-static only
+        QCOMPARE(PuckPrep::distribution("puckScreen"), QString("none"));     // no active distribution
 
         const QString path = freshDbPath();
         withRawDb(path, "eq_puck", [&](QSqlDatabase& db) {

@@ -50,14 +50,18 @@ rollup (`none` | `light` | `thorough`) at read time, exactly as basket specs are
 derived from the registry (here the "registry" is a pure function, no table):
 
 ```
-  distribution = wdt      ? "thorough"
-               : shaker   ? "light"
-               :            "none"
+  distribution = (wdt || shaker) ? "thorough"   // equal weight — NOT ranked
+               : rdt             ? "light"       // anti-static only, not active distribution
+               :                   "none"
 ```
 
-WDT and shaker are the puck-*distribution* techniques, so the rollup keys on them;
-`rdt` / `puckScreen` / `paperFilter` are separate flags the advisor reads
-individually (rdt's mild anti-clump help is noted but kept out of the rollup to
+WDT and shaker are both deliberate puck-*distribution* techniques and are weighted
+**equally** — which is "better" is genuinely contested (a good shaker / needle
+distributor matches or beats mediocre WDT), so the rollup must NOT rank one above
+the other; it answers "did the user actively distribute, or is this dump-and-tamp?".
+`rdt` (anti-static declumping) counts as `light` on its own; `puckScreen` /
+`paperFilter` are separate flags the advisor reads individually (kept out of the
+rollup to
 keep it legible). Rationale for derive-at-read: the rollup logic lives in one place,
 can be tuned (or extended when *sift* lands) without touching stored data, and the
 advisor always sees a current interpretation.
@@ -139,9 +143,10 @@ extend that test to cover the puckprep column(s) too.
 
 ## Risks / Open questions
 
-- **Rollup tuning.** The `wdt→thorough / shaker→light` mapping is a judgment call;
-  it lives in one derive-at-read function so it's cheap to revise (and must be
-  revisited when *sift* lands).
+- **Rollup tuning.** The mapping is a judgment call; it lives in one derive-at-read
+  function so it's cheap to revise (and must be revisited when *sift* lands). WDT and
+  shaker are weighted equally on purpose — ranking either above the other would bake a
+  contested opinion into advice the AI then acts on.
 - **Checklist legibility.** Five bare checkboxes risk reading as clutter; grouping
   or a one-line "Puck prep" header keeps it scannable (UI detail, not architecture).
 - **Explicit-none vs unknown** (Decision 5) — the only semantic the v1 model gives up.

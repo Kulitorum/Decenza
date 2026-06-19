@@ -29,7 +29,7 @@ is a distinct package, reached by the same fork/dedup machinery.
   than a brand/model string, the comparison normalizes the config to a canonical
   form (the one true delta from the basket pattern).
 - **Derived `distribution` rollup** (`none` | `light` | `thorough`) computed at
-  read time as a pure function of the flags (WDT → thorough, shaker → light, else
+  read time as a pure function of the flags (WDT or shaker → thorough, else RDT → light, else
   none). No registry — mirrors how basket specs are derived, not stored.
 - **Edit Equipment form gains a puck-prep CHECKBOX section** — a new UI primitive in
   the form (not a `SuggestionField` vendor picker). All-unchecked = no puck-prep

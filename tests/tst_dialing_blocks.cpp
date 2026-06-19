@@ -2596,15 +2596,19 @@ private slots:
         QCOMPARE(p["puckScreen"].toBool(), false);
         QCOMPARE(p["paperFilter"].toBool(), false);
         QCOMPARE(p["rdt"].toBool(), false);
-        QCOMPARE(p["distribution"].toString(), QString("thorough"));  // WDT → thorough
+        QCOMPARE(p["distribution"].toString(), QString("thorough"));
 
-        // Shaker without WDT → light; a non-distribution flag alone → none.
+        // Shaker alone is ALSO thorough — equal weight with WDT, not ranked below it.
         in.puckPrep = "shaker";
         QCOMPARE(DialingBlocks::buildCurrentBeanBlock(in)["puckPrep"].toObject()["distribution"].toString(),
-                 QString("light"));
+                 QString("thorough"));
+        // A non-distribution flag alone → none; RDT alone (anti-static) → light.
         in.puckPrep = "puckScreen";
         QCOMPARE(DialingBlocks::buildCurrentBeanBlock(in)["puckPrep"].toObject()["distribution"].toString(),
                  QString("none"));
+        in.puckPrep = "rdt";
+        QCOMPARE(DialingBlocks::buildCurrentBeanBlock(in)["puckPrep"].toObject()["distribution"].toString(),
+                 QString("light"));
     }
 
     // beanbase_json is read by POSITIONAL index in loadShotRecordStatic — a

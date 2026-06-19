@@ -20,7 +20,8 @@ row of an existing kind.
 ### Requirement: The distribution rollup SHALL be derived, not stored
 The puck-prep item SHALL persist only its boolean flags. A `distribution` rollup
 (`none` | `light` | `thorough`) SHALL be derived at read time as a pure function of
-the flags (WDT → thorough; else shaker → light; else none), never stored. Adjusting
+the flags (WDT or shaker → thorough; else RDT → light; else none — WDT and shaker
+weighted equally, not ranked), never stored. Adjusting
 the rollup logic SHALL NOT require any data change.
 
 #### Scenario: Distribution derived from flags

@@ -85,14 +85,19 @@ inline QString canonicalMerged(const QString& currentCanon, const QVariantMap& m
 }
 
 // Derived distribution rollup (the signal the AI advisor reads to branch its
-// channeling guidance). WDT is the gold-standard distribution technique, shaker a
-// lighter one; the other flags (rdt/puckScreen/paperFilter) are read individually
-// and do not move the rollup. Pure function of the canonical string — never stored.
+// channeling guidance). WDT and shaker are BOTH deliberate distribution techniques
+// and are weighted EQUALLY — which is "better" is genuinely contested (a good
+// shaker / needle distributor matches or beats mediocre WDT, and WDT quality is
+// highly technique-dependent), so the rollup does not rank them; it answers "did
+// the user actively distribute, or is this dump-and-tamp?". RDT alone is
+// anti-static declumping, not active distribution, so it counts as light. The
+// other flags (puckScreen/paperFilter) are read individually and do not move the
+// rollup. Pure function of the canonical string — never stored.
 inline QString distribution(const QString& canon)
 {
-    if (has(canon, QStringLiteral("wdt")))
+    if (has(canon, QStringLiteral("wdt")) || has(canon, QStringLiteral("shaker")))
         return QStringLiteral("thorough");
-    if (has(canon, QStringLiteral("shaker")))
+    if (has(canon, QStringLiteral("rdt")))
         return QStringLiteral("light");
     return QStringLiteral("none");
 }
