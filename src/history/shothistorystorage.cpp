@@ -2539,11 +2539,12 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
         {"roastDate",       "roast_date"},
         {"roastLevel",      "roast_level"},
         // Grinder identity (brand/model/burrs) is no longer a per-shot column —
-        // it resolves through equipment_id to the immutable package, so it is not
-        // editable per-shot (migration 23). The grind setting remains a per-shot
-        // dial-in. Any grinderBrand/Model/Burrs keys in the metadata map are
-        // intentionally ignored.
+        // it resolves through equipment_id to the immutable package (migration 23).
+        // To correct a shot's grinder, re-point it at a different package by
+        // setting equipmentId (the picker's package id); brand/model/burrs keys
+        // are intentionally ignored. The grind setting stays a per-shot dial-in.
         {"grinderSetting",  "grinder_setting"},
+        {"equipmentId",     "equipment_id"},
         {"drinkTds",        "drink_tds"},
         {"drinkEy",         "drink_ey"},
         {"enjoyment",       "enjoyment"},
@@ -2589,8 +2590,14 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
 
     // Bind only the columns present in the metadata.
     for (const auto& [metaKey, dbCol] : fieldMap) {
-        if (metadata.contains(metaKey))
-            query.bindValue(QString(":%1").arg(dbCol), metadata.value(metaKey));
+        if (!metadata.contains(metaKey))
+            continue;
+        QVariant v = metadata.value(metaKey);
+        // equipment_id is an FK — an unset/zero re-point clears the link to NULL
+        // rather than pointing at a non-existent package 0.
+        if (dbCol == QLatin1String("equipment_id") && v.toLongLong() <= 0)
+            v = QVariant();
+        query.bindValue(QString(":%1").arg(dbCol), v);
     }
     query.bindValue(":id", shotId);
 

@@ -172,6 +172,7 @@ Page {
                 editGrinderBrand = editShotData.grinderBrand || ""
                 editGrinderModel = editShotData.grinderModel || ""
                 editGrinderBurrs = editShotData.grinderBurrs || ""
+                editEquipmentId = editShotData.equipmentId || -1
                 editGrinderSetting = editShotData.grinderSetting || ""
                 editBarista = editShotData.barista || ""
                 // Fall back to last-used DYE dose when the shot has no stored dose,
@@ -258,9 +259,13 @@ Page {
     property string editBeanType: ""
     property string editRoastDate: ""
     property string editRoastLevel: ""
+    // Grinder brand/model/burrs are READ-ONLY display, resolved from the shot's
+    // equipment package; editEquipmentId is the re-point target the picker sets.
     property string editGrinderBrand: ""
     property string editGrinderModel: ""
     property string editGrinderBurrs: ""
+    property int editEquipmentId: -1
+    property int _pendingEquipmentId: -1   // package id awaiting requestPackage resolution
     property string editGrinderSetting: ""
     property string editBarista: ""
     property double editDoseWeight: 0
@@ -405,6 +410,7 @@ Page {
             roastDate: editRoastDate, roastLevel: editRoastLevel,
             grinderBrand: editGrinderBrand, grinderModel: editGrinderModel,
             grinderBurrs: editGrinderBurrs, grinderSetting: editGrinderSetting,
+            equipmentId: editEquipmentId,
             barista: editBarista, doseWeight: editDoseWeight,
             drinkWeight: editDrinkWeight, drinkTds: editDrinkTds,
             drinkEy: editDrinkEy, enjoyment: editEnjoyment,
@@ -418,6 +424,7 @@ Page {
         editRoastDate = s.roastDate; editRoastLevel = s.roastLevel
         editGrinderBrand = s.grinderBrand; editGrinderModel = s.grinderModel
         editGrinderBurrs = s.grinderBurrs; editGrinderSetting = s.grinderSetting
+        editEquipmentId = s.equipmentId !== undefined ? s.equipmentId : -1
         editBarista = s.barista; editDoseWeight = s.doseWeight
         editDrinkWeight = s.drinkWeight; editDrinkTds = s.drinkTds
         editDrinkEy = s.drinkEy; editEnjoyment = s.enjoyment
@@ -610,10 +617,14 @@ Page {
             "beanType": editBeanType,
             "roastDate": editRoastDate,
             "roastLevel": editRoastLevel,
+            // Grinder identity (brand/model/burrs) is ignored by the backend now
+            // — it resolves via equipmentId. Kept here only so the Visualizer PATCH
+            // (buildVisualizerOverrides) still sends the resolved grinder strings.
             "grinderBrand": editGrinderBrand,
             "grinderModel": editGrinderModel,
             "grinderBurrs": editGrinderBurrs,
             "grinderSetting": editGrinderSetting,
+            "equipmentId": editEquipmentId,
             "barista": editBarista,
             "doseWeight": editDoseWeight,
             "finalWeight": editDrinkWeight,
@@ -642,6 +653,7 @@ Page {
         nb.grinderBrand = editGrinderBrand
         nb.grinderModel = editGrinderModel
         nb.grinderBurrs = editGrinderBurrs
+        nb.equipmentId = editEquipmentId
         nb.grinderSetting = editGrinderSetting
         nb.barista = editBarista
         nb.doseWeightG = editDoseWeight
@@ -780,7 +792,6 @@ Page {
         anchors.fill: parent
         targetFlickable: flickable
         textFields: [
-            grinderBrandField.textField, grinderModelField.textField, grinderBurrsField.textField,
             settingField.textField, baristaField.textField,
             notesExpandable.textField
         ]
@@ -1472,6 +1483,30 @@ Page {
                         pendingVisualizerUpdate = true
                     }
                 }
+
+                // Re-point this shot's grinder to a different/new package. The
+                // picker doesn't touch the active bag (applyToActiveBag:false);
+                // we resolve the chosen package and persist equipmentId here.
+                SwitchEquipmentDialog {
+                    id: shotEquipmentDialog
+                    applyToActiveBag: false
+                    onPackageSaved: function(packageId) {
+                        postShotReviewPage._pendingEquipmentId = packageId
+                        MainController.equipmentStorage.requestPackage(packageId)
+                    }
+                }
+                Connections {
+                    target: MainController.equipmentStorage
+                    function onPackageReady(packageId, pkg) {
+                        if (packageId !== postShotReviewPage._pendingEquipmentId) return
+                        postShotReviewPage._pendingEquipmentId = -1
+                        postShotReviewPage.editEquipmentId = packageId
+                        postShotReviewPage.editGrinderBrand = pkg.grinderBrand || ""
+                        postShotReviewPage.editGrinderModel = pkg.grinderModel || ""
+                        postShotReviewPage.editGrinderBurrs = pkg.grinderBurrs || ""
+                        postShotReviewPage.autosave("equipment", true)
+                    }
+                }
             }
 
             BeanBaseDetailsRow {
@@ -1506,79 +1541,59 @@ Page {
                 rowSpacing: 6
 
                 // (Bean identity fields removed — the read-only BeanSummary +
-                // Change Beans dialog above replace them. Grinder and dose
-                // correction fields below stay editable: they dual-write the
-                // shot and the sticky DYE state, which now writes through to
-                // the active bag.)
-                SuggestionField {
-                    id: grinderBrandField
+                // Change Beans dialog above replace them.)
+                //
+                // Grinder identity (brand/model/burrs) is owned by the equipment
+                // PACKAGE now (add-equipment-packages), so it is READ-ONLY here and
+                // changed by re-pointing the shot to a different package via the
+                // picker — not edited as free text (those edits were silently
+                // discarded). The grind Setting (below) stays a per-shot dial-in.
+                ColumnLayout {
+                    Layout.columnSpan: 3
                     Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.grinderbrand", "Grinder brand")
-                    text: editGrinderBrand
-                    suggestions: {
-                        var history = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderBrands() : []
-                        var known = Settings.dye.knownGrinderBrands()
-                        var merged = history.slice()
-                        for (var i = 0; i < known.length; i++) {
-                            if (merged.indexOf(known[i]) < 0) merged.push(known[i])
-                        }
-                        return merged
-                    }
-                    onTextEdited: function(t) { editGrinderBrand = t }
-                    onInputBlurred: postShotReviewPage.autosave("grinderBrand", true)
-                    onSuggestionSelected: function(t) {
-                        editGrinderModel = ""
-                        editGrinderBurrs = ""
-                        var models = Settings.dye.knownGrinderModels(t)
-                        if (models.length === 1) {
-                            editGrinderModel = models[0]
-                            var burrs = Settings.dye.suggestedBurrs(t, models[0])
-                            if (burrs.length === 1) editGrinderBurrs = burrs[0]
-                        }
-                        postShotReviewPage.autosave("grinderBrand", true)
-                    }
-                }
+                    spacing: 4
 
-                SuggestionField {
-                    id: grinderModelField
-                    Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.grindermodel", "Model")
-                    text: editGrinderModel
-                    suggestions: {
-                        var history = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderModelsForBrand(editGrinderBrand) : []
-                        var known = Settings.dye.knownGrinderModels(editGrinderBrand)
-                        var merged = history.slice()
-                        for (var i = 0; i < known.length; i++) {
-                            if (merged.indexOf(known[i]) < 0) merged.push(known[i])
-                        }
-                        return merged
-                    }
-                    onTextEdited: function(t) { editGrinderModel = t }
-                    onInputBlurred: postShotReviewPage.autosave("grinderModel", true)
-                    onSuggestionSelected: function(t) {
-                        var burrs = Settings.dye.suggestedBurrs(editGrinderBrand, t)
-                        if (burrs.length === 1) editGrinderBurrs = burrs[0]
-                        postShotReviewPage.autosave("grinderModel", true)
-                    }
-                }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        readonly property bool hasEquipment: editGrinderBrand.length > 0 || editGrinderModel.length > 0
 
-                // === ROW 3: Burrs, Setting, Beverage type ===
-                SuggestionField {
-                    id: grinderBurrsField
-                    Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.grinderburrs", "Burrs")
-                    text: editGrinderBurrs
-                    suggestions: {
-                        var history = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderBurrsForModel(editGrinderBrand, editGrinderModel) : []
-                        var known = Settings.dye.suggestedBurrs(editGrinderBrand, editGrinderModel)
-                        var merged = history.slice()
-                        for (var i = 0; i < known.length; i++) {
-                            if (merged.indexOf(known[i]) < 0) merged.push(known[i])
+                        Tr {
+                            key: "postshotreview.label.equipment"
+                            fallback: "Equipment:"
+                            font: Theme.labelFont
+                            color: Theme.textSecondaryColor
+                            Accessible.ignored: true
                         }
-                        return merged
+                        Text {
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            text: parent.hasEquipment
+                                  ? [editGrinderBrand, editGrinderModel].filter(function(s){ return s && s.length > 0 }).join(" ")
+                                  : TranslationManager.translate("postshotreview.equipmentNotSet", "Not set")
+                            font: Theme.bodyFont
+                            color: parent.hasEquipment ? Theme.textColor : Theme.textSecondaryColor
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: TranslationManager.translate("postshotreview.label.equipment", "Equipment:") + " " + text
+                        }
+                        AccessibleButton {
+                            text: parent.hasEquipment
+                                  ? TranslationManager.translate("postshotreview.changeEquipment", "Change Equipment")
+                                  : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
+                            accessibleName: text
+                            onClicked: shotEquipmentDialog.openPicker()
+                        }
                     }
-                    onTextEdited: function(t) { editGrinderBurrs = t }
-                    onInputBlurred: postShotReviewPage.autosave("grinderBurrs", true)
+                    Text {
+                        visible: editGrinderBurrs.length > 0
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        text: TranslationManager.translate("postshotreview.label.grinderburrs", "Burrs") + ": " + editGrinderBurrs
+                        font: Theme.labelFont
+                        color: Theme.textSecondaryColor
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: text
+                    }
                 }
 
                 SuggestionField {

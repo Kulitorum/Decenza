@@ -29,6 +29,12 @@ Dialog {
     property string fModel: ""
     property string fBurrs: ""
 
+    // When true (default, the Brew Settings / Equipment-window use), selecting or
+    // creating a package switches the ACTIVE bag's equipment. When false, the
+    // dialog is a pure picker for a specific shot/bag: it does NOT touch the
+    // active selection — the caller applies the result via packageSaved(id).
+    property bool applyToActiveBag: true
+
     signal packageSaved(int packageId)
 
     onAboutToShow: if (mode === "list") MainController.equipmentStorage.requestInventory()
@@ -44,8 +50,10 @@ Dialog {
             if (!root._awaitingCreate) return
             root._awaitingCreate = false
             if (packageId > 0) {
-                // A freshly added package becomes the active equipment.
-                Settings.dye.switchToEquipment(pkg)
+                // A freshly added package becomes the active equipment (unless the
+                // dialog is targeting a specific shot/bag — then the caller applies it).
+                if (root.applyToActiveBag)
+                    Settings.dye.switchToEquipment(pkg)
                 root.packageSaved(packageId)
             }
             root.close()
@@ -162,7 +170,8 @@ Dialog {
                                             ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                     onClicked: {
                         if (!modelData) return
-                        Settings.dye.switchToEquipment(modelData)
+                        if (root.applyToActiveBag)
+                            Settings.dye.switchToEquipment(modelData)
                         root.packageSaved(modelData.id)
                         root.close()
                     }
