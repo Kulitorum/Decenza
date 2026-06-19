@@ -13,6 +13,28 @@ The user's framing: an **Equipment package** is the physical kit used to pull a 
 
 **Alternative rejected:** wide grinder columns on the package, refactor when the second component lands. Rejected because growth is a stated near-term certainty, so we pay the container cost up front to avoid a second migration.
 
+### 2b. Copy-on-write immutability (REVISED — supersedes the snapshot discussion below)
+
+Historical fidelity is achieved **without any grinder shadow data on shots**, by making a package's *identity* immutable once it is used:
+
+**Immutability of identity, copy-on-write on edit.** A package's component **identity** is frozen once `shotCount > 0`. Editing identity does **not** mutate it — it **creates a new package** (copy-on-write), repoints every bag pointing at the old package (and the active selection) to the new one, and soft-deletes the old package out of inventory (it persists for the shots that reference it). An unused package (`shotCount == 0`) edits in place.
+- **Grinder identity = `(brand, model, burrs)`** — burrs included. Same grinder body with swapped burrs is a *different* identity ⇒ a different package, naturally tracked via copy-on-write (old shots → burrs-X package, new shots → burrs-Y package).
+- **Merge key = the full package signature** — the canonical set of *all* component identities, not just the grinder. Today (grinder-only) that reduces to brand+model+burrs; when a basket/tamper is added, two packages merge only when every component matches. Copy-on-write that produces an identity equal to an existing package **merges** into it (repoints to the existing) instead of forking a twin. Write the dedup/merge as a package signature so it extends without rework.
+
+**Dial memory is not identity.** `last_grind_setting`/`last_rpm` are mutable MRU dial-memory, freely updated on every dial edit; never resolved through a shot's pointer, so they never churn a package. (Per-shot dial-in lives on the shot row, not the package — putting it on the package would fork a package every shot.)
+
+**Name is a short label + state-based versioning.** `name` is a stored, user-editable short label (default "{brand} {model}"; becomes a kit label like "Espresso setup" with more components — never content-derived, which would grow unbounded). On copy-on-write the **new** (current) package keeps the name; the **old** package keeps its name too but is marked `in_inventory = 0` plus a **`superseded_by`** lineage pointer to the fork. Current-vs-old is rendered from that state at display time (e.g. "My Grinder · older" in shot history) — **not** baked into the name (no reserved characters, no re-mangling on repeated forks). Duplicate names among current packages are allowed; the `id` is the identity. The lineage chain also powers "dial history across burr swaps" later.
+
+**Shots are pure pointer.** Migration 23 drops `grinder_brand/model/burrs` from `shots` **and** `coffee_bags`. A shot keeps only `equipment_id` (→ an immutable package) plus its per-shot **dial-in** (`grinder_setting` + `rpm`). Because the referenced package's identity can never change after the shot exists, the pointer alone is faithful history — no snapshot, no shadow columns.
+
+**Search without shadow data.** Grinder identity lives only on `equipment_items`. Shot-history search resolves the term against `equipment_items` for **all** packages referenced by history — inventory or not (a sold grinder still surfaces its old shots, same as the beans history lane) — → matching `package_id`s → `shots.equipment_id IN (…)`; `shots_fts` drops its grinder columns. Pointer-resolved grinder hits don't carry FTS ranking/snippets (acceptable).
+
+**Device transfer.** `equipment_packages` + `equipment_items` transfer with id-remap; `equipment_id` on both bags and shots is remapped on import (mirrors the bag-id remap). `superseded_by` is remapped too.
+
+**Consistency note (intentional):** equipment uses pure-pointer-to-immutable; beans keep an identity snapshot on the shot (`shot.bean_brand`). Two different fidelity mechanisms in `shots`, intentionally — equipment is new and de-duplication is its whole point; beans are legacy. **Future note:** with multi-component packages, decide per-component vs per-package versioning granularity (a basket swap shouldn't necessarily fork the whole kit).
+
+The snapshot-vs-reference discussion in §2 below is the earlier framing; §2b is the decision.
+
 ### 2. Pointer everywhere (reference semantics), dial-in stays snapshot
 `coffee_bags.equipment_id` and `shots.equipment_id` point at a package. Grinder brand/model/burrs are resolved by following the pointer — strings are only materialized at external boundaries (Visualizer DYE payload, MCP, history display).
 

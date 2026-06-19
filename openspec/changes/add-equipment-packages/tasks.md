@@ -15,7 +15,7 @@
 - [x] 2.5 Link every bag/shot to its matching package; null `equipment_id` for empty grinder identity
 - [x] 2.6 Seed package `lastGrindSetting`/`lastRpm` (default ← current settings; per-grinder ← grinder's most-recent shot)
 - [x] 2.7 Bump schema version to 22 only after the transaction commits; failure path leaves DB usable (gated on tables+cols+data)
-- [ ] 2.8 `importDatabaseStatic`: migrate equipment tables + remap `coffee_bags.equipment_id` / `shots.equipment_id`
+- [ ] 2.8 `importDatabaseStatic`: migrate `equipment_packages` + `equipment_items` with id-remap; remap `coffee_bags.equipment_id`, `shots.equipment_id`, and `equipment_packages.superseded_by` on import (replaces the current stopgap that nulls the transferred `equipment_id`)
 
 ## 3. SettingsDye & dial memory
 - [ ] 3.1 `dyeGrinderBrand/Model/Burrs` → read-only, resolved via active bag's `equipment_id` — **deferred** (transitional: still QSettings-backed + bag write-through; identity applied from the package on switch). Required before migration 23 (4.4).
@@ -27,8 +27,17 @@
 ## 4. Shot projection & history queries
 - [ ] 4.1 `ShotProjection` resolves grinder brand/model/burrs via `equipment_id` JOIN; add `rpm`
 - [ ] 4.2 Re-scope `getDistinctGrinderBrands/ModelsForBrand/BurrsForModel/SettingsForGrinder` to `equipment_items WHERE kind='grinder'`
-- [ ] 4.3 Shot save captures `equipment_id` + `rpm` (drop grinder identity write)
-- [ ] 4.4 **Migration 23**: drop `grinder_brand`/`grinder_model`/`grinder_burrs` from `coffee_bags` and `shots` (SQLite ≥3.35 `DROP COLUMN`) — only after 3.1/4.1/4.2 switch every reader to `equipment_id`; remove those columns from `CoffeeBagStorage::kCols`
+- [ ] 4.3 Shot save captures `equipment_id` + `rpm` (stops writing grinder identity once columns are dropped)
+- [ ] 4.4 **Migration 23**: drop `grinder_brand`/`grinder_model`/`grinder_burrs` from `coffee_bags` AND `shots` (SQLite ≥3.35 `DROP COLUMN`); remove from `CoffeeBagStorage::kCols`; rework `shots_fts` to drop grinder columns — only after all readers (4.1/4.2/4b) resolve via `equipment_id`
+
+## 4b. Copy-on-write immutability + pointer-only normalization (REVISED model — see design §2b)
+- [x] 4b.1 Store `name` at package creation (persistent; defaults to "{brand} {model}")
+- [ ] 4b.2 Add `superseded_by` lineage column to `equipment_packages` (nullable FK → the fork's id)
+- [ ] 4b.3 Copy-on-write: editing identity of a package with `shotCount > 0` forks a NEW package, repoints referencing bags + active selection, marks the old `in_inventory = 0` + `superseded_by = new id` (persists for shots). Unused packages edit in place. (`EquipmentStorage` + Switch dialog + MCP `equipment_update`)
+- [ ] 4b.4 Merge on collision: a fork (or create) whose **full package signature** matches an existing package repoints to it instead of duplicating. Signature = all component identities; grinder = brand+model+burrs. Write it to extend to future components.
+- [ ] 4b.5 `SettingsDye` `dyeGrinderBrand/Model/Burrs` resolve read-only via the active package (async cache, refreshed on bag/package change) — replaces the QSettings cache (this is 3.1 under the revised model)
+- [ ] 4b.6 Grinder search via pointer: shot-history search resolves the term against `equipment_items` for **all** history-referenced packages (inventory or not) → `equipment_id IN (…)`; drop grinder from `shots_fts`; no grinder shadow on shots
+- [ ] 4b.7 Display: render current-vs-superseded from `in_inventory` + `superseded_by` lineage (e.g. "older"/"retired" in shot history); never bake into `name`
 
 ## 5. Equipment window & idle button
 - [x] 5.1 `EquipmentPage.qml` (mirror `BeanInfoPage.qml`): empty state + Add Equipment + package cards

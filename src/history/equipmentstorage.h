@@ -111,7 +111,9 @@ public:
     static qint64 insertItemStatic(QSqlDatabase& db, const EquipmentItem& item);
     // Create a package and its single grinder item in one call; returns the new
     // package id (-1 on failure). rpmCapable is derived from the registry.
-    static qint64 createPackageWithGrinderStatic(QSqlDatabase& db, const EquipmentPackage& pkg,
+    // pkg is taken by value: a name is persisted at creation (defaults to
+    // "{brand} {model}") so it survives identity edits / copy-on-write.
+    static qint64 createPackageWithGrinderStatic(QSqlDatabase& db, EquipmentPackage pkg,
                                                  const QString& brand, const QString& model,
                                                  const QString& burrs);
 

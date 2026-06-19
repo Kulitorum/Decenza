@@ -465,10 +465,14 @@ qint64 EquipmentStorage::insertItemStatic(QSqlDatabase& db, const EquipmentItem&
     return query.lastInsertId().toLongLong();
 }
 
-qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, const EquipmentPackage& pkg,
+qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, EquipmentPackage pkg,
                                                         const QString& brand, const QString& model,
                                                         const QString& burrs)
 {
+    // Persist a name at creation so it survives identity edits / copy-on-write
+    // (two packages may share a display name; the id is the permanent handle).
+    if (pkg.name.trimmed().isEmpty())
+        pkg.name = (brand.trimmed() + QLatin1Char(' ') + model.trimmed()).trimmed();
     const qint64 packageId = insertPackageStatic(db, pkg);
     if (packageId <= 0)
         return -1;
