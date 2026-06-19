@@ -86,19 +86,17 @@ Dialog {
                 label: TranslationManager.translate("equipment.info.burrs", "Burrs")
                 value: (root.pkg && root.pkg.grinderBurrs) || ""
             }
-            InfoRow {
-                label: TranslationManager.translate("equipment.info.rpmAdjustable", "RPM adjustable")
-                value: (root.pkg && root.pkg.rpmCapable)
-                       ? TranslationManager.translate("common.yes", "Yes")
-                       : TranslationManager.translate("common.no", "No")
-            }
+            // Last dial — grind setting, plus the last RPM appended only when the
+            // grinder is rpm-adjustable (saves a row vs. a separate RPM line).
             InfoRow {
                 label: TranslationManager.translate("equipment.info.lastGrind", "Last grind")
-                value: (root.pkg && root.pkg.lastGrindSetting) || ""
-            }
-            InfoRow {
-                label: TranslationManager.translate("equipment.info.lastRpm", "Last RPM")
-                value: (root.pkg && root.pkg.lastRpm > 0) ? String(root.pkg.lastRpm) : ""
+                value: {
+                    var g = (root.pkg && root.pkg.lastGrindSetting) || ""
+                    var showRpm = root.pkg && root.pkg.rpmCapable && root.pkg.lastRpm > 0
+                    return showRpm ? (g.length > 0 ? g + "  ·  " + root.pkg.lastRpm + " rpm"
+                                                   : root.pkg.lastRpm + " rpm")
+                                   : g
+                }
             }
 
             AccessibleButton {
