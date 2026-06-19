@@ -359,10 +359,15 @@ void EquipmentStorage::requestDeletePackage(qint64 packageId)
         [packageId, success](QSqlDatabase& db) {
             // Packages referenced by any bag or shot are history — only Remove
             // (soft-delete) is allowed. Hard delete is for mistaken creations.
+            // Also block when another package's superseded_by points here: hard-
+            // deleting a fork target would leave that older package with a
+            // dangling lineage pointer (it would render as "older" with no
+            // successor to resolve).
             QSqlQuery countQuery(db);
             countQuery.prepare("SELECT "
                                "(SELECT COUNT(*) FROM coffee_bags WHERE equipment_id = :id) + "
-                               "(SELECT COUNT(*) FROM shots WHERE equipment_id = :id)");
+                               "(SELECT COUNT(*) FROM shots WHERE equipment_id = :id) + "
+                               "(SELECT COUNT(*) FROM equipment_packages WHERE superseded_by = :id)");
             countQuery.bindValue(":id", packageId);
             if (!countQuery.exec() || !countQuery.next()) {
                 qWarning() << "EquipmentStorage: delete pre-check failed:" << countQuery.lastError().text();
@@ -452,8 +457,8 @@ qint64 EquipmentStorage::insertPackageStatic(QSqlDatabase& db, const EquipmentPa
     QSqlQuery query(db);
     query.prepare(QString("INSERT INTO equipment_packages (%1) VALUES (%2)")
                       .arg(columns.join(QStringLiteral(", ")), placeholders.join(QStringLiteral(", "))));
-    for (int i = 0; i < binds.size(); ++i)
-        query.bindValue(i, binds.at(i));
+    for (qsizetype i = 0; i < binds.size(); ++i)
+        query.bindValue(static_cast<int>(i), binds.at(i));
     if (!query.exec()) {
         qWarning() << "EquipmentStorage: package insert failed:" << query.lastError().text();
         return -1;
@@ -552,7 +557,7 @@ QVector<EquipmentPackageView> EquipmentStorage::loadInventoryStatic(QSqlDatabase
         ids.append(view.package.id);
     }
     // Resolve each package's grinder item (inventory is small — a handful of rows).
-    for (int i = 0; i < views.size(); ++i)
+    for (qsizetype i = 0; i < views.size(); ++i)
         views[i].grinder = loadGrinderItemStatic(db, ids.at(i));
     return views;
 }

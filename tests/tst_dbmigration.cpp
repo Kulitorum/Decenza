@@ -1379,6 +1379,41 @@ private slots:
             QVERIFY2(!fts.next(), "grinder brand must not be findable via FTS after migration 23");
         });
     }
+
+    // .shot file import (importShotRecord) must preserve the parsed grinder
+    // identity by find-or-creating an equipment package and linking equipment_id
+    // — the per-shot grinder columns are gone (migration 23), so without the link
+    // imported shots would resolve to a blank grinder.
+    void v23_importShotRecordLinksEquipment() {
+        const QString path = freshDbPath();
+        qint64 shotId = -1;
+        {
+            ShotHistoryStorage s;
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
+            QVERIFY(s.initialize(path));
+            ShotRecord rec;
+            rec.summary.uuid = QStringLiteral("import-grinder-1");
+            rec.summary.timestamp = 1000;
+            rec.summary.profileName = QStringLiteral("P");
+            rec.summary.duration = 30.0;
+            rec.grinderBrand = QStringLiteral("Niche");
+            rec.grinderModel = QStringLiteral("Zero");
+            rec.grinderBurrs = QStringLiteral("63mm conical");
+            rec.grinderSetting = QStringLiteral("12");
+            shotId = s.importShotRecord(rec);
+            QVERIFY(shotId > 0);
+            s.close();
+            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
+        }
+        withRawDb(path, "v23_import_verify", [&](QSqlDatabase& db) {
+            const ShotRecord r = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+            QVERIFY2(r.equipmentId > 0, "imported shot must be linked to an equipment package");
+            QCOMPARE(r.grinderBrand, QString("Niche"));
+            QCOMPARE(r.grinderModel, QString("Zero"));
+            QCOMPARE(r.grinderBurrs, QString("63mm conical"));   // resolved via the package's grinder item
+            QCOMPARE(r.grinderSetting, QString("12"));           // per-shot dial-in stays on the row
+        });
+    }
 };
 
 QTEST_MAIN(tst_DbMigration)

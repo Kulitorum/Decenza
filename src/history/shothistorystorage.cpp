@@ -290,7 +290,10 @@ bool ShotHistoryStorage::createTables()
     query.exec("CREATE INDEX IF NOT EXISTS idx_shots_timestamp ON shots(timestamp DESC)");
     query.exec("CREATE INDEX IF NOT EXISTS idx_shots_profile ON shots(profile_name)");
     query.exec("CREATE INDEX IF NOT EXISTS idx_shots_bean ON shots(bean_brand, bean_type)");
-    query.exec("CREATE INDEX IF NOT EXISTS idx_shots_grinder ON shots(grinder_brand, grinder_model)");
+    // No idx_shots_grinder: grinder_brand/model are dropped by migration 23 and
+    // grinder identity resolves via equipment_id. Re-creating it here would error
+    // ("no such column") on every post-migration-23 launch. Pre-23 DBs that still
+    // have the index get it dropped by migration 23.
     query.exec("CREATE INDEX IF NOT EXISTS idx_shots_enjoyment ON shots(enjoyment)");
     query.exec("CREATE INDEX IF NOT EXISTS idx_shot_phases_shot ON shot_phases(shot_id)");
 
@@ -1068,10 +1071,11 @@ bool ShotHistoryStorage::runMigrations()
 #ifdef DECENZA_TESTING
             // Model the locked DB faithfully: the same lock that failed the
             // orphan-link also fails every later migration's writes this pass,
-            // so nothing persists past version 19 and the WHOLE chain (incl.
-            // migration 21) retries next launch. Without this abort, the
-            // independently-gated migration 21 would still bump to 21 here and
-            // the < 20 block would never run again.
+            // so nothing persists past version 19 and the WHOLE deferred chain
+            // (migrations 21, 22, and 23) retries next launch. Without this abort,
+            // the independently-gated later migrations would advance the version
+            // via their own ">= N" gates (ending at 23) and the < 20 block would
+            // never run again, stranding the orphan bag_id links.
             if (linkFaulted) {
                 m_schemaVersion = currentVersion;
                 return true;
@@ -3319,13 +3323,29 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     // Begin transaction
     m_db.transaction();
 
+    // Resolve the parsed grinder identity to an equipment package so the
+    // imported shot keeps its grinder (the per-shot grinder_brand/model/burrs
+    // columns are gone — migration 23; identity lives only on a package now).
+    // Find-or-create on grinder identity, mirroring the live shot-save path,
+    // then link via equipment_id. Empty identity → no package, NULL link.
+    qint64 importEquipmentId = 0;
+    if (!(record.grinderBrand.isEmpty() && record.grinderModel.isEmpty() && record.grinderBurrs.isEmpty())) {
+        importEquipmentId = EquipmentStorage::findPackageByGrinderIdentityStatic(
+            m_db, record.grinderBrand, record.grinderModel, record.grinderBurrs);
+        if (importEquipmentId <= 0) {
+            EquipmentPackage pkg;
+            importEquipmentId = EquipmentStorage::createPackageWithGrinderStatic(
+                m_db, pkg, record.grinderBrand, record.grinderModel, record.grinderBurrs);
+        }
+    }
+
     // Insert main shot record
     query.prepare(R"(
         INSERT INTO shots (
             uuid, timestamp, profile_name, profile_json, beverage_type,
             duration_seconds, final_weight, dose_weight,
             bean_brand, bean_type, roast_date, roast_level,
-            grinder_setting,
+            grinder_setting, equipment_id, rpm,
             drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
             profile_notes, debug_log,
             temperature_override, yield_override, profile_kb_id,
@@ -3335,7 +3355,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
             :duration, :final_weight, :dose_weight,
             :bean_brand, :bean_type, :roast_date, :roast_level,
-            :grinder_setting,
+            :grinder_setting, :equipment_id, :rpm,
             :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
             :profile_notes, :debug_log,
             :temperature_override, :yield_override, :profile_kb_id,
@@ -3357,10 +3377,12 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     query.bindValue(":roast_date", record.roastDate);
     query.bindValue(":roast_level", record.roastLevel);
     // Grinder identity is not snapshotted on the shot row (migration 23 dropped
-    // the columns); it resolves via equipment_id. Imported shot files carry no
-    // package linkage, so their parsed grinder identity is not persisted — only
-    // the dial-in setting is kept.
+    // the columns); it resolves via equipment_id to the package found/created
+    // above from the parsed identity. The grind setting + rpm stay as per-shot
+    // dial-in.
     query.bindValue(":grinder_setting", record.grinderSetting);
+    query.bindValue(":equipment_id", importEquipmentId > 0 ? QVariant(importEquipmentId) : QVariant());
+    query.bindValue(":rpm", record.rpm > 0 ? QVariant(record.rpm) : QVariant());
     query.bindValue(":drink_tds", record.drinkTds);
     query.bindValue(":drink_ey", record.drinkEy);
     query.bindValue(":enjoyment", record.summary.enjoyment);

@@ -371,7 +371,7 @@ QJsonObject SettingsNetwork::getLayoutObject() const {
             bool placed = false;
             for (const QString& zoneName : zones.keys()) {
                 QJsonArray items = zones[zoneName].toArray();
-                for (int i = 0; i < items.size(); ++i) {
+                for (qsizetype i = 0; i < items.size(); ++i) {
                     if (items[i].toObject()["type"].toString() == "beans") {
                         items.insert(i + 1, equipmentItem);
                         zones[zoneName] = items;

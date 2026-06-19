@@ -122,7 +122,7 @@ void SettingsDye::setEquipmentStorage(EquipmentStorage* storage)
             [this]() {
                 // An edit to the active package (incl. a copy-on-write that left
                 // its identity in place) — re-resolve the current selection.
-                const int id = activeEquipmentId();
+                const qint64 id = activeEquipmentId();
                 if (id > 0)
                     m_equipmentStorage->requestPackage(id);
             });
@@ -282,11 +282,11 @@ void SettingsDye::setDyeGrinderRpm(int value) {
     }
 }
 
-int SettingsDye::activeEquipmentId() const {
-    return m_settings.value("dye/activeEquipmentId", -1).toInt();
+qint64 SettingsDye::activeEquipmentId() const {
+    return m_settings.value("dye/activeEquipmentId", -1).toLongLong();
 }
 
-void SettingsDye::setActiveEquipmentId(int id) {
+void SettingsDye::setActiveEquipmentId(qint64 id) {
     if (activeEquipmentId() == id)
         return;
     m_settings.setValue("dye/activeEquipmentId", id);
@@ -302,7 +302,7 @@ void SettingsDye::setActiveEquipmentId(int id) {
 }
 
 void SettingsDye::switchToEquipment(const QVariantMap& pkg) {
-    const int id = pkg.value("id").toInt();
+    const qint64 id = pkg.value("id").toLongLong();
     if (id <= 0)
         return;
     setActiveEquipmentId(id);
@@ -557,7 +557,7 @@ void SettingsDye::applyActiveBag(const QVariantMap& bag)
     // bag's bean-scoped dial-in; apply when present (a fresh bag with none keeps
     // the current dial and adopts it on the next edit / shot stamp). Guarded by
     // m_applyingBag so none of this writes back to the bag/package.
-    setActiveEquipmentId(bag.value("equipmentId", -1).toInt());
+    setActiveEquipmentId(bag.value("equipmentId", -1).toLongLong());
     const QString grindSetting = bag.value("grinderSetting").toString();
     if (!grindSetting.isEmpty())
         setDyeGrinderSetting(grindSetting);
@@ -610,7 +610,7 @@ void SettingsDye::writeThroughToActivePackage(const QString& field, const QVaria
 {
     if (m_applyingBag || !m_equipmentStorage)
         return;
-    const int eqId = activeEquipmentId();
+    const qint64 eqId = activeEquipmentId();
     if (eqId <= 0)
         return;
     m_equipmentStorage->requestUpdatePackage(eqId, {{field, value}});

@@ -39,7 +39,7 @@ class SettingsDye : public QObject {
     Q_PROPERTY(int dyeGrinderRpm READ dyeGrinderRpm WRITE setDyeGrinderRpm NOTIFY dyeGrinderRpmChanged)
     // The active equipment package id (the grinder the next shot is ground on).
     // Switching it applies the package's grinder identity + last dial.
-    Q_PROPERTY(int activeEquipmentId READ activeEquipmentId WRITE setActiveEquipmentId NOTIFY activeEquipmentIdChanged)
+    Q_PROPERTY(qint64 activeEquipmentId READ activeEquipmentId WRITE setActiveEquipmentId NOTIFY activeEquipmentIdChanged)
     Q_PROPERTY(double dyeBeanWeight READ dyeBeanWeight WRITE setDyeBeanWeight NOTIFY dyeBeanWeightChanged)
     Q_PROPERTY(double dyeDrinkWeight READ dyeDrinkWeight WRITE setDyeDrinkWeight NOTIFY dyeDrinkWeightChanged)
     Q_PROPERTY(double dyeDrinkTds READ dyeDrinkTds WRITE setDyeDrinkTds NOTIFY dyeDrinkTdsChanged)
@@ -108,8 +108,8 @@ public:
     int dyeGrinderRpm() const;
     void setDyeGrinderRpm(int value);
 
-    int activeEquipmentId() const;
-    void setActiveEquipmentId(int id);
+    qint64 activeEquipmentId() const;
+    void setActiveEquipmentId(qint64 id);
 
     // User-facing equipment switch: adopt the package's grinder identity and its
     // last dial (grind setting + rpm), and point the active bag at it. `pkg` is a
