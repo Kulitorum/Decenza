@@ -7,9 +7,11 @@ import Decenza
 // grinder identity (brand/model, burrs subtitle), an RPM-adjustable hint, and
 // the last-used dial. Equipment is switched per-bag from Brew Settings, so the
 // card itself is informational + edit/remove (no global "selected" state). One
-// removal action follows the package's life: a trash icon while no bag/shot
-// references it (a mistaken creation — hard delete), then "Remove" once
-// references exist (soft-delete, history kept).
+// removal action follows the package's life: a trash icon while no SHOT
+// references it (a mistaken creation — hard delete), then "Remove" once shots
+// exist (soft-delete, history kept). Storage is the authoritative backstop — it
+// also refuses a hard delete when a bag references the package, surfacing the
+// deleteRefused toast in that (rarer) case.
 Rectangle {
     id: card
 

@@ -1766,8 +1766,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
     registry->registerAsyncTool(
         "equipment_update",
         "Update an equipment package's grinder identity (brand/model/burrs) and optional name. Only "
-        "provided fields change. rpmAdjustable is re-derived from the grinder registry. Edits apply "
-        "to every bag and shot referencing the package (reference semantics).",
+        "provided fields change. rpmAdjustable is re-derived from the grinder registry. Identity is "
+        "copy-on-write: editing a package that has shots forks a NEW package (the old one is retired "
+        "and kept for its history) and an unused package is edited in place — so the returned "
+        "package.id may differ from the input packageId. An edit matching an existing package merges "
+        "into it.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{

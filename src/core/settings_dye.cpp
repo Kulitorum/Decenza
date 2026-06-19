@@ -306,8 +306,9 @@ void SettingsDye::switchToEquipment(const QVariantMap& pkg) {
     if (id <= 0)
         return;
     setActiveEquipmentId(id);
-    // Apply the package's grinder identity (transitional: still cached in
-    // QSettings + bag grinder_* columns via the existing setters).
+    // Apply the package's grinder identity to the display cache. The setters
+    // cache in QSettings only (no bag write-through); identity is owned by the
+    // equipment package and re-resolved from it on activeEquipmentId changes.
     setDyeGrinderBrand(pkg.value("grinderBrand").toString());
     setDyeGrinderModel(pkg.value("grinderModel").toString());
     setDyeGrinderBurrs(pkg.value("grinderBurrs").toString());

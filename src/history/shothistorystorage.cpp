@@ -1124,13 +1124,17 @@ bool ShotHistoryStorage::runMigrations()
     // the block then never re-runs. Whitespace before the open-paren dodges
     // the QSqlQuery permission-hook false-positive, as elsewhere.
     //
-    // Gate on "== 21" (advance only from a completed 21), NOT "< 22": migration
-    // 21's RENAME is gated on its post-condition and holds the version at 20 on
-    // failure so it retries next launch. A "< 22" gate would let migration 22 run
-    // and bump straight to 22 after a faulted 21, stranding the yield rename.
+    // Gate on ">= 21 && < 22" (advance only from a completed 21), NOT "< 22":
+    // migration 21's RENAME is gated on its post-condition and holds the version
+    // at 20 on failure so it retries next launch. A "< 22" gate would let
+    // migration 22 run and bump straight to 22 after a faulted 21, stranding the
+    // yield rename. The whole step is wrapped in a transaction (like migrations
+    // 7/8/16) so a failure rolls back the partial package inserts — the data step
+    // is NOT idempotent, so a half-applied retry would duplicate packages.
     if (currentVersion >= 21 && currentVersion < 22) {
         qDebug() << "ShotHistoryStorage: Running migration to version 22 (equipment packages)";
 
+        const bool txn = m_db.transaction();
         const bool tablesOk = EquipmentStorage::ensureTablesStatic(m_db);
 
         if (!hasColumn("coffee_bags", "equipment_id"))
@@ -1160,10 +1164,20 @@ bool ShotHistoryStorage::runMigrations()
         }
 
         if (tablesOk && colsOk && dataOk) {
+            // Bump the version INSIDE the transaction so the data + version commit
+            // atomically — a crash between them would otherwise leave migrated
+            // data at version 21 and re-run the non-idempotent step next launch.
             query.exec ("DELETE FROM schema_version");
             query.exec ("INSERT INTO schema_version (version) VALUES (22)");
-            currentVersion = 22;
+            if (!txn || m_db.commit()) {
+                currentVersion = 22;
+            } else {
+                if (txn) m_db.rollback();
+                qWarning() << "ShotHistoryStorage: migration 22 commit failed - will retry next launch";
+            }
         } else {
+            if (txn)
+                m_db.rollback();  // undo partial package inserts so the retry is clean
             qWarning() << "ShotHistoryStorage: migration 22 incomplete (tables" << tablesOk
                        << "cols" << colsOk << "data" << dataOk
                        << ") - will retry next launch";

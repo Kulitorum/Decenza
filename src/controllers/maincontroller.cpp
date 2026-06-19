@@ -2420,8 +2420,6 @@ void MainController::generateFakeShotData() {
             metadata.grinderSetting = m_settings->dye()->dyeGrinderSetting();
             metadata.equipmentId = m_settings->dye()->activeEquipmentId();
             metadata.rpm = m_settings->dye()->dyeGrinderRpm();
-    metadata.equipmentId = m_settings->dye()->activeEquipmentId();
-    metadata.rpm = m_settings->dye()->dyeGrinderRpm();
             metadata.beanWeight = m_pendingShotDoseWeight;
             metadata.drinkWeight = m_settings->dye()->dyeDrinkWeight();
             metadata.drinkTds = m_settings->dye()->dyeDrinkTds();

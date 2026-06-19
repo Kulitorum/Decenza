@@ -83,7 +83,10 @@ const PkgCol kCols[] = {
     COL_STR ("last_grind_setting", lastGrindSetting),
     COL_POS ("last_rpm",           lastRpm),
     COL_POS ("last_used",          lastUsedEpoch),
-    COL_POS ("superseded_by",      supersededBy),
+    // Non-writable: set only by the copy-on-write path's raw UPDATE (paired with
+    // in_inventory=0), never via INSERT or the generic field-update map, so the
+    // superseded_by / in_inventory coupling can't be half-set.
+    COL_ID  ("superseded_by",      supersededBy),
 };
 
 #undef COL_STR
@@ -489,7 +492,15 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
     grinder.model = model;
     grinder.burrs = burrs;
     grinder.rpmCapable = deriveRpmCapable(brand, model);
-    insertItemStatic(db, grinder);
+    if (insertItemStatic(db, grinder) <= 0) {
+        // A package with no grinder item resolves to a blank grinder everywhere;
+        // don't leave that orphan behind — drop the just-inserted package row.
+        QSqlQuery dp(db);
+        dp.prepare("DELETE FROM equipment_packages WHERE id = :id");
+        dp.bindValue(":id", packageId);
+        dp.exec();
+        return -1;
+    }
     return packageId;
 }
 
@@ -640,43 +651,66 @@ qint64 EquipmentStorage::supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 p
         q.bindValue(":id", packageId);
         return (q.exec() && q.next()) ? q.value(0).toLongLong() : 0;
     };
-    auto repointBags = [&](qint64 from, qint64 to) {
+    auto repointBags = [&](qint64 from, qint64 to) -> bool {
         QSqlQuery q(db);
         q.prepare("UPDATE coffee_bags SET equipment_id = :to WHERE equipment_id = :from");
         q.bindValue(":to", to);
         q.bindValue(":from", from);
-        q.exec();
+        if (!q.exec()) {
+            qWarning() << "EquipmentStorage: repoint bags failed:" << q.lastError().text();
+            return false;
+        }
+        return true;
     };
-    auto softDelete = [&](qint64 id, qint64 supersededBy) {
+    auto softDelete = [&](qint64 id, qint64 supersededBy) -> bool {
         QSqlQuery q(db);
         q.prepare("UPDATE equipment_packages SET in_inventory = 0, superseded_by = :by, "
                   "updated_at = strftime('%s','now') WHERE id = :id");
         q.bindValue(":by", supersededBy > 0 ? QVariant(supersededBy) : QVariant());
         q.bindValue(":id", id);
-        q.exec();
+        if (!q.exec()) {
+            qWarning() << "EquipmentStorage: soft-delete failed:" << q.lastError().text();
+            return false;
+        }
+        return true;
+    };
+
+    // The whole identity edit must be atomic — a partial commit could repoint
+    // bags without retiring the old package (a duplicate live package). Wrap in a
+    // transaction and roll back to the no-op identity (return packageId) on any
+    // failure. (withTempDb runs in autocommit, so this is a top-level txn.)
+    const bool inTxn = db.transaction();
+    auto fail = [&]() -> qint64 { if (inTxn) db.rollback(); return packageId; };
+    auto done = [&](qint64 result) -> qint64 {
+        if (inTxn && !db.commit()) { db.rollback(); return packageId; }
+        return result;
     };
 
     // Merge: another current package already has this exact identity.
     const qint64 mergeTarget = findPackageByGrinderIdentityStatic(db, brand, model, burrs, packageId);
     if (mergeTarget > 0) {
-        repointBags(packageId, mergeTarget);
+        if (!repointBags(packageId, mergeTarget))
+            return fail();
         if (shotCount() == 0) {
             QSqlQuery di(db);
             di.prepare("DELETE FROM equipment_items WHERE package_id = :id");
-            di.bindValue(":id", packageId); di.exec();
+            di.bindValue(":id", packageId);
+            if (!di.exec()) return fail();
             QSqlQuery dp(db);
             dp.prepare("DELETE FROM equipment_packages WHERE id = :id");
-            dp.bindValue(":id", packageId); dp.exec();
-        } else {
-            softDelete(packageId, mergeTarget);
+            dp.bindValue(":id", packageId);
+            if (!dp.exec()) return fail();
+        } else if (!softDelete(packageId, mergeTarget)) {
+            return fail();
         }
-        return mergeTarget;
+        return done(mergeTarget);
     }
 
     // Unused package: safe to edit in place.
     if (shotCount() == 0) {
-        updateGrinderItemStatic(db, packageId, brand, model, burrs);
-        return packageId;
+        if (!updateGrinderItemStatic(db, packageId, brand, model, burrs))
+            return fail();
+        return done(packageId);
     }
 
     // Used package: fork (copy name + last dial), repoint bags, retire the old.
@@ -688,10 +722,12 @@ qint64 EquipmentStorage::supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 p
     np.lastUsedEpoch = QDateTime::currentSecsSinceEpoch();
     const qint64 newId = createPackageWithGrinderStatic(db, np, brand, model, burrs);
     if (newId <= 0)
-        return packageId;  // fork failed; leave as-is
-    repointBags(packageId, newId);
-    softDelete(packageId, newId);
-    return newId;
+        return fail();  // fork failed; leave as-is
+    if (!repointBags(packageId, newId))
+        return fail();
+    if (!softDelete(packageId, newId))
+        return fail();
+    return done(newId);
 }
 
 bool EquipmentStorage::deriveRpmCapable(const QString& brand, const QString& model)
