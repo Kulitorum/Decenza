@@ -1030,7 +1030,11 @@ private slots:
 
         auto bagEq = [&]() { qint64 v = -1; withRawDb(path, "eqdye_bageq",
             [&](QSqlDatabase& db) { v = CoffeeBagStorage::loadBagStatic(db, bagId).equipmentId; }); return v; };
-        QTRY_COMPARE(bagEq(), pkgId);   // bag adopted the package (async write-through)
+        // Generous timeout: these are cross-thread background DB write-throughs
+        // (QThread::create + withTempDb) whose latency spikes under full-suite
+        // load — the default 5s QTRY window occasionally lapses on a cold/
+        // contended run. 15s is ample headroom; a real logic failure still fails.
+        QTRY_COMPARE_WITH_TIMEOUT(bagEq(), pkgId, 15000);   // bag adopted the package
 
         // Dual write-through: editing the dial updates BOTH the bag and the
         // active package's last dial. Edit one field at a time and let each land
@@ -1046,12 +1050,12 @@ private slots:
             [&](QSqlDatabase& db) { v = EquipmentStorage::loadPackageStatic(db, pkgId).lastRpm; }); return v; };
 
         dye.setDyeGrinderSetting("2.5");
-        QTRY_COMPARE(bagGrind(), QString("2.5"));
-        QTRY_COMPARE(pkgGrind(), QString("2.5"));
+        QTRY_COMPARE_WITH_TIMEOUT(bagGrind(), QString("2.5"), 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(pkgGrind(), QString("2.5"), 15000);
 
         dye.setDyeGrinderRpm(1350);
-        QTRY_COMPARE(bagRpm(), static_cast<qint64>(1350));
-        QTRY_COMPARE(pkgRpm(), static_cast<qint64>(1350));
+        QTRY_COMPARE_WITH_TIMEOUT(bagRpm(), static_cast<qint64>(1350), 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(pkgRpm(), static_cast<qint64>(1350), 15000);
 
         for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }

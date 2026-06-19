@@ -416,6 +416,7 @@ set(HEADERS
     src/core/settings_app.h
     src/core/settings_calibration.h
     src/core/grinderaliases.h
+    src/core/basketaliases.h
     src/core/widgetlibrary.h
     src/core/batterymanager.h
     src/core/memorymonitor.h

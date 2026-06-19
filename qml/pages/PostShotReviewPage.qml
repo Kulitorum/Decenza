@@ -571,6 +571,7 @@ Page {
             roastDate: src.roastDate, roastLevel: src.roastLevel,
             grinderBrand: src.grinderBrand, grinderModel: src.grinderModel,
             grinderBurrs: src.grinderBurrs, grinderSetting: src.grinderSetting,
+            rpm: src.rpm,
             barista: src.barista, doseWeightG: src.doseWeightG,
             finalWeightG: src.finalWeightG, drinkTdsPct: src.drinkTdsPct,
             drinkEyPct: src.drinkEyPct, enjoyment0to100: src.enjoyment0to100,
