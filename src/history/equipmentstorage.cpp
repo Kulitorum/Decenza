@@ -892,3 +892,112 @@ bool EquipmentStorage::migrateFromGrinderColumnsStatic(QSqlDatabase& db,
 
     return true;
 }
+
+bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
+                                             QHash<qint64, qint64>& outIdMap)
+{
+    // Older source DB without equipment tables: nothing to import.
+    {
+        QSqlQuery srcCheck(srcDb);
+        if (!srcCheck.exec("SELECT COUNT(*) FROM equipment_packages"))
+            return true;
+    }
+
+    if (!merge) {
+        // Replace mode: clear dest equipment first (items before packages — no
+        // FK cascade on these tables).
+        QSqlQuery clr(destDb);
+        if (!clr.exec("DELETE FROM equipment_items") || !clr.exec("DELETE FROM equipment_packages")) {
+            qWarning() << "EquipmentStorage: failed to clear equipment for replace import:"
+                       << clr.lastError().text();
+            return false;
+        }
+    }
+
+    QSqlQuery srcPkgs(srcDb);
+    if (!srcPkgs.exec(QString("SELECT %1 FROM equipment_packages").arg(packageColumnList()))) {
+        qWarning() << "EquipmentStorage: failed to query source packages:" << srcPkgs.lastError().text();
+        return false;
+    }
+    QVector<EquipmentPackage> pkgs;
+    while (srcPkgs.next())
+        pkgs << packageFromQueryRow(srcPkgs);
+
+    // superseded_by is a package->package pointer; remap it only after every
+    // package has a dest id. Only packages we actually insert can carry a
+    // lineage pointer (a merged-into existing package keeps its own).
+    QHash<qint64, qint64> srcSupersededBy;       // srcId -> src superseded target
+    QSet<qint64> newlyInsertedSrcIds;
+
+    for (const EquipmentPackage& srcPkg : pkgs) {
+        if (srcPkg.supersededBy > 0)
+            srcSupersededBy.insert(srcPkg.id, srcPkg.supersededBy);
+
+        // Load the source grinder item (for identity-based merge dedup).
+        EquipmentItem srcGrinder;
+        {
+            QSqlQuery gi(srcDb);
+            gi.prepare(QString("SELECT %1 FROM equipment_items "
+                               "WHERE package_id = :id AND kind = 'grinder' LIMIT 1").arg(kItemColumns));
+            gi.bindValue(":id", srcPkg.id);
+            if (gi.exec() && gi.next())
+                srcGrinder = grinderItemFromQueryRow(gi);
+        }
+
+        // Merge dedup: an IN-INVENTORY source package whose grinder identity
+        // already exists in dest maps to that package — no duplicate. Superseded
+        // (historical) packages always import as new rows so their shots keep a
+        // distinct lineage.
+        qint64 destId = -1;
+        if (merge && srcPkg.inInventory
+            && !(srcGrinder.brand.isEmpty() && srcGrinder.model.isEmpty())) {
+            const qint64 existing = findPackageByGrinderIdentityStatic(
+                destDb, srcGrinder.brand, srcGrinder.model, srcGrinder.burrs);
+            if (existing > 0)
+                destId = existing;
+        }
+
+        if (destId < 0) {
+            EquipmentPackage destPkg = srcPkg;
+            destPkg.id = 0;            // new autoincrement id (id is non-writable)
+            destPkg.supersededBy = 0;  // remapped in the second pass (non-writable)
+            destId = insertPackageStatic(destDb, destPkg);
+            if (destId < 0)
+                return false;
+            // Copy the package's items (grinder today; future kinds ride along
+            // unchanged because the loop is kind-agnostic).
+            QSqlQuery srcItems(srcDb);
+            srcItems.prepare(QString("SELECT %1 FROM equipment_items WHERE package_id = :id").arg(kItemColumns));
+            srcItems.bindValue(":id", srcPkg.id);
+            if (srcItems.exec()) {
+                while (srcItems.next()) {
+                    EquipmentItem item = grinderItemFromQueryRow(srcItems);
+                    item.packageId = destId;
+                    if (insertItemStatic(destDb, item) < 0)
+                        return false;
+                }
+            }
+            newlyInsertedSrcIds.insert(srcPkg.id);
+        }
+        outIdMap.insert(srcPkg.id, destId);
+    }
+
+    // Second pass: remap superseded_by through the id map. A src target absent
+    // from the map (its package merged into an existing one) clears the pointer.
+    for (auto it = srcSupersededBy.constBegin(); it != srcSupersededBy.constEnd(); ++it) {
+        if (!newlyInsertedSrcIds.contains(it.key()))
+            continue;
+        const qint64 destId = outIdMap.value(it.key(), 0);
+        if (destId <= 0)
+            continue;
+        const qint64 destTarget = outIdMap.value(it.value(), 0);
+        QSqlQuery upd(destDb);
+        upd.prepare("UPDATE equipment_packages SET superseded_by = :by WHERE id = :id");
+        upd.bindValue(":by", destTarget > 0 ? QVariant(destTarget) : QVariant());
+        upd.bindValue(":id", destId);
+        if (!upd.exec())
+            qWarning() << "EquipmentStorage: import superseded_by remap failed:" << upd.lastError().text();
+    }
+
+    return true;
+}

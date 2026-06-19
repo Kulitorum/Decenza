@@ -13,7 +13,7 @@
 //     getDistinctValues + invalidateDistinctCache + getDistinct* getters +
 //     s_allowedColumns whitelist + sortGrinderSettings helper.
 //   - auto-favorites: requestAutoFavorites + requestAutoFavoriteGroupDetails.
-//   - grinder context: queryGrinderContext + requestUpdateGrinderFields.
+//   - grinder context: queryGrinderContext.
 
 #include "shothistorystorage.h"
 #include "shothistorystorage_internal.h"
@@ -50,7 +50,7 @@ void ShotHistoryStorage::requestDistinctCache()
         bool opened = withTempDb(dbPath, "shs_distinct", [&](QSqlDatabase& db) {
             static const QStringList columns = {
                 "profile_name", "bean_brand", "bean_type",
-                "grinder_brand", "grinder_model", "grinder_setting", "barista", "roast_level"
+                "grinder_setting", "barista", "roast_level"
             };
             for (const QString& col : columns) {
                 QStringList values;
@@ -199,17 +199,31 @@ QString ShotHistoryStorage::buildFilterQuery(const ShotFilter& filter, QVariantL
         conditions << "bean_type = ?";
         bindValues << filter.beanType;
     }
-    if (!filter.grinderBrand.isEmpty()) {
-        conditions << "grinder_brand = ?";
-        bindValues << filter.grinderBrand;
-    }
-    if (!filter.grinderModel.isEmpty()) {
-        conditions << "grinder_model = ?";
-        bindValues << filter.grinderModel;
-    }
-    if (!filter.grinderBurrs.isEmpty()) {
-        conditions << "grinder_burrs = ?";
-        bindValues << filter.grinderBurrs;
+    // Grinder identity filters resolve through the equipment_id pointer rather
+    // than the dropped grinder_brand/model/burrs columns (add-equipment-packages
+    // task 4.1): match the equipment_items grinder row, then keep shots pointing
+    // at one of those packages. The three fields combine into one subquery so
+    // any subset (brand only, brand+model, …) works.
+    {
+        QStringList grinderItemConds;
+        QVariantList grinderItemBinds;
+        if (!filter.grinderBrand.isEmpty()) {
+            grinderItemConds << "brand = ?";
+            grinderItemBinds << filter.grinderBrand;
+        }
+        if (!filter.grinderModel.isEmpty()) {
+            grinderItemConds << "model = ?";
+            grinderItemBinds << filter.grinderModel;
+        }
+        if (!filter.grinderBurrs.isEmpty()) {
+            grinderItemConds << "json_extract(attrs, '$.burrs') = ?";
+            grinderItemBinds << filter.grinderBurrs;
+        }
+        if (!grinderItemConds.isEmpty()) {
+            conditions << QString("equipment_id IN (SELECT package_id FROM equipment_items "
+                                  "WHERE kind = 'grinder' AND %1)").arg(grinderItemConds.join(" AND "));
+            bindValues << grinderItemBinds;
+        }
     }
     if (!filter.grinderSetting.isEmpty()) {
         conditions << "grinder_setting = ?";
@@ -513,18 +527,25 @@ void ShotHistoryStorage::requestRecentShotsByKbId(const QString& kbId, int limit
 QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId)
 {
     QVariantList results;
+    // Grinder identity resolved via the equipment_id pointer (add-equipment-
+    // packages task 4.1); the per-shot grinder_brand/model/burrs columns are
+    // dropped in migration 23. Aliases keep the value("grinder_*") reads below
+    // unchanged. burrs is json_extract'd from the grinder item's attrs blob.
     QString sql = QStringLiteral(R"(
-        SELECT id, timestamp, profile_name, duration_seconds, final_weight, dose_weight,
-               bean_brand, bean_type, roast_level, grinder_brand, grinder_model,
-               grinder_burrs, grinder_setting, drink_tds, drink_ey, enjoyment,
-               espresso_notes, roast_date, temperature_override, yield_override, profile_json, beverage_type,
-               stopped_by
-        FROM shots
-        WHERE profile_kb_id = ?
+        SELECT s.id, s.timestamp, s.profile_name, s.duration_seconds, s.final_weight, s.dose_weight,
+               s.bean_brand, s.bean_type, s.roast_level,
+               eg.brand AS grinder_brand, eg.model AS grinder_model,
+               json_extract(eg.attrs, '$.burrs') AS grinder_burrs,
+               s.grinder_setting, s.drink_tds, s.drink_ey, s.enjoyment,
+               s.espresso_notes, s.roast_date, s.temperature_override, s.yield_override, s.profile_json, s.beverage_type,
+               s.stopped_by
+        FROM shots s
+        LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder'
+        WHERE s.profile_kb_id = ?
     )");
     if (excludeShotId >= 0)
-        sql += QStringLiteral(" AND id != ?");
-    sql += QStringLiteral(" ORDER BY timestamp DESC LIMIT ?");
+        sql += QStringLiteral(" AND s.id != ?");
+    sql += QStringLiteral(" ORDER BY s.timestamp DESC LIMIT ?");
 
     QSqlQuery query(db);
     if (!query.prepare(sql)) {
@@ -606,9 +627,14 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     // Build SQL with an optional bean_brand filter — same conditional-
     // append pattern used by loadRecentShotsByKbIdStatic and
     // buildFilterQuery in this file.
+    // Grinder model resolves through the equipment_id pointer (the per-shot
+    // grinder_model column is dropped in migration 23, add-equipment-packages
+    // task 4.1). grinder_setting (per-shot dial-in) stays on the shot row.
     QString sql = QStringLiteral(
         "SELECT DISTINCT grinder_setting FROM shots "
-        "WHERE grinder_model = :model AND beverage_type = :bev "
+        "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
+        "WHERE kind = 'grinder' AND model = :model) "
+        "AND beverage_type = :bev "
         "AND grinder_setting != ''");
     if (!beanBrand.isEmpty()) {
         sql += QStringLiteral(" AND bean_brand = :brand");
@@ -674,7 +700,7 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
 
 static const QStringList s_allowedColumns = {
     "profile_name", "bean_brand", "bean_type",
-    "grinder_brand", "grinder_model", "grinder_setting", "barista", "roast_level"
+    "grinder_setting", "barista", "roast_level"
 };
 
 QStringList ShotHistoryStorage::getDistinctValues(const QString& column)
@@ -716,7 +742,19 @@ QStringList ShotHistoryStorage::getDistinctBeanTypes()
 
 QStringList ShotHistoryStorage::getDistinctGrinders()
 {
-    return getDistinctValues("grinder_model");
+    // Grinder models come from the equipment inventory, not the dropped
+    // shots.grinder_model column (add-equipment-packages task 4.2). All grinder
+    // items across every package (inventory or superseded) so history retains
+    // sold/retired grinders. Async + cached like the other grinder getters.
+    const QString cacheKey = QStringLiteral("eq_grinder_model");
+    if (m_distinctCache.contains(cacheKey))
+        return m_distinctCache.value(cacheKey);
+    if (!m_ready) return {};
+    requestDistinctValueAsync(cacheKey,
+        "SELECT DISTINCT model FROM equipment_items "
+        "WHERE kind = 'grinder' AND model IS NOT NULL AND model != '' "
+        "ORDER BY model");
+    return {};
 }
 
 QStringList ShotHistoryStorage::getDistinctGrinderSettings()
@@ -764,20 +802,24 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
         groupColumns = "COALESCE(profile_name, '')";
         joinConditions = "COALESCE(s.profile_name, '') = g.gb_profile_name";
     } else if (groupBy == "bean_profile_grinder" || weightAware) {
+        // Grinder identity is the equipment_id pointer, not the dropped
+        // grinder_brand/model columns (add-equipment-packages task 4.1).
+        // Grouping on equipment_id is equivalent to the old brand+model key
+        // (shots with the same identity share a package) and additionally
+        // honours burrs, which the old key ignored. grinder_setting (per-shot
+        // dial-in) stays in the key so different settings still split cards.
         selectColumns = "COALESCE(bean_brand, '') AS gb_bean_brand, "
                         "COALESCE(bean_type, '') AS gb_bean_type, "
                         "COALESCE(profile_name, '') AS gb_profile_name, "
-                        "COALESCE(grinder_brand, '') AS gb_grinder_brand, "
-                        "COALESCE(grinder_model, '') AS gb_grinder_model, "
+                        "COALESCE(equipment_id, 0) AS gb_equipment_id, "
                         "COALESCE(grinder_setting, '') AS gb_grinder_setting";
         groupColumns = "COALESCE(bean_brand, ''), COALESCE(bean_type, ''), "
-                       "COALESCE(profile_name, ''), COALESCE(grinder_brand, ''), "
-                       "COALESCE(grinder_model, ''), COALESCE(grinder_setting, '')";
+                       "COALESCE(profile_name, ''), COALESCE(equipment_id, 0), "
+                       "COALESCE(grinder_setting, '')";
         joinConditions = "COALESCE(s.bean_brand, '') = g.gb_bean_brand "
                          "AND COALESCE(s.bean_type, '') = g.gb_bean_type "
                          "AND COALESCE(s.profile_name, '') = g.gb_profile_name "
-                         "AND COALESCE(s.grinder_brand, '') = g.gb_grinder_brand "
-                         "AND COALESCE(s.grinder_model, '') = g.gb_grinder_model "
+                         "AND COALESCE(s.equipment_id, 0) = g.gb_equipment_id "
                          "AND COALESCE(s.grinder_setting, '') = g.gb_grinder_setting";
     } else {
         // Default: bean_profile
@@ -816,10 +858,12 @@ void ShotHistoryStorage::requestAutoFavorites(const QString& groupBy, int maxIte
 
     QString sql = QString(
         "SELECT s.id, s.profile_name, s.bean_brand, s.bean_type, "
-        "s.grinder_brand, s.grinder_model, s.grinder_burrs, s.grinder_setting, "
+        "eg.brand AS grinder_brand, eg.model AS grinder_model, "
+        "json_extract(eg.attrs, '$.burrs') AS grinder_burrs, s.grinder_setting, "
         "s.dose_weight, s.final_weight, %5, %6, "
         "s.timestamp, g.shot_count, g.avg_enjoyment "
         "FROM shots s "
+        "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
         "INNER JOIN ("
         "  SELECT %1, MAX(timestamp) as max_ts, "
         "  COUNT(*) as shot_count, "
@@ -918,8 +962,16 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         addCondition("bean_brand", beanBrand);
         addCondition("bean_type", beanType);
         addCondition("profile_name", profileName);
-        addCondition("grinder_brand", grinderBrand);
-        addCondition("grinder_model", grinderModel);
+        // Grinder identity resolves through the equipment_id pointer (the
+        // dropped grinder_brand/model columns no longer exist — migration 23).
+        // Correlated subqueries against the package's grinder item reproduce the
+        // old COALESCE(col,'')=? semantics, so a card with no grinder (NULL
+        // equipment_id → NULL → '') still matches empty brand/model. This stays
+        // consistent with requestAutoFavorites, which now groups on equipment_id.
+        addCondition("(SELECT brand FROM equipment_items "
+                     "WHERE package_id = shots.equipment_id AND kind = 'grinder')", grinderBrand);
+        addCondition("(SELECT model FROM equipment_items "
+                     "WHERE package_id = shots.equipment_id AND kind = 'grinder')", grinderModel);
         addCondition("grinder_setting", grinderSetting);
         if (groupBy == "bean_profile_grinder_weight") {
             // Match requestAutoFavorites's weight-mode bucketing exactly so stats scope
@@ -1033,8 +1085,18 @@ QStringList ShotHistoryStorage::getDistinctBeanTypesForBrand(const QString& bean
 
 QStringList ShotHistoryStorage::getDistinctGrinderBrands()
 {
-    // grinder_brand is pre-warmed by requestDistinctCache(), but use cache-only pattern
-    return getDistinctValues("grinder_brand");
+    // Grinder brands come from the equipment inventory (every grinder item,
+    // inventory or superseded), not the dropped shots.grinder_brand column
+    // (add-equipment-packages task 4.2). Async + cached.
+    const QString cacheKey = QStringLiteral("eq_grinder_brand");
+    if (m_distinctCache.contains(cacheKey))
+        return m_distinctCache.value(cacheKey);
+    if (!m_ready) return {};
+    requestDistinctValueAsync(cacheKey,
+        "SELECT DISTINCT brand FROM equipment_items "
+        "WHERE kind = 'grinder' AND brand IS NOT NULL AND brand != '' "
+        "ORDER BY brand");
+    return {};
 }
 
 QStringList ShotHistoryStorage::getDistinctGrinderModelsForBrand(const QString& grinderBrand)
@@ -1042,33 +1104,34 @@ QStringList ShotHistoryStorage::getDistinctGrinderModelsForBrand(const QString& 
     if (grinderBrand.isEmpty())
         return getDistinctGrinders();
 
-    const QString cacheKey = "grinder_model:" + grinderBrand;
+    const QString cacheKey = "eq_grinder_model:" + grinderBrand;
     if (m_distinctCache.contains(cacheKey))
         return m_distinctCache.value(cacheKey);
 
     if (!m_ready) return {};
 
     requestDistinctValueAsync(cacheKey,
-        "SELECT DISTINCT grinder_model FROM shots "
-        "WHERE grinder_brand = ? AND grinder_model IS NOT NULL AND grinder_model != '' "
-        "ORDER BY grinder_model",
+        "SELECT DISTINCT model FROM equipment_items "
+        "WHERE kind = 'grinder' AND brand = ? AND model IS NOT NULL AND model != '' "
+        "ORDER BY model",
         {grinderBrand});
     return {};
 }
 
 QStringList ShotHistoryStorage::getDistinctGrinderBurrsForModel(const QString& grinderBrand, const QString& grinderModel)
 {
-    const QString cacheKey = "grinder_burrs:" + grinderBrand + ":" + grinderModel;
+    const QString cacheKey = "eq_grinder_burrs:" + grinderBrand + ":" + grinderModel;
     if (m_distinctCache.contains(cacheKey))
         return m_distinctCache.value(cacheKey);
 
     if (!m_ready) return {};
 
+    // burrs lives in the grinder item's attrs JSON blob.
     requestDistinctValueAsync(cacheKey,
-        "SELECT DISTINCT grinder_burrs FROM shots "
-        "WHERE grinder_brand = ? AND grinder_model = ? "
-        "AND grinder_burrs IS NOT NULL AND grinder_burrs != '' "
-        "ORDER BY grinder_burrs",
+        "SELECT DISTINCT json_extract(attrs, '$.burrs') AS burrs FROM equipment_items "
+        "WHERE kind = 'grinder' AND brand = ? AND model = ? "
+        "AND burrs IS NOT NULL AND burrs != '' "
+        "ORDER BY burrs",
         {grinderBrand, grinderModel});
     return {};
 }
@@ -1084,9 +1147,13 @@ QStringList ShotHistoryStorage::getDistinctGrinderSettingsForGrinder(const QStri
 
     if (!m_ready) return {};
 
+    // Settings are per-shot dial-in (grinder_setting stays on shots); the grinder
+    // model resolves through the equipment_id pointer (task 4.2).
     requestDistinctValueAsync(cacheKey,
         "SELECT DISTINCT grinder_setting FROM shots "
-        "WHERE grinder_model = ? AND grinder_setting IS NOT NULL AND grinder_setting != '' "
+        "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
+        "WHERE kind = 'grinder' AND model = ?) "
+        "AND grinder_setting IS NOT NULL AND grinder_setting != '' "
         "ORDER BY grinder_setting",
         {grinderModel});
     return {};
@@ -1120,48 +1187,4 @@ void ShotHistoryStorage::sortGrinderSettings(QStringList& settings)
             return QString::localeAwareCompare(a, b) < 0;
         });
     }
-}
-
-
-void ShotHistoryStorage::requestUpdateGrinderFields(const QString& oldBrand, const QString& oldModel,
-                                                     const QString& newBrand, const QString& newModel,
-                                                     const QString& newBurrs)
-{
-    if (!m_ready) {
-        emit grinderFieldsUpdated(0);
-        return;
-    }
-
-    const QString dbPath = m_dbPath;
-    auto destroyed = m_destroyed;
-
-    QThread* thread = QThread::create([this, dbPath, oldBrand, oldModel, newBrand, newModel, newBurrs, destroyed]() {
-        int count = 0;
-        withTempDb(dbPath, "shs_grinder_update", [&](QSqlDatabase& db) {
-            QSqlQuery query(db);
-            query.prepare("UPDATE shots SET grinder_brand = ?, grinder_model = ?, grinder_burrs = ?, "
-                          "updated_at = strftime('%s', 'now') "
-                          "WHERE grinder_brand = ? AND grinder_model = ?");
-            query.bindValue(0, newBrand);
-            query.bindValue(1, newModel);
-            query.bindValue(2, newBurrs);
-            query.bindValue(3, oldBrand);
-            query.bindValue(4, oldModel);
-            if (query.exec())
-                count = query.numRowsAffected();
-            else
-                qWarning() << "ShotHistoryStorage: Failed to bulk update grinder fields:" << query.lastError().text();
-        });
-
-        if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [this, count, destroyed]() {
-            if (*destroyed) return;
-            invalidateDistinctCache();
-            emit grinderFieldsUpdated(count);
-            qDebug() << "ShotHistoryStorage: Updated grinder fields for" << count << "shots";
-        }, Qt::QueuedConnection);
-    });
-
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }

@@ -181,6 +181,19 @@ public:
                                                 const QString& currentBurrs,
                                                 const QString& currentSetting);
 
+    // Device-transfer import (add-equipment-packages task 2.8). Copies every
+    // equipment_packages + equipment_items row from srcDb into destDb with new
+    // ids, filling outIdMap[srcPackageId] = destPackageId so the caller can
+    // remap coffee_bags.equipment_id and shots.equipment_id. superseded_by is
+    // remapped through the same map after all packages are inserted. In merge
+    // mode an in-inventory source package whose grinder identity already exists
+    // in dest maps to that package (no duplicate); superseded (historical)
+    // packages always import as new rows. A source with no equipment tables
+    // yields an empty map and returns true. Runs inside the caller's destDb
+    // transaction; assumes the equipment tables exist in dest.
+    static bool importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
+                                      QHash<qint64, qint64>& outIdMap);
+
 signals:
     void inventoryReady(const QVariantList& packages);
     void packageReady(qint64 packageId, const QVariantMap& package); // empty if not found

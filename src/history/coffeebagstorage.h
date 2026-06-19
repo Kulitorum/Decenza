@@ -38,19 +38,20 @@ struct CoffeeBag {
     double startWeightG = 0; // 0 = unset; local-only, never synced to Visualizer
     bool inInventory = true;
 
-    // Last-used grinder/dose (write-through from edits, dose/yield stamped
-    // on shot save). Slated to move to a future Equipment abstraction.
+    // Grinder identity is no longer persisted on the bag (migration 23 dropped
+    // the grinder_brand/model/burrs columns); it resolves through equipmentId to
+    // the package's grinder item. These fields remain on the struct as a
+    // transient display cache (default empty) — storage never populates them.
     QString grinderBrand;
     QString grinderModel;
     QString grinderBurrs;
+    // Bean-scoped dial memory (write-through from edits, stamped on shot save).
     QString grinderSetting;
     double doseWeightG = 0;  // 0 = unset
     double yieldOverrideG = 0; // 0 = unset
 
     // Equipment (add-equipment-packages). equipmentId points at the bag's
     // grinder package; rpm is the grinder rpm dial-in (sibling of grinderSetting).
-    // The grinderBrand/Model/Burrs columns above are retained transitionally and
-    // dropped in migration 23 once all readers resolve identity via equipmentId.
     qint64 equipmentId = 0;  // FK -> equipment_packages.id; 0 = unset
     qint64 rpm = 0;          // 0 = unset
 
@@ -197,8 +198,13 @@ public:
     // dest bags first. Source DBs from before migration 19 have no
     // coffee_bags table — returns true with an empty map. Runs inside the
     // caller's destDb transaction.
+    // packageIdMap remaps each source bag's equipment_id to the imported
+    // package's new dest id (built by EquipmentStorage::importEquipmentStatic,
+    // which runs first). A source equipment_id absent from the map (e.g. an
+    // older source with no equipment tables) becomes NULL.
     static bool importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
-                                 QHash<qint64, qint64>& outIdMap);
+                                 QHash<qint64, qint64>& outIdMap,
+                                 const QHash<qint64, qint64>& packageIdMap);
 
 signals:
     void inventoryReady(const QVariantList& bags);

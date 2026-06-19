@@ -808,8 +808,13 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         "       COALESCE(yield_override, 0), "
         "       json_extract(profile_json,'$.target_weight') "
         "FROM shots "
-        "WHERE grinder_model = ? "
-        "  AND COALESCE(grinder_burrs, '') = COALESCE(?, '') "
+        // Grinder identity resolves through the equipment_id pointer, not the
+        // dropped per-shot grinder_model/grinder_burrs columns (add-equipment-
+        // packages migration 23). Match the grinder item (model + burrs from its
+        // attrs blob) then keep shots pointing at one of those packages.
+        "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
+        "    WHERE kind = 'grinder' AND model = ? "
+        "    AND COALESCE(json_extract(attrs, '$.burrs'), '') = COALESCE(?, '')) "
         "  AND (beverage_type IS NULL OR beverage_type = '' OR LOWER(beverage_type) = 'espresso') "
         "  AND COALESCE(final_weight, 0) >= 15 "
         "  AND COALESCE(grind_issue_detected, 0) = 0 "

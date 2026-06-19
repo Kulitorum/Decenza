@@ -165,12 +165,17 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                 qint64 totalCount = 0;
 
                 if (!withTempDb(dbPath, "mcp_shots_list", [&](QSqlDatabase& db) {
-                    QString sql = "SELECT id, timestamp, profile_name, dose_weight, final_weight, "
+                    // Grinder model resolves through the equipment_id pointer
+                    // (the per-shot grinder_model column is dropped in migration
+                    // 23, add-equipment-packages task 4.1).
+                    QString sql = "SELECT s.id, timestamp, profile_name, dose_weight, final_weight, "
                                   "duration_seconds, enjoyment, "
-                                  "grinder_setting, grinder_model, "
+                                  "grinder_setting, eg.model AS grinder_model, "
                                   "espresso_notes, bean_brand, bean_type, yield_override, profile_json, "
                                   "stopped_by "
-                                  "FROM shots WHERE 1=1 ";
+                                  "FROM shots s "
+                                  "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
+                                  "WHERE 1=1 ";
                     QString countSql = "SELECT COUNT(*) FROM shots WHERE 1=1 ";
 
                     if (!profileFilter.isEmpty()) {

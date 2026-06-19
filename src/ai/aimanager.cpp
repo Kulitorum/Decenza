@@ -1131,8 +1131,14 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
         QJsonObject grinderCalibration;
         withTempDb(dbPath, "ai_grinder_ctx", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
-            q.prepare("SELECT grinder_brand, grinder_model, grinder_burrs, beverage_type "
-                      "FROM shots WHERE id = ?");
+            // Grinder identity resolves through the shot's equipment_id pointer
+            // (the per-shot grinder_brand/model/burrs columns are dropped in
+            // migration 23, add-equipment-packages task 4.1). burrs is in the
+            // grinder item's attrs JSON blob.
+            q.prepare("SELECT eg.brand, eg.model, json_extract(eg.attrs, '$.burrs'), s.beverage_type "
+                      "FROM shots s "
+                      "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
+                      "WHERE s.id = ?");
             q.bindValue(0, static_cast<qint64>(excludeShotId));
             if (!q.exec()) {
                 qWarning() << "AIManager::requestRecentShotContext: grinder ctx query failed:"

@@ -64,6 +64,20 @@ static int getSchemaVersion(QSqlDatabase& db) {
     return q.next() ? q.value(0).toInt() : -1;
 }
 
+// After a full init, migration 23 has dropped grinder_brand/model/burrs from
+// shots + coffee_bags. Tests that rewind schema_version below 22 to re-exercise
+// an earlier migration then re-run the WHOLE chain — including migration 22,
+// which reads those columns to seed equipment packages. Production never rewinds
+// (the chain is monotonic, so the columns are always present when migration 22
+// runs), so restore them here to make the simulated "old version" DB schema-
+// faithful. ADD COLUMN is a no-op-safe failure when the column already exists.
+static void restoreLegacyGrinderColumns(QSqlDatabase& db) {
+    QSqlQuery q(db);
+    for (const char* table : {"shots", "coffee_bags"})
+        for (const char* col : {"grinder_brand", "grinder_model", "grinder_burrs"})
+            q.exec(QString("ALTER TABLE %1 ADD COLUMN %2 TEXT").arg(QLatin1String(table), QLatin1String(col)));
+}
+
 static void createV1Schema(QSqlDatabase& db) {
     QSqlQuery q(db);
     q.exec(R"(
@@ -189,7 +203,7 @@ private slots:
             QVERIFY(hasTable(db, "shot_samples"));
             QVERIFY(hasTable(db, "shot_phases"));
             QVERIFY(hasTable(db, "schema_version"));
-            QCOMPARE(getSchemaVersion(db), 22);
+            QCOMPARE(getSchemaVersion(db), 23);
         });
     }
 
@@ -204,8 +218,15 @@ private slots:
             QVERIFY(hasColumn(db, "shots", "beverage_type"));
             QVERIFY(hasColumn(db, "shots", "bean_notes"));
             QVERIFY(hasColumn(db, "shots", "profile_notes"));
-            QVERIFY(hasColumn(db, "shots", "grinder_brand"));
-            QVERIFY(hasColumn(db, "shots", "grinder_burrs"));
+            // Grinder identity columns were added by migration 8 and DROPPED by
+            // migration 23 (add-equipment-packages) — identity now resolves via
+            // equipment_id. The grind setting + equipment_id/rpm survive.
+            QVERIFY(!hasColumn(db, "shots", "grinder_brand"));
+            QVERIFY(!hasColumn(db, "shots", "grinder_model"));
+            QVERIFY(!hasColumn(db, "shots", "grinder_burrs"));
+            QVERIFY(hasColumn(db, "shots", "grinder_setting"));
+            QVERIFY(hasColumn(db, "shots", "equipment_id"));
+            QVERIFY(hasColumn(db, "shots", "rpm"));
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasColumn(db, "shots", "channeling_detected"));
             // temperature_unstable was added in migration 10 and dropped in
@@ -231,7 +252,9 @@ private slots:
             QVERIFY(hasIndex(db, "idx_shots_timestamp"));
             QVERIFY(hasIndex(db, "idx_shots_profile"));
             QVERIFY(hasIndex(db, "idx_shots_bean"));
-            QVERIFY(hasIndex(db, "idx_shots_grinder"));
+            // idx_shots_grinder was on grinder_brand/model, dropped with those
+            // columns in migration 23 (add-equipment-packages).
+            QVERIFY(!hasIndex(db, "idx_shots_grinder"));
             QVERIFY(hasIndex(db, "idx_shots_enjoyment"));
             QVERIFY(hasIndex(db, "idx_shot_phases_shot"));
             QVERIFY(hasIndex(db, "idx_shots_profile_kb_id"));
@@ -255,12 +278,15 @@ private slots:
         initAndClose(path, storage);
 
         withRawDb(path, "v1_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 22);
+            QCOMPARE(getSchemaVersion(db), 23);
             QVERIFY(hasColumn(db, "shots", "temperature_override"));
             QVERIFY(hasColumn(db, "shots", "yield_override"));
             QVERIFY(hasColumn(db, "shots", "beverage_type"));
-            QVERIFY(hasColumn(db, "shots", "grinder_brand"));
-            QVERIFY(hasColumn(db, "shots", "grinder_burrs"));
+            // Grinder identity columns are dropped by migration 23; equipment_id
+            // is the identity pointer now (add-equipment-packages).
+            QVERIFY(!hasColumn(db, "shots", "grinder_brand"));
+            QVERIFY(!hasColumn(db, "shots", "grinder_burrs"));
+            QVERIFY(hasColumn(db, "shots", "equipment_id"));
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasColumn(db, "shots", "channeling_detected"));
             // temperature_unstable was added in migration 10 and dropped in
@@ -286,18 +312,17 @@ private slots:
 
         withRawDb(path, "fts_test", [](QSqlDatabase& db) {
             QSqlQuery q(db);
-            // Insert with all FTS-indexed fields
+            // Insert with the FTS-indexed fields. Grinder columns were dropped in
+            // migration 23 and grinder is no longer an FTS column — grinder search
+            // resolves through equipment_id instead (add-equipment-packages 4b.6).
             q.prepare(R"(INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds,
-                espresso_notes, bean_brand, bean_type, grinder_brand, grinder_model, grinder_burrs)
-                VALUES (?, 1000, ?, 30.0, ?, ?, ?, ?, ?, ?))");
+                espresso_notes, bean_brand, bean_type)
+                VALUES (?, 1000, ?, 30.0, ?, ?, ?))");
             q.addBindValue(QUuid::createUuid().toString());
             q.addBindValue("Blooming Espresso");
             q.addBindValue("Excellent fruity notes");
             q.addBindValue("Onyx");
             q.addBindValue("Eclipse");
-            q.addBindValue("Niche");
-            q.addBindValue("Zero");
-            q.addBindValue("63mm conical");
             QVERIFY(q.exec());
 
             // The FTS triggers should auto-populate
@@ -307,9 +332,6 @@ private slots:
 
             QVERIFY(fts.exec("SELECT rowid FROM shots_fts WHERE shots_fts MATCH 'Onyx'"));
             QVERIFY2(fts.next(), "FTS should find by bean_brand");
-
-            QVERIFY(fts.exec("SELECT rowid FROM shots_fts WHERE shots_fts MATCH 'Niche'"));
-            QVERIFY2(fts.next(), "FTS should find by grinder_brand");
         });
     }
 
@@ -334,28 +356,23 @@ private slots:
     }
 
     // ==========================================
-    // v8 grinder columns exist with correct structure
+    // Migration 23: grinder identity columns are dropped from shots
     // ==========================================
-
-    void grinderColumnsExist() {
+    // Migration 8 added grinder_brand/model/burrs; migration 23 (add-equipment-
+    // packages) drops them — grinder identity resolves through equipment_id to
+    // the package's grinder item. Only the per-shot grind setting survives.
+    void grinderIdentityColumnsDropped() {
         QString path = freshDbPath();
         ShotHistoryStorage storage;
         initAndClose(path, storage);
 
         withRawDb(path, "grinder_verify", [](QSqlDatabase& db) {
-            QVERIFY(hasColumn(db, "shots", "grinder_brand"));
-            QVERIFY(hasColumn(db, "shots", "grinder_burrs"));
-            QVERIFY(hasColumn(db, "shots", "grinder_model"));
+            QVERIFY(!hasColumn(db, "shots", "grinder_brand"));
+            QVERIFY(!hasColumn(db, "shots", "grinder_burrs"));
+            QVERIFY(!hasColumn(db, "shots", "grinder_model"));
+            // The per-shot dial-in survives; identity is via equipment_id.
             QVERIFY(hasColumn(db, "shots", "grinder_setting"));
-
-            // Insert and verify all grinder fields are queryable
-            QSqlQuery q(db);
-            q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, grinder_brand, grinder_model, grinder_burrs) VALUES ('grinder-test', 1000, 'Test', 30.0, 'Niche', 'Zero', '63mm conical')");
-            q.exec("SELECT grinder_brand, grinder_model, grinder_burrs FROM shots WHERE uuid = 'grinder-test'");
-            QVERIFY(q.next());
-            QCOMPARE(q.value(0).toString(), QString("Niche"));
-            QCOMPARE(q.value(1).toString(), QString("Zero"));
-            QCOMPARE(q.value(2).toString(), QString("63mm conical"));
+            QVERIFY(hasColumn(db, "shots", "equipment_id"));
         });
     }
 
@@ -371,7 +388,7 @@ private slots:
         withRawDb(path, "v9_verify", [](QSqlDatabase& db) {
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasIndex(db, "idx_shots_profile_kb_id"));
-            QCOMPARE(getSchemaVersion(db), 22);
+            QCOMPARE(getSchemaVersion(db), 23);
         });
     }
 
@@ -385,7 +402,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "idempotent", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 22);
+            QCOMPARE(getSchemaVersion(db), 23);
         });
     }
 
@@ -405,7 +422,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "empty_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 22);
+            QCOMPARE(getSchemaVersion(db), 23);
         });
     }
 
@@ -428,9 +445,11 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "null_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 22);
+            QCOMPARE(getSchemaVersion(db), 23);
             QSqlQuery q(db);
-            q.exec("SELECT grinder_brand FROM shots WHERE uuid = 'test-null'");
+            // grinder_brand was dropped in migration 23; grinder_setting (the
+            // surviving per-shot dial-in) exercises the same NULL-tolerance path.
+            q.exec("SELECT grinder_setting FROM shots WHERE uuid = 'test-null'");
             QVERIFY(q.next());
             QVERIFY(q.value(0).isNull() || q.value(0).toString().isEmpty());
         });
@@ -507,7 +526,9 @@ private slots:
             QCOMPARE(q.value(0).toString(), QString("Blooming"));
             QCOMPARE(q.value(1).toDouble(), 36.2);
             QCOMPARE(q.value(2).toString(), QString("Onyx"));
-            QVERIFY(hasColumn(db, "shots", "grinder_brand"));
+            // grinder_brand dropped by migration 23; equipment_id is the pointer.
+            QVERIFY(!hasColumn(db, "shots", "grinder_brand"));
+            QVERIFY(hasColumn(db, "shots", "equipment_id"));
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
         });
     }
@@ -605,7 +626,7 @@ private slots:
                 }
             }
         });
-        QCOMPARE(versionFound, 22);
+        QCOMPARE(versionFound, 23);
         QVERIFY2(!hasEnjoymentSource,
                  "enjoyment_source column must be absent after migration 16");
     }
@@ -658,6 +679,7 @@ private slots:
             q.addBindValue("u4"); q.addBindValue(now - 14400);
             QVERIFY(q.exec());
 
+            restoreLegacyGrinderColumns(db);  // migration 22 re-runs in the chain
             QVERIFY(q.exec("UPDATE schema_version SET version = 15"));
         });
 
@@ -707,7 +729,7 @@ private slots:
             }
         });
 
-        QCOMPARE(versionFound, 22);
+        QCOMPARE(versionFound, 23);
         QVERIFY2(columnGone, "enjoyment_source column must be dropped");
         QCOMPARE(enjoy1, 50);
         QCOMPARE(enjoy2, 50);
@@ -1039,6 +1061,7 @@ private slots:
             QVERIFY(q.exec("ALTER TABLE coffee_bags RENAME COLUMN yield_override_g TO yield_target_g"));
             QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, yield_target_g, in_inventory) "
                            "VALUES ('Onyx', 'Geometry', 42.0, 1)"));
+            restoreLegacyGrinderColumns(db);  // migration 22 re-runs in the chain
             q.exec("DELETE FROM schema_version");
             q.exec("INSERT INTO schema_version (version) VALUES (20)");
         });
@@ -1046,7 +1069,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "v21_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 22);
+            QCOMPARE(getSchemaVersion(db), 23);
             QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
             QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
             QSqlQuery q(db);
@@ -1101,6 +1124,7 @@ private slots:
                            "bean_brand, bean_type) "
                            "VALUES ('orphan-1', 1000, 'P', 30.0, 'Onyx', 'Geometry')"));
             shotId = q.lastInsertId().toLongLong();
+            restoreLegacyGrinderColumns(db);  // migration 22 re-runs in the chain
             q.exec("DELETE FROM schema_version");
             q.exec("INSERT INTO schema_version (version) VALUES (19)");
         });
@@ -1122,7 +1146,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "v20_after_retry", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 22);
+            QCOMPARE(getSchemaVersion(db), 23);
             // The retry ran the WHOLE deferred chain, not just migration 20:
             // migration 21's rename landed too (post-condition column present).
             QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
@@ -1149,6 +1173,7 @@ private slots:
             QVERIFY(q.exec("ALTER TABLE coffee_bags RENAME COLUMN yield_override_g TO yield_target_g"));
             QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, yield_target_g, in_inventory) "
                            "VALUES ('Onyx', 'Geometry', 42.0, 1)"));
+            restoreLegacyGrinderColumns(db);  // migration 22 re-runs in the chain
             q.exec("DELETE FROM schema_version");
             q.exec("INSERT INTO schema_version (version) VALUES (20)");
         });
@@ -1167,7 +1192,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "v21_after_retry", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 22);
+            QCOMPARE(getSchemaVersion(db), 23);
             QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
             QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
             QSqlQuery q(db);
@@ -1234,7 +1259,7 @@ private slots:
         };
 
         { ShotHistoryStorage s; initAndClose(path, s); }
-        withRawDb(path, "v22_ver", [](QSqlDatabase& db) { QCOMPARE(getSchemaVersion(db), 22); });
+        withRawDb(path, "v22_ver", [](QSqlDatabase& db) { QCOMPARE(getSchemaVersion(db), 23); });
         QCOMPARE(packageCount(), 1);             // default package created from current settings
         { ShotHistoryStorage s; initAndClose(path, s); }
         QCOMPARE(packageCount(), 1);             // gate prevented a duplicate on re-init

@@ -50,6 +50,9 @@ class ShotProjection {
     Q_PROPERTY(QString grinderBurrs MEMBER grinderBurrs)
     Q_PROPERTY(QString grinderSetting MEMBER grinderSetting)
     Q_PROPERTY(qlonglong rpm MEMBER rpm)
+    // "" = current/none, "older" = superseded by a newer package, "retired" =
+    // out of inventory with no successor (add-equipment-packages 4b.7).
+    Q_PROPERTY(QString equipmentState MEMBER equipmentState)
     Q_PROPERTY(double drinkTdsPct MEMBER drinkTdsPct)
     Q_PROPERTY(double drinkEyPct MEMBER drinkEyPct)
     Q_PROPERTY(QString espressoNotes MEMBER espressoNotes)
@@ -126,6 +129,7 @@ public:
     QString grinderBurrs;
     QString grinderSetting;
     qint64 rpm = 0;
+    QString equipmentState;  // "", "older", or "retired" (add-equipment-packages 4b.7)
     double drinkTdsPct = 0.0;
     double drinkEyPct = 0.0;
     QString espressoNotes;

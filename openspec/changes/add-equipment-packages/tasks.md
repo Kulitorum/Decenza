@@ -15,7 +15,7 @@
 - [x] 2.5 Link every bag/shot to its matching package; null `equipment_id` for empty grinder identity
 - [x] 2.6 Seed package `lastGrindSetting`/`lastRpm` (default ← current settings; per-grinder ← grinder's most-recent shot)
 - [x] 2.7 Bump schema version to 22 only after the transaction commits; failure path leaves DB usable (gated on tables+cols+data)
-- [ ] 2.8 `importDatabaseStatic`: migrate `equipment_packages` + `equipment_items` with id-remap; remap `coffee_bags.equipment_id`, `shots.equipment_id`, and `equipment_packages.superseded_by` on import (replaces the current stopgap that nulls the transferred `equipment_id`)
+- [x] 2.8 `importDatabaseStatic`: migrate `equipment_packages` + `equipment_items` with id-remap; remap `coffee_bags.equipment_id`, `shots.equipment_id`, and `equipment_packages.superseded_by` on import (replaces the current stopgap that nulls the transferred `equipment_id`)
 
 ## 3. SettingsDye & dial memory
 - [x] 3.1 `dyeGrinderBrand/Model/Burrs` are read-only, resolved from the active package (async via EquipmentStorage `packageReady`); setters are display-cache-only (no bag write-through); `applyActiveBag` drives identity through `setActiveEquipmentId(bag.equipmentId)`. (= 4b.5)
@@ -25,10 +25,10 @@
 - [x] 3.5 `SettingsSerializer`: `dye/activeEquipmentId` excluded from export (field-by-field export never emits it; comment updated)
 
 ## 4. Shot projection & history queries
-- [ ] 4.1 `ShotProjection` resolves grinder brand/model/burrs via `equipment_id` JOIN; add `rpm`
-- [ ] 4.2 Re-scope `getDistinctGrinderBrands/ModelsForBrand/BurrsForModel/SettingsForGrinder` to `equipment_items WHERE kind='grinder'`
+- [x] 4.1 `ShotProjection` resolves grinder brand/model/burrs via `equipment_id` JOIN; add `rpm`
+- [x] 4.2 Re-scope `getDistinctGrinderBrands/ModelsForBrand/BurrsForModel/SettingsForGrinder` to `equipment_items WHERE kind='grinder'`
 - [x] 4.3 Shot save captures `equipment_id` + `rpm` (ShotMetadata→ShotSaveData→INSERT; ShotRecord/ShotProjection read them back). Still writes the grinder identity snapshot columns until migration 23.
-- [ ] 4.4 **Migration 23**: drop `grinder_brand`/`grinder_model`/`grinder_burrs` from `coffee_bags` AND `shots` (SQLite ≥3.35 `DROP COLUMN`); remove from `CoffeeBagStorage::kCols`; rework `shots_fts` to drop grinder columns — only after all readers (4.1/4.2/4b) resolve via `equipment_id`
+- [x] 4.4 **Migration 23**: drop `grinder_brand`/`grinder_model`/`grinder_burrs` from `coffee_bags` AND `shots` (SQLite ≥3.35 `DROP COLUMN`); remove from `CoffeeBagStorage::kCols`; rework `shots_fts` to drop grinder columns — only after all readers (4.1/4.2/4b) resolve via `equipment_id`
 
 ## 4b. Copy-on-write immutability + pointer-only normalization (REVISED model — see design §2b)
 - [x] 4b.1 Store `name` at package creation (persistent; defaults to "{brand} {model}")
@@ -36,8 +36,8 @@
 - [x] 4b.3 Copy-on-write (`supersedeOrEditGrinderStatic`): identity edit of a used package forks a new one, repoints referencing bags, marks old `in_inventory=0` + `superseded_by`; unused edits in place; `requestUpdatePackage` + MCP `equipment_update` use it and surface the result id. (Switch-dialog active-repoint folds into 4b.5.)
 - [x] 4b.4 Merge on collision: `supersedeOrEditGrinderStatic` repoints to an existing in-inventory package with the same grinder identity instead of duplicating (`findPackageByGrinderIdentityStatic` gained an `excludeId`). Unit-tested in `tst_equipment::copyOnWriteAndMerge`.
 - [x] 4b.5 `SettingsDye` `dyeGrinderBrand/Model/Burrs` resolve read-only via the active package (async cache, refreshed on bag/package change) — replaces the QSettings cache (this is 3.1 under the revised model)
-- [ ] 4b.6 Grinder search via pointer: shot-history search resolves the term against `equipment_items` for **all** history-referenced packages (inventory or not) → `equipment_id IN (…)`; drop grinder from `shots_fts`; no grinder shadow on shots
-- [ ] 4b.7 Display: render current-vs-superseded from `in_inventory` + `superseded_by` lineage (e.g. "older"/"retired" in shot history); never bake into `name`
+- [x] 4b.6 Grinder search via pointer: shot-history search resolves the term against `equipment_items` for **all** history-referenced packages (inventory or not) → `equipment_id IN (…)`; drop grinder from `shots_fts`; no grinder shadow on shots
+- [x] 4b.7 Display: render current-vs-superseded from `in_inventory` + `superseded_by` lineage (e.g. "older"/"retired" in shot history); never bake into `name`
 
 ## 5. Equipment window & idle button
 - [x] 5.1 `EquipmentPage.qml` (mirror `BeanInfoPage.qml`): empty state + Add Equipment + package cards
@@ -60,7 +60,7 @@
 - [x] 7.4 Dial edits use dual write-through (`setDyeGrinderSetting`/`setDyeGrinderRpm`)
 
 ## 8. Visualizer
-- [~] 8.1 Upload still sends the grinder identity snapshot strings (present until migration 23); pure-pointer resolution folds into the projection JOIN (4.1)
+- [x] 8.1 Upload resolves grinder identity through the projection JOIN (4.1) — the snapshot columns are gone (migration 23); `shotData.grinderBrand/Model/Burrs` are populated from the package's grinder item
 - [x] 8.2 Upload appends rpm to `grinder_setting` (`"{setting} {rpm}rpm"`) at all payload sites via `grinderSettingWithRpm`
 - [x] 8.3 Import path untouched (profile-only; no equipment linkage) — confirmed earlier
 

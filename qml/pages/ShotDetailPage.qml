@@ -830,6 +830,24 @@ Page {
                             Accessible.ignored: true
                         }
 
+                        // Equipment lineage qualifier (add-equipment-packages
+                        // 4b.7): when this shot's package is no longer the current
+                        // one, note whether it was superseded by a newer version
+                        // ("older") or retired from inventory. Never baked into
+                        // the grinder name — rendered from the resolved state.
+                        Text {
+                            visible: shotData.equipmentState === "older" || shotData.equipmentState === "retired"
+                            text: shotData.equipmentState === "older"
+                                ? TranslationManager.translate("shotdetail.equipmentOlder", "Older equipment — a newer version is now in use")
+                                : TranslationManager.translate("shotdetail.equipmentRetired", "Retired equipment — no longer in inventory")
+                            font: Theme.labelFont
+                            color: Theme.textSecondaryColor
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
+                        }
+
                         GridLayout {
                             columns: 2
                             columnSpacing: Theme.spacingLarge
