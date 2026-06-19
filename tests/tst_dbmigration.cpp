@@ -1338,6 +1338,16 @@ private slots:
             addGrinder(older, "Turin", "DF83V", "83mm flat steel");
             addGrinder(retired, "Mazzer", "Major", "83mm");
 
+            // Basket on the current package only — pins the loadShotRecordStatic
+            // basket JOIN, which reads eb.brand/eb.model by POSITIONAL index
+            // (cols 44/45). A future SELECT-list edit that shifts those columns
+            // would silently mis-resolve the basket; this assertion catches it.
+            QSqlQuery bi(db);
+            bi.prepare("INSERT INTO equipment_items (package_id, kind, brand, model, attrs) "
+                       "VALUES (?, 'basket', 'Decent', '18g Ridgeless', '{}')");
+            bi.addBindValue(cur);
+            QVERIFY(bi.exec());
+
             auto addShot = [&](const QString& uuid, qint64 pkg) -> qint64 {
                 QSqlQuery s(db);
                 s.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
@@ -1358,10 +1368,13 @@ private slots:
             QCOMPARE(cur.grinderBrand, QString("Niche"));
             QCOMPARE(cur.grinderModel, QString("Zero"));
             QCOMPARE(cur.grinderBurrs, QString("63mm conical"));  // json_extract path
+            QCOMPARE(cur.basketBrand, QString("Decent"));         // cols 44/45 JOIN
+            QCOMPARE(cur.basketModel, QString("18g Ridgeless"));
             QCOMPARE(cur.equipmentState, QString(""));            // in inventory -> current
 
             const ShotRecord older = ShotHistoryStorage::loadShotRecordStatic(db, olderShot);
             QCOMPARE(older.grinderModel, QString("DF83V"));
+            QCOMPARE(older.basketBrand, QString(""));             // no basket item -> empty
             QCOMPARE(older.equipmentState, QString("older"));     // superseded
 
             const ShotRecord ret = ShotHistoryStorage::loadShotRecordStatic(db, retiredShot);
@@ -1370,6 +1383,7 @@ private slots:
 
             const ShotRecord noeq = ShotHistoryStorage::loadShotRecordStatic(db, noEqShot);
             QCOMPARE(noeq.grinderBrand, QString(""));             // NULL JOIN -> empty
+            QCOMPARE(noeq.basketBrand, QString(""));              // NULL JOIN -> empty basket
             QCOMPARE(noeq.equipmentState, QString(""));           // no package
 
             // Grinder identity is NOT FTS-indexed anymore: a search for a grinder

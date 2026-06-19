@@ -148,7 +148,7 @@ public:
     Q_INVOKABLE QStringList knownBasketBrands() const;
     Q_INVOKABLE QStringList knownBasketModels(const QString& brand) const;
     // Differentiator subtitle for a basket model row (registry summary), e.g.
-    // "straight-wall, precision, open flow, 17-19g". Empty for a custom basket.
+    // "58mm, straight-wall, precision, open flow, 17-19g". Empty for a custom basket.
     Q_INVOKABLE QString basketModelSummary(const QString& brand, const QString& model) const;
 
     double dyeBeanWeight() const;

@@ -544,7 +544,13 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
         QSqlQuery dp(db);
         dp.prepare("DELETE FROM equipment_packages WHERE id = :id");
         dp.bindValue(":id", packageId);
-        dp.exec();
+        // On the direct (non-transactional) create path a failed cleanup here
+        // would orphan the package row; log it so an incomplete rollback is
+        // visible rather than silent. (In the fork path the outer transaction
+        // rolls it back regardless.)
+        if (!dp.exec())
+            qWarning() << "EquipmentStorage: rollback drop of package" << packageId
+                       << "failed (possible orphan):" << dp.lastError().text();
     };
     EquipmentItem grinder;
     grinder.packageId = packageId;
@@ -572,7 +578,9 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
             QSqlQuery di(db);
             di.prepare("DELETE FROM equipment_items WHERE package_id = :id");
             di.bindValue(":id", packageId);
-            di.exec();
+            if (!di.exec())
+                qWarning() << "EquipmentStorage: rollback delete of items for package" << packageId
+                           << "failed (possible orphan):" << di.lastError().text();
             dropPackage();
             return -1;
         }
@@ -622,9 +630,15 @@ bool EquipmentStorage::setBasketItemStatic(QSqlDatabase& db, qint64 packageId,
     const EquipmentItem cur = loadBasketItemStatic(db, packageId);
     const bool wantNone = b.isEmpty() && m.isEmpty();
 
+    // Return contract: true on success OR when no change is needed (the basket is
+    // already in the desired state); false ONLY on a genuine SQL failure. This
+    // distinction matters — a caller inside a transaction (supersedeOrEditStatic's
+    // edit-in-place branch) must roll back on a real write error but must NOT
+    // treat a benign no-op as failure. A successful statement that affects 0 rows
+    // is success, not failure, so we don't gate on numRowsAffected().
     if (wantNone) {
         if (!cur.isValid())
-            return false;  // nothing to clear
+            return true;  // already has no basket — desired state reached, nothing to do
         QSqlQuery del(db);
         del.prepare("DELETE FROM equipment_items WHERE package_id = :id AND kind = 'basket'");
         del.bindValue(":id", packageId);
@@ -633,7 +647,7 @@ bool EquipmentStorage::setBasketItemStatic(QSqlDatabase& db, qint64 packageId,
                        << del.lastError().text();
             return false;
         }
-        return del.numRowsAffected() > 0;
+        return true;
     }
 
     if (cur.isValid()) {
@@ -648,7 +662,7 @@ bool EquipmentStorage::setBasketItemStatic(QSqlDatabase& db, qint64 packageId,
                        << upd.lastError().text();
             return false;
         }
-        return upd.numRowsAffected() > 0;
+        return true;
     }
 
     EquipmentItem basket;
@@ -876,10 +890,11 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     if (shotCount() == 0) {
         if (!updateGrinderItemStatic(db, packageId, brand, model, burrs))
             return fail();
-        // setBasketItemStatic returns false when there's nothing to change (e.g.
-        // the basket was already correct), which is not a failure here — the
-        // grinder edit above already confirmed the identity changed.
-        setBasketItemStatic(db, packageId, basketBrand, basketModel);
+        // A false return is a genuine SQL failure (a no-op returns true), so roll
+        // back rather than commit a half-applied identity (grinder changed, basket
+        // write failed) — this edit runs inside the transaction opened above.
+        if (!setBasketItemStatic(db, packageId, basketBrand, basketModel))
+            return fail();
         return done(packageId);
     }
 

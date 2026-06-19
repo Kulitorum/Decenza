@@ -148,6 +148,9 @@ public:
     // Set the package's basket identity: update the existing basket item, insert
     // one when none exists, or delete it when brand+model are both empty (the
     // "no basket" state). No grinder analogue — a package's basket is optional.
+    // Returns true on success OR when no change is needed (basket already in the
+    // desired state); false ONLY on a genuine SQL failure, so a caller inside a
+    // transaction can roll back on a real error without tripping on a benign no-op.
     static bool setBasketItemStatic(QSqlDatabase& db, qint64 packageId,
                                     const QString& brand, const QString& model);
 
