@@ -2,6 +2,7 @@
 
 #include "dialing_helpers.h"  // buildBeanFreshness — composed inside buildCurrentBeanBlock
 #include "aiconversation.h"   // HistoricalAssistantTurn — input to buildRecentAdviceBlock
+#include "../core/basketaliases.h"  // basket spec derivation inside buildCurrentBeanBlock
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -187,6 +188,11 @@ struct CurrentBeanBlockInputs {
     QString grinderBrand;
     QString grinderModel;
     QString grinderBurrs;
+    // Basket identity (resolved via the shot's equipment_id; empty = no basket).
+    // Specs (wall/flow/precision/dose range) are DERIVED here from BasketAliases,
+    // not passed in — the caller supplies identity only (add-basket-equipment).
+    QString basketBrand;
+    QString basketModel;
     QString grinderSetting;
     // Grinder RPM the shot was ground at (0 = unset / not an adjustable-RPM
     // grinder). A second grind axis alongside grinderSetting on variable-RPM
@@ -218,6 +224,30 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
     if (in.rpm > 0)
         bean["rpm"] = in.rpm;
     bean["doseWeightG"] = in.doseWeightG;
+
+    // Basket sub-object (add-basket-equipment). Identity always when present;
+    // registry-derived specs only when the basket matches BasketAliases (a custom
+    // off-registry basket carries identity alone). relativeFlow is the key
+    // cross-basket signal — a directional word, not an ordered scale — and the
+    // dose range lets the advisor flag a dose outside the basket's rating.
+    if (!in.basketBrand.isEmpty() || !in.basketModel.isEmpty()) {
+        QJsonObject basket;
+        basket["brand"] = in.basketBrand;
+        basket["model"] = in.basketModel;
+        if (const BasketAliases::BasketEntry* e =
+                BasketAliases::findEntry(in.basketBrand, in.basketModel)) {
+            basket["wallProfile"] = BasketAliases::wallProfileName(e->wall);
+            basket["relativeFlow"] = BasketAliases::flowRateName(e->flow);
+            basket["precision"] = e->precision;
+            if (e->doseMaxG > 0) {
+                QJsonObject dose;
+                dose["min"] = e->doseMinG;
+                dose["max"] = e->doseMaxG;
+                basket["doseRangeG"] = dose;
+            }
+        }
+        bean["basket"] = basket;
+    }
 
     const QJsonObject freshness = DialingHelpers::buildBeanFreshness(in.roastDate);
     if (!freshness.isEmpty())

@@ -10,6 +10,12 @@ Item {
     property string label: ""
     property string text: ""
     property var suggestions: []  // List of existing values from database
+    // Optional value -> differentiator subtitle map. When a suggestion's value is
+    // a key here, the dropdown row renders that subtitle on a second line (and
+    // folds it into the row's accessible name). Empty by default — suggestions
+    // stay plain strings, so filtering/selection are unchanged. Used by the basket
+    // model picker to keep similar models legible (add-basket-equipment).
+    property var descriptions: ({})
     property string accessibleName: ""  // Explicit accessible name for screen readers (overrides label)
     property alias textField: textInput  // Expose internal text input for KeyboardAwareContainer registration
 
@@ -405,19 +411,41 @@ Item {
             delegate: ItemDelegate {
                 id: suggestionDelegate
                 width: suggestionList.width
-                height: Theme.scaled(44)
+                // Taller rows when a differentiator subtitle is shown so both lines fit.
+                height: suggestionDelegate.itemDesc.length > 0 ? Theme.scaled(58) : Theme.scaled(44)
                 highlighted: index === suggestionList.currentIndex
 
                 // Store reference to avoid scope issues
                 property string itemText: modelData
+                // Optional differentiator subtitle for this value (empty when none).
+                property string itemDesc: root.descriptions && root.descriptions[modelData] !== undefined
+                                          ? String(root.descriptions[modelData]) : ""
 
-                contentItem: Text {
-                    text: suggestionDelegate.itemText
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(18)
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: Theme.scaled(12)
+                contentItem: Column {
+                    spacing: Theme.scaled(1)
+                    Text {
+                        text: suggestionDelegate.itemText
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(18)
+                        leftPadding: Theme.scaled(12)
+                        width: suggestionDelegate.width - Theme.scaled(12)
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        visible: suggestionDelegate.itemDesc.length > 0
+                        text: suggestionDelegate.itemDesc
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(13)
+                        leftPadding: Theme.scaled(12)
+                        width: suggestionDelegate.width - Theme.scaled(12)
+                        elide: Text.ElideRight
+                    }
                 }
+
+                Accessible.role: Accessible.Button
+                Accessible.name: suggestionDelegate.itemDesc.length > 0
+                                 ? suggestionDelegate.itemText + ", " + suggestionDelegate.itemDesc
+                                 : suggestionDelegate.itemText
 
                 background: Rectangle {
                     color: highlighted || hovered ? Theme.primaryColor : "transparent"

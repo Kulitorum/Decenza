@@ -29,6 +29,13 @@ Rectangle {
     }
     readonly property string burrs: (pkg && pkg.grinderBurrs) || ""
     readonly property bool rpmCapable: !!(pkg && pkg.rpmCapable)
+    // Basket identity line (add-basket-equipment); empty when the package has none.
+    readonly property string basketLine: {
+        var _ = TranslationManager.translationVersion
+        var b = [(pkg && pkg.basketBrand) || "", (pkg && pkg.basketModel) || ""]
+                .filter(function(s) { return s.length > 0 }).join(" ")
+        return b.length > 0 ? TranslationManager.translate("equipment.card.basket", "Basket: %1").arg(b) : ""
+    }
 
     readonly property string lastDialLine: {
         var _ = TranslationManager.translationVersion
@@ -44,6 +51,7 @@ Rectangle {
 
     readonly property string accessibleSummary: {
         var bits = [grinderTitle, burrs].filter(function(s) { return s.length > 0 })
+        if (basketLine.length > 0) bits.push(basketLine)
         if (lastDialLine.length > 0) bits.push(lastDialLine)
         if (selected) bits.push(TranslationManager.translate("accessibility.selected", "selected"))
         return bits.join(", ")
@@ -118,20 +126,20 @@ Rectangle {
 
                 Text {
                     Layout.fillWidth: true
-                    visible: card.lastDialLine.length > 0
-                    text: card.lastDialLine
-                    font: Theme.captionFont
-                    color: Theme.textColor
+                    visible: card.basketLine.length > 0
+                    text: card.basketLine
+                    font: Theme.labelFont
+                    color: Theme.textSecondaryColor
                     elide: Text.ElideRight
                     Accessible.ignored: true
                 }
 
                 Text {
                     Layout.fillWidth: true
-                    visible: card.rpmCapable
-                    text: TranslationManager.translate("equipment.card.rpmAdjustable", "RPM adjustable")
+                    visible: card.lastDialLine.length > 0
+                    text: card.lastDialLine
                     font: Theme.captionFont
-                    color: Theme.textSecondaryColor
+                    color: Theme.textColor
                     elide: Text.ElideRight
                     Accessible.ignored: true
                 }

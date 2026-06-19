@@ -97,6 +97,7 @@ Page {
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("idle.pageTitle", "Idle")
         MainController.bagStorage.requestInventory()
+        MainController.equipmentStorage.requestInventory()
     }
 
     // Inventory bags for the beans pill row (bean-bag-inventory: pills are
@@ -121,8 +122,31 @@ Page {
         }
     }
 
+    // Equipment packages for the equipment pill row (add-basket-equipment): pills
+    // are packages, selection is activeEquipmentId. Capped to the 5 most recently
+    // used (inventoryReady is MRU-ordered); the full inventory lives on the
+    // Equipment page.
+    property var inventoryEquipment: []
+
+    function equipmentLabel(pkg) {
+        if (!pkg) return ""
+        if (pkg.name && String(pkg.name).length > 0) return String(pkg.name)
+        return [pkg.grinderBrand || "", pkg.grinderModel || ""]
+                .filter(function(s) { return s.length > 0 }).join(" ")
+    }
+
+    Connections {
+        target: MainController.equipmentStorage
+        function onInventoryReady(packages) {
+            idlePage.inventoryEquipment = packages.slice(0, 5)
+        }
+        function onPackagesChanged() {
+            MainController.equipmentStorage.requestInventory()
+        }
+    }
+
     // Track which function's presets are showing (used by center-zone action items)
-    property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush", "beans"
+    property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush", "beans", "equipment"
 
     // Auto-tare scale and announce presets when activePresetFunction changes
     onActivePresetFunctionChanged: {
@@ -165,6 +189,15 @@ Page {
                     for (var bi = 0; bi < idlePage.inventoryBags.length; ++bi) {
                         if (idlePage.inventoryBags[bi].id === Settings.dye.activeBagId) {
                             selectedName = idlePage.bagLabel(idlePage.inventoryBags[bi])
+                            break
+                        }
+                    }
+                    break
+                case "equipment":
+                    presets = idlePage.inventoryEquipment.map(function(p) { return { name: idlePage.equipmentLabel(p) } })
+                    for (var ei = 0; ei < idlePage.inventoryEquipment.length; ++ei) {
+                        if (idlePage.inventoryEquipment[ei].id === Settings.dye.activeEquipmentId) {
+                            selectedName = idlePage.equipmentLabel(idlePage.inventoryEquipment[ei])
                             break
                         }
                     }
@@ -277,6 +310,7 @@ Page {
                     case "hotwater": return hotWaterPresetLoader
                     case "flush": return flushPresetLoader
                     case "beans": return beanPresetLoader
+                    case "equipment": return equipmentPresetLoader
                     default: return steamPresetLoader
                 }
             }
@@ -554,6 +588,31 @@ Page {
                         var bag = idlePage.inventoryBags[index]
                         if (!bag) return
                         Settings.dye.activeBagId = bag.id
+                    }
+                }
+            }
+
+            Loader {
+                id: equipmentPresetLoader
+                width: parent.width
+                anchors.horizontalCenter: parent.horizontalCenter
+                active: activePresetFunction === "equipment"
+                visible: active
+                sourceComponent: PresetPillRow {
+                    maxWidth: equipmentPresetLoader.width
+                    presets: idlePage.inventoryEquipment.map(function(p) { return { name: idlePage.equipmentLabel(p) } })
+                    selectedIndex: {
+                        var list = idlePage.inventoryEquipment
+                        for (var i = 0; i < list.length; ++i) {
+                            if (list[i].id === Settings.dye.activeEquipmentId) return i
+                        }
+                        return -1
+                    }
+
+                    onPresetSelected: function(index) {
+                        var pkg = idlePage.inventoryEquipment[index]
+                        if (!pkg) return
+                        Settings.dye.switchToEquipment(pkg)
                     }
                 }
             }

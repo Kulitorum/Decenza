@@ -266,7 +266,7 @@ void TstBasketAliases::findEntryByAlias_roundTrips()
     const BasketEntry* e = findEntryByAlias(QStringLiteral("decent stock"));
     QVERIFY(e != nullptr);
     QCOMPARE(e->brand, QStringLiteral("Decent"));
-    QCOMPARE(e->model, QStringLiteral("Ridgeless 18g"));
+    QCOMPARE(e->model, QStringLiteral("18g Ridgeless"));
 
     // Composition contract: findEntryByAlias agrees with lookup().
     const auto r = lookup(QStringLiteral("decent stock"));

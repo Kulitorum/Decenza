@@ -4,6 +4,9 @@
 #include <QStringList>
 #include <QVector>
 
+#include <algorithm>
+#include <utility>
+
 namespace BasketAliases {
 
 // The cross-sectional shape of the basket's brewing chamber. This is the
@@ -91,23 +94,33 @@ inline QVector<BasketEntry> allBaskets()
     static const QVector<BasketEntry> entries = {
         // --- Decent (58mm single-wall; holes precision-inspected under
         //     microscope by Decent's own QC software, sold as the DE1 stock) ---
-        {"Decent", "Ridgeless 15g", {"decent 15g", "decent ridgeless 15g", "de1 15g"}, 58, 14, 16, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Stock small double; ridgeless for bottomless portafilters.")},
-        {"Decent", "Ridgeless 18g", {"decent 18g", "decent ridgeless 18g", "de1 18g", "decent stock"}, 58, 17, 19, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Basket shipped with the DE1 — the default everyday double.")},
-        {"Decent", "Ridgeless 20g", {"decent 20g", "decent ridgeless 20g", "de1 20g"}, 58, 19, 21, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Larger capacity ridgeless double for higher doses.")},
-        {"Decent", "Ridgeless 22g", {"decent 22g", "decent ridgeless 22g", "de1 22g"}, 58, 21, 23, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Largest standard ridgeless; high dose / darker roasts.")},
-        {"Decent", "Ridged 7g", {"decent 7g", "decent ridged 7g"}, 58, 6, 8, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Single-ristretto small basket; ridge grips a standard portafilter.")},
-        {"Decent", "Ridged 10g", {"decent 10g", "decent ridged 10g"}, 58, 9, 11, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Small low-dose basket for single / lighter shots.")},
-        {"Decent", "Slightly Waisted 14g", {"decent slightly waisted", "slightly waisted"}, 58, 12, 15, WP::Stepped, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Necks the 58mm bed down (~52mm) for added body; best near 14g.")},
-        {"Decent", "Very Waisted 14g", {"decent very waisted", "very waisted"}, 58, 12, 16, WP::Stepped, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("More taper than 'slightly' — more body, easier no-channel shots.")},
-        {"Decent", "Extremely Waisted 12g", {"decent extremely waisted", "extremely waisted"}, 58, 11, 14, WP::Stepped, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Most aggressive taper (~50mm bed); deep lever-style puck for body.")},
+        {"Decent", "15g Ridgeless", {"decent 15g", "decent ridgeless 15g", "de1 15g"}, 58, 14, 16, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Stock small double; ridgeless for bottomless portafilters.")},
+        {"Decent", "18g Ridgeless", {"decent 18g", "decent ridgeless 18g", "de1 18g", "decent stock"}, 58, 17, 19, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Basket shipped with the DE1 — the default everyday double.")},
+        {"Decent", "20g Ridgeless", {"decent 20g", "decent ridgeless 20g", "de1 20g"}, 58, 19, 21, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Larger capacity ridgeless double for higher doses.")},
+        {"Decent", "22g Ridgeless", {"decent 22g", "decent ridgeless 22g", "de1 22g"}, 58, 21, 23, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Largest standard ridgeless; high dose / darker roasts.")},
+        {"Decent", "7g Ridged", {"decent 7g", "decent ridged 7g"}, 58, 6, 8, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Single-ristretto small basket; ridge grips a standard portafilter.")},
+        {"Decent", "10g Ridged", {"decent 10g", "decent ridged 10g"}, 58, 9, 11, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Small low-dose basket for single / lighter shots.")},
+        // Ridged (spouted-portafilter) versions of the standard doubles — same
+        // straight-wall precision geometry as the ridgeless ones, with a ridge so
+        // they seat in a standard (non-bottomless) portafilter. Discontinued / no
+        // longer on the Decent site, but in wide use.
+        {"Decent", "15g Ridged", {"decent ridged 15g", "decent 15g ridged"}, 58, 14, 16, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Ridged small double for a standard portafilter (discontinued).")},
+        {"Decent", "18g Ridged", {"decent ridged 18g", "decent 18g ridged"}, 58, 17, 19, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Ridged version of the everyday double for a standard portafilter (discontinued).")},
+        {"Decent", "20g Ridged", {"decent ridged 20g", "decent 20g ridged"}, 58, 19, 21, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Ridged larger-capacity double for a standard portafilter (discontinued).")},
+        {"Decent", "22g Ridged", {"decent ridged 22g", "decent 22g ridged"}, 58, 21, 23, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Ridged high-dose double for a standard portafilter (discontinued).")},
+        {"Decent", "14g Slightly Waisted", {"decent slightly waisted", "slightly waisted"}, 58, 12, 15, WP::Stepped, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Necks the 58mm bed down (~52mm) for added body; best near 14g.")},
+        {"Decent", "14g Very Waisted", {"decent very waisted", "very waisted"}, 58, 12, 16, WP::Stepped, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("More taper than 'slightly' — more body, easier no-channel shots.")},
+        {"Decent", "12g Extremely Waisted", {"decent extremely waisted", "extremely waisted"}, 58, 11, 14, WP::Stepped, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Most aggressive taper (~50mm bed); deep lever-style puck for body.")},
 
         // --- Weber Workshops Unibasket (forged 304, 1.2mm blank, straight
         //     walls with laser-ablated holes carried to the side wall — the
-        //     reason it flows faster than a tapered stock basket) ---
-        {"Weber Workshops", "Unibasket 16g", {"unibasket 16g", "weber 16g", "weber unibasket 16g"}, 58, 15, 17, WP::Straight, true, FR::Open, 0, 0, QStringLiteral("forged 304 stainless, 1.2mm"), QStringLiteral("Holes to the side wall give a full ~58mm active puck vs ~48mm stock — flows faster.")},
-        {"Weber Workshops", "Unibasket 20g", {"unibasket 20g", "weber 20g", "weber unibasket 20g"}, 58, 19, 21, WP::Straight, true, FR::Open, 0, 0, QStringLiteral("forged 304 stainless, 1.2mm"), QStringLiteral("20g drop-in Unibasket; same unibody straight-wall, full-active-area design.")},
-        {"Weber Workshops", "Unibasket 24g", {"unibasket 24g", "weber 24g", "weber unibasket 24g"}, 58, 23, 25, WP::Straight, true, FR::Open, 0, 0, QStringLiteral("forged 304 stainless, 1.2mm"), QStringLiteral("24g drop-in Unibasket.")},
-        {"Weber Workshops", "Unibasket 28g", {"unibasket 28g", "weber 28g", "weber unibasket 28g"}, 58, 27, 29, WP::Straight, true, FR::Open, 0, 0, QStringLiteral("forged 304 stainless, 1.2mm"), QStringLiteral("Largest Unibasket — a 28g 'mega-shot' size.")},
+        //     reason it flows faster than a tapered stock basket). The Unifilter
+        //     is a unibody portafilter with that same basket machined in. ---
+        {"Weber Workshops", "16g Unibasket", {"unibasket 16g", "weber 16g", "weber unibasket 16g"}, 58, 15, 17, WP::Straight, true, FR::Open, 0, 0, QStringLiteral("forged 304 stainless, 1.2mm"), QStringLiteral("Holes to the side wall give a full ~58mm active puck vs ~48mm stock — flows faster.")},
+        {"Weber Workshops", "20g Unibasket", {"unibasket 20g", "weber 20g", "weber unibasket 20g"}, 58, 19, 21, WP::Straight, true, FR::Open, 0, 0, QStringLiteral("forged 304 stainless, 1.2mm"), QStringLiteral("20g drop-in Unibasket; same unibody straight-wall, full-active-area design.")},
+        {"Weber Workshops", "20g Unifilter", {"unifilter", "weber unifilter", "weber unibody portafilter"}, 58, 18, 22, WP::Straight, true, FR::Open, 0, 0, QStringLiteral("forged 304 stainless, unibody"), QStringLiteral("Unibody portafilter with the Unibasket machined in (no removable basket); laser-ablated holes to the side wall, 18-22g, 20g standard.")},
+        {"Weber Workshops", "24g Unibasket", {"unibasket 24g", "weber 24g", "weber unibasket 24g"}, 58, 23, 25, WP::Straight, true, FR::Open, 0, 0, QStringLiteral("forged 304 stainless, 1.2mm"), QStringLiteral("24g drop-in Unibasket.")},
+        {"Weber Workshops", "28g Unibasket", {"unibasket 28g", "weber 28g", "weber unibasket 28g"}, 58, 27, 29, WP::Straight, true, FR::Open, 0, 0, QStringLiteral("forged 304 stainless, 1.2mm"), QStringLiteral("Largest Unibasket — a 28g 'mega-shot' size.")},
 
         // --- VST (the WBC reference precision basket; every hole optically
         //     verified to ~±20µm, individual test certificate per basket;
@@ -123,11 +136,11 @@ inline QVector<BasketEntry> allBaskets()
         // --- IMS (competition precision; 0.30mm holes standard. "M" flat
         //     pattern, "TC" convex base, "E" ridgeless, "SF" SuperFine
         //     membrane, "NT" Nanoquartz non-stick coating) ---
-        {"IMS", "Competition B70 2T H24.5 (12-18g)", {"ims 24.5", "ims h24.5", "ims competition 24.5"}, 58, 12, 18, WP::Straight, true, FR::Standard, 0, 300, QStringLiteral("AISI 304, electropolished"), QStringLiteral("Flexible low-dose competition flat; 0.30mm holes.")},
-        {"IMS", "Competition B70 2T H26.5 (18-21g)", {"ims 26.5", "ims h26.5", "ims competition", "ims 18g"}, 58, 18, 21, WP::Straight, true, FR::Standard, 641, 300, QStringLiteral("AISI 304, electropolished"), QStringLiteral("Reference IMS competition double — 641 holes at 0.30mm.")},
-        {"IMS", "Competition Convex B70 2TC H28.5 (19-22g)", {"ims convex", "ims 2tc", "ims h28.5"}, 58, 19, 22, WP::Convex, true, FR::Standard, 715, 300, QStringLiteral("AISI 304, electropolished"), QStringLiteral("Convex base concentrates flow to the centre; 715 holes, ridgeless.")},
-        {"IMS", "SuperFine B70 2T H24 (14-16g)", {"ims superfine", "ims sf", "eb lab superfine"}, 58, 14, 16, WP::Straight, true, FR::Restrictive, 565, 170, QStringLiteral("stainless + 170µm membrane"), QStringLiteral("170µm membrane over 565 holes cuts fines passthrough — finer filtration, slower flow.")},
-        {"IMS", "Nanoquartz B70 2TF NT (14-28g)", {"ims nanotech", "ims nanoquartz", "ims nt"}, 58, 14, 28, WP::Straight, true, FR::Standard, 715, 300, QStringLiteral("304 + Nanoquartz non-stick coating"), QStringLiteral("Competition geometry plus a water/oil-repellent non-stick coating for clean puck release.")},
+        {"IMS", "12-18g Competition B70 2T H24.5", {"ims 24.5", "ims h24.5", "ims competition 24.5"}, 58, 12, 18, WP::Straight, true, FR::Standard, 0, 300, QStringLiteral("AISI 304, electropolished"), QStringLiteral("Flexible low-dose competition flat; 0.30mm holes.")},
+        {"IMS", "18-21g Competition B70 2T H26.5", {"ims 26.5", "ims h26.5", "ims competition", "ims 18g"}, 58, 18, 21, WP::Straight, true, FR::Standard, 641, 300, QStringLiteral("AISI 304, electropolished"), QStringLiteral("Reference IMS competition double — 641 holes at 0.30mm.")},
+        {"IMS", "19-22g Competition Convex B70 2TC H28.5", {"ims convex", "ims 2tc", "ims h28.5"}, 58, 19, 22, WP::Convex, true, FR::Standard, 715, 300, QStringLiteral("AISI 304, electropolished"), QStringLiteral("Convex base concentrates flow to the centre; 715 holes, ridgeless.")},
+        {"IMS", "14-16g SuperFine B70 2T H24", {"ims superfine", "ims sf", "eb lab superfine"}, 58, 14, 16, WP::Straight, true, FR::Restrictive, 565, 170, QStringLiteral("stainless + 170µm membrane"), QStringLiteral("170µm membrane over 565 holes cuts fines passthrough — finer filtration, slower flow.")},
+        {"IMS", "14-28g Nanoquartz B70 2TF NT", {"ims nanotech", "ims nanoquartz", "ims nt"}, 58, 14, 28, WP::Straight, true, FR::Standard, 715, 300, QStringLiteral("304 + Nanoquartz non-stick coating"), QStringLiteral("Competition geometry plus a water/oil-repellent non-stick coating for clean puck release.")},
 
         // --- S-Works (CNC-machined from solid 17-4 PH stainless billet,
         //     0.75mm walls, holes to the edge; each model is ALSO sold in
@@ -264,14 +277,21 @@ inline QStringList allBrands()
     return brands;
 }
 
-// All known models for a brand, in registry order.
+// All known models for a brand, sorted by dose size ascending (smallest first).
+// Model names lead with their size, so a size-ordered list reads as a clean
+// numeric progression in the picker; ties keep registry order (stable sort).
 inline QStringList modelsForBrand(const QString& brand)
 {
-    QStringList models;
+    std::vector<std::pair<double, QString>> rows;
     for (const auto& entry : allBaskets()) {
         if (entry.brand.compare(brand, Qt::CaseInsensitive) == 0)
-            models << entry.model;
+            rows.emplace_back(entry.doseMinG, entry.model);
     }
+    std::stable_sort(rows.begin(), rows.end(),
+                     [](const auto& a, const auto& b) { return a.first < b.first; });
+    QStringList models;
+    for (const auto& r : rows)
+        models << r.second;
     return models;
 }
 

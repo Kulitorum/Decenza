@@ -5,6 +5,7 @@
 #include "../history/shotprojection.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/equipmentstorage.h"
+#include "../core/basketaliases.h"
 #include "../history/bagid.h"
 #include "../network/visualizeruploader.h"
 #include "../controllers/profilemanager.h"
@@ -1722,6 +1723,24 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         o["grinderModel"] = v.grinder.model;
         if (!v.grinder.burrs.isEmpty()) o["grinderBurrs"] = v.grinder.burrs;
         o["rpmAdjustable"] = v.grinder.rpmCapable;
+        // Basket identity + registry-derived specs (add-basket-equipment). Emitted
+        // only when the package has a basket; specs only when it matches the
+        // registry (a custom basket carries identity alone). Units/strings follow
+        // MCP conventions (doseRangeG, human-readable wallProfile/relativeFlow).
+        if (!v.basket.brand.isEmpty() || !v.basket.model.isEmpty()) {
+            QJsonObject basket;
+            basket["brand"] = v.basket.brand;
+            basket["model"] = v.basket.model;
+            if (const BasketAliases::BasketEntry* e =
+                    BasketAliases::findEntry(v.basket.brand, v.basket.model)) {
+                basket["wallProfile"] = BasketAliases::wallProfileName(e->wall);
+                basket["relativeFlow"] = BasketAliases::flowRateName(e->flow);
+                basket["precision"] = e->precision;
+                if (e->doseMaxG > 0)
+                    basket["doseRangeG"] = QJsonObject{{"min", e->doseMinG}, {"max", e->doseMaxG}};
+            }
+            o["basket"] = basket;
+        }
         o["inInventory"] = v.package.inInventory;
         if (!v.package.lastGrindSetting.isEmpty()) o["lastGrindSetting"] = v.package.lastGrindSetting;
         if (v.package.lastRpm > 0) o["lastRpm"] = v.package.lastRpm;
@@ -1763,12 +1782,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
     // equipment_update — edit a package's grinder identity (or create one).
     registry->registerAsyncTool(
         "equipment_update",
-        "Update an equipment package's grinder identity (brand/model/burrs) and optional name. Only "
-        "provided fields change. rpmAdjustable is re-derived from the grinder registry. Identity is "
-        "copy-on-write: editing a package that has shots forks a NEW package (the old one is retired "
-        "and kept for its history) and an unused package is edited in place — so the returned "
-        "package.id may differ from the input packageId. An edit matching an existing package merges "
-        "into it.",
+        "Update an equipment package's grinder identity (brand/model/burrs), optional basket identity "
+        "(basketBrand/basketModel — pass both empty to remove the basket), and optional name. Only "
+        "provided fields change. rpmAdjustable is re-derived from the grinder registry; basket specs "
+        "are derived from the basket registry. Identity (grinder AND basket) is copy-on-write: editing "
+        "a package that has shots forks a NEW package (the old one is retired and kept for its history) "
+        "and an unused package is edited in place — so the returned package.id may differ from the "
+        "input packageId. An edit matching an existing package merges into it.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -1776,7 +1796,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"name", QJsonObject{{"type", "string"}}},
                 {"grinderBrand", QJsonObject{{"type", "string"}}},
                 {"grinderModel", QJsonObject{{"type", "string"}}},
-                {"grinderBurrs", QJsonObject{{"type", "string"}}}
+                {"grinderBurrs", QJsonObject{{"type", "string"}}},
+                {"basketBrand", QJsonObject{{"type", "string"}}},
+                {"basketModel", QJsonObject{{"type", "string"}}}
             }},
             {"required", QJsonArray{"packageId"}}
         },
@@ -1789,6 +1811,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             if (packageId <= 0) { respond(QJsonObject{{"error", "Valid packageId is required"}}); return; }
             const bool touchesGrinder = args.contains("grinderBrand") || args.contains("grinderModel")
                 || args.contains("grinderBurrs");
+            const bool touchesBasket = args.contains("basketBrand") || args.contains("basketModel");
             QVariantMap pkgFields;
             if (args.contains("name")) pkgFields.insert("name", args["name"].toString());
             const QString brand = args["grinderBrand"].toString();
@@ -1797,6 +1820,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             const bool haveBrand = args.contains("grinderBrand");
             const bool haveModel = args.contains("grinderModel");
             const bool haveBurrs = args.contains("grinderBurrs");
+            const QString basketBrand = args["basketBrand"].toString();
+            const QString basketModel = args["basketModel"].toString();
+            const bool haveBasketBrand = args.contains("basketBrand");
+            const bool haveBasketModel = args.contains("basketModel");
             const qint64 activeId = settings ? settings->dye()->activeEquipmentId() : -1;
             const QString dbPath = shotHistory->databasePath();
             QThread* thread = QThread::create([=]() {
@@ -1804,19 +1831,25 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 qint64 resultId = packageId;
                 EquipmentPackageView view;
                 withTempDb(dbPath, "mcp_equip_upd", [&](QSqlDatabase& db) {
-                    if (touchesGrinder) {
-                        // Copy-on-write/merge: identity edit may yield a new id.
+                    if (touchesGrinder || touchesBasket) {
+                        // Copy-on-write/merge over the full (grinder + basket)
+                        // identity; an untouched side defaults from the current
+                        // items so it is preserved. May yield a new id.
                         const EquipmentItem cur = EquipmentStorage::loadGrinderItemStatic(db, packageId);
-                        resultId = EquipmentStorage::supersedeOrEditGrinderStatic(db, packageId,
+                        const EquipmentItem curBasket = EquipmentStorage::loadBasketItemStatic(db, packageId);
+                        resultId = EquipmentStorage::supersedeOrEditStatic(db, packageId,
                                 haveBrand ? brand : cur.brand,
                                 haveModel ? model : cur.model,
-                                haveBurrs ? burrs : cur.burrs);
+                                haveBurrs ? burrs : cur.burrs,
+                                haveBasketBrand ? basketBrand : curBasket.brand,
+                                haveBasketModel ? basketModel : curBasket.model);
                         ok = (resultId > 0);
                     }
                     if (!pkgFields.isEmpty())
                         ok = EquipmentStorage::updatePackageFieldsStatic(db, resultId, pkgFields) || ok;
                     view.package = EquipmentStorage::loadPackageStatic(db, resultId);
                     view.grinder = EquipmentStorage::loadGrinderItemStatic(db, resultId);
+                    view.basket = EquipmentStorage::loadBasketItemStatic(db, resultId);
                 });
                 QMetaObject::invokeMethod(qApp, [ok, view, activeId, packageId, packageToJson, respond]() {
                     if (!ok || !view.package.isValid()) {
@@ -1858,6 +1891,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 withTempDb(dbPath, "mcp_equip_sel", [&](QSqlDatabase& db) {
                     view.package = EquipmentStorage::loadPackageStatic(db, packageId);
                     view.grinder = EquipmentStorage::loadGrinderItemStatic(db, packageId);
+                    view.basket = EquipmentStorage::loadBasketItemStatic(db, packageId);
                 });
                 const bool found = view.package.isValid();
                 const QVariantMap pkgMap = view.toVariantMap();

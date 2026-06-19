@@ -1,6 +1,7 @@
 #include "equipmentstorage.h"
 #include "core/dbutils.h"
 #include "core/grinderaliases.h"
+#include "core/basketaliases.h"
 
 #include <QSqlQuery>
 #include <QSqlError>
@@ -144,6 +145,10 @@ const char* kItemColumns = "id, package_id, kind, brand, model, attrs";
 // ---------------------------------------------------------------------------
 QString EquipmentItem::attrsJson() const
 {
+    // Only the grinder kind carries attrs (burrs + rpmCapable). A basket's specs
+    // are derived from BasketAliases at read time, so it persists an empty blob.
+    if (kind != QStringLiteral("grinder"))
+        return QStringLiteral("{}");
     QJsonObject obj;
     if (!burrs.isEmpty())
         obj.insert(QStringLiteral("burrs"), burrs);
@@ -188,6 +193,23 @@ QVariantMap EquipmentPackageView::toVariantMap() const
     map.insert(QStringLiteral("grinderModel"), grinder.model);
     map.insert(QStringLiteral("grinderBurrs"), grinder.burrs);
     map.insert(QStringLiteral("rpmCapable"), grinder.rpmCapable);
+    // Resolved basket identity (empty when the package has no basket) plus its
+    // registry-derived specs. Specs are NOT stored — they are looked up here from
+    // BasketAliases::findEntry, so a curated-DB refinement flows to every package.
+    // A custom (off-registry) basket resolves to identity only (specs omitted).
+    map.insert(QStringLiteral("basketBrand"), basket.brand);
+    map.insert(QStringLiteral("basketModel"), basket.model);
+    if (!basket.brand.isEmpty() || !basket.model.isEmpty()) {
+        if (const BasketAliases::BasketEntry* e =
+                BasketAliases::findEntry(basket.brand, basket.model)) {
+            map.insert(QStringLiteral("basketWallProfile"), BasketAliases::wallProfileName(e->wall));
+            map.insert(QStringLiteral("basketRelativeFlow"), BasketAliases::flowRateName(e->flow));
+            map.insert(QStringLiteral("basketPrecision"), e->precision);
+            map.insert(QStringLiteral("basketDoseMinG"), e->doseMinG);
+            map.insert(QStringLiteral("basketDoseMaxG"), e->doseMaxG);
+            map.insert(QStringLiteral("basketSummary"), BasketAliases::summary(*e));
+        }
+    }
     map.insert(QStringLiteral("shotCount"), shotCount);
     return map;
 }
@@ -256,6 +278,7 @@ void EquipmentStorage::requestPackage(qint64 packageId)
                 EquipmentPackageView view;
                 view.package = pkg;
                 view.grinder = loadGrinderItemStatic(db, packageId);
+                view.basket = loadBasketItemStatic(db, packageId);
                 *result = view.toVariantMap();
             }
         },
@@ -273,11 +296,22 @@ void EquipmentStorage::requestCreatePackage(const QVariantMap& packageMap)
             const QString brand = packageMap.value(QStringLiteral("grinderBrand")).toString();
             const QString model = packageMap.value(QStringLiteral("grinderModel")).toString();
             const QString burrs = packageMap.value(QStringLiteral("grinderBurrs")).toString();
-            *newId = createPackageWithGrinderStatic(db, pkg, brand, model, burrs);
+            const QString basketBrand = packageMap.value(QStringLiteral("basketBrand")).toString();
+            const QString basketModel = packageMap.value(QStringLiteral("basketModel")).toString();
+            // Dedup backstop: if an in-inventory package already has this exact
+            // full identity (grinder + basket), return it instead of inserting a
+            // duplicate. The dialog blocks this in the UI too, but the storage is
+            // the authoritative guard against duplicate gear (we don't want dups).
+            const qint64 existing = findPackageByGrinderIdentityStatic(db, brand, model, burrs, 0,
+                                                                       basketBrand, basketModel);
+            *newId = existing > 0
+                ? existing
+                : createPackageWithGrinderStatic(db, pkg, brand, model, burrs, basketBrand, basketModel);
             if (*newId > 0) {
                 EquipmentPackageView view;
                 view.package = loadPackageStatic(db, *newId);
                 view.grinder = loadGrinderItemStatic(db, *newId);
+                view.basket = loadBasketItemStatic(db, *newId);
                 *created = view.toVariantMap();
             }
         },
@@ -304,23 +338,33 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
     runAsync("equip_update",
         [packageId, fields, success, resultId](QSqlDatabase& db) {
             bool any = false;
+            // Identity = grinder (brand/model/burrs) + basket (brand/model). An
+            // edit to EITHER side runs through the copy-on-write engine; the
+            // untouched side is defaulted from the current items so it is preserved.
             const bool touchesGrinder = fields.contains(QStringLiteral("grinderBrand"))
                 || fields.contains(QStringLiteral("grinderModel"))
                 || fields.contains(QStringLiteral("grinderBurrs"));
-            if (touchesGrinder) {
+            const bool touchesBasket = fields.contains(QStringLiteral("basketBrand"))
+                || fields.contains(QStringLiteral("basketModel"));
+            if (touchesGrinder || touchesBasket) {
                 const EquipmentItem cur = loadGrinderItemStatic(db, packageId);
+                const EquipmentItem curBasket = loadBasketItemStatic(db, packageId);
                 const QString brand = fields.value(QStringLiteral("grinderBrand"), cur.brand).toString();
                 const QString model = fields.value(QStringLiteral("grinderModel"), cur.model).toString();
                 const QString burrs = fields.value(QStringLiteral("grinderBurrs"), cur.burrs).toString();
-                *resultId = supersedeOrEditGrinderStatic(db, packageId, brand, model, burrs);
+                const QString bBrand = fields.value(QStringLiteral("basketBrand"), curBasket.brand).toString();
+                const QString bModel = fields.value(QStringLiteral("basketModel"), curBasket.model).toString();
+                *resultId = supersedeOrEditStatic(db, packageId, brand, model, burrs, bBrand, bModel);
                 any = (*resultId > 0);
             }
-            // Strip grinder keys before the package-column update; apply the rest
+            // Strip identity keys before the package-column update; apply the rest
             // (e.g. name) to the RESULT package.
             QVariantMap pkgFields = fields;
             pkgFields.remove(QStringLiteral("grinderBrand"));
             pkgFields.remove(QStringLiteral("grinderModel"));
             pkgFields.remove(QStringLiteral("grinderBurrs"));
+            pkgFields.remove(QStringLiteral("basketBrand"));
+            pkgFields.remove(QStringLiteral("basketModel"));
             if (!pkgFields.isEmpty())
                 any = updatePackageFieldsStatic(db, *resultId, pkgFields) || any;
             *success = any;
@@ -485,7 +529,9 @@ qint64 EquipmentStorage::insertItemStatic(QSqlDatabase& db, const EquipmentItem&
 
 qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, EquipmentPackage pkg,
                                                         const QString& brand, const QString& model,
-                                                        const QString& burrs)
+                                                        const QString& burrs,
+                                                        const QString& basketBrand,
+                                                        const QString& basketModel)
 {
     // Persist a name at creation so it survives identity edits / copy-on-write
     // (two packages may share a display name; the id is the permanent handle).
@@ -494,6 +540,12 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
     const qint64 packageId = insertPackageStatic(db, pkg);
     if (packageId <= 0)
         return -1;
+    auto dropPackage = [&]() {
+        QSqlQuery dp(db);
+        dp.prepare("DELETE FROM equipment_packages WHERE id = :id");
+        dp.bindValue(":id", packageId);
+        dp.exec();
+    };
     EquipmentItem grinder;
     grinder.packageId = packageId;
     grinder.kind = QStringLiteral("grinder");
@@ -504,11 +556,26 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
     if (insertItemStatic(db, grinder) <= 0) {
         // A package with no grinder item resolves to a blank grinder everywhere;
         // don't leave that orphan behind — drop the just-inserted package row.
-        QSqlQuery dp(db);
-        dp.prepare("DELETE FROM equipment_packages WHERE id = :id");
-        dp.bindValue(":id", packageId);
-        dp.exec();
+        dropPackage();
         return -1;
+    }
+    // Optional basket item. A failure here is fatal too: a half-built package
+    // (grinder but a dropped basket the caller asked for) would silently lose the
+    // basket identity, so roll the whole package back.
+    if (!basketBrand.trimmed().isEmpty() || !basketModel.trimmed().isEmpty()) {
+        EquipmentItem basket;
+        basket.packageId = packageId;
+        basket.kind = QStringLiteral("basket");
+        basket.brand = basketBrand.trimmed();
+        basket.model = basketModel.trimmed();
+        if (insertItemStatic(db, basket) <= 0) {
+            QSqlQuery di(db);
+            di.prepare("DELETE FROM equipment_items WHERE package_id = :id");
+            di.bindValue(":id", packageId);
+            di.exec();
+            dropPackage();
+            return -1;
+        }
     }
     return packageId;
 }
@@ -535,6 +602,63 @@ EquipmentItem EquipmentStorage::loadGrinderItemStatic(QSqlDatabase& db, qint64 p
     return grinderItemFromQueryRow(query);
 }
 
+EquipmentItem EquipmentStorage::loadBasketItemStatic(QSqlDatabase& db, qint64 packageId)
+{
+    QSqlQuery query(db);
+    query.prepare(QString("SELECT %1 FROM equipment_items "
+                          "WHERE package_id = :id AND kind = 'basket' ORDER BY id LIMIT 1")
+                      .arg(QLatin1String(kItemColumns)));
+    query.bindValue(":id", packageId);
+    if (!query.exec() || !query.next())
+        return EquipmentItem();  // invalid (id == 0): no basket
+    return grinderItemFromQueryRow(query);  // generic item read (kind/brand/model)
+}
+
+bool EquipmentStorage::setBasketItemStatic(QSqlDatabase& db, qint64 packageId,
+                                           const QString& brand, const QString& model)
+{
+    const QString b = brand.trimmed();
+    const QString m = model.trimmed();
+    const EquipmentItem cur = loadBasketItemStatic(db, packageId);
+    const bool wantNone = b.isEmpty() && m.isEmpty();
+
+    if (wantNone) {
+        if (!cur.isValid())
+            return false;  // nothing to clear
+        QSqlQuery del(db);
+        del.prepare("DELETE FROM equipment_items WHERE package_id = :id AND kind = 'basket'");
+        del.bindValue(":id", packageId);
+        if (!del.exec()) {
+            qWarning() << "EquipmentStorage: basket clear failed for package" << packageId << ":"
+                       << del.lastError().text();
+            return false;
+        }
+        return del.numRowsAffected() > 0;
+    }
+
+    if (cur.isValid()) {
+        QSqlQuery upd(db);
+        upd.prepare("UPDATE equipment_items SET brand = :brand, model = :model, attrs = '{}', "
+                    "updated_at = strftime('%s', 'now') WHERE package_id = :id AND kind = 'basket'");
+        upd.bindValue(":brand", nullIfEmpty(b));
+        upd.bindValue(":model", nullIfEmpty(m));
+        upd.bindValue(":id", packageId);
+        if (!upd.exec()) {
+            qWarning() << "EquipmentStorage: basket update failed for package" << packageId << ":"
+                       << upd.lastError().text();
+            return false;
+        }
+        return upd.numRowsAffected() > 0;
+    }
+
+    EquipmentItem basket;
+    basket.packageId = packageId;
+    basket.kind = QStringLiteral("basket");
+    basket.brand = b;
+    basket.model = m;
+    return insertItemStatic(db, basket) > 0;
+}
+
 QVector<EquipmentPackageView> EquipmentStorage::loadInventoryStatic(QSqlDatabase& db)
 {
     QVector<EquipmentPackageView> views;
@@ -556,9 +680,12 @@ QVector<EquipmentPackageView> EquipmentStorage::loadInventoryStatic(QSqlDatabase
         views.append(view);
         ids.append(view.package.id);
     }
-    // Resolve each package's grinder item (inventory is small — a handful of rows).
-    for (qsizetype i = 0; i < views.size(); ++i)
+    // Resolve each package's grinder + (optional) basket item (inventory is small
+    // — a handful of rows).
+    for (qsizetype i = 0; i < views.size(); ++i) {
         views[i].grinder = loadGrinderItemStatic(db, ids.at(i));
+        views[i].basket = loadBasketItemStatic(db, ids.at(i));
+    }
     return views;
 }
 
@@ -621,8 +748,14 @@ bool EquipmentStorage::updateGrinderItemStatic(QSqlDatabase& db, qint64 packageI
 
 qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, const QString& brand,
                                                             const QString& model, const QString& burrs,
-                                                            qint64 excludeId)
+                                                            qint64 excludeId,
+                                                            const QString& basketBrand,
+                                                            const QString& basketModel)
 {
+    // Full-identity match: grinder brand/model/burrs AND the package's basket
+    // brand/model. The basket is matched via correlated subqueries so that a
+    // package with NO basket item resolves to '' and matches empty basket params
+    // ("no basket" is a distinct, matchable identity value).
     QSqlQuery query(db);
     query.prepare("SELECT i.package_id FROM equipment_items i "
                   "JOIN equipment_packages p ON p.id = i.package_id "
@@ -631,11 +764,20 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
                   "AND LOWER(IFNULL(i.brand,'')) = LOWER(:brand) "
                   "AND LOWER(IFNULL(i.model,'')) = LOWER(:model) "
                   "AND LOWER(IFNULL(json_extract(i.attrs,'$.burrs'),'')) = LOWER(:burrs) "
+                  // IFNULL on the bind side too: a grinder-only caller passes a null
+                  // QString, which binds as SQL NULL — without IFNULL the '' = NULL
+                  // comparison is NULL (never true) and no-basket packages stop matching.
+                  "AND LOWER(IFNULL((SELECT b.brand FROM equipment_items b "
+                  "  WHERE b.package_id = p.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),'')) = LOWER(IFNULL(:bbrand,'')) "
+                  "AND LOWER(IFNULL((SELECT b.model FROM equipment_items b "
+                  "  WHERE b.package_id = p.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),'')) = LOWER(IFNULL(:bmodel,'')) "
                   "ORDER BY p.id LIMIT 1");
     query.bindValue(":exclude", excludeId);
     query.bindValue(":brand", brand);
     query.bindValue(":model", model);
     query.bindValue(":burrs", burrs);
+    query.bindValue(":bbrand", basketBrand.trimmed());
+    query.bindValue(":bmodel", basketModel.trimmed());
     if (!query.exec() || !query.next())
         return 0;
     return query.value(0).toLongLong();
@@ -645,12 +787,26 @@ qint64 EquipmentStorage::supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 p
                                                       const QString& brand, const QString& model,
                                                       const QString& burrs)
 {
+    // Grinder-only edit: preserve the package's current basket identity.
+    const EquipmentItem curBasket = loadBasketItemStatic(db, packageId);
+    return supersedeOrEditStatic(db, packageId, brand, model, burrs,
+                                 curBasket.brand, curBasket.model);
+}
+
+qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageId,
+                                               const QString& brand, const QString& model,
+                                               const QString& burrs,
+                                               const QString& basketBrand, const QString& basketModel)
+{
     const EquipmentItem cur = loadGrinderItemStatic(db, packageId);
+    const EquipmentItem curBasket = loadBasketItemStatic(db, packageId);
 
     auto norm = [](const QString& s) { return s.trimmed().toLower(); };
     const bool unchanged = norm(cur.brand) == norm(brand)
         && norm(cur.model) == norm(model)
-        && norm(cur.burrs) == norm(burrs);
+        && norm(cur.burrs) == norm(burrs)
+        && norm(curBasket.brand) == norm(basketBrand)
+        && norm(curBasket.model) == norm(basketModel);
     if (unchanged)
         return packageId;  // no identity change
 
@@ -695,8 +851,9 @@ qint64 EquipmentStorage::supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 p
         return result;
     };
 
-    // Merge: another current package already has this exact identity.
-    const qint64 mergeTarget = findPackageByGrinderIdentityStatic(db, brand, model, burrs, packageId);
+    // Merge: another current package already has this exact full identity.
+    const qint64 mergeTarget = findPackageByGrinderIdentityStatic(db, brand, model, burrs, packageId,
+                                                                  basketBrand, basketModel);
     if (mergeTarget > 0) {
         if (!repointBags(packageId, mergeTarget))
             return fail();
@@ -715,10 +872,14 @@ qint64 EquipmentStorage::supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 p
         return done(mergeTarget);
     }
 
-    // Unused package: safe to edit in place.
+    // Unused package: safe to edit in place (both grinder and basket items).
     if (shotCount() == 0) {
         if (!updateGrinderItemStatic(db, packageId, brand, model, burrs))
             return fail();
+        // setBasketItemStatic returns false when there's nothing to change (e.g.
+        // the basket was already correct), which is not a failure here — the
+        // grinder edit above already confirmed the identity changed.
+        setBasketItemStatic(db, packageId, basketBrand, basketModel);
         return done(packageId);
     }
 
@@ -729,7 +890,8 @@ qint64 EquipmentStorage::supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 p
     np.lastGrindSetting = old.lastGrindSetting;
     np.lastRpm = old.lastRpm;
     np.lastUsedEpoch = QDateTime::currentSecsSinceEpoch();
-    const qint64 newId = createPackageWithGrinderStatic(db, np, brand, model, burrs);
+    const qint64 newId = createPackageWithGrinderStatic(db, np, brand, model, burrs,
+                                                        basketBrand, basketModel);
     if (newId <= 0)
         return fail();  // fork failed; leave as-is
     if (!repointBags(packageId, newId))
@@ -956,7 +1118,7 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
         if (srcPkg.supersededBy > 0)
             srcSupersededBy.insert(srcPkg.id, srcPkg.supersededBy);
 
-        // Load the source grinder item (for identity-based merge dedup).
+        // Load the source grinder + basket items (for full-identity merge dedup).
         EquipmentItem srcGrinder;
         {
             QSqlQuery gi(srcDb);
@@ -966,16 +1128,18 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
             if (gi.exec() && gi.next())
                 srcGrinder = grinderItemFromQueryRow(gi);
         }
+        EquipmentItem srcBasket = loadBasketItemStatic(srcDb, srcPkg.id);
 
-        // Merge dedup: an IN-INVENTORY source package whose grinder identity
-        // already exists in dest maps to that package — no duplicate. Superseded
-        // (historical) packages always import as new rows so their shots keep a
-        // distinct lineage.
+        // Merge dedup: an IN-INVENTORY source package whose FULL identity (grinder
+        // + basket) already exists in dest maps to that package — no duplicate.
+        // Superseded (historical) packages always import as new rows so their
+        // shots keep a distinct lineage.
         qint64 destId = -1;
         if (merge && srcPkg.inInventory
             && !(srcGrinder.brand.isEmpty() && srcGrinder.model.isEmpty())) {
             const qint64 existing = findPackageByGrinderIdentityStatic(
-                destDb, srcGrinder.brand, srcGrinder.model, srcGrinder.burrs);
+                destDb, srcGrinder.brand, srcGrinder.model, srcGrinder.burrs, 0,
+                srcBasket.brand, srcBasket.model);
             if (existing > 0)
                 destId = existing;
         }

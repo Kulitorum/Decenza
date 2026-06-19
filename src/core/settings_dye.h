@@ -36,6 +36,14 @@ class SettingsDye : public QObject {
     // Active package's display name (read-only; defaults to "{brand} {model}").
     // UI shows this instead of the raw grinder identity (add-equipment-packages).
     Q_PROPERTY(QString dyeEquipmentName READ dyeEquipmentName NOTIFY dyeEquipmentNameChanged)
+    // Active package's basket identity (read-only; empty when none). Basket is
+    // part of the package identity, not a per-shot dial, so these are resolved
+    // from the active package like dyeEquipmentName (add-basket-equipment).
+    Q_PROPERTY(QString dyeBasketBrand READ dyeBasketBrand NOTIFY dyeBasketChanged)
+    Q_PROPERTY(QString dyeBasketModel READ dyeBasketModel NOTIFY dyeBasketChanged)
+    // One-line registry summary of the active basket (wall/flow/precision/dose),
+    // empty for none or a custom off-registry basket.
+    Q_PROPERTY(QString dyeBasketSummary READ dyeBasketSummary NOTIFY dyeBasketChanged)
     Q_PROPERTY(QString dyeGrinderSetting READ dyeGrinderSetting WRITE setDyeGrinderSetting NOTIFY dyeGrinderSettingChanged)
     // Grinder rpm dial-in (add-equipment-packages); shown only when the active
     // package's grinder is rpmCapable. 0 = unset.
@@ -107,6 +115,10 @@ public:
 
     QString dyeEquipmentName() const { return m_dyeEquipmentName; }
 
+    QString dyeBasketBrand() const { return m_dyeBasketBrand; }
+    QString dyeBasketModel() const { return m_dyeBasketModel; }
+    QString dyeBasketSummary() const { return m_dyeBasketSummary; }
+
     QString dyeGrinderSetting() const;
     void setDyeGrinderSetting(const QString& value);
 
@@ -131,6 +143,13 @@ public:
     Q_INVOKABLE bool isBurrSwappable(const QString& brand, const QString& model) const;
     Q_INVOKABLE QStringList knownGrinderBrands() const;
     Q_INVOKABLE QStringList knownGrinderModels(const QString& brand) const;
+
+    // Basket registry bridges for the vendor-first picker (add-basket-equipment).
+    Q_INVOKABLE QStringList knownBasketBrands() const;
+    Q_INVOKABLE QStringList knownBasketModels(const QString& brand) const;
+    // Differentiator subtitle for a basket model row (registry summary), e.g.
+    // "straight-wall, precision, open flow, 17-19g". Empty for a custom basket.
+    Q_INVOKABLE QString basketModelSummary(const QString& brand, const QString& model) const;
 
     double dyeBeanWeight() const;
     void setDyeBeanWeight(double value);
@@ -209,6 +228,7 @@ signals:
     void dyeGrinderModelChanged();
     void dyeGrinderBurrsChanged();
     void dyeEquipmentNameChanged();
+    void dyeBasketChanged();
     void dyeGrinderSettingChanged();
     void dyeGrinderRpmChanged();
     void activeEquipmentIdChanged();
@@ -264,6 +284,9 @@ private:
     mutable QString m_dyeGrinderModelCache;
     mutable QString m_dyeGrinderBurrsCache;
     QString m_dyeEquipmentName;  // active package display name (resolved, not persisted)
+    QString m_dyeBasketBrand;    // active package basket identity (resolved, not persisted)
+    QString m_dyeBasketModel;
+    QString m_dyeBasketSummary;  // registry summary of the active basket (resolved)
     mutable QString m_dyeGrinderSettingCache;
     mutable int m_dyeGrinderRpmCache = 0;
     mutable double m_dyeBeanWeightCache = 18.0;

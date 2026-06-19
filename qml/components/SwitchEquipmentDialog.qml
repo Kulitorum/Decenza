@@ -29,6 +29,9 @@ Dialog {
     property string fBrand: ""
     property string fModel: ""
     property string fBurrs: ""
+    // Optional basket identity (add-basket-equipment). Blank brand+model = no basket.
+    property string fBasketBrand: ""
+    property string fBasketModel: ""
 
     // When true (default, the Brew Settings / Equipment-window use), selecting or
     // creating a package switches the ACTIVE bag's equipment. When false, the
@@ -38,7 +41,9 @@ Dialog {
 
     signal packageSaved(int packageId)
 
-    onAboutToShow: if (mode === "list") MainController.equipmentStorage.requestInventory()
+    // Always load the inventory: the list mode renders it, and the form mode
+    // checks the entered identity against it to block creating a duplicate.
+    onAboutToShow: MainController.equipmentStorage.requestInventory()
 
     Connections {
         target: MainController.equipmentStorage
@@ -81,7 +86,16 @@ Dialog {
     function openForCreate() {
         formMode = "create"
         editPackageId = -1
-        fName = ""; fBrand = ""; fModel = ""; fBurrs = ""
+        // Seed from the currently active package — people reuse most of the same
+        // gear, so pre-filling the grinder + basket means they only change what
+        // actually differs (often just the basket) instead of re-entering it all.
+        // Name stays blank so storage derives a fresh "{brand} {model}".
+        fName = ""
+        fBrand = Settings.dye.dyeGrinderBrand || ""
+        fModel = Settings.dye.dyeGrinderModel || ""
+        fBurrs = Settings.dye.dyeGrinderBurrs || ""
+        fBasketBrand = Settings.dye.dyeBasketBrand || ""
+        fBasketModel = Settings.dye.dyeBasketModel || ""
         mode = "form"
         open()
     }
@@ -93,6 +107,8 @@ Dialog {
         fBrand = (pkg && pkg.grinderBrand) || ""
         fModel = (pkg && pkg.grinderModel) || ""
         fBurrs = (pkg && pkg.grinderBurrs) || ""
+        fBasketBrand = (pkg && pkg.basketBrand) || ""
+        fBasketModel = (pkg && pkg.basketModel) || ""
         mode = "form"
         open()
     }
@@ -111,13 +127,50 @@ Dialog {
         return Settings.dye.suggestedBurrs(root.fBrand, root.fModel)
     }
 
+    // Basket pickers (add-basket-equipment): vendor-first, two-level. The model
+    // level carries a differentiator subtitle from the registry summary so similar
+    // models within a brand (e.g. S-Works billets, Decent waisted siblings) stay
+    // legible. No history fallback — baskets are a curated registry only.
+    function basketBrandSuggestions() { return Settings.dye.knownBasketBrands() }
+    function basketModelSuggestions() { return Settings.dye.knownBasketModels(root.fBasketBrand) }
+    function basketModelDescriptions() {
+        var out = {}
+        var models = Settings.dye.knownBasketModels(root.fBasketBrand)
+        for (var i = 0; i < models.length; ++i)
+            out[models[i]] = Settings.dye.basketModelSummary(root.fBasketBrand, models[i])
+        return out
+    }
+
     function packageTitle(pkg) {
         if (!pkg) return ""
         if (pkg.name && String(pkg.name).length > 0) return String(pkg.name)
         return [pkg.grinderBrand || "", pkg.grinderModel || ""].filter(function(s) { return s.length > 0 }).join(" ")
     }
 
-    readonly property bool canSave: fBrand.trim().length > 0 || fModel.trim().length > 0
+    // The id of an existing in-inventory package whose FULL identity (grinder +
+    // basket) matches the form, or -1. Mirrors the storage dedup key so the UI
+    // can't create a duplicate — the same gear is one package, not many. The
+    // package being edited is excluded (an unchanged edit isn't a "duplicate").
+    readonly property int duplicateOfId: {
+        var gb = fBrand.trim().toLowerCase(), gm = fModel.trim().toLowerCase()
+        var gbu = fBurrs.trim().toLowerCase()
+        var bb = fBasketBrand.trim().toLowerCase(), bm = fBasketModel.trim().toLowerCase()
+        for (var i = 0; i < packages.length; ++i) {
+            var p = packages[i]
+            if (!p || p.id === undefined) continue
+            if (editPackageId > 0 && p.id === editPackageId) continue
+            if (String(p.grinderBrand || "").trim().toLowerCase() === gb
+                && String(p.grinderModel || "").trim().toLowerCase() === gm
+                && String(p.grinderBurrs || "").trim().toLowerCase() === gbu
+                && String(p.basketBrand || "").trim().toLowerCase() === bb
+                && String(p.basketModel || "").trim().toLowerCase() === bm)
+                return p.id
+        }
+        return -1
+    }
+
+    readonly property bool canSave: (fBrand.trim().length > 0 || fModel.trim().length > 0)
+                                    && duplicateOfId < 0
     property bool _awaitingCreate: false
 
     EquipmentInfoDialog {
@@ -132,12 +185,21 @@ Dialog {
     }
 
     contentItem: Item {
+        id: contentRoot
         // Size to the active mode's inner ColumnLayout. NOTE: reference
         // formColumn (the layout), not formContainer (the KeyboardAwareContainer)
         // — the container's child fills it via anchors, so the container's own
         // implicitHeight is 0 and the dialog would collapse to just the header.
-        implicitHeight: (root.mode === "list" ? listColumn.implicitHeight : formColumn.implicitHeight)
-                        + 2 * Theme.spacingMedium
+        //
+        // Form mode is CAPPED at a fraction of the screen and the fields scroll
+        // inside (a grinder+basket package has enough fields to overflow a short
+        // screen); the pinned header keeps Cancel/Save reachable without scrolling.
+        readonly property real formCap: (root.parent ? root.parent.height : Theme.scaled(640)) * 0.85
+        readonly property real formNatural: formHeader.implicitHeight + fieldsColumn.implicitHeight
+                                            + 3 * Theme.spacingMedium
+        implicitHeight: root.mode === "list"
+                        ? listColumn.implicitHeight + 2 * Theme.spacingMedium
+                        : Math.min(formNatural, formCap)
 
         // --- LIST (picker) ---
         ColumnLayout {
@@ -224,7 +286,8 @@ Dialog {
             id: formContainer
             visible: root.mode === "form"
             anchors.fill: parent
-            textFields: [nameField.textField, brandField.textField, modelField.textField, burrsField.textField]
+            textFields: [nameField.textField, brandField.textField, modelField.textField, burrsField.textField,
+                         basketBrandField.textField, basketModelField.textField]
 
             ColumnLayout {
                 id: formColumn
@@ -232,78 +295,23 @@ Dialog {
                 anchors.margins: Theme.spacingMedium
                 spacing: Theme.spacingMedium
 
-                Tr {
-                    Layout.fillWidth: true
-                    key: root.formMode === "edit" ? "equipment.dialog.editTitle" : "equipment.dialog.addTitle"
-                    fallback: root.formMode === "edit" ? "Edit Equipment" : "Add Equipment"
-                    font: Theme.titleFont
-                    color: Theme.textColor
-                    Accessible.role: Accessible.Heading
-                    Accessible.name: text
-                }
-
-                // User-editable label (add-equipment-packages 4b.1). Blank uses the
-                // derived "{brand} {model}"; set it to a kit name like "Espresso setup".
-                SuggestionField {
-                    id: nameField
-                    Layout.fillWidth: true
-                    label: TranslationManager.translate("equipment.dialog.name", "Name (optional)")
-                    accessibleName: label
-                    text: root.fName
-                    suggestions: []
-                    onTextEdited: function(t) { root.fName = t }
-                }
-
-                SuggestionField {
-                    id: brandField
-                    Layout.fillWidth: true
-                    label: TranslationManager.translate("equipment.dialog.brand", "Grinder brand")
-                    accessibleName: label
-                    text: root.fBrand
-                    suggestions: root.brandSuggestions()
-                    onTextEdited: function(t) { root.fBrand = t }
-                    onSuggestionSelected: function(t) {
-                        root.fBrand = t
-                        var models = Settings.dye.knownGrinderModels(t)
-                        if (models.length === 1) {
-                            root.fModel = models[0]
-                            var burrs = Settings.dye.suggestedBurrs(t, models[0])
-                            if (burrs.length === 1) root.fBurrs = burrs[0]
-                        }
-                    }
-                }
-
-                SuggestionField {
-                    id: modelField
-                    Layout.fillWidth: true
-                    label: TranslationManager.translate("equipment.dialog.model", "Grinder model")
-                    accessibleName: label
-                    text: root.fModel
-                    suggestions: root.modelSuggestions()
-                    onTextEdited: function(t) { root.fModel = t }
-                    onSuggestionSelected: function(t) {
-                        var burrs = Settings.dye.suggestedBurrs(root.fBrand, t)
-                        if (burrs.length === 1) root.fBurrs = burrs[0]
-                    }
-                }
-
-                SuggestionField {
-                    id: burrsField
-                    Layout.fillWidth: true
-                    label: TranslationManager.translate("equipment.dialog.burrs", "Burrs")
-                    accessibleName: label
-                    text: root.fBurrs
-                    suggestions: root.burrsSuggestions()
-                    onTextEdited: function(t) { root.fBurrs = t }
-                    onSuggestionSelected: function(t) { root.fBurrs = t }
-                }
-
+                // Pinned header: title on the left, Cancel/Save on the right of the
+                // same line so they stay reachable while the fields scroll below.
                 RowLayout {
+                    id: formHeader
                     Layout.fillWidth: true
-                    Layout.topMargin: Theme.spacingSmall
                     spacing: Theme.spacingMedium
 
-                    Item { Layout.fillWidth: true }
+                    Tr {
+                        Layout.fillWidth: true
+                        key: root.formMode === "edit" ? "equipment.dialog.editTitle" : "equipment.dialog.addTitle"
+                        fallback: root.formMode === "edit" ? "Edit Equipment" : "Add Equipment"
+                        font: Theme.titleFont
+                        color: Theme.textColor
+                        elide: Text.ElideRight
+                        Accessible.role: Accessible.Heading
+                        Accessible.name: text
+                    }
 
                     AccessibleButton {
                         text: TranslationManager.translate("common.button.cancel", "Cancel")
@@ -319,6 +327,125 @@ Dialog {
                         onClicked: root.save()
                     }
                 }
+
+                // Explains the disabled Save when the entered gear already exists
+                // (e.g. the create form was pre-filled and nothing was changed yet).
+                Text {
+                    Layout.fillWidth: true
+                    visible: root.duplicateOfId > 0
+                    text: TranslationManager.translate("equipment.dialog.duplicate",
+                              "You already have this exact equipment — change something to make it distinct.")
+                    font: Theme.captionFont
+                    color: Theme.warningColor
+                    wrapMode: Text.Wrap
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                }
+
+                // Scrollable field area — a grinder+basket package has enough fields
+                // to overflow a short screen.
+                ScrollView {
+                    id: formScroll
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                    ColumnLayout {
+                        id: fieldsColumn
+                        width: formScroll.availableWidth
+                        spacing: Theme.spacingMedium
+
+                        // User-editable label (add-equipment-packages 4b.1). Blank uses the
+                        // derived "{brand} {model}"; set it to a kit name like "Espresso setup".
+                        SuggestionField {
+                            id: nameField
+                            Layout.fillWidth: true
+                            label: TranslationManager.translate("equipment.dialog.name", "Name (optional)")
+                            accessibleName: label
+                            text: root.fName
+                            suggestions: []
+                            onTextEdited: function(t) { root.fName = t }
+                        }
+
+                        SuggestionField {
+                            id: brandField
+                            Layout.fillWidth: true
+                            label: TranslationManager.translate("equipment.dialog.brand", "Grinder brand")
+                            accessibleName: label
+                            text: root.fBrand
+                            suggestions: root.brandSuggestions()
+                            onTextEdited: function(t) { root.fBrand = t }
+                            onSuggestionSelected: function(t) {
+                                root.fBrand = t
+                                var models = Settings.dye.knownGrinderModels(t)
+                                if (models.length === 1) {
+                                    root.fModel = models[0]
+                                    var burrs = Settings.dye.suggestedBurrs(t, models[0])
+                                    if (burrs.length === 1) root.fBurrs = burrs[0]
+                                }
+                            }
+                        }
+
+                        SuggestionField {
+                            id: modelField
+                            Layout.fillWidth: true
+                            label: TranslationManager.translate("equipment.dialog.model", "Grinder model")
+                            accessibleName: label
+                            text: root.fModel
+                            suggestions: root.modelSuggestions()
+                            onTextEdited: function(t) { root.fModel = t }
+                            onSuggestionSelected: function(t) {
+                                var burrs = Settings.dye.suggestedBurrs(root.fBrand, t)
+                                if (burrs.length === 1) root.fBurrs = burrs[0]
+                            }
+                        }
+
+                        SuggestionField {
+                            id: burrsField
+                            Layout.fillWidth: true
+                            label: TranslationManager.translate("equipment.dialog.burrs", "Burrs")
+                            accessibleName: label
+                            text: root.fBurrs
+                            suggestions: root.burrsSuggestions()
+                            onTextEdited: function(t) { root.fBurrs = t }
+                            onSuggestionSelected: function(t) { root.fBurrs = t }
+                        }
+
+                        // --- Basket (optional) — vendor-first, two-level (add-basket-equipment) ---
+                        SuggestionField {
+                            id: basketBrandField
+                            Layout.fillWidth: true
+                            label: TranslationManager.translate("equipment.dialog.basketBrand", "Basket brand (optional)")
+                            accessibleName: label
+                            text: root.fBasketBrand
+                            suggestions: root.basketBrandSuggestions()
+                            onTextEdited: function(t) {
+                                // Changing the brand invalidates the model (it belongs to a brand).
+                                if (t !== root.fBasketBrand) root.fBasketModel = ""
+                                root.fBasketBrand = t
+                            }
+                            onSuggestionSelected: function(t) {
+                                root.fBasketBrand = t
+                                var models = Settings.dye.knownBasketModels(t)
+                                if (models.length === 1) root.fBasketModel = models[0]
+                            }
+                        }
+
+                        SuggestionField {
+                            id: basketModelField
+                            Layout.fillWidth: true
+                            label: TranslationManager.translate("equipment.dialog.basketModel", "Basket model")
+                            accessibleName: label
+                            text: root.fBasketModel
+                            suggestions: root.basketModelSuggestions()
+                            // Differentiator subtitle keeps similar models legible.
+                            descriptions: root.basketModelDescriptions()
+                            onTextEdited: function(t) { root.fBasketModel = t }
+                            onSuggestionSelected: function(t) { root.fBasketModel = t }
+                        }
+                    }
+                }
             }
         }
     }
@@ -331,7 +458,10 @@ Dialog {
             "name": fName.trim(),
             "grinderBrand": fBrand.trim(),
             "grinderModel": fModel.trim(),
-            "grinderBurrs": fBurrs.trim()
+            "grinderBurrs": fBurrs.trim(),
+            // Blank basket brand+model -> no basket (storage clears any existing one).
+            "basketBrand": fBasketBrand.trim(),
+            "basketModel": fBasketModel.trim()
         }
         if (formMode === "edit" && editPackageId > 0) {
             // Editing identity may copy-on-write into a new package id; wait for

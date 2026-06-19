@@ -241,6 +241,102 @@ private slots:
         });
     }
 
+    // --- basket: optional second item + derive-at-read + setBasketItemStatic ---
+    void basketOptionalAndDerive() {
+        const QString path = freshDbPath();
+        withRawDb(path, "eq_basket", [](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+
+            // Grinder-only package: no basket item.
+            EquipmentPackage p0;
+            const qint64 g0 = EquipmentStorage::createPackageWithGrinderStatic(db, p0, "Niche", "Zero", "63mm conical");
+            QVERIFY(g0 > 0);
+            QVERIFY(!EquipmentStorage::loadBasketItemStatic(db, g0).isValid());
+
+            // Package with a registry basket (created in one call).
+            EquipmentPackage p1;
+            const qint64 g1 = EquipmentStorage::createPackageWithGrinderStatic(
+                db, p1, "Turin", "DF83V", "83mm flat steel", "Decent", "18g Ridgeless");
+            QVERIFY(g1 > 0);
+            const EquipmentItem b = EquipmentStorage::loadBasketItemStatic(db, g1);
+            QVERIFY(b.isValid());
+            QCOMPARE(b.kind, QString("basket"));
+            QCOMPARE(b.brand, QString("Decent"));
+            QCOMPARE(b.model, QString("18g Ridgeless"));
+
+            // Derive-at-read: the view's variant map carries REGISTRY specs (the
+            // basket item itself stores none).
+            EquipmentPackageView v;
+            v.package = EquipmentStorage::loadPackageStatic(db, g1);
+            v.grinder = EquipmentStorage::loadGrinderItemStatic(db, g1);
+            v.basket = b;
+            const QVariantMap m = v.toVariantMap();
+            QCOMPARE(m.value("basketBrand").toString(), QString("Decent"));
+            QCOMPARE(m.value("basketWallProfile").toString(), QString("straight"));
+            QVERIFY(m.value("basketPrecision").toBool());
+            QVERIFY(m.value("basketDoseMaxG").toDouble() > 0);
+
+            // A custom (off-registry) basket resolves to identity only — no specs.
+            EquipmentPackage p2;
+            const qint64 g2 = EquipmentStorage::createPackageWithGrinderStatic(
+                db, p2, "Niche", "Zero", "63mm", "Acme", "Imaginary Basket");
+            EquipmentPackageView v2;
+            v2.package = EquipmentStorage::loadPackageStatic(db, g2);
+            v2.grinder = EquipmentStorage::loadGrinderItemStatic(db, g2);
+            v2.basket = EquipmentStorage::loadBasketItemStatic(db, g2);
+            const QVariantMap m2 = v2.toVariantMap();
+            QCOMPARE(m2.value("basketBrand").toString(), QString("Acme"));
+            QVERIFY(!m2.contains("basketWallProfile"));  // unknown specs omitted
+
+            // setBasketItemStatic: clear removes the item; set re-adds.
+            QVERIFY(EquipmentStorage::setBasketItemStatic(db, g1, "", ""));
+            QVERIFY(!EquipmentStorage::loadBasketItemStatic(db, g1).isValid());
+            QVERIFY(EquipmentStorage::setBasketItemStatic(db, g1, "VST", "18g"));
+            QCOMPARE(EquipmentStorage::loadBasketItemStatic(db, g1).model, QString("18g"));
+        });
+    }
+
+    // --- basket participates in package identity (dedup + copy-on-write) ---
+    void basketIdentityWidening() {
+        const QString path = freshDbPath();
+        withRawDb(path, "eq_basket_id", [](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            createMinimalShots(db);
+            auto addShot = [&](qint64 eq) {
+                QSqlQuery q(db); q.prepare("INSERT INTO shots (equipment_id) VALUES (?)");
+                q.addBindValue(eq); q.exec(); return q.lastInsertId().toLongLong();
+            };
+
+            // Same grinder, different basket → distinct packages.
+            EquipmentPackage a, bp;
+            const qint64 A = EquipmentStorage::createPackageWithGrinderStatic(db, a, "Turin", "DF83V", "83mm", "VST", "18g");
+            const qint64 B = EquipmentStorage::createPackageWithGrinderStatic(db, bp, "Turin", "DF83V", "83mm", "Weber", "Unibasket 18g");
+            QVERIFY(A > 0 && B > 0 && A != B);
+
+            // Full-identity dedup: grinder AND basket must match.
+            QCOMPARE(EquipmentStorage::findPackageByGrinderIdentityStatic(db, "Turin", "DF83V", "83mm", 0, "VST", "18g"), A);
+            // Same grinder, wrong basket → not A.
+            QVERIFY(EquipmentStorage::findPackageByGrinderIdentityStatic(db, "Turin", "DF83V", "83mm", 0, "VST", "20g") != A);
+            // "No basket" is a distinct identity: grinder-only query matches neither.
+            QCOMPARE(EquipmentStorage::findPackageByGrinderIdentityStatic(db, "Turin", "DF83V", "83mm"), (qint64)0);
+
+            // Changing the basket on a USED package forks (copy-on-write).
+            addShot(A);
+            const qint64 fork = EquipmentStorage::supersedeOrEditStatic(db, A, "Turin", "DF83V", "83mm", "IMS", "Competition 18g");
+            QVERIFY(fork > 0 && fork != A);
+            QCOMPARE(EquipmentStorage::loadBasketItemStatic(db, fork).brand, QString("IMS"));
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, A).supersededBy, fork);
+
+            // The grinder-only wrapper PRESERVES the basket.
+            EquipmentPackage cpk;
+            const qint64 C = EquipmentStorage::createPackageWithGrinderStatic(db, cpk, "Mazzer", "Major", "83mm", "VST", "20g");
+            const qint64 c2 = EquipmentStorage::supersedeOrEditGrinderStatic(db, C, "Mazzer", "Major V2", "83mm");
+            QCOMPARE(c2, C);  // unused → edit in place
+            QCOMPARE(EquipmentStorage::loadBasketItemStatic(db, C).model, QString("20g"));  // basket preserved
+        });
+    }
+
     // --- migration data step: split + dedup-into-packages + link ---
     void migrationSplitsAndLinks() {
         const QString path = freshDbPath();
