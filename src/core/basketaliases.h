@@ -47,6 +47,9 @@ enum class WallProfile { Straight, Tapered, Stepped, Convex };
 // change across baskets, not a magnitude. Reliable magnitude comes from the
 // user's own per-basket shot history (equipment_id linkage + grind learning),
 // not from a spec number.
+// Compared for equality only (e.g. `flow != Standard` in summary());
+// declaration order is NOT load-bearing — don't rely on Restrictive <
+// Standard < Open as an ordered scale.
 enum class FlowRate { Restrictive, Standard, Open };
 
 struct BasketEntry {
