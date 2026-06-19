@@ -102,7 +102,8 @@ Dialog {
     }
 
     function packageTitle(pkg) {
-        if (pkg && pkg.name && String(pkg.name).length > 0) return String(pkg.name)
+        if (!pkg) return ""
+        if (pkg.name && String(pkg.name).length > 0) return String(pkg.name)
         return [pkg.grinderBrand || "", pkg.grinderModel || ""].filter(function(s) { return s.length > 0 }).join(" ")
     }
 
@@ -143,15 +144,20 @@ Dialog {
             Repeater {
                 model: root.packages
                 AccessibleButton {
+                    // modelData is transiently undefined while the var-array model
+                    // is reassigned (onInventoryReady) — fall back to an empty
+                    // object so the bindings below never dereference undefined.
+                    readonly property var pkg: modelData || ({})
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.scaled(44)
-                    primary: modelData.id === Settings.dye.activeEquipmentId
-                    text: root.packageTitle(modelData)
-                          + (modelData.grinderBurrs && String(modelData.grinderBurrs).length > 0
-                             ? " · " + modelData.grinderBurrs : "")
-                    accessibleName: text + (modelData.id === Settings.dye.activeEquipmentId
+                    primary: pkg.id === Settings.dye.activeEquipmentId
+                    text: root.packageTitle(pkg)
+                          + (pkg.grinderBurrs && String(pkg.grinderBurrs).length > 0
+                             ? " · " + pkg.grinderBurrs : "")
+                    accessibleName: text + (pkg.id === Settings.dye.activeEquipmentId
                                             ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                     onClicked: {
+                        if (!modelData) return
                         Settings.dye.switchToEquipment(modelData)
                         root.packageSaved(modelData.id)
                         root.close()
