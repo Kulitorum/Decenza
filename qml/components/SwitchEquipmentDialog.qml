@@ -50,6 +50,17 @@ Dialog {
             }
             root.close()
         }
+        function onPackageUpdated(resultId, success) {
+            if (!root._awaitingEdit) return
+            root._awaitingEdit = false
+            // If the edited package was active, repoint to the (possibly forked
+            // or merged) result so the resolved identity refreshes.
+            if (success && root._editWasActive && resultId > 0)
+                Settings.dye.activeEquipmentId = resultId
+            if (success)
+                root.packageSaved(resultId)
+            root.close()
+        }
     }
 
     // Open the picker (list of packages). onAboutToShow requests the inventory.
@@ -264,12 +275,17 @@ Dialog {
             "grinderBurrs": fBurrs.trim()
         }
         if (formMode === "edit" && editPackageId > 0) {
+            // Editing identity may copy-on-write into a new package id; wait for
+            // the result so we can repoint the active selection if needed.
+            _editWasActive = (editPackageId === Settings.dye.activeEquipmentId)
+            _awaitingEdit = true
             MainController.equipmentStorage.requestUpdatePackage(editPackageId, fields)
-            packageSaved(editPackageId)
-            close()
         } else {
             MainController.equipmentStorage.requestCreatePackage(fields)
             _awaitingCreate = true
         }
     }
+
+    property bool _awaitingEdit: false
+    property bool _editWasActive: false
 }

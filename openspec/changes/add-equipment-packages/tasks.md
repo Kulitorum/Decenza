@@ -18,7 +18,7 @@
 - [ ] 2.8 `importDatabaseStatic`: migrate `equipment_packages` + `equipment_items` with id-remap; remap `coffee_bags.equipment_id`, `shots.equipment_id`, and `equipment_packages.superseded_by` on import (replaces the current stopgap that nulls the transferred `equipment_id`)
 
 ## 3. SettingsDye & dial memory
-- [ ] 3.1 `dyeGrinderBrand/Model/Burrs` → read-only, resolved via active bag's `equipment_id` — **deferred** (transitional: still QSettings-backed + bag write-through; identity applied from the package on switch). Required before migration 23 (4.4).
+- [x] 3.1 `dyeGrinderBrand/Model/Burrs` are read-only, resolved from the active package (async via EquipmentStorage `packageReady`); setters are display-cache-only (no bag write-through); `applyActiveBag` drives identity through `setActiveEquipmentId(bag.equipmentId)`. (= 4b.5)
 - [x] 3.2 Add `activeEquipmentId` + `switchToEquipment` that applies the package's `lastGrindSetting`/`lastRpm` and points the active bag at it
 - [x] 3.3 Add `dyeGrinderRpm`; grind setting + rpm edits fan out to BOTH active bag and active package (`writeThroughToActivePackage`)
 - [x] 3.4 `rpmCapable` derivation helper (`EquipmentStorage::deriveRpmCapable`: registry → `variableRpm`; custom → true); re-derived on identity edit in `updateGrinderItemStatic`
@@ -35,7 +35,7 @@
 - [x] 4b.2 `superseded_by` lineage column on `equipment_packages` (struct + `kCols` + `ensureTablesStatic`)
 - [x] 4b.3 Copy-on-write (`supersedeOrEditGrinderStatic`): identity edit of a used package forks a new one, repoints referencing bags, marks old `in_inventory=0` + `superseded_by`; unused edits in place; `requestUpdatePackage` + MCP `equipment_update` use it and surface the result id. (Switch-dialog active-repoint folds into 4b.5.)
 - [x] 4b.4 Merge on collision: `supersedeOrEditGrinderStatic` repoints to an existing in-inventory package with the same grinder identity instead of duplicating (`findPackageByGrinderIdentityStatic` gained an `excludeId`). Unit-tested in `tst_equipment::copyOnWriteAndMerge`.
-- [ ] 4b.5 `SettingsDye` `dyeGrinderBrand/Model/Burrs` resolve read-only via the active package (async cache, refreshed on bag/package change) — replaces the QSettings cache (this is 3.1 under the revised model)
+- [x] 4b.5 `SettingsDye` `dyeGrinderBrand/Model/Burrs` resolve read-only via the active package (async cache, refreshed on bag/package change) — replaces the QSettings cache (this is 3.1 under the revised model)
 - [ ] 4b.6 Grinder search via pointer: shot-history search resolves the term against `equipment_items` for **all** history-referenced packages (inventory or not) → `equipment_id IN (…)`; drop grinder from `shots_fts`; no grinder shadow on shots
 - [ ] 4b.7 Display: render current-vs-superseded from `in_inventory` + `superseded_by` lineage (e.g. "older"/"retired" in shot history); never bake into `name`
 

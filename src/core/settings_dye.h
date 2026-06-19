@@ -238,6 +238,8 @@ private:
     // Queue an async write of one field to the active equipment package (no-op
     // while applyActiveBag is running or when no package/storage is attached).
     void writeThroughToActivePackage(const QString& field, const QVariant& value);
+    // Refresh the grinder-identity display cache from a resolved package map.
+    void applyEquipmentIdentity(const QVariantMap& pkg);
 
     mutable QSettings m_settings;
     SettingsVisualizer* m_visualizer = nullptr;  // Non-owning; for default-rating fallback.
