@@ -15,7 +15,7 @@ Dialog {
     id: root
     parent: Overlay.overlay
     anchors.centerIn: parent
-    width: Math.min(Theme.scaled(520), parent ? parent.width * 0.95 : Theme.scaled(520))
+    width: Math.min(Theme.scaled(720), parent ? parent.width * 0.95 : Theme.scaled(720))
     modal: true
     closePolicy: Dialog.CloseOnEscape
     padding: 0
@@ -368,36 +368,46 @@ Dialog {
                             onTextEdited: function(t) { root.fName = t }
                         }
 
-                        SuggestionField {
-                            id: brandField
+                        // Grinder brand + model share a row — both short and related, so
+                        // pairing them halves the form height (the burr name below is long
+                        // and keeps its own full-width line).
+                        RowLayout {
                             Layout.fillWidth: true
-                            label: TranslationManager.translate("equipment.dialog.brand", "Grinder brand")
-                            accessibleName: label
-                            text: root.fBrand
-                            suggestions: root.brandSuggestions()
-                            onTextEdited: function(t) { root.fBrand = t }
-                            onSuggestionSelected: function(t) {
-                                root.fBrand = t
-                                var models = Settings.dye.knownGrinderModels(t)
-                                if (models.length === 1) {
-                                    root.fModel = models[0]
-                                    var burrs = Settings.dye.suggestedBurrs(t, models[0])
-                                    if (burrs.length === 1) root.fBurrs = burrs[0]
+                            spacing: Theme.spacingMedium
+
+                            SuggestionField {
+                                id: brandField
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1
+                                label: TranslationManager.translate("equipment.dialog.brand", "Grinder brand")
+                                accessibleName: label
+                                text: root.fBrand
+                                suggestions: root.brandSuggestions()
+                                onTextEdited: function(t) { root.fBrand = t }
+                                onSuggestionSelected: function(t) {
+                                    root.fBrand = t
+                                    var models = Settings.dye.knownGrinderModels(t)
+                                    if (models.length === 1) {
+                                        root.fModel = models[0]
+                                        var burrs = Settings.dye.suggestedBurrs(t, models[0])
+                                        if (burrs.length === 1) root.fBurrs = burrs[0]
+                                    }
                                 }
                             }
-                        }
 
-                        SuggestionField {
-                            id: modelField
-                            Layout.fillWidth: true
-                            label: TranslationManager.translate("equipment.dialog.model", "Grinder model")
-                            accessibleName: label
-                            text: root.fModel
-                            suggestions: root.modelSuggestions()
-                            onTextEdited: function(t) { root.fModel = t }
-                            onSuggestionSelected: function(t) {
-                                var burrs = Settings.dye.suggestedBurrs(root.fBrand, t)
-                                if (burrs.length === 1) root.fBurrs = burrs[0]
+                            SuggestionField {
+                                id: modelField
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1
+                                label: TranslationManager.translate("equipment.dialog.model", "Grinder model")
+                                accessibleName: label
+                                text: root.fModel
+                                suggestions: root.modelSuggestions()
+                                onTextEdited: function(t) { root.fModel = t }
+                                onSuggestionSelected: function(t) {
+                                    var burrs = Settings.dye.suggestedBurrs(root.fBrand, t)
+                                    if (burrs.length === 1) root.fBurrs = burrs[0]
+                                }
                             }
                         }
 
@@ -412,37 +422,45 @@ Dialog {
                             onSuggestionSelected: function(t) { root.fBurrs = t }
                         }
 
-                        // --- Basket (optional) — vendor-first, two-level (add-basket-equipment) ---
-                        SuggestionField {
-                            id: basketBrandField
+                        // --- Basket (optional) — vendor-first, two-level (add-basket-equipment).
+                        //     Brand + model share a row, mirroring the grinder pair above.
+                        RowLayout {
                             Layout.fillWidth: true
-                            label: TranslationManager.translate("equipment.dialog.basketBrand", "Basket brand (optional)")
-                            accessibleName: label
-                            text: root.fBasketBrand
-                            suggestions: root.basketBrandSuggestions()
-                            onTextEdited: function(t) {
-                                // Changing the brand invalidates the model (it belongs to a brand).
-                                if (t !== root.fBasketBrand) root.fBasketModel = ""
-                                root.fBasketBrand = t
-                            }
-                            onSuggestionSelected: function(t) {
-                                root.fBasketBrand = t
-                                var models = Settings.dye.knownBasketModels(t)
-                                if (models.length === 1) root.fBasketModel = models[0]
-                            }
-                        }
+                            spacing: Theme.spacingMedium
 
-                        SuggestionField {
-                            id: basketModelField
-                            Layout.fillWidth: true
-                            label: TranslationManager.translate("equipment.dialog.basketModel", "Basket model")
-                            accessibleName: label
-                            text: root.fBasketModel
-                            suggestions: root.basketModelSuggestions()
-                            // Differentiator subtitle keeps similar models legible.
-                            descriptions: root.basketModelDescriptions()
-                            onTextEdited: function(t) { root.fBasketModel = t }
-                            onSuggestionSelected: function(t) { root.fBasketModel = t }
+                            SuggestionField {
+                                id: basketBrandField
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1
+                                label: TranslationManager.translate("equipment.dialog.basketBrand", "Basket brand (optional)")
+                                accessibleName: label
+                                text: root.fBasketBrand
+                                suggestions: root.basketBrandSuggestions()
+                                onTextEdited: function(t) {
+                                    // Changing the brand invalidates the model (it belongs to a brand).
+                                    if (t !== root.fBasketBrand) root.fBasketModel = ""
+                                    root.fBasketBrand = t
+                                }
+                                onSuggestionSelected: function(t) {
+                                    root.fBasketBrand = t
+                                    var models = Settings.dye.knownBasketModels(t)
+                                    if (models.length === 1) root.fBasketModel = models[0]
+                                }
+                            }
+
+                            SuggestionField {
+                                id: basketModelField
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1
+                                label: TranslationManager.translate("equipment.dialog.basketModel", "Basket model")
+                                accessibleName: label
+                                text: root.fBasketModel
+                                suggestions: root.basketModelSuggestions()
+                                // Differentiator subtitle keeps similar models legible.
+                                descriptions: root.basketModelDescriptions()
+                                onTextEdited: function(t) { root.fBasketModel = t }
+                                onSuggestionSelected: function(t) { root.fBasketModel = t }
+                            }
                         }
                     }
                 }
