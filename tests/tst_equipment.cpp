@@ -309,6 +309,114 @@ private slots:
             QCOMPARE(p.lastRpm, (qint64)1400);
         });
     }
+
+    // Device-transfer import (add-equipment-packages task 2.8):
+    // importEquipmentStatic copies packages + items with id-remap, MERGES an
+    // in-inventory source package onto an existing dest package of the same
+    // grinder identity (no duplicate), imports superseded (historical) packages
+    // as new rows, and remaps the superseded_by lineage pointer through the id
+    // map. Source ids must NOT survive verbatim into dest.
+    void importEquipmentRemap() {
+        const QString srcPath = freshDbPath();
+        const QString dstPath = freshDbPath();
+
+        // SOURCE: an in-inventory Niche (will merge into dest), plus a Turin
+        // lineage — an in-inventory "new" fork and a soft-deleted "old" package
+        // whose superseded_by points at the fork.
+        qint64 srcNiche = -1, srcTurinNew = -1, srcTurinOld = -1;
+        withRawDb(srcPath, "imp_src_build", [&](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            EquipmentPackage n;
+            srcNiche = EquipmentStorage::createPackageWithGrinderStatic(db, n, "Niche", "Zero", "63mm conical");
+            EquipmentPackage t1;
+            srcTurinNew = EquipmentStorage::createPackageWithGrinderStatic(db, t1, "Turin", "DF83V", "83mm DLC flat");
+            EquipmentPackage t0;
+            srcTurinOld = EquipmentStorage::createPackageWithGrinderStatic(db, t0, "Turin", "DF83V", "83mm flat steel");
+            QSqlQuery q(db);
+            q.prepare("UPDATE equipment_packages SET in_inventory = 0, superseded_by = ? WHERE id = ?");
+            q.addBindValue(srcTurinNew); q.addBindValue(srcTurinOld);
+            QVERIFY(q.exec());
+        });
+        QVERIFY(srcNiche > 0 && srcTurinNew > 0 && srcTurinOld > 0);
+
+        // DEST: a pre-existing in-inventory Niche/Zero/63mm conical the source
+        // Niche must merge into.
+        qint64 dstNiche = -1;
+        withRawDb(dstPath, "imp_dst_build", [&](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            EquipmentPackage n;
+            dstNiche = EquipmentStorage::createPackageWithGrinderStatic(db, n, "Niche", "Zero", "63mm conical");
+        });
+        QVERIFY(dstNiche > 0);
+
+        // Import (merge mode) with both connections open simultaneously.
+        QHash<qint64, qint64> idMap;
+        {
+            QSqlDatabase src = QSqlDatabase::addDatabase("QSQLITE", "imp_src");
+            src.setDatabaseName(srcPath);
+            QVERIFY(src.open());
+            QSqlDatabase dst = QSqlDatabase::addDatabase("QSQLITE", "imp_dst");
+            dst.setDatabaseName(dstPath);
+            QVERIFY(dst.open());
+            QVERIFY(EquipmentStorage::importEquipmentStatic(src, dst, /*merge*/ true, idMap));
+            src = QSqlDatabase();
+            dst = QSqlDatabase();
+        }
+        QSqlDatabase::removeDatabase("imp_src");
+        QSqlDatabase::removeDatabase("imp_dst");
+
+        withRawDb(dstPath, "imp_verify", [&](QSqlDatabase& db) {
+            // Merge: the source Niche mapped onto the existing dest Niche.
+            QCOMPARE(idMap.value(srcNiche), dstNiche);
+            QSqlQuery c(db);
+            QVERIFY(c.exec("SELECT COUNT(*) FROM equipment_items WHERE kind='grinder' AND brand='Niche'") && c.next());
+            QCOMPARE(c.value(0).toInt(), 1);  // no duplicate Niche package/item
+
+            // Both Turin packages imported as NEW rows (ids remapped, not verbatim).
+            const qint64 dTurinNew = idMap.value(srcTurinNew);
+            const qint64 dTurinOld = idMap.value(srcTurinOld);
+            QVERIFY(dTurinNew > 0 && dTurinOld > 0);
+
+            // The old Turin is soft-deleted with superseded_by remapped to the
+            // NEW dest id — lineage preserved across the transfer.
+            const EquipmentPackage oldP = EquipmentStorage::loadPackageStatic(db, dTurinOld);
+            QVERIFY(!oldP.inInventory);
+            QCOMPARE(oldP.supersededBy, dTurinNew);
+
+            // Items rode along with their grinder identity.
+            QCOMPARE(EquipmentStorage::loadGrinderItemStatic(db, dTurinNew).burrs, QString("83mm DLC flat"));
+            QCOMPARE(EquipmentStorage::loadGrinderItemStatic(db, dTurinOld).burrs, QString("83mm flat steel"));
+        });
+    }
+
+    // A source DB with no equipment tables (transfer from a pre-equipment app
+    // version) yields an empty map and succeeds — bags/shots then null their
+    // equipment_id rather than mislinking.
+    void importEquipmentFromPreEquipmentSource() {
+        const QString srcPath = freshDbPath();
+        const QString dstPath = freshDbPath();
+        withRawDb(srcPath, "imp_old_src", [&](QSqlDatabase& db) {
+            QSqlQuery(db).exec("CREATE TABLE shots (id INTEGER PRIMARY KEY)");  // no equipment tables
+        });
+        withRawDb(dstPath, "imp_old_dst", [&](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+        });
+        QHash<qint64, qint64> idMap;
+        {
+            QSqlDatabase src = QSqlDatabase::addDatabase("QSQLITE", "imp_old_s");
+            src.setDatabaseName(srcPath);
+            QVERIFY(src.open());
+            QSqlDatabase dst = QSqlDatabase::addDatabase("QSQLITE", "imp_old_d");
+            dst.setDatabaseName(dstPath);
+            QVERIFY(dst.open());
+            QVERIFY(EquipmentStorage::importEquipmentStatic(src, dst, /*merge*/ true, idMap));
+            src = QSqlDatabase();
+            dst = QSqlDatabase();
+        }
+        QSqlDatabase::removeDatabase("imp_old_s");
+        QSqlDatabase::removeDatabase("imp_old_d");
+        QVERIFY(idMap.isEmpty());
+    }
 };
 
 QTEST_MAIN(tst_Equipment)

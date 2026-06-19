@@ -359,20 +359,25 @@ private slots:
     // Migration 23: grinder identity columns are dropped from shots
     // ==========================================
     // Migration 8 added grinder_brand/model/burrs; migration 23 (add-equipment-
-    // packages) drops them — grinder identity resolves through equipment_id to
-    // the package's grinder item. Only the per-shot grind setting survives.
+    // packages) drops them from BOTH shots and coffee_bags — grinder identity
+    // resolves through equipment_id to the package's grinder item. Only the
+    // per-shot/per-bag grind setting survives.
     void grinderIdentityColumnsDropped() {
         QString path = freshDbPath();
         ShotHistoryStorage storage;
         initAndClose(path, storage);
 
         withRawDb(path, "grinder_verify", [](QSqlDatabase& db) {
-            QVERIFY(!hasColumn(db, "shots", "grinder_brand"));
-            QVERIFY(!hasColumn(db, "shots", "grinder_burrs"));
-            QVERIFY(!hasColumn(db, "shots", "grinder_model"));
-            // The per-shot dial-in survives; identity is via equipment_id.
-            QVERIFY(hasColumn(db, "shots", "grinder_setting"));
-            QVERIFY(hasColumn(db, "shots", "equipment_id"));
+            for (const char* table : {"shots", "coffee_bags"}) {
+                QVERIFY2(!hasColumn(db, table, "grinder_brand"), table);
+                QVERIFY2(!hasColumn(db, table, "grinder_model"), table);
+                QVERIFY2(!hasColumn(db, table, "grinder_burrs"), table);
+                // The dial-in + equipment pointer survive on both tables.
+                QVERIFY2(hasColumn(db, table, "grinder_setting"), table);
+                QVERIFY2(hasColumn(db, table, "equipment_id"), table);
+            }
+            // The grinder index is gone (it was on the dropped shots columns).
+            QVERIFY(!hasIndex(db, "idx_shots_grinder"));
         });
     }
 
@@ -1294,6 +1299,84 @@ private slots:
             const ShotRecord r2 = ShotHistoryStorage::loadShotRecordStatic(db, without);
             QCOMPARE(r2.equipmentId, (qint64)0);   // NULL equipment_id -> 0
             QCOMPARE(r2.rpm, (qint64)0);           // NULL rpm -> 0
+        });
+    }
+
+    // loadShotRecordStatic resolves grinder brand/model/burrs through the
+    // equipment_id JOIN (the per-shot columns are gone — migration 23) and
+    // derives equipmentState from the package's in_inventory + superseded_by
+    // lineage (add-equipment-packages 4.1 / 4b.7). Also pins that grinder
+    // identity is NOT in shots_fts anymore (search resolves via the pointer).
+    void v23_grinderResolvesViaJoinAndLineage() {
+        const QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }
+
+        qint64 curShot = -1, olderShot = -1, retiredShot = -1, noEqShot = -1;
+        withRawDb(path, "v23_join_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            // A newer package, an in-inventory current one, an "older" (superseded
+            // by the newer) and a "retired" (out of inventory, no successor).
+            QVERIFY(q.exec("INSERT INTO equipment_packages (name, in_inventory) VALUES ('New', 1)"));
+            const qint64 newer = q.lastInsertId().toLongLong();
+            QVERIFY(q.exec("INSERT INTO equipment_packages (name, in_inventory) VALUES ('Cur', 1)"));
+            const qint64 cur = q.lastInsertId().toLongLong();
+            q.prepare("INSERT INTO equipment_packages (name, in_inventory, superseded_by) VALUES ('Old', 0, ?)");
+            q.addBindValue(newer); QVERIFY(q.exec());
+            const qint64 older = q.lastInsertId().toLongLong();
+            QVERIFY(q.exec("INSERT INTO equipment_packages (name, in_inventory) VALUES ('Ret', 0)"));
+            const qint64 retired = q.lastInsertId().toLongLong();
+
+            auto addGrinder = [&](qint64 pkg, const QString& brand, const QString& model, const QString& burrs) {
+                QSqlQuery gi(db);
+                gi.prepare("INSERT INTO equipment_items (package_id, kind, brand, model, attrs) "
+                           "VALUES (?, 'grinder', ?, ?, ?)");
+                gi.addBindValue(pkg); gi.addBindValue(brand); gi.addBindValue(model);
+                gi.addBindValue(QString(R"({"burrs":"%1","rpmCapable":true})").arg(burrs));
+                QVERIFY(gi.exec());
+            };
+            addGrinder(cur, "Niche", "Zero", "63mm conical");
+            addGrinder(older, "Turin", "DF83V", "83mm flat steel");
+            addGrinder(retired, "Mazzer", "Major", "83mm");
+
+            auto addShot = [&](const QString& uuid, qint64 pkg) -> qint64 {
+                QSqlQuery s(db);
+                s.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                          "equipment_id, grinder_setting) VALUES (?, 1000, 'P', 30, ?, '2.4')");
+                s.addBindValue(uuid);
+                s.addBindValue(pkg > 0 ? QVariant(pkg) : QVariant());
+                return s.exec() ? s.lastInsertId().toLongLong() : -1;
+            };
+            curShot = addShot("cur-1", cur);
+            olderShot = addShot("old-1", older);
+            retiredShot = addShot("ret-1", retired);
+            noEqShot = addShot("noeq-1", 0);
+            QVERIFY(curShot > 0 && olderShot > 0 && retiredShot > 0 && noEqShot > 0);
+        });
+
+        withRawDb(path, "v23_join_load", [&](QSqlDatabase& db) {
+            const ShotRecord cur = ShotHistoryStorage::loadShotRecordStatic(db, curShot);
+            QCOMPARE(cur.grinderBrand, QString("Niche"));
+            QCOMPARE(cur.grinderModel, QString("Zero"));
+            QCOMPARE(cur.grinderBurrs, QString("63mm conical"));  // json_extract path
+            QCOMPARE(cur.equipmentState, QString(""));            // in inventory -> current
+
+            const ShotRecord older = ShotHistoryStorage::loadShotRecordStatic(db, olderShot);
+            QCOMPARE(older.grinderModel, QString("DF83V"));
+            QCOMPARE(older.equipmentState, QString("older"));     // superseded
+
+            const ShotRecord ret = ShotHistoryStorage::loadShotRecordStatic(db, retiredShot);
+            QCOMPARE(ret.grinderModel, QString("Major"));
+            QCOMPARE(ret.equipmentState, QString("retired"));     // gone, no successor
+
+            const ShotRecord noeq = ShotHistoryStorage::loadShotRecordStatic(db, noEqShot);
+            QCOMPARE(noeq.grinderBrand, QString(""));             // NULL JOIN -> empty
+            QCOMPARE(noeq.equipmentState, QString(""));           // no package
+
+            // Grinder identity is NOT FTS-indexed anymore: a search for a grinder
+            // brand finds nothing through shots_fts (it resolves via equipment_id).
+            QSqlQuery fts(db);
+            QVERIFY(fts.exec("SELECT rowid FROM shots_fts WHERE shots_fts MATCH 'Niche'"));
+            QVERIFY2(!fts.next(), "grinder brand must not be findable via FTS after migration 23");
         });
     }
 };

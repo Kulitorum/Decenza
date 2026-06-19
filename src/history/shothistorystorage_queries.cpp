@@ -966,8 +966,12 @@ void ShotHistoryStorage::requestAutoFavoriteGroupDetails(const QString& groupBy,
         // dropped grinder_brand/model columns no longer exist — migration 23).
         // Correlated subqueries against the package's grinder item reproduce the
         // old COALESCE(col,'')=? semantics, so a card with no grinder (NULL
-        // equipment_id → NULL → '') still matches empty brand/model. This stays
-        // consistent with requestAutoFavorites, which now groups on equipment_id.
+        // equipment_id → NULL → '') still matches empty brand/model. This
+        // APPROXIMATES requestAutoFavorites' grouping key (which groups on the
+        // raw equipment_id): when two packages share a brand+model — e.g. a
+        // superseded fork and its in-inventory successor — these brand+model
+        // conditions match shots across both, which is acceptable for the card's
+        // aggregate stats scope. (burrs is intentionally not matched here.)
         addCondition("(SELECT brand FROM equipment_items "
                      "WHERE package_id = shots.equipment_id AND kind = 'grinder')", grinderBrand);
         addCondition("(SELECT model FROM equipment_items "

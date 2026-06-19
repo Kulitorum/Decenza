@@ -965,17 +965,24 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
             if (destId < 0)
                 return false;
             // Copy the package's items (grinder today; future kinds ride along
-            // unchanged because the loop is kind-agnostic).
+            // unchanged because the loop is kind-agnostic). A failed items SELECT
+            // is fatal, not best-effort: the package row already exists, so
+            // skipping the items would leave an orphan package with no grinder
+            // item — the exact blank-grinder corruption createPackageWithGrinderStatic
+            // deletes a package to avoid. Fail so the caller rolls back the import.
             QSqlQuery srcItems(srcDb);
             srcItems.prepare(QString("SELECT %1 FROM equipment_items WHERE package_id = :id").arg(kItemColumns));
             srcItems.bindValue(":id", srcPkg.id);
-            if (srcItems.exec()) {
-                while (srcItems.next()) {
-                    EquipmentItem item = grinderItemFromQueryRow(srcItems);
-                    item.packageId = destId;
-                    if (insertItemStatic(destDb, item) < 0)
-                        return false;
-                }
+            if (!srcItems.exec()) {
+                qWarning() << "EquipmentStorage: import items query failed for package" << srcPkg.id
+                           << ":" << srcItems.lastError().text();
+                return false;
+            }
+            while (srcItems.next()) {
+                EquipmentItem item = grinderItemFromQueryRow(srcItems);
+                item.packageId = destId;
+                if (insertItemStatic(destDb, item) < 0)
+                    return false;
             }
             newlyInsertedSrcIds.insert(srcPkg.id);
         }
@@ -995,8 +1002,14 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
         upd.prepare("UPDATE equipment_packages SET superseded_by = :by WHERE id = :id");
         upd.bindValue(":by", destTarget > 0 ? QVariant(destTarget) : QVariant());
         upd.bindValue(":id", destId);
-        if (!upd.exec())
-            qWarning() << "EquipmentStorage: import superseded_by remap failed:" << upd.lastError().text();
+        if (!upd.exec()) {
+            // Fail rather than silently drop the lineage pointer: a swallowed
+            // failure leaves superseded_by NULL, so a forked-from package renders
+            // as "retired" instead of "older". Propagate so the caller rolls back.
+            qWarning() << "EquipmentStorage: import superseded_by remap failed for package" << destId
+                       << "-> target" << destTarget << ":" << upd.lastError().text();
+            return false;
+        }
     }
 
     return true;
