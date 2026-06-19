@@ -468,7 +468,24 @@ CoffeeBag CoffeeBagStorage::loadBagStatic(QSqlDatabase& db, qint64 bagId)
     query.bindValue(":id", bagId);
     if (!query.exec() || !query.next())
         return CoffeeBag();
-    return bagFromQueryRow(query);
+    CoffeeBag bag = bagFromQueryRow(query);
+    // Materialize the read-only grinder identity from the bag's equipment package
+    // (the bag no longer stores brand/model/burrs — migration 23). Keeps the
+    // CoffeeBag display-cache fields useful for consumers like MCP bag_list;
+    // burrs lives in the grinder item's attrs JSON. Self-contained so there's no
+    // dependency on EquipmentStorage. NULL equipment_id leaves the fields empty.
+    if (bag.equipmentId > 0) {
+        QSqlQuery gi(db);
+        gi.prepare("SELECT brand, model, json_extract(attrs, '$.burrs') FROM equipment_items "
+                   "WHERE package_id = :id AND kind = 'grinder' LIMIT 1");
+        gi.bindValue(":id", bag.equipmentId);
+        if (gi.exec() && gi.next()) {
+            bag.grinderBrand = gi.value(0).toString();
+            bag.grinderModel = gi.value(1).toString();
+            bag.grinderBurrs = gi.value(2).toString();
+        }
+    }
+    return bag;
 }
 
 QVector<InventoryBag> CoffeeBagStorage::loadInventoryStatic(QSqlDatabase& db)
