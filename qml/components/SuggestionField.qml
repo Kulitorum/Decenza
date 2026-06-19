@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Effects
+import QtQuick.Window
 import Decenza
 
 // Autocomplete text field that shows filtered suggestions as you type
@@ -387,7 +388,24 @@ Item {
     Popup {
         id: suggestionPopup
         x: textInput.x
-        y: textInput.y + textInput.height
+        // Open below the field by default, but flip ABOVE when there isn't room
+        // below (the field can sit low in a scrollable form / near the screen
+        // bottom, where a downward popup runs off-screen and its rows can't be
+        // reached or scrolled). Mirrors the BeansItem pill-popup placement.
+        y: {
+            var _v = visible  // re-evaluate on open — mapToItem is not reactive
+            var below = textInput.y + textInput.height
+            var win = root.Window.window
+            if (win) {
+                var fieldTopGlobal = textInput.mapToItem(null, 0, 0).y
+                var fieldBottomGlobal = fieldTopGlobal + textInput.height
+                var spaceBelow = win.height - fieldBottomGlobal
+                var spaceAbove = fieldTopGlobal
+                if (implicitHeight + Theme.scaled(4) > spaceBelow && spaceAbove > spaceBelow)
+                    return textInput.y - implicitHeight - Theme.scaled(2)
+            }
+            return below
+        }
         width: textInput.width
         implicitHeight: Math.min(suggestionList.contentHeight + 2, Theme.scaled(250))
         padding: 1
