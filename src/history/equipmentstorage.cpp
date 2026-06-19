@@ -847,6 +847,7 @@ bool EquipmentStorage::migrateFromGrinderColumnsStatic(QSqlDatabase& db,
     }
 
     // 3. Link every bag/shot to its package by identity (bulk per identity).
+    qint64 linkedRows = 0;
     for (const auto& [b, m, bu, pid] : allPackages) {
         for (const char* table : { "coffee_bags", "shots" }) {
             QSqlQuery linkQ(db);
@@ -861,11 +862,14 @@ bool EquipmentStorage::migrateFromGrinderColumnsStatic(QSqlDatabase& db,
             if (!linkQ.exec())
                 qWarning() << "EquipmentStorage: migration link failed on" << table << ":"
                            << linkQ.lastError().text();
+            else
+                linkedRows += linkQ.numRowsAffected();
         }
     }
 
     // 4. Split combined grind+rpm settings into grinder_setting + rpm. Only rows
     //    carrying an explicit rpm marker need touching.
+    qint64 splitRows = 0;
     for (const char* table : { "coffee_bags", "shots" }) {
         QSqlQuery scanQ(db);
         if (!scanQ.exec(QString("SELECT id, grinder_setting FROM %1 "
@@ -892,9 +896,19 @@ bool EquipmentStorage::migrateFromGrinderColumnsStatic(QSqlDatabase& db,
             if (!upd.exec())
                 qWarning() << "EquipmentStorage: migration rpm-split update failed on" << table << ":"
                            << upd.lastError().text();
+            else
+                ++splitRows;
         }
     }
 
+    // Success summary for the one-shot upgrade — the log is the only window into
+    // what migration 22 actually did on a user's device (created N packages,
+    // linked B+S bag/shot rows, split R combined settings). qInfo so it survives
+    // release log levels.
+    qInfo() << "EquipmentStorage: migration 22 data step complete -"
+            << allPackages.size() << "packages created,"
+            << linkedRows << "bag/shot rows linked,"
+            << splitRows << "grind+rpm settings split";
     return true;
 }
 
@@ -1017,5 +1031,12 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
         }
     }
 
+    // Summary mirrors CoffeeBagStorage's bag-import log so device-transfer issues
+    // are traceable: how many source packages imported as new rows vs merged into
+    // an existing dest package by grinder identity.
+    const qsizetype merged = outIdMap.size() - newlyInsertedSrcIds.size();
+    qInfo() << "EquipmentStorage: equipment import -" << newlyInsertedSrcIds.size()
+            << "packages imported," << merged << "merged into existing,"
+            << srcSupersededBy.size() << "superseded_by pointers remapped";
     return true;
 }

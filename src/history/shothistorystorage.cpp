@@ -1300,6 +1300,8 @@ bool ShotHistoryStorage::runMigrations()
             query.exec ("INSERT INTO schema_version (version) VALUES (23)");
             if (!txn || m_db.commit()) {
                 currentVersion = 23;
+                qInfo() << "ShotHistoryStorage: migration 23 complete - dropped grinder identity"
+                           " columns from shots + coffee_bags, rebuilt shots_fts without them";
             } else {
                 if (txn) m_db.rollback();
                 qWarning() << "ShotHistoryStorage: migration 23 commit failed - will retry next launch";
