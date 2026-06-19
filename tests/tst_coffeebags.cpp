@@ -247,6 +247,41 @@ private slots:
         });
     }
 
+    // loadBagStatic materializes the bag's grinder identity from its equipment
+    // package (the bag no longer stores brand/model/burrs — migration 23), so
+    // MCP bag_list etc. still surface the grinder. Burrs comes from the item's
+    // attrs JSON; a bag with no equipment_id leaves the fields empty.
+    void loadBagResolvesGrinderFromPackage() {
+        const QString path = freshDb();
+        withRawDb(path, "bag_grinder", [&](QSqlDatabase& db) {
+            EquipmentPackage pkg;
+            const qint64 pid = EquipmentStorage::createPackageWithGrinderStatic(
+                db, pkg, "Niche", "Zero", "63mm conical");
+            QVERIFY(pid > 0);
+
+            CoffeeBag linked;
+            linked.roasterName = "Onyx";
+            linked.coffeeName = "Geometry";
+            linked.equipmentId = pid;
+            linked.grinderSetting = "12";
+            const qint64 linkedId = CoffeeBagStorage::insertBagStatic(db, linked);
+            QVERIFY(linkedId > 0);
+
+            const CoffeeBag loaded = CoffeeBagStorage::loadBagStatic(db, linkedId);
+            QCOMPARE(loaded.grinderBrand, QString("Niche"));
+            QCOMPARE(loaded.grinderModel, QString("Zero"));
+            QCOMPARE(loaded.grinderBurrs, QString("63mm conical"));  // from attrs JSON
+            QCOMPARE(loaded.grinderSetting, QString("12"));          // real bag column
+
+            // A bag with no equipment_id resolves to empty grinder identity.
+            CoffeeBag unlinked;
+            unlinked.roasterName = "SEY";
+            const qint64 unlinkedId = CoffeeBagStorage::insertBagStatic(db, unlinked);
+            const CoffeeBag u = CoffeeBagStorage::loadBagStatic(db, unlinkedId);
+            QVERIFY(u.grinderBrand.isEmpty() && u.grinderModel.isEmpty() && u.grinderBurrs.isEmpty());
+        });
+    }
+
     // ==========================================
     // Legacy preset conversion
     // ==========================================
