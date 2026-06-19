@@ -2540,6 +2540,42 @@ private slots:
         QVERIFY(!DialingBlocks::buildCurrentBeanBlock(in).contains("beanBase"));
     }
 
+    // add-basket-equipment: this helper produces the currentBean.basket payload
+    // for BOTH dialing_get_context (MCP) and the in-app advisor, so it is the
+    // single point that proves basket info reaches the AI. Identity + registry-
+    // derived specs when present; omitted when absent; identity-only for a custom
+    // (off-registry) basket — never fabricated specs.
+    void basketBlockEmitsIdentityAndDerivedSpecs()
+    {
+        DialingBlocks::CurrentBeanBlockInputs in;
+        in.beanBrand = "Saka";
+        // No basket -> no sub-object.
+        QVERIFY(!DialingBlocks::buildCurrentBeanBlock(in).contains("basket"));
+
+        // Registry basket -> identity + derived specs (human-readable strings).
+        in.basketBrand = "Weber Workshops";
+        in.basketModel = "20g Unibasket";
+        const QJsonObject bean = DialingBlocks::buildCurrentBeanBlock(in);
+        QVERIFY(bean.contains("basket"));
+        const QJsonObject b = bean["basket"].toObject();
+        QCOMPARE(b["brand"].toString(), QString("Weber Workshops"));
+        QCOMPARE(b["model"].toString(), QString("20g Unibasket"));
+        QCOMPARE(b["wallProfile"].toString(), QString("straight"));
+        QCOMPARE(b["relativeFlow"].toString(), QString("open"));  // the key cross-basket signal
+        QCOMPARE(b["precision"].toBool(), true);
+        QVERIFY(b.contains("doseRangeG"));
+        QCOMPARE(b["doseRangeG"].toObject()["max"].toDouble(), 21.0);
+
+        // Custom (off-registry) basket -> identity only, derived specs omitted.
+        in.basketBrand = "Acme";
+        in.basketModel = "Mystery Basket";
+        const QJsonObject custom = DialingBlocks::buildCurrentBeanBlock(in)["basket"].toObject();
+        QCOMPARE(custom["brand"].toString(), QString("Acme"));
+        QVERIFY(!custom.contains("wallProfile"));
+        QVERIFY(!custom.contains("relativeFlow"));
+        QVERIFY(!custom.contains("doseRangeG"));
+    }
+
     // beanbase_json is read by POSITIONAL index in loadShotRecordStatic — a
     // future column inserted mid-SELECT would silently shift the read and
     // every consumer would treat the garbage as "unlinked". Round-trip via
