@@ -89,6 +89,12 @@ add_decenza_test(tst_dialing_helpers
     tst_dialing_helpers.cpp
 )
 
+# --- tst_basketaliases: basket registry data-integrity + lookup/summary
+# helpers (header-only target; mirrors the untested GrinderAliases sibling) ---
+add_decenza_test(tst_basketaliases
+    tst_basketaliases.cpp
+)
+
 # --- tst_mcptools_shots_helpers: detectorResults envelope reshape (issue #1012) ---
 add_decenza_test(tst_mcptools_shots_helpers
     tst_mcptools_shots_helpers.cpp
