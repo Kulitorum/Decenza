@@ -372,16 +372,20 @@ void EquipmentStorage::requestDeletePackage(qint64 packageId)
                 qWarning() << "EquipmentStorage: refusing to delete package" << packageId << "with references";
                 return;
             }
+            // Delete items + package atomically so a failure can't orphan items.
+            const bool txn = db.transaction();
             QSqlQuery delItems(db);
             delItems.prepare("DELETE FROM equipment_items WHERE package_id = :id");
             delItems.bindValue(":id", packageId);
-            delItems.exec();
             QSqlQuery delPkg(db);
             delPkg.prepare("DELETE FROM equipment_packages WHERE id = :id");
             delPkg.bindValue(":id", packageId);
-            *success = delPkg.exec();
-            if (!*success)
+            if (delItems.exec() && delPkg.exec() && (!txn || db.commit())) {
+                *success = true;
+            } else {
+                if (txn) db.rollback();
                 qWarning() << "EquipmentStorage: delete failed:" << delPkg.lastError().text();
+            }
         },
         [this, packageId, success]() {
             emit packageDeleted(packageId, *success);

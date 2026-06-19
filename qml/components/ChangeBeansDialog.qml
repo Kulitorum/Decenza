@@ -53,9 +53,8 @@ Dialog {
     // True when the user linked/unlinked Bean Base in this edit session —
     // Save then propagates the bag's link to all its shots.
     property bool fLinkDirty: false
-    property string fGrinderBrand: ""
-    property string fGrinderModel: ""
-    property string fGrinderBurrs: ""
+    // Grinder identity (brand/model/burrs) is owned by the equipment package, not
+    // the bag (add-equipment-packages); only the grind-setting dial-in stays here.
     property string fGrinderSetting: ""
     property string fDose: ""         // text form; "" = unset
     property string fYield: ""
@@ -177,7 +176,7 @@ Dialog {
         fRoaster = ""; fCoffee = ""; fRoastDate = ""; fRoastLevel = ""
         fBeanBaseId = ""; fBeanBaseData = ""
         fLinkDirty = false
-        fGrinderBrand = ""; fGrinderModel = ""; fGrinderBurrs = ""; fGrinderSetting = ""
+        fGrinderSetting = ""
         fDose = ""; fYield = ""; fNotes = ""
         fFreeze = false; fFrozenDate = ""; fDefrostDate = ""
         identityKnown = false
@@ -190,9 +189,6 @@ Dialog {
         fRoastLevel = bag.roastLevel || ""
         fBeanBaseId = bag.beanBaseId ? String(bag.beanBaseId) : ""
         fBeanBaseData = bag.beanBaseData || ""
-        fGrinderBrand = bag.grinderBrand || ""
-        fGrinderModel = bag.grinderModel || ""
-        fGrinderBurrs = bag.grinderBurrs || ""
         fGrinderSetting = bag.grinderSetting || ""
         // toFixed(1) (not String()) so a non-exact double like 37.8 prefills as
         // "37.8", not "37.800000000000004" — matching the brew-settings format.
@@ -325,9 +321,6 @@ Dialog {
             "roastLevel": fRoastLevel,
             "beanBaseId": fBeanBaseId,
             "beanBaseData": fBeanBaseData,
-            "grinderBrand": fGrinderBrand.trim(),
-            "grinderModel": fGrinderModel.trim(),
-            "grinderBurrs": fGrinderBurrs.trim(),
             "grinderSetting": fGrinderSetting.trim(),
             "doseWeightG": parseWeight(fDose),
             "yieldOverrideG": parseWeight(fYield),
@@ -406,7 +399,6 @@ Dialog {
                                  root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight)
         textFields: [searchField, roasterInput.textField, coffeeInput.textField, roastDateInput,
                      grindSettingInput, doseInput, yieldInput,
-                     grinderBrandInput, grinderModelInput, grinderBurrsInput,
                      notesInput, frozenDateInput, defrostDateInput]
         targetFlickable: formFlickable
 
@@ -1056,8 +1048,10 @@ Dialog {
                         }
                     }
 
-                    // Notes / grinder hardware — always visible (the "More
-                    // options" expander was removed: it only added a click).
+                    // Notes — always visible. Grinder IDENTITY is no longer edited
+                    // here: it's owned by the Equipment package (add-equipment-
+                    // packages), set via Switch Equipment in Brew Settings. The bag
+                    // keeps only its grind-setting dial-in (above).
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(10)
@@ -1074,40 +1068,6 @@ Dialog {
                                 onTextEdited: root.fNotes = text
                             }
                         }
-
-                        // Grinder hardware (rarely changes — tucked away)
-                        FieldRow {
-                            labelKey: "changebeans.form.grinder"
-                            labelFallback: "Grinder:"
-
-                            StyledTextField {
-                                id: grinderBrandInput
-                                Layout.fillWidth: true
-                                text: root.fGrinderBrand
-                                placeholder: TranslationManager.translate("changebeans.form.grinderBrand.placeholder", "Brand")
-                                accessibleName: TranslationManager.translate("changebeans.form.grinderBrand.accessible", "Grinder brand")
-                                onTextEdited: root.fGrinderBrand = text
-                            }
-
-                            StyledTextField {
-                                id: grinderModelInput
-                                Layout.fillWidth: true
-                                text: root.fGrinderModel
-                                placeholder: TranslationManager.translate("changebeans.form.grinderModel.placeholder", "Model")
-                                accessibleName: TranslationManager.translate("changebeans.form.grinderModel.accessible", "Grinder model")
-                                onTextEdited: root.fGrinderModel = text
-                            }
-
-                            StyledTextField {
-                                id: grinderBurrsInput
-                                Layout.fillWidth: true
-                                text: root.fGrinderBurrs
-                                placeholder: TranslationManager.translate("changebeans.form.grinderBurrs.placeholder", "Burrs")
-                                accessibleName: TranslationManager.translate("changebeans.form.grinderBurrs.accessible", "Grinder burrs")
-                                onTextEdited: root.fGrinderBurrs = text
-                            }
-                        }
-
                     }
 
                     // Error message (create failure / validation)
