@@ -48,6 +48,11 @@ class ShotProjection {
     Q_PROPERTY(QString grinderBrand MEMBER grinderBrand)
     Q_PROPERTY(QString grinderModel MEMBER grinderModel)
     Q_PROPERTY(QString grinderBurrs MEMBER grinderBurrs)
+    // Basket identity resolved via the shot's equipment_id (add-basket-equipment);
+    // empty when the package has no basket. Specs are derived downstream from
+    // BasketAliases, not stored here.
+    Q_PROPERTY(QString basketBrand MEMBER basketBrand)
+    Q_PROPERTY(QString basketModel MEMBER basketModel)
     Q_PROPERTY(QString grinderSetting MEMBER grinderSetting)
     Q_PROPERTY(qlonglong rpm MEMBER rpm)
     // The shot's equipment package id (add-equipment-packages) — exposed so the
@@ -133,6 +138,8 @@ public:
     QString grinderBrand;
     QString grinderModel;
     QString grinderBurrs;
+    QString basketBrand;
+    QString basketModel;
     QString grinderSetting;
     qint64 rpm = 0;
     qint64 equipmentId = 0;  // FK -> equipment_packages.id (add-equipment-packages); 0 = none

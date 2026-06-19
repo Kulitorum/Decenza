@@ -98,6 +98,18 @@ Dialog {
                                    : g
                 }
             }
+            // Basket last — separate equipment, so it follows the grinder identity +
+            // its dial. Both rows self-hide when the package has no basket; the
+            // details row also hides for a custom basket with no resolved specs.
+            InfoRow {
+                label: TranslationManager.translate("equipment.info.basket", "Basket")
+                value: [(root.pkg && root.pkg.basketBrand) || "", (root.pkg && root.pkg.basketModel) || ""]
+                           .filter(function(s) { return s.length > 0 }).join(" ")
+            }
+            InfoRow {
+                label: TranslationManager.translate("equipment.info.basketDetails", "Basket details")
+                value: (root.pkg && root.pkg.basketSummary) || ""
+            }
 
             AccessibleButton {
                 Layout.alignment: Qt.AlignRight

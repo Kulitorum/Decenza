@@ -13,14 +13,17 @@
 class QSqlDatabase;
 class QSqlQuery;
 
-// An equipment item: one typed component of a package. Today the only kind is
-// "grinder"; future kinds (basket, tamper, …) are new rows with a different
-// `kind` and their own `attrs` payload — no schema migration (openspec change
-// add-equipment-packages). Shared fields every kind has (kind/brand/model) are
-// real columns; kind-specific fields live in the `attrs` JSON blob. For a
-// grinder, attrs = { "burrs": "...", "rpmCapable": true }. The `burrs` and
-// `rpmCapable` members below are convenience views of that blob, (de)serialized
-// on load/save — they are not their own columns.
+// An equipment item: one typed component of a package. The kinds today are
+// "grinder" and the optional "basket" (add-basket-equipment); future kinds
+// (tamper, …) are new rows with a different `kind` and their own `attrs` payload
+// — no schema migration (openspec change add-equipment-packages). Shared fields
+// every kind has (kind/brand/model) are real columns; kind-specific fields live
+// in the `attrs` JSON blob. For a grinder, attrs = { "burrs": "...",
+// "rpmCapable": true }. The `burrs` and `rpmCapable` members below are
+// convenience views of that blob, (de)serialized on load/save — they are not
+// their own columns. A basket has NO kind-specific attrs: its identity is
+// brand+model and every spec (wall/flow/precision/dose) is derived from
+// BasketAliases at read time, so a basket item carries an empty attrs blob.
 struct EquipmentItem {
     qint64 id = 0;
     qint64 packageId = 0;
@@ -28,7 +31,8 @@ struct EquipmentItem {
     QString brand;
     QString model;
 
-    // Grinder-kind attrs (mirrored into/out of the `attrs` JSON column).
+    // Grinder-kind attrs (mirrored into/out of the `attrs` JSON column). Only
+    // written/read when kind == "grinder"; a basket item leaves these unset.
     QString burrs;
     bool rpmCapable = false;
 
@@ -66,14 +70,18 @@ struct EquipmentPackage {
     static EquipmentPackage fromVariantMap(const QVariantMap& map);
 };
 
-// A package plus its resolved grinder item and shot count, for the inventory
-// list. shotCount is a per-query aggregate (shots.equipment_id), not a package
-// field — it drives the card's delete-vs-remove action exactly like InventoryBag.
+// A package plus its resolved grinder item, optional basket item, and shot
+// count, for the inventory list. shotCount is a per-query aggregate
+// (shots.equipment_id), not a package field — it drives the card's
+// delete-vs-remove action exactly like InventoryBag. `basket` is invalid
+// (id == 0) when the package has no basket.
 struct EquipmentPackageView {
     EquipmentPackage package;
     EquipmentItem grinder;
+    EquipmentItem basket;
     qint64 shotCount = 0;
-    // Flatten package + grinder identity (+ shotCount) into one map for QML/MCP.
+    // Flatten package + grinder identity + basket identity/derived specs
+    // (+ shotCount) into one map for QML/MCP.
     QVariantMap toVariantMap() const;
 };
 
@@ -114,16 +122,21 @@ public:
 
     static qint64 insertPackageStatic(QSqlDatabase& db, const EquipmentPackage& pkg);
     static qint64 insertItemStatic(QSqlDatabase& db, const EquipmentItem& item);
-    // Create a package and its single grinder item in one call; returns the new
-    // package id (-1 on failure). rpmCapable is derived from the registry.
-    // pkg is taken by value: a name is persisted at creation (defaults to
+    // Create a package, its single grinder item, and (optionally) a basket item in
+    // one call; returns the new package id (-1 on failure). rpmCapable is derived
+    // from the registry. An empty basketBrand+basketModel creates a grinder-only
+    // package. pkg is taken by value: a name is persisted at creation (defaults to
     // "{brand} {model}") so it survives identity edits / copy-on-write.
     static qint64 createPackageWithGrinderStatic(QSqlDatabase& db, EquipmentPackage pkg,
                                                  const QString& brand, const QString& model,
-                                                 const QString& burrs);
+                                                 const QString& burrs,
+                                                 const QString& basketBrand = QString(),
+                                                 const QString& basketModel = QString());
 
     static EquipmentPackage loadPackageStatic(QSqlDatabase& db, qint64 packageId);
     static EquipmentItem loadGrinderItemStatic(QSqlDatabase& db, qint64 packageId);
+    // The package's basket item, or an invalid item (id == 0) when none.
+    static EquipmentItem loadBasketItemStatic(QSqlDatabase& db, qint64 packageId);
     static QVector<EquipmentPackageView> loadInventoryStatic(QSqlDatabase& db);
 
     static bool updatePackageFieldsStatic(QSqlDatabase& db, qint64 packageId, const QVariantMap& fields);
@@ -132,9 +145,17 @@ public:
     static bool updateGrinderItemStatic(QSqlDatabase& db, qint64 packageId,
                                         const QString& brand, const QString& model,
                                         const QString& burrs);
+    // Set the package's basket identity: update the existing basket item, insert
+    // one when none exists, or delete it when brand+model are both empty (the
+    // "no basket" state). No grinder analogue — a package's basket is optional.
+    // Returns true on success OR when no change is needed (basket already in the
+    // desired state); false ONLY on a genuine SQL failure, so a caller inside a
+    // transaction can roll back on a real error without tripping on a benign no-op.
+    static bool setBasketItemStatic(QSqlDatabase& db, qint64 packageId,
+                                    const QString& brand, const QString& model);
 
-    // Apply a grinder identity edit honoring copy-on-write immutability + merge,
-    // and return the package id the caller should now treat as active:
+    // Apply a grinder+basket identity edit honoring copy-on-write immutability +
+    // merge, and return the package id the caller should now treat as active:
     //   - identity unchanged                      -> same id (no-op)
     //   - another in-inventory package matches     -> merge: repoint this
     //       package's bags to it, delete this package if unused else soft-delete
@@ -142,18 +163,29 @@ public:
     //   - package unused (no shots)                -> edit in place -> same id
     //   - package used (>=1 shot)                  -> fork a new package (copies
     //       name + last dial), repoint bags, soft-delete old (superseded_by) -> new id
-    // Bag repointing is done here; the active-equipment selection is the caller's
-    // to update from the returned id.
+    // Identity is the full (grinder brand/model/burrs + basket brand/model) tuple;
+    // "no basket" is a distinct value. Bag repointing is done here; the
+    // active-equipment selection is the caller's to update from the returned id.
+    static qint64 supersedeOrEditStatic(QSqlDatabase& db, qint64 packageId,
+                                        const QString& brand, const QString& model,
+                                        const QString& burrs,
+                                        const QString& basketBrand, const QString& basketModel);
+    // Grinder-only convenience: edit the grinder identity while PRESERVING the
+    // package's current basket. Thin wrapper over supersedeOrEditStatic used by
+    // callers that don't touch the basket (MCP grinder edit, tests).
     static qint64 supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 packageId,
                                                const QString& brand, const QString& model,
                                                const QString& burrs);
 
-    // Find an existing in-inventory package whose grinder identity matches
-    // (case-insensitive brand+model+burrs), or 0 if none. Used by the migration
-    // and create flows to dedup on identity (NOT on grind/rpm).
+    // Find an existing in-inventory package whose full identity matches
+    // (case-insensitive grinder brand+model+burrs AND basket brand+model, where
+    // empty basket params match a package with no basket), or 0 if none. Used by
+    // the migration and create/edit flows to dedup on identity (NOT on grind/rpm).
     static qint64 findPackageByGrinderIdentityStatic(QSqlDatabase& db, const QString& brand,
                                                      const QString& model, const QString& burrs,
-                                                     qint64 excludeId = 0);
+                                                     qint64 excludeId = 0,
+                                                     const QString& basketBrand = QString(),
+                                                     const QString& basketModel = QString());
 
     // rpmCapable for a grinder identity: the registry's variableRpm when the
     // brand/model matches an alias, else true (a custom grinder shows the rpm

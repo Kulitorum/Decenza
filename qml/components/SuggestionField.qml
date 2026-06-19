@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Effects
+import QtQuick.Window
 import Decenza
 
 // Autocomplete text field that shows filtered suggestions as you type
@@ -10,6 +11,12 @@ Item {
     property string label: ""
     property string text: ""
     property var suggestions: []  // List of existing values from database
+    // Optional value -> differentiator subtitle map. When a suggestion's value is
+    // a key here, the dropdown row renders that subtitle on a second line (and
+    // folds it into the row's accessible name). Empty by default — suggestions
+    // stay plain strings, so filtering/selection are unchanged. Used by the basket
+    // model picker to keep similar models legible (add-basket-equipment).
+    property var descriptions: ({})
     property string accessibleName: ""  // Explicit accessible name for screen readers (overrides label)
     property alias textField: textInput  // Expose internal text input for KeyboardAwareContainer registration
 
@@ -381,7 +388,24 @@ Item {
     Popup {
         id: suggestionPopup
         x: textInput.x
-        y: textInput.y + textInput.height
+        // Open below the field by default, but flip ABOVE when there isn't room
+        // below (the field can sit low in a scrollable form / near the screen
+        // bottom, where a downward popup runs off-screen and its rows can't be
+        // reached or scrolled). Mirrors the BeansItem pill-popup placement.
+        y: {
+            var _v = visible  // re-evaluate on open — mapToItem is not reactive
+            var below = textInput.y + textInput.height
+            var win = root.Window.window
+            if (win) {
+                var fieldTopGlobal = textInput.mapToItem(null, 0, 0).y
+                var fieldBottomGlobal = fieldTopGlobal + textInput.height
+                var spaceBelow = win.height - fieldBottomGlobal
+                var spaceAbove = fieldTopGlobal
+                if (implicitHeight + Theme.scaled(4) > spaceBelow && spaceAbove > spaceBelow)
+                    return textInput.y - implicitHeight - Theme.scaled(2)
+            }
+            return below
+        }
         width: textInput.width
         implicitHeight: Math.min(suggestionList.contentHeight + 2, Theme.scaled(250))
         padding: 1
@@ -405,19 +429,41 @@ Item {
             delegate: ItemDelegate {
                 id: suggestionDelegate
                 width: suggestionList.width
-                height: Theme.scaled(44)
+                // Taller rows when a differentiator subtitle is shown so both lines fit.
+                height: suggestionDelegate.itemDesc.length > 0 ? Theme.scaled(58) : Theme.scaled(44)
                 highlighted: index === suggestionList.currentIndex
 
                 // Store reference to avoid scope issues
                 property string itemText: modelData
+                // Optional differentiator subtitle for this value (empty when none).
+                property string itemDesc: root.descriptions && root.descriptions[modelData] !== undefined
+                                          ? String(root.descriptions[modelData]) : ""
 
-                contentItem: Text {
-                    text: suggestionDelegate.itemText
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(18)
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: Theme.scaled(12)
+                contentItem: Column {
+                    spacing: Theme.scaled(1)
+                    Text {
+                        text: suggestionDelegate.itemText
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(18)
+                        leftPadding: Theme.scaled(12)
+                        width: suggestionDelegate.width - Theme.scaled(12)
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        visible: suggestionDelegate.itemDesc.length > 0
+                        text: suggestionDelegate.itemDesc
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(13)
+                        leftPadding: Theme.scaled(12)
+                        width: suggestionDelegate.width - Theme.scaled(12)
+                        elide: Text.ElideRight
+                    }
                 }
+
+                Accessible.role: Accessible.Button
+                Accessible.name: suggestionDelegate.itemDesc.length > 0
+                                 ? suggestionDelegate.itemText + ", " + suggestionDelegate.itemDesc
+                                 : suggestionDelegate.itemText
 
                 background: Rectangle {
                     color: highlighted || hovered ? Theme.primaryColor : "transparent"

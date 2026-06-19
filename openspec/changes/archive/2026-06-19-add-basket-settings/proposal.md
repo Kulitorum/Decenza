@@ -1,6 +1,12 @@
 # Change: Add Basket Settings
 
-**Status: AWAITING USER FEEDBACK** - Discussion with users in progress before finalizing.
+**Status: OBSOLETE — superseded by `add-basket-equipment` (2026-06-19).** This
+proposal framed the basket as the home for *dose*. That framing predates the
+equipment-packages work; the basket is now modeled as an equipment component
+(identity, for reproducibility + AI dialing), and dose ownership stays
+bean/recipe-scoped. The open questions below were resolved there: users do switch
+baskets (two baskets = two packages), and the basket lives in the Switch Equipment
+dialog. Archived without implementation.
 
 ## Why
 

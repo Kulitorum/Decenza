@@ -2203,9 +2203,11 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                s.stopped_by, s.beanbase_json,
                s.bag_id, s.frozen_date, s.defrost_date,
                s.equipment_id, s.rpm,
-               ep.in_inventory, ep.superseded_by, ep.name
+               ep.in_inventory, ep.superseded_by, ep.name,
+               eb.brand, eb.model
         FROM shots s
         LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder'
+        LEFT JOIN equipment_items eb ON eb.package_id = s.equipment_id AND eb.kind = 'basket'
         LEFT JOIN equipment_packages ep ON ep.id = s.equipment_id
         WHERE s.id = ?
     )")) {
@@ -2276,6 +2278,11 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.equipmentName = query.value(43).toString();
     if (record.equipmentName.isEmpty())
         record.equipmentName = (record.grinderBrand + QLatin1Char(' ') + record.grinderModel).trimmed();
+    // Basket identity (cols 44/45) resolved through equipment_id (add-basket-
+    // equipment); empty when the package has no basket. Specs are derived
+    // downstream from BasketAliases, never stored.
+    record.basketBrand = query.value(44).toString();
+    record.basketModel = query.value(45).toString();
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so

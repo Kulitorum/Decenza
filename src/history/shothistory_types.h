@@ -46,6 +46,10 @@ struct ShotRecord {
     QString grinderBrand;
     QString grinderModel;
     QString grinderBurrs;
+    // Basket identity resolved via equipment_id (add-basket-equipment); empty when
+    // the package has no basket.
+    QString basketBrand;
+    QString basketModel;
     QString grinderSetting;
     qint64 equipmentId = 0;  // FK -> equipment_packages.id (add-equipment-packages); 0 = none
     qint64 rpm = 0;          // grinder rpm dial-in; 0 = unset

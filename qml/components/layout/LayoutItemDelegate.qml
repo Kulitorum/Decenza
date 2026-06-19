@@ -86,9 +86,9 @@ Item {
             case "equipment": return {
                 emoji: "qrc:/icons/grind.svg",
                 content: TranslationManager.translate("idle.button.equipment", "Equipment"),
-                action: "navigate:equipment",
-                longPressAction: "",
-                doubleclickAction: "",
+                action: "togglePreset:equipment",
+                longPressAction: "navigate:equipment",
+                doubleclickAction: "navigate:equipment",
                 backgroundColor: Theme.primaryColor
             }
             case "history": return {

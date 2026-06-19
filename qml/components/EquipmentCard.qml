@@ -4,8 +4,8 @@ import QtQuick.Layouts
 import Decenza
 
 // Equipment package card (add-equipment-packages). Mirrors BagCard. Shows the
-// grinder identity (brand/model, burrs subtitle), an RPM-adjustable hint, and
-// the last-used dial. Equipment is switched per-bag from Brew Settings, so the
+// grinder identity (brand/model, burrs subtitle), the last-used dial, and the
+// basket line (add-basket-equipment). Equipment is switched per-bag from Brew Settings, so the
 // card itself is informational + edit/remove (no global "selected" state). One
 // removal action follows the package's life: a trash icon while no SHOT
 // references it (a mistaken creation — hard delete), then "Remove" once shots
@@ -29,6 +29,13 @@ Rectangle {
     }
     readonly property string burrs: (pkg && pkg.grinderBurrs) || ""
     readonly property bool rpmCapable: !!(pkg && pkg.rpmCapable)
+    // Basket identity line (add-basket-equipment); empty when the package has none.
+    readonly property string basketLine: {
+        var _ = TranslationManager.translationVersion
+        var b = [(pkg && pkg.basketBrand) || "", (pkg && pkg.basketModel) || ""]
+                .filter(function(s) { return s.length > 0 }).join(" ")
+        return b.length > 0 ? TranslationManager.translate("equipment.card.basket", "Basket: %1").arg(b) : ""
+    }
 
     readonly property string lastDialLine: {
         var _ = TranslationManager.translationVersion
@@ -45,6 +52,7 @@ Rectangle {
     readonly property string accessibleSummary: {
         var bits = [grinderTitle, burrs].filter(function(s) { return s.length > 0 })
         if (lastDialLine.length > 0) bits.push(lastDialLine)
+        if (basketLine.length > 0) bits.push(basketLine)
         if (selected) bits.push(TranslationManager.translate("accessibility.selected", "selected"))
         return bits.join(", ")
     }
@@ -126,11 +134,13 @@ Rectangle {
                     Accessible.ignored: true
                 }
 
+                // Basket last: it's separate equipment, so keep the grinder identity
+                // (title + burrs) and its dial (grind) contiguous above it.
                 Text {
                     Layout.fillWidth: true
-                    visible: card.rpmCapable
-                    text: TranslationManager.translate("equipment.card.rpmAdjustable", "RPM adjustable")
-                    font: Theme.captionFont
+                    visible: card.basketLine.length > 0
+                    text: card.basketLine
+                    font: Theme.labelFont
                     color: Theme.textSecondaryColor
                     elide: Text.ElideRight
                     Accessible.ignored: true

@@ -4,6 +4,7 @@
 #include "../history/equipmentstorage.h"
 #include "settings_visualizer.h"
 #include "grinderaliases.h"
+#include "basketaliases.h"
 
 #include <QtMath>
 #include <QDebug>
@@ -148,6 +149,19 @@ void SettingsDye::applyEquipmentIdentity(const QVariantMap& pkg)
     if (m_dyeEquipmentName != name) {
         m_dyeEquipmentName = name;
         emit dyeEquipmentNameChanged();
+    }
+
+    // Basket identity + registry summary (resolved from the package; empty when
+    // the package has no basket or it's a custom off-registry basket).
+    const QString basketBrand = pkg.value("basketBrand").toString();
+    const QString basketModel = pkg.value("basketModel").toString();
+    const QString basketSummary = pkg.value("basketSummary").toString();
+    if (m_dyeBasketBrand != basketBrand || m_dyeBasketModel != basketModel
+        || m_dyeBasketSummary != basketSummary) {
+        m_dyeBasketBrand = basketBrand;
+        m_dyeBasketModel = basketModel;
+        m_dyeBasketSummary = basketSummary;
+        emit dyeBasketChanged();
     }
 }
 
@@ -325,6 +339,19 @@ void SettingsDye::switchToEquipment(const QVariantMap& pkg) {
     // Apply the package's last dial — grinder-scoped memory, never blank, editable.
     setDyeGrinderSetting(pkg.value("lastGrindSetting").toString());
     setDyeGrinderRpm(pkg.value("lastRpm").toInt());
+    // Refresh the basket display cache immediately (the async packageReady ->
+    // applyEquipmentIdentity will re-confirm it). The picker's pkg map carries the
+    // resolved basket identity + summary from EquipmentPackageView::toVariantMap.
+    const QString basketBrand = pkg.value("basketBrand").toString();
+    const QString basketModel = pkg.value("basketModel").toString();
+    const QString basketSummary = pkg.value("basketSummary").toString();
+    if (m_dyeBasketBrand != basketBrand || m_dyeBasketModel != basketModel
+        || m_dyeBasketSummary != basketSummary) {
+        m_dyeBasketBrand = basketBrand;
+        m_dyeBasketModel = basketModel;
+        m_dyeBasketSummary = basketSummary;
+        emit dyeBasketChanged();
+    }
     if (m_equipmentStorage)
         m_equipmentStorage->requestTouchLastUsed(id);
 }
@@ -347,6 +374,20 @@ QStringList SettingsDye::knownGrinderBrands() const {
 
 QStringList SettingsDye::knownGrinderModels(const QString& brand) const {
     return GrinderAliases::modelsForBrand(brand);
+}
+
+QStringList SettingsDye::knownBasketBrands() const {
+    return BasketAliases::allBrands();
+}
+
+QStringList SettingsDye::knownBasketModels(const QString& brand) const {
+    return BasketAliases::modelsForBrand(brand);
+}
+
+QString SettingsDye::basketModelSummary(const QString& brand, const QString& model) const {
+    if (const BasketAliases::BasketEntry* e = BasketAliases::findEntry(brand, model))
+        return BasketAliases::summary(*e);
+    return QString();
 }
 
 double SettingsDye::dyeBeanWeight() const {
