@@ -59,7 +59,7 @@ namespace {
 // Visualizer has no rpm field, so the grinder rpm dial-in is appended to the
 // grind setting using the community convention ("2.4 1400rpm") that the grinder
 // parser already tolerates (add-equipment-packages).
-QString grinderSettingWithRpm(const QString& setting, int rpm) {
+QString grinderSettingWithRpm(const QString& setting, qint64 rpm) {
     if (rpm <= 0)
         return setting;
     return setting.isEmpty() ? QStringLiteral("%1rpm").arg(rpm)

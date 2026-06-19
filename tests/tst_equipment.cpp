@@ -65,6 +65,9 @@ private slots:
         QTest::newRow("plain")         << "24"        << "24"         << (qint64)0;
         QTest::newRow("empty")         << ""          << ""           << (qint64)0;
         QTest::newRow("rpm_only")      << "1400rpm"   << ""           << (qint64)1400;
+        QTest::newRow("rpm_word_no_digits") << "rpm"  << "rpm"        << (qint64)0;
+        QTest::newRow("rpm_not_trailing")   << "1400 rpm extra" << "1400 rpm extra" << (qint64)0;
+        QTest::newRow("trailing_ws")   << "24 1400 rpm " << "24"      << (qint64)1400;
     }
     void splitGrindRpm() {
         QFETCH(QString, input);
@@ -194,6 +197,47 @@ private slots:
             const qint64 merged = EquipmentStorage::supersedeOrEditGrinderStatic(db, S, "Turin", "DF83V", "83mm DLC flat");
             QCOMPARE(merged, fork);  // repointed to the existing matching package
             QCOMPARE(EquipmentStorage::loadPackageStatic(db, S).supersededBy, fork);
+        });
+    }
+
+    // --- merge sub-branches + name derivation ---
+    void mergeAndNameEdges() {
+        const QString path = freshDbPath();
+        withRawDb(path, "eq_edges", [](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            createMinimalShots(db);
+            auto addShot = [&](qint64 eq) {
+                QSqlQuery q(db); q.prepare("INSERT INTO shots (equipment_id) VALUES (?)");
+                q.addBindValue(eq); q.exec(); return q.lastInsertId().toLongLong();
+            };
+            auto pkgExists = [&](qint64 id) {
+                QSqlQuery q(db); q.prepare("SELECT COUNT(*) FROM equipment_packages WHERE id=?");
+                q.addBindValue(id); q.exec(); q.next(); return q.value(0).toInt() > 0;
+            };
+
+            EquipmentPackage t;
+            const qint64 target = EquipmentStorage::createPackageWithGrinderStatic(db, t, "Niche", "Zero", "63mm conical");
+
+            // Unused source merged into an existing target → source hard-deleted.
+            EquipmentPackage s;
+            const qint64 src = EquipmentStorage::createPackageWithGrinderStatic(db, s, "Mazzer", "Major", "83mm");
+            QCOMPARE(EquipmentStorage::supersedeOrEditGrinderStatic(db, src, "Niche", "Zero", "63mm conical"), target);
+            QVERIFY(!pkgExists(src));  // unused source physically removed, not just retired
+
+            // Editing into a RETIRED package's identity must fork, not resurrect it.
+            EquipmentPackage u;
+            const qint64 used = EquipmentStorage::createPackageWithGrinderStatic(db, u, "Turin", "DF83V", "83mm flat steel");
+            addShot(used);
+            { QSqlQuery q(db); q.prepare("UPDATE equipment_packages SET in_inventory=0 WHERE id=?");
+              q.addBindValue(target); q.exec(); }
+            const qint64 forked = EquipmentStorage::supersedeOrEditGrinderStatic(db, used, "Niche", "Zero", "63mm conical");
+            QVERIFY(forked > 0 && forked != used && forked != target);  // did not merge into the retired package
+
+            // Name derived from a partial identity (brand only).
+            EquipmentPackage p;
+            const qint64 pid = EquipmentStorage::createPackageWithGrinderStatic(db, p, "Turin", "", "");
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, pid).name, QString("Turin"));
         });
     }
 

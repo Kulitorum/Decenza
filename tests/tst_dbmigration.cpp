@@ -1204,6 +1204,73 @@ private slots:
             QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
         });
     }
+
+    // ==========================================
+    // Migration 22: equipment packages (add-equipment-packages)
+    // ==========================================
+
+    // The migration-22 data step is NOT idempotent (it creates packages); only
+    // the version gate stops it re-running. Prove that re-initializing does not
+    // duplicate the default package created from the live grinder settings — the
+    // single most dangerous regression in this migration.
+    void v22_reinitDoesNotDuplicatePackages() {
+        const QString path = freshDbPath();
+        QSettings app(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
+        const QVariant pB = app.value("dye/grinderBrand"), pM = app.value("dye/grinderModel"),
+                       pBu = app.value("dye/grinderBurrs"), pS = app.value("dye/grinderSetting");
+        app.setValue("dye/grinderBrand", "Niche");
+        app.setValue("dye/grinderModel", "Zero");
+        app.setValue("dye/grinderBurrs", "63mm conical");
+        app.setValue("dye/grinderSetting", "12");
+
+        auto packageCount = [&]() {
+            int n = -1;
+            withRawDb(path, "v22_count", [&](QSqlDatabase& db) {
+                QSqlQuery q(db);
+                if (q.exec("SELECT COUNT(*) FROM equipment_packages") && q.next())
+                    n = q.value(0).toInt();
+            });
+            return n;
+        };
+
+        { ShotHistoryStorage s; initAndClose(path, s); }
+        withRawDb(path, "v22_ver", [](QSqlDatabase& db) { QCOMPARE(getSchemaVersion(db), 22); });
+        QCOMPARE(packageCount(), 1);             // default package created from current settings
+        { ShotHistoryStorage s; initAndClose(path, s); }
+        QCOMPARE(packageCount(), 1);             // gate prevented a duplicate on re-init
+
+        auto restore = [&](const char* k, const QVariant& v) { if (v.isValid()) app.setValue(k, v); else app.remove(k); };
+        restore("dye/grinderBrand", pB); restore("dye/grinderModel", pM);
+        restore("dye/grinderBurrs", pBu); restore("dye/grinderSetting", pS);
+    }
+
+    // loadShotRecordStatic reads equipment_id/rpm by positional index (39/40);
+    // guard the round-trip and the NULL→0 mapping so a future SELECT-list edit
+    // that shifts those columns fails loudly.
+    void v22_shotEquipmentRpmRoundTrip() {
+        const QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }
+        qint64 withEq = -1, without = -1;
+        withRawDb(path, "v22_rt_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                      "equipment_id, rpm, grinder_setting) VALUES ('eq-1', 1000, 'P', 30, ?, ?, '2.4')");
+            q.addBindValue((qint64)7); q.addBindValue(1400);
+            QVERIFY(q.exec()); withEq = q.lastInsertId().toLongLong();
+            QSqlQuery q2(db);
+            QVERIFY(q2.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
+                            "VALUES ('eq-2', 2000, 'P', 30)"));
+            without = q2.lastInsertId().toLongLong();
+        });
+        withRawDb(path, "v22_rt_load", [&](QSqlDatabase& db) {
+            const ShotRecord r = ShotHistoryStorage::loadShotRecordStatic(db, withEq);
+            QCOMPARE(r.equipmentId, (qint64)7);
+            QCOMPARE(r.rpm, (qint64)1400);
+            const ShotRecord r2 = ShotHistoryStorage::loadShotRecordStatic(db, without);
+            QCOMPARE(r2.equipmentId, (qint64)0);   // NULL equipment_id -> 0
+            QCOMPARE(r2.rpm, (qint64)0);           // NULL rpm -> 0
+        });
+    }
 };
 
 QTEST_MAIN(tst_DbMigration)

@@ -1154,7 +1154,10 @@ bool ShotHistoryStorage::runMigrations()
         // also covers a user who set a grinder but never saved a shot/bag).
         bool dataOk = false;
         if (tablesOk && colsOk) {
-            QSettings settings;
+            // Read the SAME QSettings scope SettingsDye writes to — a bare
+            // QSettings() depends on QCoreApplication org/app being set, which
+            // isn't guaranteed (the scope-mismatch bug migration 16 fixed).
+            QSettings settings(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
             const QString curBrand = settings.value("dye/grinderBrand").toString();
             const QString curModel = settings.value("dye/grinderModel").toString();
             const QString curBurrs = settings.value("dye/grinderBurrs").toString();
@@ -2117,7 +2120,7 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     record.frozenDate = query.value(37).toString();
     record.defrostDate = query.value(38).toString();
     record.equipmentId = query.value(39).isNull() ? 0 : query.value(39).toLongLong();
-    record.rpm = query.value(40).toInt();
+    record.rpm = query.value(40).toLongLong();
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so

@@ -49,7 +49,7 @@ class ShotProjection {
     Q_PROPERTY(QString grinderModel MEMBER grinderModel)
     Q_PROPERTY(QString grinderBurrs MEMBER grinderBurrs)
     Q_PROPERTY(QString grinderSetting MEMBER grinderSetting)
-    Q_PROPERTY(int rpm MEMBER rpm)
+    Q_PROPERTY(qlonglong rpm MEMBER rpm)
     Q_PROPERTY(double drinkTdsPct MEMBER drinkTdsPct)
     Q_PROPERTY(double drinkEyPct MEMBER drinkEyPct)
     Q_PROPERTY(QString espressoNotes MEMBER espressoNotes)
@@ -125,7 +125,7 @@ public:
     QString grinderModel;
     QString grinderBurrs;
     QString grinderSetting;
-    int rpm = 0;
+    qint64 rpm = 0;
     double drinkTdsPct = 0.0;
     double drinkEyPct = 0.0;
     QString espressoNotes;

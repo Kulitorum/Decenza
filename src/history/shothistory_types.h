@@ -48,7 +48,7 @@ struct ShotRecord {
     QString grinderBurrs;
     QString grinderSetting;
     qint64 equipmentId = 0;  // FK -> equipment_packages.id (add-equipment-packages); 0 = none
-    int rpm = 0;             // grinder rpm dial-in; 0 = unset
+    qint64 rpm = 0;          // grinder rpm dial-in; 0 = unset
     double drinkTds = 0;
     double drinkEy = 0;
     QString espressoNotes;
@@ -236,7 +236,7 @@ struct ShotSaveData {
     QString grinderBurrs;
     QString grinderSetting;
     qint64 equipmentId = 0;  // FK -> equipment_packages.id (add-equipment-packages); 0 = none
-    int rpm = 0;             // grinder rpm dial-in; 0 = unset
+    qint64 rpm = 0;          // grinder rpm dial-in; 0 = unset
     double drinkTds = 0;
     double drinkEy = 0;
     int espressoEnjoyment = 0;
