@@ -13,6 +13,7 @@
 
 #include "history/shothistorystorage.h"
 #include "history/coffeebagstorage.h"
+#include "history/equipmentstorage.h"
 #include "history/unifiedbeansearchmodel.h"
 #include "core/settings_dye.h"
 #include "core/settings_visualizer.h"
@@ -937,6 +938,80 @@ private slots:
         // destruct, so no worker is still holding a connection at teardown (which
         // would qWarning on stderr — the suite requires silence).
         for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
+        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+    }
+
+    // SettingsDye is the equipment switch + dual-write-through orchestrator
+    // (add-equipment-packages). Drives the real async chain via the public API:
+    // switchToEquipment applies the package's identity + last dial and points the
+    // active bag at it; editing the dial fans out to BOTH the bag and the active
+    // package's last-dial memory.
+    void settingsDyeEquipmentSwitchAndDualWrite() {
+        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+
+        const QString path = freshDb();
+        withRawDb(path, "eqdye_tables", [&](QSqlDatabase& db) {
+            CoffeeBagStorage::ensureTableStatic(db);
+            EquipmentStorage::ensureTablesStatic(db);
+        });
+        qint64 bagId = -1, pkgId = -1;
+        withRawDb(path, "eqdye_seed", [&](QSqlDatabase& db) {
+            CoffeeBag b; b.roasterName = "R"; b.coffeeName = "C";
+            bagId = CoffeeBagStorage::insertBagStatic(db, b);
+            EquipmentPackage p; p.lastGrindSetting = "3.0"; p.lastRpm = 1200;
+            pkgId = EquipmentStorage::createPackageWithGrinderStatic(db, p, "Turin", "DF83V", "83mm flat steel");
+        });
+        QVERIFY(bagId > 0 && pkgId > 0);
+
+        CoffeeBagStorage bagStorage; bagStorage.initialize(path);
+        EquipmentStorage eqStorage; eqStorage.initialize(path);
+        SettingsVisualizer viz; SettingsDye dye(&viz);
+        dye.setBagStorage(&bagStorage);
+        dye.setEquipmentStorage(&eqStorage);
+
+        // Select the bag and let its async apply settle (applyActiveBag sets
+        // activeEquipmentId from the bag's equipment_id, which would otherwise
+        // race the switch below).
+        dye.setActiveBagId(static_cast<int>(bagId));
+        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
+
+        // Switch equipment: identity + last dial applied synchronously from the map.
+        QVariantMap pkg;
+        pkg["id"] = static_cast<qlonglong>(pkgId);
+        pkg["grinderBrand"] = "Turin"; pkg["grinderModel"] = "DF83V"; pkg["grinderBurrs"] = "83mm flat steel";
+        pkg["lastGrindSetting"] = "3.0"; pkg["lastRpm"] = static_cast<qlonglong>(1200);
+        dye.switchToEquipment(pkg);
+        QCOMPARE(dye.activeEquipmentId(), static_cast<int>(pkgId));
+        QCOMPARE(dye.dyeGrinderModel(), QString("DF83V"));
+        QCOMPARE(dye.dyeGrinderSetting(), QString("3.0"));
+        QCOMPARE(dye.dyeGrinderRpm(), 1200);
+
+        auto bagEq = [&]() { qint64 v = -1; withRawDb(path, "eqdye_bageq",
+            [&](QSqlDatabase& db) { v = CoffeeBagStorage::loadBagStatic(db, bagId).equipmentId; }); return v; };
+        QTRY_COMPARE(bagEq(), pkgId);   // bag adopted the package (async write-through)
+
+        // Dual write-through: editing the dial updates BOTH the bag and the
+        // active package's last dial. Edit one field at a time and let each land
+        // (as the user would) — firing both at once would race two concurrent
+        // background writes to the same DB.
+        auto bagGrind = [&]() { QString v; withRawDb(path, "eqdye_bg",
+            [&](QSqlDatabase& db) { v = CoffeeBagStorage::loadBagStatic(db, bagId).grinderSetting; }); return v; };
+        auto pkgGrind = [&]() { QString v; withRawDb(path, "eqdye_pg",
+            [&](QSqlDatabase& db) { v = EquipmentStorage::loadPackageStatic(db, pkgId).lastGrindSetting; }); return v; };
+        auto bagRpm = [&]() { qint64 v = -1; withRawDb(path, "eqdye_br",
+            [&](QSqlDatabase& db) { v = CoffeeBagStorage::loadBagStatic(db, bagId).rpm; }); return v; };
+        auto pkgRpm = [&]() { qint64 v = -1; withRawDb(path, "eqdye_pr",
+            [&](QSqlDatabase& db) { v = EquipmentStorage::loadPackageStatic(db, pkgId).lastRpm; }); return v; };
+
+        dye.setDyeGrinderSetting("2.5");
+        QTRY_COMPARE(bagGrind(), QString("2.5"));
+        QTRY_COMPARE(pkgGrind(), QString("2.5"));
+
+        dye.setDyeGrinderRpm(1350);
+        QTRY_COMPARE(bagRpm(), static_cast<qint64>(1350));
+        QTRY_COMPARE(pkgRpm(), static_cast<qint64>(1350));
+
+        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
     }
 

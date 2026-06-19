@@ -73,7 +73,7 @@
 ## 10. i18n, accessibility, tests
 - [x] 10.1 All new UI strings use `TranslationManager.translate(key, fallback)` / `Tr` with `equipment.*`, `idle.button.equipment`, `brewDialog.equipment*`/`grindLabel`/`rpm*` keys. (English is the fallback; there is no checked-in base JSON — other languages register at runtime.)
 - [x] 10.2 Accessibility on new interactive elements: `AccessibleButton`/`AccessibleMouseArea`/`AccessibleTapHandler`, `Accessible.role/name`, headings on page/dialog titles
-- [x] 10.3 Unit tests (`tst_equipment`): grind/rpm split heuristic, package dedup, `rpmCapable` derivation, package CRUD (14 cases). (Dual write-through is exercised via the live SettingsDye path, not unit-tested.)
+- [x] 10.3 Unit tests: `tst_equipment` (split heuristic + edges, dedup, `rpmCapable`, CRUD, copy-on-write/merge sub-branches, name derivation); `tst_coffeebags::settingsDyeEquipmentSwitchAndDualWrite` (switch applies identity+dial, dual write-through to bag + package); `tst_dbmigration` (migration-22 idempotency + shot equipment_id/rpm round-trip).
 - [x] 10.4 Migration test (`tst_equipment::migrationSplitsAndLinks`): bag/shot corpus → expected packages + links + split values
 - [ ] 10.5 Verify Android build — **pending** (recommended before release). This change has no `#ifdef Q_OS_ANDROID` branches; the DB + layout migrations are platform-agnostic, so the macOS build/tests are representative.
 
