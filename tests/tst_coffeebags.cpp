@@ -174,6 +174,13 @@ private slots:
             QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN frozen_date"));
             QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN defrost_date"));
             QVERIFY(q.exec("DROP TABLE coffee_bags"));
+            // Restore the grinder identity columns a real v18 DB had (migration 8
+            // added them; the first full init above dropped them at migration 23).
+            // Without these, the re-run of migration 22 in the chain below can't
+            // read shots.grinder_* and logs a spurious "incomplete" failure.
+            QVERIFY(q.exec("ALTER TABLE shots ADD COLUMN grinder_brand TEXT"));
+            QVERIFY(q.exec("ALTER TABLE shots ADD COLUMN grinder_model TEXT"));
+            QVERIFY(q.exec("ALTER TABLE shots ADD COLUMN grinder_burrs TEXT"));
             QVERIFY(q.exec("DELETE FROM schema_version"));
             QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (18)"));
             // One linked, one unlinked shot.
