@@ -867,7 +867,7 @@ Page {
                             Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderSetting || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderSetting); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
 
                             Tr { key: "shotdetail.rpm"; fallback: "RPM:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: shotData.rpm > 0; Accessible.ignored: true }
-                            Text { text: shotData.rpm > 0 ? String(shotData.rpm) : ""; font: Theme.labelFont; color: Theme.textColor; visible: shotData.rpm > 0; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: "RPM: " + text }
+                            Text { text: shotData.rpm > 0 ? String(shotData.rpm) : ""; font: Theme.labelFont; color: Theme.textColor; visible: shotData.rpm > 0; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: TranslationManager.translate("shotdetail.rpm", "RPM:") + " " + text }
                         }
                     }
                 }

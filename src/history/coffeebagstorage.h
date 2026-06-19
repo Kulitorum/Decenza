@@ -40,8 +40,9 @@ struct CoffeeBag {
 
     // Grinder identity is no longer persisted on the bag (migration 23 dropped
     // the grinder_brand/model/burrs columns); it resolves through equipmentId to
-    // the package's grinder item. These fields remain on the struct as a
-    // transient display cache (default empty) — storage never populates them.
+    // the package's grinder item. These fields are a display cache: not stored as
+    // columns, but populated at load by loadBagStatic via a JOIN on
+    // equipment_items (so consumers like MCP bag_list see the grinder identity).
     QString grinderBrand;
     QString grinderModel;
     QString grinderBurrs;

@@ -366,6 +366,9 @@ Dialog {
         } else {
             fields["defrostDate"] = ""
             fields["inInventory"] = true
+            // Persist the equipment package picked in the create form too (the
+            // picker row is shown in both modes); <=0 -> NULL via the column hook.
+            fields["equipmentId"] = fEquipmentId
             _awaitingCreate = true
             MainController.bagStorage.requestCreateBag(fields)
         }

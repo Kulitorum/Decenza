@@ -65,9 +65,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"beanType", QJsonObject{{"type", "string"}, {"description", "Bean type/name"}}},
                 {"roastLevel", QJsonObject{{"type", "string"}, {"description", "Roast level"}}},
                 {"roastDate", QJsonObject{{"type", "string"}, {"description", "Roast date (YYYY-MM-DD)"}}},
-                {"grinderBrand", QJsonObject{{"type", "string"}, {"description", "Grinder brand"}}},
-                {"grinderModel", QJsonObject{{"type", "string"}, {"description", "Grinder model"}}},
-                {"grinderBurrs", QJsonObject{{"type", "string"}, {"description", "Grinder burrs (saved locally; the Visualizer shot schema has no burrs field, so this does not propagate to visualizer.coffee)"}}},
+                // Grinder identity (brand/model/burrs) is owned by the shot's
+                // equipment package, not the shot row, so it is intentionally not
+                // editable here — change it via the equipment package. Only the
+                // per-shot grind setting remains a shot-level field.
                 {"grinderSetting", QJsonObject{{"type", "string"}, {"description", "Grinder setting"}}},
                 {"barista", QJsonObject{{"type", "string"}, {"description", "Barista name"}}},
                 {"beverageType", QJsonObject{{"type", "string"}, {"description", "Beverage type (e.g. 'espresso', 'lungo'). Saved locally; the Visualizer shot schema carries beverage type via the profile, not the shot, so editing it here does not propagate to visualizer.coffee."}}},
@@ -112,12 +113,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 metadata["roastLevel"] = args["roastLevel"].toString();
             if (args.contains("roastDate"))
                 metadata["roastDate"] = args["roastDate"].toString();
-            if (args.contains("grinderBrand"))
-                metadata["grinderBrand"] = args["grinderBrand"].toString();
-            if (args.contains("grinderModel"))
-                metadata["grinderModel"] = args["grinderModel"].toString();
-            if (args.contains("grinderBurrs"))
-                metadata["grinderBurrs"] = args["grinderBurrs"].toString();
+            // grinderBrand/Model/Burrs are not accepted: grinder identity lives on
+            // the equipment package, not the shot (updateShotMetadataStatic's field
+            // map omits them). Only the per-shot grind setting is editable here.
             if (args.contains("grinderSetting"))
                 metadata["grinderSetting"] = args["grinderSetting"].toString();
             if (args.contains("barista"))

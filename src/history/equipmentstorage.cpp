@@ -915,22 +915,26 @@ bool EquipmentStorage::migrateFromGrinderColumnsStatic(QSqlDatabase& db,
 bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
                                              QHash<qint64, qint64>& outIdMap)
 {
-    // Older source DB without equipment tables: nothing to import.
-    {
-        QSqlQuery srcCheck(srcDb);
-        if (!srcCheck.exec("SELECT COUNT(*) FROM equipment_packages"))
-            return true;
-    }
-
     if (!merge) {
         // Replace mode: clear dest equipment first (items before packages — no
-        // FK cascade on these tables).
+        // FK cascade on these tables). Done BEFORE the source probe below so a
+        // replace from an older source that predates equipment tables still wipes
+        // the dest's inventory (otherwise the early return would leave it orphaned
+        // after importDatabaseStatic has already cleared the dest shots/bags).
         QSqlQuery clr(destDb);
         if (!clr.exec("DELETE FROM equipment_items") || !clr.exec("DELETE FROM equipment_packages")) {
             qWarning() << "EquipmentStorage: failed to clear equipment for replace import:"
                        << clr.lastError().text();
             return false;
         }
+    }
+
+    // Older source DB without equipment tables: nothing to import (in replace mode
+    // the dest was already cleared above).
+    {
+        QSqlQuery srcCheck(srcDb);
+        if (!srcCheck.exec("SELECT COUNT(*) FROM equipment_packages"))
+            return true;
     }
 
     QSqlQuery srcPkgs(srcDb);
