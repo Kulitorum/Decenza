@@ -51,8 +51,8 @@ Rectangle {
 
     readonly property string accessibleSummary: {
         var bits = [grinderTitle, burrs].filter(function(s) { return s.length > 0 })
-        if (basketLine.length > 0) bits.push(basketLine)
         if (lastDialLine.length > 0) bits.push(lastDialLine)
+        if (basketLine.length > 0) bits.push(basketLine)
         if (selected) bits.push(TranslationManager.translate("accessibility.selected", "selected"))
         return bits.join(", ")
     }
@@ -126,20 +126,22 @@ Rectangle {
 
                 Text {
                     Layout.fillWidth: true
-                    visible: card.basketLine.length > 0
-                    text: card.basketLine
-                    font: Theme.labelFont
-                    color: Theme.textSecondaryColor
-                    elide: Text.ElideRight
-                    Accessible.ignored: true
-                }
-
-                Text {
-                    Layout.fillWidth: true
                     visible: card.lastDialLine.length > 0
                     text: card.lastDialLine
                     font: Theme.captionFont
                     color: Theme.textColor
+                    elide: Text.ElideRight
+                    Accessible.ignored: true
+                }
+
+                // Basket last: it's separate equipment, so keep the grinder identity
+                // (title + burrs) and its dial (grind) contiguous above it.
+                Text {
+                    Layout.fillWidth: true
+                    visible: card.basketLine.length > 0
+                    text: card.basketLine
+                    font: Theme.labelFont
+                    color: Theme.textSecondaryColor
                     elide: Text.ElideRight
                     Accessible.ignored: true
                 }
