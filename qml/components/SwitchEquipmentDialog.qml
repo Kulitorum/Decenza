@@ -118,7 +118,11 @@ Dialog {
     }
 
     contentItem: Item {
-        implicitHeight: (root.mode === "list" ? listColumn.implicitHeight : formContainer.implicitHeight)
+        // Size to the active mode's inner ColumnLayout. NOTE: reference
+        // formColumn (the layout), not formContainer (the KeyboardAwareContainer)
+        // — the container's child fills it via anchors, so the container's own
+        // implicitHeight is 0 and the dialog would collapse to just the header.
+        implicitHeight: (root.mode === "list" ? listColumn.implicitHeight : formColumn.implicitHeight)
                         + 2 * Theme.spacingMedium
 
         // --- LIST (picker) ---
@@ -190,6 +194,7 @@ Dialog {
             textFields: [brandField.textField, modelField.textField, burrsField.textField]
 
             ColumnLayout {
+                id: formColumn
                 anchors.fill: parent
                 anchors.margins: Theme.spacingMedium
                 spacing: Theme.spacingMedium
