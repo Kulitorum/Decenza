@@ -114,6 +114,18 @@ void SettingsBrew::setLastUsedRatio(double ratio) {
     }
 }
 
+double SettingsBrew::doseCupTareWeight() const {
+    return m_settings.value("espresso/doseCupTareWeight", 0.0).toDouble();
+}
+
+void SettingsBrew::setDoseCupTareWeight(double weight) {
+    if (weight < 0) weight = 0;  // a tare is never negative
+    if (doseCupTareWeight() != weight) {
+        m_settings.setValue("espresso/doseCupTareWeight", weight);
+        emit doseCupTareWeightChanged();
+    }
+}
+
 // Steam
 
 double SettingsBrew::steamTemperature() const {
@@ -303,6 +315,24 @@ void SettingsBrew::setSteamPitcherWeight(int index, double weightG) {
     if (index >= 0 && index < static_cast<int>(arr.size())) {
         QJsonObject preset = arr[index].toObject();
         preset["pitcherWeightG"] = weightG;
+        arr[index] = preset;
+        m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
+        emit steamPitcherPresetsChanged();
+    }
+}
+
+void SettingsBrew::setSteamPitcherCalibration(int index, double calibMilkG) {
+    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (index >= 0 && index < static_cast<int>(arr.size())) {
+        QJsonObject preset = arr[index].toObject();
+        if (calibMilkG > 0) {
+            preset["calibMilkG"] = calibMilkG;
+        } else {
+            preset.remove("calibMilkG");  // 0 / negative clears the calibration
+        }
         arr[index] = preset;
         m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
         emit steamPitcherPresetsChanged();

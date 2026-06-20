@@ -77,6 +77,10 @@ public:
     Q_INVOKABLE void announceAssertive(const QString& text) { announce(text, true); }
     Q_INVOKABLE void announceLabel(const QString& text);  // Lower pitch + faster rate for non-interactive text
     Q_INVOKABLE void playTick();
+    // Pleasant confirmation "ding" for weight auto-capture (milk/beans). Plays
+    // independent of the accessibility-enabled gate — it is a general UI
+    // confirmation, not an accessibility cue.
+    Q_INVOKABLE void playCaptureDing();
     Q_INVOKABLE void toggleEnabled();  // For backdoor gesture
 
     // Must be called before app shutdown to avoid TTS race conditions
@@ -148,6 +152,7 @@ private:
     void setEnabledImpl(bool enabled, bool announce);
     void initTts();
     void initTickSound();
+    void initDingSound();
 
     bool m_enabled = false;
     bool m_ttsEnabled = true;
@@ -164,6 +169,7 @@ private:
 
     QTextToSpeech* m_tts = nullptr;
     QSoundEffect* m_tickSounds[4] = {nullptr, nullptr, nullptr, nullptr};  // Pre-loaded sounds
+    QSoundEffect* m_dingSound = nullptr;  // Weight-capture confirmation ding
     QSettings m_settings;
 
     TranslationManager* m_translationManager = nullptr;

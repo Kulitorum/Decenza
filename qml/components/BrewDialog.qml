@@ -119,6 +119,35 @@ Dialog {
     property bool showScaleWarning: false
     property bool lowDoseWarning: doseValue < 3 || showScaleWarning
 
+    // Bean auto-capture: when the dose cup (with beans) rests stable on the scale,
+    // lock the net dose, ding, and show a confirmation. Same net-dose math as the
+    // "Get from scale" button; re-arms when the cup is removed / the load changes.
+    property bool beanCaptureVisible: false
+    property string beanCaptureText: ""
+    Timer { id: beanCaptureTimer; interval: 3500; onTriggered: root.beanCaptureVisible = false }
+    StableWeightCapture {
+        id: beanCapture
+        weight: ScaleDevice.connected ? Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight) : 0
+        active: root.visible && ScaleDevice.connected && !ScaleDevice.isFlowScale
+        minWeight: 5
+        maxWeight: 45
+        tolerance: 0.5
+        stableMs: 2500
+        onStableCaptured: function(net) {
+            root.showScaleWarning = false
+            root.targetManuallySet = false
+            root.doseValue = net
+            root.beanCaptureText = TranslationManager.translate("brewDialog.doseCaptured", "Dose set: %1g").arg(net.toFixed(1))
+            root.beanCaptureVisible = true
+            beanCaptureTimer.restart()
+            if (typeof AccessibilityManager !== "undefined") {
+                AccessibilityManager.playCaptureDing()
+                if (AccessibilityManager.enabled)
+                    AccessibilityManager.announce(root.beanCaptureText)
+            }
+        }
+    }
+
     // Recalculate target when dose or ratio changes (unless manually overridden)
     onDoseValueChanged: {
         if (!targetManuallySet) {
@@ -356,6 +385,29 @@ Dialog {
                 }
             }
 
+            // Dose-captured confirmation (auto-dismiss after a few seconds)
+            Rectangle {
+                Layout.fillWidth: true
+                visible: root.beanCaptureVisible
+                color: Theme.surfaceColor
+                border.width: 1
+                border.color: Theme.primaryColor
+                radius: Theme.scaled(8)
+                implicitHeight: beanCaptureLabel.implicitHeight + Theme.scaled(24)
+                Text {
+                    id: beanCaptureLabel
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.margins: Theme.scaled(12)
+                    text: root.beanCaptureText
+                    font: Theme.bodyFont
+                    color: Theme.primaryColor
+                    horizontalAlignment: Text.AlignHCenter
+                    Accessible.ignored: true
+                }
+            }
+
             // Temperature input
             ColumnLayout {
                 Layout.fillWidth: true
@@ -472,11 +524,12 @@ Dialog {
                     accessibleName: TranslationManager.translate("brewDialog.getDoseFromScale", "Get dose from scale")
                     primary: true
                     onClicked: {
-                        var scaleWeight = MachineState.scaleWeight
-                        if (scaleWeight >= 3) {
+                        // Net beans = scale reading minus the stored dosing-cup tare (0 if unset)
+                        var net = MachineState.scaleWeight - Settings.brew.doseCupTareWeight
+                        if (net >= 3) {
                             root.showScaleWarning = false
                             root.targetManuallySet = false  // Reset manual flag
-                            root.doseValue = scaleWeight
+                            root.doseValue = net
                         } else {
                             // Show warning but don't change dose
                             root.showScaleWarning = true
@@ -497,6 +550,52 @@ Dialog {
                 Layout.leftMargin: Theme.scaled(75) + Theme.scaled(8)
                 Accessible.role: Accessible.StaticText
                 Accessible.name: TranslationManager.translate("brewDialog.profileRecommendedDose", "Profile recommended dose: %1 grams").arg(ProfileManager.profileRecommendedDose.toFixed(1))
+            }
+
+            // Dose cup section: shows the stored empty-cup weight and lets you
+            // adjust it (type or +/-) or re-weigh it. Subtracted from "Get from
+            // scale" so the dose is net beans. Set once; no per-shot taring.
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(8)
+
+                Text {
+                    text: TranslationManager.translate("brewDialog.cupTareLabel", "Dose cup:")
+                    font: Theme.bodyFont
+                    color: Theme.textSecondaryColor
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.preferredWidth: Theme.scaled(75)
+                    Accessible.ignored: true
+                }
+
+                ValueInput {
+                    id: cupTareInput
+                    Layout.fillWidth: true
+                    value: Settings.brew.doseCupTareWeight
+                    from: 0
+                    to: 100
+                    stepSize: 0.1
+                    decimals: 1
+                    suffix: "g"
+                    valueColor: Theme.weightColor
+                    accentColor: Theme.weightColor
+                    accessibleName: TranslationManager.translate("brewDialog.doseCupWeight", "Dose cup weight")
+                    onValueModified: function(newValue) {
+                        Settings.brew.doseCupTareWeight = newValue
+                    }
+                }
+
+                AccessibleButton {
+                    Layout.preferredHeight: Theme.scaled(44)
+                    text: TranslationManager.translate("brewDialog.weighCup", "Weigh")
+                    accessibleName: TranslationManager.translate("brewDialog.weighEmptyCup", "Weigh empty cup from scale")
+                    primary: true
+                    onClicked: {
+                        var w = MachineState.scaleWeight
+                        if (w > 0)
+                            Settings.brew.doseCupTareWeight = w
+                    }
+                }
             }
 
             // Ratio input

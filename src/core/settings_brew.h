@@ -16,6 +16,9 @@ class SettingsBrew : public QObject {
     Q_PROPERTY(double espressoTemperature READ espressoTemperature WRITE setEspressoTemperature NOTIFY espressoTemperatureChanged)
     Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)
     Q_PROPERTY(double lastUsedRatio READ lastUsedRatio WRITE setLastUsedRatio NOTIFY lastUsedRatioChanged)
+    // Dose cup tare: empty weight of the dosing vessel, subtracted from the scale
+    // reading in "Get from scale" so the dose is net beans. Default 0 = no tare.
+    Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight WRITE setDoseCupTareWeight NOTIFY doseCupTareWeightChanged)
 
     // Steam
     Q_PROPERTY(double steamTemperature READ steamTemperature WRITE setSteamTemperature NOTIFY steamTemperatureChanged)
@@ -73,6 +76,9 @@ public:
     double lastUsedRatio() const;
     void setLastUsedRatio(double ratio);
 
+    double doseCupTareWeight() const;
+    void setDoseCupTareWeight(double weight);
+
     // Steam
     double steamTemperature() const;
     void setSteamTemperature(double temp);
@@ -104,6 +110,9 @@ public:
     Q_INVOKABLE void moveSteamPitcherPreset(int from, int to);
     Q_INVOKABLE QVariantMap getSteamPitcherPreset(int index) const;
     Q_INVOKABLE void setSteamPitcherWeight(int index, double weightG);
+    // Weight-scaled steaming: pair a reference milk weight with this preset's
+    // duration. At steam time the duration is scaled by the actual milk weight.
+    Q_INVOKABLE void setSteamPitcherCalibration(int index, double calibMilkG);
 
     // Hot water
     double waterTemperature() const;
@@ -176,6 +185,7 @@ signals:
     void espressoTemperatureChanged();
     void targetWeightChanged();
     void lastUsedRatioChanged();
+    void doseCupTareWeightChanged();
     void steamTemperatureChanged();
     void steamTimeoutChanged();
     void steamFlowChanged();

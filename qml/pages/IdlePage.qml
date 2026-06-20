@@ -124,6 +124,131 @@ Page {
     // Track which function's presets are showing (used by center-zone action items)
     property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush", "beans"
 
+    // Idle bean auto-capture: when the dose cup (with beans) rests stable on the
+    // scale, set the dose + stop-at-weight (same as the "Weigh beans" button),
+    // ding, and confirm on the button text. Active on the plain home screen and
+    // in espresso/beans mode (NOT while showing steam/hot-water/flush presets,
+    // where the scale is for milk/water), and bounded to a dose-plausible weight
+    // (<= 45 g net) so a milk pitcher or water vessel never trips it.
+    property bool beanCaptureShown: false
+    property string beanCaptureText: ""
+    Timer { id: idleBeanCaptureTimer; interval: 3500; onTriggered: idlePage.beanCaptureShown = false }
+    StableWeightCapture {
+        id: beanCapture
+        weight: ScaleDevice.connected ? Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight) : 0
+        active: ScaleDevice.connected && !ScaleDevice.isFlowScale
+                && idlePage.activePresetFunction !== "steam"
+                && idlePage.activePresetFunction !== "hotwater"
+                && idlePage.activePresetFunction !== "flush"
+        minWeight: 5
+        maxWeight: 45
+        tolerance: 0.5
+        stableMs: 2500
+        onStableCaptured: function(net) {
+            if (net < 3) return
+            Settings.dye.dyeBeanWeight = net
+            Settings.brew.brewYieldOverride = net * Settings.brew.lastUsedRatio
+            idlePage.beanCaptureText = TranslationManager.translate("idle.doseCaptured", "Dose set: %1g").arg(net.toFixed(1))
+            idlePage.beanCaptureShown = true
+            idleBeanCaptureTimer.restart()
+            if (typeof AccessibilityManager !== "undefined") {
+                AccessibilityManager.playCaptureDing()
+                if (AccessibilityManager.enabled)
+                    AccessibilityManager.announce(idlePage.beanCaptureText)
+            }
+        }
+    }
+
+    // Idle milk auto-capture: while the steam presets are showing on the home
+    // screen and the selected pitcher is calibrated (has a reference milk weight),
+    // rest the milk pitcher on the scale -> lock the steam time proportionally,
+    // ding, and show a confirmation. This is the steam equivalent of the bean
+    // auto-capture above; the dedicated Steam page has its own copy.
+    property bool milkCaptureShown: false
+    property string milkCaptureText: ""
+    // Last milk weight measured this session (for the bottom status row). 0 = none yet.
+    property real measuredMilkG: 0
+    Timer { id: idleMilkCaptureTimer; interval: 3500; onTriggered: idlePage.milkCaptureShown = false }
+    StableWeightCapture {
+        id: idleMilkCapture
+        weight: {
+            if (!ScaleDevice.connected || ScaleDevice.isFlowScale) return 0
+            var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+            if (!p || p.disabled) return 0
+            var pw = p.pitcherWeightG ?? 0
+            var milk = pw > 0 ? (MachineState.scaleWeight - pw) : MachineState.scaleWeight
+            return (milk > 20 && milk < 1500) ? milk : 0
+        }
+        active: idlePage.activePresetFunction === "steam"
+                && ScaleDevice.connected && !ScaleDevice.isFlowScale
+        minWeight: 20
+        tolerance: 1.5
+        stableMs: 2500
+        onStableCaptured: function(milk) {
+            idlePage.measuredMilkG = milk  // record measured milk for the status row
+            var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+            if (!p || p.disabled) return
+            var calib = p.calibMilkG ?? 0
+            if (calib <= 0) return  // preset not calibrated (no reference milk) — nothing to lock
+            var t = Math.max(5, Math.min(120, Math.round(p.duration * (milk / calib))))
+            Settings.brew.steamTimeout = t
+            idlePage.milkCaptureText = TranslationManager.translate("idle.steamCaptured", "Steam time: %1s for %2g milk").arg(t).arg(milk.toFixed(0))
+            idlePage.milkCaptureShown = true
+            idleMilkCaptureTimer.restart()
+            if (typeof AccessibilityManager !== "undefined") {
+                AccessibilityManager.playCaptureDing()
+                if (AccessibilityManager.enabled)
+                    AccessibilityManager.announce(idlePage.milkCaptureText)
+            }
+        }
+    }
+
+    // Transient confirmation banner for the milk-weight capture (auto-dismiss).
+    Rectangle {
+        visible: idlePage.milkCaptureShown
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: Theme.scaled(12)
+        z: 2000
+        width: milkBannerLabel.implicitWidth + Theme.scaled(32)
+        height: milkBannerLabel.implicitHeight + Theme.scaled(20)
+        radius: Theme.cardRadius
+        color: Theme.primaryColor
+        Text {
+            id: milkBannerLabel
+            anchors.centerIn: parent
+            text: idlePage.milkCaptureText
+            color: Theme.primaryContrastColor
+            font: Theme.bodyFont
+        }
+    }
+
+    // Small flashing reminder shown while a cup of beans or a pitcher of milk is
+    // settling on the scale (something is on the scale but the capture hasn't
+    // fired yet). Disappears the instant it captures (the bell rings).
+    Text {
+        id: waitForBellHint
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: Theme.scaled(70)
+        z: 1500
+        horizontalAlignment: Text.AlignHCenter
+        readonly property bool beansSettling: beanCapture.active && !beanCapture.isCaptured
+                                              && beanCapture.weight >= beanCapture.minWeight
+        readonly property bool milkSettling: idleMilkCapture.active && !idleMilkCapture.isCaptured
+                                            && idleMilkCapture.weight >= idleMilkCapture.minWeight
+        visible: beansSettling || milkSettling
+        text: TranslationManager.translate("scale.waitForBell", "Wait for the bell before you take it off the scale")
+        color: Theme.warningColor
+        font: Theme.labelFont
+        SequentialAnimation on opacity {
+            running: waitForBellHint.visible
+            loops: Animation.Infinite
+            NumberAnimation { to: 0.25; duration: 450 }
+            NumberAnimation { to: 1.0; duration: 450 }
+        }
+    }
+
     // Auto-tare scale and announce presets when activePresetFunction changes
     onActivePresetFunctionChanged: {
         // Auto-tare when steam pills appear so the scale starts at 0
@@ -203,12 +328,16 @@ Page {
     // Top info section (from layout topLeft/topRight zones)
     // ============================================================
     ColumnLayout {
+        id: topInfoSection
+        // Empty by default (the top stats live in the global status bar). Hidden
+        // when empty so its reserved bar-height doesn't push everything down.
+        visible: idlePage.topLeftItems.length > 0 || idlePage.topRightItems.length > 0
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.margins: Theme.standardMargin
-        anchors.topMargin: Theme.pageTopMargin
-        spacing: Theme.scaled(20)
+        anchors.topMargin: Theme.statusBarHeight + Theme.scaled(8)
+        spacing: 0
 
         RowLayout {
             Layout.alignment: Qt.AlignHCenter
@@ -228,25 +357,43 @@ Page {
         }
     }
 
+    // Thin high-contrast line directly beneath the global status bar — its bottom
+    // border. Pinned at the status bar's height so it sits flush under the top
+    // stats row regardless of the (often empty) topLeft/topRight zones.
+    Rectangle {
+        id: topStatsBorder
+        anchors.top: parent.top
+        anchors.topMargin: Theme.statusBarHeight
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: Theme.scaled(2)
+        color: Theme.primaryColor
+    }
+
     // ============================================================
     // Center content (from layout centerTop/centerMiddle zones)
     // ============================================================
     ColumnLayout {
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: Theme.scaled(50)
+        // Anchored just below the status-bar border line so it grows DOWNWARD when
+        // the preset row appears — the four main buttons stay put and never slide
+        // behind the top status header.
+        anchors.top: topStatsBorder.bottom
+        anchors.topMargin: Theme.scaled(12)
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
         spacing: Theme.scaled(20)
 
-        // Status readouts (temp, water level, connection)
+        // Status readouts (temp, water level, connection) — hidden: the same
+        // info is already shown in the top status bar, so the large center
+        // duplicates just crowded the home screen.
         LayoutCenterZone {
             Layout.fillWidth: true
             Layout.topMargin: idlePage.centerStatusYOffset
             zoneName: "centerStatus"
             items: idlePage.centerStatusItems
-            visible: idlePage.centerStatusItems.length > 0
+            visible: false
             zoneScale: idlePage.centerStatusScale
         }
 
@@ -307,6 +454,7 @@ Page {
                     selectedIndex: Settings.brew.selectedSteamPitcher
                     pillSuffixMaxWidth: Theme.scaled(60)  // Reserve ~"(1234g)" worth of width
                     pillSuffixVersion: steamPresetLoader.steamPillSuffixVersion
+                    supportLongPress: true
 
                     pillSuffixFn: function(index) {
                         if (!ScaleDevice.connected || ScaleDevice.isFlowScale) return ""
@@ -331,7 +479,30 @@ Page {
                             return
                         }
                         if (preset) {
-                            Settings.brew.steamTimeout = preset.duration
+                            // Weight-scaled steaming (DSx2-style): if this pitcher is
+                            // calibrated (a reference milk weight is paired with its
+                            // duration), scale the steam time by the actual milk weight
+                            // so it auto-stops proportionally.
+                            var calibMilk = preset.calibMilkG ?? 0
+                            if (calibMilk > 0 && ScaleDevice.connected && !ScaleDevice.isFlowScale) {
+                                var pitcherWt = preset.pitcherWeightG ?? 0
+                                // Net milk = scale - saved pitcher weight, or the raw
+                                // reading if the user tared the scale instead.
+                                var milk = pitcherWt > 0 ? (MachineState.scaleWeight - pitcherWt)
+                                                         : MachineState.scaleWeight
+                                // If milk isn't on the scale right now (e.g. lifted to the
+                                // wand), fall back to the last measured weight so the time
+                                // still scales.
+                                if (!(milk > 20 && milk < 1500))
+                                    milk = idlePage.measuredMilkG
+                                if (milk > 20 && milk < 1500)
+                                    Settings.brew.steamTimeout = Math.max(5, Math.min(120,
+                                        Math.round(preset.duration * milk / calibMilk)))
+                                else
+                                    Settings.brew.steamTimeout = preset.duration  // no milk measured yet
+                            } else {
+                                Settings.brew.steamTimeout = preset.duration  // not calibrated → fixed
+                            }
                             Settings.brew.steamFlow = preset.flow !== undefined ? preset.flow : 150
                         }
                         MainController.applySteamSettings()
@@ -345,6 +516,14 @@ Page {
                                     AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                             }
                         }
+                    }
+
+                    // Long-press a pitcher to open the steam page settings, where you
+                    // set the duration and tap Calibrate (with milk on the scale) to
+                    // teach this pitcher its milk-weight -> steam-time reference.
+                    onPresetLongPressed: function(index) {
+                        Settings.brew.selectedSteamPitcher = index
+                        pageStack.push(Qt.resolvedUrl("SteamPage.qml"))
                     }
                 }
             }
@@ -462,6 +641,49 @@ Page {
                             }
                         }
                     }
+
+                    // Bean weight: weigh the dose from the scale (minus the stored
+                    // dose-cup tare) and apply it — sets the dose and the stop-at-weight
+                    // (dose x ratio) only; temperature and grind are left untouched. The
+                    // button shows a live preview of the net beans on the scale.
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        visible: ScaleDevice.connected && !ScaleDevice.isFlowScale
+                        spacing: Theme.scaled(8)
+
+                        // Small, unobtrusive live net-weight readout. Beans now
+                        // auto-capture when stable, so this is a readout (not a
+                        // button) — it shows the live net beans and briefly flashes
+                        // the captured dose in the accent color.
+                        Text {
+                            id: weighBeansText
+                            horizontalAlignment: Text.AlignHCenter
+                            // True while prompting the user to place beans (nothing on
+                            // the scale yet) — this state gently blinks.
+                            readonly property bool showingPlacePrompt: !idlePage.beanCaptureShown
+                                && Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight) < 1
+                            text: {
+                                if (idlePage.beanCaptureShown)
+                                    return idlePage.beanCaptureText
+                                var net = Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight)
+                                if (net >= 1)
+                                    return net.toFixed(1) + " g " + TranslationManager.translate("idle.label.onScale", "on scale")
+                                return TranslationManager.translate("idle.label.placeBeansOnScale", "Place Beans on Scale") + "\n"
+                                     + TranslationManager.translate("idle.label.placeBeansHint", "(and wait for the beep before removing)")
+                            }
+                            color: idlePage.beanCaptureShown ? Theme.primaryColor : Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(14)
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
+                            onShowingPlacePromptChanged: if (!showingPlacePrompt) opacity = 1.0
+                            SequentialAnimation on opacity {
+                                running: weighBeansText.showingPlacePrompt
+                                loops: Animation.Infinite
+                                NumberAnimation { to: 0.45; duration: 800 }
+                                NumberAnimation { to: 1.0; duration: 800 }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -571,9 +793,114 @@ Page {
     }
 
     // ============================================================
+    // Brew status row (across the bottom, above the action bar)
+    // ============================================================
+    Rectangle {
+        id: brewStatusBar
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: bottomBar.top
+        height: Theme.scaled(82)
+        // High-contrast: light background with blue text so the stats stand out.
+        color: Theme.primaryContrastColor
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.spacingMedium
+            anchors.rightMargin: Theme.spacingMedium
+            spacing: Theme.spacingSmall
+
+            // Current espresso profile
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1   // equal cells regardless of content width
+                spacing: 0
+                Tr { key: "idle.status.profile"; fallback: "Profile"; color: Theme.primaryColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                    text: ProfileManager.currentProfileName || "—"
+                    color: Theme.primaryColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                }
+            }
+
+            // Live net scale weight (context-aware: net milk in steam mode, else net beans)
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                spacing: 0
+                Tr { key: "idle.status.scale"; fallback: "Scale"; color: Theme.primaryColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: {
+                        if (!ScaleDevice.connected) return "—"
+                        var net
+                        if (idlePage.activePresetFunction === "steam") {
+                            var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+                            var pw = (p && !p.disabled) ? (p.pitcherWeightG ?? 0) : 0
+                            net = Math.max(0, MachineState.scaleWeight - pw)
+                        } else {
+                            net = Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight)
+                        }
+                        return net.toFixed(1) + " g"
+                    }
+                    color: Theme.primaryColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                }
+            }
+
+            // Current coffee:water ratio setting
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                spacing: 0
+                Tr { key: "idle.status.ratio"; fallback: "Ratio"; color: Theme.primaryColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: "1:" + Settings.brew.lastUsedRatio.toFixed(1)
+                    color: Theme.primaryColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                }
+            }
+
+            // Beans measured indicator (+ amount)
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                spacing: 0
+                Tr { key: "idle.status.beans"; fallback: "Beans"; color: Theme.primaryColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight.toFixed(1) + " g"
+                                                        : TranslationManager.translate("idle.status.none", "—")
+                    color: Theme.primaryColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                }
+            }
+
+            // Milk measured indicator (+ amount)
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                spacing: 0
+                Tr { key: "idle.status.milk"; fallback: "Milk"; color: Theme.primaryColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: idlePage.measuredMilkG > 0 ? idlePage.measuredMilkG.toFixed(1) + " g"
+                                                     : TranslationManager.translate("idle.status.none", "—")
+                    color: Theme.primaryColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                }
+            }
+        }
+    }
+
+    // ============================================================
     // Bottom bar (from layout bottomLeft/bottomRight zones)
     // ============================================================
     Rectangle {
+        id: bottomBar
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
