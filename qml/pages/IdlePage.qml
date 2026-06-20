@@ -210,6 +210,7 @@ Page {
         stableMs: 2500
         onStableCaptured: function(milk) {
             idlePage.measuredMilkG = milk  // record measured milk for the status row
+            Settings.brew.lastSteamMilkG = milk  // remember for the steam-setup baseline
             var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
             if (!p || p.disabled) return
             var calib = p.calibMilkG ?? 0

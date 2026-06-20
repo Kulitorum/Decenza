@@ -24,6 +24,10 @@ class SettingsBrew : public QObject {
     Q_PROPERTY(double ratioPreset1 READ ratioPreset1 WRITE setRatioPreset1 NOTIFY ratioPreset1Changed)
     Q_PROPERTY(double ratioPreset2 READ ratioPreset2 WRITE setRatioPreset2 NOTIFY ratioPreset2Changed)
     Q_PROPERTY(double ratioPreset3 READ ratioPreset3 WRITE setRatioPreset3 NOTIFY ratioPreset3Changed)
+    // Last actual steam session (milk weight + steam time), saved so the steam
+    // setup can adopt them as a new reference baseline.
+    Q_PROPERTY(double lastSteamMilkG READ lastSteamMilkG WRITE setLastSteamMilkG NOTIFY lastSteamMilkGChanged)
+    Q_PROPERTY(double lastSteamTimeS READ lastSteamTimeS WRITE setLastSteamTimeS NOTIFY lastSteamTimeSChanged)
 
     // Steam
     Q_PROPERTY(double steamTemperature READ steamTemperature WRITE setSteamTemperature NOTIFY steamTemperatureChanged)
@@ -90,6 +94,11 @@ public:
     void setRatioPreset2(double r);
     double ratioPreset3() const;
     void setRatioPreset3(double r);
+
+    double lastSteamMilkG() const;
+    void setLastSteamMilkG(double g);
+    double lastSteamTimeS() const;
+    void setLastSteamTimeS(double s);
 
     // Steam
     double steamTemperature() const;
@@ -201,6 +210,8 @@ signals:
     void ratioPreset1Changed();
     void ratioPreset2Changed();
     void ratioPreset3Changed();
+    void lastSteamMilkGChanged();
+    void lastSteamTimeSChanged();
     void steamTemperatureChanged();
     void steamTimeoutChanged();
     void steamFlowChanged();

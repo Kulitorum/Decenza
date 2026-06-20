@@ -516,6 +516,23 @@ ApplicationWindow {
         }
     }
 
+    // Save the most recent steam session's actual duration (the milk weight is
+    // saved at capture time). Steam setup can adopt these as a new baseline.
+    Connections {
+        target: MachineState
+        property real steamElapsedTracker: 0
+        function onShotTimeChanged() {
+            if (MachineState.phase === MachineStateType.Phase.Steaming)
+                steamElapsedTracker = MachineState.shotTime
+        }
+        function onPhaseChanged() {
+            if (MachineState.phase !== MachineStateType.Phase.Steaming && steamElapsedTracker >= 1) {
+                Settings.brew.lastSteamTimeS = steamElapsedTracker
+                steamElapsedTracker = 0
+            }
+        }
+    }
+
     // Detect when DE1 enters Steam state (even during heating/FinalHeating substate)
     // This clears steamDisabled BEFORE applySteamSettings runs, so GHC-initiated
     // steaming works correctly even if keepSteamHeaterOn is false

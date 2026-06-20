@@ -1499,6 +1499,52 @@ Page {
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
+                    // Adopt the last actual steam session (milk + time) as this
+                    // pitcher's reference baseline — sets reference milk AND duration.
+                    RowLayout {
+                        id: useLastSteamRow
+                        Layout.fillWidth: true
+                        visible: !steamPage.currentPitcherDisabled
+                        spacing: Theme.scaled(12)
+                        readonly property bool hasLast: Settings.brew.lastSteamMilkG > 0 && Settings.brew.lastSteamTimeS > 0
+
+                        Column {
+                            Tr {
+                                key: "steam.lastSteam.title"
+                                fallback: "Baseline from last steam"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(20)
+                            }
+                            Text {
+                                text: useLastSteamRow.hasLast
+                                      ? TranslationManager.translate("steam.lastSteam.values", "Last: %1 g milk → %2 s")
+                                            .arg(Settings.brew.lastSteamMilkG.toFixed(0)).arg(Math.round(Settings.brew.lastSteamTimeS))
+                                      : TranslationManager.translate("steam.lastSteam.none", "Steam some milk first to record a session.")
+                                color: Theme.textSecondaryColor
+                                font: Theme.labelFont
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        AccessibleButton {
+                            Layout.preferredHeight: Theme.scaled(44)
+                            text: TranslationManager.translate("steam.lastSteam.use", "Use as baseline")
+                            accessibleName: TranslationManager.translate("steam.lastSteam.useAccessible", "Use last steam session as this pitcher's reference baseline")
+                            primary: true
+                            enabled: useLastSteamRow.hasLast
+                            onClicked: {
+                                var idx = Settings.brew.selectedSteamPitcher
+                                var p = Settings.brew.getSteamPitcherPreset(idx)
+                                if (!p || p.disabled) return
+                                Settings.brew.updateSteamPitcherPreset(idx, p.name, Math.round(Settings.brew.lastSteamTimeS), p.flow ?? 150)
+                                Settings.brew.setSteamPitcherCalibration(idx, Settings.brew.lastSteamMilkG)
+                            }
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
+
                     // Live expected steam time for the milk currently on the scale
                     // (only when the preset is calibrated and milk is present).
                     RowLayout {
@@ -1829,6 +1875,7 @@ Page {
         tolerance: 1.5
         stableMs: 2500
         onStableCaptured: function(milk) {
+            Settings.brew.lastSteamMilkG = milk  // remember for the steam-setup baseline
             var t = steamPage.steamTimeForMilk(milk)
             if (t <= 0)
                 return  // preset not calibrated (no reference milk) — nothing to lock

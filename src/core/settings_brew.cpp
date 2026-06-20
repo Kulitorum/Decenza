@@ -159,6 +159,28 @@ void SettingsBrew::setRatioPreset3(double r) {
     }
 }
 
+double SettingsBrew::lastSteamMilkG() const {
+    return m_settings.value("steam/lastSteamMilkG", 0.0).toDouble();
+}
+void SettingsBrew::setLastSteamMilkG(double g) {
+    if (g < 0) g = 0;
+    if (lastSteamMilkG() != g) {
+        m_settings.setValue("steam/lastSteamMilkG", g);
+        emit lastSteamMilkGChanged();
+    }
+}
+
+double SettingsBrew::lastSteamTimeS() const {
+    return m_settings.value("steam/lastSteamTimeS", 0.0).toDouble();
+}
+void SettingsBrew::setLastSteamTimeS(double s) {
+    if (s < 0) s = 0;
+    if (lastSteamTimeS() != s) {
+        m_settings.setValue("steam/lastSteamTimeS", s);
+        emit lastSteamTimeSChanged();
+    }
+}
+
 // Steam
 
 double SettingsBrew::steamTemperature() const {
