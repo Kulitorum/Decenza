@@ -4,9 +4,10 @@ import QtQuick.Layouts
 import Decenza
 
 // Equipment package card (add-equipment-packages). Mirrors BagCard. Shows the
-// grinder identity (brand/model, burrs subtitle), the last-used dial, and the
-// basket line (add-basket-equipment). Equipment is switched per-bag from Brew Settings, so the
-// card itself is informational + edit/remove (no global "selected" state). One
+// package identity via the shared EquipmentSummary renderer (grinder, dial,
+// basket, puck prep), then adds the inventory chrome. Equipment is switched
+// per-bag from Brew Settings, so the card itself is informational + edit/remove
+// (no global "selected" state). One
 // removal action follows the package's life: a trash icon while no SHOT
 // references it (a mistaken creation — hard delete), then "Remove" once shots
 // exist (soft-delete, history kept). Storage is the authoritative backstop — it
@@ -21,56 +22,6 @@ Rectangle {
 
     readonly property bool selected: pkg && pkg.id !== undefined && pkg.id === Settings.dye.activeEquipmentId
     readonly property bool hasReferences: pkg && (pkg.shotCount ?? 0) > 0
-    readonly property string grinderTitle: {
-        var brand = (pkg && pkg.grinderBrand) || ""
-        var model = (pkg && pkg.grinderModel) || ""
-        var combined = [brand, model].filter(function(s) { return s.length > 0 }).join(" ")
-        return (pkg && pkg.name && String(pkg.name).length > 0) ? String(pkg.name) : combined
-    }
-    readonly property string burrs: (pkg && pkg.grinderBurrs) || ""
-    readonly property bool rpmCapable: !!(pkg && pkg.rpmCapable)
-    // Basket identity line (add-basket-equipment); empty when the package has none.
-    readonly property string basketLine: {
-        var _ = TranslationManager.translationVersion
-        var b = [(pkg && pkg.basketBrand) || "", (pkg && pkg.basketModel) || ""]
-                .filter(function(s) { return s.length > 0 }).join(" ")
-        return b.length > 0 ? TranslationManager.translate("equipment.card.basket", "Basket: %1").arg(b) : ""
-    }
-    // Puck-prep summary line (add-puckprep-equipment); empty when the package has
-    // none. Shows the short labels of the set flags, e.g. "Prep: WDT · Shaker".
-    readonly property string puckPrepLine: {
-        var _ = TranslationManager.translationVersion
-        if (!pkg) return ""
-        var labels = []
-        if (pkg.puckPrep_wdt) labels.push(TranslationManager.translate("equipment.dialog.puckWdt", "WDT"))
-        if (pkg.puckPrep_shaker) labels.push(TranslationManager.translate("equipment.dialog.puckShaker", "Shaker"))
-        if (pkg.puckPrep_puckScreen) labels.push(TranslationManager.translate("equipment.dialog.puckScreen", "Puck screen"))
-        if (pkg.puckPrep_paperFilter) labels.push(TranslationManager.translate("equipment.dialog.puckPaper", "Bottom paper filter"))
-        if (pkg.puckPrep_rdt) labels.push(TranslationManager.translate("equipment.dialog.puckRdt", "RDT (spritz)"))
-        return labels.length > 0
-            ? TranslationManager.translate("equipment.card.puckPrep", "Prep: %1").arg(labels.join(" · ")) : ""
-    }
-
-    readonly property string lastDialLine: {
-        var _ = TranslationManager.translationVersion
-        var parts = []
-        var g = (pkg && pkg.lastGrindSetting) || ""
-        if (String(g).length > 0)
-            parts.push(TranslationManager.translate("equipment.card.lastGrind", "Grind %1").arg(g))
-        var rpm = pkg && pkg.lastRpm ? Number(pkg.lastRpm) : 0
-        if (rpmCapable && rpm > 0)
-            parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(rpm))
-        return parts.join(" · ")
-    }
-
-    readonly property string accessibleSummary: {
-        var bits = [grinderTitle, burrs].filter(function(s) { return s.length > 0 })
-        if (lastDialLine.length > 0) bits.push(lastDialLine)
-        if (basketLine.length > 0) bits.push(basketLine)
-        if (puckPrepLine.length > 0) bits.push(puckPrepLine)
-        if (selected) bits.push(TranslationManager.translate("accessibility.selected", "selected"))
-        return bits.join(", ")
-    }
 
     color: Theme.surfaceColor
     radius: Theme.cardRadius
@@ -110,71 +61,31 @@ Rectangle {
         Item {
             id: infoArea
             Layout.fillWidth: true
-            implicitHeight: infoColumn.implicitHeight
+            implicitHeight: summary.implicitHeight
 
-            ColumnLayout {
-                id: infoColumn
+            // Shared identity rendering (grinder/basket/puck prep). The package map
+            // exposes the canonical puck-prep string as `puckPrepCanonical`.
+            EquipmentSummary {
+                id: summary
                 anchors.left: parent.left
                 anchors.right: parent.right
-                spacing: Theme.scaled(2)
-
-                Text {
-                    Layout.fillWidth: true
-                    text: card.grinderTitle
-                    font.family: Theme.bodyFont.family
-                    font.pixelSize: Theme.subtitleFont.pixelSize
-                    font.bold: true
-                    color: Theme.textColor
-                    elide: Text.ElideRight
-                    Accessible.ignored: true
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    visible: card.burrs.length > 0
-                    text: card.burrs
-                    font: Theme.labelFont
-                    color: Theme.textSecondaryColor
-                    elide: Text.ElideRight
-                    Accessible.ignored: true
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    visible: card.lastDialLine.length > 0
-                    text: card.lastDialLine
-                    font: Theme.captionFont
-                    color: Theme.textColor
-                    elide: Text.ElideRight
-                    Accessible.ignored: true
-                }
-
-                // Basket + puck prep last: separate equipment, so keep the grinder
-                // identity (title + burrs) and its dial (grind) contiguous above them.
-                Text {
-                    Layout.fillWidth: true
-                    visible: card.basketLine.length > 0
-                    text: card.basketLine
-                    font: Theme.labelFont
-                    color: Theme.textSecondaryColor
-                    elide: Text.ElideRight
-                    Accessible.ignored: true
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    visible: card.puckPrepLine.length > 0
-                    text: card.puckPrepLine
-                    font: Theme.labelFont
-                    color: Theme.textSecondaryColor
-                    elide: Text.ElideRight
-                    Accessible.ignored: true
-                }
+                grinderName: (card.pkg && card.pkg.name) ? String(card.pkg.name) : ""
+                grinderBrand: (card.pkg && card.pkg.grinderBrand) || ""
+                grinderModel: (card.pkg && card.pkg.grinderModel) || ""
+                grinderBurrs: (card.pkg && card.pkg.grinderBurrs) || ""
+                grindSetting: (card.pkg && card.pkg.lastGrindSetting) || ""
+                rpm: (card.pkg && card.pkg.lastRpm) ? Number(card.pkg.lastRpm) : 0
+                rpmCapable: !!(card.pkg && card.pkg.rpmCapable)
+                basketBrand: (card.pkg && card.pkg.basketBrand) || ""
+                basketModel: (card.pkg && card.pkg.basketModel) || ""
+                puckPrepCanonical: (card.pkg && card.pkg.puckPrepCanonical) || ""
             }
 
             AccessibleMouseArea {
                 anchors.fill: parent
-                accessibleName: card.accessibleSummary
+                accessibleName: card.selected
+                    ? summary.accessibleSummary + ", " + TranslationManager.translate("accessibility.selected", "selected")
+                    : summary.accessibleSummary
                 accessibleItem: infoArea
                 onAccessibleClicked: {
                     if (card.pkg && card.pkg.id !== undefined)

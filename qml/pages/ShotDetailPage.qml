@@ -802,20 +802,25 @@ Page {
                     }
                 }
 
-                // Grinder info card
+                // Equipment info card (grinder + basket + puck prep). Shares the
+                // EquipmentSummary renderer with the inventory card and the
+                // post-shot review page, fed from the shot's resolved fields.
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1  // Equal weight
-                    Layout.preferredHeight: grinderColumn.height + Theme.spacingLarge
+                    Layout.preferredHeight: equipmentColumn.height + Theme.spacingLarge
                     Layout.alignment: Qt.AlignTop
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
-                    visible: !!(shotData.grinderBrand || shotData.grinderModel || shotData.grinderBurrs || shotData.grinderSetting)
+                    visible: !!(shotData.grinderBrand || shotData.grinderModel || shotData.grinderBurrs
+                                || shotData.grinderSetting || shotData.basketBrand || shotData.basketModel
+                                || shotData.puckPrep || shotData.equipmentName || shotData.rpm > 0)
                     Accessible.role: Accessible.Grouping
-                    Accessible.name: TranslationManager.translate("shotdetail.grinder", "Grinder")
+                    Accessible.name: TranslationManager.translate("shotdetail.equipment", "Equipment")
+                                     + ": " + equipmentSummary.accessibleSummary
 
                     ColumnLayout {
-                        id: grinderColumn
+                        id: equipmentColumn
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
@@ -823,51 +828,27 @@ Page {
                         spacing: Theme.spacingSmall
 
                         Tr {
-                            key: "shotdetail.grinder"
-                            fallback: "Grinder"
+                            key: "shotdetail.equipment"
+                            fallback: "Equipment"
                             font: Theme.subtitleFont
                             color: Theme.textColor
                             Accessible.ignored: true
                         }
 
-                        // Equipment lineage qualifier (add-equipment-packages
-                        // 4b.7): when this shot's package is no longer the current
-                        // one, note whether it was superseded by a newer version
-                        // ("older") or retired from inventory. Never baked into
-                        // the grinder name — rendered from the resolved state.
-                        Text {
-                            visible: shotData.equipmentState === "older" || shotData.equipmentState === "retired"
-                            text: shotData.equipmentState === "older"
-                                ? TranslationManager.translate("shotdetail.equipmentOlder", "Older equipment — a newer version is now in use")
-                                : TranslationManager.translate("shotdetail.equipmentRetired", "Retired equipment — no longer in inventory")
-                            font: Theme.labelFont
-                            color: Theme.textSecondaryColor
-                            wrapMode: Text.WordWrap
+                        EquipmentSummary {
+                            id: equipmentSummary
                             Layout.fillWidth: true
-                            Accessible.role: Accessible.StaticText
-                            Accessible.name: text
-                        }
-
-                        GridLayout {
-                            columns: 2
-                            columnSpacing: Theme.spacingLarge
-                            rowSpacing: Theme.spacingSmall
-                            Layout.fillWidth: true
-
-                            Tr { key: "shotdetail.brand"; fallback: "Brand:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderBrand); Accessible.ignored: true }
-                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderBrand || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderBrand); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
-
-                            Tr { key: "shotdetail.model"; fallback: "Model:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderModel); Accessible.ignored: true }
-                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderModel || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderModel); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
-
-                            Tr { key: "shotdetail.burrs"; fallback: "Burrs:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderBurrs); Accessible.ignored: true }
-                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderBurrs || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderBurrs); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
-
-                            Tr { key: "shotdetail.grindSetting"; fallback: "Grind setting:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: !!(shotData.grinderSetting); Accessible.ignored: true }
-                            Text { textFormat: Text.RichText; text: Theme.replaceEmojiWithImg(shotData.grinderSetting || "", Theme.labelFont.pixelSize); font: Theme.labelFont; color: Theme.textColor; visible: !!(shotData.grinderSetting); Layout.fillWidth: true; elide: Text.ElideRight; Accessible.ignored: true }
-
-                            Tr { key: "shotdetail.rpm"; fallback: "RPM:"; font: Theme.labelFont; color: Theme.textSecondaryColor; visible: shotData.rpm > 0; Accessible.ignored: true }
-                            Text { text: shotData.rpm > 0 ? String(shotData.rpm) : ""; font: Theme.labelFont; color: Theme.textColor; visible: shotData.rpm > 0; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: TranslationManager.translate("shotdetail.rpm", "RPM:") + " " + text }
+                            grinderName: shotData.equipmentName || ""
+                            grinderBrand: shotData.grinderBrand || ""
+                            grinderModel: shotData.grinderModel || ""
+                            grinderBurrs: shotData.grinderBurrs || ""
+                            grindSetting: shotData.grinderSetting || ""
+                            rpm: shotData.rpm || 0
+                            rpmCapable: shotData.rpm > 0
+                            basketBrand: shotData.basketBrand || ""
+                            basketModel: shotData.basketModel || ""
+                            puckPrepCanonical: shotData.puckPrep || ""
+                            equipmentState: shotData.equipmentState || ""
                         }
                     }
                 }
