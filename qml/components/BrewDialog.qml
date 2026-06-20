@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 
 Dialog {
@@ -99,10 +100,9 @@ Dialog {
     // stays armed across this dialog opening/closing, so a cup already weighed on
     // the home screen is NOT re-captured (no second ding) when you open settings.
     // The capture writes the canonical dyeBeanWeight; this watcher reflects it into
-    // the editable dose whenever a capture lands while THIS dialog is open. (There
-    // are several BrewDialog instances — idle, ShotPlan tile, ScaleWeight tile — so
-    // each one self-updates rather than the capture targeting a specific instance.)
-    // The manual "Get from scale" button below covers the no-dose-cup case.
+    // the editable dose whenever a capture lands while the dialog is open (rather
+    // than the capture poking doseValue directly). The manual "Get from scale"
+    // button below covers the no-dose-cup case.
     Connections {
         target: Settings.dye
         enabled: root.visible
@@ -551,6 +551,39 @@ Dialog {
                     enabled: MachineState.scaleWeight - root.scaleVirtualZero > 0
                     onClicked: Settings.brew.doseCupTareWeight = MachineState.scaleWeight - root.scaleVirtualZero
                 }
+
+                // Bell toggle: enable/disable the confirmation ding on auto-capture.
+                Item {
+                    Layout.preferredWidth: Theme.scaled(36)
+                    Layout.preferredHeight: Theme.scaled(36)
+                    Layout.alignment: Qt.AlignVCenter
+
+                    Image {
+                        id: dingBell
+                        anchors.centerIn: parent
+                        source: Settings.brew.doseCaptureSoundEnabled ? "qrc:/icons/bell.svg" : "qrc:/icons/bell-off.svg"
+                        height: Theme.scaled(20)
+                        sourceSize.height: Theme.scaled(40)
+                        fillMode: Image.PreserveAspectFit
+                        layer.enabled: true
+                        layer.smooth: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: Settings.brew.doseCaptureSoundEnabled ? Theme.primaryColor : Theme.textSecondaryColor
+                        }
+                        Accessible.ignored: true
+                    }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleRole: Accessible.CheckBox
+                        accessibleChecked: Settings.brew.doseCaptureSoundEnabled
+                        accessibleName: Settings.brew.doseCaptureSoundEnabled
+                            ? TranslationManager.translate("brewDialog.captureSoundOn", "Capture sound on")
+                            : TranslationManager.translate("brewDialog.captureSoundOff", "Capture sound off")
+                        onAccessibleClicked: Settings.brew.doseCaptureSoundEnabled = !Settings.brew.doseCaptureSoundEnabled
+                    }
+                }
             }
 
             // Ratio input
@@ -777,7 +810,9 @@ Dialog {
                     root.temperatureValue = root.profileTemperature
                     root.profileTargetWeight = ProfileManager.profileTargetWeight
 
-                    // Use the active bag's dose if available, otherwise default 18g
+                    // Reset the dose to the active bag's dose (the bean's remembered
+                    // weight), otherwise default 18 g. (Working-vs-bag dose separation
+                    // is a follow-up change.)
                     root.doseValue = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
                     root.selectedProfileTitle = ProfileManager.currentProfileName
                     root.grindSetting = Settings.dye.dyeGrinderSetting

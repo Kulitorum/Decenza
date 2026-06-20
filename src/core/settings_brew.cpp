@@ -126,6 +126,17 @@ void SettingsBrew::setDoseCupTareWeight(double weight) {
     }
 }
 
+bool SettingsBrew::doseCaptureSoundEnabled() const {
+    return m_settings.value("espresso/doseCaptureSoundEnabled", false).toBool();
+}
+
+void SettingsBrew::setDoseCaptureSoundEnabled(bool enabled) {
+    if (doseCaptureSoundEnabled() != enabled) {
+        m_settings.setValue("espresso/doseCaptureSoundEnabled", enabled);
+        emit doseCaptureSoundEnabledChanged();
+    }
+}
+
 // Steam
 
 double SettingsBrew::steamTemperature() const {

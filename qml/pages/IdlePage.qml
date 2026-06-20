@@ -175,17 +175,16 @@ Page {
         stableMs: 2500
         onStableCaptured: function(net) {
             // net is always >= minNet (5 g) here — no extra floor needed.
-            // Always write the canonical dose + yield. Any open BrewDialog reflects
-            // it via its own dyeBeanWeight watcher — there are several BrewDialog
-            // instances (idle, ShotPlan tile, ScaleWeight tile), so we can't push to
-            // one specific one here.
+            // Always write the canonical dose + yield. The shared Brew Settings
+            // dialog reflects it via its dyeBeanWeight watcher while it is open.
             Settings.dye.dyeBeanWeight = net
             Settings.brew.brewYieldOverride = net * Settings.brew.lastUsedRatio
             idlePage.beanCaptureText = TranslationManager.translate("idle.doseCaptured", "Dose set: %1g").arg(net.toFixed(1))
             idlePage.beanCaptureShown = true
             idleBeanCaptureTimer.restart()
             if (typeof AccessibilityManager !== "undefined") {
-                AccessibilityManager.playCaptureDing()
+                if (Settings.brew.doseCaptureSoundEnabled)
+                    AccessibilityManager.playCaptureDing()
                 if (AccessibilityManager.enabled)
                     AccessibilityManager.announce(idlePage.beanCaptureText)
             }
@@ -611,7 +610,7 @@ Page {
                                      + TranslationManager.translate("idle.label.placeBeansHint", "(and wait for the beep before removing)")
                             }
                             color: idlePage.beanCaptureShown ? Theme.primaryColor : Theme.textSecondaryColor
-                            font.pixelSize: Theme.scaled(14)
+                            font: Theme.labelFont
                             Accessible.role: Accessible.StaticText
                             Accessible.name: text
                             onShowingPlacePromptChanged: if (!showingPlacePrompt) opacity = 1.0

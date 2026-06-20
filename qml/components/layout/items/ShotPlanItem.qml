@@ -15,6 +15,20 @@ Item {
     readonly property bool showRoastDate: modelData.shotPlanShowRoastDate === true
     readonly property bool showDoseYield: modelData.shotPlanShowDoseYield !== false
 
+    // Open the single shared Brew Settings dialog owned by IdlePage (it is wired
+    // with the scale's virtual zero). Walk up to the page rather than hosting a
+    // private BrewDialog per tile. No-op outside the idle page (e.g. layout editor).
+    function openBrewSettings() {
+        var p = root.parent
+        while (p) {
+            if (p.objectName === "idlePage") {
+                if (p.idleBrewDialog) p.idleBrewDialog.open()
+                return
+            }
+            p = p.parent
+        }
+    }
+
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
@@ -42,7 +56,7 @@ Item {
             showGrind: root.showGrind
             showRoastDate: root.showRoastDate
             showDoseYield: root.showDoseYield
-            onClicked: brewDialog.open()
+            onClicked: root.openBrewSettings()
         }
     }
 
@@ -63,11 +77,7 @@ Item {
             showGrind: root.showGrind
             showRoastDate: root.showRoastDate
             showDoseYield: root.showDoseYield
-            onClicked: brewDialog.open()
+            onClicked: root.openBrewSettings()
         }
-    }
-
-    BrewDialog {
-        id: brewDialog
     }
 }

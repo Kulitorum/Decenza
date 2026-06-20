@@ -12,6 +12,20 @@ Item {
     property bool scaleConnected: ScaleDevice && ScaleDevice.connected
     property bool accessibilityEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
 
+    // Open the single shared Brew Settings dialog owned by IdlePage (it is wired
+    // with the scale's virtual zero). Walk up to the page rather than hosting a
+    // private BrewDialog per tile. No-op outside the idle page (e.g. layout editor).
+    function openBrewSettings() {
+        var p = root.parent
+        while (p) {
+            if (p.objectName === "idlePage") {
+                if (p.idleBrewDialog) p.idleBrewDialog.open()
+                return
+            }
+            p = p.parent
+        }
+    }
+
     // Scale warning: saved BLE scale not connected or connection failed, or app fell back to simulated scale
     // Don't warn if a USB scale is connected — it satisfies the "have a real scale" requirement (not available on iOS)
     property bool showScaleWarning: (!root.scaleConnected || root.isFlowScale)
@@ -203,7 +217,7 @@ Item {
                 if (tapCount >= 2) {
                     tapCount = 0
                     singleTapTimer.stop()
-                    scaleBrewDialog.open()
+                    root.openBrewSettings()
                 } else {
                     singleTapTimer.restart()
                 }
@@ -215,7 +229,7 @@ Item {
             interval: 600
             onTriggered: {
                 scaleMouseArea.longPressTriggered = true
-                scaleBrewDialog.open()
+                root.openBrewSettings()
             }
         }
 
@@ -303,10 +317,5 @@ Item {
                     MachineState.tareScale()
             }
         }
-    }
-
-    // Brew settings dialog (temperature, dose, grind, ratio, yield)
-    BrewDialog {
-        id: scaleBrewDialog
     }
 }

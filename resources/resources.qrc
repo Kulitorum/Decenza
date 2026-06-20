@@ -15,6 +15,8 @@
         <file>splash/splash4.png</file>
         <file>splash/splash5.png</file>
         <!-- Icons -->
+        <file>icons/bell.svg</file>
+        <file>icons/bell-off.svg</file>
         <file alias="icons/espresso.svg">icons/espresso 8mm.svg</file>
         <file>icons/steam.svg</file>
         <file>icons/water.svg</file>

@@ -19,6 +19,9 @@ class SettingsBrew : public QObject {
     // Dose cup tare: empty weight of the dosing vessel, subtracted from the scale
     // reading in "Get from scale" so the dose is net beans. Default 0 = no tare.
     Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight WRITE setDoseCupTareWeight NOTIFY doseCupTareWeightChanged)
+    // Whether the confirmation "ding" plays when a bean dose auto-captures. Default
+    // off — not everyone wants the sound; toggled by the bell on the Dose cup row.
+    Q_PROPERTY(bool doseCaptureSoundEnabled READ doseCaptureSoundEnabled WRITE setDoseCaptureSoundEnabled NOTIFY doseCaptureSoundEnabledChanged)
 
     // Steam
     Q_PROPERTY(double steamTemperature READ steamTemperature WRITE setSteamTemperature NOTIFY steamTemperatureChanged)
@@ -78,6 +81,9 @@ public:
 
     double doseCupTareWeight() const;
     void setDoseCupTareWeight(double weight);
+
+    bool doseCaptureSoundEnabled() const;
+    void setDoseCaptureSoundEnabled(bool enabled);
 
     // Steam
     double steamTemperature() const;
@@ -183,6 +189,7 @@ signals:
     void targetWeightChanged();
     void lastUsedRatioChanged();
     void doseCupTareWeightChanged();
+    void doseCaptureSoundEnabledChanged();
     void steamTemperatureChanged();
     void steamTimeoutChanged();
     void steamFlowChanged();
