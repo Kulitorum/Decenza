@@ -248,8 +248,8 @@ void AccessibilityManager::initDingSound()
 {
     if (m_dingSound)
         return;  // already loaded
-    // Weight-capture confirmation ding — full volume, independent of the tick /
-    // accessibility volume since it is a general UI cue.
+    // Weight-capture confirmation ding — near-full volume (0.9), independent of
+    // the tick / accessibility volume since it is a general UI cue.
     m_dingSound = new QSoundEffect(this);
     m_dingSound->setSource(QUrl("qrc:/sounds/ding.wav"));
     m_dingSound->setVolume(0.9);
@@ -259,7 +259,10 @@ void AccessibilityManager::playCaptureDing()
 {
     if (m_shuttingDown) return;
     initDingSound();  // no-op after the first call / startup pre-load
-    if (m_dingSound)
+    // Gate on Ready like playTick() — playing during the async load window (or on
+    // a failed load) is a silent no-op, so don't bother. The startup pre-load
+    // means this is almost always Ready by the first capture.
+    if (m_dingSound && m_dingSound->status() == QSoundEffect::Ready)
         m_dingSound->play();
 }
 

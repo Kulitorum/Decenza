@@ -8,9 +8,10 @@ import QtQuick
 // the load is removed (drops below `removeThreshold`) or changes materially from
 // the captured value (so topping up milk / re-dosing beans re-captures).
 //
-// Detection is driven by `weight` changes; a slow poll Timer additionally
-// re-checks elapsed stability time so a scale that streams a perfectly constant
-// value still captures. The poll is genuinely periodic, not a guard timer.
+// Detection is driven by `weight` changes; a 150 ms poll Timer additionally
+// re-runs the check while arming, so a scale that streams a perfectly constant
+// (non-jittering) value still reaches `stableMs` and graduates. The poll stops
+// once captured.
 Item {
     id: root
 
