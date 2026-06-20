@@ -321,6 +321,24 @@ void SettingsBrew::setSteamPitcherWeight(int index, double weightG) {
     }
 }
 
+void SettingsBrew::setSteamPitcherCalibration(int index, double calibMilkG) {
+    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (index >= 0 && index < static_cast<int>(arr.size())) {
+        QJsonObject preset = arr[index].toObject();
+        if (calibMilkG > 0) {
+            preset["calibMilkG"] = calibMilkG;
+        } else {
+            preset.remove("calibMilkG");  // 0 / negative clears the calibration
+        }
+        arr[index] = preset;
+        m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
+        emit steamPitcherPresetsChanged();
+    }
+}
+
 QVariantMap SettingsBrew::getSteamPitcherPreset(int index) const {
     QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
     QJsonDocument doc = QJsonDocument::fromJson(data);

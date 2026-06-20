@@ -110,6 +110,9 @@ public:
     Q_INVOKABLE void moveSteamPitcherPreset(int from, int to);
     Q_INVOKABLE QVariantMap getSteamPitcherPreset(int index) const;
     Q_INVOKABLE void setSteamPitcherWeight(int index, double weightG);
+    // Weight-scaled steaming: pair a reference milk weight with this preset's
+    // duration. At steam time the duration is scaled by the actual milk weight.
+    Q_INVOKABLE void setSteamPitcherCalibration(int index, double calibMilkG);
 
     // Hot water
     double waterTemperature() const;
