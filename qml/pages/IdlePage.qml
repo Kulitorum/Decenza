@@ -148,6 +148,65 @@ Page {
     // Track which function's presets are showing (used by center-zone action items)
     property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush", "beans", "equipment"
 
+    // Idle bean auto-capture: when the dose cup (with beans) rests stable on the
+    // scale, set the dose + stop-at-weight (same as the "Weigh beans" button),
+    // ding, and confirm on the button text. Active on the plain home screen and
+    // in espresso/beans mode (NOT while showing steam/hot-water/flush presets,
+    // where the scale is for milk/water), and bounded to a dose-plausible weight
+    // (<= 45 g net) so a milk pitcher or water vessel never trips it.
+    property bool beanCaptureShown: false
+    property string beanCaptureText: ""
+    Timer { id: idleBeanCaptureTimer; interval: 3500; onTriggered: idlePage.beanCaptureShown = false }
+    StableWeightCapture {
+        id: beanCapture
+        weight: ScaleDevice.connected ? Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight) : 0
+        active: ScaleDevice.connected && !ScaleDevice.isFlowScale
+                && idlePage.activePresetFunction !== "steam"
+                && idlePage.activePresetFunction !== "hotwater"
+                && idlePage.activePresetFunction !== "flush"
+        minWeight: 5
+        maxWeight: 45
+        tolerance: 0.5
+        stableMs: 2500
+        onStableCaptured: function(net) {
+            if (net < 3) return
+            Settings.dye.dyeBeanWeight = net
+            Settings.brew.brewYieldOverride = net * Settings.brew.lastUsedRatio
+            idlePage.beanCaptureText = TranslationManager.translate("idle.doseCaptured", "Dose set: %1g").arg(net.toFixed(1))
+            idlePage.beanCaptureShown = true
+            idleBeanCaptureTimer.restart()
+            if (typeof AccessibilityManager !== "undefined") {
+                AccessibilityManager.playCaptureDing()
+                if (AccessibilityManager.enabled)
+                    AccessibilityManager.announce(idlePage.beanCaptureText)
+            }
+        }
+    }
+
+    // Small flashing reminder shown while a cup of beans or a pitcher of milk is
+    // settling on the scale (something is on the scale but the capture hasn't
+    // fired yet). Disappears the instant it captures (the bell rings).
+    Text {
+        id: waitForBellHint
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: Theme.scaled(70)
+        z: 1500
+        horizontalAlignment: Text.AlignHCenter
+        readonly property bool beansSettling: beanCapture.active && !beanCapture.isCaptured
+                                              && beanCapture.weight >= beanCapture.minWeight
+        visible: beansSettling
+        text: TranslationManager.translate("scale.waitForBell", "Wait for the bell before you take it off the scale")
+        color: Theme.warningColor
+        font: Theme.labelFont
+        SequentialAnimation on opacity {
+            running: waitForBellHint.visible
+            loops: Animation.Infinite
+            NumberAnimation { to: 0.25; duration: 450 }
+            NumberAnimation { to: 1.0; duration: 450 }
+        }
+    }
+
     // Auto-tare scale and announce presets when activePresetFunction changes
     onActivePresetFunctionChanged: {
         // Auto-tare when steam pills appear so the scale starts at 0
@@ -493,6 +552,49 @@ Page {
                                     profileFilename: Settings.app.currentProfile,
                                     profileName: ProfileManager.currentProfileName
                                 })
+                            }
+                        }
+                    }
+
+                    // Bean weight: weigh the dose from the scale (minus the stored
+                    // dose-cup tare) and apply it — sets the dose and the stop-at-weight
+                    // (dose x ratio) only; temperature and grind are left untouched. The
+                    // button shows a live preview of the net beans on the scale.
+                    Row {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        visible: ScaleDevice.connected && !ScaleDevice.isFlowScale
+                        spacing: Theme.scaled(8)
+
+                        // Small, unobtrusive live net-weight readout. Beans now
+                        // auto-capture when stable, so this is a readout (not a
+                        // button) — it shows the live net beans and briefly flashes
+                        // the captured dose in the accent color.
+                        Text {
+                            id: weighBeansText
+                            horizontalAlignment: Text.AlignHCenter
+                            // True while prompting the user to place beans (nothing on
+                            // the scale yet) — this state gently blinks.
+                            readonly property bool showingPlacePrompt: !idlePage.beanCaptureShown
+                                && Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight) < 1
+                            text: {
+                                if (idlePage.beanCaptureShown)
+                                    return idlePage.beanCaptureText
+                                var net = Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight)
+                                if (net >= 1)
+                                    return net.toFixed(1) + " g " + TranslationManager.translate("idle.label.onScale", "on scale")
+                                return TranslationManager.translate("idle.label.placeBeansOnScale", "Place Beans on Scale") + "\n"
+                                     + TranslationManager.translate("idle.label.placeBeansHint", "(and wait for the beep before removing)")
+                            }
+                            color: idlePage.beanCaptureShown ? Theme.primaryColor : Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(14)
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
+                            onShowingPlacePromptChanged: if (!showingPlacePrompt) opacity = 1.0
+                            SequentialAnimation on opacity {
+                                running: weighBeansText.showingPlacePrompt
+                                loops: Animation.Infinite
+                                NumberAnimation { to: 0.45; duration: 800 }
+                                NumberAnimation { to: 1.0; duration: 800 }
                             }
                         }
                     }

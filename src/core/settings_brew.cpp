@@ -114,6 +114,18 @@ void SettingsBrew::setLastUsedRatio(double ratio) {
     }
 }
 
+double SettingsBrew::doseCupTareWeight() const {
+    return m_settings.value("espresso/doseCupTareWeight", 0.0).toDouble();
+}
+
+void SettingsBrew::setDoseCupTareWeight(double weight) {
+    if (weight < 0) weight = 0;  // a tare is never negative
+    if (doseCupTareWeight() != weight) {
+        m_settings.setValue("espresso/doseCupTareWeight", weight);
+        emit doseCupTareWeightChanged();
+    }
+}
+
 // Steam
 
 double SettingsBrew::steamTemperature() const {

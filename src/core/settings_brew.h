@@ -16,6 +16,9 @@ class SettingsBrew : public QObject {
     Q_PROPERTY(double espressoTemperature READ espressoTemperature WRITE setEspressoTemperature NOTIFY espressoTemperatureChanged)
     Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)
     Q_PROPERTY(double lastUsedRatio READ lastUsedRatio WRITE setLastUsedRatio NOTIFY lastUsedRatioChanged)
+    // Dose cup tare: empty weight of the dosing vessel, subtracted from the scale
+    // reading in "Get from scale" so the dose is net beans. Default 0 = no tare.
+    Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight WRITE setDoseCupTareWeight NOTIFY doseCupTareWeightChanged)
 
     // Steam
     Q_PROPERTY(double steamTemperature READ steamTemperature WRITE setSteamTemperature NOTIFY steamTemperatureChanged)
@@ -72,6 +75,9 @@ public:
 
     double lastUsedRatio() const;
     void setLastUsedRatio(double ratio);
+
+    double doseCupTareWeight() const;
+    void setDoseCupTareWeight(double weight);
 
     // Steam
     double steamTemperature() const;
@@ -176,6 +182,7 @@ signals:
     void espressoTemperatureChanged();
     void targetWeightChanged();
     void lastUsedRatioChanged();
+    void doseCupTareWeightChanged();
     void steamTemperatureChanged();
     void steamTimeoutChanged();
     void steamFlowChanged();
