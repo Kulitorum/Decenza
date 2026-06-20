@@ -8,7 +8,9 @@ import "../components/layout"
 Page {
     id: idlePage
     objectName: "idlePage"
-    property alias idleBrewDialog: idleBrewDialog
+    // Exposed so the global Brew Settings dialog (main.qml) can source the live
+    // empty-scale virtual zero while this is the current page.
+    readonly property real scaleVirtualZero: beanCapture.virtualZero
     background: Rectangle { color: Theme.backgroundColor }
 
     // True when the app is allowed to start machine operations on-screen.
@@ -21,7 +23,7 @@ Page {
         root.currentPageTitle = TranslationManager.translate("idle.pageTitle", "Idle")
         if (root.pendingBrewDialog) {
             root.pendingBrewDialog = false
-            idleBrewDialog.open()
+            root.openBrewSettings()
         }
     }
 
@@ -150,8 +152,9 @@ Page {
 
     // Idle bean auto-capture: tracks a virtual zero off the empty scale, then when
     // the dose cup (with beans) rests stable it sets the dose (dyeBeanWeight) and
-    // stop-at-weight (brewYieldOverride = dose x lastUsedRatio), dings, and confirms
-    // on the readout. Net dose = (load - virtualZero) - cupWeight, so it is robust to
+    // stop-at-weight (brewYieldOverride = dose x lastUsedRatio), optionally dings
+    // (if doseCaptureSoundEnabled), and confirms on the readout. Net dose =
+    // (load - virtualZero) - cupWeight, so it is robust to
     // an un-zeroed/drifting scale. The baseline tracks even with no cup saved (so the
     // "Weigh" button can reuse it); all user-visible behaviour and the actual capture
     // stay gated on a saved cup (doseCupTareWeight > 0). Stays armed whether or not the
@@ -198,9 +201,9 @@ Page {
         function onTareCompleted() { beanCapture.reset() }
     }
 
-    // Small flashing reminder shown while a cup of beans or a pitcher of milk is
-    // settling on the scale (something is on the scale but the capture hasn't
-    // fired yet). Disappears the instant it captures (the bell rings).
+    // Small flashing reminder shown while a dose cup of beans is settling on the
+    // scale (a load is present but stable-capture hasn't fired yet). Disappears the
+    // instant capture completes; a ding plays then only if doseCaptureSoundEnabled.
     Text {
         id: waitForBellHint
         anchors.horizontalCenter: parent.horizontalCenter
@@ -305,14 +308,6 @@ Page {
         enabled: activePresetFunction !== "" &&
                  !(typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
         onClicked: activePresetFunction = ""
-    }
-
-    // Brew dialog opened from shot plan line
-    BrewDialog {
-        id: idleBrewDialog
-        // Share the page's tracked empty-scale baseline so "Weigh" can store the cup
-        // as a delta (offset-free), matching how the dose is measured.
-        scaleVirtualZero: beanCapture.virtualZero
     }
 
     // ============================================================

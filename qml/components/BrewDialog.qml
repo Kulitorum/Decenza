@@ -508,8 +508,10 @@ Dialog {
             }
 
             // Dose cup section: shows the stored empty-cup weight and lets you
-            // adjust it (type or +/-) or re-weigh it. Subtracted from "Get from
-            // scale" so the dose is net beans. Set once; no per-shot taring.
+            // adjust it (type or +/-) or re-weigh it. With a cup saved, its weight is
+            // subtracted by the auto-capture detector (net = load − virtualZero −
+            // cupTare); "Get from scale" only appears when no cup is saved. Set once;
+            // no per-shot taring.
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)

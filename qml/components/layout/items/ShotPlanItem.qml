@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Window
 import Decenza
 import "../.."
 
@@ -15,18 +16,12 @@ Item {
     readonly property bool showRoastDate: modelData.shotPlanShowRoastDate === true
     readonly property bool showDoseYield: modelData.shotPlanShowDoseYield !== false
 
-    // Open the single shared Brew Settings dialog owned by IdlePage (it is wired
-    // with the scale's virtual zero). Walk up to the page rather than hosting a
-    // private BrewDialog per tile. No-op outside the idle page (e.g. layout editor).
+    // Open the single global Brew Settings dialog (hosted at the app root) via the
+    // window, so this works wherever the tile is placed — including the persistent
+    // status bar, which is not a descendant of IdlePage.
     function openBrewSettings() {
-        var p = root.parent
-        while (p) {
-            if (p.objectName === "idlePage") {
-                if (p.idleBrewDialog) p.idleBrewDialog.open()
-                return
-            }
-            p = p.parent
-        }
+        var win = root.Window.window
+        if (win && win.openBrewSettings) win.openBrewSettings()
     }
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth

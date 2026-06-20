@@ -10,8 +10,9 @@ import QtQuick
 // (cupWeight > 0); the virtual zero keeps tracking even before then so a "weigh
 // the cup" action can subtract the same baseline.
 //
-// Detection is driven by `rawWeight` changes; a 150 ms poll re-runs the check
-// while armed so a perfectly constant (non-jittering) stream still graduates.
+// Detection is driven by `rawWeight` changes; a 150 ms poll also re-runs the check
+// while active and uncaptured, so a perfectly constant (non-jittering) stream still
+// advances through both baseline seeding and load stabilization.
 Item {
     id: root
 
@@ -43,6 +44,8 @@ Item {
     property double  _candSince: 0
 
     function reset() {
+        // _virtualZero intentionally kept: _seeded=false forces re-adoption from the
+        // next stable empty reading (gated by _seeded), so the old value is never used.
         _seeded = false
         _captured = false
         _capturedNet = 0
