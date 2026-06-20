@@ -74,7 +74,9 @@ Item {
 
         if (!_seeded) {
             // Establish the first virtual zero only from a STABLE reading, so a
-            // transient or an already-loaded scale at startup can't become the zero.
+            // transient (jittering) reading can't become the zero. A load left on the
+            // scale at startup can still be adopted as the baseline; taring the scale
+            // (which calls reset()) re-establishes it from the true empty reading.
             if (_settled(now, baselineMs)) {
                 _virtualZero = rawWeight
                 _seeded = true
