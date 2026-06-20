@@ -1,107 +1,14 @@
 import QtQuick
-import QtQuick.Layouts
-import QtQuick.Effects
-import QtQuick.Window
 import Decenza
-import "../.."
 
+// Sleep was moved to the top status bar (dead-centre) so it no longer shares
+// the bottom-left corner with the Back button — accidental sleeps during screen
+// transitions were the result. This widget now renders nothing, so any saved
+// layout that still places "sleep" in a zone shows no (duplicate) button.
 Item {
-    id: root
     property bool isCompact: false
     property string itemId: ""
-
-    implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
-    implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
-
-    function doSleep() {
-        if (ScaleDevice && ScaleDevice.connected) {
-            ScaleDevice.disableLcd()
-        }
-        DE1Device.goToSleep()
-        root.goToScreensaver()
-    }
-
-    function goToScreensaver() {
-        var win = Window.window
-        if (win && typeof win.goToScreensaver === "function") {
-            win.goToScreensaver()
-        }
-    }
-
-    // --- COMPACT MODE ---
-    Item {
-        id: compactContent
-        visible: root.isCompact
-        anchors.fill: parent
-        implicitWidth: compactSleepRow.implicitWidth + Theme.scaled(16)
-        implicitHeight: Theme.bottomBarHeight
-
-        Rectangle {
-            anchors.fill: parent
-            anchors.topMargin: Theme.spacingSmall
-            anchors.bottomMargin: Theme.spacingSmall
-            color: sleepCompactTap.isPressed ? Qt.darker(Theme.buttonDisabled, 1.2) : Theme.buttonDisabled
-            radius: Theme.cardRadius
-            opacity: 1.0
-        }
-
-        RowLayout {
-            id: compactSleepRow
-            anchors.centerIn: parent
-            spacing: Theme.spacingSmall
-            Image {
-                source: "qrc:/icons/sleep.svg"
-                sourceSize.width: Theme.scaled(28)
-                sourceSize.height: Theme.scaled(28)
-                Layout.alignment: Qt.AlignVCenter
-                Accessible.ignored: true
-                layer.enabled: true
-                layer.smooth: true
-                layer.effect: MultiEffect {
-                    colorization: 1.0
-                    colorizationColor: Theme.textColor
-                }
-            }
-            Tr {
-                key: "idle.button.sleep"
-                fallback: "Sleep"
-                font: Theme.bodyFont
-                color: Theme.textColor
-                verticalAlignment: Text.AlignVCenter
-                Accessible.ignored: true
-            }
-        }
-
-        AccessibleTapHandler {
-            id: sleepCompactTap
-            anchors.fill: parent
-            supportLongPress: true
-            longPressInterval: 1000
-            accessibleName: TranslationManager.translate("idle.accessible.sleep", "Sleep") + ". " + TranslationManager.translate("idle.accessible.sleep.description", "Put the machine to sleep")
-            accessibleDescription: TranslationManager.translate("idle.accessible.sleep.hint", "Long-press to quit the app.")
-            onAccessibleClicked: root.doSleep()
-            onAccessibleLongPressed: Qt.quit()
-        }
-    }
-
-    // --- FULL MODE ---
-    Item {
-        id: fullContent
-        visible: !root.isCompact
-        anchors.fill: parent
-        implicitWidth: Theme.scaled(150)
-        implicitHeight: Theme.scaled(120)
-
-        ActionButton {
-            anchors.fill: parent
-            translationKey: "idle.button.sleep"
-            translationFallback: "Sleep"
-            iconSource: "qrc:/icons/sleep.svg"
-            backgroundColor: Theme.buttonDisabled
-            onClicked: root.doSleep()
-            onPressAndHold: Qt.quit()
-
-            Accessible.description: TranslationManager.translate("idle.accessible.sleep.hint", "Long-press to quit the app.")
-        }
-    }
+    implicitWidth: 0
+    implicitHeight: 0
+    visible: false
 }
