@@ -29,8 +29,8 @@
 
 ## 5. Review and PR
 
-- [ ] 5.1 Verify the toggle is disabled when Auto-Upload is off and interactive when it is on
-- [ ] 5.2 Manually verify that closing PostShotReviewPage after an edit triggers a PATCH (check network log or visualizer.coffee)
-- [ ] 5.3 Manually verify that closing without edits does not trigger a PATCH
-- [ ] 5.4 Verify MCP shot edit on a shot with a `visualizer_id` fires a PATCH
+- [~] 5.1 Verify the toggle is disabled when Auto-Upload is off and interactive when it is on
+- [~] 5.2 Manually verify that closing PostShotReviewPage after an edit triggers a PATCH (check network log or visualizer.coffee)
+- [~] 5.3 Manually verify that closing without edits does not trigger a PATCH
+- [~] 5.4 Verify MCP shot edit on a shot with a `visualizer_id` fires a PATCH
 - [x] 5.5 Open PR, run `/pr-review-toolkit:review-pr`, merge
