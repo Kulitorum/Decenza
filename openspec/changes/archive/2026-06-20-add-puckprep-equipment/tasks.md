@@ -29,5 +29,5 @@
 - [~] 5.2 Live (simulation) end-to-end. WRITE path confirmed live — `equipment_list` shows `puckPrep` (flags + derived `distribution`) on the active Niche Zero package, set via the UI. DIALING path covered by the `buildCurrentBeanBlock` unit test (the shared helper `dialing_get_context` uses). The live-shot leg (pull a simulated shot → confirm `currentBean.puckPrep`) was declined by the user, so left as a manual check.
 
 ## 6. Follow-ons (NOT in this change — tracked here)
-- [ ] 6.1 Tamper (base shape flat/convex/ripple) as one enum field on the puck-prep item
-- [ ] 6.2 Sift as a 6th flag (folds into the `distribution` rollup)
+- [~] 6.1 Tamper (base shape flat/convex/ripple) as one enum field on the puck-prep item
+- [~] 6.2 Sift as a 6th flag (folds into the `distribution` rollup)
