@@ -680,6 +680,12 @@ Page {
         nb.grinderBurrs = editGrinderBurrs
         nb.equipmentId = editEquipmentId
         nb.equipmentName = editEquipmentName
+        // Basket + puck prep are display-only but kept in sync so editShotData
+        // stays a faithful mirror after a re-point (resolved from equipmentId on
+        // the next load; copied here for the in-memory clone's consistency).
+        nb.basketBrand = editBasketBrand
+        nb.basketModel = editBasketModel
+        nb.puckPrep = editPuckPrep
         nb.grinderSetting = editGrinderSetting
         nb.rpm = editRpm
         nb.barista = editBarista
@@ -1579,14 +1585,15 @@ Page {
                 // PACKAGE now (add-equipment-packages), so it is READ-ONLY here and
                 // changed by re-pointing the shot to a different package via the
                 // picker — not edited as free text (those edits were silently
-                // discarded). The grind Setting (below) stays a per-shot dial-in.
+                // discarded).
                 // Equipment identity card (grinder + basket + puck prep), styled
                 // like the inventory EquipmentCard and sharing its EquipmentSummary
                 // renderer. The grind setting + RPM are omitted here — they are the
                 // per-shot dial-in edited in the fields just below, so echoing them
                 // read-only would only duplicate. Re-point via the Change Equipment
-                // button (the inventory card's Remove slot); all details live on the
-                // card, so there is no separate info button.
+                // button (occupying the same action-button row the inventory card
+                // uses); all details live on the card, so there is no separate info
+                // button.
                 Rectangle {
                     id: equipmentCard
                     Layout.columnSpan: 3
@@ -1635,7 +1642,7 @@ Page {
                             Accessible.ignored: true
                         }
                         AccessibleButton {
-                            height: Theme.scaled(36)
+                            Layout.preferredHeight: Theme.scaled(36)
                             _customFontSize: Theme.captionFont.pixelSize
                             leftPadding: Theme.scaled(10)
                             rightPadding: Theme.scaled(10)

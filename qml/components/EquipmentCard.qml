@@ -4,9 +4,10 @@ import QtQuick.Layouts
 import Decenza
 
 // Equipment package card (add-equipment-packages). Mirrors BagCard. Shows the
-// grinder identity (brand/model, burrs subtitle), the last-used dial, and the
-// basket line (add-basket-equipment). Equipment is switched per-bag from Brew Settings, so the
-// card itself is informational + edit/remove (no global "selected" state). One
+// package identity via the shared EquipmentSummary renderer (grinder, dial,
+// basket, puck prep), then adds the inventory chrome. Equipment is switched
+// per-bag from Brew Settings, so the card itself is informational + edit/remove
+// (no global "selected" state). One
 // removal action follows the package's life: a trash icon while no SHOT
 // references it (a mistaken creation — hard delete), then "Remove" once shots
 // exist (soft-delete, history kept). Storage is the authoritative backstop — it
