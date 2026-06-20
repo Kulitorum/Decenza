@@ -3,6 +3,7 @@
     <qresource prefix="/">
         <!-- Sounds -->
         <file>sounds/tick.wav</file>
+        <file>sounds/ding.wav</file>
         <file>sounds/frameclick1.wav</file>
         <file>sounds/frameclick2.wav</file>
         <file>sounds/frameclick3.wav</file>
