@@ -24,6 +24,10 @@ AccessibilityManager::AccessibilityManager(QObject *parent)
     initTts();
     if (m_enabled && m_tickEnabled)
         initTickSound();
+    // The capture ding is a general UI cue (not accessibility-gated), so pre-load
+    // it at startup regardless of accessibility/tick state — otherwise the very
+    // first capture would play nothing while the sound is still loading.
+    initDingSound();
 }
 
 #ifdef DECENZA_TESTING
@@ -238,6 +242,25 @@ void AccessibilityManager::initTickSound()
         m_tickSounds[i]->setSource(QUrl(QString("qrc:/sounds/frameclick%1.wav").arg(i + 1)));
         m_tickSounds[i]->setVolume(vol);
     }
+}
+
+void AccessibilityManager::initDingSound()
+{
+    if (m_dingSound)
+        return;  // already loaded
+    // Weight-capture confirmation ding — full volume, independent of the tick /
+    // accessibility volume since it is a general UI cue.
+    m_dingSound = new QSoundEffect(this);
+    m_dingSound->setSource(QUrl("qrc:/sounds/ding.wav"));
+    m_dingSound->setVolume(0.9);
+}
+
+void AccessibilityManager::playCaptureDing()
+{
+    if (m_shuttingDown) return;
+    initDingSound();  // no-op after the first call / startup pre-load
+    if (m_dingSound)
+        m_dingSound->play();
 }
 
 void AccessibilityManager::setEnabled(bool enabled)
