@@ -1,77 +1,107 @@
 import QtQuick
 
-// Event-driven stable-weight detector for auto-capturing a scale reading.
+// Delta-based stable-weight capture with an auto-tracked "virtual zero".
 //
-// The parent binds `weight` to a net value (e.g. scaleWeight - tare). When that
-// value holds within `tolerance` of a candidate for `stableMs`, this emits
-// stableCaptured(grams) exactly once and latches. It re-arms automatically when
-// the load is removed (drops below `removeThreshold`) or changes materially from
-// the captured value (so topping up milk / re-dosing beans re-captures).
+// Instead of trusting the scale's absolute zero, it watches the *empty* scale,
+// adopts its settled reading as a virtual zero (any value, including negative),
+// and then measures a placed load relative to that. The net dose is
+// (load - virtualZero) - cupWeight, so it is robust to an un-zeroed or drifting
+// scale at dose time. Capture only emits once a cup weight is saved
+// (cupWeight > 0); the virtual zero keeps tracking even before then so a "weigh
+// the cup" action can subtract the same baseline.
 //
-// Detection is driven by `weight` changes; a 150 ms poll Timer additionally
-// re-runs the check while arming, so a scale that streams a perfectly constant
-// (non-jittering) value still reaches `stableMs` and graduates. The poll stops
-// once captured.
+// Detection is driven by `rawWeight` changes; a 150 ms poll re-runs the check
+// while armed so a perfectly constant (non-jittering) stream still graduates.
 Item {
     id: root
 
     // --- Inputs (parent may override) ---
-    property real weight: 0           // net weight to watch
-    property bool active: true        // only detect while true
-    property real minWeight: 20       // ignore readings below this (noise / empty)
-    property real maxWeight: 100000   // ignore readings above this (e.g. wrong vessel)
-    property real tolerance: 1.0      // ± grams treated as "the same reading"
-    property int  stableMs: 2500      // must hold this long to count as stable
-    property real removeThreshold: 5  // below this = load removed -> re-arm
-    property real rearmDelta: 6        // change this much from captured value -> re-arm
+    property real rawWeight: 0      // absolute scale reading (NOT pre-tared; may be < 0)
+    property bool active: true      // only detect while true
+    property real cupWeight: 0      // saved empty-cup weight, subtracted from the load
+    property real minNet: 5         // ignore net doses below this (noise)
+    property real maxNet: 45        // ignore net doses above this (wrong vessel)
+    property real tolerance: 0.5    // ± grams treated as "the same reading"
+    property int  stableMs: 2500    // a loaded weight must hold this long to capture a dose
+    property int  baselineMs: 1000  // an empty scale must hold this long to (re)adopt the zero
+    property real loadThreshold: 3  // rise above the virtual zero that means "load placed"
+    property real rearmDelta: 6     // net change after capture that re-arms in place
 
     // --- Outputs ---
+    readonly property real virtualZero: _virtualZero
+    readonly property bool loadPresent: _seeded && (rawWeight - _virtualZero) >= loadThreshold
+    readonly property real netWeight: loadPresent ? (rawWeight - _virtualZero - cupWeight) : 0
     readonly property bool isCaptured: _captured
-    readonly property real capturedValue: _capturedValue
 
     signal stableCaptured(real grams)
 
-    property bool   _captured: false
-    property real   _capturedValue: 0
-    property real   _candidate: NaN
-    property double _candidateSince: 0
+    property real    _virtualZero: 0
+    property bool    _seeded: false
+    property bool    _captured: false
+    property real    _capturedNet: 0
+    property real    _cand: NaN
+    property double  _candSince: 0
 
     function reset() {
+        _seeded = false
         _captured = false
-        _capturedValue = 0
-        _candidate = NaN
+        _capturedNet = 0
+        _cand = NaN
     }
 
     onActiveChanged: if (!active) reset()
-    onWeightChanged: _evaluate()
+    onRawWeightChanged: _evaluate()
+
+    // True once rawWeight has held within tolerance for `dwell` ms; otherwise it
+    // (re)seeds the candidate run and returns false.
+    function _settled(now, dwell) {
+        if (isNaN(_cand) || Math.abs(rawWeight - _cand) > tolerance) {
+            _cand = rawWeight
+            _candSince = now
+            return false
+        }
+        return (now - _candSince) >= dwell
+    }
 
     function _evaluate() {
         if (!active)
             return
 
-        if (_captured) {
-            // Re-arm only if the load was removed or materially changed.
-            if (weight < removeThreshold || Math.abs(weight - _capturedValue) > rearmDelta)
-                reset()
-            else
-                return
-        }
-
-        if (weight < minWeight || weight > maxWeight) {
-            _candidate = NaN
-            return
-        }
-
         var now = Date.now()
-        if (isNaN(_candidate) || Math.abs(weight - _candidate) > tolerance) {
-            _candidate = weight
-            _candidateSince = now
+
+        if (!_seeded) {
+            // Establish the first virtual zero only from a STABLE reading, so a
+            // transient or an already-loaded scale at startup can't become the zero.
+            if (_settled(now, baselineMs)) {
+                _virtualZero = rawWeight
+                _seeded = true
+            }
             return
         }
-        if (now - _candidateSince >= stableMs) {
-            _captured = true
-            _capturedValue = weight
-            stableCaptured(weight)
+
+        var net = rawWeight - _virtualZero - cupWeight
+
+        if (_captured) {                                   // re-arm: removed OR materially changed
+            if ((rawWeight - _virtualZero) < loadThreshold
+                || Math.abs(net - _capturedNet) > rearmDelta) {
+                _captured = false
+                _cand = NaN
+            }
+            return
+        }
+
+        if ((rawWeight - _virtualZero) < loadThreshold) {  // empty: re-adopt the zero (baselineMs)
+            if (_settled(now, baselineMs))                 // so an un-zeroed/drifting baseline stays good
+                _virtualZero = rawWeight
+            return
+        }
+
+        if (_settled(now, stableMs)) {                     // load held long enough: capture net
+            if (cupWeight > 0 && net >= minNet && net <= maxNet) {
+                _captured = true
+                _capturedNet = net
+                stableCaptured(net)
+            }
         }
     }
 

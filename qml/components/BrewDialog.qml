@@ -21,6 +21,11 @@ Dialog {
     property double temperatureValue: ProfileManager.profileTargetTemperature
     property double profileTemperature: ProfileManager.profileTargetTemperature
 
+    // Empty-scale virtual zero, fed from IdlePage's bean capture. Lets "Weigh" store
+    // the cup as a delta (reading - virtualZero) so a non-zeroed scale doesn't bake an
+    // offset into the saved cup weight.
+    property real scaleVirtualZero: 0
+
     // Dose value (editable, default 18g)
     property double doseValue: 18.0
     property double ratio: Settings.brew.lastUsedRatio
@@ -90,31 +95,21 @@ Dialog {
     property bool showScaleWarning: false
     property bool lowDoseWarning: doseValue < 3 || showScaleWarning
 
-    // Bean auto-capture: when the dose cup (with beans) rests stable on the scale,
-    // lock the net dose, ding, and show a confirmation. Same net-dose math as the
-    // "Get from scale" button; re-arms when the cup is removed / the load changes.
-    property bool beanCaptureVisible: false
-    property string beanCaptureText: ""
-    Timer { id: beanCaptureTimer; interval: 3500; onTriggered: root.beanCaptureVisible = false }
-    StableWeightCapture {
-        id: beanCapture
-        weight: ScaleDevice.connected ? Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight) : 0
-        active: root.visible && ScaleDevice.connected && !ScaleDevice.isFlowScale
-        minWeight: 5
-        maxWeight: 45
-        tolerance: 0.5
-        stableMs: 2500
-        onStableCaptured: function(net) {
-            root.showScaleWarning = false
-            root.targetManuallySet = false
-            root.doseValue = net
-            root.beanCaptureText = TranslationManager.translate("brewDialog.doseCaptured", "Dose set: %1g").arg(net.toFixed(1))
-            root.beanCaptureVisible = true
-            beanCaptureTimer.restart()
-            if (typeof AccessibilityManager !== "undefined") {
-                AccessibilityManager.playCaptureDing()
-                if (AccessibilityManager.enabled)
-                    AccessibilityManager.announce(root.beanCaptureText)
+    // Bean auto-capture lives in IdlePage as a single, persistent detector — it
+    // stays armed across this dialog opening/closing, so a cup already weighed on
+    // the home screen is NOT re-captured (no second ding) when you open settings.
+    // The capture writes the canonical dyeBeanWeight; this watcher reflects it into
+    // the editable dose whenever a capture lands while THIS dialog is open. (There
+    // are several BrewDialog instances — idle, ShotPlan tile, ScaleWeight tile — so
+    // each one self-updates rather than the capture targeting a specific instance.)
+    // The manual "Get from scale" button below covers the no-dose-cup case.
+    Connections {
+        target: Settings.dye
+        enabled: root.visible
+        function onDyeBeanWeightChanged() {
+            if (root.visible && Settings.dye.dyeBeanWeight > 0) {
+                root.targetManuallySet = false
+                root.doseValue = Settings.dye.dyeBeanWeight
             }
         }
     }
@@ -363,29 +358,6 @@ Dialog {
                 }
             }
 
-            // Dose-captured confirmation (auto-dismiss after a few seconds)
-            Rectangle {
-                Layout.fillWidth: true
-                visible: root.beanCaptureVisible
-                color: Theme.surfaceColor
-                border.width: 1
-                border.color: Theme.primaryColor
-                radius: Theme.scaled(8)
-                implicitHeight: beanCaptureLabel.implicitHeight + Theme.scaled(24)
-                Text {
-                    id: beanCaptureLabel
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.margins: Theme.scaled(12)
-                    text: root.beanCaptureText
-                    font: Theme.bodyFont
-                    color: Theme.primaryColor
-                    horizontalAlignment: Text.AlignHCenter
-                    Accessible.ignored: true
-                }
-            }
-
             // Temperature input
             ColumnLayout {
                 Layout.fillWidth: true
@@ -498,12 +470,17 @@ Dialog {
 
                 AccessibleButton {
                     Layout.preferredHeight: Theme.scaled(44)
+                    // With a dose cup saved, beans auto-capture when stable, so the
+                    // manual grab is redundant — hide it. With no cup (tare 0) auto-
+                    // capture is off, so this is the only way to pull dose from scale.
+                    visible: Settings.brew.doseCupTareWeight <= 0
                     text: TranslationManager.translate("brewDialog.getFromScale", "Get from scale")
                     accessibleName: TranslationManager.translate("brewDialog.getDoseFromScale", "Get dose from scale")
                     primary: true
                     onClicked: {
-                        // Net beans = scale reading minus the stored dosing-cup tare (0 if unset)
-                        var net = MachineState.scaleWeight - Settings.brew.doseCupTareWeight
+                        // Net beans = reading minus the empty-scale virtual zero and the
+                        // stored cup tare (0 here, since this button only shows with no cup).
+                        var net = MachineState.scaleWeight - root.scaleVirtualZero - Settings.brew.doseCupTareWeight
                         if (net >= 3) {
                             root.showScaleWarning = false
                             root.targetManuallySet = false  // Reset manual flag
@@ -568,11 +545,11 @@ Dialog {
                     text: TranslationManager.translate("brewDialog.weighCup", "Weigh")
                     accessibleName: TranslationManager.translate("brewDialog.weighEmptyCup", "Weigh empty cup from scale")
                     primary: true
-                    onClicked: {
-                        var w = MachineState.scaleWeight
-                        if (w > 0)
-                            Settings.brew.doseCupTareWeight = w
-                    }
+                    // Store the cup as a delta from the empty-scale virtual zero, so a
+                    // non-zeroed scale doesn't inflate the saved weight. Disabled (dimmed)
+                    // until the cup is actually on the scale, so the button can't no-op.
+                    enabled: MachineState.scaleWeight - root.scaleVirtualZero > 0
+                    onClicked: Settings.brew.doseCupTareWeight = MachineState.scaleWeight - root.scaleVirtualZero
                 }
             }
 

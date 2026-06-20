@@ -58,6 +58,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     espresso["temperature"] = settings->brew()->espressoTemperature();
     espresso["targetWeight"] = settings->brew()->targetWeight();
     espresso["lastUsedRatio"] = settings->brew()->lastUsedRatio();
+    espresso["doseCupTareWeight"] = settings->brew()->doseCupTareWeight();
     root["espresso"] = espresso;
 
     // Steam settings
@@ -399,6 +400,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (espresso.contains("temperature")) settings->brew()->setEspressoTemperature(espresso["temperature"].toDouble());
         if (espresso.contains("targetWeight")) settings->brew()->setTargetWeight(espresso["targetWeight"].toDouble());
         if (espresso.contains("lastUsedRatio")) settings->brew()->setLastUsedRatio(espresso["lastUsedRatio"].toDouble());
+        if (espresso.contains("doseCupTareWeight")) settings->brew()->setDoseCupTareWeight(espresso["doseCupTareWeight"].toDouble());
     }
 
     // Steam settings

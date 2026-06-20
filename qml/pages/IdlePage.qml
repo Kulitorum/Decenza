@@ -148,28 +148,37 @@ Page {
     // Track which function's presets are showing (used by center-zone action items)
     property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush", "beans", "equipment"
 
-    // Idle bean auto-capture: when the dose cup (with beans) rests stable on the
-    // scale, set the dose + stop-at-weight (same as the "Weigh beans" button),
-    // ding, and confirm on the button text. Active on the plain home screen and
-    // in espresso/beans mode (NOT while showing steam/hot-water/flush presets,
-    // where the scale is for milk/water), and bounded to a dose-plausible weight
-    // (<= 45 g net) so a milk pitcher or water vessel never trips it.
+    // Idle bean auto-capture: tracks a virtual zero off the empty scale, then when
+    // the dose cup (with beans) rests stable it sets the dose (dyeBeanWeight) and
+    // stop-at-weight (brewYieldOverride = dose x lastUsedRatio), dings, and confirms
+    // on the readout. Net dose = (load - virtualZero) - cupWeight, so it is robust to
+    // an un-zeroed/drifting scale. The baseline tracks even with no cup saved (so the
+    // "Weigh" button can reuse it); all user-visible behaviour and the actual capture
+    // stay gated on a saved cup (doseCupTareWeight > 0). Stays armed whether or not the
+    // brew dialog is open — one persistent latch means an already-weighed cup is not
+    // re-captured on open/close. Only on home/espresso mode (NOT steam/hot-water/flush,
+    // where the scale is for milk/water).
     property bool beanCaptureShown: false
     property string beanCaptureText: ""
     Timer { id: idleBeanCaptureTimer; interval: 3500; onTriggered: idlePage.beanCaptureShown = false }
     StableWeightCapture {
         id: beanCapture
-        weight: ScaleDevice.connected ? Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight) : 0
+        rawWeight: ScaleDevice.connected ? MachineState.scaleWeight : 0
+        cupWeight: Settings.brew.doseCupTareWeight
         active: ScaleDevice.connected && !ScaleDevice.isFlowScale
                 && idlePage.activePresetFunction !== "steam"
                 && idlePage.activePresetFunction !== "hotwater"
                 && idlePage.activePresetFunction !== "flush"
-        minWeight: 5
-        maxWeight: 45
+        minNet: 5
+        maxNet: 45
         tolerance: 0.5
         stableMs: 2500
         onStableCaptured: function(net) {
-            if (net < 3) return
+            // net is always >= minNet (5 g) here — no extra floor needed.
+            // Always write the canonical dose + yield. Any open BrewDialog reflects
+            // it via its own dyeBeanWeight watcher — there are several BrewDialog
+            // instances (idle, ShotPlan tile, ScaleWeight tile), so we can't push to
+            // one specific one here.
             Settings.dye.dyeBeanWeight = net
             Settings.brew.brewYieldOverride = net * Settings.brew.lastUsedRatio
             idlePage.beanCaptureText = TranslationManager.translate("idle.doseCaptured", "Dose set: %1g").arg(net.toFixed(1))
@@ -183,6 +192,13 @@ Page {
         }
     }
 
+    // When the scale is zeroed/tared, the old virtual zero is stale (it would
+    // double-count the offset that was just removed) — re-establish the baseline.
+    Connections {
+        target: MachineState
+        function onTareCompleted() { beanCapture.reset() }
+    }
+
     // Small flashing reminder shown while a cup of beans or a pitcher of milk is
     // settling on the scale (something is on the scale but the capture hasn't
     // fired yet). Disappears the instant it captures (the bell rings).
@@ -193,8 +209,14 @@ Page {
         anchors.topMargin: Theme.scaled(70)
         z: 1500
         horizontalAlignment: Text.AlignHCenter
+        // Only while a load sits in the capture window with a cup saved. Outside
+        // [minNet, maxNet] no capture will ever fire, so don't tell the user to wait
+        // for a bell that can't ring (a too-heavy cup or the wrong vessel).
         readonly property bool beansSettling: beanCapture.active && !beanCapture.isCaptured
-                                              && beanCapture.weight >= beanCapture.minWeight
+                                              && Settings.brew.doseCupTareWeight > 0
+                                              && beanCapture.loadPresent
+                                              && beanCapture.netWeight >= beanCapture.minNet
+                                              && beanCapture.netWeight <= beanCapture.maxNet
         visible: beansSettling
         text: TranslationManager.translate("scale.waitForBell", "Wait for the bell before you take it off the scale")
         color: Theme.warningColor
@@ -289,6 +311,9 @@ Page {
     // Brew dialog opened from shot plan line
     BrewDialog {
         id: idleBrewDialog
+        // Share the page's tracked empty-scale baseline so "Weigh" can store the cup
+        // as a delta (offset-free), matching how the dose is measured.
+        scaleVirtualZero: beanCapture.virtualZero
     }
 
     // ============================================================
@@ -556,13 +581,14 @@ Page {
                         }
                     }
 
-                    // Bean weight: weigh the dose from the scale (minus the stored
-                    // dose-cup tare) and apply it — sets the dose and the stop-at-weight
-                    // (dose x ratio) only; temperature and grind are left untouched. The
-                    // button shows a live preview of the net beans on the scale.
+                    // Bean weight: live net-weight readout for the auto-capture above
+                    // (net = load minus the virtual zero and the saved cup). Only shown
+                    // once a dose-cup tare is saved (doseCupTareWeight > 0); with no cup
+                    // saved the auto-capture is off, so the readout/prompt stays hidden.
                     Row {
                         anchors.horizontalCenter: parent.horizontalCenter
                         visible: ScaleDevice.connected && !ScaleDevice.isFlowScale
+                                 && Settings.brew.doseCupTareWeight > 0
                         spacing: Theme.scaled(8)
 
                         // Small, unobtrusive live net-weight readout. Beans now
@@ -572,16 +598,15 @@ Page {
                         Text {
                             id: weighBeansText
                             horizontalAlignment: Text.AlignHCenter
-                            // True while prompting the user to place beans (nothing on
+                            // True while prompting the user to place beans (no load on
                             // the scale yet) — this state gently blinks.
                             readonly property bool showingPlacePrompt: !idlePage.beanCaptureShown
-                                && Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight) < 1
+                                && !beanCapture.loadPresent
                             text: {
                                 if (idlePage.beanCaptureShown)
                                     return idlePage.beanCaptureText
-                                var net = Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight)
-                                if (net >= 1)
-                                    return net.toFixed(1) + " g " + TranslationManager.translate("idle.label.onScale", "on scale")
+                                if (beanCapture.loadPresent)
+                                    return beanCapture.netWeight.toFixed(1) + " g " + TranslationManager.translate("idle.label.onScale", "on scale")
                                 return TranslationManager.translate("idle.label.placeBeansOnScale", "Place Beans on Scale") + "\n"
                                      + TranslationManager.translate("idle.label.placeBeansHint", "(and wait for the beep before removing)")
                             }
