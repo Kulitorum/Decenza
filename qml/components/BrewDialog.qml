@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Effects
 import Decenza
 
 Dialog {
@@ -20,6 +21,11 @@ Dialog {
     // Temperature override
     property double temperatureValue: ProfileManager.profileTargetTemperature
     property double profileTemperature: ProfileManager.profileTargetTemperature
+
+    // Empty-scale virtual zero, fed from IdlePage's bean capture. Lets "Weigh" store
+    // the cup as a delta (reading - virtualZero) so a non-zeroed scale doesn't bake an
+    // offset into the saved cup weight.
+    property real scaleVirtualZero: 0
 
     // Dose value (editable, default 18g)
     property double doseValue: 18.0
@@ -89,6 +95,24 @@ Dialog {
     // Low dose warning - shown when dose is low OR when scale read failed
     property bool showScaleWarning: false
     property bool lowDoseWarning: doseValue < 3 || showScaleWarning
+
+    // Bean auto-capture lives in IdlePage as a single, persistent detector — it
+    // stays armed across this dialog opening/closing, so a cup already weighed on
+    // the home screen is NOT re-captured (no second ding) when you open settings.
+    // The capture writes the canonical dyeBeanWeight; this watcher reflects it into
+    // the editable dose whenever a capture lands while the dialog is open (rather
+    // than the capture poking doseValue directly). The manual "Get from scale"
+    // button below covers the no-dose-cup case.
+    Connections {
+        target: Settings.dye
+        enabled: root.visible
+        function onDyeBeanWeightChanged() {
+            if (root.visible && Settings.dye.dyeBeanWeight > 0) {
+                root.targetManuallySet = false
+                root.doseValue = Settings.dye.dyeBeanWeight
+            }
+        }
+    }
 
     // Recalculate target when dose or ratio changes (unless manually overridden)
     onDoseValueChanged: {
@@ -446,15 +470,21 @@ Dialog {
 
                 AccessibleButton {
                     Layout.preferredHeight: Theme.scaled(44)
+                    // With a dose cup saved, beans auto-capture when stable, so the
+                    // manual grab is redundant — hide it. With no cup (tare 0) auto-
+                    // capture is off, so this is the only way to pull dose from scale.
+                    visible: Settings.brew.doseCupTareWeight <= 0
                     text: TranslationManager.translate("brewDialog.getFromScale", "Get from scale")
                     accessibleName: TranslationManager.translate("brewDialog.getDoseFromScale", "Get dose from scale")
                     primary: true
                     onClicked: {
-                        var scaleWeight = MachineState.scaleWeight
-                        if (scaleWeight >= 3) {
+                        // Net beans = reading minus the empty-scale virtual zero and the
+                        // stored cup tare (0 here, since this button only shows with no cup).
+                        var net = MachineState.scaleWeight - root.scaleVirtualZero - Settings.brew.doseCupTareWeight
+                        if (net >= 3) {
                             root.showScaleWarning = false
                             root.targetManuallySet = false  // Reset manual flag
-                            root.doseValue = scaleWeight
+                            root.doseValue = net
                         } else {
                             // Show warning but don't change dose
                             root.showScaleWarning = true
@@ -475,6 +505,87 @@ Dialog {
                 Layout.leftMargin: Theme.scaled(75) + Theme.scaled(8)
                 Accessible.role: Accessible.StaticText
                 Accessible.name: TranslationManager.translate("brewDialog.profileRecommendedDose", "Profile recommended dose: %1 grams").arg(ProfileManager.profileRecommendedDose.toFixed(1))
+            }
+
+            // Dose cup section: shows the stored empty-cup weight and lets you
+            // adjust it (type or +/-) or re-weigh it. With a cup saved, its weight is
+            // subtracted by the auto-capture detector (net = load − virtualZero −
+            // cupTare); "Get from scale" only appears when no cup is saved. Set once;
+            // no per-shot taring.
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(8)
+
+                Text {
+                    text: TranslationManager.translate("brewDialog.cupTareLabel", "Dose cup:")
+                    font: Theme.bodyFont
+                    color: Theme.textSecondaryColor
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.preferredWidth: Theme.scaled(75)
+                    Accessible.ignored: true
+                }
+
+                ValueInput {
+                    id: cupTareInput
+                    Layout.fillWidth: true
+                    value: Settings.brew.doseCupTareWeight
+                    from: 0
+                    to: 100
+                    stepSize: 0.1
+                    decimals: 1
+                    suffix: "g"
+                    valueColor: Theme.weightColor
+                    accentColor: Theme.weightColor
+                    accessibleName: TranslationManager.translate("brewDialog.doseCupWeight", "Dose cup weight")
+                    onValueModified: function(newValue) {
+                        Settings.brew.doseCupTareWeight = newValue
+                    }
+                }
+
+                AccessibleButton {
+                    Layout.preferredHeight: Theme.scaled(44)
+                    text: TranslationManager.translate("brewDialog.weighCup", "Weigh")
+                    accessibleName: TranslationManager.translate("brewDialog.weighEmptyCup", "Weigh empty cup from scale")
+                    primary: true
+                    // Store the cup as a delta from the empty-scale virtual zero, so a
+                    // non-zeroed scale doesn't inflate the saved weight. Disabled (dimmed)
+                    // until the cup is actually on the scale, so the button can't no-op.
+                    enabled: MachineState.scaleWeight - root.scaleVirtualZero > 0
+                    onClicked: Settings.brew.doseCupTareWeight = MachineState.scaleWeight - root.scaleVirtualZero
+                }
+
+                // Bell toggle: enable/disable the confirmation ding on auto-capture.
+                Item {
+                    Layout.preferredWidth: Theme.scaled(36)
+                    Layout.preferredHeight: Theme.scaled(36)
+                    Layout.alignment: Qt.AlignVCenter
+
+                    Image {
+                        id: dingBell
+                        anchors.centerIn: parent
+                        source: Settings.brew.doseCaptureSoundEnabled ? "qrc:/icons/bell.svg" : "qrc:/icons/bell-off.svg"
+                        height: Theme.scaled(20)
+                        sourceSize.height: Theme.scaled(40)
+                        fillMode: Image.PreserveAspectFit
+                        layer.enabled: true
+                        layer.smooth: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: Settings.brew.doseCaptureSoundEnabled ? Theme.primaryColor : Theme.textSecondaryColor
+                        }
+                        Accessible.ignored: true
+                    }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleRole: Accessible.CheckBox
+                        accessibleChecked: Settings.brew.doseCaptureSoundEnabled
+                        accessibleName: Settings.brew.doseCaptureSoundEnabled
+                            ? TranslationManager.translate("brewDialog.captureSoundOn", "Capture sound on")
+                            : TranslationManager.translate("brewDialog.captureSoundOff", "Capture sound off")
+                        onAccessibleClicked: Settings.brew.doseCaptureSoundEnabled = !Settings.brew.doseCaptureSoundEnabled
+                    }
+                }
             }
 
             // Ratio input
@@ -701,7 +812,9 @@ Dialog {
                     root.temperatureValue = root.profileTemperature
                     root.profileTargetWeight = ProfileManager.profileTargetWeight
 
-                    // Use the active bag's dose if available, otherwise default 18g
+                    // Reset the dose to the active bag's dose (the bean's remembered
+                    // weight), otherwise default 18 g. (Working-vs-bag dose separation
+                    // is a follow-up change.)
                     root.doseValue = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
                     root.selectedProfileTitle = ProfileManager.currentProfileName
                     root.grindSetting = Settings.dye.dyeGrinderSetting

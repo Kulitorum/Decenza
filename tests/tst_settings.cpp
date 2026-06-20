@@ -58,6 +58,8 @@ private:
 
     // Saved originals — restored in cleanup() regardless of test outcome
     double m_origTargetWeight;
+    double m_origDoseCupTare;
+    bool m_origDoseCaptureSound;
     double m_origSteamTemp;
     QString m_origScaleAddress;
     QString m_origThemeMode;
@@ -75,6 +77,8 @@ private slots:
     void init() {
         // Save all originals before each test
         m_origTargetWeight = m_settings.brew()->targetWeight();
+        m_origDoseCupTare = m_settings.brew()->doseCupTareWeight();
+        m_origDoseCaptureSound = m_settings.brew()->doseCaptureSoundEnabled();
         m_origSteamTemp = m_settings.brew()->steamTemperature();
         m_origScaleAddress = m_settings.scaleAddress();
         m_origThemeMode = m_settings.theme()->themeMode();
@@ -91,6 +95,8 @@ private slots:
     void cleanup() {
         // Restore all originals after each test (runs even on assertion failure)
         m_settings.brew()->setTargetWeight(m_origTargetWeight);
+        m_settings.brew()->setDoseCupTareWeight(m_origDoseCupTare);
+        m_settings.brew()->setDoseCaptureSoundEnabled(m_origDoseCaptureSound);
         m_settings.brew()->setSteamTemperature(m_origSteamTemp);
         m_settings.setScaleAddress(m_origScaleAddress);
         m_settings.theme()->setThemeMode(m_origThemeMode);
@@ -111,6 +117,25 @@ private slots:
     void targetWeightRoundTrip() {
         m_settings.brew()->setTargetWeight(42.5);
         QCOMPARE(m_settings.brew()->targetWeight(), 42.5);
+    }
+
+    void doseCupTareWeightRoundTrip() {
+        m_settings.brew()->setDoseCupTareWeight(12.5);
+        QCOMPARE(m_settings.brew()->doseCupTareWeight(), 12.5);
+    }
+
+    void doseCupTareWeightClampsNegativeToZero() {
+        // Setter clamps below 0 — a negative tare would otherwise inflate the
+        // computed net dose. 0 is the "no cup / feature off" sentinel.
+        m_settings.brew()->setDoseCupTareWeight(-5.0);
+        QCOMPARE(m_settings.brew()->doseCupTareWeight(), 0.0);
+    }
+
+    void doseCaptureSoundEnabledRoundTrip() {
+        m_settings.brew()->setDoseCaptureSoundEnabled(true);
+        QCOMPARE(m_settings.brew()->doseCaptureSoundEnabled(), true);
+        m_settings.brew()->setDoseCaptureSoundEnabled(false);
+        QCOMPARE(m_settings.brew()->doseCaptureSoundEnabled(), false);
     }
 
     void steamTemperatureRoundTrip() {

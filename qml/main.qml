@@ -39,6 +39,24 @@ ApplicationWindow {
     // Flag to open BrewDialog when IdlePage becomes active (set by AutoFavoritesPage)
     property bool pendingBrewDialog: false
 
+    // Single, global Brew Settings dialog — reachable from anywhere via
+    // root.openBrewSettings() (home-screen content, the persistent status bar, the
+    // "Open Brew Settings" action, layout previews). Lives at the root, not inside
+    // IdlePage (a StackView page, whose children can't be reached from the status
+    // bar outside the stack), so any host can open it regardless of the current page.
+    // scaleVirtualZero is snapshotted from the live idle page's bean capture at open
+    // time (else 0) — a fixed snapshot, not a live binding, so it can't jump to 0 if
+    // the app navigates away from Idle while the dialog is open.
+    function openBrewSettings() {
+        globalBrewDialog.scaleVirtualZero =
+            (pageStack.currentItem && pageStack.currentItem.objectName === "idlePage")
+                ? pageStack.currentItem.scaleVirtualZero : 0
+        globalBrewDialog.open()
+    }
+    BrewDialog {
+        id: globalBrewDialog
+    }
+
     // Track page to return to after steam/flush/water operations complete
     // This allows returning to postShotReviewPage instead of always going to idlePage
     property string returnToPageName: ""

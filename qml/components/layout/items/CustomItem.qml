@@ -339,12 +339,8 @@ Item {
                         BLEManager.scanForDevices()
                     break
                 case "brewSettings":
-                    var bp = root.parent
-                    while (bp) {
-                        if (bp.objectName === "idlePage") break
-                        bp = bp.parent
-                    }
-                    if (bp && bp.idleBrewDialog) bp.idleBrewDialog.open()
+                    var bwin = Window.window
+                    if (bwin && bwin.openBrewSettings) bwin.openBrewSettings()
                     break
                 case "toggleCharging":
                     if (typeof BatteryManager !== "undefined")

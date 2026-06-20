@@ -114,6 +114,29 @@ void SettingsBrew::setLastUsedRatio(double ratio) {
     }
 }
 
+double SettingsBrew::doseCupTareWeight() const {
+    return m_settings.value("espresso/doseCupTareWeight", 0.0).toDouble();
+}
+
+void SettingsBrew::setDoseCupTareWeight(double weight) {
+    if (weight < 0) weight = 0;  // a tare is never negative
+    if (doseCupTareWeight() != weight) {
+        m_settings.setValue("espresso/doseCupTareWeight", weight);
+        emit doseCupTareWeightChanged();
+    }
+}
+
+bool SettingsBrew::doseCaptureSoundEnabled() const {
+    return m_settings.value("espresso/doseCaptureSoundEnabled", false).toBool();
+}
+
+void SettingsBrew::setDoseCaptureSoundEnabled(bool enabled) {
+    if (doseCaptureSoundEnabled() != enabled) {
+        m_settings.setValue("espresso/doseCaptureSoundEnabled", enabled);
+        emit doseCaptureSoundEnabledChanged();
+    }
+}
+
 // Steam
 
 double SettingsBrew::steamTemperature() const {

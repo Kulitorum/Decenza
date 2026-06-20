@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Window
 import Decenza
 import "../.."
 
@@ -11,6 +12,14 @@ Item {
     property bool isFlowScale: ScaleDevice && ScaleDevice.isFlowScale
     property bool scaleConnected: ScaleDevice && ScaleDevice.connected
     property bool accessibilityEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+
+    // Open the single global Brew Settings dialog (hosted at the app root) via the
+    // window, so this works wherever the tile is placed — including the persistent
+    // status bar, which is not a descendant of IdlePage.
+    function openBrewSettings() {
+        var win = root.Window.window
+        if (win && win.openBrewSettings) win.openBrewSettings()
+    }
 
     // Scale warning: saved BLE scale not connected or connection failed, or app fell back to simulated scale
     // Don't warn if a USB scale is connected — it satisfies the "have a real scale" requirement (not available on iOS)
@@ -203,7 +212,7 @@ Item {
                 if (tapCount >= 2) {
                     tapCount = 0
                     singleTapTimer.stop()
-                    scaleBrewDialog.open()
+                    root.openBrewSettings()
                 } else {
                     singleTapTimer.restart()
                 }
@@ -215,7 +224,7 @@ Item {
             interval: 600
             onTriggered: {
                 scaleMouseArea.longPressTriggered = true
-                scaleBrewDialog.open()
+                root.openBrewSettings()
             }
         }
 
@@ -303,10 +312,5 @@ Item {
                     MachineState.tareScale()
             }
         }
-    }
-
-    // Brew settings dialog (temperature, dose, grind, ratio, yield)
-    BrewDialog {
-        id: scaleBrewDialog
     }
 }
