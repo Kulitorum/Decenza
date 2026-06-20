@@ -361,12 +361,16 @@ Page {
     // Top info section (from layout topLeft/topRight zones)
     // ============================================================
     ColumnLayout {
+        id: topInfoSection
+        // Empty by default (the top stats live in the global status bar). Hidden
+        // when empty so its reserved bar-height doesn't push everything down.
+        visible: idlePage.topLeftItems.length > 0 || idlePage.topRightItems.length > 0
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.margins: Theme.standardMargin
-        anchors.topMargin: Theme.pageTopMargin
-        spacing: Theme.scaled(20)
+        anchors.topMargin: Theme.statusBarHeight + Theme.scaled(8)
+        spacing: 0
 
         RowLayout {
             Layout.alignment: Qt.AlignHCenter
@@ -386,25 +390,43 @@ Page {
         }
     }
 
+    // Thin high-contrast line directly beneath the global status bar — its bottom
+    // border. Pinned at the status bar's height so it sits flush under the top
+    // stats row regardless of the (often empty) topLeft/topRight zones.
+    Rectangle {
+        id: topStatsBorder
+        anchors.top: parent.top
+        anchors.topMargin: Theme.statusBarHeight
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: Theme.scaled(2)
+        color: Theme.primaryColor
+    }
+
     // ============================================================
     // Center content (from layout centerTop/centerMiddle zones)
     // ============================================================
     ColumnLayout {
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: Theme.scaled(50)
+        // Anchored just below the status-bar border line so it grows DOWNWARD when
+        // the preset row appears — the four main buttons stay put and never slide
+        // behind the top status header.
+        anchors.top: topStatsBorder.bottom
+        anchors.topMargin: Theme.scaled(12)
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
         spacing: Theme.scaled(20)
 
-        // Status readouts (temp, water level, connection)
+        // Status readouts (temp, water level, connection) — hidden: the same
+        // info is already shown in the top status bar, so the large center
+        // duplicates just crowded the home screen.
         LayoutCenterZone {
             Layout.fillWidth: true
             Layout.topMargin: idlePage.centerStatusYOffset
             zoneName: "centerStatus"
             items: idlePage.centerStatusItems
-            visible: idlePage.centerStatusItems.length > 0
+            visible: false
             zoneScale: idlePage.centerStatusScale
         }
 
@@ -830,9 +852,114 @@ Page {
     }
 
     // ============================================================
+    // Brew status row (across the bottom, above the action bar)
+    // ============================================================
+    Rectangle {
+        id: brewStatusBar
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: bottomBar.top
+        height: Theme.scaled(82)
+        // High-contrast: light background with blue text so the stats stand out.
+        color: Theme.primaryContrastColor
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.spacingMedium
+            anchors.rightMargin: Theme.spacingMedium
+            spacing: Theme.spacingSmall
+
+            // Current espresso profile
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1   // equal cells regardless of content width
+                spacing: 0
+                Tr { key: "idle.status.profile"; fallback: "Profile"; color: Theme.primaryColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                    text: ProfileManager.currentProfileName || "—"
+                    color: Theme.primaryColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                }
+            }
+
+            // Live net scale weight (context-aware: net milk in steam mode, else net beans)
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                spacing: 0
+                Tr { key: "idle.status.scale"; fallback: "Scale"; color: Theme.primaryColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: {
+                        if (!ScaleDevice.connected) return "—"
+                        var net
+                        if (idlePage.activePresetFunction === "steam") {
+                            var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+                            var pw = (p && !p.disabled) ? (p.pitcherWeightG ?? 0) : 0
+                            net = Math.max(0, MachineState.scaleWeight - pw)
+                        } else {
+                            net = Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight)
+                        }
+                        return net.toFixed(1) + " g"
+                    }
+                    color: Theme.primaryColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                }
+            }
+
+            // Current coffee:water ratio setting
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                spacing: 0
+                Tr { key: "idle.status.ratio"; fallback: "Ratio"; color: Theme.primaryColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: "1:" + Settings.brew.lastUsedRatio.toFixed(1)
+                    color: Theme.primaryColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                }
+            }
+
+            // Beans measured indicator (+ amount)
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                spacing: 0
+                Tr { key: "idle.status.beans"; fallback: "Beans"; color: Theme.primaryColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight.toFixed(1) + " g"
+                                                        : TranslationManager.translate("idle.status.none", "—")
+                    color: Theme.primaryColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                }
+            }
+
+            // Milk measured indicator (+ amount)
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                spacing: 0
+                Tr { key: "idle.status.milk"; fallback: "Milk"; color: Theme.primaryColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: idlePage.measuredMilkG > 0 ? idlePage.measuredMilkG.toFixed(1) + " g"
+                                                     : TranslationManager.translate("idle.status.none", "—")
+                    color: Theme.primaryColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                }
+            }
+        }
+    }
+
+    // ============================================================
     // Bottom bar (from layout bottomLeft/bottomRight zones)
     // ============================================================
     Rectangle {
+        id: bottomBar
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
