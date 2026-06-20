@@ -124,16 +124,11 @@ Dialog {
                 label: TranslationManager.translate("equipment.info.basketDetails", "Basket details")
                 value: (root.pkg && root.pkg.basketSummary) || ""
             }
-            // Puck prep — the set flags + the derived distribution. Both rows
-            // self-hide when the package has no puck prep.
+            // Puck prep — the set flags. The derived `distribution` rollup is an
+            // AI-only signal (advisor + MCP) and is deliberately NOT shown here.
             InfoRow {
                 label: TranslationManager.translate("equipment.info.puckPrep", "Puck prep")
                 value: root.puckPrepSummary
-            }
-            InfoRow {
-                label: TranslationManager.translate("equipment.info.puckDistribution", "Distribution")
-                value: root.puckPrepSummary.length > 0
-                       ? ((root.pkg && root.pkg.puckPrepDistribution) || "") : ""
             }
 
             AccessibleButton {

@@ -394,8 +394,9 @@ private slots:
             QCOMPARE(m.value("puckPrep_wdt").toBool(), true);
             QCOMPARE(m.value("puckPrep_shaker").toBool(), true);
             QCOMPARE(m.value("puckPrep_puckScreen").toBool(), false);
-            QCOMPARE(m.value("puckPrepDistribution").toString(), QString("thorough"));
             QCOMPARE(m.value("puckPrepCanonical").toString(), QString("shaker,wdt"));
+            // distribution is AI-only — deliberately NOT in the QML-facing map.
+            QVERIFY(!m.contains("puckPrepDistribution"));
 
             // Grinder-only package: no puckprep item; map omits the fields.
             EquipmentPackage p0;

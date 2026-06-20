@@ -214,11 +214,15 @@ QVariantMap EquipmentPackageView::toVariantMap() const
     // Resolved puck prep: the canonical flag string lives in the item's `model`
     // column; reconstruct the individual booleans + the derived distribution from
     // it (PuckPrep). Emitted only when the package has a puckprep item.
+    // Flags (for the card/info display + the dialog edit prefill) and the canonical
+    // string (for the dialog dedup check + SettingsDye prefill). The derived
+    // `distribution` rollup is NOT emitted here — it's an AI-only signal, computed
+    // for the dialing context (buildCurrentBeanBlock) and the MCP equipment tools,
+    // and deliberately kept out of anything user-visible.
     const QString puckCanon = puckPrep.model;
     if (!puckCanon.isEmpty()) {
         for (const QString& k : PuckPrep::flagKeys())
             map.insert(QStringLiteral("puckPrep_") + k, PuckPrep::has(puckCanon, k));
-        map.insert(QStringLiteral("puckPrepDistribution"), PuckPrep::distribution(puckCanon));
         map.insert(QStringLiteral("puckPrepCanonical"), puckCanon);
     }
     map.insert(QStringLiteral("shotCount"), shotCount);

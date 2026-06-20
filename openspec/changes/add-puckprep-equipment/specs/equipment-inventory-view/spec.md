@@ -14,10 +14,12 @@ lines. When a package has no puck prep, the line SHALL be omitted (not shown bla
 - **THEN** the card SHALL omit the puck-prep line entirely
 
 ### Requirement: The equipment info dialog SHALL include the puck prep
-`EquipmentInfoDialog` SHALL include the package's puck prep — the set flags and the
-derived `distribution` — placed after the grinder / basket / dial rows. Rows SHALL
-self-hide when the package has no puck prep.
+`EquipmentInfoDialog` SHALL include the package's puck prep — the set flags only —
+placed after the grinder / basket / dial rows. The row SHALL self-hide when the
+package has no puck prep. The derived `distribution` rollup SHALL NOT be shown — it
+is an AI-only signal (advisor + MCP) and is kept out of all user-visible surfaces.
 
-#### Scenario: Info dialog shows puck prep
+#### Scenario: Info dialog shows puck-prep flags, not distribution
 - **WHEN** the info dialog opens for a package with puck prep
-- **THEN** it SHALL show the set flags and the derived distribution
+- **THEN** it SHALL show the set flags
+- **AND** it SHALL NOT show the derived distribution
