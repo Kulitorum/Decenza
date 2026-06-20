@@ -32,9 +32,7 @@ own just-uploaded shot: body `{"shot": {"coffee_bag_id": "<id>"}}` with
 - **THEN** the cached CM state SHALL be reset to `UNKNOWN` and re-detected on the next upload cycle
 
 ### Requirement: Visualizer bag creation at upload time (CM active only)
-When CM state is `COFFEE_MANAGEMENT_ACTIVE` and a shot is uploaded with a linked local
-bag that has no `visualizerBagId`, the system SHALL find-or-create the remote roaster
-and bag, then link the shot.
+When CM state is `COFFEE_MANAGEMENT_ACTIVE` and a shot is uploaded with a linked local bag that has no `visualizerBagId`, the system SHALL find-or-create the remote roaster and bag, then link the shot.
 
 #### Scenario: Roaster resolution order
 - **WHEN** a remote bag must be created
@@ -52,10 +50,7 @@ and bag, then link the shot.
 - **THEN** the system SHALL PATCH the shot with `coffee_bag_id` (and `canonical_coffee_bag_id` when linked — always accepted) using `Accept: application/json` and the `{"shot": {...}}` body — the upload POST itself ignores `coffee_bag_id` (verified)
 
 ### Requirement: No remote bag creation when CM is off
-When CM state is `PREMIUM_NO_CM`, `NO_COFFEE_MANAGEMENT`, or `UNKNOWN` (beyond the
-probe itself), the system SHALL NOT create remote bags or roasters. Shot writes carry
-only `canonical_coffee_bag_id` (today's behavior). A CM-off user's remote bag list is
-dormant server state they never see — adding to it is clutter.
+When CM state is `PREMIUM_NO_CM`, `NO_COFFEE_MANAGEMENT`, or `UNKNOWN` (beyond the probe itself), the system SHALL NOT create remote bags or roasters. Shot writes carry only `canonical_coffee_bag_id` (today's behavior). A CM-off user's remote bag list is dormant server state they never see — adding to it is clutter.
 
 #### Scenario: CM-off upload
 - **WHEN** a shot uploads while CM state is `PREMIUM_NO_CM`
@@ -72,10 +67,7 @@ duplicates when local state was lost (e.g. restored backup).
 - **THEN** the next upload cycle SHALL reuse the stored `visualizerBagId` and only retry the PATCH
 
 ### Requirement: Server-side CM lifecycle is respected
-The server owns mass link/unlink: enabling CM auto-creates bags from the user's shot
-history and links shots; disabling CM unlinks all shots but keeps bags. The system
-SHALL NOT attempt to repair or mirror those transitions — the probe simply re-detects
-the current state on the next upload after a connection test.
+The server owns mass link/unlink: enabling CM auto-creates bags from the user's shot history and links shots; disabling CM unlinks all shots but keeps bags. The system SHALL NOT attempt to repair or mirror those transitions — the probe simply re-detects the current state on the next upload after a connection test.
 
 #### Scenario: User toggles CM on Visualizer
 - **WHEN** the user enables or disables CM on visualizer.coffee and later runs a connection test (or the next probe-triggering upload occurs after a cached-negative state is reset)

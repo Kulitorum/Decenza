@@ -75,9 +75,9 @@
 - [x] 10.2 Accessibility on new interactive elements: `AccessibleButton`/`AccessibleMouseArea`/`AccessibleTapHandler`, `Accessible.role/name`, headings on page/dialog titles
 - [x] 10.3 Unit tests: `tst_equipment` (split heuristic + edges, dedup, `rpmCapable`, CRUD, copy-on-write/merge sub-branches, name derivation); `tst_coffeebags::settingsDyeEquipmentSwitchAndDualWrite` (switch applies identity+dial, dual write-through to bag + package); `tst_dbmigration` (migration-22 idempotency + shot equipment_id/rpm round-trip).
 - [x] 10.4 Migration test (`tst_equipment::migrationSplitsAndLinks`): bag/shot corpus → expected packages + links + split values
-- [ ] 10.5 Verify Android build — **pending** (recommended before release). This change has no `#ifdef Q_OS_ANDROID` branches; the DB + layout migrations are platform-agnostic, so the macOS build/tests are representative.
+- [x] 10.5 Verify Android build — done (GitHub Android CI build). This change has no `#ifdef Q_OS_ANDROID` branches; the DB + layout migrations are platform-agnostic, so the macOS build/tests are representative.
 
 ## 11. Docs
 - [~] 11.1 Equipment-package model documented in the OpenSpec proposal/design (source of truth); no separate `RECIPE_PROFILES.md` section added
 - [x] 11.2 `docs/CLAUDE_MD/MCP_SERVER.md` updated with the new equipment tools + access levels + dialing fields
-- [ ] 11.3 Wiki Manual page for Equipment — **pending** (user-visible feature; update on release)
+- [x] 11.3 Wiki Manual page for Equipment — done (Manual: Bean Bags + Equipment Packages sections + screenshots)
