@@ -371,6 +371,27 @@ private slots:
         QCOMPARE(PuckPrep::distribution("rdt"), QString("light"));           // anti-static only
         QCOMPARE(PuckPrep::distribution("puckScreen"), QString("none"));     // no active distribution
 
+        // recanonical: idempotent, re-sorts an unsorted string, drops unknown tokens.
+        QCOMPARE(PuckPrep::recanonical("shaker,wdt"), QString("shaker,wdt"));
+        QCOMPARE(PuckPrep::recanonical("wdt,shaker"), QString("shaker,wdt"));   // re-sorted
+        QCOMPARE(PuckPrep::recanonical("wdt,bogus, shaker "), QString("shaker,wdt")); // unknown dropped
+        QCOMPARE(PuckPrep::recanonical(""), QString(""));
+
+        // canonicalMerged: partial overrides on a current string keep the untouched
+        // flags — the load-bearing data-preservation path for partial (MCP/dialog)
+        // edits. A regression here silently wipes a user's other flags.
+        auto over = [](const QString& key, bool v) { QVariantMap m; m["puckPrep_" + key] = v; return m; };
+        QCOMPARE(PuckPrep::canonicalMerged("shaker,wdt", over("paperFilter", true)),
+                 QString("paperFilter,shaker,wdt"));               // added, re-sorted, others kept
+        QCOMPARE(PuckPrep::canonicalMerged("shaker,wdt", over("wdt", false)),
+                 QString("shaker"));                               // one cleared, rest kept
+        QCOMPARE(PuckPrep::canonicalMerged("", over("wdt", true)), QString("wdt"));  // from empty
+        QCOMPARE(PuckPrep::canonicalMerged("rdt,wdt", QVariantMap()), QString("rdt,wdt")); // empty map = no change
+        // mapTouches gates the edit: a puckPrep_* key trips it; unrelated keys / {} don't.
+        QVERIFY(PuckPrep::mapTouches(over("wdt", true)));
+        QVERIFY(!PuckPrep::mapTouches(QVariantMap{{"basketBrand", "VST"}}));
+        QVERIFY(!PuckPrep::mapTouches(QVariantMap()));
+
         const QString path = freshDbPath();
         withRawDb(path, "eq_puck", [&](QSqlDatabase& db) {
             QVERIFY(EquipmentStorage::ensureTablesStatic(db));
@@ -385,7 +406,8 @@ private slots:
             QCOMPARE(pp.kind, QString("puckprep"));
             QCOMPARE(pp.model, QString("shaker,wdt"));  // canonical in `model`
 
-            // Derive-at-read: the view map carries the flags + distribution.
+            // Derive-at-read: the view map carries the flags + canonical string
+            // (distribution is AI-only and excluded — asserted below).
             EquipmentPackageView v;
             v.package = EquipmentStorage::loadPackageStatic(db, g1);
             v.grinder = EquipmentStorage::loadGrinderItemStatic(db, g1);
@@ -450,7 +472,59 @@ private slots:
             const qint64 c2 = EquipmentStorage::supersedeOrEditGrinderStatic(db, C, "Mazzer", "Major V2", "83mm");
             QCOMPARE(c2, C);  // unused → edit in place
             QCOMPARE(EquipmentStorage::loadPuckPrepItemStatic(db, C).model, QString("wdt"));  // preserved
+
+            // Partial edit through the same storage path requestUpdatePackage / the
+            // MCP equipment_update use (canonicalMerged): a single-flag override on an
+            // unused package preserves the rest.
+            EquipmentPackage dpk;
+            const qint64 D = EquipmentStorage::createPackageWithGrinderStatic(db, dpk, "Niche", "Zero", "63mm", QString(), QString(), "shaker,wdt");
+            const QString merged = PuckPrep::canonicalMerged(EquipmentStorage::loadPuckPrepItemStatic(db, D).model,
+                                                             QVariantMap{{"puckPrep_paperFilter", true}});
+            QCOMPARE(EquipmentStorage::supersedeOrEditStatic(db, D, "Niche", "Zero", "63mm", QString(), QString(), merged), D);
+            QCOMPARE(EquipmentStorage::loadPuckPrepItemStatic(db, D).model, QString("paperFilter,shaker,wdt"));
         });
+    }
+
+    // --- puck prep in device-transfer dedup: same gear + same prep merges,
+    //     same gear + different prep stays distinct (no basket either side). ---
+    void puckPrepImportDedup() {
+        const QString srcPath = freshDbPath();
+        const QString dstPath = freshDbPath();
+
+        qint64 srcDiff = -1, srcSame = -1;
+        withRawDb(srcPath, "impp_src", [&](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            EquipmentPackage a, b;
+            srcDiff = EquipmentStorage::createPackageWithGrinderStatic(db, a, "Niche", "Zero", "63mm", QString(), QString(), "wdt");
+            srcSame = EquipmentStorage::createPackageWithGrinderStatic(db, b, "Mazzer", "Major", "83mm", QString(), QString(), "shaker,wdt");
+        });
+        QVERIFY(srcDiff > 0 && srcSame > 0);
+
+        qint64 dstDiff = -1, dstSame = -1;
+        withRawDb(dstPath, "impp_dst", [&](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            EquipmentPackage a, b;
+            dstDiff = EquipmentStorage::createPackageWithGrinderStatic(db, a, "Niche", "Zero", "63mm", QString(), QString(), "shaker"); // diff prep
+            dstSame = EquipmentStorage::createPackageWithGrinderStatic(db, b, "Mazzer", "Major", "83mm", QString(), QString(), "shaker,wdt"); // same
+        });
+        QVERIFY(dstDiff > 0 && dstSame > 0);
+
+        QHash<qint64, qint64> idMap;
+        {
+            QSqlDatabase src = QSqlDatabase::addDatabase("QSQLITE", "impp_s");
+            src.setDatabaseName(srcPath); QVERIFY(src.open());
+            QSqlDatabase dst = QSqlDatabase::addDatabase("QSQLITE", "impp_d");
+            dst.setDatabaseName(dstPath); QVERIFY(dst.open());
+            QVERIFY(EquipmentStorage::importEquipmentStatic(src, dst, /*merge*/ true, idMap));
+            src = QSqlDatabase(); dst = QSqlDatabase();
+        }
+        QSqlDatabase::removeDatabase("impp_s");
+        QSqlDatabase::removeDatabase("impp_d");
+
+        // Different prep -> imported as a NEW dest package, not merged onto dstDiff.
+        QVERIFY(idMap.value(srcDiff) > 0 && idMap.value(srcDiff) != dstDiff);
+        // Same grinder + same prep -> merged onto the existing dest package.
+        QCOMPARE(idMap.value(srcSame), dstSame);
     }
 
     // --- migration data step: split + dedup-into-packages + link ---

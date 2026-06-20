@@ -617,13 +617,15 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
         }
     }
     // Optional puck-prep item: the canonical flag string lives in the `model`
-    // column (brand empty); empty string = no puck prep. Fatal on failure, like
-    // the basket, so a requested config is never silently dropped.
-    if (!puckPrep.trimmed().isEmpty()) {
+    // column (brand empty); empty string = no puck prep. Re-canonicalized so the
+    // stored value is always canonical (the dedup compares it with a plain '=').
+    // Fatal on failure, like the basket, so a requested config is never silently dropped.
+    const QString puckCanon = PuckPrep::recanonical(puckPrep);
+    if (!puckCanon.isEmpty()) {
         EquipmentItem puck;
         puck.packageId = packageId;
         puck.kind = QStringLiteral("puckprep");
-        puck.model = puckPrep.trimmed();
+        puck.model = puckCanon;
         if (insertItemStatic(db, puck) <= 0) {
             dropAll();
             return -1;
@@ -732,7 +734,10 @@ EquipmentItem EquipmentStorage::loadPuckPrepItemStatic(QSqlDatabase& db, qint64 
 bool EquipmentStorage::setPuckPrepItemStatic(QSqlDatabase& db, qint64 packageId,
                                              const QString& puckPrep)
 {
-    const QString canon = puckPrep.trimmed();
+    // Re-canonicalize so the stored `model` is always canonical regardless of the
+    // caller (the identity dedup compares it with a plain '='), and unknown tokens
+    // are dropped.
+    const QString canon = PuckPrep::recanonical(puckPrep);
     const EquipmentItem cur = loadPuckPrepItemStatic(db, packageId);
 
     // Same return contract as setBasketItemStatic: true on success/no-op, false

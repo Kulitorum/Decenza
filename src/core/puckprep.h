@@ -43,18 +43,37 @@ inline QString canonical(const QVariantMap& flags)
     return on.join(QLatin1Char(','));
 }
 
-// The flag keys enabled in a canonical string.
+// The flag keys present in a string. Tokens are trimmed and empties skipped, so a
+// canonical string parses cleanly and a sloppily-spaced one (e.g. a hand-edited DB
+// row) still yields the right keys — recanonical() relies on this.
 inline QStringList setFlags(const QString& canon)
 {
-    const QString c = canon.trimmed();
-    if (c.isEmpty())
-        return {};
-    return c.split(QLatin1Char(','), Qt::SkipEmptyParts);
+    QStringList out;
+    for (const QString& part : canon.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        const QString t = part.trimmed();
+        if (!t.isEmpty())
+            out << t;
+    }
+    return out;
 }
 
 inline bool has(const QString& canon, const QString& key)
 {
     return setFlags(canon).contains(key);
+}
+
+// Normalize an arbitrary flag string back to canonical form: keep only the known
+// flag keys that are present, re-sorted and comma-joined; drop unknown tokens.
+// Idempotent for an already-canonical string. The storage layer runs every
+// incoming puck-prep string through this so the stored `model` value is ALWAYS
+// canonical — making "the puckprep identity is canonical" a true invariant enforced
+// at the persistence boundary, not merely a convention the callers must remember.
+inline QString recanonical(const QString& s)
+{
+    QVariantMap flags;
+    for (const QString& k : flagKeys())
+        flags.insert(k, has(s, k));
+    return canonical(flags);
 }
 
 // True when a field map carries any puck-prep flag (namespaced "puckPrep_<key>",
