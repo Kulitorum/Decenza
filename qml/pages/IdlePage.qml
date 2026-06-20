@@ -357,6 +357,11 @@ Page {
         id: idleBrewDialog
     }
 
+    // Quick coffee:water ratio chooser (opened from the bottom status bar)
+    RatioPresetDialog {
+        id: ratioPresetDialog
+    }
+
     // ============================================================
     // Top info section (from layout topLeft/topRight zones)
     // ============================================================
@@ -909,17 +914,32 @@ Page {
                 }
             }
 
-            // Current coffee:water ratio setting
+            // Coffee:water ratio — tappable quick-select button (opens the ratio chooser)
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
-                spacing: 0
+                spacing: Theme.scaled(2)
                 Tr { key: "idle.status.ratio"; fallback: "Ratio"; color: Theme.primaryColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
-                Text {
-                    Layout.fillWidth: true
-                    horizontalAlignment: Text.AlignHCenter
-                    text: "1:" + Settings.brew.lastUsedRatio.toFixed(1)
-                    color: Theme.primaryColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: ratioValueText.implicitWidth + Theme.spacingMedium * 2
+                    Layout.preferredHeight: Theme.scaled(32)
+                    radius: height / 2
+                    color: ratioBtnMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("idle.ratio.button", "Brew ratio")
+                                     + " 1:" + Settings.brew.lastUsedRatio.toFixed(1) + ". "
+                                     + TranslationManager.translate("idle.ratio.tapToChange", "Tap to change")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: ratioBtnMa.clicked(null)
+                    Text {
+                        id: ratioValueText
+                        anchors.centerIn: parent
+                        text: "1:" + Settings.brew.lastUsedRatio.toFixed(1)
+                        color: Theme.primaryContrastColor
+                        font.pixelSize: Theme.scaled(20); font.bold: true
+                    }
+                    MouseArea { id: ratioBtnMa; anchors.fill: parent; onClicked: ratioPresetDialog.open() }
                 }
             }
 

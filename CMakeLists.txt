@@ -760,6 +760,7 @@ set(QML_FILES
     qml/components/BeanBaseDetailsRow.qml
     qml/components/BeanSummary.qml
     qml/components/ChangeBeansDialog.qml
+    qml/components/RatioPresetDialog.qml
     qml/components/BagCard.qml
     qml/components/SwitchEquipmentDialog.qml
     qml/components/EquipmentCard.qml
