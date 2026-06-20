@@ -6,6 +6,7 @@
 
 #include "history/equipmentstorage.h"
 #include "history/coffeebagstorage.h"
+#include "core/puckprep.h"
 
 // Equipment packages: the grind/rpm split heuristic, rpmCapable derivation,
 // package CRUD, identity dedup, and the migration-22 data step
@@ -340,7 +341,7 @@ private slots:
 
             // Changing the basket on a USED package forks (copy-on-write).
             addShot(A);
-            const qint64 fork = EquipmentStorage::supersedeOrEditStatic(db, A, "Turin", "DF83V", "83mm", "IMS", "Competition 18g");
+            const qint64 fork = EquipmentStorage::supersedeOrEditStatic(db, A, "Turin", "DF83V", "83mm", "IMS", "Competition 18g", QString());
             QVERIFY(fork > 0 && fork != A);
             QCOMPARE(EquipmentStorage::loadBasketItemStatic(db, fork).brand, QString("IMS"));
             QCOMPARE(EquipmentStorage::loadPackageStatic(db, A).supersededBy, fork);
@@ -352,6 +353,181 @@ private slots:
             QCOMPARE(c2, C);  // unused → edit in place
             QCOMPARE(EquipmentStorage::loadBasketItemStatic(db, C).model, QString("20g"));  // basket preserved
         });
+    }
+
+    // --- puck prep: canonical helper, optional item, derive-at-read, set contract ---
+    void puckPrepOptionalAndDerive() {
+        // Canonical is order-independent + sorted (the identity key).
+        auto canon = [](bool wdt, bool shaker, bool puckScreen, bool paper, bool rdt) {
+            QVariantMap m;
+            m["wdt"] = wdt; m["shaker"] = shaker; m["puckScreen"] = puckScreen;
+            m["paperFilter"] = paper; m["rdt"] = rdt;
+            return PuckPrep::canonical(m);
+        };
+        QCOMPARE(canon(true, true, false, false, false), QString("shaker,wdt"));
+        QCOMPARE(canon(false, false, false, false, false), QString(""));
+        QCOMPARE(PuckPrep::distribution("shaker,wdt"), QString("thorough"));
+        QCOMPARE(PuckPrep::distribution("shaker"), QString("thorough"));     // shaker == WDT (equal weight)
+        QCOMPARE(PuckPrep::distribution("rdt"), QString("light"));           // anti-static only
+        QCOMPARE(PuckPrep::distribution("puckScreen"), QString("none"));     // no active distribution
+
+        // recanonical: idempotent, re-sorts an unsorted string, drops unknown tokens.
+        QCOMPARE(PuckPrep::recanonical("shaker,wdt"), QString("shaker,wdt"));
+        QCOMPARE(PuckPrep::recanonical("wdt,shaker"), QString("shaker,wdt"));   // re-sorted
+        QCOMPARE(PuckPrep::recanonical("wdt,bogus, shaker "), QString("shaker,wdt")); // unknown dropped
+        QCOMPARE(PuckPrep::recanonical(""), QString(""));
+
+        // canonicalMerged: partial overrides on a current string keep the untouched
+        // flags — the load-bearing data-preservation path for partial (MCP/dialog)
+        // edits. A regression here silently wipes a user's other flags.
+        auto over = [](const QString& key, bool v) { QVariantMap m; m["puckPrep_" + key] = v; return m; };
+        QCOMPARE(PuckPrep::canonicalMerged("shaker,wdt", over("paperFilter", true)),
+                 QString("paperFilter,shaker,wdt"));               // added, re-sorted, others kept
+        QCOMPARE(PuckPrep::canonicalMerged("shaker,wdt", over("wdt", false)),
+                 QString("shaker"));                               // one cleared, rest kept
+        QCOMPARE(PuckPrep::canonicalMerged("", over("wdt", true)), QString("wdt"));  // from empty
+        QCOMPARE(PuckPrep::canonicalMerged("rdt,wdt", QVariantMap()), QString("rdt,wdt")); // empty map = no change
+        // mapTouches gates the edit: a puckPrep_* key trips it; unrelated keys / {} don't.
+        QVERIFY(PuckPrep::mapTouches(over("wdt", true)));
+        QVERIFY(!PuckPrep::mapTouches(QVariantMap{{"basketBrand", "VST"}}));
+        QVERIFY(!PuckPrep::mapTouches(QVariantMap()));
+
+        const QString path = freshDbPath();
+        withRawDb(path, "eq_puck", [&](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+
+            // Create a package with puck prep in one call.
+            EquipmentPackage p1;
+            const qint64 g1 = EquipmentStorage::createPackageWithGrinderStatic(
+                db, p1, "Turin", "DF83V", "83mm", QString(), QString(), "shaker,wdt");
+            QVERIFY(g1 > 0);
+            const EquipmentItem pp = EquipmentStorage::loadPuckPrepItemStatic(db, g1);
+            QVERIFY(pp.isValid());
+            QCOMPARE(pp.kind, QString("puckprep"));
+            QCOMPARE(pp.model, QString("shaker,wdt"));  // canonical in `model`
+
+            // Derive-at-read: the view map carries the flags + canonical string
+            // (distribution is AI-only and excluded — asserted below).
+            EquipmentPackageView v;
+            v.package = EquipmentStorage::loadPackageStatic(db, g1);
+            v.grinder = EquipmentStorage::loadGrinderItemStatic(db, g1);
+            v.puckPrep = pp;
+            const QVariantMap m = v.toVariantMap();
+            QCOMPARE(m.value("puckPrep_wdt").toBool(), true);
+            QCOMPARE(m.value("puckPrep_shaker").toBool(), true);
+            QCOMPARE(m.value("puckPrep_puckScreen").toBool(), false);
+            QCOMPARE(m.value("puckPrepCanonical").toString(), QString("shaker,wdt"));
+            // distribution is AI-only — deliberately NOT in the QML-facing map.
+            QVERIFY(!m.contains("puckPrepDistribution"));
+
+            // Grinder-only package: no puckprep item; map omits the fields.
+            EquipmentPackage p0;
+            const qint64 g0 = EquipmentStorage::createPackageWithGrinderStatic(db, p0, "Niche", "Zero", "63mm");
+            QVERIFY(!EquipmentStorage::loadPuckPrepItemStatic(db, g0).isValid());
+
+            // setPuckPrepItemStatic: insert, no-op-clear (true), update, clear.
+            QVERIFY(EquipmentStorage::setPuckPrepItemStatic(db, g0, ""));        // no-op → true
+            QVERIFY(EquipmentStorage::setPuckPrepItemStatic(db, g0, "wdt"));     // insert → true
+            QCOMPARE(EquipmentStorage::loadPuckPrepItemStatic(db, g0).model, QString("wdt"));
+            QVERIFY(EquipmentStorage::setPuckPrepItemStatic(db, g0, "rdt,wdt")); // update → true
+            QCOMPARE(EquipmentStorage::loadPuckPrepItemStatic(db, g0).model, QString("rdt,wdt"));
+            QVERIFY(EquipmentStorage::setPuckPrepItemStatic(db, g0, ""));        // clear → true
+            QVERIFY(!EquipmentStorage::loadPuckPrepItemStatic(db, g0).isValid());
+        });
+    }
+
+    // --- puck prep participates in package identity (dedup + copy-on-write) ---
+    void puckPrepIdentityWidening() {
+        const QString path = freshDbPath();
+        withRawDb(path, "eq_puck_id", [](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            createMinimalShots(db);
+            auto addShot = [&](qint64 eq) {
+                QSqlQuery q(db); q.prepare("INSERT INTO shots (equipment_id) VALUES (?)");
+                q.addBindValue(eq); q.exec(); return q.lastInsertId().toLongLong();
+            };
+
+            // Same grinder, different puck prep → distinct packages.
+            EquipmentPackage a, b;
+            const qint64 A = EquipmentStorage::createPackageWithGrinderStatic(db, a, "Turin", "DF83V", "83mm", QString(), QString(), "wdt");
+            const qint64 B = EquipmentStorage::createPackageWithGrinderStatic(db, b, "Turin", "DF83V", "83mm", QString(), QString(), "shaker,wdt");
+            QVERIFY(A > 0 && B > 0 && A != B);
+
+            // Full-identity dedup keys on puck prep too.
+            QCOMPARE(EquipmentStorage::findPackageByGrinderIdentityStatic(db, "Turin", "DF83V", "83mm", 0, QString(), QString(), "wdt"), A);
+            // An UNSORTED query arg still matches the canonical-stored value (the
+            // lookup re-canonicalizes its bind), so dedup can't be defeated by order.
+            QCOMPARE(EquipmentStorage::findPackageByGrinderIdentityStatic(db, "Turin", "DF83V", "83mm", 0, QString(), QString(), "wdt,shaker"), B);
+            // "No puck prep" is a distinct value: a grinder+basket-only query matches neither.
+            QCOMPARE(EquipmentStorage::findPackageByGrinderIdentityStatic(db, "Turin", "DF83V", "83mm"), (qint64)0);
+
+            // Changing puck prep on a USED package forks.
+            addShot(A);
+            const qint64 fork = EquipmentStorage::supersedeOrEditStatic(db, A, "Turin", "DF83V", "83mm", QString(), QString(), "rdt,wdt");
+            QVERIFY(fork > 0 && fork != A);
+            QCOMPARE(EquipmentStorage::loadPuckPrepItemStatic(db, fork).model, QString("rdt,wdt"));
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, A).supersededBy, fork);
+
+            // The grinder-only wrapper PRESERVES puck prep.
+            EquipmentPackage cpk;
+            const qint64 C = EquipmentStorage::createPackageWithGrinderStatic(db, cpk, "Mazzer", "Major", "83mm", QString(), QString(), "wdt");
+            const qint64 c2 = EquipmentStorage::supersedeOrEditGrinderStatic(db, C, "Mazzer", "Major V2", "83mm");
+            QCOMPARE(c2, C);  // unused → edit in place
+            QCOMPARE(EquipmentStorage::loadPuckPrepItemStatic(db, C).model, QString("wdt"));  // preserved
+
+            // Partial edit through the same storage path requestUpdatePackage / the
+            // MCP equipment_update use (canonicalMerged): a single-flag override on an
+            // unused package preserves the rest.
+            EquipmentPackage dpk;
+            const qint64 D = EquipmentStorage::createPackageWithGrinderStatic(db, dpk, "Niche", "Zero", "63mm", QString(), QString(), "shaker,wdt");
+            const QString merged = PuckPrep::canonicalMerged(EquipmentStorage::loadPuckPrepItemStatic(db, D).model,
+                                                             QVariantMap{{"puckPrep_paperFilter", true}});
+            QCOMPARE(EquipmentStorage::supersedeOrEditStatic(db, D, "Niche", "Zero", "63mm", QString(), QString(), merged), D);
+            QCOMPARE(EquipmentStorage::loadPuckPrepItemStatic(db, D).model, QString("paperFilter,shaker,wdt"));
+        });
+    }
+
+    // --- puck prep in device-transfer dedup: same gear + same prep merges,
+    //     same gear + different prep stays distinct (no basket either side). ---
+    void puckPrepImportDedup() {
+        const QString srcPath = freshDbPath();
+        const QString dstPath = freshDbPath();
+
+        qint64 srcDiff = -1, srcSame = -1;
+        withRawDb(srcPath, "impp_src", [&](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            EquipmentPackage a, b;
+            srcDiff = EquipmentStorage::createPackageWithGrinderStatic(db, a, "Niche", "Zero", "63mm", QString(), QString(), "wdt");
+            srcSame = EquipmentStorage::createPackageWithGrinderStatic(db, b, "Mazzer", "Major", "83mm", QString(), QString(), "shaker,wdt");
+        });
+        QVERIFY(srcDiff > 0 && srcSame > 0);
+
+        qint64 dstDiff = -1, dstSame = -1;
+        withRawDb(dstPath, "impp_dst", [&](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            EquipmentPackage a, b;
+            dstDiff = EquipmentStorage::createPackageWithGrinderStatic(db, a, "Niche", "Zero", "63mm", QString(), QString(), "shaker"); // diff prep
+            dstSame = EquipmentStorage::createPackageWithGrinderStatic(db, b, "Mazzer", "Major", "83mm", QString(), QString(), "shaker,wdt"); // same
+        });
+        QVERIFY(dstDiff > 0 && dstSame > 0);
+
+        QHash<qint64, qint64> idMap;
+        {
+            QSqlDatabase src = QSqlDatabase::addDatabase("QSQLITE", "impp_s");
+            src.setDatabaseName(srcPath); QVERIFY(src.open());
+            QSqlDatabase dst = QSqlDatabase::addDatabase("QSQLITE", "impp_d");
+            dst.setDatabaseName(dstPath); QVERIFY(dst.open());
+            QVERIFY(EquipmentStorage::importEquipmentStatic(src, dst, /*merge*/ true, idMap));
+            src = QSqlDatabase(); dst = QSqlDatabase();
+        }
+        QSqlDatabase::removeDatabase("impp_s");
+        QSqlDatabase::removeDatabase("impp_d");
+
+        // Different prep -> imported as a NEW dest package, not merged onto dstDiff.
+        QVERIFY(idMap.value(srcDiff) > 0 && idMap.value(srcDiff) != dstDiff);
+        // Same grinder + same prep -> merged onto the existing dest package.
+        QCOMPARE(idMap.value(srcSame), dstSame);
     }
 
     // --- migration data step: split + dedup-into-packages + link ---

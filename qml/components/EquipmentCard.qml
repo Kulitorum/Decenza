@@ -36,6 +36,20 @@ Rectangle {
                 .filter(function(s) { return s.length > 0 }).join(" ")
         return b.length > 0 ? TranslationManager.translate("equipment.card.basket", "Basket: %1").arg(b) : ""
     }
+    // Puck-prep summary line (add-puckprep-equipment); empty when the package has
+    // none. Shows the short labels of the set flags, e.g. "Prep: WDT · Shaker".
+    readonly property string puckPrepLine: {
+        var _ = TranslationManager.translationVersion
+        if (!pkg) return ""
+        var labels = []
+        if (pkg.puckPrep_wdt) labels.push(TranslationManager.translate("equipment.dialog.puckWdt", "WDT"))
+        if (pkg.puckPrep_shaker) labels.push(TranslationManager.translate("equipment.dialog.puckShaker", "Shaker"))
+        if (pkg.puckPrep_puckScreen) labels.push(TranslationManager.translate("equipment.dialog.puckScreen", "Puck screen"))
+        if (pkg.puckPrep_paperFilter) labels.push(TranslationManager.translate("equipment.dialog.puckPaper", "Bottom paper filter"))
+        if (pkg.puckPrep_rdt) labels.push(TranslationManager.translate("equipment.dialog.puckRdt", "RDT (spritz)"))
+        return labels.length > 0
+            ? TranslationManager.translate("equipment.card.puckPrep", "Prep: %1").arg(labels.join(" · ")) : ""
+    }
 
     readonly property string lastDialLine: {
         var _ = TranslationManager.translationVersion
@@ -53,6 +67,7 @@ Rectangle {
         var bits = [grinderTitle, burrs].filter(function(s) { return s.length > 0 })
         if (lastDialLine.length > 0) bits.push(lastDialLine)
         if (basketLine.length > 0) bits.push(basketLine)
+        if (puckPrepLine.length > 0) bits.push(puckPrepLine)
         if (selected) bits.push(TranslationManager.translate("accessibility.selected", "selected"))
         return bits.join(", ")
     }
@@ -134,12 +149,22 @@ Rectangle {
                     Accessible.ignored: true
                 }
 
-                // Basket last: it's separate equipment, so keep the grinder identity
-                // (title + burrs) and its dial (grind) contiguous above it.
+                // Basket + puck prep last: separate equipment, so keep the grinder
+                // identity (title + burrs) and its dial (grind) contiguous above them.
                 Text {
                     Layout.fillWidth: true
                     visible: card.basketLine.length > 0
                     text: card.basketLine
+                    font: Theme.labelFont
+                    color: Theme.textSecondaryColor
+                    elide: Text.ElideRight
+                    Accessible.ignored: true
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: card.puckPrepLine.length > 0
+                    text: card.puckPrepLine
                     font: Theme.labelFont
                     color: Theme.textSecondaryColor
                     elide: Text.ElideRight

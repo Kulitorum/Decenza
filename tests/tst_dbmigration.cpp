@@ -1348,6 +1348,15 @@ private slots:
             bi.addBindValue(cur);
             QVERIFY(bi.exec());
 
+            // Puck prep on the current package — pins the loadShotRecordStatic
+            // puckprep JOIN, which reads epp.model by POSITIONAL index (col 46).
+            // The canonical flag string lives in the item's `model` column.
+            QSqlQuery pi(db);
+            pi.prepare("INSERT INTO equipment_items (package_id, kind, brand, model, attrs) "
+                       "VALUES (?, 'puckprep', NULL, 'shaker,wdt', '{}')");
+            pi.addBindValue(cur);
+            QVERIFY(pi.exec());
+
             auto addShot = [&](const QString& uuid, qint64 pkg) -> qint64 {
                 QSqlQuery s(db);
                 s.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
@@ -1370,6 +1379,7 @@ private slots:
             QCOMPARE(cur.grinderBurrs, QString("63mm conical"));  // json_extract path
             QCOMPARE(cur.basketBrand, QString("Decent"));         // cols 44/45 JOIN
             QCOMPARE(cur.basketModel, QString("18g Ridgeless"));
+            QCOMPARE(cur.puckPrep, QString("shaker,wdt"));        // col 46 JOIN
             QCOMPARE(cur.equipmentState, QString(""));            // in inventory -> current
 
             const ShotRecord older = ShotHistoryStorage::loadShotRecordStatic(db, olderShot);
@@ -1384,6 +1394,7 @@ private slots:
             const ShotRecord noeq = ShotHistoryStorage::loadShotRecordStatic(db, noEqShot);
             QCOMPARE(noeq.grinderBrand, QString(""));             // NULL JOIN -> empty
             QCOMPARE(noeq.basketBrand, QString(""));              // NULL JOIN -> empty basket
+            QCOMPARE(noeq.puckPrep, QString(""));                 // NULL JOIN -> empty puck prep
             QCOMPARE(noeq.equipmentState, QString(""));           // no package
 
             // Grinder identity is NOT FTS-indexed anymore: a search for a grinder

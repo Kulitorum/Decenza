@@ -304,6 +304,7 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         in.grinderBurrs = sd.grinderBurrs;
                         in.basketBrand = sd.basketBrand;
                         in.basketModel = sd.basketModel;
+                        in.puckPrep = sd.puckPrep;
                         in.grinderSetting = sd.grinderSetting;
                         in.rpm = static_cast<int>(sd.rpm);
                         in.doseWeightG = sd.doseWeightG;

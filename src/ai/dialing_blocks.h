@@ -3,6 +3,7 @@
 #include "dialing_helpers.h"  // buildBeanFreshness — composed inside buildCurrentBeanBlock
 #include "aiconversation.h"   // HistoricalAssistantTurn — input to buildRecentAdviceBlock
 #include "../core/basketaliases.h"  // basket spec derivation inside buildCurrentBeanBlock
+#include "../core/puckprep.h"       // puck-prep flags + distribution inside buildCurrentBeanBlock
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -193,6 +194,10 @@ struct CurrentBeanBlockInputs {
     // not passed in — the caller supplies identity only (add-basket-equipment).
     QString basketBrand;
     QString basketModel;
+    // Puck-prep canonical flag string (resolved via the shot's equipment_id; empty
+    // = no puck prep). The individual flags + the derived `distribution` rollup are
+    // computed here from PuckPrep, not passed in (add-puckprep-equipment).
+    QString puckPrep;
     QString grinderSetting;
     // Grinder RPM the shot was ground at (0 = unset / not an adjustable-RPM
     // grinder). A second grind axis alongside grinderSetting on variable-RPM
@@ -247,6 +252,18 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
             }
         }
         bean["basket"] = basket;
+    }
+
+    // Puck-prep sub-object (add-puckprep-equipment). The set flags plus the derived
+    // `distribution` rollup — the signal the advisor branches its channeling
+    // guidance on ("none/light → fix prep" vs "thorough → grind/dose"). Omitted
+    // when the package has no puck prep.
+    if (!in.puckPrep.isEmpty()) {
+        QJsonObject puck;
+        for (const QString& k : PuckPrep::flagKeys())
+            puck[k] = PuckPrep::has(in.puckPrep, k);
+        puck["distribution"] = PuckPrep::distribution(in.puckPrep);
+        bean["puckPrep"] = puck;
     }
 
     const QJsonObject freshness = DialingHelpers::buildBeanFreshness(in.roastDate);

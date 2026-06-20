@@ -53,6 +53,9 @@ class ShotProjection {
     // BasketAliases, not stored here.
     Q_PROPERTY(QString basketBrand MEMBER basketBrand)
     Q_PROPERTY(QString basketModel MEMBER basketModel)
+    // Puck-prep canonical flag string (add-puckprep-equipment); flags +
+    // distribution derived downstream from core/puckprep.h.
+    Q_PROPERTY(QString puckPrep MEMBER puckPrep)
     Q_PROPERTY(QString grinderSetting MEMBER grinderSetting)
     Q_PROPERTY(qlonglong rpm MEMBER rpm)
     // The shot's equipment package id (add-equipment-packages) — exposed so the
@@ -140,6 +143,7 @@ public:
     QString grinderBurrs;
     QString basketBrand;
     QString basketModel;
+    QString puckPrep;
     QString grinderSetting;
     qint64 rpm = 0;
     qint64 equipmentId = 0;  // FK -> equipment_packages.id (add-equipment-packages); 0 = none

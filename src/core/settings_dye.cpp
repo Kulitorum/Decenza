@@ -163,6 +163,12 @@ void SettingsDye::applyEquipmentIdentity(const QVariantMap& pkg)
         m_dyeBasketSummary = basketSummary;
         emit dyeBasketChanged();
     }
+
+    const QString puckCanon = pkg.value("puckPrepCanonical").toString();
+    if (m_dyePuckPrepCanonical != puckCanon) {
+        m_dyePuckPrepCanonical = puckCanon;
+        emit dyePuckPrepChanged();
+    }
 }
 
 // DYE metadata
@@ -351,6 +357,11 @@ void SettingsDye::switchToEquipment(const QVariantMap& pkg) {
         m_dyeBasketModel = basketModel;
         m_dyeBasketSummary = basketSummary;
         emit dyeBasketChanged();
+    }
+    const QString puckCanon = pkg.value("puckPrepCanonical").toString();
+    if (m_dyePuckPrepCanonical != puckCanon) {
+        m_dyePuckPrepCanonical = puckCanon;
+        emit dyePuckPrepChanged();
     }
     if (m_equipmentStorage)
         m_equipmentStorage->requestTouchLastUsed(id);

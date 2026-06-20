@@ -6,6 +6,7 @@
 #include "../history/coffeebagstorage.h"
 #include "../history/equipmentstorage.h"
 #include "../core/basketaliases.h"
+#include "../core/puckprep.h"
 #include "../history/bagid.h"
 #include "../network/visualizeruploader.h"
 #include "../controllers/profilemanager.h"
@@ -1741,6 +1742,16 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
             o["basket"] = basket;
         }
+        // Puck prep (add-puckprep-equipment): the set flags + derived distribution,
+        // reconstructed from the canonical string in the item's model column.
+        // Emitted only when the package has puck prep.
+        if (!v.puckPrep.model.isEmpty()) {
+            QJsonObject puck;
+            for (const QString& k : PuckPrep::flagKeys())
+                puck[k] = PuckPrep::has(v.puckPrep.model, k);
+            puck["distribution"] = PuckPrep::distribution(v.puckPrep.model);
+            o["puckPrep"] = puck;
+        }
         o["inInventory"] = v.package.inInventory;
         if (!v.package.lastGrindSetting.isEmpty()) o["lastGrindSetting"] = v.package.lastGrindSetting;
         if (v.package.lastRpm > 0) o["lastRpm"] = v.package.lastRpm;
@@ -1783,12 +1794,14 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
     registry->registerAsyncTool(
         "equipment_update",
         "Update an equipment package's grinder identity (brand/model/burrs), optional basket identity "
-        "(basketBrand/basketModel — pass both empty to remove the basket), and optional name. Only "
-        "provided fields change. rpmAdjustable is re-derived from the grinder registry; basket specs "
-        "are derived from the basket registry. Identity (grinder AND basket) is copy-on-write: editing "
-        "a package that has shots forks a NEW package (the old one is retired and kept for its history) "
-        "and an unused package is edited in place — so the returned package.id may differ from the "
-        "input packageId. An edit matching an existing package merges into it.",
+        "(basketBrand/basketModel — pass both empty to remove the basket), optional puck-prep flags "
+        "(puckPrep: { wdt, shaker, puckScreen, paperFilter, rdt } — set all false to remove puck prep), "
+        "and optional name. Only provided fields change. rpmAdjustable is re-derived from the grinder "
+        "registry; basket specs from the basket registry; puck-prep distribution from the flags. "
+        "Identity (grinder AND basket AND puck prep) is copy-on-write: editing a package that has shots "
+        "forks a NEW package (the old one is retired and kept for its history) and an unused package is "
+        "edited in place — so the returned package.id may differ from the input packageId. An edit "
+        "matching an existing package merges into it.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -1798,7 +1811,16 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"grinderModel", QJsonObject{{"type", "string"}}},
                 {"grinderBurrs", QJsonObject{{"type", "string"}}},
                 {"basketBrand", QJsonObject{{"type", "string"}}},
-                {"basketModel", QJsonObject{{"type", "string"}}}
+                {"basketModel", QJsonObject{{"type", "string"}}},
+                {"puckPrep", QJsonObject{{"type", "object"},
+                    {"description", "Puck-prep technique flags; provided flags override, others keep their value"},
+                    {"properties", QJsonObject{
+                        {"wdt", QJsonObject{{"type", "boolean"}}},
+                        {"shaker", QJsonObject{{"type", "boolean"}}},
+                        {"puckScreen", QJsonObject{{"type", "boolean"}}},
+                        {"paperFilter", QJsonObject{{"type", "boolean"}}},
+                        {"rdt", QJsonObject{{"type", "boolean"}}}
+                    }}}}
             }},
             {"required", QJsonArray{"packageId"}}
         },
@@ -1824,6 +1846,15 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             const QString basketModel = args["basketModel"].toString();
             const bool haveBasketBrand = args.contains("basketBrand");
             const bool haveBasketModel = args.contains("basketModel");
+            // Puck-prep flag overrides as a "puckPrep_<key>" map for canonicalMerged.
+            const bool touchesPuckPrep = args.contains("puckPrep");
+            QVariantMap puckOverrides;
+            if (touchesPuckPrep) {
+                const QJsonObject pp = args["puckPrep"].toObject();
+                for (const QString& k : PuckPrep::flagKeys())
+                    if (pp.contains(k))
+                        puckOverrides.insert(QStringLiteral("puckPrep_") + k, pp.value(k).toBool());
+            }
             const qint64 activeId = settings ? settings->dye()->activeEquipmentId() : -1;
             const QString dbPath = shotHistory->databasePath();
             QThread* thread = QThread::create([=]() {
@@ -1831,18 +1862,20 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 qint64 resultId = packageId;
                 EquipmentPackageView view;
                 withTempDb(dbPath, "mcp_equip_upd", [&](QSqlDatabase& db) {
-                    if (touchesGrinder || touchesBasket) {
-                        // Copy-on-write/merge over the full (grinder + basket)
-                        // identity; an untouched side defaults from the current
+                    if (touchesGrinder || touchesBasket || touchesPuckPrep) {
+                        // Copy-on-write/merge over the full (grinder + basket + puck
+                        // prep) identity; an untouched side defaults from the current
                         // items so it is preserved. May yield a new id.
                         const EquipmentItem cur = EquipmentStorage::loadGrinderItemStatic(db, packageId);
                         const EquipmentItem curBasket = EquipmentStorage::loadBasketItemStatic(db, packageId);
+                        const EquipmentItem curPuck = EquipmentStorage::loadPuckPrepItemStatic(db, packageId);
                         resultId = EquipmentStorage::supersedeOrEditStatic(db, packageId,
                                 haveBrand ? brand : cur.brand,
                                 haveModel ? model : cur.model,
                                 haveBurrs ? burrs : cur.burrs,
                                 haveBasketBrand ? basketBrand : curBasket.brand,
-                                haveBasketModel ? basketModel : curBasket.model);
+                                haveBasketModel ? basketModel : curBasket.model,
+                                PuckPrep::canonicalMerged(curPuck.model, puckOverrides));
                         ok = (resultId > 0);
                     }
                     if (!pkgFields.isEmpty())
@@ -1850,6 +1883,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     view.package = EquipmentStorage::loadPackageStatic(db, resultId);
                     view.grinder = EquipmentStorage::loadGrinderItemStatic(db, resultId);
                     view.basket = EquipmentStorage::loadBasketItemStatic(db, resultId);
+                    view.puckPrep = EquipmentStorage::loadPuckPrepItemStatic(db, resultId);
                 });
                 QMetaObject::invokeMethod(qApp, [ok, view, activeId, packageId, packageToJson, respond]() {
                     if (!ok || !view.package.isValid()) {
@@ -1892,6 +1926,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     view.package = EquipmentStorage::loadPackageStatic(db, packageId);
                     view.grinder = EquipmentStorage::loadGrinderItemStatic(db, packageId);
                     view.basket = EquipmentStorage::loadBasketItemStatic(db, packageId);
+                    view.puckPrep = EquipmentStorage::loadPuckPrepItemStatic(db, packageId);
                 });
                 const bool found = view.package.isValid();
                 const QVariantMap pkgMap = view.toVariantMap();

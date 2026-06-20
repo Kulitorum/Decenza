@@ -40,6 +40,20 @@ Dialog {
         : [(pkg && pkg.grinderBrand) || "", (pkg && pkg.grinderModel) || ""]
               .filter(function(s) { return s.length > 0 }).join(" ")
 
+    // Puck-prep set flags as a "WDT · Shaker" summary (add-puckprep-equipment),
+    // empty when the package has no puck prep.
+    readonly property string puckPrepSummary: {
+        var _ = TranslationManager.translationVersion
+        if (!pkg) return ""
+        var labels = []
+        if (pkg.puckPrep_wdt) labels.push(TranslationManager.translate("equipment.dialog.puckWdt", "WDT"))
+        if (pkg.puckPrep_shaker) labels.push(TranslationManager.translate("equipment.dialog.puckShaker", "Shaker"))
+        if (pkg.puckPrep_puckScreen) labels.push(TranslationManager.translate("equipment.dialog.puckScreen", "Puck screen"))
+        if (pkg.puckPrep_paperFilter) labels.push(TranslationManager.translate("equipment.dialog.puckPaper", "Bottom paper filter"))
+        if (pkg.puckPrep_rdt) labels.push(TranslationManager.translate("equipment.dialog.puckRdt", "RDT (spritz)"))
+        return labels.join(" · ")
+    }
+
     background: Rectangle {
         color: Theme.surfaceColor
         radius: Theme.cardRadius
@@ -109,6 +123,12 @@ Dialog {
             InfoRow {
                 label: TranslationManager.translate("equipment.info.basketDetails", "Basket details")
                 value: (root.pkg && root.pkg.basketSummary) || ""
+            }
+            // Puck prep — the set flags. The derived `distribution` rollup is an
+            // AI-only signal (advisor + MCP) and is deliberately NOT shown here.
+            InfoRow {
+                label: TranslationManager.translate("equipment.info.puckPrep", "Puck prep")
+                value: root.puckPrepSummary
             }
 
             AccessibleButton {

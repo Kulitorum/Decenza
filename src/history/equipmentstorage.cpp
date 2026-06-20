@@ -2,6 +2,7 @@
 #include "core/dbutils.h"
 #include "core/grinderaliases.h"
 #include "core/basketaliases.h"
+#include "core/puckprep.h"
 
 #include <QSqlQuery>
 #include <QSqlError>
@@ -210,6 +211,20 @@ QVariantMap EquipmentPackageView::toVariantMap() const
             map.insert(QStringLiteral("basketSummary"), BasketAliases::summary(*e));
         }
     }
+    // Resolved puck prep: the canonical flag string lives in the item's `model`
+    // column; reconstruct the individual booleans + the derived distribution from
+    // it (PuckPrep). Emitted only when the package has a puckprep item.
+    // Flags (for the card/info display + the dialog edit prefill) and the canonical
+    // string (for the dialog dedup check + SettingsDye prefill). The derived
+    // `distribution` rollup is NOT emitted here — it's an AI-only signal, computed
+    // for the dialing context (buildCurrentBeanBlock) and the MCP equipment tools,
+    // and deliberately kept out of anything user-visible.
+    const QString puckCanon = puckPrep.model;
+    if (!puckCanon.isEmpty()) {
+        for (const QString& k : PuckPrep::flagKeys())
+            map.insert(QStringLiteral("puckPrep_") + k, PuckPrep::has(puckCanon, k));
+        map.insert(QStringLiteral("puckPrepCanonical"), puckCanon);
+    }
     map.insert(QStringLiteral("shotCount"), shotCount);
     return map;
 }
@@ -279,6 +294,7 @@ void EquipmentStorage::requestPackage(qint64 packageId)
                 view.package = pkg;
                 view.grinder = loadGrinderItemStatic(db, packageId);
                 view.basket = loadBasketItemStatic(db, packageId);
+                view.puckPrep = loadPuckPrepItemStatic(db, packageId);
                 *result = view.toVariantMap();
             }
         },
@@ -298,20 +314,23 @@ void EquipmentStorage::requestCreatePackage(const QVariantMap& packageMap)
             const QString burrs = packageMap.value(QStringLiteral("grinderBurrs")).toString();
             const QString basketBrand = packageMap.value(QStringLiteral("basketBrand")).toString();
             const QString basketModel = packageMap.value(QStringLiteral("basketModel")).toString();
-            // Dedup backstop: if an in-inventory package already has this exact
-            // full identity (grinder + basket), return it instead of inserting a
-            // duplicate. The dialog blocks this in the UI too, but the storage is
+            const QString puckPrep = PuckPrep::canonicalMerged(QString(), packageMap);
+            // Dedup backstop: if an in-inventory package already has this exact full
+            // identity (grinder + basket + puck prep), return it instead of inserting
+            // a duplicate. The dialog blocks this in the UI too, but the storage is
             // the authoritative guard against duplicate gear (we don't want dups).
             const qint64 existing = findPackageByGrinderIdentityStatic(db, brand, model, burrs, 0,
-                                                                       basketBrand, basketModel);
+                                                                       basketBrand, basketModel, puckPrep);
             *newId = existing > 0
                 ? existing
-                : createPackageWithGrinderStatic(db, pkg, brand, model, burrs, basketBrand, basketModel);
+                : createPackageWithGrinderStatic(db, pkg, brand, model, burrs,
+                                                 basketBrand, basketModel, puckPrep);
             if (*newId > 0) {
                 EquipmentPackageView view;
                 view.package = loadPackageStatic(db, *newId);
                 view.grinder = loadGrinderItemStatic(db, *newId);
                 view.basket = loadBasketItemStatic(db, *newId);
+                view.puckPrep = loadPuckPrepItemStatic(db, *newId);
                 *created = view.toVariantMap();
             }
         },
@@ -338,23 +357,27 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
     runAsync("equip_update",
         [packageId, fields, success, resultId](QSqlDatabase& db) {
             bool any = false;
-            // Identity = grinder (brand/model/burrs) + basket (brand/model). An
-            // edit to EITHER side runs through the copy-on-write engine; the
-            // untouched side is defaulted from the current items so it is preserved.
+            // Identity = grinder (brand/model/burrs) + basket (brand/model) + puck
+            // prep (flag-set). An edit to ANY side runs through the copy-on-write
+            // engine; untouched sides default from the current items so they're
+            // preserved.
             const bool touchesGrinder = fields.contains(QStringLiteral("grinderBrand"))
                 || fields.contains(QStringLiteral("grinderModel"))
                 || fields.contains(QStringLiteral("grinderBurrs"));
             const bool touchesBasket = fields.contains(QStringLiteral("basketBrand"))
                 || fields.contains(QStringLiteral("basketModel"));
-            if (touchesGrinder || touchesBasket) {
+            const bool touchesPuckPrep = PuckPrep::mapTouches(fields);
+            if (touchesGrinder || touchesBasket || touchesPuckPrep) {
                 const EquipmentItem cur = loadGrinderItemStatic(db, packageId);
                 const EquipmentItem curBasket = loadBasketItemStatic(db, packageId);
+                const EquipmentItem curPuck = loadPuckPrepItemStatic(db, packageId);
                 const QString brand = fields.value(QStringLiteral("grinderBrand"), cur.brand).toString();
                 const QString model = fields.value(QStringLiteral("grinderModel"), cur.model).toString();
                 const QString burrs = fields.value(QStringLiteral("grinderBurrs"), cur.burrs).toString();
                 const QString bBrand = fields.value(QStringLiteral("basketBrand"), curBasket.brand).toString();
                 const QString bModel = fields.value(QStringLiteral("basketModel"), curBasket.model).toString();
-                *resultId = supersedeOrEditStatic(db, packageId, brand, model, burrs, bBrand, bModel);
+                const QString puck = PuckPrep::canonicalMerged(curPuck.model, fields);
+                *resultId = supersedeOrEditStatic(db, packageId, brand, model, burrs, bBrand, bModel, puck);
                 any = (*resultId > 0);
             }
             // Strip identity keys before the package-column update; apply the rest
@@ -365,6 +388,8 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
             pkgFields.remove(QStringLiteral("grinderBurrs"));
             pkgFields.remove(QStringLiteral("basketBrand"));
             pkgFields.remove(QStringLiteral("basketModel"));
+            for (const QString& k : PuckPrep::flagKeys())
+                pkgFields.remove(QStringLiteral("puckPrep_") + k);
             if (!pkgFields.isEmpty())
                 any = updatePackageFieldsStatic(db, *resultId, pkgFields) || any;
             *success = any;
@@ -531,7 +556,8 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
                                                         const QString& brand, const QString& model,
                                                         const QString& burrs,
                                                         const QString& basketBrand,
-                                                        const QString& basketModel)
+                                                        const QString& basketModel,
+                                                        const QString& puckPrep)
 {
     // Persist a name at creation so it survives identity edits / copy-on-write
     // (two packages may share a display name; the id is the permanent handle).
@@ -568,6 +594,17 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
     // Optional basket item. A failure here is fatal too: a half-built package
     // (grinder but a dropped basket the caller asked for) would silently lose the
     // basket identity, so roll the whole package back.
+    // Cleanup used by the optional-item failures below: drop the items then the
+    // package so a partial build never persists.
+    auto dropAll = [&]() {
+        QSqlQuery di(db);
+        di.prepare("DELETE FROM equipment_items WHERE package_id = :id");
+        di.bindValue(":id", packageId);
+        if (!di.exec())
+            qWarning() << "EquipmentStorage: rollback delete of items for package" << packageId
+                       << "failed (possible orphan):" << di.lastError().text();
+        dropPackage();
+    };
     if (!basketBrand.trimmed().isEmpty() || !basketModel.trimmed().isEmpty()) {
         EquipmentItem basket;
         basket.packageId = packageId;
@@ -575,13 +612,22 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
         basket.brand = basketBrand.trimmed();
         basket.model = basketModel.trimmed();
         if (insertItemStatic(db, basket) <= 0) {
-            QSqlQuery di(db);
-            di.prepare("DELETE FROM equipment_items WHERE package_id = :id");
-            di.bindValue(":id", packageId);
-            if (!di.exec())
-                qWarning() << "EquipmentStorage: rollback delete of items for package" << packageId
-                           << "failed (possible orphan):" << di.lastError().text();
-            dropPackage();
+            dropAll();
+            return -1;
+        }
+    }
+    // Optional puck-prep item: the canonical flag string lives in the `model`
+    // column (brand empty); empty string = no puck prep. Re-canonicalized so the
+    // stored value is always canonical (the dedup compares it with a plain '=').
+    // Fatal on failure, like the basket, so a requested config is never silently dropped.
+    const QString puckCanon = PuckPrep::recanonical(puckPrep);
+    if (!puckCanon.isEmpty()) {
+        EquipmentItem puck;
+        puck.packageId = packageId;
+        puck.kind = QStringLiteral("puckprep");
+        puck.model = puckCanon;
+        if (insertItemStatic(db, puck) <= 0) {
+            dropAll();
             return -1;
         }
     }
@@ -673,6 +719,64 @@ bool EquipmentStorage::setBasketItemStatic(QSqlDatabase& db, qint64 packageId,
     return insertItemStatic(db, basket) > 0;
 }
 
+EquipmentItem EquipmentStorage::loadPuckPrepItemStatic(QSqlDatabase& db, qint64 packageId)
+{
+    QSqlQuery query(db);
+    query.prepare(QString("SELECT %1 FROM equipment_items "
+                          "WHERE package_id = :id AND kind = 'puckprep' ORDER BY id LIMIT 1")
+                      .arg(QLatin1String(kItemColumns)));
+    query.bindValue(":id", packageId);
+    if (!query.exec() || !query.next())
+        return EquipmentItem();  // invalid (id == 0): no puck prep
+    return grinderItemFromQueryRow(query);  // generic read; canonical flags in `model`
+}
+
+bool EquipmentStorage::setPuckPrepItemStatic(QSqlDatabase& db, qint64 packageId,
+                                             const QString& puckPrep)
+{
+    // Re-canonicalize so the stored `model` is always canonical regardless of the
+    // caller (the identity dedup compares it with a plain '='), and unknown tokens
+    // are dropped.
+    const QString canon = PuckPrep::recanonical(puckPrep);
+    const EquipmentItem cur = loadPuckPrepItemStatic(db, packageId);
+
+    // Same return contract as setBasketItemStatic: true on success/no-op, false
+    // ONLY on a genuine SQL failure (so the edit-in-place caller can roll back).
+    if (canon.isEmpty()) {
+        if (!cur.isValid())
+            return true;  // already no puck prep — desired state, nothing to do
+        QSqlQuery del(db);
+        del.prepare("DELETE FROM equipment_items WHERE package_id = :id AND kind = 'puckprep'");
+        del.bindValue(":id", packageId);
+        if (!del.exec()) {
+            qWarning() << "EquipmentStorage: puckprep clear failed for package" << packageId << ":"
+                       << del.lastError().text();
+            return false;
+        }
+        return true;
+    }
+
+    if (cur.isValid()) {
+        QSqlQuery upd(db);
+        upd.prepare("UPDATE equipment_items SET brand = NULL, model = :model, attrs = '{}', "
+                    "updated_at = strftime('%s', 'now') WHERE package_id = :id AND kind = 'puckprep'");
+        upd.bindValue(":model", canon);
+        upd.bindValue(":id", packageId);
+        if (!upd.exec()) {
+            qWarning() << "EquipmentStorage: puckprep update failed for package" << packageId << ":"
+                       << upd.lastError().text();
+            return false;
+        }
+        return true;
+    }
+
+    EquipmentItem puck;
+    puck.packageId = packageId;
+    puck.kind = QStringLiteral("puckprep");
+    puck.model = canon;
+    return insertItemStatic(db, puck) > 0;
+}
+
 QVector<EquipmentPackageView> EquipmentStorage::loadInventoryStatic(QSqlDatabase& db)
 {
     QVector<EquipmentPackageView> views;
@@ -699,6 +803,7 @@ QVector<EquipmentPackageView> EquipmentStorage::loadInventoryStatic(QSqlDatabase
     for (qsizetype i = 0; i < views.size(); ++i) {
         views[i].grinder = loadGrinderItemStatic(db, ids.at(i));
         views[i].basket = loadBasketItemStatic(db, ids.at(i));
+        views[i].puckPrep = loadPuckPrepItemStatic(db, ids.at(i));
     }
     return views;
 }
@@ -764,12 +869,16 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
                                                             const QString& model, const QString& burrs,
                                                             qint64 excludeId,
                                                             const QString& basketBrand,
-                                                            const QString& basketModel)
+                                                            const QString& basketModel,
+                                                            const QString& puckPrep)
 {
     // Full-identity match: grinder brand/model/burrs AND the package's basket
-    // brand/model. The basket is matched via correlated subqueries so that a
-    // package with NO basket item resolves to '' and matches empty basket params
-    // ("no basket" is a distinct, matchable identity value).
+    // brand/model AND its puckprep canonical flag string. Each optional component
+    // is matched via correlated subqueries so a package LACKING it resolves to ''
+    // and matches an empty param ("no basket" / "no puck prep" are distinct,
+    // matchable identity values). IFNULL on the bind side too: a caller omitting a
+    // component passes a null QString → SQL NULL, and without IFNULL the '' = NULL
+    // comparison is NULL (never true) and component-less packages stop matching.
     QSqlQuery query(db);
     query.prepare("SELECT i.package_id FROM equipment_items i "
                   "JOIN equipment_packages p ON p.id = i.package_id "
@@ -778,13 +887,16 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
                   "AND LOWER(IFNULL(i.brand,'')) = LOWER(:brand) "
                   "AND LOWER(IFNULL(i.model,'')) = LOWER(:model) "
                   "AND LOWER(IFNULL(json_extract(i.attrs,'$.burrs'),'')) = LOWER(:burrs) "
-                  // IFNULL on the bind side too: a grinder-only caller passes a null
-                  // QString, which binds as SQL NULL — without IFNULL the '' = NULL
-                  // comparison is NULL (never true) and no-basket packages stop matching.
                   "AND LOWER(IFNULL((SELECT b.brand FROM equipment_items b "
                   "  WHERE b.package_id = p.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),'')) = LOWER(IFNULL(:bbrand,'')) "
                   "AND LOWER(IFNULL((SELECT b.model FROM equipment_items b "
                   "  WHERE b.package_id = p.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),'')) = LOWER(IFNULL(:bmodel,'')) "
+                  // Puck-prep identity is the canonical flag string in the puckprep
+                  // item's `model` column. Stored values are always canonical (the
+                  // write path re-canonicalizes), and the bind below is too, so a
+                  // plain '=' is a correct full-identity match.
+                  "AND IFNULL((SELECT pp.model FROM equipment_items pp "
+                  "  WHERE pp.package_id = p.id AND pp.kind = 'puckprep' ORDER BY pp.id LIMIT 1),'') = IFNULL(:puck,'') "
                   "ORDER BY p.id LIMIT 1");
     query.bindValue(":exclude", excludeId);
     query.bindValue(":brand", brand);
@@ -792,6 +904,9 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
     query.bindValue(":burrs", burrs);
     query.bindValue(":bbrand", basketBrand.trimmed());
     query.bindValue(":bmodel", basketModel.trimmed());
+    // Re-canonicalize the query arg so an unsorted/non-canonical caller still matches
+    // the canonical stored value (the compare is a plain '=', not order-aware).
+    query.bindValue(":puck", PuckPrep::recanonical(puckPrep));
     if (!query.exec() || !query.next())
         return 0;
     return query.value(0).toLongLong();
@@ -801,26 +916,36 @@ qint64 EquipmentStorage::supersedeOrEditGrinderStatic(QSqlDatabase& db, qint64 p
                                                       const QString& brand, const QString& model,
                                                       const QString& burrs)
 {
-    // Grinder-only edit: preserve the package's current basket identity.
+    // Grinder-only edit: preserve the package's current basket + puck prep.
     const EquipmentItem curBasket = loadBasketItemStatic(db, packageId);
+    const EquipmentItem curPuck = loadPuckPrepItemStatic(db, packageId);
     return supersedeOrEditStatic(db, packageId, brand, model, burrs,
-                                 curBasket.brand, curBasket.model);
+                                 curBasket.brand, curBasket.model, curPuck.model);
 }
 
 qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageId,
                                                const QString& brand, const QString& model,
                                                const QString& burrs,
-                                               const QString& basketBrand, const QString& basketModel)
+                                               const QString& basketBrand, const QString& basketModel,
+                                               const QString& puckPrep)
 {
     const EquipmentItem cur = loadGrinderItemStatic(db, packageId);
     const EquipmentItem curBasket = loadBasketItemStatic(db, packageId);
+    const EquipmentItem curPuck = loadPuckPrepItemStatic(db, packageId);
+
+    // Canonicalize the target puck prep once so the unchanged-check and the merge
+    // lookup compare like-for-like against the (always-canonical) stored value — an
+    // unsorted/non-canonical arg would otherwise read as a change and spuriously
+    // fork. The setter/create below re-canonicalize again (idempotent), harmlessly.
+    const QString puck = PuckPrep::recanonical(puckPrep);
 
     auto norm = [](const QString& s) { return s.trimmed().toLower(); };
     const bool unchanged = norm(cur.brand) == norm(brand)
         && norm(cur.model) == norm(model)
         && norm(cur.burrs) == norm(burrs)
         && norm(curBasket.brand) == norm(basketBrand)
-        && norm(curBasket.model) == norm(basketModel);
+        && norm(curBasket.model) == norm(basketModel)
+        && curPuck.model == puck;  // both canonical
     if (unchanged)
         return packageId;  // no identity change
 
@@ -867,7 +992,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
 
     // Merge: another current package already has this exact full identity.
     const qint64 mergeTarget = findPackageByGrinderIdentityStatic(db, brand, model, burrs, packageId,
-                                                                  basketBrand, basketModel);
+                                                                  basketBrand, basketModel, puck);
     if (mergeTarget > 0) {
         if (!repointBags(packageId, mergeTarget))
             return fail();
@@ -886,14 +1011,16 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         return done(mergeTarget);
     }
 
-    // Unused package: safe to edit in place (both grinder and basket items).
+    // Unused package: safe to edit in place (grinder + basket + puckprep items).
     if (shotCount() == 0) {
         if (!updateGrinderItemStatic(db, packageId, brand, model, burrs))
             return fail();
         // A false return is a genuine SQL failure (a no-op returns true), so roll
-        // back rather than commit a half-applied identity (grinder changed, basket
-        // write failed) — this edit runs inside the transaction opened above.
+        // back rather than commit a half-applied identity — these edits run inside
+        // the transaction opened above.
         if (!setBasketItemStatic(db, packageId, basketBrand, basketModel))
+            return fail();
+        if (!setPuckPrepItemStatic(db, packageId, puck))
             return fail();
         return done(packageId);
     }
@@ -906,7 +1033,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     np.lastRpm = old.lastRpm;
     np.lastUsedEpoch = QDateTime::currentSecsSinceEpoch();
     const qint64 newId = createPackageWithGrinderStatic(db, np, brand, model, burrs,
-                                                        basketBrand, basketModel);
+                                                        basketBrand, basketModel, puck);
     if (newId <= 0)
         return fail();  // fork failed; leave as-is
     if (!repointBags(packageId, newId))
@@ -1144,17 +1271,18 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
                 srcGrinder = grinderItemFromQueryRow(gi);
         }
         EquipmentItem srcBasket = loadBasketItemStatic(srcDb, srcPkg.id);
+        EquipmentItem srcPuck = loadPuckPrepItemStatic(srcDb, srcPkg.id);
 
         // Merge dedup: an IN-INVENTORY source package whose FULL identity (grinder
-        // + basket) already exists in dest maps to that package — no duplicate.
-        // Superseded (historical) packages always import as new rows so their
-        // shots keep a distinct lineage.
+        // + basket + puck prep) already exists in dest maps to that package — no
+        // duplicate. Superseded (historical) packages always import as new rows so
+        // their shots keep a distinct lineage.
         qint64 destId = -1;
         if (merge && srcPkg.inInventory
             && !(srcGrinder.brand.isEmpty() && srcGrinder.model.isEmpty())) {
             const qint64 existing = findPackageByGrinderIdentityStatic(
                 destDb, srcGrinder.brand, srcGrinder.model, srcGrinder.burrs, 0,
-                srcBasket.brand, srcBasket.model);
+                srcBasket.brand, srcBasket.model, srcPuck.model);
             if (existing > 0)
                 destId = existing;
         }
@@ -1183,7 +1311,7 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
             while (srcItems.next()) {
                 EquipmentItem item = grinderItemFromQueryRow(srcItems);
                 item.packageId = destId;
-                if (insertItemStatic(destDb, item) < 0)
+                if (insertItemStatic(destDb, item) <= 0)  // consistent with the create path
                     return false;
             }
             newlyInsertedSrcIds.insert(srcPkg.id);
