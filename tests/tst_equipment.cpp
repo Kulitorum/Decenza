@@ -456,6 +456,9 @@ private slots:
 
             // Full-identity dedup keys on puck prep too.
             QCOMPARE(EquipmentStorage::findPackageByGrinderIdentityStatic(db, "Turin", "DF83V", "83mm", 0, QString(), QString(), "wdt"), A);
+            // An UNSORTED query arg still matches the canonical-stored value (the
+            // lookup re-canonicalizes its bind), so dedup can't be defeated by order.
+            QCOMPARE(EquipmentStorage::findPackageByGrinderIdentityStatic(db, "Turin", "DF83V", "83mm", 0, QString(), QString(), "wdt,shaker"), B);
             // "No puck prep" is a distinct value: a grinder+basket-only query matches neither.
             QCOMPARE(EquipmentStorage::findPackageByGrinderIdentityStatic(db, "Turin", "DF83V", "83mm"), (qint64)0);
 

@@ -34,7 +34,10 @@ Dialog {
     property string fBasketModel: ""
     // Optional puck-prep flags (add-puckprep-equipment). All false = no puck prep.
     property var fPuck: ({ wdt: false, shaker: false, puckScreen: false, paperFilter: false, rdt: false })
-    // The checkbox rows, in display order (key + label).
+    // The checkbox rows, in display order (key + label). The KEY SET here must stay
+    // in sync with C++ PuckPrep::flagKeys() (core/puckprep.h): puckCanonical() below
+    // builds the dedup string from these keys and compares it against the C++-stored
+    // canonical, so a key added/renamed in one place must change in both.
     readonly property var puckPrepRows: [
         { key: "wdt",         label: TranslationManager.translate("equipment.dialog.puckWdt", "WDT") },
         { key: "shaker",      label: TranslationManager.translate("equipment.dialog.puckShaker", "Shaker") },

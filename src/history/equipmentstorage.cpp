@@ -892,7 +892,9 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
                   "AND LOWER(IFNULL((SELECT b.model FROM equipment_items b "
                   "  WHERE b.package_id = p.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),'')) = LOWER(IFNULL(:bmodel,'')) "
                   // Puck-prep identity is the canonical flag string in the puckprep
-                  // item's `model` column (already normalized, so a plain match).
+                  // item's `model` column. Stored values are always canonical (the
+                  // write path re-canonicalizes), and the bind below is too, so a
+                  // plain '=' is a correct full-identity match.
                   "AND IFNULL((SELECT pp.model FROM equipment_items pp "
                   "  WHERE pp.package_id = p.id AND pp.kind = 'puckprep' ORDER BY pp.id LIMIT 1),'') = IFNULL(:puck,'') "
                   "ORDER BY p.id LIMIT 1");
@@ -902,7 +904,9 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
     query.bindValue(":burrs", burrs);
     query.bindValue(":bbrand", basketBrand.trimmed());
     query.bindValue(":bmodel", basketModel.trimmed());
-    query.bindValue(":puck", puckPrep.trimmed());
+    // Re-canonicalize the query arg so an unsorted/non-canonical caller still matches
+    // the canonical stored value (the compare is a plain '=', not order-aware).
+    query.bindValue(":puck", PuckPrep::recanonical(puckPrep));
     if (!query.exec() || !query.next())
         return 0;
     return query.value(0).toLongLong();
@@ -929,13 +933,19 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     const EquipmentItem curBasket = loadBasketItemStatic(db, packageId);
     const EquipmentItem curPuck = loadPuckPrepItemStatic(db, packageId);
 
+    // Canonicalize the target puck prep once so the unchanged-check and the merge
+    // lookup compare like-for-like against the (always-canonical) stored value — an
+    // unsorted/non-canonical arg would otherwise read as a change and spuriously
+    // fork. The setter/create below re-canonicalize again (idempotent), harmlessly.
+    const QString puck = PuckPrep::recanonical(puckPrep);
+
     auto norm = [](const QString& s) { return s.trimmed().toLower(); };
     const bool unchanged = norm(cur.brand) == norm(brand)
         && norm(cur.model) == norm(model)
         && norm(cur.burrs) == norm(burrs)
         && norm(curBasket.brand) == norm(basketBrand)
         && norm(curBasket.model) == norm(basketModel)
-        && curPuck.model.trimmed() == puckPrep.trimmed();  // canonical already normalized
+        && curPuck.model == puck;  // both canonical
     if (unchanged)
         return packageId;  // no identity change
 
@@ -982,7 +992,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
 
     // Merge: another current package already has this exact full identity.
     const qint64 mergeTarget = findPackageByGrinderIdentityStatic(db, brand, model, burrs, packageId,
-                                                                  basketBrand, basketModel, puckPrep);
+                                                                  basketBrand, basketModel, puck);
     if (mergeTarget > 0) {
         if (!repointBags(packageId, mergeTarget))
             return fail();
@@ -1010,7 +1020,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
         // the transaction opened above.
         if (!setBasketItemStatic(db, packageId, basketBrand, basketModel))
             return fail();
-        if (!setPuckPrepItemStatic(db, packageId, puckPrep))
+        if (!setPuckPrepItemStatic(db, packageId, puck))
             return fail();
         return done(packageId);
     }
@@ -1023,7 +1033,7 @@ qint64 EquipmentStorage::supersedeOrEditStatic(QSqlDatabase& db, qint64 packageI
     np.lastRpm = old.lastRpm;
     np.lastUsedEpoch = QDateTime::currentSecsSinceEpoch();
     const qint64 newId = createPackageWithGrinderStatic(db, np, brand, model, burrs,
-                                                        basketBrand, basketModel, puckPrep);
+                                                        basketBrand, basketModel, puck);
     if (newId <= 0)
         return fail();  // fork failed; leave as-is
     if (!repointBags(packageId, newId))
@@ -1301,7 +1311,7 @@ bool EquipmentStorage::importEquipmentStatic(QSqlDatabase& srcDb, QSqlDatabase& 
             while (srcItems.next()) {
                 EquipmentItem item = grinderItemFromQueryRow(srcItems);
                 item.packageId = destId;
-                if (insertItemStatic(destDb, item) < 0)
+                if (insertItemStatic(destDb, item) <= 0)  // consistent with the create path
                     return false;
             }
             newlyInsertedSrcIds.insert(srcPkg.id);

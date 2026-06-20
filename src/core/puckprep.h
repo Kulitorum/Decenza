@@ -18,6 +18,9 @@ namespace PuckPrep {
 
 // The recorded flags, in DISPLAY order (the form renders them in this order). The
 // stored canonical identity is these keys SORTED, so it is order-independent.
+// MIRROR: the QML SwitchEquipmentDialog.qml `puckPrepRows` keys + its puckCanonical()
+// must match this set — a key added/renamed here has to change there too (the dialog
+// builds its dedup string independently and compares it to the C++-stored canonical).
 inline const QStringList& flagKeys()
 {
     static const QStringList keys = {
