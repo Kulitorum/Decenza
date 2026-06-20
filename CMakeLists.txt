@@ -762,6 +762,7 @@ set(QML_FILES
     qml/components/BagCard.qml
     qml/components/SwitchEquipmentDialog.qml
     qml/components/EquipmentCard.qml
+    qml/components/EquipmentSummary.qml
     qml/components/EquipmentInfoDialog.qml
     qml/components/KeyboardAwareContainer.qml
     qml/components/AIConversationPanel.qml

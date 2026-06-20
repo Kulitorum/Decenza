@@ -174,6 +174,11 @@ Page {
                 editGrinderBurrs = editShotData.grinderBurrs || ""
                 editEquipmentId = editShotData.equipmentId || -1
                 editEquipmentName = editShotData.equipmentName || ""
+                // Basket + puck prep are display-only here (owned by the package,
+                // re-pointed via the picker) but shown in the equipment card.
+                editBasketBrand = editShotData.basketBrand || ""
+                editBasketModel = editShotData.basketModel || ""
+                editPuckPrep = editShotData.puckPrep || ""
                 editGrinderSetting = editShotData.grinderSetting || ""
                 editRpm = editShotData.rpm || 0
                 editBarista = editShotData.barista || ""
@@ -269,6 +274,11 @@ Page {
     property string editEquipmentName: ""  // package display name (read-only label)
     property int editEquipmentId: -1
     property int _pendingEquipmentId: -1   // package id awaiting requestPackage resolution
+    // Basket + puck prep: read-only display, resolved from the package like the
+    // grinder identity; shown in the equipment card, never edited as free text.
+    property string editBasketBrand: ""
+    property string editBasketModel: ""
+    property string editPuckPrep: ""       // canonical puck-prep flag string
     property string editGrinderSetting: ""
     property int editRpm: 0                // grinder rpm dial-in (shown when rpmCapable)
     readonly property bool editRpmCapable: Settings.dye.grinderRpmCapable(editGrinderBrand, editGrinderModel)
@@ -418,6 +428,7 @@ Page {
             grinderBrand: editGrinderBrand, grinderModel: editGrinderModel,
             grinderBurrs: editGrinderBurrs, grinderSetting: editGrinderSetting,
             equipmentId: editEquipmentId, equipmentName: editEquipmentName, rpm: editRpm,
+            basketBrand: editBasketBrand, basketModel: editBasketModel, puckPrep: editPuckPrep,
             barista: editBarista, doseWeight: editDoseWeight,
             drinkWeight: editDrinkWeight, drinkTds: editDrinkTds,
             drinkEy: editDrinkEy, enjoyment: editEnjoyment,
@@ -433,6 +444,9 @@ Page {
         editGrinderBurrs = s.grinderBurrs; editGrinderSetting = s.grinderSetting
         editEquipmentId = s.equipmentId !== undefined ? s.equipmentId : -1
         editEquipmentName = s.equipmentName !== undefined ? s.equipmentName : ""
+        editBasketBrand = s.basketBrand !== undefined ? s.basketBrand : ""
+        editBasketModel = s.basketModel !== undefined ? s.basketModel : ""
+        editPuckPrep = s.puckPrep !== undefined ? s.puckPrep : ""
         editRpm = s.rpm !== undefined ? s.rpm : 0
         editBarista = s.barista; editDoseWeight = s.doseWeight
         editDrinkWeight = s.drinkWeight; editDrinkTds = s.drinkTds
@@ -1508,9 +1522,6 @@ Page {
                         MainController.equipmentStorage.requestPackage(packageId)
                     }
                 }
-                EquipmentInfoDialog {
-                    id: shotEquipmentInfoDialog
-                }
                 Connections {
                     target: MainController.equipmentStorage
                     function onPackageReady(packageId, pkg) {
@@ -1520,6 +1531,9 @@ Page {
                         postShotReviewPage.editGrinderBrand = pkg.grinderBrand || ""
                         postShotReviewPage.editGrinderModel = pkg.grinderModel || ""
                         postShotReviewPage.editGrinderBurrs = pkg.grinderBurrs || ""
+                        postShotReviewPage.editBasketBrand = pkg.basketBrand || ""
+                        postShotReviewPage.editBasketModel = pkg.basketModel || ""
+                        postShotReviewPage.editPuckPrep = pkg.puckPrepCanonical || ""
                         postShotReviewPage.editEquipmentName =
                             (pkg.name && String(pkg.name).length > 0) ? String(pkg.name) : ""
                         postShotReviewPage.autosave("equipment", true)
@@ -1566,46 +1580,71 @@ Page {
                 // changed by re-pointing the shot to a different package via the
                 // picker — not edited as free text (those edits were silently
                 // discarded). The grind Setting (below) stays a per-shot dial-in.
-                RowLayout {
+                // Equipment identity card (grinder + basket + puck prep), styled
+                // like the inventory EquipmentCard and sharing its EquipmentSummary
+                // renderer. The grind setting + RPM are omitted here — they are the
+                // per-shot dial-in edited in the fields just below, so echoing them
+                // read-only would only duplicate. Re-point via the Change Equipment
+                // button (the inventory card's Remove slot); all details live on the
+                // card, so there is no separate info button.
+                Rectangle {
+                    id: equipmentCard
                     Layout.columnSpan: 3
                     Layout.fillWidth: true
-                    spacing: 8
+                    Layout.preferredHeight: equipmentCardColumn.implicitHeight + Theme.scaled(24)
                     readonly property bool hasEquipment: editEquipmentName.length > 0
                                                          || editGrinderBrand.length > 0 || editGrinderModel.length > 0
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+                    border.width: 1
+                    border.color: Theme.borderColor
+                    Accessible.role: Accessible.Grouping
+                    Accessible.name: TranslationManager.translate("postshotreview.label.equipment", "Equipment:")
+                        + " " + (hasEquipment ? equipmentSummary.accessibleSummary
+                                              : TranslationManager.translate("postshotreview.equipmentNotSet", "Not set"))
 
-                    Tr {
-                        key: "postshotreview.label.equipment"
-                        fallback: "Equipment:"
-                        font: Theme.labelFont
-                        color: Theme.textSecondaryColor
-                        Accessible.ignored: true
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                        // Show the package NAME (defaults to "{brand} {model}").
-                        text: editEquipmentName.length > 0
-                              ? editEquipmentName
-                              : (parent.hasEquipment
-                                 ? [editGrinderBrand, editGrinderModel].filter(function(s){ return s && s.length > 0 }).join(" ")
-                                 : TranslationManager.translate("postshotreview.equipmentNotSet", "Not set"))
-                        font: Theme.bodyFont
-                        color: parent.hasEquipment ? Theme.textColor : Theme.textSecondaryColor
-                        Accessible.role: Accessible.StaticText
-                        Accessible.name: TranslationManager.translate("postshotreview.label.equipment", "Equipment:") + " " + text
-                    }
-                    AccessibleButton {
-                        visible: editEquipmentId > 0
-                        icon.source: "qrc:/icons/info.svg"
-                        accessibleName: TranslationManager.translate("equipment.info.button", "Equipment details")
-                        onClicked: shotEquipmentInfoDialog.openFor(editEquipmentId)
-                    }
-                    AccessibleButton {
-                        text: parent.hasEquipment
-                              ? TranslationManager.translate("postshotreview.changeEquipment", "Change Equipment")
-                              : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
-                        accessibleName: text
-                        onClicked: shotEquipmentDialog.openPicker()
+                    ColumnLayout {
+                        id: equipmentCardColumn
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(12)
+                        spacing: Theme.scaled(6)
+
+                        EquipmentSummary {
+                            id: equipmentSummary
+                            Layout.fillWidth: true
+                            visible: equipmentCard.hasEquipment
+                            grinderName: editEquipmentName || ""
+                            grinderBrand: editGrinderBrand
+                            grinderModel: editGrinderModel
+                            grinderBurrs: editGrinderBurrs
+                            basketBrand: editBasketBrand
+                            basketModel: editBasketModel
+                            puckPrepCanonical: editPuckPrep
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: !equipmentCard.hasEquipment
+                            elide: Text.ElideRight
+                            text: TranslationManager.translate("postshotreview.equipmentNotSet", "Not set")
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.subtitleFont.pixelSize
+                            font.bold: true
+                            color: Theme.textSecondaryColor
+                            Accessible.ignored: true
+                        }
+                        AccessibleButton {
+                            height: Theme.scaled(36)
+                            _customFontSize: Theme.captionFont.pixelSize
+                            leftPadding: Theme.scaled(10)
+                            rightPadding: Theme.scaled(10)
+                            text: equipmentCard.hasEquipment
+                                  ? TranslationManager.translate("postshotreview.changeEquipment", "Change Equipment")
+                                  : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
+                            accessibleName: text
+                            onClicked: shotEquipmentDialog.openPicker()
+                        }
                     }
                 }
 
