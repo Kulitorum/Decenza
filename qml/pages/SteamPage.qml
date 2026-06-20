@@ -747,6 +747,28 @@ Page {
                         color: isSteamHeating ? Theme.warningColor : (isPuffing ? Theme.secondaryColor : Theme.primaryColor)
                     }
                 }
+
+                // Purge button on the live steaming view — stops steam and triggers
+                // the DE1 steam-wand purge.
+                Rectangle {
+                    visible: isSteaming
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: Theme.scaled(150)
+                    height: Theme.scaled(48)
+                    radius: Theme.buttonRadius
+                    color: livePurgeMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("steam.accessible.purge", "Purge the steam wand")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: livePurgeMa.clicked(null)
+                    Tr {
+                        anchors.centerIn: parent
+                        key: "steam.label.purge"; fallback: "Purge"
+                        color: Theme.primaryContrastColor; font: Theme.bodyFont
+                        Accessible.ignored: true
+                    }
+                    MouseArea { id: livePurgeMa; anchors.fill: parent; onClicked: DE1Device.requestIdle() }
+                }
             }
 
             Item { Layout.fillHeight: true }
@@ -1255,9 +1277,20 @@ Page {
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
 
-                ColumnLayout {
+                Flickable {
+                    id: editorFlick
                     anchors.fill: parent
                     anchors.margins: Theme.scaled(16)
+                    contentWidth: width
+                    contentHeight: editorColumn.implicitHeight
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    flickableDirection: Flickable.VerticalFlick
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                ColumnLayout {
+                    id: editorColumn
+                    width: editorFlick.width
                     spacing: Theme.scaled(8)
 
                     // Centered placeholder when the selected preset is an "Off" pill —
@@ -1266,7 +1299,7 @@ Page {
                     Item {
                         visible: steamPage.currentPitcherDisabled
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
+                        Layout.preferredHeight: Theme.scaled(160)
 
                         Tr {
                             anchors.centerIn: parent
@@ -1277,6 +1310,32 @@ Page {
                             horizontalAlignment: Text.AlignHCenter
                         }
                     }
+
+                    // Purge: clear water / condensation from the steam wand.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: !steamPage.currentPitcherDisabled
+                        Item { Layout.fillWidth: true }
+                        Rectangle {
+                            Layout.preferredWidth: Theme.scaled(150)
+                            Layout.preferredHeight: Theme.scaled(48)
+                            radius: Theme.buttonRadius
+                            color: purgeMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                            Accessible.role: Accessible.Button
+                            Accessible.name: TranslationManager.translate("steam.accessible.purge", "Purge the steam wand")
+                            Accessible.focusable: true
+                            Accessible.onPressAction: purgeMa.clicked(null)
+                            Tr {
+                                anchors.centerIn: parent
+                                key: "steam.label.purge"; fallback: "Purge"
+                                color: Theme.primaryContrastColor; font: Theme.bodyFont
+                                Accessible.ignored: true
+                            }
+                            MouseArea { id: purgeMa; anchors.fill: parent; onClicked: DE1Device.requestIdle() }
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
                     // Duration (per-pitcher, auto-saves)
                     RowLayout {
@@ -1520,6 +1579,84 @@ Page {
                         }
                     }
 
+                    // Milk pitcher section: the empty-pitcher weight for the selected
+                    // preset. Shows the saved value and lets you adjust it (type or +/-).
+                    // Used to work out milk weight (scale - pitcher) and, when a preset
+                    // is calibrated, to scale the steam time. Re-weigh via the Weight
+                    // row's Save button below.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(16)
+                        visible: !steamPage.currentPitcherDisabled
+
+                        Column {
+                            spacing: Theme.scaled(4)
+                            Tr {
+                                key: "steam.label.pitcherWeight"
+                                fallback: "Milk pitcher"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(24)
+                                Accessible.ignored: true
+                            }
+                            Tr {
+                                key: "steam.hint.pitcherWeight"
+                                fallback: "Empty pitcher weight"
+                                color: Theme.textSecondaryColor
+                                font: Theme.labelFont
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        ValueInput {
+                            id: pitcherWeightInput
+                            Layout.preferredWidth: Theme.scaled(150)
+                            from: 0
+                            to: 1000
+                            stepSize: 0.1
+                            decimals: 1
+                            suffix: " g"
+                            value: {
+                                var _ = Settings.brew.steamPitcherPresets
+                                var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+                                return preset ? (preset.pitcherWeightG ?? 0) : 0
+                            }
+                            valueColor: Theme.weightColor
+                            accessibleName: TranslationManager.translate("steam.label.pitcherWeight", "Milk pitcher weight")
+                            onValueModified: function(newValue) {
+                                Settings.brew.setSteamPitcherWeight(Settings.brew.selectedSteamPitcher, newValue)
+                            }
+                        }
+
+                        // Weigh the empty pitcher now on the scale.
+                        Rectangle {
+                            id: pitcherWeighBtn
+                            visible: ScaleDevice.connected && !ScaleDevice.isFlowScale
+                            readonly property bool btnEnabled: MachineState.scaleWeight > 0
+                            opacity: btnEnabled ? 1.0 : 0.4
+                            width: Theme.scaled(84); height: Theme.scaled(44)
+                            radius: Theme.cardRadius
+                            color: pitcherWeighMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                            Accessible.role: Accessible.Button
+                            Accessible.name: TranslationManager.translate("steam.accessible.weighPitcher", "Weigh empty pitcher from the scale")
+                            Accessible.focusable: true
+                            Accessible.onPressAction: pitcherWeighMa.clicked(null)
+                            Tr {
+                                anchors.centerIn: parent
+                                key: "steam.label.weigh"; fallback: "Weigh"
+                                color: Theme.primaryContrastColor; font: Theme.bodyFont
+                                Accessible.ignored: true
+                            }
+                            MouseArea {
+                                id: pitcherWeighMa
+                                anchors.fill: parent
+                                enabled: pitcherWeighBtn.btnEnabled
+                                onClicked: Settings.brew.setSteamPitcherWeight(
+                                    Settings.brew.selectedSteamPitcher, MachineState.scaleWeight)
+                            }
+                        }
+                    }
+
                     Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
                     // Weight — pitcher tare calibration per preset
@@ -1669,7 +1806,7 @@ Page {
                         }
                     }
 
-                    Item { Layout.fillHeight: true }
+                }
                 }
             }
         }
