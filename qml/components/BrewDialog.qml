@@ -589,14 +589,17 @@ Dialog {
             // is managed in the Equipment window / Switch dialog, not edited here.
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Theme.scaled(4)
+                spacing: Theme.scaled(8)
 
                 Text {
                     text: TranslationManager.translate("brewDialog.equipmentLabel", "Equipment:")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignVCenter
-                    Layout.preferredWidth: Theme.scaled(75)
+                    // "Equipment:" is the widest label here, so let it size to its
+                    // content (min = the shared 75px column) rather than a fixed 75px
+                    // that clips it and lets the package name butt right against it.
+                    Layout.minimumWidth: Theme.scaled(75)
                     Accessible.ignored: true
                 }
 
