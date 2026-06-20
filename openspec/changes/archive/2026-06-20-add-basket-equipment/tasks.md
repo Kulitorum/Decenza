@@ -14,7 +14,7 @@
 ## 3. Picker UI (switch-equipment-dialog)
 - [x] 3.1 Extend `SuggestionField` with an optional `descriptions` (value→subtitle) map rendered as a second row + folded into accessibility (lower-risk than a full `{value,description}` refactor; string filter/select logic untouched)
 - [x] 3.2 Add the optional vendor-first two-level basket section to `SwitchEquipmentDialog` (brand typeahead, model rows with differentiator subtitle; clearing brand+model = no basket)
-- [ ] 3.3 (Optional) group a brand's models by sub-family (Decent: Ridgeless/Ridged/Waisted) — deferred (design-marked optional)
+- [~] 3.3 (Optional) group a brand's models by sub-family (Decent: Ridgeless/Ridged/Waisted) — deferred (design-marked optional)
 - [x] 3.4 Translation keys + accessibility attributes for the basket fields (inline `TranslationManager.translate` with fallbacks; accessibleName set)
 
 ## 4. Inventory view (equipment-inventory-view)
@@ -30,8 +30,8 @@
 
 ## 6. Verification
 - [x] 6.1 Quick compile check via Qt Creator MCP — app + all test targets build clean (0 errors, 0 warnings); equipment/coffeebags/dialing_blocks/mcptools_write/shotsummarizer/dbmigration suites all pass
-- [ ] 6.2 Manual: create grinder+basket package, switch basket (fork), switch back (dedup), grinder-only package; confirm card/info display — needs the running app (covered logically by unit tests)
-- [ ] 6.3 Confirm dialing context JSON carries the basket sub-object (and omits it when no basket / custom) — needs the running app + a shot with a basketed package
+- [~] 6.2 Manual: create grinder+basket package, switch basket (fork), switch back (dedup), grinder-only package; confirm card/info display — needs the running app (covered logically by unit tests)
+- [~] 6.3 Confirm dialing context JSON carries the basket sub-object (and omits it when no basket / custom) — needs the running app + a shot with a basketed package
 
 ## 7. Housekeeping
 - [x] 7.1 Archive the stale `add-basket-settings` proposal (dose-centric; superseded) — moved to `archive/2026-06-19-add-basket-settings`, marked OBSOLETE

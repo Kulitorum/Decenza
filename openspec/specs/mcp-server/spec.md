@@ -175,3 +175,57 @@ The `devices_connection_status` tool SHALL report the current detection epoch an
 - **WHEN** `devices_reset_scale_priority` is called
 - **THEN** it clears the latch as before (the in-session escape hatch is unchanged by epoch scoping)
 
+### Requirement: MCP grinder reads SHALL resolve via the equipment package
+MCP surfaces that report grinder identity — the `de1://dialing` resource (`mcpresources.cpp`), `dialing_get_context`, `dialing_get_grinder_calibration`, and `ai_advisor_invoke` — SHALL resolve grinder brand/model/burrs through the equipment package (the active bag's package for live snapshots; the resolved shot's `equipment_id` for shot-derived blocks). They SHALL additionally expose the package identity (`id`, display `name`, `rpmAdjustable`) and the `rpm` dial-in. All fields SHALL follow MCP data conventions (units in field names, `kind` as a string enum, ISO-8601 timestamps).
+
+#### Scenario: Dialing resource reports the package
+- **WHEN** the `de1://dialing` resource is read
+- **THEN** the grinder block SHALL include the resolved brand/model/setting plus `rpm` and `rpmAdjustable`, sourced from the active bag's equipment package
+
+### Requirement: equipment_list tool
+The MCP server SHALL provide an `equipment_list` tool (modeled on `bag_list`) returning equipment packages: `id`, display `name`, grinder `brand`/`model`/`burrs`, `rpmAdjustable`, `inInventory`, and the last-used grind setting and `rpm`.
+
+#### Scenario: Listing packages
+- **WHEN** an agent calls `equipment_list`
+- **THEN** it SHALL receive the inventory of equipment packages with the fields above
+
+### Requirement: equipment_select tool
+The MCP server SHALL provide an `equipment_select` tool (modeled on `bag_select`) that sets the active bag's equipment package by id (or clears it with 0). Selecting a package SHALL apply that package's last grind setting / rpm to the active bag per the dual-memory rule.
+
+#### Scenario: Selecting a package
+- **WHEN** an agent calls `equipment_select` with a valid package id
+- **THEN** the active bag's `equipment_id` SHALL be set to that package
+- **AND** the active bag's grind setting and rpm SHALL be set to the package's last-dial values
+
+### Requirement: equipment_update tool
+The MCP server SHALL provide an `equipment_update` tool (modeled on `bag_update`) that edits a package's grinder identity (brand/model/burrs) and SHALL support creating a package. On a brand/model change, `rpmCapable` SHALL re-derive from the registry. Edits use reference semantics (apply to all referencing bags/shots).
+
+#### Scenario: Editing a package
+- **WHEN** an agent calls `equipment_update` changing a package's grinder model
+- **THEN** the package SHALL be updated, `rpmAdjustable` re-derived, and all referencing bags/shots SHALL resolve to the new identity
+
+### Requirement: Equipment MCP tools SHALL read and write the basket identity
+The MCP `equipment_*` tools SHALL include the package's basket identity
+(`brand`, `model`) in equipment reads, and SHALL accept an optional basket identity
+when creating or updating a package, alongside the grinder identity. Omitting the
+basket SHALL leave a package grinder-only. Basket edits SHALL flow through the same
+package-identity (dedup/fork) rules as grinder edits.
+
+#### Scenario: Equipment read includes the basket
+- **WHEN** an MCP equipment read resolves a package that has a basket
+- **THEN** the response SHALL include the basket brand and model
+
+#### Scenario: Equipment write sets a basket
+- **WHEN** an MCP equipment write supplies a basket identity
+- **THEN** the package SHALL gain a `kind="basket"` item subject to the identity rules
+
+### Requirement: MCP basket fields SHALL follow the data conventions
+Basket fields exposed over MCP SHALL follow the project MCP conventions: dose range
+named with its unit (`doseRangeG`), and `wallProfile` / `relativeFlow` / `precision`
+expressed as human-readable strings/booleans rather than numeric codes. Derived
+specs SHALL be omitted when unknown (custom basket) rather than zero-filled.
+
+#### Scenario: Basket specs are LLM-legible
+- **WHEN** the MCP dialing context emits the basket sub-object
+- **THEN** `wallProfile` and `relativeFlow` SHALL be readable strings and the dose range SHALL be unit-suffixed (`doseRangeG`)
+

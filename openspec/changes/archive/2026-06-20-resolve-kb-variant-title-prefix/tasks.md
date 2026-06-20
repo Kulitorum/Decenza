@@ -22,11 +22,11 @@
 
 ## 4. Documentation
 
-- [ ] 4.0 Update the "save a profile" section of the user Manual wiki (separate repo — clone `Kulitorum/Decenza.wiki.git`; page `Manual`, `https://github.com/Kulitorum/Decenza/wiki/Manual`): explain that built-in profiles are always recognized exactly, and a profile created from a real recipe inherits that recipe's AI dialing knowledge **only if its title keeps the recipe's name as the prefix** (e.g. `D-Flow / Q - My Ethiopian`, `D-Flow / Q2`); a fully-renamed custom profile falls back to the generic editor default. Keep wording aligned with the actual separator/boundary behavior (D2/D3). Commit in the wiki repo after the code lands (document shipped behavior, not aspirational).
+- [~] 4.0 Update the "save a profile" section of the user Manual wiki (separate repo — clone `Kulitorum/Decenza.wiki.git`; page `Manual`, `https://github.com/Kulitorum/Decenza/wiki/Manual`): explain that built-in profiles are always recognized exactly, and a profile created from a real recipe inherits that recipe's AI dialing knowledge **only if its title keeps the recipe's name as the prefix** (e.g. `D-Flow / Q - My Ethiopian`, `D-Flow / Q2`); a fully-renamed custom profile falls back to the generic editor default. Keep wording aligned with the actual separator/boundary behavior (D2/D3). Commit in the wiki repo after the code lands (document shipped behavior, not aspirational).
 
 ## 5. Verification
 
 - [x] 5.1 `openspec validate resolve-kb-variant-title-prefix --strict` → valid.
 - [x] 5.2 `python3 tools/validate_kb.py` → still OK; the new nested-recipe-alias lint adds **0** WARNs on the current KB (simulated), the existing 10 non-fatal WARNs are unchanged, zero ERRORs, KB data unchanged.
 - [x] 5.3 Built via Qt Creator MCP (0 errors, 0 warnings); full Qt Test suite green (no WARN lines), with the new + inverted resolution fixtures passing.
-- [ ] 5.4 Live spot-check via `dialing_get_context` on a real renamed-variant shot: `profileKnowledge` resolves to `d-flow-q-variant` (6-bar / 84°C / UGS ~1.0), not the generic `d-flow` default; previously `no kbId resolvable` variants now resolve.
+- [~] 5.4 Live spot-check via `dialing_get_context` on a real renamed-variant shot: `profileKnowledge` resolves to `d-flow-q-variant` (6-bar / 84°C / UGS ~1.0), not the generic `d-flow` default; previously `no kbId resolvable` variants now resolve.

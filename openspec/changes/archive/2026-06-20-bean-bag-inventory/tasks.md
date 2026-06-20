@@ -122,7 +122,7 @@
 - [x] 18.3 Unit test DB import: `coffee_bags` migrated with `shots.bag_id` remap; `stopped_by`/`beanbase_json` restored
 - [x] 18.4 Unit test `SettingsSerializer`: export-side contract in tst_settings (bean identity + beans section excluded, legacy dye import ignored); the import conversion plumbing is exercised via `convertLegacyPresetSettings` in tst_coffeebags
 - [x] 18.5 Unit test `UnifiedBeanSearchModel`: Tier 0 absorption of inventory matches; same coffee in both sources → one Tier 1 result; ranking order; linked+unlinked history merge
-- [ ] 18.6 Unit test CM detection state machine: GET /api/coffee_bags transitions, probe POST transitions, transient errors stay `UNKNOWN`
+- [~] 18.6 Unit test CM detection state machine: GET /api/coffee_bags transitions, probe POST transitions, transient errors stay `UNKNOWN`
 - [x] 18.7 Unit test dose/yield stamp: shot save updates active bag fields; DB failure does not block shot save
 - [x] 18.8 Context semantics live in QML (ChangeBeansDialog.applySelection); the storage primitives they compose (updateShotMetadataStatic bag keys, updateBagFieldsStatic, mergeLanes Tier 0 absorption) are unit-tested in tst_coffeebags
 - [x] 18.9 Covered by tst_coffeebags insertLoadUpdateRoundTrip (update-in-place leaves other fields/rows untouched) + insertBagStatic null roast date; the form-mode wiring is QML
@@ -130,4 +130,4 @@
 ## 19. Documentation
 
 - [x] 19.1 Update `docs/CLAUDE_MD/BEAN_BASE.md` with the bag model, migration, and CM sync architecture
-- [ ] 19.2 Update the user manual wiki page for the new Beans window, Change Beans dialog, and freeze workflow
+- [x] 19.2 Update the user manual wiki page for the new Beans window, Change Beans dialog, and freeze workflow — done (Bean Bags Manual section + screenshots)

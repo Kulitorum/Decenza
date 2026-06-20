@@ -40,6 +40,11 @@ The system SHALL store bags in a `coffee_bags` SQLite table created by migration
 ### Requirement: shots table gains beanbase_id column for history search
 Migration 19 SHALL add a nullable `beanbase_id` TEXT column to the `shots` table (the canonical UUID currently lives only inside the `beanbase_json` blob), backfilled via `json_extract(beanbase_json, '$.id')`, with an index on `beanbase_id` (an index on `(bean_brand, bean_type)` already exists as `idx_shots_bean`). New shot saves SHALL populate the column directly.
 
+#### Scenario: Migration backfills and new saves populate the column
+- **WHEN** migration 19 runs on a database whose shots carry a canonical id inside `beanbase_json`
+- **THEN** a nullable `beanbase_id` column and its index SHALL be added, and each existing shot's `beanbase_id` SHALL be backfilled from `json_extract(beanbase_json, '$.id')` (NULL when absent)
+- **AND** every subsequent shot save SHALL write `beanbase_id` directly
+
 ### Requirement: Bags survive backup restore and device-to-device transfer
 The DB import path (`ShotHistoryStorage::importDatabaseStatic`) SHALL migrate `coffee_bags` rows and remap `shots.bag_id` to the new bag row ids (shot ids are remapped on import; bag ids must follow). The settings import path (`SettingsSerializer`) SHALL translate a legacy `beans.presets` JSON section into bag rows; `dye/activeBagId` SHALL be excluded from settings export/import.
 
