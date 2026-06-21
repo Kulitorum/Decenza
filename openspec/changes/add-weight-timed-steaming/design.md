@@ -33,10 +33,10 @@ Each pitcher preset stores its own `calibMilkG` paired with its `duration`. The 
 
 *Why the change:* a global seconds-per-gram rate is conceptually cleaner (the rate is a machine/flow/temperature property, not the pitcher's), but per-pitcher calibration gives users a free way to keep **different references per drink or per person** — e.g. a hotter latte on a different pitcher pill — without any extra setting. The maintainer chose per-pitcher for that flexibility. Trade-off: re-teaching the rate per pitcher, and possible drift between pitchers.
 
-### D2 — One toggle that gates ALL scaling, default on, preserving calibration
-`SettingsBrew::milkAutoCaptureEnabled` (stored key unchanged; UI label "Weight-timed steaming") is checked **inside** `scaledSteamTime()`, which returns 0 when off. Every caller then falls back to the fixed duration, so the toggle disables auto-capture *and* pill-tap/steam-start scaling. The per-pitcher `calibMilkG` is independent of the toggle, so flipping it off and on never loses the calibration.
+### D2 — One toggle that gates ALL scaling, default OFF, auto-enabled on calibrate, preserving calibration
+`SettingsBrew::milkAutoCaptureEnabled` (stored key unchanged; UI label "Weight-timed steaming") is checked **inside** `scaledSteamTime()`, which returns 0 when off. Every caller then falls back to the fixed duration, so the toggle disables auto-capture *and* pill-tap/steam-start scaling. Default is **off** — the feature is opt-in. Setting a pitcher's reference (`setSteamPitcherCalibration` with a positive value) flips it on automatically, so the user opts in by calibrating rather than hunting for a switch. The per-pitcher `calibMilkG` is independent of the toggle, so flipping it off and on never loses the calibration.
 
-*Why:* the toggle must genuinely turn the feature off without discarding calibration. Putting the gate in the one helper means no per-call-site checks and no way for a path to bypass it.
+*Why:* the toggle must genuinely turn the feature off without discarding calibration, and default-off keeps it from silently scaling for users who haven't opted in. Putting the gate in the one helper means no per-call-site checks and no way for a path to bypass it; auto-enabling on calibrate keeps the daily flow a single tap.
 
 ### D3 — Scaling math centralized in C++
 `SettingsBrew::netMilkForPitcher(index, scaleReading)` (net milk, requires a saved tare, bounds [50,1500]) and `SettingsBrew::scaledSteamTime(index, milkG)` (toggle gate + clamp [5,120], 0 = use fixed duration) are the single source of truth. QML helpers (`currentMeasuredMilk`, `scaledSteamTimeout`, `steamTimeForMilk`) are thin wrappers; the home-flow capture and pill-tap call the C++ directly.

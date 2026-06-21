@@ -30,9 +30,17 @@ Each steam pitcher preset SHALL carry its own reference milk weight (`calibMilkG
 - **WHEN** the selected pitcher has no saved empty-pitcher weight
 - **THEN** net milk resolves to 0 and steaming falls back to the fixed duration
 
-### Requirement: Single on/off toggle that preserves the calibration
+### Requirement: Single on/off toggle, off by default, that preserves the calibration
 
-The system SHALL provide one user-facing toggle ("Weight-timed steaming") that enables or disables weight scaling without discarding the stored calibration. When off, the system SHALL use the preset's fixed `duration` on every path (pill-tap, live-click, steam-start), and auto-capture SHALL not run. The per-pitcher calibration SHALL be retained so turning the toggle back on resumes scaling with no re-calibration.
+The system SHALL provide one user-facing toggle ("Weight-timed steaming"), **off by default**, that enables or disables weight scaling without discarding the stored calibration. When off, the system SHALL use the preset's fixed `duration` on every path (pill-tap, live-click, steam-start), and auto-capture SHALL not run. Setting a pitcher's reference milk SHALL turn the toggle on automatically (the explicit opt-in). The per-pitcher calibration SHALL be retained so turning the toggle back on resumes scaling with no re-calibration.
+
+#### Scenario: Off by default
+- **WHEN** a user has never enabled the feature
+- **THEN** steaming uses the preset's fixed `duration` and no weight scaling occurs
+
+#### Scenario: Calibrating turns it on
+- **WHEN** the user sets a pitcher's reference milk while the toggle is off
+- **THEN** the toggle is enabled so scaling takes effect for that pitcher
 
 #### Scenario: Toggle off retains the calibration
 - **WHEN** a calibration is set and the user turns the toggle off

@@ -127,7 +127,7 @@ void SettingsBrew::setDoseCupTareWeight(double weight) {
 }
 
 bool SettingsBrew::milkAutoCaptureEnabled() const {
-    return m_settings.value("steam/milkAutoCaptureEnabled", true).toBool();
+    return m_settings.value("steam/milkAutoCaptureEnabled", false).toBool();  // off by default; calibrating turns it on
 }
 void SettingsBrew::setMilkAutoCaptureEnabled(bool enabled) {
     if (milkAutoCaptureEnabled() != enabled) {
@@ -378,6 +378,10 @@ void SettingsBrew::setSteamPitcherCalibration(int index, double calibMilkG) {
         arr[index] = preset;
         m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
         emit steamPitcherPresetsChanged();
+        // Weight-timed steaming is off by default; setting a reference is the explicit
+        // opt-in, so calibrating turns it on. Clearing the reference leaves it as-is.
+        if (calibMilkG > 0)
+            setMilkAutoCaptureEnabled(true);
     }
 }
 

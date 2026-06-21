@@ -1,6 +1,6 @@
 ## 1. C++ scaling core (SettingsBrew)
 
-- [x] 1.1 `milkAutoCaptureEnabled` toggle (default on; UI label "Weight-timed steaming"); persisted `lastSteamMilkG`/`lastSteamTimeS`; `setSteamPitcherCalibration()` for per-pitcher `calibMilkG`. All on `SettingsBrew`, not the `Settings` façade.
+- [x] 1.1 `milkAutoCaptureEnabled` toggle (default **off**; UI label "Weight-timed steaming"; auto-enabled when a pitcher reference is set); persisted `lastSteamMilkG`/`lastSteamTimeS`; `setSteamPitcherCalibration()` for per-pitcher `calibMilkG`. All on `SettingsBrew`, not the `Settings` façade.
 - [x] 1.2 `netMilkForPitcher(index, scaleReading)` — net milk = scale − saved tare; requires a saved pitcher weight; bounds [50,1500]; 0 otherwise.
 - [x] 1.3 `scaledSteamTime(index, milkG)` — single source of truth: returns 0 when the toggle is off, the preset is missing/disabled/uncalibrated, or duration/milk ≤ 0; otherwise `clamp(round(duration × milk / calib), 5, 120)`.
 - [x] 1.4 Serializer round-trips `pitcherWeightG`/`calibMilkG`/`disabled` and `milkAutoCaptureEnabled`; `selectedPitcher` applied after the preset rebuild.

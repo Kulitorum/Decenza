@@ -1848,10 +1848,11 @@ Page {
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled && ScaleDevice.connected && !ScaleDevice.isFlowScale && steamPage.scaledSteamTimeout() > 0 }
 
-                    // Weight-timed steaming master toggle (default on). When off, no
-                    // weight scaling happens at all — auto-capture is disabled AND
-                    // selecting a pitcher uses its fixed duration. The reference milk
-                    // calibration is kept, so turning it back on resumes immediately.
+                    // Weight-timed steaming master toggle (default OFF; setting a
+                    // reference milk turns it on automatically). When off, no weight
+                    // scaling happens at all — auto-capture is disabled AND selecting a
+                    // pitcher uses its fixed duration. The reference milk calibration is
+                    // kept, so turning it back on resumes immediately.
                     // (Storage key stays milkAutoCaptureEnabled to avoid a migration.)
                     StyledSwitch {
                         Layout.fillWidth: true
