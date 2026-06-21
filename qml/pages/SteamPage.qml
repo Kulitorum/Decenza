@@ -1956,6 +1956,10 @@ Page {
             if (t <= 0)
                 return  // preset not calibrated (no reference milk) — nothing to lock
             Settings.brew.steamTimeout = t
+            // Push to the DE1 now (same as onPresetSelected) — without this the machine
+            // keeps its last-sent timeout, so a GHC-started steam wouldn't use the
+            // scaled value and the steam time appears not to scale.
+            MainController.applySteamSettings()
             steamPage.steamTimeoutScaled = true
             steamPage.captureBannerText =
                 TranslationManager.translate("steam.capture.locked", "Steam time set: %1s for %2g milk")

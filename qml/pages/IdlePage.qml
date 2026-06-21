@@ -247,6 +247,9 @@ Page {
             if (calib <= 0) return  // preset not calibrated (no reference milk) — nothing to lock
             var t = Math.max(5, Math.min(120, Math.round(p.duration * (milk / calib))))
             Settings.brew.steamTimeout = t
+            // Push to the DE1 now (same as the steam-preset selection) so a GHC/auto
+            // steam actually uses the scaled time, not the machine's last-sent value.
+            MainController.applySteamSettings()
             idlePage.milkCaptureText = TranslationManager.translate("idle.steamCaptured", "Steam time: %1s for %2g milk").arg(t).arg(milk.toFixed(0))
             idlePage.milkCaptureShown = true
             idleMilkCaptureTimer.restart()
