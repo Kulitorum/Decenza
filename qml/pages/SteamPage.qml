@@ -1734,6 +1734,43 @@ Page {
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
+                    // ── Weight-timed steaming: section header + one-line explanation,
+                    // then the master on/off, shown above the controls it governs. ──
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(4)
+                        visible: !steamPage.currentPitcherDisabled
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("steam.weightTimed.title", "Weight-timed steaming")
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(26)
+                            font.bold: true
+                            Accessible.ignored: true
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: TranslationManager.translate("steam.weightTimed.summary",
+                                "Stops steaming by milk weight instead of a fixed time, so a small or large pitcher both finish at the same temperature. Calibrate once — steam a weighed pitcher and tap Use last steam, or set the reference by hand — then just rest the pitcher on the scale and steam; the bell rings when it has the weight.")
+                            wrapMode: Text.WordWrap
+                            color: Theme.textSecondaryColor
+                            font: Theme.labelFont
+                        }
+                    }
+
+                    // Master on/off (off by default; calibrating turns it on). Off = plain
+                    // fixed-duration steaming; the calibration is kept for when you re-enable.
+                    StyledSwitch {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("steam.weightTimed.enable", "Enable weight-timed steaming")
+                        accessibleName: text
+                        checked: Settings.brew.milkAutoCaptureEnabled
+                        onToggled: Settings.brew.milkAutoCaptureEnabled = checked
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
+
                     // Reference milk weight: the baseline paired with this preset's
                     // duration for weight-timed steaming. steamTime = duration ×
                     // (measuredMilk / referenceMilk). 0 disables weight scaling.
@@ -1751,7 +1788,7 @@ Page {
                             }
                             Tr {
                                 key: "steam.hint.referenceMilk"
-                                fallback: "0 = off. Steam time scales with milk weight."
+                                fallback: "The milk weight the duration above is tuned for. Other amounts scale from it. 0 = off."
                                 color: Theme.textSecondaryColor
                                 font: Theme.labelFont
                             }
@@ -1826,15 +1863,15 @@ Page {
                         Column {
                             Tr {
                                 key: "steam.lastSteam.title"
-                                fallback: "Baseline from last steam"
+                                fallback: "Calibrate from your last steam"
                                 color: Theme.textColor
                                 font.pixelSize: Theme.scaled(20)
                             }
                             Text {
                                 text: useLastSteamRow.hasLast
-                                      ? TranslationManager.translate("steam.lastSteam.values", "Last: %1 g milk → %2 s")
+                                      ? TranslationManager.translate("steam.lastSteam.values", "Last steam: %1 g milk → %2 s — sets duration + reference")
                                             .arg(Settings.brew.lastSteamMilkG.toFixed(0)).arg(Math.round(Settings.brew.lastSteamTimeS))
-                                      : TranslationManager.translate("steam.lastSteam.none", "Steam some milk first to record a session.")
+                                      : TranslationManager.translate("steam.lastSteam.none", "Steam a weighed pitcher to your liking first, then come back here.")
                                 color: Theme.textSecondaryColor
                                 font: Theme.labelFont
                             }
@@ -1844,8 +1881,8 @@ Page {
 
                         AccessibleButton {
                             Layout.preferredHeight: Theme.scaled(44)
-                            text: TranslationManager.translate("steam.lastSteam.use", "Use as baseline")
-                            accessibleName: TranslationManager.translate("steam.lastSteam.useAccessible", "Use last steam session as this pitcher's reference baseline")
+                            text: TranslationManager.translate("steam.lastSteam.use", "Use last steam")
+                            accessibleName: TranslationManager.translate("steam.lastSteam.useAccessible", "Use last steam session as this pitcher's duration and reference milk")
                             primary: true
                             enabled: useLastSteamRow.hasLast
                             onClicked: {
@@ -1877,7 +1914,7 @@ Page {
                                 font.pixelSize: Theme.scaled(24)
                             }
                             Text {
-                                text: TranslationManager.translate("steam.hint.forMilkOnScale", "for %1 g milk on scale").arg(steamPage.currentMeasuredMilk().toFixed(0))
+                                text: TranslationManager.translate("steam.hint.forMilkOnScale", "for the %1 g now on the scale").arg(steamPage.currentMeasuredMilk().toFixed(0))
                                 color: Theme.textSecondaryColor
                                 font: Theme.labelFont
                             }
@@ -1894,20 +1931,6 @@ Page {
                     }
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled && ScaleDevice.connected && !ScaleDevice.isFlowScale && steamPage.scaledSteamTimeout() > 0 }
-
-                    // Weight-timed steaming master toggle (default OFF; setting a
-                    // reference milk turns it on automatically). When off, no weight
-                    // scaling happens at all — auto-capture is disabled AND selecting a
-                    // pitcher uses its fixed duration. The reference milk calibration is
-                    // kept, so turning it back on resumes immediately.
-                    // (Storage key stays milkAutoCaptureEnabled to avoid a migration.)
-                    StyledSwitch {
-                        Layout.fillWidth: true
-                        text: TranslationManager.translate("steam.weightTimedSteaming", "Weight-timed steaming")
-                        accessibleName: text
-                        checked: Settings.brew.milkAutoCaptureEnabled
-                        onToggled: Settings.brew.milkAutoCaptureEnabled = checked
-                    }
 
                 }
                 }
