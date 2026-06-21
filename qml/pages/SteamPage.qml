@@ -1503,7 +1503,7 @@ Page {
                             displayText: flowToDisplay(value)
                             valueColor: Theme.primaryColor
                             accessibleName: TranslationManager.translate("steam.label.steamFlow", "Steam Flow")
-                            KeyNavigation.tab: pitcherWeightInput
+                            KeyNavigation.tab: steamTempSlider
                             KeyNavigation.backtab: durationSlider
                             onValueModified: function(newValue) {
                                 flowSlider.value = newValue
@@ -1511,6 +1511,53 @@ Page {
                             }
                             onValueCommitted: function(newValue) {
                                 MainController.setSteamFlowImmediate(newValue)
+                            }
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
+
+                    // Temperature (global setting)
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(16)
+                        visible: !steamPage.currentPitcherDisabled
+
+                        Column {
+                            Tr {
+                                key: "steam.label.temperature"
+                                fallback: "Temperature"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(24)
+                            }
+                            Tr {
+                                key: "steam.hint.temperatureHint"
+                                fallback: "Higher = drier steam"
+                                color: Theme.textSecondaryColor
+                                font: Theme.labelFont
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        ValueInput {
+                            id: steamTempSlider
+                            Layout.preferredWidth: Theme.scaled(180)
+                            from: 120
+                            to: 170
+                            stepSize: 1
+                            decimals: 0
+                            suffix: "°C"
+                            value: Settings.brew.steamTemperature
+                            valueColor: Theme.temperatureColor
+                            accessibleName: TranslationManager.translate("steam.label.temperature", "Steam Temperature")
+                            KeyNavigation.tab: pitcherWeightInput
+                            KeyNavigation.backtab: flowSlider
+                            onValueModified: function(newValue) {
+                                steamTempSlider.value = newValue
+                            }
+                            onValueCommitted: function(newValue) {
+                                MainController.setSteamTemperatureImmediate(newValue)
                             }
                         }
                     }
@@ -1581,7 +1628,7 @@ Page {
                             // the reference-milk field when no scale is connected so Tab
                             // never lands on a hidden element.
                             KeyNavigation.tab: (ScaleDevice.connected && !ScaleDevice.isFlowScale) ? tareBtn : refMilkInput
-                            KeyNavigation.backtab: flowSlider
+                            KeyNavigation.backtab: steamTempSlider
                             onValueModified: function(newValue) {
                                 Settings.brew.setSteamPitcherWeight(Settings.brew.selectedSteamPitcher, newValue)
                             }
@@ -1723,7 +1770,7 @@ Page {
                             value: getCurrentPitcherCalibMilk()
                             valueColor: Theme.primaryColor
                             accessibleName: TranslationManager.translate("steam.label.referenceMilk", "Reference milk weight")
-                            KeyNavigation.tab: steamTempSlider
+                            KeyNavigation.tab: pitcherRepeater.count > 0 ? pitcherRepeater.itemAt(0).focusTarget : addPitcherButton
                             KeyNavigation.backtab: savePitcherWeightBtn
                             onValueModified: function(newValue) {
                                 // Don't reassign value here — it would break the declarative
@@ -1860,51 +1907,6 @@ Page {
                         accessibleName: text
                         checked: Settings.brew.milkAutoCaptureEnabled
                         onToggled: Settings.brew.milkAutoCaptureEnabled = checked
-                    }
-
-                    // Temperature (global setting)
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(16)
-                        visible: !steamPage.currentPitcherDisabled
-
-                        Column {
-                            Tr {
-                                key: "steam.label.temperature"
-                                fallback: "Temperature"
-                                color: Theme.textColor
-                                font.pixelSize: Theme.scaled(24)
-                            }
-                            Tr {
-                                key: "steam.hint.temperatureHint"
-                                fallback: "Higher = drier steam"
-                                color: Theme.textSecondaryColor
-                                font: Theme.labelFont
-                            }
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        ValueInput {
-                            id: steamTempSlider
-                            Layout.preferredWidth: Theme.scaled(180)
-                            from: 120
-                            to: 170
-                            stepSize: 1
-                            decimals: 0
-                            suffix: "°C"
-                            value: Settings.brew.steamTemperature
-                            valueColor: Theme.temperatureColor
-                            accessibleName: TranslationManager.translate("steam.label.temperature", "Steam Temperature")
-                            KeyNavigation.tab: pitcherRepeater.count > 0 ? pitcherRepeater.itemAt(0).focusTarget : addPitcherButton
-                            KeyNavigation.backtab: refMilkInput
-                            onValueModified: function(newValue) {
-                                steamTempSlider.value = newValue
-                            }
-                            onValueCommitted: function(newValue) {
-                                MainController.setSteamTemperatureImmediate(newValue)
-                            }
-                        }
                     }
 
                 }
