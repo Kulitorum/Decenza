@@ -10,6 +10,7 @@
 #include "../history/bagid.h"
 #include "../network/visualizeruploader.h"
 #include "../controllers/profilemanager.h"
+#include "../ai/aimanager.h"
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
 #include "../core/settings_dye.h"
@@ -47,7 +48,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         AccessibilityManager* accessibility,
                         ScreensaverVideoManager* screensaver,
                         TranslationManager* translation,
-                        BatteryManager* battery)
+                        BatteryManager* battery,
+                        AIManager* aiManager)
 {
     // shots_update — replaces shots_set_feedback with full metadata editing (same as QML)
     registry->registerAsyncTool(
@@ -567,6 +569,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"extractionAnnouncementInterval", QJsonObject{{"type", "integer"}, {"description", "Announcement interval in seconds"}}},
                 // AI
                 {"aiProvider", QJsonObject{{"type", "string"}, {"description", "AI provider name"}}},
+                {"aiModel", QJsonObject{{"type", "string"}, {"description", "Model id for the active provider (or the provider set in this same call), e.g. 'gemini-2.5-flash'. Must be one of that provider's selectable models — read settings_get 'aiAvailableModels' for valid ids. For OpenRouter/Ollama use openrouterModel/ollamaModel instead."}}},
                 {"mcpEnabled", QJsonObject{{"type", "boolean"}, {"description", "Enable MCP server"}}},
                 {"mcpAccessLevel", QJsonObject{{"type", "integer"}, {"description", "MCP access level: 0=monitor, 1=control, 2=full"}}},
                 {"mcpConfirmationLevel", QJsonObject{{"type", "integer"}, {"description", "MCP confirmation: 0=none, 1=dangerous, 2=all"}}},
@@ -645,7 +648,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "IMPORTANT: Only call this when the user explicitly asks to change settings on the machine. "
         "For discussion and recommendations, respond in chat instead.",
         settingsSetSchema,
-        [profileManager, settings, accessibility, screensaver, translation, battery, validSettingsKeys](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+        [profileManager, settings, accessibility, screensaver, translation, battery, aiManager, validSettingsKeys](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!settings) {
                 respond(QJsonObject{{"error", "Settings not available"}});
                 return;
@@ -665,6 +668,47 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     {"unknownKeys", QJsonArray::fromStringList(unknownKeys)}
                 });
                 return;
+            }
+
+            // Validate aiModel against the target provider's catalog BEFORE any
+            // mutation (some setters below apply immediately). The model applies
+            // to the provider being set in this same call if present, else the
+            // currently active one. Reused by the AI setter block below.
+            QString aiModelTargetProvider;
+            if (args.contains("aiModel")) {
+                const QString modelId = args["aiModel"].toString();
+                aiModelTargetProvider = args.contains("aiProvider")
+                    ? args["aiProvider"].toString()
+                    : settings->ai()->aiProvider();
+                if (!aiManager) {
+                    respond(QJsonObject{{"error", "AI manager unavailable; cannot set aiModel"}});
+                    return;
+                }
+                const QVariantList catalog = aiManager->availableModels(aiModelTargetProvider);
+                if (catalog.isEmpty()) {
+                    // Only providers with a model catalog (Gemini today) accept
+                    // aiModel. OpenRouter/Ollama have their own free-text model
+                    // field; OpenAI/Anthropic are single fixed-model.
+                    QString hint;
+                    if (aiModelTargetProvider == QStringLiteral("openrouter"))
+                        hint = QStringLiteral(" Set openrouterModel instead.");
+                    else if (aiModelTargetProvider == QStringLiteral("ollama"))
+                        hint = QStringLiteral(" Set ollamaModel instead.");
+                    else
+                        hint = QStringLiteral(" This provider uses a single fixed model; aiModel cannot be set for it.");
+                    respond(QJsonObject{{"error", QString("Provider '%1' has no selectable models via aiModel.%2").arg(aiModelTargetProvider, hint)}});
+                    return;
+                }
+                QStringList validIds;
+                for (const QVariant& m : catalog)
+                    validIds << m.toMap().value("id").toString();
+                if (!validIds.contains(modelId)) {
+                    respond(QJsonObject{
+                        {"error", QString("Invalid aiModel '%1' for provider '%2'").arg(modelId, aiModelTargetProvider)},
+                        {"validModels", QJsonArray::fromStringList(validIds)}
+                    });
+                    return;
+                }
             }
 
             QStringList updated;
@@ -1102,6 +1146,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     QString v = args["aiProvider"].toString();
                     addSetter([a, v]() { a->setAiProvider(v); });
                     updated << "aiProvider";
+                }
+                if (args.contains("aiModel")) {
+                    // Validated above; aiModelTargetProvider is resolved there.
+                    const QString v = args["aiModel"].toString();
+                    const QString provider = aiModelTargetProvider;
+                    addSetter([a, provider, v]() { a->setProviderModel(provider, v); });
+                    updated << "aiModel";
                 }
                 if (args.contains("ollamaEndpoint")) {
                     QString v = args["ollamaEndpoint"].toString();

@@ -33,11 +33,13 @@ class ScreensaverVideoManager;
 class TranslationManager;
 class BatteryManager;
 class CoffeeBagStorage;
+class AIManager;
 void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                                AccessibilityManager* accessibility,
                                ScreensaverVideoManager* screensaver,
                                TranslationManager* translation,
-                               BatteryManager* battery);
+                               BatteryManager* battery,
+                               AIManager* aiManager);
 void registerDialingTools(McpToolRegistry* registry, MainController* mainController,
                           ProfileManager* profileManager,
                           ShotHistoryStorage* shotHistory, Settings* settings);
@@ -51,7 +53,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         AccessibilityManager* accessibility,
                         ScreensaverVideoManager* screensaver,
                         TranslationManager* translation,
-                        BatteryManager* battery);
+                        BatteryManager* battery,
+                        AIManager* aiManager);
 void registerScaleTools(McpToolRegistry* registry, MachineState* machineState);
 void registerDeviceTools(McpToolRegistry* registry, BLEManager* bleManager, DE1Device* device);
 class MemoryMonitor;
@@ -153,7 +156,8 @@ void McpServer::registerAllTools()
     registerShotTools(m_toolRegistry, m_shotHistory);
     registerProfileTools(m_toolRegistry, m_profileManager, m_settings);
     registerSettingsReadTools(m_toolRegistry, m_settings, m_accessibilityManager,
-                              m_screensaverManager, m_translationManager, m_batteryManager);
+                              m_screensaverManager, m_translationManager, m_batteryManager,
+                              m_mainController ? m_mainController->aiManager() : nullptr);
     registerDialingTools(m_toolRegistry, m_mainController, m_profileManager, m_shotHistory, m_settings);
     registerControlTools(m_toolRegistry, m_device, m_machineState, m_profileManager,
                          m_mainController, m_settings);
@@ -161,7 +165,8 @@ void McpServer::registerAllTools()
                        m_mainController ? m_mainController->visualizer() : nullptr,
                        m_mainController ? m_mainController->bagStorage() : nullptr,
                        m_accessibilityManager, m_screensaverManager,
-                       m_translationManager, m_batteryManager);
+                       m_translationManager, m_batteryManager,
+                       m_mainController ? m_mainController->aiManager() : nullptr);
     registerScaleTools(m_toolRegistry, m_machineState);
     registerDeviceTools(m_toolRegistry, m_bleManager, m_device);
     registerDebugTools(m_toolRegistry, m_memoryMonitor);

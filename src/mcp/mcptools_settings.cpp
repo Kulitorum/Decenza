@@ -17,6 +17,7 @@
 #include "../core/translationmanager.h"
 #include "../core/batterymanager.h"
 #include "../screensaver/screensavervideomanager.h"
+#include "../ai/aimanager.h"
 
 #include <QJsonObject>
 #include <QJsonArray>
@@ -26,7 +27,8 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                                AccessibilityManager* accessibility,
                                ScreensaverVideoManager* screensaver,
                                TranslationManager* translation,
-                               BatteryManager* battery)
+                               BatteryManager* battery,
+                               AIManager* aiManager)
 {
     // settings_get
     registry->registerTool(
@@ -52,7 +54,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                 }}
             }}
         },
-        [settings, accessibility, screensaver, translation, battery](const QJsonObject& args) -> QJsonObject {
+        [settings, accessibility, screensaver, translation, battery, aiManager](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) return result;
 
@@ -190,6 +192,15 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
                 if (include("ollamaEndpoint", "ai")) result["ollamaEndpoint"] = a->ollamaEndpoint();
                 if (include("ollamaModel", "ai")) result["ollamaModel"] = a->ollamaModel();
                 if (include("openrouterModel", "ai")) result["openrouterModel"] = a->openrouterModel();
+                // Effective model for the active provider (resolves the stored
+                // value or the provider default) + the catalog of selectable
+                // models, so a client can discover valid aiModel values to set.
+                if (aiManager) {
+                    const QString provider = a->aiProvider();
+                    if (include("aiModel", "ai")) result["aiModel"] = aiManager->currentModelName();
+                    if (include("aiModelDisplay", "ai")) result["aiModelDisplay"] = aiManager->modelDisplayName(provider);
+                    if (include("aiAvailableModels", "ai")) result["aiAvailableModels"] = QJsonArray::fromVariantList(aiManager->availableModels(provider));
+                }
             }
             if (include("mcpEnabled", "ai")) result["mcpEnabled"] = settings->mcp()->mcpEnabled();
             if (include("mcpAccessLevel", "ai")) result["mcpAccessLevel"] = settings->mcp()->mcpAccessLevel();
