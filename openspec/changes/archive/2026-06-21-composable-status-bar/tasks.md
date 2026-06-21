@@ -19,7 +19,7 @@
 - [x] 3.1 `SleepItem.qml`: read `modelData.allowQuit` (default true); when false, disable `onPressAndHold`/`onAccessibleLongPressed` quit and drop the "long-press to quit" accessibility hint
 - [x] 3.2 Create `SleepEditorPopup.qml` (quit-option toggle) writing via `setItemProperty`; register in `CMakeLists.txt` and wire long-press routing for `sleep`
 - [x] 3.3 Web editor: inline quit toggle on a selected `sleep` chip, persisting via `/api/layout/item`
-- [ ] 3.4 Verify two `sleep` instances can hold different quit settings independently
+- [x] 3.4 Verify two `sleep` instances can hold different quit settings independently
 
 ## 4. Compact status bar populate preset
 
@@ -31,14 +31,14 @@
 ## 5. Supersede PR #1362
 
 - [x] 5.1 Confirm no `compactStatusBar` flag / hardcoded bar / `SleepItem` collapse is introduced (build composably on `main`)
-- [ ] 5.2 (Optional) Ship a "Compact status bar" default `statusBar` config as data, not a code path
+- [x] 5.2 (Optional) Ship a "Compact status bar" default config — N/A: offered via the populate preset instead
 
 ## 6. Verification
 
-- [ ] 6.1 Default widgets/layout are byte-for-byte unchanged (all new options default to current behaviour)
-- [ ] 6.2 "Compact status bar" populate reproduces the #1362 look (icon-led, centred Sleep) in the in-app editor
-- [ ] 6.3 Same in the web editor; confirm in-app/web parity for the preset, display mode, and sleep toggle
-- [ ] 6.4 An icon-mode readout works when placed in a different (mixed) zone, e.g. the lower-mid bar
-- [ ] 6.5 A Sleep instance with quit removed sleeps on tap and does not quit on long-press; another instance keeps quit
-- [ ] 6.6 Two readout instances with different `displayMode` render independently
+- [x] 6.1 Default widgets/layout are byte-for-byte unchanged (all new options default to current behaviour)
+- [x] 6.2 "Compact status bar" populate reproduces the #1362 look (icon-led, centred Sleep) in the in-app editor
+- [x] 6.3 Same in the web editor; confirm in-app/web parity for the preset, display mode, and sleep toggle
+- [x] 6.4 An icon-mode readout works when placed in a different (mixed) zone, e.g. the lower-mid bar
+- [x] 6.5 A Sleep instance with quit removed sleeps on tap and does not quit on long-press; another instance keeps quit
+- [x] 6.6 Two readout instances with different `displayMode` render independently
 - [x] 6.7 Compile via Qt Creator; clear QML warnings/TypeErrors for touched files
