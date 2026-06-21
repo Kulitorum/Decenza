@@ -1962,8 +1962,99 @@ bool ProfileManager::duplicateProfile(const QString& sourceFilename, const QStri
         }
         refreshProfiles();
     }
-    
+
     return success;
+}
+
+bool ProfileManager::renameProfile(const QString& filename, const QString& newTitle) {
+    const QString trimmedTitle = newTitle.trimmed();
+    if (trimmedTitle.isEmpty()) {
+        qWarning() << "ProfileManager::renameProfile: empty title for" << filename;
+        return false;
+    }
+
+    // Renaming changes only the title and keeps the filename (matching the
+    // advanced editor's in-place rename), so all filename-keyed references stay
+    // valid. Pure built-in profiles are read-only resources — refuse them here
+    // and gate the menu item to non-built-in profiles, like Delete.
+    ProfileSource source = ProfileSource::BuiltIn;
+    bool found = false;
+    for (const ProfileInfo& info : m_allProfiles) {
+        if (info.filename == filename) {
+            source = info.source;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        qWarning() << "ProfileManager::renameProfile: unknown profile" << filename;
+        return false;
+    }
+    if (source == ProfileSource::BuiltIn) {
+        qWarning() << "ProfileManager::renameProfile: cannot rename built-in profile" << filename;
+        return false;
+    }
+
+    // Load the profile JSON (ProfileStorage → user → downloaded), mirroring loadProfile().
+    QString jsonContent;
+    if (m_profileStorage && m_profileStorage->isConfigured()) {
+        jsonContent = m_profileStorage->readProfile(filename);
+    }
+    if (jsonContent.isEmpty()) {
+        QFile userFile(userProfilesPath() + "/" + filename + ".json");
+        if (userFile.open(QIODevice::ReadOnly))
+            jsonContent = QString::fromUtf8(userFile.readAll());
+    }
+    if (jsonContent.isEmpty()) {
+        QFile downloadedFile(downloadedProfilesPath() + "/" + filename + ".json");
+        if (downloadedFile.open(QIODevice::ReadOnly))
+            jsonContent = QString::fromUtf8(downloadedFile.readAll());
+    }
+    if (jsonContent.isEmpty()) {
+        qWarning() << "ProfileManager::renameProfile: could not load profile" << filename;
+        return false;
+    }
+
+    // Profile::loadFromJsonString returns a default profile on parse failure, so
+    // verify the JSON is well-formed before trusting it (matches duplicateProfile).
+    QJsonParseError parseErr;
+    QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8(), &parseErr);
+    if (parseErr.error != QJsonParseError::NoError || !doc.isObject()) {
+        qWarning() << "ProfileManager::renameProfile: malformed JSON for" << filename
+                   << parseErr.errorString();
+        return false;
+    }
+
+    Profile renamed = Profile::loadFromJsonString(jsonContent);
+    renamed.setTitle(trimmedTitle);
+
+    // Write back to the SAME filename (ProfileStorage → local fallback).
+    bool success = false;
+    if (m_profileStorage && m_profileStorage->isConfigured()) {
+        success = m_profileStorage->writeProfile(filename, renamed.toJsonString());
+    }
+    if (!success) {
+        success = renamed.saveToFile(userProfilesPath() + "/" + filename + ".json");
+    }
+    if (!success) {
+        qWarning() << "ProfileManager::renameProfile: failed to write" << filename;
+        return false;
+    }
+
+    // Favorites store the display title alongside the filename — keep it in sync.
+    if (m_settings && m_settings->app()->isFavoriteProfile(filename)) {
+        m_settings->app()->updateFavoriteProfile(filename, filename, trimmedTitle);
+    }
+
+    // If the renamed profile is the one currently loaded, update the live copy so
+    // editor/idle headers reflect the new name immediately.
+    if (m_baseProfileName == filename) {
+        m_currentProfile.setTitle(trimmedTitle);
+        emit currentProfileChanged();
+    }
+
+    refreshProfiles();
+    return true;
 }
 
 

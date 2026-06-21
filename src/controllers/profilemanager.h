@@ -171,6 +171,10 @@ public slots:
     Q_INVOKABLE bool saveProfile(const QString& filename);
     Q_INVOKABLE bool saveProfileAs(const QString& filename, const QString& title);
     Q_INVOKABLE bool duplicateProfile(const QString& sourceFilename, const QString& newTitle);
+    // Rename in place: changes only the profile's display title, keeping the same
+    // filename (so favorites/auto-load/selected references stay valid). Built-in
+    // profiles are read-only resources and cannot be renamed — use Copy instead.
+    Q_INVOKABLE bool renameProfile(const QString& filename, const QString& newTitle);
 
     // Communication-failure dialog support.
     bool de1CommunicationFailure() const { return m_de1CommunicationFailure; }
