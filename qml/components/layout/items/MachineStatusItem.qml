@@ -7,6 +7,11 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+    property var modelData: ({})
+
+    // Per-instance display mode (composable-status-bar): "text" (default, status
+    // dot + text) or "icon" (DE1 icon ahead of the text). Read from stored props.
+    readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
@@ -70,8 +75,17 @@ Item {
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
 
+            ThemedIcon {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.displayMode === "icon"
+                source: "qrc:/icons/decent-de1.svg"
+                iconSize: Theme.scaled(20)
+                color: root.statusColor
+            }
+
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
+                visible: root.displayMode !== "icon"
                 width: Theme.scaled(10)
                 height: Theme.scaled(10)
                 radius: Theme.scaled(5)
@@ -104,6 +118,14 @@ Item {
             id: fullColumn
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
+
+            ThemedIcon {
+                Layout.alignment: Qt.AlignHCenter
+                visible: root.displayMode === "icon"
+                source: "qrc:/icons/decent-de1.svg"
+                iconSize: Theme.scaled(28)
+                color: root.statusColor
+            }
 
             Text {
                 Layout.alignment: Qt.AlignHCenter

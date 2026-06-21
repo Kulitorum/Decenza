@@ -826,7 +826,6 @@ set(QML_FILES
     qml/components/layout/items/SettingsItem.qml
     qml/components/layout/items/TemperatureItem.qml
     qml/components/layout/items/WaterLevelItem.qml
-    qml/components/layout/items/ConnectionStatusItem.qml
     qml/components/layout/items/ScaleWeightItem.qml
     qml/components/layout/items/ProfileNameItem.qml
     qml/components/layout/items/DoseWeightItem.qml
@@ -849,6 +848,8 @@ set(QML_FILES
     qml/components/layout/CustomEditorPopup.qml
     qml/components/layout/ZoneOptionsPopup.qml
     qml/components/layout/ScaleWeightEditorPopup.qml
+    qml/components/layout/DisplayModeEditorPopup.qml
+    qml/components/layout/SleepEditorPopup.qml
     qml/components/layout/ScreensaverEditorPopup.qml
     qml/components/layout/EmojiPicker.qml
     qml/components/layout/EmojiData.js

@@ -45,6 +45,28 @@ Dialog {
         setOption("style", "accentBar");        popup.zoneStyle = "accentBar"
     }
 
+    // Fill the zone with a compact, icon-led status bar (the PR #1362 view):
+    // icon-mode readouts + battery with a spacer-centred Sleep.
+    function populateCompactStatusBar() {
+        var items = [
+            { type: "machineStatus",    id: "csb_status", displayMode: "icon" },
+            { type: "temperature",      id: "csb_grouptemp", displayMode: "icon" },
+            { type: "steamTemperature", id: "csb_steamtemp", displayMode: "icon" },
+            { type: "spacer",           id: "csb_sp1" },
+            { type: "sleep",            id: "csb_sleep" },
+            { type: "spacer",           id: "csb_sp2" },
+            { type: "scaleWeight",      id: "csb_scale", displayMode: "icon" },
+            { type: "batteryLevel",     id: "csb_battery" }
+        ]
+        Settings.network.setZoneItems(popup.zoneName, items)
+        // The compact bar centres Sleep via spacers, so it needs packed
+        // distribution and the standard (transparent) style — reset them in case a
+        // previous preset (e.g. Brew bar) left equalWidth/accentBar.
+        setOption("distribution", "packed");  popup.distribution = "packed"
+        setOption("alignment", "center");     popup.alignment = "center"
+        setOption("style", "standard");       popup.zoneStyle = "standard"
+    }
+
     modal: true
     closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
     parent: Overlay.overlay
@@ -161,6 +183,9 @@ Dialog {
                 font: Theme.labelFont
             }
             Rectangle {
+                // Brew readouts (dose/milk/ratio) don't belong on the all-pages
+                // status bar, so the Brew bar preset is hidden there.
+                visible: popup.zoneName !== "statusBar"
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(44)
                 radius: Theme.buttonRadius
@@ -176,6 +201,57 @@ Dialog {
                     font: Theme.bodyFont
                 }
                 MouseArea { id: brewMa; anchors.fill: parent; onClicked: { popup.populateBrewBar(); popup.close() } }
+            }
+
+            // Compact status bar preset (icon-led readouts + centred Sleep).
+            // Offered only for the status bar — it injects status readouts, which
+            // don't belong in the brew-oriented zones.
+            Rectangle {
+                visible: popup.zoneName === "statusBar"
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(44)
+                radius: Theme.buttonRadius
+                color: csbMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
+                Accessible.role: Accessible.Button
+                Accessible.name: TranslationManager.translate("layoutEditor.populateCompactStatusBar", "Fill with Compact status bar")
+                Accessible.focusable: true
+                Accessible.onPressAction: csbMa.clicked(null)
+                Text {
+                    anchors.centerIn: parent
+                    text: TranslationManager.translate("layoutEditor.populateCompactStatusBar", "Fill with Compact status bar")
+                    color: Theme.primaryContrastColor
+                    font: Theme.bodyFont
+                }
+                MouseArea { id: csbMa; anchors.fill: parent; onClicked: { popup.populateCompactStatusBar(); popup.close() } }
+            }
+
+            // Reset this zone to its default widgets + options.
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.scaled(44)
+                radius: Theme.buttonRadius
+                color: resetMa.pressed ? Qt.lighter(Theme.surfaceColor, 1.3) : "transparent"
+                border.color: Theme.borderColor
+                border.width: 1
+                Accessible.role: Accessible.Button
+                Accessible.name: TranslationManager.translate("layoutEditor.resetZone", "Reset to default")
+                Accessible.focusable: true
+                Accessible.onPressAction: resetMa.clicked(null)
+                Text {
+                    anchors.centerIn: parent
+                    text: TranslationManager.translate("layoutEditor.resetZone", "Reset to default")
+                    color: Theme.textColor
+                    font: Theme.bodyFont
+                }
+                MouseArea {
+                    id: resetMa
+                    anchors.fill: parent
+                    onClicked: {
+                        Settings.network.resetZoneToDefault(popup.zoneName)
+                        popup.openForZone(popup.zoneName, popup.zoneLabel)  // refresh option mirrors
+                        popup.close()
+                    }
+                }
             }
 
             // Clear all widgets from this zone.

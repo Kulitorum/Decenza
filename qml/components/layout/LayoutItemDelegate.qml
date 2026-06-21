@@ -177,7 +177,11 @@ Item {
                 case "settings":         src = "items/SettingsItem.qml"; break
                 case "temperature":      src = "items/TemperatureItem.qml"; break
                 case "waterLevel":       src = "items/WaterLevelItem.qml"; break
-                case "connectionStatus": src = "items/ConnectionStatusItem.qml"; break
+                // connectionStatus merged into machineStatus (alias): the machine
+                // status shows the phase and "Disconnected" when offline, replacing
+                // the old binary Online/Offline widget.
+                case "connectionStatus":
+                case "machineStatus":    src = "items/MachineStatusItem.qml"; break
                 case "scaleWeight":      src = "items/ScaleWeightItem.qml"; break
                 case "profileName":      src = "items/ProfileNameItem.qml"; break
                 case "doseWeight":       src = "items/DoseWeightItem.qml"; break
@@ -192,7 +196,6 @@ Item {
                 case "separator":        src = "items/SeparatorItem.qml"; break
                 case "quit":             src = "items/QuitItem.qml"; break
                 case "lastShot":         src = "items/LastShotItem.qml"; break
-                case "machineStatus":    src = "items/MachineStatusItem.qml"; break
                 case "batteryLevel":     src = "items/BatteryLevelItem.qml"; break
                 case "scaleBattery":     src = "items/ScaleBatteryItem.qml"; break
                 case "ghcSimulator":     src = "items/MiniGHCItem.qml"; break

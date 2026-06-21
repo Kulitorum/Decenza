@@ -23,7 +23,10 @@ Dialog {
     padding: 0
 
     property bool showHelp: false
-    readonly property double currentRatio: Settings.brew.lastUsedRatio
+    // The actual active ratio (target ÷ dose), matching the scale widget / Brew
+    // Settings — not lastUsedRatio, so the highlighted preset reflects reality.
+    readonly property double _dose: ProfileManager.brewByRatioDose > 0 ? ProfileManager.brewByRatioDose : 18.0
+    readonly property double currentRatio: ProfileManager.targetWeight / _dose
 
     // The three presets (ratios are user-configurable, defaulting to 1/2/3).
     // `desc` are our own words, informed by the La Marzocco article credited below.

@@ -15,7 +15,13 @@ Item {
     property bool zoneValueBold: false
 
     readonly property string labelText: TranslationManager.translate("idle.status.ratio", "Ratio")
-    readonly property string ratioText: "1:" + Settings.brew.lastUsedRatio.toFixed(1)
+    // Show the ACTUAL active ratio (target ÷ dose) — the same source the scale
+    // widget and Brew Settings use — not lastUsedRatio, which is only the last
+    // preset tapped and can diverge (e.g. a bean's saved yield override applied
+    // on restart).
+    readonly property double _dose: ProfileManager.brewByRatioDose > 0 ? ProfileManager.brewByRatioDose : 18.0
+    readonly property double activeRatio: ProfileManager.targetWeight / _dose
+    readonly property string ratioText: "1:" + activeRatio.toFixed(1)
 
     implicitWidth: col.implicitWidth
     implicitHeight: col.implicitHeight

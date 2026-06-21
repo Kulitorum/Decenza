@@ -4,31 +4,31 @@ import Decenza
 import "layout"
 
 Rectangle {
-    color: Theme.surfaceColor
+    id: statusBarRoot
 
-    // Parse statusBar zone from layout config
-    property var statusBarItems: {
-        var raw = Settings.network.layoutConfiguration
-        try {
-            var parsed = JSON.parse(raw)
-            return (parsed.zones && parsed.zones.statusBar) || []
-        } catch(e) {
-            return []
-        }
+    // Parse the statusBar zone + its per-zone options from layout config so the
+    // top bar honors distribution / alignment / style like every other bar zone
+    // (composable-status-bar — no longer a special-cased renderer).
+    property var _layout: {
+        try { return JSON.parse(Settings.network.layoutConfiguration) || ({}) }
+        catch (e) { return ({}) }
     }
+    property var statusBarItems: (_layout.zones && _layout.zones.statusBar) || []
+    property var zoneOpts: (_layout.zoneOptions && _layout.zoneOptions.statusBar) || ({})
 
-    RowLayout {
+    // Default keeps the surface background; a non-standard style overrides it.
+    color: (zoneOpts.style && zoneOpts.style !== "standard")
+           ? Theme.zoneBackgroundColor(zoneOpts.style)
+           : Theme.surfaceColor
+
+    LayoutBarZone {
         anchors.fill: parent
         anchors.leftMargin: Theme.chartMarginSmall
         anchors.rightMargin: Theme.spacingLarge
-        spacing: Theme.spacingMedium
-
-        Repeater {
-            model: statusBarItems
-            delegate: LayoutItemDelegate {
-                zoneName: "statusBar"
-                Layout.fillWidth: modelData.type === "spacer"
-            }
-        }
+        zoneName: "statusBar"
+        items: statusBarRoot.statusBarItems
+        distribution: statusBarRoot.zoneOpts.distribution || "packed"
+        alignment: statusBarRoot.zoneOpts.alignment || "center"
+        zoneStyle: statusBarRoot.zoneOpts.style || "standard"
     }
 }

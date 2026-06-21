@@ -362,7 +362,8 @@ Rectangle {
                         z: -1
                         onClicked: root.itemTapped(modelData.id)
                         onPressAndHold: {
-                            if (modelData.type === "custom" || modelData.type.startsWith("screensaver") || modelData.type === "lastShot" || modelData.type === "shotPlan" || modelData.type === "scaleWeight")
+                            if (modelData.type === "custom" || modelData.type.startsWith("screensaver") || modelData.type === "lastShot" || modelData.type === "shotPlan" || modelData.type === "scaleWeight"
+                                || modelData.type === "machineStatus" || modelData.type === "temperature" || modelData.type === "steamTemperature" || modelData.type === "sleep")
                                 root.editCustomRequested(modelData.id, root.zoneName)
                         }
                     }
@@ -425,7 +426,6 @@ Rectangle {
                             // Actions & readouts (white)
                             { type: "beans", label: TranslationManager.translate("layoutEditor.widgetBeans", "Beans") },
                             { type: "equipment", label: TranslationManager.translate("layoutEditor.widgetEquipment", "Equipment") },
-                            { type: "connectionStatus", label: TranslationManager.translate("layoutEditor.widgetConnection", "Connection") },
                             { type: "espresso", label: TranslationManager.translate("layoutEditor.widgetEspresso", "Espresso") },
                             { type: "autofavorites", label: TranslationManager.translate("layoutEditor.widgetFavorites", "Favorites") },
                             { type: "flush", label: TranslationManager.translate("layoutEditor.widgetFlush", "Flush") },
@@ -574,8 +574,8 @@ Rectangle {
             "steamTemperature": TranslationManager.translate("layoutEditor.chipSteamTemp", "Steam Temp"),
             "batteryLevel": TranslationManager.translate("layoutEditor.chipBattery", "Battery"),
             "waterLevel": TranslationManager.translate("layoutEditor.chipWater", "Water"),
-            "connectionStatus": TranslationManager.translate("layoutEditor.chipConnection", "Connection"),
-            "machineStatus": TranslationManager.translate("layoutEditor.chipStatus", "Status"),
+            "connectionStatus": TranslationManager.translate("layoutEditor.chipMachine", "Machine"),
+            "machineStatus": TranslationManager.translate("layoutEditor.chipMachine", "Machine"),
             "scaleWeight": TranslationManager.translate("layoutEditor.chipScale", "Scale"),
             "profileName": TranslationManager.translate("layoutEditor.chipProfileName", "Profile"),
             "doseWeight": TranslationManager.translate("layoutEditor.chipDoseWeight", "Dose"),

@@ -7,6 +7,11 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+    property var modelData: ({})
+
+    // Per-instance display mode (composable-status-bar): "text" (default) or
+    // "icon" (a temperature icon ahead of the value). Read from stored props.
+    readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
 
     readonly property double effectiveTargetTemp: Settings.brew.hasTemperatureOverride
         ? Settings.brew.temperatureOverride
@@ -30,16 +35,30 @@ Item {
         id: compactContent
         visible: root.isCompact
         anchors.fill: parent
-        implicitWidth: compactTemp.implicitWidth
-        implicitHeight: compactTemp.implicitHeight
+        implicitWidth: compactRow.implicitWidth
+        implicitHeight: compactRow.implicitHeight
 
-        Text {
-            id: compactTemp
+        Row {
+            id: compactRow
             anchors.centerIn: parent
-            text: DE1Device.temperature.toFixed(1) + "\u00B0C"
-            color: Theme.temperatureColor
-            font: Theme.bodyFont
-            Accessible.ignored: true
+            spacing: Theme.scaled(6)
+
+            ThemedIcon {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.displayMode === "icon"
+                source: "qrc:/icons/temperature.svg"
+                iconSize: Theme.scaled(20)
+                color: Theme.temperatureColor
+            }
+
+            Text {
+                id: compactTemp
+                anchors.verticalCenter: parent.verticalCenter
+                text: DE1Device.temperature.toFixed(1) + "\u00B0C"
+                color: Theme.temperatureColor
+                font: Theme.bodyFont
+                Accessible.ignored: true
+            }
         }
 
         MouseArea {
@@ -68,6 +87,14 @@ Item {
             id: fullColumn
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
+
+            ThemedIcon {
+                Layout.alignment: Qt.AlignHCenter
+                visible: root.displayMode === "icon"
+                source: "qrc:/icons/temperature.svg"
+                iconSize: Theme.scaled(28)
+                color: Theme.temperatureColor
+            }
 
             Row {
                 Layout.alignment: Qt.AlignHCenter
