@@ -36,8 +36,10 @@ Dialog {
 
     function applyRatio(r) {
         // Set ONLY the ratio preference. The stop-at-weight target derives from
-        // dose × ratio at the proper commit point (the bean auto-capture, which has
-        // a freshly measured dose, and Espresso Setup, which recomputes reactively).
+        // dose × ratio at the proper commit point: the bean auto-capture (which has
+        // a freshly measured dose) computes brewYieldOverride = dose × lastUsedRatio.
+        // Espresso Setup shows a ratio derived from the existing dose/target, so a
+        // ratio picked here is not applied retroactively until the next capture.
         // We deliberately do NOT poke the persistent brewYieldOverride from a tap:
         // that would override the profile target from a possibly-default dose and
         // bypass the per-bag override discipline — the exact anti-pattern flagged

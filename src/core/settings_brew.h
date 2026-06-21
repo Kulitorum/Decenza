@@ -19,7 +19,7 @@ class SettingsBrew : public QObject {
     // Dose cup tare: empty weight of the dosing vessel, subtracted from the scale
     // reading in "Get from scale" so the dose is net beans. Default 0 = no tare.
     Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight WRITE setDoseCupTareWeight NOTIFY doseCupTareWeightChanged)
-    // Whether the confirmation "ding" plays when a dose/milk auto-captures. Default
+    // Whether the confirmation "ding" plays when a bean dose auto-captures. Default
     // off — toggled by the bell on the Dose cup row.
     Q_PROPERTY(bool doseCaptureSoundEnabled READ doseCaptureSoundEnabled WRITE setDoseCaptureSoundEnabled NOTIFY doseCaptureSoundEnabledChanged)
     // Home-screen quick-select brew-ratio presets (Ristretto / Normale / Lungo).
