@@ -1517,7 +1517,8 @@ Page {
                         }
 
                         // Weigh the milk now on the scale and use it as the reference.
-                        // Needs the empty-pitcher weight set (so net milk is known).
+                        // Works with a saved empty-pitcher weight, or a scale tared with
+                        // the empty pitcher (net milk = the raw reading).
                         Rectangle {
                             id: refMilkWeighBtn
                             visible: ScaleDevice.connected && !ScaleDevice.isFlowScale

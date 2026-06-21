@@ -420,7 +420,6 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (steam.contains("disabled")) settings->brew()->setSteamDisabled(steam["disabled"].toBool());
         if (steam.contains("autoFlushSeconds")) settings->brew()->setSteamAutoFlushSeconds(steam["autoFlushSeconds"].toInt());
         if (steam.contains("twoTapStop")) settings->hardware()->setSteamTwoTapStop(steam["twoTapStop"].toBool());
-        if (steam.contains("selectedPitcher")) settings->brew()->setSelectedSteamCup(steam["selectedPitcher"].toInt());
         if (steam.contains("milkAutoCaptureEnabled")) settings->brew()->setMilkAutoCaptureEnabled(steam["milkAutoCaptureEnabled"].toBool());
 
         // Import pitcher presets
@@ -434,18 +433,29 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             QJsonArray presets = steam["pitcherPresets"].toArray();
             for (const QJsonValue& v : presets) {
                 QJsonObject p = v.toObject();
-                if (p["disabled"].toBool()) {
+                const bool disabled = p["disabled"].toBool();
+                const int before = static_cast<int>(settings->brew()->steamPitcherPresets().size());
+                if (disabled) {
                     settings->brew()->addSteamPitcherPresetDisabled(p["name"].toString());
                 } else {
                     settings->brew()->addSteamPitcherPreset(p["name"].toString(), p["duration"].toInt(), p["flow"].toInt());
                 }
-                // Restore the weight + milk calibration the feature depends on (the
-                // just-added preset is appended at the end).
-                int idx = static_cast<int>(settings->brew()->steamPitcherPresets().size()) - 1;
-                if (idx >= 0) {
+                // Restore weight + milk calibration ONLY for an enabled preset whose
+                // add actually appended one entry — never onto a disabled preset, nor
+                // (if a corrupt store no-ops the add) onto the wrong/previous one.
+                const int after = static_cast<int>(settings->brew()->steamPitcherPresets().size());
+                if (!disabled && after == before + 1) {
+                    const int idx = after - 1;
                     if (p.contains("pitcherWeightG")) settings->brew()->setSteamPitcherWeight(idx, p["pitcherWeightG"].toDouble());
                     if (p.contains("calibMilkG")) settings->brew()->setSteamPitcherCalibration(idx, p["calibMilkG"].toDouble());
                 }
+            }
+            // Apply the selected pitcher AFTER the presets are rebuilt — setting it
+            // before the clear/re-add would leave it clamped to a stale index.
+            if (steam.contains("selectedPitcher")) {
+                const int sel = steam["selectedPitcher"].toInt();
+                if (sel >= 0 && sel < static_cast<int>(settings->brew()->steamPitcherPresets().size()))
+                    settings->brew()->setSelectedSteamCup(sel);
             }
         }
     }

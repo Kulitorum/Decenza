@@ -203,10 +203,11 @@ Page {
     }
 
     // Idle milk auto-capture: while the steam presets are showing on the home
-    // screen and the selected pitcher is calibrated (has a reference milk weight),
-    // rest the milk pitcher on the scale -> lock the steam time proportionally,
-    // ding, and show a confirmation. This is the steam equivalent of the bean
-    // auto-capture above; the dedicated Steam page has its own copy.
+    // screen and the selected pitcher has a saved empty-pitcher weight (cupWeight),
+    // rest the milk pitcher on the scale to record the milk weight. If the pitcher
+    // is ALSO calibrated (has a reference milk weight), the steam time is locked
+    // proportionally with a ding + confirmation. This is the steam equivalent of
+    // the bean auto-capture above; the dedicated Steam page has its own copy.
     property bool milkCaptureShown: false
     property string milkCaptureText: ""
     // Last milk weight measured this session (for the bottom status row). 0 = none yet.
