@@ -134,7 +134,10 @@ Page {
                 // scaled flag so syncSteamTimeout() falls back to the preset
                 // duration here instead of reusing this session's scaled time
                 // (otherwise a small pour after a large one would over-steam).
+                // Also drop any manual ±5 override: it applied to the session that
+                // just ended, so the next pour re-arms weight scaling.
                 steamPage.steamTimeoutScaled = false
+                steamPage.steamTimeoutUserAdjusted = false
                 steamPage.syncSteamTimeout()
                 Settings.brew.steamFlow = getCurrentPitcherFlow()
                 if (!Settings.brew.keepSteamHeaterOn) {
@@ -214,7 +217,7 @@ Page {
         var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
         if (!preset || preset.disabled) return 0
         var calibMilk = preset.calibMilkG ?? 0
-        if (calibMilk <= 0) return 0
+        if (calibMilk <= 0 || (preset.duration ?? 0) <= 0) return 0  // guard a 0/missing duration → silent 5s
         var milk = currentMeasuredMilk()
         if (milk <= 0) return 0
         var scaled = Math.round(preset.duration * (milk / calibMilk))
@@ -228,7 +231,7 @@ Page {
         var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
         if (!preset || preset.disabled) return 0
         var calibMilk = preset.calibMilkG ?? 0
-        if (calibMilk <= 0 || milk <= 0) return 0
+        if (calibMilk <= 0 || milk <= 0 || (preset.duration ?? 0) <= 0) return 0  // guard a 0/missing duration → silent 5s
         return Math.max(5, Math.min(120, Math.round(preset.duration * (milk / calibMilk))))
     }
 
@@ -239,12 +242,6 @@ Page {
         return (preset && !preset.disabled) ? (preset.calibMilkG ?? 0) : 0
     }
 
-    // Sync steamTimeout to the selected preset WITHOUT clobbering a weight-scaled
-    // value. If milk is on the scale now, use the scaled time. If the preset is
-    // calibrated but milk isn't on the scale (e.g. lifted to the wand / arriving
-    // from the home-screen steam flow), keep the current steamTimeout — it was
-    // already scaled from the measured milk. Only fall back to the fixed reference
-    // duration when the preset isn't calibrated.
     // True once a milk capture has scaled steamTimeout for the CURRENT pitcher
     // selection. syncSteamTimeout() preserves that scaled value while the pitcher
     // is lifted to the wand, but a stale value (e.g. after switching pitcher) is
@@ -286,6 +283,12 @@ Page {
         onAccepted: Settings.brew.setSteamPitcherWeight(Settings.brew.selectedSteamPitcher, steamPage.pendingPitcherWeight)
     }
 
+    // Sync steamTimeout to the selected preset WITHOUT clobbering a weight-scaled
+    // value. If milk is on the scale now, use the scaled time. If the preset is
+    // calibrated but milk isn't on the scale (e.g. lifted to the wand / arriving
+    // from the home-screen steam flow), keep the current steamTimeout — it was
+    // already scaled from the measured milk. Only fall back to the fixed reference
+    // duration when the preset isn't calibrated.
     function syncSteamTimeout() {
         var live = scaledSteamTimeout()
         if (live > 0) {
@@ -814,10 +817,13 @@ Page {
                     height: Theme.scaled(48)
                     radius: Theme.buttonRadius
                     color: livePurgeMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    activeFocusOnTab: true
                     Accessible.role: Accessible.Button
                     Accessible.name: TranslationManager.translate("steam.accessible.purge", "Purge the steam wand")
                     Accessible.focusable: true
                     Accessible.onPressAction: livePurgeMa.clicked(null)
+                    Keys.onReturnPressed: { livePurgeMa.clicked(null); event.accepted = true }
+                    Keys.onSpacePressed:  { livePurgeMa.clicked(null); event.accepted = true }
                     Tr {
                         anchors.centerIn: parent
                         key: "steam.label.purge"; fallback: "Purge"
@@ -1135,7 +1141,9 @@ Page {
                                         var flow = modelData.flow !== undefined ? modelData.flow : 150
                                         durationSlider.value = modelData.duration
                                         flowSlider.value = flow
-                                        Settings.brew.steamTimeout = scaledSteamTimeout() > 0 ? scaledSteamTimeout() : modelData.duration
+                                        // Compute once so the test and the value can't disagree on a fresh telemetry tick.
+                                        var scaled = scaledSteamTimeout()
+                                        Settings.brew.steamTimeout = scaled > 0 ? scaled : modelData.duration
                                         Settings.brew.steamFlow = flow
                                         MainController.startSteamHeating(reason)
                                     }
@@ -1378,10 +1386,13 @@ Page {
                             Layout.preferredHeight: Theme.scaled(48)
                             radius: Theme.buttonRadius
                             color: purgeMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                            activeFocusOnTab: true
                             Accessible.role: Accessible.Button
                             Accessible.name: TranslationManager.translate("steam.accessible.purge", "Purge the steam wand")
                             Accessible.focusable: true
                             Accessible.onPressAction: purgeMa.clicked(null)
+                            Keys.onReturnPressed: { purgeMa.clicked(null); event.accepted = true }
+                            Keys.onSpacePressed:  { purgeMa.clicked(null); event.accepted = true }
                             Tr {
                                 anchors.centerIn: parent
                                 key: "steam.label.purge"; fallback: "Purge"
@@ -1540,7 +1551,10 @@ Page {
                             }
                             valueColor: Theme.weightColor
                             accessibleName: TranslationManager.translate("steam.label.pitcherWeight", "Milk pitcher weight")
-                            KeyNavigation.tab: tareBtn
+                            // tareBtn lives in the scale-gated sub-row; skip straight to
+                            // the reference-milk field when no scale is connected so Tab
+                            // never lands on a hidden element.
+                            KeyNavigation.tab: (ScaleDevice.connected && !ScaleDevice.isFlowScale) ? tareBtn : refMilkInput
                             KeyNavigation.backtab: flowSlider
                             onValueModified: function(newValue) {
                                 Settings.brew.setSteamPitcherWeight(Settings.brew.selectedSteamPitcher, newValue)

@@ -247,7 +247,7 @@ Page {
             var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
             if (!p || p.disabled) return
             var calib = p.calibMilkG ?? 0
-            if (calib <= 0) return  // preset not calibrated (no reference milk) — nothing to lock
+            if (calib <= 0 || (p.duration ?? 0) <= 0) return  // not calibrated / no duration — nothing to lock
             var t = Math.max(5, Math.min(120, Math.round(p.duration * (milk / calib))))
             Settings.brew.steamTimeout = t
             // Push to the DE1 now (same as the steam-preset selection) so a GHC/auto
@@ -594,9 +594,10 @@ Page {
                         }
                     }
 
-                    // Long-press a pitcher to open the steam page settings, where you
-                    // set the duration and tap Calibrate (with milk on the scale) to
-                    // teach this pitcher its milk-weight -> steam-time reference.
+                    // Long-press a pitcher to open the steam page settings, where you set
+                    // the duration and either tap "Weigh" next to Reference milk (with milk
+                    // on the scale) or "Use as baseline" to teach this pitcher its
+                    // milk-weight -> steam-time reference.
                     onPresetLongPressed: function(index) {
                         Settings.brew.selectedSteamPitcher = index
                         pageStack.push(Qt.resolvedUrl("SteamPage.qml"))
