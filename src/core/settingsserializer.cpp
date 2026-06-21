@@ -72,6 +72,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     steam["autoFlushSeconds"] = settings->brew()->steamAutoFlushSeconds();
     steam["twoTapStop"] = settings->hardware()->steamTwoTapStop();
     steam["selectedPitcher"] = settings->brew()->selectedSteamPitcher();
+    steam["milkAutoCaptureEnabled"] = settings->brew()->milkAutoCaptureEnabled();
 
     // Steam pitcher presets
     QJsonArray pitcherPresets;
@@ -81,6 +82,10 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         p["name"] = m["name"].toString();
         p["duration"] = m["duration"].toInt();
         p["flow"] = m["flow"].toInt();
+        // The weight-based-steaming feature is keyed on these, so they must round-trip.
+        if (m.contains("pitcherWeightG")) p["pitcherWeightG"] = m["pitcherWeightG"].toDouble();
+        if (m.contains("calibMilkG")) p["calibMilkG"] = m["calibMilkG"].toDouble();
+        if (m.contains("disabled")) p["disabled"] = m["disabled"].toBool();
         pitcherPresets.append(p);
     }
     steam["pitcherPresets"] = pitcherPresets;
@@ -415,7 +420,6 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (steam.contains("disabled")) settings->brew()->setSteamDisabled(steam["disabled"].toBool());
         if (steam.contains("autoFlushSeconds")) settings->brew()->setSteamAutoFlushSeconds(steam["autoFlushSeconds"].toInt());
         if (steam.contains("twoTapStop")) settings->hardware()->setSteamTwoTapStop(steam["twoTapStop"].toBool());
-        if (steam.contains("selectedPitcher")) settings->brew()->setSelectedSteamCup(steam["selectedPitcher"].toInt());
 
         // Import pitcher presets
         if (steam.contains("pitcherPresets")) {
@@ -428,8 +432,39 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             QJsonArray presets = steam["pitcherPresets"].toArray();
             for (const QJsonValue& v : presets) {
                 QJsonObject p = v.toObject();
-                settings->brew()->addSteamPitcherPreset(p["name"].toString(), p["duration"].toInt(), p["flow"].toInt());
+                const bool disabled = p["disabled"].toBool();
+                const qsizetype before = settings->brew()->steamPitcherPresets().size();
+                if (disabled) {
+                    settings->brew()->addSteamPitcherPresetDisabled(p["name"].toString());
+                } else {
+                    settings->brew()->addSteamPitcherPreset(p["name"].toString(), p["duration"].toInt(), p["flow"].toInt());
+                }
+                // Restore weight + milk calibration ONLY for an enabled preset whose
+                // add actually appended one entry — never onto a disabled preset, nor
+                // (if a corrupt store no-ops the add) onto the wrong/previous one.
+                const qsizetype after = settings->brew()->steamPitcherPresets().size();
+                if (!disabled && after == before + 1) {
+                    const int idx = static_cast<int>(after) - 1;
+                    if (p.contains("pitcherWeightG")) settings->brew()->setSteamPitcherWeight(idx, p["pitcherWeightG"].toDouble());
+                    if (p.contains("calibMilkG")) settings->brew()->setSteamPitcherCalibration(idx, p["calibMilkG"].toDouble());
+                }
             }
+        }
+        // Apply the master toggle AFTER the preset loop: setSteamPitcherCalibration()
+        // auto-enables weight-timed steaming, so applying it earlier would let a
+        // calibrated preset clobber a backup where the user had the feature OFF.
+        // The serialized value must win.
+        if (steam.contains("milkAutoCaptureEnabled")) settings->brew()->setMilkAutoCaptureEnabled(steam["milkAutoCaptureEnabled"].toBool());
+        // Apply the selected pitcher AFTER any preset rebuild (and regardless of
+        // whether this JSON carried a presets array) — setting it mid-rebuild would
+        // leave it clamped to a stale index. Out-of-range is dropped with a log.
+        if (steam.contains("selectedPitcher")) {
+            const int sel = steam["selectedPitcher"].toInt();
+            if (sel >= 0 && sel < static_cast<int>(settings->brew()->steamPitcherPresets().size()))
+                settings->brew()->setSelectedSteamCup(sel);
+            else
+                qWarning() << "SettingsSerializer: imported selectedPitcher" << sel
+                           << "out of range after import; leaving current selection";
         }
     }
 

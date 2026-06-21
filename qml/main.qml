@@ -534,6 +534,46 @@ ApplicationWindow {
         }
     }
 
+    // Latched by the milk auto-capture (IdlePage/SteamPage) to the milk weight
+    // measured for the upcoming steam session. Committed atomically with the actual
+    // duration when the session ends, so "use as baseline" never adopts a mismatched
+    // (milk, time) pair. 0 = no milk measured this session.
+    property real sessionMeasuredMilkG: 0
+    // The captured milk is specific to the selected pitcher's tare + calibration, so
+    // drop it when the pitcher changes — otherwise a new pitcher's steam could scale to
+    // the previous pitcher's milk.
+    Connections {
+        target: Settings.brew
+        function onSelectedSteamPitcherChanged() { root.sessionMeasuredMilkG = 0 }
+    }
+
+    // Save the most recent steam session as an atomic (milk weight, duration) pair
+    // so steam setup can adopt it as a baseline. Both fields are written together at
+    // session end — only when this session actually had a measured milk weight,
+    // otherwise the previous coherent pair is left intact.
+    Connections {
+        target: MachineState
+        property real steamElapsedTracker: 0
+        function onShotTimeChanged() {
+            if (MachineState.phase === MachineStateType.Phase.Steaming)
+                steamElapsedTracker = MachineState.shotTime
+        }
+        function onPhaseChanged() {
+            // A steam session just ended (tracker > 0 means we were steaming, so this
+            // doesn't fire on steam-prep phase changes that haven't started steaming).
+            if (MachineState.phase !== MachineStateType.Phase.Steaming && steamElapsedTracker > 0) {
+                // Commit the (milk, time) pair only for a real session with measured
+                // milk; either way clear the latches so nothing leaks to the next one.
+                if (steamElapsedTracker >= 1 && root.sessionMeasuredMilkG > 0) {
+                    Settings.brew.lastSteamMilkG = root.sessionMeasuredMilkG
+                    Settings.brew.lastSteamTimeS = steamElapsedTracker
+                }
+                steamElapsedTracker = 0
+                root.sessionMeasuredMilkG = 0
+            }
+        }
+    }
+
     // Detect when DE1 enters Steam state (even during heating/FinalHeating substate)
     // This clears steamDisabled BEFORE applySteamSettings runs, so GHC-initiated
     // steaming works correctly even if keepSteamHeaterOn is false

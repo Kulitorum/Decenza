@@ -126,10 +126,41 @@ void SettingsBrew::setDoseCupTareWeight(double weight) {
     }
 }
 
+bool SettingsBrew::milkAutoCaptureEnabled() const {
+    return m_settings.value("steam/milkAutoCaptureEnabled", false).toBool();  // off by default; calibrating turns it on
+}
+void SettingsBrew::setMilkAutoCaptureEnabled(bool enabled) {
+    if (milkAutoCaptureEnabled() != enabled) {
+        m_settings.setValue("steam/milkAutoCaptureEnabled", enabled);
+        emit milkAutoCaptureEnabledChanged();
+    }
+}
+
+double SettingsBrew::lastSteamMilkG() const {
+    return m_settings.value("steam/lastSteamMilkG", 0.0).toDouble();
+}
+void SettingsBrew::setLastSteamMilkG(double g) {
+    if (g < 0) g = 0;
+    if (lastSteamMilkG() != g) {
+        m_settings.setValue("steam/lastSteamMilkG", g);
+        emit lastSteamMilkGChanged();
+    }
+}
+
+double SettingsBrew::lastSteamTimeS() const {
+    return m_settings.value("steam/lastSteamTimeS", 0.0).toDouble();
+}
+void SettingsBrew::setLastSteamTimeS(double s) {
+    if (s < 0) s = 0;
+    if (lastSteamTimeS() != s) {
+        m_settings.setValue("steam/lastSteamTimeS", s);
+        emit lastSteamTimeSChanged();
+    }
+}
+
 bool SettingsBrew::doseCaptureSoundEnabled() const {
     return m_settings.value("espresso/doseCaptureSoundEnabled", false).toBool();
 }
-
 void SettingsBrew::setDoseCaptureSoundEnabled(bool enabled) {
     if (doseCaptureSoundEnabled() != enabled) {
         m_settings.setValue("espresso/doseCaptureSoundEnabled", enabled);
@@ -330,6 +361,49 @@ void SettingsBrew::setSteamPitcherWeight(int index, double weightG) {
         m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
         emit steamPitcherPresetsChanged();
     }
+}
+
+void SettingsBrew::setSteamPitcherCalibration(int index, double calibMilkG) {
+    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (index >= 0 && index < static_cast<int>(arr.size())) {
+        QJsonObject preset = arr[index].toObject();
+        if (calibMilkG > 0) {
+            preset["calibMilkG"] = calibMilkG;
+        } else {
+            preset.remove("calibMilkG");  // 0 / negative clears the calibration
+        }
+        arr[index] = preset;
+        m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
+        emit steamPitcherPresetsChanged();
+        // Weight-timed steaming is off by default; setting a reference is the explicit
+        // opt-in, so calibrating turns it on. Clearing the reference leaves it as-is.
+        if (calibMilkG > 0)
+            setMilkAutoCaptureEnabled(true);
+    }
+}
+
+double SettingsBrew::netMilkForPitcher(int index, double scaleReading) const {
+    QVariantMap p = getSteamPitcherPreset(index);
+    if (p.isEmpty() || p.value("disabled").toBool()) return 0.0;
+    double pitcherWt = p.value("pitcherWeightG", 0.0).toDouble();
+    // One consistent net-milk rule: require a saved empty-pitcher weight (same gate as
+    // auto-capture), so there's no tare-vs-saved ambiguity. Net milk = scale − pitcher.
+    if (pitcherWt <= 0.0) return 0.0;
+    double milk = scaleReading - pitcherWt;
+    return (milk >= 50.0 && milk <= 1500.0) ? milk : 0.0;
+}
+
+int SettingsBrew::scaledSteamTime(int index, double milkG) const {
+    if (!milkAutoCaptureEnabled()) return 0;  // toggle gates ALL weight scaling, not just auto-capture
+    QVariantMap p = getSteamPitcherPreset(index);
+    if (p.isEmpty() || p.value("disabled").toBool()) return 0;
+    double calibMilk = p.value("calibMilkG", 0.0).toDouble();
+    double duration  = p.value("duration", 0.0).toDouble();
+    if (calibMilk <= 0.0 || duration <= 0.0 || milkG <= 0.0) return 0;
+    return qBound(5, qRound(duration * (milkG / calibMilk)), 120);
 }
 
 QVariantMap SettingsBrew::getSteamPitcherPreset(int index) const {

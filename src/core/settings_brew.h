@@ -19,9 +19,17 @@ class SettingsBrew : public QObject {
     // Dose cup tare: empty weight of the dosing vessel, subtracted from the scale
     // reading in "Get from scale" so the dose is net beans. Default 0 = no tare.
     Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight WRITE setDoseCupTareWeight NOTIFY doseCupTareWeightChanged)
-    // Whether the confirmation "ding" plays when a bean dose auto-captures. Default
-    // off — not everyone wants the sound; toggled by the bell on the Dose cup row.
+    // Master toggle for weight-timed steaming (UI label "Weight-timed steaming").
+    // When off, steam time is never scaled from milk weight. Default OFF; setting a
+    // pitcher's reference milk (setSteamPitcherCalibration) turns it on automatically.
+    Q_PROPERTY(bool milkAutoCaptureEnabled READ milkAutoCaptureEnabled WRITE setMilkAutoCaptureEnabled NOTIFY milkAutoCaptureEnabledChanged)
+    // Whether the confirmation "ding" plays when a dose/milk auto-captures. Default
+    // off — toggled by the bell on the Dose cup row.
     Q_PROPERTY(bool doseCaptureSoundEnabled READ doseCaptureSoundEnabled WRITE setDoseCaptureSoundEnabled NOTIFY doseCaptureSoundEnabledChanged)
+    // Last actual steam session (milk weight + steam time), saved so the steam
+    // setup can adopt them as a new reference baseline.
+    Q_PROPERTY(double lastSteamMilkG READ lastSteamMilkG WRITE setLastSteamMilkG NOTIFY lastSteamMilkGChanged)
+    Q_PROPERTY(double lastSteamTimeS READ lastSteamTimeS WRITE setLastSteamTimeS NOTIFY lastSteamTimeSChanged)
 
     // Steam
     Q_PROPERTY(double steamTemperature READ steamTemperature WRITE setSteamTemperature NOTIFY steamTemperatureChanged)
@@ -82,8 +90,15 @@ public:
     double doseCupTareWeight() const;
     void setDoseCupTareWeight(double weight);
 
+    bool milkAutoCaptureEnabled() const;
+    void setMilkAutoCaptureEnabled(bool enabled);
     bool doseCaptureSoundEnabled() const;
     void setDoseCaptureSoundEnabled(bool enabled);
+
+    double lastSteamMilkG() const;
+    void setLastSteamMilkG(double g);
+    double lastSteamTimeS() const;
+    void setLastSteamTimeS(double s);
 
     // Steam
     double steamTemperature() const;
@@ -116,6 +131,19 @@ public:
     Q_INVOKABLE void moveSteamPitcherPreset(int from, int to);
     Q_INVOKABLE QVariantMap getSteamPitcherPreset(int index) const;
     Q_INVOKABLE void setSteamPitcherWeight(int index, double weightG);
+    // Weight-scaled steaming: pair a reference milk weight with this preset's
+    // duration. At steam time the duration is scaled by the actual milk weight.
+    Q_INVOKABLE void setSteamPitcherCalibration(int index, double calibMilkG);
+    // Net milk on the scale for a pitcher = scaleReading − saved empty-pitcher weight.
+    // Returns 0 if no empty-pitcher weight is saved (one consistent net-milk rule) or
+    // the result is outside the plausible milk range. Pure measurement — not gated by
+    // the weight-timing toggle.
+    Q_INVOKABLE double netMilkForPitcher(int index, double scaleReading) const;
+    // Single source of truth for weight-timed steam scaling. Returns the scaled steam
+    // time (s) clamped to [5,120], or 0 — meaning "use the preset's fixed duration" —
+    // when weight-timing is off, or the preset is missing/disabled/uncalibrated, or
+    // the milk weight / duration is non-positive.
+    Q_INVOKABLE int scaledSteamTime(int index, double milkG) const;
 
     // Hot water
     double waterTemperature() const;
@@ -189,7 +217,10 @@ signals:
     void targetWeightChanged();
     void lastUsedRatioChanged();
     void doseCupTareWeightChanged();
+    void milkAutoCaptureEnabledChanged();
     void doseCaptureSoundEnabledChanged();
+    void lastSteamMilkGChanged();
+    void lastSteamTimeSChanged();
     void steamTemperatureChanged();
     void steamTimeoutChanged();
     void steamFlowChanged();
