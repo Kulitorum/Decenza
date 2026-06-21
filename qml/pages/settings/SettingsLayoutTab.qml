@@ -95,9 +95,15 @@ Item {
         var type = props.type || ""
         if (type.startsWith("screensaver") || type === "lastShot" || type === "shotPlan") {
             screensaverEditorPopup.openForItem(itemId, zoneName, props)
+        } else if (type === "scaleWeight") {
+            scaleWeightEditorPopup.openForItem(itemId, props.dataMode || "")
         } else {
             customEditorPopup.openForItem(itemId, zoneName, props)
         }
+    }
+
+    function openZoneOptions(zoneName, zoneLabel) {
+        zoneOptionsPopup.openForZone(zoneName, zoneLabel)
     }
 
     // Ensure there's always a way to reach Settings from the home screen
@@ -131,6 +137,14 @@ Item {
 
     ScreensaverEditorPopup {
         id: screensaverEditorPopup
+    }
+
+    ZoneOptionsPopup {
+        id: zoneOptionsPopup
+    }
+
+    ScaleWeightEditorPopup {
+        id: scaleWeightEditorPopup
     }
 
     // Two-column layout: zone editors on left, library panel on right
@@ -199,6 +213,7 @@ Item {
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "statusBar") }
                     onAddItemRequested: function(type) { Settings.network.addItem(type, "statusBar") }
                     onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
 
                 }
 
@@ -222,6 +237,7 @@ Item {
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "topLeft") }
                         onAddItemRequested: function(type) { Settings.network.addItem(type, "topLeft") }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
     
                     }
 
@@ -240,6 +256,7 @@ Item {
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "topRight") }
                         onAddItemRequested: function(type) { Settings.network.addItem(type, "topRight") }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
     
                     }
                 }
@@ -263,6 +280,7 @@ Item {
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerStatus") }
                     onAddItemRequested: function(type) { Settings.network.addItem(type, "centerStatus") }
                     onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
 
                     onMoveUp: Settings.network.setZoneYOffset("centerStatus", yOffset - 5)
                     onMoveDown: Settings.network.setZoneYOffset("centerStatus", yOffset + 5)
@@ -289,6 +307,7 @@ Item {
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerTop") }
                     onAddItemRequested: function(type) { Settings.network.addItem(type, "centerTop") }
                     onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
 
                     onMoveUp: Settings.network.setZoneYOffset("centerTop", yOffset - 5)
                     onMoveDown: Settings.network.setZoneYOffset("centerTop", yOffset + 5)
@@ -315,11 +334,33 @@ Item {
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerMiddle") }
                     onAddItemRequested: function(type) { Settings.network.addItem(type, "centerMiddle") }
                     onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
 
                     onMoveUp: Settings.network.setZoneYOffset("centerMiddle", yOffset - 5)
                     onMoveDown: Settings.network.setZoneYOffset("centerMiddle", yOffset + 5)
                     onScaleUp: Settings.network.setZoneScale("centerMiddle", zoneScale + 0.05)
                     onScaleDown: Settings.network.setZoneScale("centerMiddle", zoneScale - 0.05)
+                }
+
+                // Lower-mid bar (optional full-width band above the bottom bar).
+                // Listed here, above the bottom-bar zones, to match its on-screen
+                // position (it renders above the bottom action bar, not below it).
+                LayoutEditorZone {
+                    Layout.fillWidth: true
+                    zoneName: "lowerMidBar"
+                    zoneLabel: TranslationManager.translate("settings.layout.zone.lowermidbar", "Lower Mid Bar")
+                    items: layoutTab.getZoneItems("lowerMidBar")
+                    selectedItemId: layoutTab.selectedItemId
+                    zoneSelected: layoutTab.selectedZoneName === "lowerMidBar"
+
+                    onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "lowerMidBar") }
+                    onZoneTapped: layoutTab.onZoneTapped("lowerMidBar")
+                    onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "lowerMidBar") }
+                    onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "lowerMidBar") }
+                    onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "lowerMidBar") }
+                    onAddItemRequested: function(type) { Settings.network.addItem(type, "lowerMidBar") }
+                    onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
                 }
 
                 // Bottom bar zones
@@ -342,6 +383,7 @@ Item {
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "bottomLeft") }
                         onAddItemRequested: function(type) { Settings.network.addItem(type, "bottomLeft") }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
+                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
     
                     }
 
@@ -360,7 +402,8 @@ Item {
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "bottomRight") }
                         onAddItemRequested: function(type) { Settings.network.addItem(type, "bottomRight") }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
-    
+                    onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
+
                     }
                 }
             }

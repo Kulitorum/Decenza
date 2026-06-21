@@ -114,6 +114,39 @@ void SettingsBrew::setLastUsedRatio(double ratio) {
     }
 }
 
+double SettingsBrew::ratioPreset1() const {
+    return m_settings.value("espresso/ratioPreset1", 1.0).toDouble();
+}
+void SettingsBrew::setRatioPreset1(double r) {
+    r = qBound(0.5, r, 6.0);
+    if (ratioPreset1() != r) {
+        m_settings.setValue("espresso/ratioPreset1", r);
+        emit ratioPreset1Changed();
+    }
+}
+
+double SettingsBrew::ratioPreset2() const {
+    return m_settings.value("espresso/ratioPreset2", 2.0).toDouble();
+}
+void SettingsBrew::setRatioPreset2(double r) {
+    r = qBound(0.5, r, 6.0);
+    if (ratioPreset2() != r) {
+        m_settings.setValue("espresso/ratioPreset2", r);
+        emit ratioPreset2Changed();
+    }
+}
+
+double SettingsBrew::ratioPreset3() const {
+    return m_settings.value("espresso/ratioPreset3", 3.0).toDouble();
+}
+void SettingsBrew::setRatioPreset3(double r) {
+    r = qBound(0.5, r, 6.0);
+    if (ratioPreset3() != r) {
+        m_settings.setValue("espresso/ratioPreset3", r);
+        emit ratioPreset3Changed();
+    }
+}
+
 double SettingsBrew::doseCupTareWeight() const {
     return m_settings.value("espresso/doseCupTareWeight", 0.0).toDouble();
 }

@@ -118,6 +118,13 @@ public:
     Q_INVOKABLE void setZoneYOffset(const QString& zoneName, int offset);
     Q_INVOKABLE double getZoneScale(const QString& zoneName) const;
     Q_INVOKABLE void setZoneScale(const QString& zoneName, double scale);
+    // Per-zone layout/appearance options (composable-brew-bar), stored in a
+    // zone-keyed map alongside offsets/scales. Keys: "distribution", "alignment",
+    // "style". Absent => defaultValue (preserves current behaviour).
+    Q_INVOKABLE QString getZoneOption(const QString& zoneName, const QString& key, const QString& defaultValue) const;
+    Q_INVOKABLE void setZoneOption(const QString& zoneName, const QString& key, const QString& value);
+    // Replace a zone's items in one step (used by "populate from preset").
+    Q_INVOKABLE void setZoneItems(const QString& zoneName, const QVariantList& items);
     Q_INVOKABLE void setItemProperty(const QString& itemId, const QString& key, const QVariant& value);
     Q_INVOKABLE QVariantMap getItemProperties(const QString& itemId) const;
 

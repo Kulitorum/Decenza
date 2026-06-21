@@ -86,6 +86,8 @@ Page {
     property var centerMiddleItems: layoutConfig.zones ? (layoutConfig.zones.centerMiddle || []) : []
     property var bottomLeftItems: layoutConfig.zones ? (layoutConfig.zones.bottomLeft || []) : []
     property var bottomRightItems: layoutConfig.zones ? (layoutConfig.zones.bottomRight || []) : []
+    // Lower-mid bar: optional full-width band above the bottom action bar.
+    property var lowerMidBarItems: layoutConfig.zones ? (layoutConfig.zones.lowerMidBar || []) : []
 
     // Center zone Y-offsets (user-configurable positioning)
     property int centerStatusYOffset: layoutConfig.offsets ? (layoutConfig.offsets.centerStatus || 0) : 0
@@ -883,9 +885,44 @@ Page {
     }
 
     // ============================================================
+    // Lower-mid bar (optional, from layout lowerMidBar zone)
+    // Full-width band above the bottom action bar. Empty -> zero height.
+    // Height-gated: hidden when the viewport is too short to fit it, so the
+    // center content keeps its room (runtime-adaptive, no device-class check).
+    // ============================================================
+    property var lowerMidBarOptions: layoutConfig.zoneOptions ? (layoutConfig.zoneOptions.lowerMidBar || ({})) : ({})
+    readonly property bool lowerMidBarHasItems: idlePage.lowerMidBarItems.length > 0
+    readonly property real lowerMidBarFullHeight: Theme.scaled(82)
+    readonly property bool lowerMidBarFits:
+        (idlePage.height - Theme.statusBarHeight - Theme.bottomBarHeight - lowerMidBarFullHeight) >= Theme.scaled(220)
+    readonly property bool lowerMidBarVisible: lowerMidBarHasItems && lowerMidBarFits
+
+    Rectangle {
+        id: lowerMidBar
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: bottomBar.top
+        visible: idlePage.lowerMidBarVisible
+        height: visible ? idlePage.lowerMidBarFullHeight : 0
+        color: Theme.zoneBackgroundColor(idlePage.lowerMidBarOptions.style)
+
+        LayoutBarZone {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.spacingMedium
+            anchors.rightMargin: Theme.spacingMedium
+            zoneName: "lowerMidBar"
+            items: idlePage.lowerMidBarItems
+            distribution: idlePage.lowerMidBarOptions.distribution || "packed"
+            alignment: idlePage.lowerMidBarOptions.alignment || "center"
+            zoneStyle: idlePage.lowerMidBarOptions.style || "standard"
+        }
+    }
+
+    // ============================================================
     // Bottom bar (from layout bottomLeft/bottomRight zones)
     // ============================================================
     Rectangle {
+        id: bottomBar
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom

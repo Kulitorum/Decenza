@@ -8,6 +8,31 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+    property var modelData: ({})
+
+    // Per-instance data mode (composable-brew-bar): "" / "gross" (raw weight,
+    // default), "netBeans" (minus dose-cup tare), "netMilk" (minus pitcher
+    // weight), "contextAware" (net milk while steaming, else net beans).
+    readonly property string dataMode: (modelData && modelData.dataMode) ? modelData.dataMode : ""
+
+    function _pitcherWeight() {
+        var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+        return (p && !p.disabled) ? (p.pitcherWeightG ?? 0) : 0
+    }
+
+    // Apply the per-instance data mode to the raw scale reading.
+    function displayedWeight() {
+        var w = MachineState.scaleWeight
+        if (root.dataMode === "netBeans")
+            return Math.max(0, w - Settings.brew.doseCupTareWeight)
+        if (root.dataMode === "netMilk")
+            return Math.max(0, w - root._pitcherWeight())
+        if (root.dataMode === "contextAware") {
+            var steaming = MachineState.phase === MachineStateType.Phase.Steaming
+            return Math.max(0, w - (steaming ? root._pitcherWeight() : Settings.brew.doseCupTareWeight))
+        }
+        return w
+    }
 
     property bool isFlowScale: ScaleDevice && ScaleDevice.isFlowScale
     property bool scaleConnected: ScaleDevice && ScaleDevice.connected
@@ -66,7 +91,7 @@ Item {
     }
 
     function weightText() {
-        var weight = MachineState.scaleWeight.toFixed(1)
+        var weight = root.displayedWeight().toFixed(1)
         var suffix = root.isFlowScale ? "g~" : "g"
         if (ProfileManager.brewByRatioActive) {
             return weight + suffix + " 1:" + ProfileManager.brewByRatio.toFixed(1)

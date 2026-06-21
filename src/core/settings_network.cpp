@@ -293,6 +293,10 @@ QString SettingsNetwork::defaultLayoutJson() const {
         QJsonObject({{"type", "separator"}, {"id", "sep_sb3"}}),
         QJsonObject({{"type", "connectionStatus"}, {"id", "conn_sb1"}}),
     });
+    // Lower-mid bar: optional, general-purpose full-width band above the bottom
+    // action bar. Empty by default so it reserves no space and changes nothing
+    // until a user adds widgets to it (composable-brew-bar).
+    zones["lowerMidBar"] = QJsonArray();
 
     layout["zones"] = zones;
     return QString::fromUtf8(QJsonDocument(layout).toJson(QJsonDocument::Compact));
@@ -329,6 +333,13 @@ QJsonObject SettingsNetwork::getLayoutObject() const {
             QJsonObject({{"type", "separator"}, {"id", "sep_sb3"}}),
             QJsonObject({{"type", "connectionStatus"}, {"id", "conn_sb1"}}),
         });
+        layout["zones"] = zones;
+    }
+
+    // Migration: ensure the (empty) lowerMidBar zone exists for older configs so
+    // the editor exposes it; empty means it renders nothing (composable-brew-bar).
+    if (!zones.contains("lowerMidBar")) {
+        zones["lowerMidBar"] = QJsonArray();
         layout["zones"] = zones;
     }
 
@@ -594,6 +605,34 @@ void SettingsNetwork::setZoneScale(const QString& zoneName, double scale) {
     QJsonObject scales = layout["scales"].toObject();
     scales[zoneName] = scale;
     layout["scales"] = scales;
+    saveLayoutObject(layout);
+}
+
+QString SettingsNetwork::getZoneOption(const QString& zoneName, const QString& key, const QString& defaultValue) const {
+    QJsonObject layout = getLayoutObject();
+    QJsonObject zoneOptions = layout["zoneOptions"].toObject();
+    QJsonObject opts = zoneOptions[zoneName].toObject();
+    return opts.contains(key) ? opts[key].toString() : defaultValue;
+}
+
+void SettingsNetwork::setZoneOption(const QString& zoneName, const QString& key, const QString& value) {
+    QJsonObject layout = getLayoutObject();
+    QJsonObject zoneOptions = layout["zoneOptions"].toObject();
+    QJsonObject opts = zoneOptions[zoneName].toObject();
+    opts[key] = value;
+    zoneOptions[zoneName] = opts;
+    layout["zoneOptions"] = zoneOptions;
+    saveLayoutObject(layout);
+}
+
+void SettingsNetwork::setZoneItems(const QString& zoneName, const QVariantList& items) {
+    QJsonObject layout = getLayoutObject();
+    QJsonObject zones = layout["zones"].toObject();
+    QJsonArray arr;
+    for (const QVariant& v : items)
+        arr.append(QJsonObject::fromVariantMap(v.toMap()));
+    zones[zoneName] = arr;
+    layout["zones"] = zones;
     saveLayoutObject(layout);
 }
 
