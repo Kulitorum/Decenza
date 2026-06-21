@@ -846,6 +846,7 @@ set(QML_FILES
     qml/components/layout/items/BatteryLevelItem.qml
     qml/components/layout/items/ScaleBatteryItem.qml
     qml/components/layout/items/MiniGHCItem.qml
+    qml/components/layout/items/ClockItem.qml
     qml/components/layout/CustomEditorPopup.qml
     qml/components/layout/ZoneOptionsPopup.qml
     qml/components/layout/ScaleWeightEditorPopup.qml

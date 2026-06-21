@@ -397,7 +397,7 @@ private slots:
     void typeHasOptionsAllowlist() {
         const QStringList configurable = {
             "custom", "scaleWeight", "shotPlan", "sleep", "machineStatus",
-            "temperature", "steamTemperature", "waterLevel", "lastShot"
+            "temperature", "steamTemperature", "waterLevel", "clock", "lastShot"
         };
         for (const QString& t : configurable)
             QVERIFY2(SettingsNetwork::typeHasOptions(t), qPrintable("expected configurable: " + t));

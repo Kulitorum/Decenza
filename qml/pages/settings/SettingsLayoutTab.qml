@@ -126,7 +126,7 @@ Item {
             screensaverEditorPopup.openForItem(itemId, zoneName, props)
         } else if (type === "scaleWeight") {
             scaleWeightEditorPopup.openForItem(itemId, props.dataMode || "", props.displayMode || "")
-        } else if (type === "machineStatus" || type === "temperature" || type === "steamTemperature" || type === "waterLevel") {
+        } else if (type === "machineStatus" || type === "temperature" || type === "steamTemperature" || type === "waterLevel" || type === "clock") {
             displayModeEditorPopup.openForItem(itemId, props.displayMode || "")
         } else if (type === "sleep") {
             sleepEditorPopup.openForItem(itemId,

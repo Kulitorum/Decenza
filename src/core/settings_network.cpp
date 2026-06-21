@@ -295,6 +295,8 @@ QString SettingsNetwork::defaultLayoutJson() const {
         QJsonObject({{"type", "scaleWeight"}, {"id", "scale_sb1"}, {"displayMode", "icon"}}),
         QJsonObject({{"type", "separator"}, {"id", "sep_sb3"}}),
         QJsonObject({{"type", "machineStatus"}, {"id", "conn_sb1"}, {"displayMode", "icon"}}),
+        QJsonObject({{"type", "separator"}, {"id", "sep_sb4"}}),
+        QJsonObject({{"type", "clock"}, {"id", "clock_sb1"}, {"displayMode", "icon"}}),
     });
     // Lower-mid bar: optional, general-purpose full-width band above the bottom
     // action bar. Empty by default so it reserves no space and changes nothing
@@ -604,6 +606,7 @@ bool SettingsNetwork::typeHasOptions(const QString& type) {
         QStringLiteral("temperature"),
         QStringLiteral("steamTemperature"),
         QStringLiteral("waterLevel"),
+        QStringLiteral("clock"),
         QStringLiteral("lastShot"),
     };
     return kConfigurable.contains(type);
