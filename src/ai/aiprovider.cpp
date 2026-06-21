@@ -607,13 +607,55 @@ GeminiProvider::GeminiProvider(QNetworkAccessManager* networkManager,
     : AIProvider(networkManager, parent)
     , m_apiKey(apiKey)
 {
+    // Default to the recommended model = first catalog entry. Keeps the default
+    // a single source of truth (no parallel DEFAULT_MODEL constant to keep in
+    // sync with the list order). availableModels() dispatches to this class
+    // since the object under construction is a GeminiProvider.
+    const QList<ModelOption> models = availableModels();
+    if (!models.isEmpty())
+        m_model = models.first().id;
+}
+
+QList<AIProvider::ModelOption> GeminiProvider::availableModels() const
+{
+    // Order = UI order; first entry is the recommended default. 2.5 Flash leads
+    // as the lowest-cost sensible default for shot analysis — thinking adds
+    // little here and 2.5 can disable it entirely (thinkingBudget 0), plus it
+    // has more provisioned capacity (fewer 503s). 3.5 Flash is the opt-in
+    // "more capable" choice. Revisit as new models / pricing land.
+    return {
+        { "gemini-2.5-flash", "2.5 Flash" },
+        { "gemini-3.5-flash", "3.5 Flash" },
+    };
+}
+
+void GeminiProvider::setModel(const QString& modelId)
+{
+    if (modelId.isEmpty())
+        return;  // unset → keep the current default
+    for (const ModelOption& opt : availableModels()) {
+        if (opt.id == modelId) {
+            m_model = modelId;
+            return;
+        }
+    }
+    qWarning() << "GeminiProvider::setModel ignoring unknown model id:" << modelId;
+}
+
+QString GeminiProvider::shortModelName() const
+{
+    for (const ModelOption& opt : availableModels()) {
+        if (opt.id == m_model)
+            return opt.displayName;
+    }
+    return m_model;
 }
 
 QString GeminiProvider::apiUrl() const
 {
     // Use URL without key - key is passed via header for better security
     return QString("https://generativelanguage.googleapis.com/v1beta/models/%1:generateContent")
-        .arg(MODEL);
+        .arg(m_model);
 }
 
 void GeminiProvider::sendRequest(const QJsonObject& requestBody)
@@ -625,11 +667,22 @@ void GeminiProvider::sendRequest(const QJsonObject& requestBody)
     req.setRawHeader("x-goog-api-key", m_apiKey.toUtf8());
     req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
-    // Gemini 3.x ignores the 2.5-era integer thinkingBudget; it needs the thinkingLevel
-    // enum, else thinking defaults to "medium" (billed at the $9/MTok output rate).
+    // Thinking config differs by model family: the 2.5 family uses the integer
+    // thinkingBudget (0 disables thinking), while 3.x+ uses the thinkingLevel
+    // enum and ignores thinkingBudget — sending the wrong knob lets thinking
+    // default to "medium" (billed at the $9/MTok output rate). Pick by family
+    // so each selectable model keeps thinking minimal/off.
     QJsonObject bodyWithConfig = requestBody;
     QJsonObject thinkingConfig;
-    thinkingConfig["thinkingLevel"] = "minimal";
+    // Gate on the gemini-2.x prefix — 2.5 Flash is the only 2.x model in the
+    // catalog today, so this selects it exactly. If a future gemini-2.x model
+    // with different thinking semantics is added, prefer encoding the thinking
+    // API in ModelOption over widening this string check.
+    if (m_model.startsWith(QStringLiteral("gemini-2"))) {
+        thinkingConfig["thinkingBudget"] = 0;       // 2.x: integer budget knob, 0 = off
+    } else {
+        thinkingConfig["thinkingLevel"] = "minimal"; // 3.x+: thinkingLevel enum
+    }
     QJsonObject generationConfig;
     generationConfig["thinkingConfig"] = thinkingConfig;
     generationConfig["maxOutputTokens"] = 1024;  // also bounds thinking tokens; matches other providers

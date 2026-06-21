@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QString>
 #include <QJsonArray>
+#include <QList>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <functional>
@@ -15,6 +16,13 @@ public:
     enum class Status { Ready, Busy, Error };
     Q_ENUM(Status)
 
+    // One selectable model offered by a provider. `id` is the wire model
+    // string sent to the API; `displayName` is the short label shown in the UI.
+    struct ModelOption {
+        QString id;
+        QString displayName;
+    };
+
     explicit AIProvider(QNetworkAccessManager* networkManager, QObject* parent = nullptr);
     virtual ~AIProvider() = default;
 
@@ -24,6 +32,12 @@ public:
     virtual QString shortModelName() const { return modelName(); }
     virtual bool isConfigured() const = 0;
     virtual bool isLocal() const { return false; }
+
+    // Models the user may pick between for this provider. Default empty = the
+    // provider has a single fixed model and shows no model picker. Providers
+    // override this to opt into user-selectable models; the catalog is the
+    // single source of truth for both the UI list and `shortModelName()`.
+    virtual QList<ModelOption> availableModels() const { return {}; }
 
     Status status() const { return m_status; }
 
@@ -156,11 +170,16 @@ public:
 
     QString name() const override { return "Google Gemini"; }
     QString id() const override { return "gemini"; }
-    QString modelName() const override { return MODEL; }
-    QString shortModelName() const override { return MODEL_DISPLAY; }
+    QString modelName() const override { return m_model; }
+    QString shortModelName() const override;  // catalog display for m_model
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
+    QList<ModelOption> availableModels() const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
+    // Select the wire model. Ignores empty (keeps current default) and any id
+    // not in availableModels(), so a stale/unknown stored value can't break the
+    // request URL.
+    void setModel(const QString& modelId);
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
@@ -174,8 +193,10 @@ private:
     void sendRequest(const QJsonObject& requestBody);
 
     QString m_apiKey;
-    static constexpr const char* MODEL = "gemini-3.5-flash";
-    static constexpr const char* MODEL_DISPLAY = "3.5 Flash";
+    // Selected wire model. Defaulted in the constructor to the first
+    // availableModels() entry (the recommended default), so the C++ default and
+    // the UI's "unset → index 0" fallback reference the same fact and can't drift.
+    QString m_model;
     QString apiUrl() const;
 };
 

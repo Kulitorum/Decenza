@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QVariantMap>
+#include <QVariantList>
 #include <QPair>
 #include <memory>
 #include <optional>
@@ -69,6 +70,10 @@ public:
     QStringList ollamaModels() const { return m_ollamaModels; }
     QString currentModelName() const;
     Q_INVOKABLE QString modelDisplayName(const QString& providerId) const;
+    // Selectable models for a provider as a list of { "id", "name" } maps, in UI
+    // order (first = recommended default). Empty when the provider has a single
+    // fixed model — the UI hides the model picker in that case.
+    Q_INVOKABLE QVariantList availableModels(const QString& providerId) const;
     AIConversation* conversation() const { return m_conversation; }
     bool hasAnyConversation() const { return !m_conversationIndex.isEmpty(); }
     QList<ConversationEntry> conversationIndex() const { return m_conversationIndex; }

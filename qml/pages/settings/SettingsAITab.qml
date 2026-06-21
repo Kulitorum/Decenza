@@ -12,6 +12,16 @@ KeyboardAwareContainer {
     property string testResultMessage: ""
     property bool testResultSuccess: false
 
+    // modelDisplayName()/availableModels() are non-reactive invokables. Bump
+    // this on configurationChanged (which fires after the model is applied) and
+    // reference it in those bindings so provider-card subtitles refresh when the
+    // selected model changes.
+    property int configTick: 0
+    Connections {
+        target: MainController.aiManager
+        function onConfigurationChanged() { aiTab.configTick++ }
+    }
+
     // Helper function to check if provider has a key configured
     function isProviderConfigured(providerId) {
         switch(providerId) {
@@ -132,7 +142,10 @@ KeyboardAwareContainer {
                                     }
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
-                                        text: MainController.aiManager ? MainController.aiManager.modelDisplayName(modelData.id) : ""
+                                        text: {
+                                            aiTab.configTick  // dependency: refresh on model change
+                                            return MainController.aiManager ? MainController.aiManager.modelDisplayName(modelData.id) : ""
+                                        }
                                         font.pixelSize: Theme.scaled(11)
                                         color: isSelected ? Qt.rgba(1,1,1,0.8) : Theme.textSecondaryColor
                                         Accessible.ignored: true
@@ -221,6 +234,76 @@ KeyboardAwareContainer {
                         }
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
+                    }
+                }
+
+                // Model selection (providers exposing a fixed catalog of >1 model).
+                // Generic: any provider whose availableModels() returns multiple
+                // entries lights this up automatically — no per-provider wiring.
+                ColumnLayout {
+                    id: modelSelect
+                    // Re-evaluated when the active provider changes (the binding
+                    // references Settings.ai.aiProvider).
+                    property var options: MainController.aiManager
+                        ? MainController.aiManager.availableModels(Settings.ai.aiProvider)
+                        : []
+                    property string currentProvider: Settings.ai.aiProvider
+                    visible: options.length > 1
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+
+                    // Index of the stored selection; default to 0 (the recommended
+                    // first entry) when unset or stale, without writing it back.
+                    function selectedIndex() {
+                        var sel = Settings.ai.providerModel(currentProvider)
+                        for (var i = 0; i < options.length; i++) {
+                            if (options[i].id === sel) return i
+                        }
+                        return 0
+                    }
+
+                    // StyledComboBox assigns currentIndex imperatively on user
+                    // selection, which severs the declarative binding below. Re-arm
+                    // it on every provider switch so the combo tracks the stored
+                    // model for whichever provider is now showing (matters once a
+                    // second multi-model provider exists).
+                    onCurrentProviderChanged: modelCombo.currentIndex = Qt.binding(modelSelect.selectedIndex)
+
+                    Tr {
+                        key: "settings.ai.model"
+                        fallback: "Model"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                        font.bold: true
+                    }
+
+                    StyledComboBox {
+                        id: modelCombo
+                        Layout.fillWidth: true
+                        model: modelSelect.options
+                        textRole: "name"
+                        accessibleLabel: TranslationManager.translate("settings.ai.modelAccessible", "AI model")
+                        currentIndex: modelSelect.selectedIndex()
+                        // onActivated fires only on user selection, so programmatic
+                        // currentIndex changes (provider switch) never write back.
+                        onActivated: function(index) {
+                            if (index >= 0 && index < modelSelect.options.length) {
+                                Settings.ai.setProviderModel(modelSelect.currentProvider,
+                                                             modelSelect.options[index].id)
+                            }
+                        }
+                    }
+
+                    // Provider-specific guidance. Gated to Gemini so it can't show
+                    // wrong copy for a future provider that gains multiple models.
+                    Text {
+                        visible: modelSelect.currentProvider === "gemini"
+                        text: TranslationManager.translate("settings.ai.modelHint.gemini",
+                            "3.5 Flash is the most capable. 2.5 Flash is more available (fewer busy errors).")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(11)
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
                     }
                 }
 

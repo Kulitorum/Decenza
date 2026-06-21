@@ -44,6 +44,14 @@ public:
     QString openrouterModel() const;
     void setOpenrouterModel(const QString& model);
 
+    // Per-provider selected model, stored generically under ai/model/<providerId>.
+    // Works for any provider that exposes multiple models (see
+    // AIProvider::availableModels). Empty string = unset → the provider uses its
+    // own default. OpenRouter/Ollama keep their dedicated free-text/list fields
+    // above; this covers fixed-catalog cloud providers (Gemini today, others later).
+    Q_INVOKABLE QString providerModel(const QString& providerId) const;
+    Q_INVOKABLE void setProviderModel(const QString& providerId, const QString& modelId);
+
 signals:
     void aiProviderChanged();
     void openaiApiKeyChanged();
@@ -53,6 +61,7 @@ signals:
     void ollamaModelChanged();
     void openrouterApiKeyChanged();
     void openrouterModelChanged();
+    void providerModelChanged();
 
     // Aggregate signal — emitted whenever any AI setting changes. Lets consumers
     // (e.g. AIManager) refresh all providers without subscribing to each signal.
