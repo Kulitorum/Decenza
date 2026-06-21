@@ -72,6 +72,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     steam["autoFlushSeconds"] = settings->brew()->steamAutoFlushSeconds();
     steam["twoTapStop"] = settings->hardware()->steamTwoTapStop();
     steam["selectedPitcher"] = settings->brew()->selectedSteamPitcher();
+    steam["milkAutoCaptureEnabled"] = settings->brew()->milkAutoCaptureEnabled();
 
     // Steam pitcher presets
     QJsonArray pitcherPresets;
@@ -81,6 +82,10 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         p["name"] = m["name"].toString();
         p["duration"] = m["duration"].toInt();
         p["flow"] = m["flow"].toInt();
+        // The weight-based-steaming feature is keyed on these, so they must round-trip.
+        if (m.contains("pitcherWeightG")) p["pitcherWeightG"] = m["pitcherWeightG"].toDouble();
+        if (m.contains("calibMilkG")) p["calibMilkG"] = m["calibMilkG"].toDouble();
+        if (m.contains("disabled")) p["disabled"] = m["disabled"].toBool();
         pitcherPresets.append(p);
     }
     steam["pitcherPresets"] = pitcherPresets;
@@ -416,6 +421,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (steam.contains("autoFlushSeconds")) settings->brew()->setSteamAutoFlushSeconds(steam["autoFlushSeconds"].toInt());
         if (steam.contains("twoTapStop")) settings->hardware()->setSteamTwoTapStop(steam["twoTapStop"].toBool());
         if (steam.contains("selectedPitcher")) settings->brew()->setSelectedSteamCup(steam["selectedPitcher"].toInt());
+        if (steam.contains("milkAutoCaptureEnabled")) settings->brew()->setMilkAutoCaptureEnabled(steam["milkAutoCaptureEnabled"].toBool());
 
         // Import pitcher presets
         if (steam.contains("pitcherPresets")) {
@@ -428,7 +434,18 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             QJsonArray presets = steam["pitcherPresets"].toArray();
             for (const QJsonValue& v : presets) {
                 QJsonObject p = v.toObject();
-                settings->brew()->addSteamPitcherPreset(p["name"].toString(), p["duration"].toInt(), p["flow"].toInt());
+                if (p["disabled"].toBool()) {
+                    settings->brew()->addSteamPitcherPresetDisabled(p["name"].toString());
+                } else {
+                    settings->brew()->addSteamPitcherPreset(p["name"].toString(), p["duration"].toInt(), p["flow"].toInt());
+                }
+                // Restore the weight + milk calibration the feature depends on (the
+                // just-added preset is appended at the end).
+                int idx = static_cast<int>(settings->brew()->steamPitcherPresets().size()) - 1;
+                if (idx >= 0) {
+                    if (p.contains("pitcherWeightG")) settings->brew()->setSteamPitcherWeight(idx, p["pitcherWeightG"].toDouble());
+                    if (p.contains("calibMilkG")) settings->brew()->setSteamPitcherCalibration(idx, p["calibMilkG"].toDouble());
+                }
             }
         }
     }

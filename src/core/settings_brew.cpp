@@ -126,10 +126,41 @@ void SettingsBrew::setDoseCupTareWeight(double weight) {
     }
 }
 
+bool SettingsBrew::milkAutoCaptureEnabled() const {
+    return m_settings.value("steam/milkAutoCaptureEnabled", true).toBool();
+}
+void SettingsBrew::setMilkAutoCaptureEnabled(bool enabled) {
+    if (milkAutoCaptureEnabled() != enabled) {
+        m_settings.setValue("steam/milkAutoCaptureEnabled", enabled);
+        emit milkAutoCaptureEnabledChanged();
+    }
+}
+
+double SettingsBrew::lastSteamMilkG() const {
+    return m_settings.value("steam/lastSteamMilkG", 0.0).toDouble();
+}
+void SettingsBrew::setLastSteamMilkG(double g) {
+    if (g < 0) g = 0;
+    if (lastSteamMilkG() != g) {
+        m_settings.setValue("steam/lastSteamMilkG", g);
+        emit lastSteamMilkGChanged();
+    }
+}
+
+double SettingsBrew::lastSteamTimeS() const {
+    return m_settings.value("steam/lastSteamTimeS", 0.0).toDouble();
+}
+void SettingsBrew::setLastSteamTimeS(double s) {
+    if (s < 0) s = 0;
+    if (lastSteamTimeS() != s) {
+        m_settings.setValue("steam/lastSteamTimeS", s);
+        emit lastSteamTimeSChanged();
+    }
+}
+
 bool SettingsBrew::doseCaptureSoundEnabled() const {
     return m_settings.value("espresso/doseCaptureSoundEnabled", false).toBool();
 }
-
 void SettingsBrew::setDoseCaptureSoundEnabled(bool enabled) {
     if (doseCaptureSoundEnabled() != enabled) {
         m_settings.setValue("espresso/doseCaptureSoundEnabled", enabled);
@@ -326,6 +357,24 @@ void SettingsBrew::setSteamPitcherWeight(int index, double weightG) {
     if (index >= 0 && index < static_cast<int>(arr.size())) {
         QJsonObject preset = arr[index].toObject();
         preset["pitcherWeightG"] = weightG;
+        arr[index] = preset;
+        m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
+        emit steamPitcherPresetsChanged();
+    }
+}
+
+void SettingsBrew::setSteamPitcherCalibration(int index, double calibMilkG) {
+    QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonArray arr = doc.array();
+
+    if (index >= 0 && index < static_cast<int>(arr.size())) {
+        QJsonObject preset = arr[index].toObject();
+        if (calibMilkG > 0) {
+            preset["calibMilkG"] = calibMilkG;
+        } else {
+            preset.remove("calibMilkG");  // 0 / negative clears the calibration
+        }
         arr[index] = preset;
         m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
         emit steamPitcherPresetsChanged();

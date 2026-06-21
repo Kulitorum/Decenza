@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 import Decenza
 import "../components"
 import "../components/layout"
@@ -201,6 +202,104 @@ Page {
         function onTareCompleted() { beanCapture.reset() }
     }
 
+    // Idle milk auto-capture: while the steam presets are showing on the home
+    // screen and the selected pitcher is calibrated (has a reference milk weight),
+    // rest the milk pitcher on the scale -> lock the steam time proportionally,
+    // ding, and show a confirmation. This is the steam equivalent of the bean
+    // auto-capture above; the dedicated Steam page has its own copy.
+    property bool milkCaptureShown: false
+    property string milkCaptureText: ""
+    // Last milk weight measured this session (for the bottom status row). 0 = none yet.
+    property real measuredMilkG: 0
+    Timer { id: idleMilkCaptureTimer; interval: 3500; onTriggered: idlePage.milkCaptureShown = false }
+    StableWeightCapture {
+        id: idleMilkCapture
+        // Virtual-zero model (same as the bean capture): raw scale reading minus the
+        // empty-pitcher weight (cupWeight) gives net milk, robust to an un-zeroed
+        // scale. Auto-capture requires a saved pitcher weight (cupWeight > 0),
+        // symmetric with beans requiring a saved dose-cup tare.
+        rawWeight: (ScaleDevice.connected && !ScaleDevice.isFlowScale) ? MachineState.scaleWeight : 0
+        cupWeight: {
+            var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+            return (p && !p.disabled) ? (p.pitcherWeightG ?? 0) : 0
+        }
+        // Opt-in (Settings.brew.milkAutoCaptureEnabled, default on) and only while
+        // the steam flow is showing — so a stray weight never silently changes the
+        // steam stop time.
+        active: Settings.brew.milkAutoCaptureEnabled
+                && idlePage.activePresetFunction === "steam"
+                && ScaleDevice.connected && !ScaleDevice.isFlowScale
+        minNet: 20
+        maxNet: 1500
+        tolerance: 1.5
+        stableMs: 2500
+        onStableCaptured: function(milk) {
+            idlePage.measuredMilkG = milk  // record measured (net) milk for the status row
+            // Latch the measured milk for the baseline pair (committed atomically with
+            // the duration at session end, in main.qml). Recorded even for an
+            // uncalibrated preset so the very first calibration-bootstrap steam can be
+            // adopted — and never as a half-pair, since the time half is written there.
+            if (Window.window) Window.window.sessionMeasuredMilkG = milk
+            var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+            if (!p || p.disabled) return
+            var calib = p.calibMilkG ?? 0
+            if (calib <= 0) return  // preset not calibrated (no reference milk) — nothing to lock
+            var t = Math.max(5, Math.min(120, Math.round(p.duration * (milk / calib))))
+            Settings.brew.steamTimeout = t
+            idlePage.milkCaptureText = TranslationManager.translate("idle.steamCaptured", "Steam time: %1s for %2g milk").arg(t).arg(milk.toFixed(0))
+            idlePage.milkCaptureShown = true
+            idleMilkCaptureTimer.restart()
+            if (typeof AccessibilityManager !== "undefined") {
+                if (Settings.brew.doseCaptureSoundEnabled)
+                    AccessibilityManager.playCaptureDing()
+                if (AccessibilityManager.enabled)
+                    AccessibilityManager.announce(idlePage.milkCaptureText)
+            }
+        }
+    }
+    // Re-zero the milk capture when the scale is tared (same reason as the bean one).
+    Connections {
+        target: MachineState
+        function onTareCompleted() { idleMilkCapture.reset() }
+    }
+
+    // Clear the last measured milk when a steam session ends, so the next steam isn't
+    // scaled from a stale measurement (e.g. the home-screen preset path's fallback).
+    // Phase leaves Steaming only at the true session end (Puffing/Ending stay in the
+    // Steaming phase by machinestate.cpp's load-bearing invariant).
+    Connections {
+        target: MachineState
+        property bool wasSteaming: false
+        function onPhaseChanged() {
+            if (MachineState.phase === MachineStateType.Phase.Steaming)
+                wasSteaming = true
+            else if (wasSteaming) {
+                idlePage.measuredMilkG = 0
+                wasSteaming = false
+            }
+        }
+    }
+
+    // Transient confirmation banner for the milk-weight capture (auto-dismiss).
+    Rectangle {
+        visible: idlePage.milkCaptureShown
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: Theme.scaled(12)
+        z: 2000
+        width: milkBannerLabel.implicitWidth + Theme.scaled(32)
+        height: milkBannerLabel.implicitHeight + Theme.scaled(20)
+        radius: Theme.cardRadius
+        color: Theme.primaryColor
+        Text {
+            id: milkBannerLabel
+            anchors.centerIn: parent
+            text: idlePage.milkCaptureText
+            color: Theme.primaryContrastColor
+            font: Theme.bodyFont
+        }
+    }
+
     // Small flashing reminder shown while a dose cup of beans is settling on the
     // scale (a load is present but stable-capture hasn't fired yet). Disappears the
     // instant capture completes; a ding plays then only if doseCaptureSoundEnabled.
@@ -219,7 +318,12 @@ Page {
                                               && beanCapture.loadPresent
                                               && beanCapture.netWeight >= beanCapture.minNet
                                               && beanCapture.netWeight <= beanCapture.maxNet
-        visible: beansSettling
+        readonly property bool milkSettling: idleMilkCapture.active && !idleMilkCapture.isCaptured
+                                            && idleMilkCapture.cupWeight > 0
+                                            && idleMilkCapture.loadPresent
+                                            && idleMilkCapture.netWeight >= idleMilkCapture.minNet
+                                            && idleMilkCapture.netWeight <= idleMilkCapture.maxNet
+        visible: beansSettling || milkSettling
         text: TranslationManager.translate("scale.waitForBell", "Wait for the bell before you take it off the scale")
         color: Theme.warningColor
         font: Theme.labelFont
@@ -419,6 +523,7 @@ Page {
                     selectedIndex: Settings.brew.selectedSteamPitcher
                     pillSuffixMaxWidth: Theme.scaled(60)  // Reserve ~"(1234g)" worth of width
                     pillSuffixVersion: steamPresetLoader.steamPillSuffixVersion
+                    supportLongPress: true
 
                     pillSuffixFn: function(index) {
                         if (!ScaleDevice.connected || ScaleDevice.isFlowScale) return ""
@@ -443,7 +548,30 @@ Page {
                             return
                         }
                         if (preset) {
-                            Settings.brew.steamTimeout = preset.duration
+                            // Weight-scaled steaming (DSx2-style): if this pitcher is
+                            // calibrated (a reference milk weight is paired with its
+                            // duration), scale the steam time by the actual milk weight
+                            // so it auto-stops proportionally.
+                            var calibMilk = preset.calibMilkG ?? 0
+                            if (calibMilk > 0 && ScaleDevice.connected && !ScaleDevice.isFlowScale) {
+                                var pitcherWt = preset.pitcherWeightG ?? 0
+                                // Net milk = scale - saved pitcher weight, or the raw
+                                // reading if the user tared the scale instead.
+                                var milk = pitcherWt > 0 ? (MachineState.scaleWeight - pitcherWt)
+                                                         : MachineState.scaleWeight
+                                // If milk isn't on the scale right now (e.g. lifted to the
+                                // wand), fall back to the last measured weight so the time
+                                // still scales.
+                                if (!(milk >= 20 && milk <= 1500))
+                                    milk = idlePage.measuredMilkG
+                                if (milk >= 20 && milk <= 1500)
+                                    Settings.brew.steamTimeout = Math.max(5, Math.min(120,
+                                        Math.round(preset.duration * milk / calibMilk)))
+                                else
+                                    Settings.brew.steamTimeout = preset.duration  // no milk measured yet
+                            } else {
+                                Settings.brew.steamTimeout = preset.duration  // not calibrated → fixed
+                            }
                             Settings.brew.steamFlow = preset.flow !== undefined ? preset.flow : 150
                         }
                         MainController.applySteamSettings()
@@ -457,6 +585,14 @@ Page {
                                     AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
                             }
                         }
+                    }
+
+                    // Long-press a pitcher to open the steam page settings, where you
+                    // set the duration and tap Calibrate (with milk on the scale) to
+                    // teach this pitcher its milk-weight -> steam-time reference.
+                    onPresetLongPressed: function(index) {
+                        Settings.brew.selectedSteamPitcher = index
+                        pageStack.push(Qt.resolvedUrl("SteamPage.qml"))
                     }
                 }
             }
