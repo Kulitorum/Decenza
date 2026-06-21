@@ -112,6 +112,7 @@ Item {
         screensaverEditorPopup.close()
         scaleWeightEditorPopup.close()
         displayModeEditorPopup.close()
+        clockEditorPopup.close()
         sleepEditorPopup.close()
     }
 
@@ -126,7 +127,9 @@ Item {
             screensaverEditorPopup.openForItem(itemId, zoneName, props)
         } else if (type === "scaleWeight") {
             scaleWeightEditorPopup.openForItem(itemId, props.dataMode || "", props.displayMode || "")
-        } else if (type === "machineStatus" || type === "temperature" || type === "steamTemperature" || type === "waterLevel" || type === "clock") {
+        } else if (type === "clock") {
+            clockEditorPopup.openForItem(itemId, props.displayMode || "", props.color || "")
+        } else if (type === "machineStatus" || type === "temperature" || type === "steamTemperature" || type === "waterLevel") {
             displayModeEditorPopup.openForItem(itemId, props.displayMode || "")
         } else if (type === "sleep") {
             sleepEditorPopup.openForItem(itemId,
@@ -184,6 +187,10 @@ Item {
 
     DisplayModeEditorPopup {
         id: displayModeEditorPopup
+    }
+
+    ClockEditorPopup {
+        id: clockEditorPopup
     }
 
     SleepEditorPopup {

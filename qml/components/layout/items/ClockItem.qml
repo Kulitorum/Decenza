@@ -15,6 +15,20 @@ Item {
 
     readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
 
+    // Per-instance color. Default "white" follows the theme text color; the named
+    // choices map to the same semantic chart colors the rest of the page uses, so
+    // the clock matches its surroundings and honours custom themes.
+    readonly property string clockColor: (modelData && modelData.color) ? modelData.color : "white"
+    function colorFor(name) {
+        switch (name) {
+        case "green":  return Theme.pressureColor
+        case "red":    return Theme.temperatureColor
+        case "blue":   return Theme.flowColor
+        case "orange": return Theme.warningColor
+        default:       return Theme.textColor // "white"
+        }
+    }
+
     // Re-evaluated each second by the timer below.
     property string timeText: ""
     function _refresh() {
@@ -59,13 +73,13 @@ Item {
                 visible: root.displayMode === "icon"
                 source: "qrc:/icons/clock.svg"
                 iconSize: Theme.scaled(20)
-                color: Theme.textColor
+                color: root.colorFor(root.clockColor)
             }
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.timeText
-                color: Theme.textColor
+                color: root.colorFor(root.clockColor)
                 font: Theme.bodyFont
                 Accessible.ignored: true
             }
@@ -90,13 +104,13 @@ Item {
                 visible: root.displayMode === "icon"
                 source: "qrc:/icons/clock.svg"
                 iconSize: Theme.scaled(28)
-                color: Theme.textColor
+                color: root.colorFor(root.clockColor)
             }
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 text: root.timeText
-                color: Theme.textColor
+                color: root.colorFor(root.clockColor)
                 font: Theme.valueFont
                 Accessible.ignored: true
             }

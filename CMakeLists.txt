@@ -851,6 +851,7 @@ set(QML_FILES
     qml/components/layout/ZoneOptionsPopup.qml
     qml/components/layout/ScaleWeightEditorPopup.qml
     qml/components/layout/DisplayModeEditorPopup.qml
+    qml/components/layout/ClockEditorPopup.qml
     qml/components/layout/SleepEditorPopup.qml
     qml/components/layout/ScreensaverEditorPopup.qml
     qml/components/layout/EmojiPicker.qml

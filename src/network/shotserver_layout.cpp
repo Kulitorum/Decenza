@@ -2418,7 +2418,7 @@ QString ShotServer::generateLayoutPage() const
         {type:"milkWeight",cat:1,label:"Milk Weight"},
         {type:"ratioQuickSelect",cat:1,label:"Ratio Quick-Select"},
         {type:"shotPlan",cat:1,label:"Shot Plan"},
-        {type:"clock",cat:1,label:"Clock"},
+        {type:"clock",cat:1,label:"Time"},
         // Utility (2)
         {type:"custom",cat:2,label:"Custom",special:true},
         {type:"pageTitle",cat:2,label:"Page Title",special:true},
@@ -2448,6 +2448,12 @@ QString ShotServer::generateLayoutPage() const
         ghcSimulator:"Mini GHC",
         machineStatus:"Machine",
         clock:"Time"
+    };
+
+    // Clock widget color palette — mirrors the theme defaults used by
+    // ClockItem.colorFor (see qml/Theme.qml: text/pressure/temperature/flow/warning).
+    var CLOCK_COLORS = {
+        white:"#ffffff", green:"#18c37e", red:"#e73249", blue:"#4e85f4", orange:"#ffaa00"
     };
 
     var ACTIONS = [
@@ -2685,6 +2691,10 @@ QString ShotServer::generateLayoutPage() const
                     var chipLabel = stripHtml(props.content || "");
                     chipLabel = chipLabel.length > 12 ? chipLabel.substring(0, 10) + ".." : (chipLabel || "Custom");
                     html += chipLabel;
+                } else if (item.type === "clock") {
+                    // Tint the "Time" label to preview the chosen color.
+                    var clk = CLOCK_COLORS[item.color || "white"] || CLOCK_COLORS.white;
+                    html += '<span style="color:' + clk + '">' + (DISPLAY_NAMES.clock || "Time") + '</span>';
                 } else {
                     html += DISPLAY_NAMES[item.type] || item.type;
                 }
@@ -2711,6 +2721,17 @@ QString ShotServer::generateLayoutPage() const
                     for (var dd = 0; dd < dispModes.length; dd++) {
                         var dsel = (disp === dispModes[dd][0]) ? ' selected' : '';
                         html += '<option value="' + dispModes[dd][0] + '"' + dsel + '>' + dispModes[dd][1] + '</option>';
+                    }
+                    html += '</select>';
+                }
+                // Inline color selector for a selected Time (clock) chip.
+                if (isSel && item.type === "clock") {
+                    var clr = item.color || "white";
+                    var clrs = [["white","White"],["green","Green"],["red","Red"],["blue","Blue"],["orange","Orange"]];
+                    html += '<select class="chip-mode" onchange="setClockColor(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
+                    for (var cc = 0; cc < clrs.length; cc++) {
+                        var csel = (clr === clrs[cc][0]) ? ' selected' : '';
+                        html += '<option value="' + clrs[cc][0] + '"' + csel + '>' + clrs[cc][1] + '</option>';
                     }
                     html += '</select>';
                 }
@@ -2884,6 +2905,12 @@ QString ShotServer::generateLayoutPage() const
 
     function setDisplayMode(itemId, mode) {
         apiPost("/api/layout/item", {itemId: itemId, key: "displayMode", value: mode}, function() {
+            loadLayout();
+        });
+    }
+
+    function setClockColor(itemId, color) {
+        apiPost("/api/layout/item", {itemId: itemId, key: "color", value: color}, function() {
             loadLayout();
         });
     }
