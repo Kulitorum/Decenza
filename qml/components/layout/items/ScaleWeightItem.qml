@@ -15,8 +15,8 @@ Item {
     // weight), "contextAware" (net milk while steaming, else net beans).
     readonly property string dataMode: (modelData && modelData.dataMode) ? modelData.dataMode : ""
 
-    // Per-instance display mode (composable-status-bar): "text" (default, status
-    // dot + value) or "icon" (a scale icon ahead of the value).
+    // Per-instance display mode (composable-status-bar): "text" (default, a
+    // connected-dot + value) or "icon" (a scale icon ahead of the value).
     readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
 
     function _pitcherWeight() {
@@ -290,6 +290,14 @@ Item {
             id: fullColumn
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
+
+            ThemedIcon {
+                Layout.alignment: Qt.AlignHCenter
+                visible: root.displayMode === "icon"
+                source: "qrc:/icons/scale.svg"
+                iconSize: Theme.scaled(26)
+                color: root.scaleColor(fullTapArea.pressed)
+            }
 
             Text {
                 Layout.alignment: Qt.AlignHCenter

@@ -80,6 +80,14 @@ Item {
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
 
+            ThemedIcon {
+                Layout.alignment: Qt.AlignHCenter
+                visible: root.displayMode === "icon"
+                source: "qrc:/icons/steam.svg"
+                iconSize: Theme.scaled(28)
+                color: Theme.warningColor
+            }
+
             Row {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: Theme.scaled(4)

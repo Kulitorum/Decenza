@@ -119,6 +119,14 @@ Item {
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
 
+            ThemedIcon {
+                Layout.alignment: Qt.AlignHCenter
+                visible: root.displayMode === "icon"
+                source: "qrc:/icons/decent-de1.svg"
+                iconSize: Theme.scaled(28)
+                color: root.statusColor
+            }
+
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 text: root.statusText

@@ -88,6 +88,14 @@ Item {
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
 
+            ThemedIcon {
+                Layout.alignment: Qt.AlignHCenter
+                visible: root.displayMode === "icon"
+                source: "qrc:/icons/temperature.svg"
+                iconSize: Theme.scaled(28)
+                color: Theme.temperatureColor
+            }
+
             Row {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: Theme.scaled(4)
