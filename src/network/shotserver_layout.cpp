@@ -321,6 +321,44 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         m_settings->network()->setZoneScale(zone, scale);
         sendJson(socket, R"({"success":true})");
     }
+    else if (path == "/api/layout/zone-option") {
+        // Per-zone layout/appearance option (distribution / alignment / style).
+        QString zone = obj["zone"].toString();
+        QString key = obj["key"].toString();
+        QString value = obj["value"].toString();
+        if (zone.isEmpty() || key.isEmpty()) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Missing zone or key"})");
+            return;
+        }
+        m_settings->network()->setZoneOption(zone, key, value);
+        sendJson(socket, R"({"success":true})");
+    }
+    else if (path == "/api/layout/zone-populate") {
+        // Fill a zone with a built-in preset arrangement. Currently: "brewBar".
+        QString zone = obj["zone"].toString();
+        QString preset = obj["preset"].toString();
+        if (zone.isEmpty()) {
+            sendResponse(socket, 400, "application/json", R"({"error":"Missing zone"})");
+            return;
+        }
+        if (preset == "brewBar") {
+            QVariantList items;
+            items.append(QVariantMap{{"type", "profileName"}, {"id", "lmb_profile"}});
+            items.append(QVariantMap{{"type", "scaleWeight"}, {"id", "lmb_scale"}, {"dataMode", "contextAware"}});
+            items.append(QVariantMap{{"type", "ratioQuickSelect"}, {"id", "lmb_ratio"}});
+            items.append(QVariantMap{{"type", "doseWeight"}, {"id", "lmb_dose"}});
+            items.append(QVariantMap{{"type", "milkWeight"}, {"id", "lmb_milk"}});
+            m_settings->network()->setZoneItems(zone, items);
+            m_settings->network()->setZoneOption(zone, "distribution", "equalWidth");
+            m_settings->network()->setZoneOption(zone, "style", "accentBar");
+        } else if (preset == "clear") {
+            m_settings->network()->setZoneItems(zone, QVariantList());
+        } else {
+            sendResponse(socket, 400, "application/json", R"({"error":"Unknown preset"})");
+            return;
+        }
+        sendJson(socket, R"({"success":true})");
+    }
     // ========== Library API (local, synchronous) ==========
 
     else if (method == "POST" && path == "/api/library/save-item") {
@@ -667,6 +705,11 @@ QString ShotServer::generateLayoutPage() const
         }
         .zone-row { display: flex; gap: 0.5rem; }
         .zone-offset-controls { display: flex; gap: 0.25rem; align-items: center; }
+        .zone-opts-row { display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; margin-top: 0.4rem; }
+        .zone-opt { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.15rem 0.3rem; font-size: 0.8rem; }
+        .zone-opt-btn { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 0.2rem 0.55rem; font-size: 0.8rem; cursor: pointer; }
+        .zone-opt-btn.clear { background: transparent; color: #e0544f; border: 1px solid #e0544f; }
+        .chip-mode { margin-left: 0.35rem; background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 5px; font-size: 0.75rem; }
         .offset-separator { width: 1px; height: 20px; background: var(--border); margin: 0 0.25rem; }
         .offset-btn {
             background: none;
@@ -2299,6 +2342,7 @@ QString ShotServer::generateLayoutPage() const
         {key: "centerStatus", label: "Center - Top", hasOffset: true},
         {key: "centerTop", label: "Center - Action Buttons", hasOffset: true},
         {key: "centerMiddle", label: "Center - Info", hasOffset: true},
+        {key: "lowerMidBar", label: "Lower Mid Bar", hasOffset: false},
         {key: "bottomLeft", label: "Bottom Bar (Left)", hasOffset: false},
         {key: "bottomRight", label: "Bottom Bar (Right)", hasOffset: false}
     ];
@@ -2315,6 +2359,10 @@ QString ShotServer::generateLayoutPage() const
         {type:"history",label:"History"},
         {type:"hotwater",label:"Hot Water"},
         {type:"scaleWeight",label:"Scale Weight"},
+        {type:"profileName",label:"Profile Name"},
+        {type:"doseWeight",label:"Dose Weight"},
+        {type:"milkWeight",label:"Milk Weight"},
+        {type:"ratioQuickSelect",label:"Ratio Quick-Select"},
         {type:"settings",label:"Settings"},
         {type:"shotPlan",label:"Shot Plan"},
         {type:"sleep",label:"Sleep"},
@@ -2347,6 +2395,7 @@ QString ShotServer::generateLayoutPage() const
         beans:"Beans",equipment:"Equipment",history:"History",autofavorites:"Favorites",sleep:"Sleep",
         settings:"Settings",temperature:"Temp",steamTemperature:"Steam",
         batteryLevel:"Battery",scaleBattery:"Scale Bat",waterLevel:"Water",connectionStatus:"Connection",scaleWeight:"Scale",
+        profileName:"Profile",doseWeight:"Dose",milkWeight:"Milk",ratioQuickSelect:"Ratio",
         shotPlan:"Shot Plan",pageTitle:"Title",spacer:"Spacer",separator:"Sep",
         custom:"Custom",weather:"Weather",quit:"Quit",
         screensaverFlipClock:"Flip Clock",screensaverPipes:"3D Pipes",
@@ -2474,6 +2523,27 @@ QString ShotServer::generateLayoutPage() const
             }
             html += '</div>';
 
+            // Zone options: distribution / alignment / style + populate preset.
+            var zopts = (layoutData && layoutData.zoneOptions && layoutData.zoneOptions[zone.key]) ? layoutData.zoneOptions[zone.key] : {};
+            function optSel(zk, key, cur, choices) {
+                var s = '<select class="zone-opt" onchange="setZoneOption(\'' + zk + '\',\'' + key + '\',this.value)" onclick="event.stopPropagation()">';
+                for (var c = 0; c < choices.length; c++) {
+                    var sel = (cur === choices[c][0]) ? ' selected' : '';
+                    s += '<option value="' + choices[c][0] + '"' + sel + '>' + choices[c][1] + '</option>';
+                }
+                return s + '</select>';
+            }
+            html += '<div class="zone-opts-row">';
+            html += optSel(zone.key, "distribution", zopts.distribution || "packed",
+                [["packed","Packed"],["equalWidth","Equal width"],["spaced","Spaced"]]);
+            html += optSel(zone.key, "alignment", zopts.alignment || "center",
+                [["left","Left"],["center","Center"],["right","Right"]]);
+            html += optSel(zone.key, "style", zopts.style || "standard",
+                [["standard","Standard"],["surface","Surface"],["accentBar","Accent bar"]]);
+            html += '<button class="zone-opt-btn" onclick="populateZone(\'' + zone.key + '\',\'brewBar\');event.stopPropagation()">Brew bar</button>';
+            html += '<button class="zone-opt-btn clear" onclick="clearZone(\'' + zone.key + '\');event.stopPropagation()">Clear</button>';
+            html += '</div>';
+
             html += '<div class="chips-area">';
             for (var i = 0; i < items.length; i++) {
                 var item = items[i];
@@ -2505,6 +2575,17 @@ QString ShotServer::generateLayoutPage() const
                     html += chipLabel;
                 } else {
                     html += DISPLAY_NAMES[item.type] || item.type;
+                }
+                // Inline data-mode selector for a selected Scale Weight chip.
+                if (isSel && item.type === "scaleWeight") {
+                    var dm = item.dataMode || "gross";
+                    var modes = [["gross","Gross"],["netBeans","Net beans"],["netMilk","Net milk"],["contextAware","Context"]];
+                    html += '<select class="chip-mode" onchange="setScaleMode(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
+                    for (var mm = 0; mm < modes.length; mm++) {
+                        var msel = (dm === modes[mm][0]) ? ' selected' : '';
+                        html += '<option value="' + modes[mm][0] + '"' + msel + '>' + modes[mm][1] + '</option>';
+                    }
+                    html += '</select>';
                 }
                 if (isSel && i < items.length - 1) {
                     html += '<span class="chip-arrow" onclick="event.stopPropagation();reorder(\'' + zone.key + '\',' + i + ',' + (i+1) + ')">&#9654;</span>';
@@ -2637,6 +2718,31 @@ QString ShotServer::generateLayoutPage() const
             current = layoutData.scales[zone];
         var newScale = Math.round((current + delta) * 100) / 100;
         apiPost("/api/layout/zone-scale", {zone: zone, scale: newScale}, function() {
+            loadLayout();
+        });
+    }
+
+    function setZoneOption(zone, key, value) {
+        apiPost("/api/layout/zone-option", {zone: zone, key: key, value: value}, function() {
+            loadLayout();
+        });
+    }
+
+    function setScaleMode(itemId, mode) {
+        apiPost("/api/layout/item", {itemId: itemId, key: "dataMode", value: mode}, function() {
+            loadLayout();
+        });
+    }
+
+    function populateZone(zone, preset) {
+        apiPost("/api/layout/zone-populate", {zone: zone, preset: preset}, function() {
+            loadLayout();
+        });
+    }
+
+    function clearZone(zone) {
+        if (!confirm("Clear all widgets from this zone?")) return;
+        apiPost("/api/layout/zone-populate", {zone: zone, preset: "clear"}, function() {
             loadLayout();
         });
     }

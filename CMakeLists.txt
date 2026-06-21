@@ -736,6 +736,7 @@ set(QML_FILES
     qml/components/ShotGraph.qml
     qml/components/SteamGraph.qml
     qml/components/StatusBar.qml
+    qml/components/RatioPresetDialog.qml
     qml/components/StableWeightCapture.qml
     qml/components/ShotPlanText.qml
     qml/components/ProfileGraph.qml
@@ -827,6 +828,10 @@ set(QML_FILES
     qml/components/layout/items/WaterLevelItem.qml
     qml/components/layout/items/ConnectionStatusItem.qml
     qml/components/layout/items/ScaleWeightItem.qml
+    qml/components/layout/items/ProfileNameItem.qml
+    qml/components/layout/items/DoseWeightItem.qml
+    qml/components/layout/items/MilkWeightItem.qml
+    qml/components/layout/items/RatioQuickSelectItem.qml
     qml/components/layout/items/ShotPlanItem.qml
     qml/components/layout/items/SpacerItem.qml
     qml/components/layout/items/CustomItem.qml
@@ -842,6 +847,8 @@ set(QML_FILES
     qml/components/layout/items/ScaleBatteryItem.qml
     qml/components/layout/items/MiniGHCItem.qml
     qml/components/layout/CustomEditorPopup.qml
+    qml/components/layout/ZoneOptionsPopup.qml
+    qml/components/layout/ScaleWeightEditorPopup.qml
     qml/components/layout/ScreensaverEditorPopup.qml
     qml/components/layout/EmojiPicker.qml
     qml/components/layout/EmojiData.js

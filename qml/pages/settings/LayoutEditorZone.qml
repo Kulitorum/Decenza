@@ -28,6 +28,7 @@ Rectangle {
     signal scaleUp()
     signal scaleDown()
     signal editCustomRequested(string itemId, string zoneName)
+    signal zoneOptionsRequested()
 
     Layout.fillWidth: true
     implicitHeight: zoneContent.implicitHeight + Theme.scaled(20)
@@ -53,6 +54,36 @@ Rectangle {
                 font: Theme.labelFont
                 Accessible.role: Accessible.Heading
                 Accessible.name: TranslationManager.translate("layoutEditor.zoneHeading", "%1 zone").arg(root.zoneLabel)
+
+                // Long-press / double-click the zone label opens zone options.
+                MouseArea {
+                    anchors.fill: parent
+                    onPressAndHold: root.zoneOptionsRequested()
+                    onDoubleClicked: root.zoneOptionsRequested()
+                }
+            }
+
+            // Zone options (distribution / alignment / style / populate)
+            Rectangle {
+                width: Theme.scaled(32)
+                height: Theme.scaled(32)
+                radius: Theme.scaled(6)
+                color: optMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
+                border.color: Theme.borderColor
+                border.width: 1
+
+                Accessible.role: Accessible.Button
+                Accessible.name: TranslationManager.translate("layoutEditor.zoneOptions", "%1 options").arg(root.zoneLabel)
+                Accessible.focusable: true
+                Accessible.onPressAction: root.zoneOptionsRequested()
+
+                Image {
+                    anchors.centerIn: parent
+                    width: Theme.scaled(18); height: Theme.scaled(18)
+                    source: "qrc:/icons/more-vertical.svg"
+                    fillMode: Image.PreserveAspectFit
+                }
+                MouseArea { id: optMa; anchors.fill: parent; onClicked: root.zoneOptionsRequested() }
             }
 
             Item { Layout.fillWidth: true }
@@ -331,7 +362,7 @@ Rectangle {
                         z: -1
                         onClicked: root.itemTapped(modelData.id)
                         onPressAndHold: {
-                            if (modelData.type === "custom" || modelData.type.startsWith("screensaver") || modelData.type === "lastShot" || modelData.type === "shotPlan")
+                            if (modelData.type === "custom" || modelData.type.startsWith("screensaver") || modelData.type === "lastShot" || modelData.type === "shotPlan" || modelData.type === "scaleWeight")
                                 root.editCustomRequested(modelData.id, root.zoneName)
                         }
                     }
@@ -402,6 +433,10 @@ Rectangle {
                             { type: "hotwater", label: TranslationManager.translate("layoutEditor.widgetHotWater", "Hot Water") },
                             { type: "machineStatus", label: TranslationManager.translate("layoutEditor.widgetMachineStatus", "Machine Status") },
                             { type: "scaleWeight", label: TranslationManager.translate("layoutEditor.widgetScaleWeight", "Scale Weight") },
+                            { type: "profileName", label: TranslationManager.translate("layoutEditor.widgetProfileName", "Profile Name") },
+                            { type: "doseWeight", label: TranslationManager.translate("layoutEditor.widgetDoseWeight", "Dose Weight") },
+                            { type: "milkWeight", label: TranslationManager.translate("layoutEditor.widgetMilkWeight", "Milk Weight") },
+                            { type: "ratioQuickSelect", label: TranslationManager.translate("layoutEditor.widgetRatioQuickSelect", "Ratio Quick-Select") },
                             { type: "settings", label: TranslationManager.translate("layoutEditor.widgetSettings", "Settings") },
                             { type: "shotPlan", label: TranslationManager.translate("layoutEditor.widgetShotPlan", "Shot Plan") },
                             { type: "sleep", label: TranslationManager.translate("layoutEditor.widgetSleep", "Sleep") },
@@ -542,6 +577,10 @@ Rectangle {
             "connectionStatus": TranslationManager.translate("layoutEditor.chipConnection", "Connection"),
             "machineStatus": TranslationManager.translate("layoutEditor.chipStatus", "Status"),
             "scaleWeight": TranslationManager.translate("layoutEditor.chipScale", "Scale"),
+            "profileName": TranslationManager.translate("layoutEditor.chipProfileName", "Profile"),
+            "doseWeight": TranslationManager.translate("layoutEditor.chipDoseWeight", "Dose"),
+            "milkWeight": TranslationManager.translate("layoutEditor.chipMilkWeight", "Milk"),
+            "ratioQuickSelect": TranslationManager.translate("layoutEditor.chipRatioQuick", "Ratio"),
             "scaleBattery": TranslationManager.translate("layoutEditor.chipScaleBat", "Scale Bat"),
             "ghcSimulator": TranslationManager.translate("layoutEditor.chipGHCSim", "Mini GHC"),
             "shotPlan": TranslationManager.translate("layoutEditor.chipShotPlan", "Shot Plan"),

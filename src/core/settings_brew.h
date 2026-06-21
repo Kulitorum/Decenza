@@ -16,6 +16,11 @@ class SettingsBrew : public QObject {
     Q_PROPERTY(double espressoTemperature READ espressoTemperature WRITE setEspressoTemperature NOTIFY espressoTemperatureChanged)
     Q_PROPERTY(double targetWeight READ targetWeight WRITE setTargetWeight NOTIFY targetWeightChanged)
     Q_PROPERTY(double lastUsedRatio READ lastUsedRatio WRITE setLastUsedRatio NOTIFY lastUsedRatioChanged)
+    // Home-screen quick-select brew-ratio presets (Ristretto / Normale / Lungo),
+    // used by the ratioQuickSelect layout widget. Default 1 / 2 / 3.
+    Q_PROPERTY(double ratioPreset1 READ ratioPreset1 WRITE setRatioPreset1 NOTIFY ratioPreset1Changed)
+    Q_PROPERTY(double ratioPreset2 READ ratioPreset2 WRITE setRatioPreset2 NOTIFY ratioPreset2Changed)
+    Q_PROPERTY(double ratioPreset3 READ ratioPreset3 WRITE setRatioPreset3 NOTIFY ratioPreset3Changed)
     // Dose cup tare: empty weight of the dosing vessel, subtracted from the scale
     // reading in "Get from scale" so the dose is net beans. Default 0 = no tare.
     Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight WRITE setDoseCupTareWeight NOTIFY doseCupTareWeightChanged)
@@ -86,6 +91,13 @@ public:
 
     double lastUsedRatio() const;
     void setLastUsedRatio(double ratio);
+
+    double ratioPreset1() const;
+    void setRatioPreset1(double r);
+    double ratioPreset2() const;
+    void setRatioPreset2(double r);
+    double ratioPreset3() const;
+    void setRatioPreset3(double r);
 
     double doseCupTareWeight() const;
     void setDoseCupTareWeight(double weight);
@@ -216,6 +228,9 @@ signals:
     void espressoTemperatureChanged();
     void targetWeightChanged();
     void lastUsedRatioChanged();
+    void ratioPreset1Changed();
+    void ratioPreset2Changed();
+    void ratioPreset3Changed();
     void doseCupTareWeightChanged();
     void milkAutoCaptureEnabledChanged();
     void doseCaptureSoundEnabledChanged();

@@ -245,6 +245,26 @@ QtObject {
     property color bottomBarColor: _c("bottomBarColor", Settings.theme.customThemeColors.bottomBarColor || "#4e85f4")
     property color actionButtonContentColor: _c("actionButtonContentColor", Settings.theme.customThemeColors.actionButtonContentColor || "#ffffff")
 
+    // --- Layout zone style presets (composable-brew-bar) -----------------
+    // A zone's "style" option picks a named preset bundling background fill,
+    // text/value color, and value emphasis. Presets resolve to existing theme
+    // tokens so they track light/dark/custom palettes (no hardcoded colors).
+    //   "standard"  - transparent background, normal text (default, today's look)
+    //   "surface"   - surface fill, normal text
+    //   "accentBar" - accent fill + contrast text + bold values (the PR #1364 look)
+    function zoneBackgroundColor(style) {
+        if (style === "accentBar") return primaryColor
+        if (style === "surface")   return surfaceColor
+        return "transparent"
+    }
+    function zoneTextColor(style) {
+        if (style === "accentBar") return primaryContrastColor
+        return textColor
+    }
+    function zoneValueBold(style) {
+        return style === "accentBar"
+    }
+
     // Chart line colors
     property color pressureColor: _c("pressureColor", Settings.theme.customThemeColors.pressureColor || "#18c37e")
     property color pressureGoalColor: _c("pressureGoalColor", Settings.theme.customThemeColors.pressureGoalColor || "#69fdb3")

@@ -7,11 +7,17 @@ Item {
     required property var modelData
     required property string zoneName
 
+    // Zone style propagation (composable-brew-bar): a styled zone (e.g. accentBar)
+    // passes down the contrast text color and value emphasis; widgets that support
+    // it bind these, otherwise they keep their own theme colors.
+    property color zoneTextColor: Theme.textColor
+    property bool zoneValueBold: false
+
     readonly property string itemType: modelData.type || ""
     readonly property string itemId: modelData.id || ""
 
     // Is this a bar zone (compact rendering)?
-    readonly property bool isCompact: zoneName.startsWith("top") || zoneName.startsWith("bottom") || zoneName === "statusBar"
+    readonly property bool isCompact: zoneName.startsWith("top") || zoneName.startsWith("bottom") || zoneName === "statusBar" || zoneName === "lowerMidBar"
 
     // Action button types that get compiled to CustomItem in center zones
     readonly property bool isCompiledType: {
@@ -173,6 +179,10 @@ Item {
                 case "waterLevel":       src = "items/WaterLevelItem.qml"; break
                 case "connectionStatus": src = "items/ConnectionStatusItem.qml"; break
                 case "scaleWeight":      src = "items/ScaleWeightItem.qml"; break
+                case "profileName":      src = "items/ProfileNameItem.qml"; break
+                case "doseWeight":       src = "items/DoseWeightItem.qml"; break
+                case "milkWeight":       src = "items/MilkWeightItem.qml"; break
+                case "ratioQuickSelect": src = "items/RatioQuickSelectItem.qml"; break
                 case "shotPlan":         src = "items/ShotPlanItem.qml"; break
                 case "spacer":           src = "items/SpacerItem.qml"; break
                 case "custom":           src = "items/CustomItem.qml"; break
@@ -199,6 +209,12 @@ Item {
         onLoaded: {
             item.isCompact = Qt.binding(function() { return root.isCompact })
             item.itemId = root.itemId
+
+            // Propagate zone style to widgets that opt in (composable-brew-bar)
+            if (typeof item.zoneTextColor !== "undefined")
+                item.zoneTextColor = Qt.binding(function() { return root.zoneTextColor })
+            if (typeof item.zoneValueBold !== "undefined")
+                item.zoneValueBold = Qt.binding(function() { return root.zoneValueBold })
 
             if (root.isCompiled) {
                 // Compiled items: reactive binding merges original modelData with compiled properties
