@@ -252,6 +252,10 @@ private slots:
 
 private:
     void sendRequest();
+    // Drop a trailing unanswered user turn (a turn kept by onAnalysisFailed for
+    // retry) before appending a new user message, so we never send two
+    // consecutive user-role messages. No-op unless the last entry is a user turn.
+    void dropTrailingFailedUserTurn();
     void addUserMessage(const QString& message);
     // Append an assistant message. When `structuredNext` carries a value,
     // it is persisted on the entry as a sibling of `role` and `content`

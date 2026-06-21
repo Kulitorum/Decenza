@@ -55,7 +55,7 @@ Retry SHALL be a user-initiated action only; the conversation SHALL NOT automati
 
 ### Requirement: Sending a new message after a failure SHALL preserve role alternation
 
-If, after a failure, the user submits a *new* message through `followUp()` instead of retrying, the conversation SHALL drop the stale unanswered user turn before appending the new user message, so the provider never receives two consecutive user-role messages. This cleanup SHALL apply only when the last entry is a user turn; a normal follow-up after a successful turn (last entry is an assistant turn) SHALL NOT remove anything.
+If, after a failure, the user submits a *new* message instead of retrying — via any append-then-send entry point (`followUp()` or `addShotContext()`) — the conversation SHALL drop the stale unanswered user turn before appending the new user message, so the provider never receives two consecutive user-role messages. This cleanup SHALL apply only when the last entry is a user turn; a normal follow-up after a successful turn (last entry is an assistant turn) SHALL NOT remove anything.
 
 #### Scenario: New message replaces the failed pending turn
 
