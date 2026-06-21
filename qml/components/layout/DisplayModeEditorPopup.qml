@@ -3,17 +3,18 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-// Per-instance display-mode editor (composable-status-bar) for readout widgets:
-// text vs icon. Persists via Settings.network.setItemProperty.
+// Per-instance editor for readout widgets: display mode (text vs icon) plus a
+// color override. Persists via Settings.network.setItemProperty.
 Dialog {
     id: popup
 
     property string itemId: ""
     property string displayMode: "text"
 
-    function openForItem(id, mode) {
+    function openForItem(id, mode, color) {
         popup.itemId = id
         popup.displayMode = (mode && mode.length > 0) ? mode : "text"
+        colorPicker.colorChoice = (color && color.length > 0) ? color : "default"
         popup.open()
     }
 
@@ -32,7 +33,7 @@ Dialog {
     parent: Overlay.overlay
     x: Math.round((parent.width - width) / 2)
     y: Math.round((parent.height - height) / 2)
-    width: Math.min(Theme.scaled(420), parent.width - Theme.spacingLarge * 2)
+    width: Math.min(Theme.scaled(520), parent.width - Theme.spacingLarge * 2)
     padding: Theme.spacingMedium
 
     background: Rectangle {
@@ -79,6 +80,12 @@ Dialog {
                     MouseArea { id: choiceMa; anchors.fill: parent; onClicked: popup.pick(modelData.value) }
                 }
             }
+        }
+
+        WidgetColorPicker {
+            id: colorPicker
+            Layout.fillWidth: true
+            itemId: popup.itemId
         }
 
         Rectangle {

@@ -112,7 +112,6 @@ Item {
         screensaverEditorPopup.close()
         scaleWeightEditorPopup.close()
         displayModeEditorPopup.close()
-        clockEditorPopup.close()
         sleepEditorPopup.close()
     }
 
@@ -126,11 +125,9 @@ Item {
         if (type.startsWith("screensaver") || type === "lastShot" || type === "shotPlan") {
             screensaverEditorPopup.openForItem(itemId, zoneName, props)
         } else if (type === "scaleWeight") {
-            scaleWeightEditorPopup.openForItem(itemId, props.dataMode || "", props.displayMode || "")
-        } else if (type === "clock") {
-            clockEditorPopup.openForItem(itemId, props.displayMode || "", props.color || "")
-        } else if (type === "machineStatus" || type === "temperature" || type === "steamTemperature" || type === "waterLevel") {
-            displayModeEditorPopup.openForItem(itemId, props.displayMode || "")
+            scaleWeightEditorPopup.openForItem(itemId, props.dataMode || "", props.displayMode || "", props.color || "")
+        } else if (type === "machineStatus" || type === "temperature" || type === "steamTemperature" || type === "waterLevel" || type === "clock") {
+            displayModeEditorPopup.openForItem(itemId, props.displayMode || "", props.color || "")
         } else if (type === "sleep") {
             sleepEditorPopup.openForItem(itemId,
                 props.allowQuit !== undefined ? props.allowQuit : true,
@@ -187,10 +184,6 @@ Item {
 
     DisplayModeEditorPopup {
         id: displayModeEditorPopup
-    }
-
-    ClockEditorPopup {
-        id: clockEditorPopup
     }
 
     SleepEditorPopup {

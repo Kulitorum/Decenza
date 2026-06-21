@@ -5,22 +5,28 @@ The Clock widget shipped in #1375 surfaces as **"Clock"** in the layout editor's
 ## What Changes
 
 - Rename the Clock widget's **editor picker label** from "Clock" to "Time" in both the native QML editor and the web (ShotServer) layout editor, so the picker matches the chip and caption labels that already say "Time".
-- Add a **per-instance color option** to the Clock widget. In addition to the current default (**White** / theme text color), the user can choose **Green**, **Red**, **Blue**, or **Orange** — mapped to the existing semantic chart colors the rest of the page uses (pressure/flow/temperature/warning theme colors) so the clock matches the surrounding UI and respects custom themes.
-- The color choice is exposed in the per-instance options editor (alongside the existing text/icon display mode) and applies to both the time text and the optional clock icon, in every zone, in both the native and web editors.
-- Persist the color per widget instance in the layout JSON; unset instances default to White (today's behaviour) — no migration needed.
+- Add a **per-instance color option** to **all six readout widgets** — Clock, Temperature, Steam Temp, Water Level, Machine Status, and Scale Weight. The choices are **Default** plus **White**, **Green**, **Red**, **Blue**, **Orange**, mapped to the existing semantic chart colors the rest of the page uses (text/pressure/temperature/flow/warning theme colors) so widgets match the surrounding UI and respect custom themes.
+- **"Default" preserves each widget's current color**, including the *dynamic* colors of Machine Status (per machine phase) and Scale Weight (tap/ratio/flow-scale state). A named color is a **full static override** that replaces all coloring, including those state signals — an explicit, opt-in choice.
+- The color choice is exposed in the per-instance options editors (alongside the existing text/icon display mode, and Scale Weight's data mode) and applies to both the value text and the optional icon, in every zone, in both the native and web editors.
+- The shared mapping lives in one place — a new `WidgetColor` QML singleton and a reusable `WidgetColorPicker` component — so all six widgets and both popups stay in sync.
+- Persist the color per widget instance in the layout JSON; unset instances behave as **Default** (today's behaviour) — no migration needed.
 
 ## Capabilities
 
 ### New Capabilities
-- `layout-clock-widget`: The Clock (Time) layout widget — its editor picker label and its per-instance configuration (display mode plus the new color choice), covering both the native QML editor and the web layout editor.
+- `layout-clock-widget`: The Clock (Time) layout widget's editor picker label reads "Time" (internal `type` id unchanged).
+- `layout-readout-widget-colors`: A per-instance color override for the readout layout widgets (clock, temperature, steam temp, water level, machine status, scale weight), with a "Default" choice that preserves each widget's natural (possibly dynamic) color, editable in both the native and web editors.
 
 ### Modified Capabilities
-<!-- None: the Clock widget shipped without a dedicated spec; its per-instance config is captured as a new capability rather than amending layout-widget-instance-config (which does not currently enumerate the clock). -->
+<!-- None: the readout widgets' per-instance display config lives in layout-widget-instance-config, but that spec does not enumerate the clock and the color override is an additive new concern, so it is captured as a new capability rather than a delta. -->
 
 ## Impact
 
-- **QML**: `qml/components/layout/items/ClockItem.qml` (read + apply color), a per-instance editor popup for the clock (new dedicated popup, or extend the routing in `qml/pages/settings/SettingsLayoutTab.qml`), `qml/pages/settings/LayoutEditorZone.qml` (picker label).
-- **C++**: `src/network/shotserver_layout.cpp` (web picker label + inline color selector + persistence), `src/core/settings_network.cpp` (clock already in `kConfigurable`; no change expected).
-- **Persistence**: new optional `color` key on the clock layout item in the layout JSON (read by both editors and the runtime widget). Backward compatible — absence means White.
-- **i18n**: new translation keys for the color labels and the editor section; reuse the existing "Time" key for the picker label.
+- **QML (widgets)**: `qml/components/layout/items/{ClockItem,TemperatureItem,SteamTemperatureItem,WaterLevelItem,MachineStatusItem,ScaleWeightItem}.qml` — read `color` and resolve via the shared singleton.
+- **QML (shared)**: new `qml/components/layout/WidgetColor.qml` (singleton: palette + resolve/swatch) and `qml/components/layout/WidgetColorPicker.qml` (reusable "Color" section).
+- **QML (editors)**: `DisplayModeEditorPopup.qml` and `ScaleWeightEditorPopup.qml` gain the color picker; `SettingsLayoutTab.qml` passes `color` through and routes the clock back to the shared popup (the one-off `ClockEditorPopup.qml` is removed); `LayoutEditorZone.qml` picker label.
+- **C++**: `src/network/shotserver_layout.cpp` (web picker label + generalized inline color selector across readout chips + persistence).
+- **Build**: `CMakeLists.txt` — register the two new QML files and mark `WidgetColor` a singleton.
+- **Persistence**: new optional `color` key on a readout layout item in the layout JSON. Backward compatible — absence means Default.
+- **i18n**: new translation keys for the color labels (`Default`/`White`/`Green`/`Red`/`Blue`/`Orange`) and the editor "Color" section; reuse the existing "Time" key for the picker label.
 - No BLE, DB, profile, or settings-domain changes.

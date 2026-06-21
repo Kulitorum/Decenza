@@ -15,19 +15,9 @@ Item {
 
     readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
 
-    // Per-instance color. Default "white" follows the theme text color; the named
-    // choices map to the same semantic chart colors the rest of the page uses, so
-    // the clock matches its surroundings and honours custom themes.
-    readonly property string clockColor: (modelData && modelData.color) ? modelData.color : "white"
-    function colorFor(name) {
-        switch (name) {
-        case "green":  return Theme.pressureColor
-        case "red":    return Theme.temperatureColor
-        case "blue":   return Theme.flowColor
-        case "orange": return Theme.warningColor
-        default:       return Theme.textColor // "white"
-        }
-    }
+    // Per-instance color override; "default"/unset keeps the theme text color.
+    // See WidgetColor for the shared palette used by all readout widgets.
+    readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
 
     // Re-evaluated each second by the timer below.
     property string timeText: ""
@@ -73,13 +63,13 @@ Item {
                 visible: root.displayMode === "icon"
                 source: "qrc:/icons/clock.svg"
                 iconSize: Theme.scaled(20)
-                color: root.colorFor(root.clockColor)
+                color: WidgetColor.resolve(root.colorChoice, Theme.textColor)
             }
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.timeText
-                color: root.colorFor(root.clockColor)
+                color: WidgetColor.resolve(root.colorChoice, Theme.textColor)
                 font: Theme.bodyFont
                 Accessible.ignored: true
             }
@@ -104,13 +94,13 @@ Item {
                 visible: root.displayMode === "icon"
                 source: "qrc:/icons/clock.svg"
                 iconSize: Theme.scaled(28)
-                color: root.colorFor(root.clockColor)
+                color: WidgetColor.resolve(root.colorChoice, Theme.textColor)
             }
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 text: root.timeText
-                color: root.colorFor(root.clockColor)
+                color: WidgetColor.resolve(root.colorChoice, Theme.textColor)
                 font: Theme.valueFont
                 Accessible.ignored: true
             }

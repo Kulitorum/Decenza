@@ -1,27 +1,33 @@
 ## 1. Rename picker label to "Time"
 
-- [x] 1.1 In `qml/pages/settings/LayoutEditorZone.qml:494`, change the clock catalog entry label from `"Clock"` to `"Time"` (reuse the existing chip key `layoutEditor.chipTime`, or add `layoutEditor.widgetTime` / repoint `layoutEditor.widgetClock` to fallback "Time"). Verify the chip label at line 694 still reads "Time".
-- [x] 1.2 In `src/network/shotserver_layout.cpp:2421`, change the clock `WIDGET_TYPES` catalog entry label from `"Clock"` to `"Time"`. Confirm the `DISPLAY_NAMES` map (line 2450) already shows `clock:"Time"`.
+- [x] 1.1 In `qml/pages/settings/LayoutEditorZone.qml`, change the clock catalog entry label from "Clock" to "Time" (reuse the existing `layoutEditor.chipTime` key). Chip label already reads "Time".
+- [x] 1.2 In `src/network/shotserver_layout.cpp`, change the clock `WIDGET_TYPES` catalog entry label from "Clock" to "Time" (`DISPLAY_NAMES` already shows `clock:"Time"`).
 
-## 2. Clock widget renders the per-instance color
+## 2. Shared color infrastructure
 
-- [x] 2.1 In `qml/components/layout/items/ClockItem.qml`, add `readonly property string clockColor: (modelData && modelData.color) ? modelData.color : "white"` and a `function colorFor(name)` returning `white`→`Theme.textColor`, `green`→`Theme.pressureColor`, `red`→`Theme.temperatureColor`, `blue`→`Theme.flowColor`, `orange`→`Theme.warningColor` (default `Theme.textColor`).
-- [x] 2.2 Replace the hard-coded `color: Theme.textColor` on the compact-mode icon and time text (lines ~62, ~68) and the full-mode icon and time text (lines ~80, ~99) with `color: colorFor(root.clockColor)`. Leave the "Time" caption (`textSecondaryColor`) unchanged.
+- [x] 2.1 Add `qml/components/layout/WidgetColor.qml` singleton: `choices` palette (default/white/green/red/blue/orange), `resolve(name, fallback)` mapping named→theme color and default/unknown→fallback, and `swatch(name)` for the picker preview.
+- [x] 2.2 Add `qml/components/layout/WidgetColorPicker.qml`: reusable "Color" section that renders the palette as swatches and persists via `Settings.network.setItemProperty(itemId, "color", value)`.
+- [x] 2.3 Register both QML files in `CMakeLists.txt` and mark `WidgetColor.qml` a singleton with `QT_QML_SINGLETON_TYPE`.
 
-## 3. Native per-instance editor exposes Color
+## 3. Apply color to the readout widgets
 
-- [x] 3.1 Create `qml/components/layout/ClockEditorPopup.qml` (modeled on `ScaleWeightEditorPopup.qml`) with a Display section (text/icon) and a Color section (5 swatches: White, Green, Red, Blue, Orange), each persisting via `Settings.network.setItemProperty(itemId, "displayMode"/"color", value)`. Add `openForItem(id, displayMode, color)`.
-- [x] 3.2 Add `ClockEditorPopup.qml` to the `qt_add_qml_module` file list in `CMakeLists.txt`.
-- [x] 3.3 In `qml/pages/settings/SettingsLayoutTab.qml` `openCustomEditor()`, remove `clock` from the `DisplayModeEditorPopup` branch and add a `type === "clock"` branch that calls `clockEditorPopup.openForItem(itemId, props.displayMode || "", props.color || "")`. Declare the `clockEditorPopup` instance and include it in `closeOptionEditors()`.
-- [x] 3.4 Add translation keys for the color labels (e.g. `layoutEditor.colorWhite/Green/Red/Blue/Orange`) and the editor "Color" section header.
+- [x] 3.1 In each of `ClockItem`, `TemperatureItem`, `SteamTemperatureItem`, `WaterLevelItem`, `MachineStatusItem`, add `colorChoice` (default "default") and resolve the value/icon color via `WidgetColor.resolve(colorChoice, <natural>)`. Leave secondary/caption colors untouched.
+- [x] 3.2 In `ScaleWeightItem`, add `colorChoice` and apply the override inside `scaleColor()` so the static override also covers the tap/ratio/flow-scale states; "default" keeps them.
 
-## 4. Web layout editor exposes Color
+## 4. Native editors expose Color
 
-- [x] 4.1 In `src/network/shotserver_layout.cpp` (~line 2707, where the clock display-mode `<select>` is rendered for a selected chip), add an inline color `<select>` with options White/Green/Red/Blue/Orange bound to `item.color || "white"`.
-- [x] 4.2 Add a `setClockColor(id, value)` JS handler that persists the `color` property for the item (mirroring the existing display-mode persistence path).
-- [x] 4.3 Apply the resolved color when rendering the clock preview, using a hex map mirroring the `Theme.qml` defaults (white #ffffff, green #18c37e, red #e73249, blue #4e85f4, orange #ffaa00) with a comment cross-referencing `Theme.qml`.
+- [x] 4.1 Add the `WidgetColorPicker` to `DisplayModeEditorPopup.qml` and extend `openForItem(id, mode, color)`. Widen the popup for the 6-swatch row.
+- [x] 4.2 Add the `WidgetColorPicker` to `ScaleWeightEditorPopup.qml` and extend `openForItem(id, dataMode, display, color)`.
+- [x] 4.3 In `SettingsLayoutTab.qml`, pass `props.color` through both popups and route `clock` back to the shared `DisplayModeEditorPopup`. Remove the one-off `ClockEditorPopup.qml`, its declaration, and its `closeOptionEditors()` entry, and drop it from `CMakeLists.txt`.
+- [x] 4.4 Color labels and the "Color"/"Default" section text use `TranslationManager.translate` fallbacks (no separate file needed).
 
-## 5. Verify
+## 5. Web layout editor exposes Color
 
-- [x] 5.1 Quick compile via Qt Creator MCP (match the worktree path, build).
-- [ ] 5.2 Confirm: picker shows "Time" in both editors; adding a Time widget defaults to White; choosing Green/Red/Blue/Orange tints both text and icon; two clock instances hold independent colors; an existing layout with a `clock` item (no `color`) still renders White.
+- [x] 5.1 In `src/network/shotserver_layout.cpp`, add a `WIDGET_COLORS` hex map (mirrors `Theme.qml` defaults; `default` intentionally absent) and a `READOUT_TYPES` list.
+- [x] 5.2 Render an inline color `<select>` (Default + 5 named) for any selected readout chip, and a `setColor(id, value)` handler that persists `color`.
+- [x] 5.3 Tint a readout chip's label with the resolved hex when a named override is set; leave `default`/unset untinted.
+
+## 6. Verify
+
+- [x] 6.1 Quick compile via Qt Creator MCP (build succeeded, 0 errors / 0 warnings).
+- [ ] 6.2 Confirm in the running app: each of the six readouts offers Default + 5 colors; Default keeps current color (incl. Machine Status phase colors and Scale Weight state colors); a named color statically overrides text + icon in all states; two instances hold independent colors; legacy layouts (no `color`) render as Default.

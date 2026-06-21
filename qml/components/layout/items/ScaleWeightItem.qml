@@ -86,12 +86,19 @@ Item {
             MachineState.tareScale()
     }
 
+    // Per-instance color override; "default"/unset keeps the dynamic state color
+    // below (tap feedback, ratio/flow-scale state). A named choice forces a
+    // static tint over all of it.
+    readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
+
     // Shared color logic
     function scaleColor(pressed) {
-        if (pressed) return Theme.accentColor
-        if (ProfileManager.brewByRatioActive) return Theme.weightColor
-        if (root.isFlowScale) return Theme.textSecondaryColor
-        return Theme.weightColor
+        var natural
+        if (pressed) natural = Theme.accentColor
+        else if (ProfileManager.brewByRatioActive) natural = Theme.weightColor
+        else if (root.isFlowScale) natural = Theme.textSecondaryColor
+        else natural = Theme.weightColor
+        return WidgetColor.resolve(root.colorChoice, natural)
     }
 
     function weightText() {

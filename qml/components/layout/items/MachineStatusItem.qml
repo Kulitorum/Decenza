@@ -13,6 +13,11 @@ Item {
     // dot + text) or "icon" (DE1 icon ahead of the text). Read from stored props.
     readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
 
+    // Per-instance color override. "default"/unset keeps the dynamic phase color
+    // (statusColor); a named choice forces a static tint over every phase.
+    readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
+    readonly property color readoutColor: WidgetColor.resolve(colorChoice, root.statusColor)
+
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
@@ -80,7 +85,7 @@ Item {
                 visible: root.displayMode === "icon"
                 source: "qrc:/icons/decent-de1.svg"
                 iconSize: Theme.scaled(20)
-                color: root.statusColor
+                color: root.readoutColor
             }
 
             Rectangle {
@@ -89,12 +94,12 @@ Item {
                 width: Theme.scaled(10)
                 height: Theme.scaled(10)
                 radius: Theme.scaled(5)
-                color: root.statusColor
+                color: root.readoutColor
             }
 
             Text {
                 text: root.statusText
-                color: root.statusColor
+                color: root.readoutColor
                 font: Theme.bodyFont
                 Accessible.ignored: true
             }
@@ -124,13 +129,13 @@ Item {
                 visible: root.displayMode === "icon"
                 source: "qrc:/icons/decent-de1.svg"
                 iconSize: Theme.scaled(28)
-                color: root.statusColor
+                color: root.readoutColor
             }
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 text: root.statusText
-                color: root.statusColor
+                color: root.readoutColor
                 font: Theme.valueFont
                 Accessible.ignored: true
             }

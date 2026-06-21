@@ -13,6 +13,10 @@ Item {
     // "icon" (a temperature icon ahead of the value). Read from stored props.
     readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
 
+    // Per-instance color override; "default"/unset keeps the temperature color.
+    readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
+    readonly property color readoutColor: WidgetColor.resolve(colorChoice, Theme.temperatureColor)
+
     readonly property double effectiveTargetTemp: Settings.brew.hasTemperatureOverride
         ? Settings.brew.temperatureOverride
         : ProfileManager.profileTargetTemperature
@@ -48,14 +52,14 @@ Item {
                 visible: root.displayMode === "icon"
                 source: "qrc:/icons/temperature.svg"
                 iconSize: Theme.scaled(20)
-                color: Theme.temperatureColor
+                color: root.readoutColor
             }
 
             Text {
                 id: compactTemp
                 anchors.verticalCenter: parent.verticalCenter
                 text: DE1Device.temperature.toFixed(1) + "\u00B0C"
-                color: Theme.temperatureColor
+                color: root.readoutColor
                 font: Theme.bodyFont
                 Accessible.ignored: true
             }
@@ -93,7 +97,7 @@ Item {
                 visible: root.displayMode === "icon"
                 source: "qrc:/icons/temperature.svg"
                 iconSize: Theme.scaled(28)
-                color: Theme.temperatureColor
+                color: root.readoutColor
             }
 
             Row {
@@ -101,7 +105,7 @@ Item {
                 spacing: Theme.scaled(4)
                 Text {
                     text: DE1Device.temperature.toFixed(1) + "\u00B0C"
-                    color: Theme.temperatureColor
+                    color: root.readoutColor
                     font: Theme.valueFont
                     Accessible.ignored: true
                 }

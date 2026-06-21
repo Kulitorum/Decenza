@@ -2450,11 +2450,15 @@ QString ShotServer::generateLayoutPage() const
         clock:"Time"
     };
 
-    // Clock widget color palette — mirrors the theme defaults used by
-    // ClockItem.colorFor (see qml/Theme.qml: text/pressure/temperature/flow/warning).
-    var CLOCK_COLORS = {
+    // Readout-widget color overrides — mirrors the theme defaults used by
+    // WidgetColor.resolve (see qml/Theme.qml: text/pressure/temperature/flow/warning).
+    // "default" is intentionally absent: it keeps the widget's natural color, so a
+    // chip with no override (or "default") is rendered untinted.
+    var WIDGET_COLORS = {
         white:"#ffffff", green:"#18c37e", red:"#e73249", blue:"#4e85f4", orange:"#ffaa00"
     };
+    // Readout widgets that support the per-instance color + display options.
+    var READOUT_TYPES = ["machineStatus","temperature","steamTemperature","scaleWeight","waterLevel","clock"];
 
     var ACTIONS = [
         {id:"",label:"None",contexts:["idle","espresso","steam","hotwater","flush","all"]},
@@ -2691,12 +2695,12 @@ QString ShotServer::generateLayoutPage() const
                     var chipLabel = stripHtml(props.content || "");
                     chipLabel = chipLabel.length > 12 ? chipLabel.substring(0, 10) + ".." : (chipLabel || "Custom");
                     html += chipLabel;
-                } else if (item.type === "clock") {
-                    // Tint the "Time" label to preview the chosen color.
-                    var clk = CLOCK_COLORS[item.color || "white"] || CLOCK_COLORS.white;
-                    html += '<span style="color:' + clk + '">' + (DISPLAY_NAMES.clock || "Time") + '</span>';
                 } else {
-                    html += DISPLAY_NAMES[item.type] || item.type;
+                    // Tint a readout chip's label to preview a chosen color override.
+                    // "default"/unset has no entry in WIDGET_COLORS, so it stays untinted.
+                    var lbl = DISPLAY_NAMES[item.type] || item.type;
+                    var ov = item.color && WIDGET_COLORS[item.color];
+                    html += ov ? ('<span style="color:' + ov + '">' + lbl + '</span>') : lbl;
                 }
                 // Persistent "has options" indicator.
                 if (typeHasOptions(item.type)) {
@@ -2714,7 +2718,7 @@ QString ShotServer::generateLayoutPage() const
                     html += '</select>';
                 }
                 // Inline display-mode selector for selected readout chips.
-                if (isSel && (item.type === "machineStatus" || item.type === "temperature" || item.type === "steamTemperature" || item.type === "scaleWeight" || item.type === "waterLevel" || item.type === "clock")) {
+                if (isSel && READOUT_TYPES.indexOf(item.type) !== -1) {
                     var disp = item.displayMode || "text";
                     var dispModes = [["text","Text"],["icon","Icon"]];
                     html += '<select class="chip-mode" onchange="setDisplayMode(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
@@ -2724,11 +2728,11 @@ QString ShotServer::generateLayoutPage() const
                     }
                     html += '</select>';
                 }
-                // Inline color selector for a selected Time (clock) chip.
-                if (isSel && item.type === "clock") {
-                    var clr = item.color || "white";
-                    var clrs = [["white","White"],["green","Green"],["red","Red"],["blue","Blue"],["orange","Orange"]];
-                    html += '<select class="chip-mode" onchange="setClockColor(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
+                // Inline color selector for a selected readout chip.
+                if (isSel && READOUT_TYPES.indexOf(item.type) !== -1) {
+                    var clr = item.color || "default";
+                    var clrs = [["default","Default"],["white","White"],["green","Green"],["red","Red"],["blue","Blue"],["orange","Orange"]];
+                    html += '<select class="chip-mode" onchange="setColor(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
                     for (var cc = 0; cc < clrs.length; cc++) {
                         var csel = (clr === clrs[cc][0]) ? ' selected' : '';
                         html += '<option value="' + clrs[cc][0] + '"' + csel + '>' + clrs[cc][1] + '</option>';
@@ -2909,7 +2913,7 @@ QString ShotServer::generateLayoutPage() const
         });
     }
 
-    function setClockColor(itemId, color) {
+    function setColor(itemId, color) {
         apiPost("/api/layout/item", {itemId: itemId, key: "color", value: color}, function() {
             loadLayout();
         });
