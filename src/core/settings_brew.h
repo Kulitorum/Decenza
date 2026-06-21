@@ -133,6 +133,15 @@ public:
     // Weight-scaled steaming: pair a reference milk weight with this preset's
     // duration. At steam time the duration is scaled by the actual milk weight.
     Q_INVOKABLE void setSteamPitcherCalibration(int index, double calibMilkG);
+    // Net milk on the scale for a pitcher = scaleReading − saved empty-pitcher weight
+    // (or the raw reading if no tare is saved). Returns 0 outside the plausible milk
+    // range. Pure measurement — not gated by the weight-timing toggle.
+    Q_INVOKABLE double netMilkForPitcher(int index, double scaleReading) const;
+    // Single source of truth for weight-timed steam scaling. Returns the scaled steam
+    // time (s) clamped to [5,120], or 0 — meaning "use the preset's fixed duration" —
+    // when weight-timing is off, or the preset is missing/disabled/uncalibrated, or
+    // the milk weight / duration is non-positive.
+    Q_INVOKABLE int scaledSteamTime(int index, double milkG) const;
 
     // Hot water
     double waterTemperature() const;

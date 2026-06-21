@@ -381,6 +381,26 @@ void SettingsBrew::setSteamPitcherCalibration(int index, double calibMilkG) {
     }
 }
 
+double SettingsBrew::netMilkForPitcher(int index, double scaleReading) const {
+    QVariantMap p = getSteamPitcherPreset(index);
+    if (p.isEmpty() || p.value("disabled").toBool()) return 0.0;
+    double pitcherWt = p.value("pitcherWeightG", 0.0).toDouble();
+    // Net milk = scale − saved empty-pitcher weight; if no tare is saved, assume the
+    // user tared the scale with the empty pitcher, so the reading is already net.
+    double milk = pitcherWt > 0.0 ? (scaleReading - pitcherWt) : scaleReading;
+    return (milk >= 50.0 && milk <= 1500.0) ? milk : 0.0;
+}
+
+int SettingsBrew::scaledSteamTime(int index, double milkG) const {
+    if (!milkAutoCaptureEnabled()) return 0;  // toggle gates ALL weight scaling, not just auto-capture
+    QVariantMap p = getSteamPitcherPreset(index);
+    if (p.isEmpty() || p.value("disabled").toBool()) return 0;
+    double calibMilk = p.value("calibMilkG", 0.0).toDouble();
+    double duration  = p.value("duration", 0.0).toDouble();
+    if (calibMilk <= 0.0 || duration <= 0.0 || milkG <= 0.0) return 0;
+    return qBound(5, qRound(duration * (milkG / calibMilk)), 120);
+}
+
 QVariantMap SettingsBrew::getSteamPitcherPreset(int index) const {
     QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
     QJsonDocument doc = QJsonDocument::fromJson(data);

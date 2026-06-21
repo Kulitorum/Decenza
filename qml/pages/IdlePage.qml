@@ -233,7 +233,7 @@ Page {
                 && idlePage.activePresetFunction === "steam"
                 && idlePage.StackView.status === StackView.Active
                 && ScaleDevice.connected && !ScaleDevice.isFlowScale
-        minNet: 20
+        minNet: 50   // nobody steams < 50 g milk; floor also keeps a bean cup from tripping milk capture
         maxNet: 1500
         tolerance: 1.5
         stableMs: 2500
@@ -244,11 +244,9 @@ Page {
             // uncalibrated preset so the very first calibration-bootstrap steam can be
             // adopted — and never as a half-pair, since the time half is written there.
             if (Window.window) Window.window.sessionMeasuredMilkG = milk
-            var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-            if (!p || p.disabled) return
-            var calib = p.calibMilkG ?? 0
-            if (calib <= 0 || (p.duration ?? 0) <= 0) return  // not calibrated / no duration — nothing to lock
-            var t = Math.max(5, Math.min(120, Math.round(p.duration * (milk / calib))))
+            // Single source of truth (SettingsBrew): 0 when off/uncalibrated → nothing to lock.
+            var t = Settings.brew.scaledSteamTime(Settings.brew.selectedSteamPitcher, milk)
+            if (t <= 0) return
             Settings.brew.steamTimeout = t
             // Push to the DE1 now (same as the steam-preset selection) so a GHC/auto
             // steam actually uses the scaled time, not the machine's last-sent value.
@@ -555,30 +553,16 @@ Page {
                             return
                         }
                         if (preset) {
-                            // Weight-scaled steaming (DSx2-style): if this pitcher is
-                            // calibrated (a reference milk weight is paired with its
-                            // duration), scale the steam time by the actual milk weight
-                            // so it auto-stops proportionally.
-                            var calibMilk = preset.calibMilkG ?? 0
-                            if (calibMilk > 0 && ScaleDevice.connected && !ScaleDevice.isFlowScale) {
-                                var pitcherWt = preset.pitcherWeightG ?? 0
-                                // Net milk = scale - saved pitcher weight, or the raw
-                                // reading if the user tared the scale instead.
-                                var milk = pitcherWt > 0 ? (MachineState.scaleWeight - pitcherWt)
-                                                         : MachineState.scaleWeight
-                                // If milk isn't on the scale right now (e.g. lifted to the
-                                // wand), fall back to the last measured weight so the time
-                                // still scales.
-                                if (!(milk >= 20 && milk <= 1500))
-                                    milk = idlePage.measuredMilkG
-                                if (milk >= 20 && milk <= 1500)
-                                    Settings.brew.steamTimeout = Math.max(5, Math.min(120,
-                                        Math.round(preset.duration * milk / calibMilk)))
-                                else
-                                    Settings.brew.steamTimeout = preset.duration  // no milk measured yet
-                            } else {
-                                Settings.brew.steamTimeout = preset.duration  // not calibrated → fixed
-                            }
+                            // Weight-scaled steaming (DSx2-style), via the single source of
+                            // truth in SettingsBrew. Net milk on the scale now, or the last
+                            // measured weight if the pitcher was lifted to the wand.
+                            var idx = Settings.brew.selectedSteamPitcher
+                            var milk = (ScaleDevice.connected && !ScaleDevice.isFlowScale)
+                                       ? Settings.brew.netMilkForPitcher(idx, MachineState.scaleWeight) : 0
+                            if (milk <= 0)
+                                milk = idlePage.measuredMilkG
+                            var t = Settings.brew.scaledSteamTime(idx, milk)
+                            Settings.brew.steamTimeout = t > 0 ? t : preset.duration  // 0 → fixed duration
                             Settings.brew.steamFlow = preset.flow !== undefined ? preset.flow : 150
                         }
                         MainController.applySteamSettings()

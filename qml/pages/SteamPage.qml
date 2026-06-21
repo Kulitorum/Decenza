@@ -194,45 +194,23 @@ Page {
     }
 
     // --- Weight-scaled steaming (calibrated presets) -------------------------
-    // Milk now on the scale = (pitcher + milk) minus the saved empty-pitcher
-    // weight. Returns 0 unless a sane amount of milk is actually on the scale.
+    // Thin QML wrappers over the single source of truth in SettingsBrew, so the
+    // scaling math, bounds, clamp, and the weight-timing toggle live in one place.
+
+    // Net milk currently on the scale for the selected pitcher (0 if none/invalid).
     function currentMeasuredMilk() {
         if (!ScaleDevice.connected) return 0
-        var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-        if (!preset || preset.disabled) return 0
-        var pitcherWt = preset.pitcherWeightG ?? 0
-        // If an empty-pitcher weight is saved, net milk = scale - pitcher.
-        // Otherwise assume the user tared the scale with the empty pitcher, so
-        // the live reading is already net milk.
-        var milk = pitcherWt > 0 ? (MachineState.scaleWeight - pitcherWt)
-                                 : MachineState.scaleWeight
-        return (milk >= 20 && milk <= 1500) ? milk : 0
+        return Settings.brew.netMilkForPitcher(Settings.brew.selectedSteamPitcher, MachineState.scaleWeight)
     }
 
-    // If this preset is calibrated (a reference milk weight is paired with its
-    // duration) and milk is on the scale, return the duration scaled to the
-    // actual milk weight. Returns 0 when scaling doesn't apply, so callers fall
-    // back to the preset's fixed duration.
+    // Scaled steam time for the milk currently on the scale (0 → use fixed duration).
     function scaledSteamTimeout() {
-        var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-        if (!preset || preset.disabled) return 0
-        var calibMilk = preset.calibMilkG ?? 0
-        if (calibMilk <= 0 || (preset.duration ?? 0) <= 0) return 0  // guard a 0/missing duration → silent 5s
-        var milk = currentMeasuredMilk()
-        if (milk <= 0) return 0
-        var scaled = Math.round(preset.duration * (milk / calibMilk))
-        return Math.max(5, Math.min(120, scaled))
+        return Settings.brew.scaledSteamTime(Settings.brew.selectedSteamPitcher, currentMeasuredMilk())
     }
 
-    // Steam time (s) for a specific captured milk weight, using the selected
-    // preset's reference-milk -> duration baseline. Returns 0 when the preset
-    // isn't calibrated (no reference milk set).
+    // Scaled steam time for a specific captured milk weight (0 → use fixed duration).
     function steamTimeForMilk(milk) {
-        var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-        if (!preset || preset.disabled) return 0
-        var calibMilk = preset.calibMilkG ?? 0
-        if (calibMilk <= 0 || milk <= 0 || (preset.duration ?? 0) <= 0) return 0  // guard a 0/missing duration → silent 5s
-        return Math.max(5, Math.min(120, Math.round(preset.duration * (milk / calibMilk))))
+        return Settings.brew.scaledSteamTime(Settings.brew.selectedSteamPitcher, milk)
     }
 
     // Selected preset's reference milk weight (the baseline paired with its duration).
@@ -1822,11 +1800,14 @@ Page {
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled && ScaleDevice.connected && !ScaleDevice.isFlowScale && steamPage.scaledSteamTimeout() > 0 }
 
-                    // Auto-capture options (opt-in; default on). Turning this off
-                    // stops the scale from auto-scaling the steam time from milk weight.
+                    // Weight-timed steaming master toggle (default on). When off, no
+                    // weight scaling happens at all — auto-capture is disabled AND
+                    // selecting a pitcher uses its fixed duration. The reference milk
+                    // calibration is kept, so turning it back on resumes immediately.
+                    // (Storage key stays milkAutoCaptureEnabled to avoid a migration.)
                     StyledSwitch {
                         Layout.fillWidth: true
-                        text: TranslationManager.translate("steam.autoCaptureMilk", "Auto-capture milk weight")
+                        text: TranslationManager.translate("steam.weightTimedSteaming", "Weight-timed steaming")
                         accessibleName: text
                         checked: Settings.brew.milkAutoCaptureEnabled
                         onToggled: Settings.brew.milkAutoCaptureEnabled = checked
@@ -1906,7 +1887,7 @@ Page {
         active: Settings.brew.milkAutoCaptureEnabled
                 && !isSteaming && !steamSoftStopped
                 && ScaleDevice.connected && !ScaleDevice.isFlowScale
-        minNet: 20
+        minNet: 50   // nobody steams < 50 g milk; floor also keeps a bean cup from tripping milk capture
         maxNet: 1500
         tolerance: 1.5
         stableMs: 2500
