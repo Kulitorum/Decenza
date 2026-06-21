@@ -7,6 +7,11 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+    property var modelData: ({})
+
+    // Per-instance display mode (composable-status-bar): "text" (default) or
+    // "icon" (a water icon ahead of the value). Read from stored props.
+    readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
 
     property bool showMl: Settings.app.waterLevelDisplayUnit === "ml"
 
@@ -111,14 +116,28 @@ Item {
         implicitWidth: compactWater.implicitWidth
         implicitHeight: compactWater.implicitHeight
 
-        Text {
+        Row {
             id: compactWater
             anchors.centerIn: parent
-            text: root.displayText
-            color: Theme.waterLevelColor
-            opacity: root.pulseOpacity
-            font: Theme.bodyFont
-            Accessible.ignored: true
+            spacing: Theme.scaled(6)
+
+            ThemedIcon {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.displayMode === "icon"
+                source: "qrc:/icons/water.svg"
+                iconSize: Theme.scaled(20)
+                color: Theme.waterLevelColor
+                opacity: root.pulseOpacity
+            }
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.displayText
+                color: Theme.waterLevelColor
+                opacity: root.pulseOpacity
+                font: Theme.bodyFont
+                Accessible.ignored: true
+            }
         }
     }
 
@@ -134,6 +153,15 @@ Item {
             id: fullColumn
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
+
+            ThemedIcon {
+                Layout.alignment: Qt.AlignHCenter
+                visible: root.displayMode === "icon"
+                source: "qrc:/icons/water.svg"
+                iconSize: Theme.scaled(28)
+                color: Theme.waterLevelColor
+                opacity: root.pulseOpacity
+            }
 
             Text {
                 Layout.alignment: Qt.AlignHCenter

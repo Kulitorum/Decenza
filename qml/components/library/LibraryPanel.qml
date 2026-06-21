@@ -77,69 +77,28 @@ Rectangle {
                 Layout.fillWidth: true
             }
 
-            // Full preview mode button
-            Rectangle {
-                width: Theme.scaled(28)
-                height: Theme.scaled(28)
-                radius: Theme.scaled(4)
-                color: displayMode === 0 ? Theme.primaryColor : "transparent"
-                border.color: displayMode === 0 ? Theme.primaryColor : Theme.borderColor
-                border.width: 1
-
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("library.accessibility.gridView", "Grid view") + (displayMode === 0 ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
-                Accessible.focusable: true
-                Accessible.onPressAction: gridMa.clicked(null)
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "\u25A3"  // Grid icon
-                    color: displayMode === 0 ? Theme.primaryContrastColor : Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(14)
-                    Accessible.ignored: true
-                }
-
-                MouseArea {
-                    id: gridMa
-                    anchors.fill: parent
-                    onClicked: displayMode = 0
-                }
+            // Full preview (grid) mode button
+            StyledIconButton {
+                implicitWidth: Theme.scaled(28)
+                implicitHeight: Theme.scaled(28)
+                icon.source: "qrc:/icons/grid.svg"
+                icon.width: Theme.scaled(14)
+                icon.height: Theme.scaled(14)
+                active: displayMode === 0
+                accessibleName: TranslationManager.translate("library.accessibility.gridView", "Grid view") + (displayMode === 0 ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
+                onClicked: displayMode = 0
             }
 
             // Compact list mode button
-            Rectangle {
-                width: Theme.scaled(28)
-                height: Theme.scaled(28)
-                radius: Theme.scaled(4)
-                color: displayMode === 1 ? Theme.primaryColor : "transparent"
-                border.color: displayMode === 1 ? Theme.primaryColor : Theme.borderColor
-                border.width: 1
-
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("library.accessibility.listView", "List view") + (displayMode === 1 ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
-                Accessible.focusable: true
-                Accessible.onPressAction: listMa.clicked(null)
-
-                Image {
-                    anchors.centerIn: parent
-                    source: "qrc:/icons/list.svg"
-                    sourceSize.width: Theme.scaled(14)
-                    sourceSize.height: Theme.scaled(14)
-                    opacity: displayMode === 1 ? 1.0 : 0.4
-
-                    layer.enabled: true
-                    layer.smooth: true
-                    layer.effect: MultiEffect {
-                        colorization: 1.0
-                        colorizationColor: Theme.textSecondaryColor
-                    }
-                }
-
-                MouseArea {
-                    id: listMa
-                    anchors.fill: parent
-                    onClicked: displayMode = 1
-                }
+            StyledIconButton {
+                implicitWidth: Theme.scaled(28)
+                implicitHeight: Theme.scaled(28)
+                icon.source: "qrc:/icons/list.svg"
+                icon.width: Theme.scaled(14)
+                icon.height: Theme.scaled(14)
+                active: displayMode === 1
+                accessibleName: TranslationManager.translate("library.accessibility.listView", "List view") + (displayMode === 1 ? ", " + TranslationManager.translate("library.accessibility.selected", "selected") : "")
+                onClicked: displayMode = 1
             }
         }
 

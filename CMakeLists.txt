@@ -813,6 +813,7 @@ set(QML_FILES
     qml/components/layout/LayoutItemDelegate.qml
     qml/components/layout/LayoutBarZone.qml
     qml/components/layout/LayoutCenterZone.qml
+    qml/components/layout/LayoutPreview.qml
     qml/components/layout/items/EspressoItem.qml
     qml/components/layout/items/SteamItem.qml
     qml/components/layout/items/HotWaterItem.qml

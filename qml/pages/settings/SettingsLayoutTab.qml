@@ -59,8 +59,24 @@ Item {
         selectedZoneName = (selectedZoneName === targetZone) ? "" : targetZone
     }
 
-    // Handle item removal
+    // Pending removal awaiting confirmation (configured widgets only)
+    property string pendingRemoveId: ""
+    property string pendingRemoveZone: ""
+
+    // Handle item removal. A configured widget (one with options or non-default
+    // settings) asks for confirmation so an accidental tap can't discard a
+    // set-up widget; a bare widget is removed directly.
     function onItemRemoved(itemId, zoneName) {
+        if (Settings.network.itemIsConfigured(itemId)) {
+            pendingRemoveId = itemId
+            pendingRemoveZone = zoneName
+            removeConfirm.open()
+            return
+        }
+        doRemoveItem(itemId, zoneName)
+    }
+
+    function doRemoveItem(itemId, zoneName) {
         Settings.network.removeItem(itemId, zoneName)
         if (selectedItemId === itemId) {
             selectedItemId = ""
@@ -90,14 +106,27 @@ Item {
         }
     }
 
+    // Close any open widget-options editor so only one is ever active at a time.
+    function closeOptionEditors() {
+        customEditorPopup.close()
+        screensaverEditorPopup.close()
+        scaleWeightEditorPopup.close()
+        displayModeEditorPopup.close()
+        sleepEditorPopup.close()
+    }
+
     function openCustomEditor(itemId, zoneName) {
         var props = Settings.network.getItemProperties(itemId)
         var type = props.type || ""
+        // Single source of truth: nothing to open for non-configurable types.
+        if (!Settings.network.typeHasOptions(type))
+            return
+        closeOptionEditors()
         if (type.startsWith("screensaver") || type === "lastShot" || type === "shotPlan") {
             screensaverEditorPopup.openForItem(itemId, zoneName, props)
         } else if (type === "scaleWeight") {
             scaleWeightEditorPopup.openForItem(itemId, props.dataMode || "", props.displayMode || "")
-        } else if (type === "machineStatus" || type === "temperature" || type === "steamTemperature") {
+        } else if (type === "machineStatus" || type === "temperature" || type === "steamTemperature" || type === "waterLevel") {
             displayModeEditorPopup.openForItem(itemId, props.displayMode || "")
         } else if (type === "sleep") {
             sleepEditorPopup.openForItem(itemId,
@@ -161,6 +190,109 @@ Item {
         id: sleepEditorPopup
     }
 
+    // Confirm wiping the whole custom layout — a single tap is otherwise
+    // irreversible.
+    Dialog {
+        id: resetConfirm
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        closePolicy: Dialog.CloseOnPressOutside | Dialog.CloseOnEscape
+        padding: Theme.scaled(16)
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingMedium
+
+            Text {
+                text: TranslationManager.translate("settings.layout.resetConfirm", "Reset the layout to default? Your customizations will be lost.")
+                color: Theme.textColor
+                font: Theme.subtitleFont
+                Layout.maximumWidth: Theme.scaled(360)
+                wrapMode: Text.Wrap
+            }
+
+            RowLayout {
+                spacing: Theme.spacingSmall
+                Item { Layout.fillWidth: true }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("common.button.cancel", "Cancel")
+                    onClicked: resetConfirm.close()
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("settings.layout.reset", "Reset to Default")
+                    accessibleName: TranslationManager.translate("settings.layout.reset", "Reset to Default")
+                    onClicked: {
+                        Settings.network.resetLayoutToDefault()
+                        layoutTab.selectedItemId = ""
+                        layoutTab.selectedFromZone = ""
+                        layoutTab.selectedZoneName = ""
+                        resetConfirm.close()
+                    }
+                }
+            }
+        }
+    }
+
+    // Confirm removing a configured widget so a set-up widget isn't lost by an
+    // accidental tap.
+    Dialog {
+        id: removeConfirm
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        closePolicy: Dialog.CloseOnPressOutside | Dialog.CloseOnEscape
+        padding: Theme.scaled(16)
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingMedium
+
+            Text {
+                text: TranslationManager.translate("settings.layout.removeConfirm", "Remove this widget and its settings?")
+                color: Theme.textColor
+                font: Theme.subtitleFont
+                Layout.maximumWidth: Theme.scaled(360)
+                wrapMode: Text.Wrap
+            }
+
+            RowLayout {
+                spacing: Theme.spacingSmall
+                Item { Layout.fillWidth: true }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("common.button.cancel", "Cancel")
+                    onClicked: removeConfirm.close()
+                }
+
+                AccessibleButton {
+                    text: TranslationManager.translate("common.button.remove", "Remove")
+                    accessibleName: TranslationManager.translate("layoutEditor.removeWidget", "Remove widget")
+                    onClicked: {
+                        layoutTab.doRemoveItem(layoutTab.pendingRemoveId, layoutTab.pendingRemoveZone)
+                        layoutTab.pendingRemoveId = ""
+                        layoutTab.pendingRemoveZone = ""
+                        removeConfirm.close()
+                    }
+                }
+            }
+        }
+    }
+
     // Two-column layout: zone editors on left, library panel on right
     RowLayout {
         anchors.fill: parent
@@ -192,19 +324,14 @@ Item {
                     AccessibleButton {
                         text: TranslationManager.translate("settings.layout.reset", "Reset to Default")
                         accessibleName: TranslationManager.translate("settings.layout.reset", "Reset to Default")
-                        onClicked: {
-                            Settings.network.resetLayoutToDefault()
-                            layoutTab.selectedItemId = ""
-                            layoutTab.selectedFromZone = ""
-                            layoutTab.selectedZoneName = ""
-                        }
+                        onClicked: resetConfirm.open()
                     }
                 }
 
                 // Instructions
                 Tr {
                     key: "settings.layout.instructions"
-                    fallback: "Tap + to add widgets. Tap a widget to select it for moving or reordering. Long-press Custom items to edit."
+                    fallback: "Tap + to add widgets. Drag a widget to reorder it. Tap a widget to select it, then tap its gear icon (or long-press) to change options."
                     color: Theme.textSecondaryColor
                     font: Theme.captionFont
                     Layout.fillWidth: true
@@ -225,6 +352,7 @@ Item {
                     onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "statusBar") }
                     onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "statusBar") }
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "statusBar") }
+                    onReorder: function(from, to) { Settings.network.reorderItem("statusBar", from, to) }
                     onAddItemRequested: function(type) { Settings.network.addItem(type, "statusBar") }
                     onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                     onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
@@ -249,6 +377,7 @@ Item {
                         onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "topLeft") }
                         onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "topLeft") }
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "topLeft") }
+                        onReorder: function(from, to) { Settings.network.reorderItem("topLeft", from, to) }
                         onAddItemRequested: function(type) { Settings.network.addItem(type, "topLeft") }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                     onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
@@ -268,6 +397,7 @@ Item {
                         onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "topRight") }
                         onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "topRight") }
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "topRight") }
+                        onReorder: function(from, to) { Settings.network.reorderItem("topRight", from, to) }
                         onAddItemRequested: function(type) { Settings.network.addItem(type, "topRight") }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                     onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
@@ -292,6 +422,7 @@ Item {
                     onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerStatus") }
                     onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerStatus") }
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerStatus") }
+                    onReorder: function(from, to) { Settings.network.reorderItem("centerStatus", from, to) }
                     onAddItemRequested: function(type) { Settings.network.addItem(type, "centerStatus") }
                     onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                     onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
@@ -319,6 +450,7 @@ Item {
                     onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerTop") }
                     onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerTop") }
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerTop") }
+                    onReorder: function(from, to) { Settings.network.reorderItem("centerTop", from, to) }
                     onAddItemRequested: function(type) { Settings.network.addItem(type, "centerTop") }
                     onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                     onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
@@ -346,6 +478,7 @@ Item {
                     onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "centerMiddle") }
                     onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "centerMiddle") }
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "centerMiddle") }
+                    onReorder: function(from, to) { Settings.network.reorderItem("centerMiddle", from, to) }
                     onAddItemRequested: function(type) { Settings.network.addItem(type, "centerMiddle") }
                     onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                     onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
@@ -372,6 +505,7 @@ Item {
                     onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "lowerMidBar") }
                     onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "lowerMidBar") }
                     onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "lowerMidBar") }
+                    onReorder: function(from, to) { Settings.network.reorderItem("lowerMidBar", from, to) }
                     onAddItemRequested: function(type) { Settings.network.addItem(type, "lowerMidBar") }
                     onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                     onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
@@ -395,6 +529,7 @@ Item {
                         onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "bottomLeft") }
                         onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "bottomLeft") }
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "bottomLeft") }
+                        onReorder: function(from, to) { Settings.network.reorderItem("bottomLeft", from, to) }
                         onAddItemRequested: function(type) { Settings.network.addItem(type, "bottomLeft") }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                     onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
@@ -414,6 +549,7 @@ Item {
                         onItemRemoved: function(itemId) { layoutTab.onItemRemoved(itemId, "bottomRight") }
                         onMoveLeft: function(itemId) { layoutTab.onMoveLeft(itemId, "bottomRight") }
                         onMoveRight: function(itemId) { layoutTab.onMoveRight(itemId, "bottomRight") }
+                        onReorder: function(from, to) { Settings.network.reorderItem("bottomRight", from, to) }
                         onAddItemRequested: function(type) { Settings.network.addItem(type, "bottomRight") }
                         onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                     onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
@@ -423,15 +559,46 @@ Item {
             }
         }
 
-        // Right column: Library panel
-        LibraryPanel {
-            Layout.preferredWidth: Theme.scaled(320)
-            Layout.minimumWidth: Theme.scaled(280)
+        // Right column: pinned live preview (stays visible while editing) + Library
+        ColumnLayout {
+            // Roughly an even split so the preview is large enough to be useful.
+            Layout.preferredWidth: Math.max(Theme.scaled(380), layoutTab.width * 0.42)
+            Layout.minimumWidth: Theme.scaled(340)
             Layout.fillHeight: true
+            spacing: Theme.spacingMedium
 
-            selectedItemId: layoutTab.selectedItemId
-            selectedFromZone: layoutTab.selectedFromZone
-            selectedZoneName: layoutTab.selectedZoneName
+            Tr {
+                key: "settings.layout.preview"
+                fallback: "Preview"
+                color: Theme.textColor
+                font: Theme.subtitleFont
+                Layout.fillWidth: true
+            }
+
+            // Live home-screen preview (5:3, matches the device reference aspect)
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: width / 1.6
+                color: Theme.backgroundColor
+                radius: Theme.cardRadius
+                border.color: Theme.borderColor
+                border.width: 1
+                clip: true
+
+                LayoutPreview {
+                    anchors.fill: parent
+                    anchors.margins: Theme.scaled(4)
+                }
+            }
+
+            LibraryPanel {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                selectedItemId: layoutTab.selectedItemId
+                selectedFromZone: layoutTab.selectedFromZone
+                selectedZoneName: layoutTab.selectedZoneName
+            }
         }
     }
 }

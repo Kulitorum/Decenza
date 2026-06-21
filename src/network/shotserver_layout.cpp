@@ -776,12 +776,15 @@ QString ShotServer::generateLayoutPage() const
         .chip.selected.special { color: orange; }
         .chip.screensaver { color: #64B5F6; }
         .chip.selected.screensaver { color: #64B5F6; }
-        .chip-arrow {
-            cursor: pointer;
-            font-size: 1rem;
-            opacity: 0.8;
+        .chip[draggable="true"] { cursor: grab; }
+        .chip.dragging { opacity: 0.5; }
+        .chip-opts {
+            display: inline-flex;
+            align-items: center;
+            opacity: 0.7;
+            margin-left: 0.1rem;
         }
-        .chip-arrow:hover { opacity: 1; }
+        .chip-opts-ico { width: 11px; height: 11px; }
 )HTML";
     html += R"HTML(
         .chip-remove {
@@ -834,6 +837,25 @@ QString ShotServer::generateLayoutPage() const
         .add-dropdown-item:hover { background: var(--surface-hover); }
         .add-dropdown-item.special { color: orange; }
         .add-dropdown-item.screensaver { color: #64B5F6; }
+        .add-filter {
+            display: block;
+            width: calc(100% - 1rem);
+            margin: 0.4rem 0.5rem;
+            padding: 0.35rem 0.5rem;
+            background: var(--card);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            font-size: 0.8rem;
+            box-sizing: border-box;
+        }
+        .add-cat-header {
+            padding: 0.35rem 0.75rem 0.15rem;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--muted, #8b949e);
+        }
         .reset-btn {
             background: none;
             border: 1px solid var(--border);
@@ -1751,6 +1773,7 @@ QString ShotServer::generateLayoutPage() const
     </div>
 
     <div class="main-wrapper">
+    <p style="margin:0 0 0.75rem;font-size:0.8rem;color:var(--muted,#8b949e)">Click + to add widgets. Drag a widget to reorder it. Click a widget to select it; widgets with a gear icon have options — click to edit.</p>
     <div class="main-layout">
         <div class="zones-panel" id="zonesPanel"></div>
         <div class="editor-panel editor-hidden" id="editorPanel">
@@ -2363,46 +2386,50 @@ QString ShotServer::generateLayoutPage() const
         {key: "bottomRight", label: "Bottom Bar (Right)", hasOffset: false}
     ];
 
-    // Grouped by color (white, orange, blue), sorted by name within each group
+    // Widget catalog. `cat` indexes CAT_NAMES (0 Actions, 1 Readouts, 2 Utility,
+    // 3 Screensavers); the picker groups by cat and sorts by label within each.
+    // `special`/`screensaver` drive chip/menu-item colour. Mirrors the in-app
+    // catalog in LayoutEditorZone.qml — keep the two in sync.
     var WIDGET_TYPES = [
-        // Actions & readouts (white)
-        {type:"beans",label:"Beans"},
-        {type:"equipment",label:"Equipment"},
-        {type:"espresso",label:"Espresso"},
-        {type:"autofavorites",label:"Favorites"},
-        {type:"flush",label:"Flush"},
-        {type:"history",label:"History"},
-        {type:"hotwater",label:"Hot Water"},
-        {type:"scaleWeight",label:"Scale Weight"},
-        {type:"profileName",label:"Profile Name"},
-        {type:"doseWeight",label:"Dose Weight"},
-        {type:"milkWeight",label:"Milk Weight"},
-        {type:"ratioQuickSelect",label:"Ratio Quick-Select"},
-        {type:"settings",label:"Settings"},
-        {type:"shotPlan",label:"Shot Plan"},
-        {type:"sleep",label:"Sleep"},
-        {type:"steam",label:"Steam"},
-        {type:"steamTemperature",label:"Steam Temp"},
-        {type:"temperature",label:"Temperature"},
-        {type:"batteryLevel",label:"Battery Level"},
-        {type:"scaleBattery",label:"Scale Battery"},
-        {type:"machineStatus",label:"Machine Status"},
-        {type:"ghcSimulator",label:"Mini GHC"},
-        {type:"discuss",label:"Discuss"},
-        {type:"waterLevel",label:"Water Level"},
-        // Utility (orange)
-        {type:"custom",label:"Custom",special:true},
-        {type:"pageTitle",label:"Page Title",special:true},
-        {type:"quit",label:"Quit",special:true},
-        {type:"separator",label:"Separator",special:true},
-        {type:"spacer",label:"Spacer",special:true},
-        {type:"weather",label:"Weather",special:true},
-        // Screensavers & widgets (blue)
-        {type:"screensaverPipes",label:"3D Pipes",screensaver:true},
-        {type:"screensaverAttractor",label:"Attractor",screensaver:true},
-        {type:"screensaverFlipClock",label:"Flip Clock",screensaver:true},
-        {type:"lastShot",label:"Last Shot",screensaver:true},
-        {type:"screensaverShotMap",label:"Shot Map",screensaver:true}
+        // Actions (0)
+        {type:"espresso",cat:0,label:"Espresso"},
+        {type:"steam",cat:0,label:"Steam"},
+        {type:"hotwater",cat:0,label:"Hot Water"},
+        {type:"flush",cat:0,label:"Flush"},
+        {type:"sleep",cat:0,label:"Sleep"},
+        {type:"settings",cat:0,label:"Settings"},
+        {type:"quit",cat:0,label:"Quit",special:true},
+        {type:"history",cat:0,label:"History"},
+        {type:"beans",cat:0,label:"Beans"},
+        {type:"equipment",cat:0,label:"Equipment"},
+        {type:"autofavorites",cat:0,label:"Favorites"},
+        {type:"discuss",cat:0,label:"Discuss"},
+        {type:"ghcSimulator",cat:0,label:"Mini GHC"},
+        // Readouts (1)
+        {type:"machineStatus",cat:1,label:"Machine Status"},
+        {type:"scaleWeight",cat:1,label:"Scale Weight"},
+        {type:"temperature",cat:1,label:"Temperature"},
+        {type:"steamTemperature",cat:1,label:"Steam Temp"},
+        {type:"batteryLevel",cat:1,label:"Battery Level"},
+        {type:"scaleBattery",cat:1,label:"Scale Battery"},
+        {type:"waterLevel",cat:1,label:"Water Level"},
+        {type:"profileName",cat:1,label:"Profile Name"},
+        {type:"doseWeight",cat:1,label:"Dose Weight"},
+        {type:"milkWeight",cat:1,label:"Milk Weight"},
+        {type:"ratioQuickSelect",cat:1,label:"Ratio Quick-Select"},
+        {type:"shotPlan",cat:1,label:"Shot Plan"},
+        // Utility (2)
+        {type:"custom",cat:2,label:"Custom",special:true},
+        {type:"pageTitle",cat:2,label:"Page Title",special:true},
+        {type:"separator",cat:2,label:"Separator",special:true},
+        {type:"spacer",cat:2,label:"Spacer",special:true},
+        {type:"weather",cat:2,label:"Weather",special:true},
+        // Screensavers (3)
+        {type:"screensaverPipes",cat:3,label:"3D Pipes",screensaver:true},
+        {type:"screensaverAttractor",cat:3,label:"Attractor",screensaver:true},
+        {type:"screensaverFlipClock",cat:3,label:"Flip Clock",screensaver:true},
+        {type:"lastShot",cat:3,label:"Last Shot",screensaver:true},
+        {type:"screensaverShotMap",cat:3,label:"Shot Map",screensaver:true}
     ];
 
     var DISPLAY_NAMES = {
@@ -2503,6 +2530,62 @@ QString ShotServer::generateLayoutPage() const
         tmp.innerHTML = text;
         return tmp.textContent || tmp.innerText || "";
     }
+
+    // Mirror of SettingsNetwork::typeHasOptions — keep in sync with the C++/QML
+    // single source of truth so the indicator and the open behaviour agree.
+    function typeHasOptions(type) {
+        if (type.indexOf("screensaver") === 0) return true;
+        return ["custom","scaleWeight","shotPlan","sleep","machineStatus",
+                "temperature","steamTemperature","waterLevel","lastShot"].indexOf(type) >= 0;
+    }
+
+    // Persistent "has options" indicator drawn on configurable chips.
+    var GEAR_SVG = '<svg class="chip-opts-ico" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm8.94 4a6.9 6.9 0 00-.12-1.26l2.03-1.58-2-3.46-2.39.96a7 7 0 00-1.09-.63L17 3h-4l-.37 2.4a7 7 0 00-1.09.63l-2.39-.96-2 3.46 2.03 1.58a6.9 6.9 0 000 2.52L5.16 16.3l2 3.46 2.39-.96c.34.25.71.46 1.09.63L13 22h4l.37-2.43c.38-.17.75-.38 1.09-.63l2.39.96 2-3.46-2.03-1.58c.08-.41.12-.83.12-1.26z"/></svg>';
+
+    // --- Drag-and-drop reordering within a zone (replaces the arrow buttons) ---
+    var dragState = null;
+    function chipDragStart(ev, zone, idx) {
+        dragState = {zone: zone, from: idx};
+        ev.dataTransfer.effectAllowed = "move";
+        try { ev.dataTransfer.setData("text/plain", String(idx)); } catch(e) {}
+        if (ev.currentTarget) ev.currentTarget.classList.add("dragging");
+    }
+    function chipDragEnd(ev) {
+        if (ev.currentTarget) ev.currentTarget.classList.remove("dragging");
+        dragState = null;
+    }
+    function chipDragOver(ev, zone) {
+        if (dragState && dragState.zone === zone) {
+            ev.preventDefault();
+            ev.dataTransfer.dropEffect = "move";
+        }
+    }
+    function chipDrop(ev, zone, idx) {
+        ev.preventDefault();
+        if (!dragState || dragState.zone !== zone) return;
+        var from = dragState.from;
+        dragState = null;
+        if (from === idx) return;
+        reorder(zone, from, idx);
+    }
+
+    // --- Add-widget picker: live filter by typing ---
+    function filterAddMenu(input) {
+        var f = input.value.trim().toLowerCase();
+        var menu = input.parentElement;
+        var anyInCat = {};
+        menu.querySelectorAll(".add-dropdown-item").forEach(function(it) {
+            var label = (it.getAttribute("data-label") || "").toLowerCase();
+            var show = (f === "" || label.indexOf(f) >= 0);
+            it.style.display = show ? "" : "none";
+            if (show) anyInCat[it.getAttribute("data-cat")] = true;
+        });
+        menu.querySelectorAll(".add-cat-header").forEach(function(h) {
+            h.style.display = anyInCat[h.getAttribute("data-cat")] ? "" : "none";
+        });
+    }
+
+    var CAT_NAMES = ["Actions", "Readouts", "Utility", "Screensavers"];
 )HTML";
     html += R"HTML(
     function renderZones() {
@@ -2575,11 +2658,13 @@ QString ShotServer::generateLayoutPage() const
                 if (props && props.backgroundColor && !isSel && !props.hideBackground) {
                     chipStyle = "background:" + props.backgroundColor + ";border-color:" + props.backgroundColor + ";color:white";
                 }
-                html += '<span class="' + cls + '" style="' + chipStyle + '" onclick="chipClick(\'' + item.id + '\',\'' + zone.key + '\',\'' + item.type + '\')">';
+                html += '<span class="' + cls + '" style="' + chipStyle + '" draggable="true"'
+                     + ' ondragstart="chipDragStart(event,\'' + zone.key + '\',' + i + ')"'
+                     + ' ondragend="chipDragEnd(event)"'
+                     + ' ondragover="chipDragOver(event,\'' + zone.key + '\')"'
+                     + ' ondrop="chipDrop(event,\'' + zone.key + '\',' + i + ')"'
+                     + ' onclick="chipClick(\'' + item.id + '\',\'' + zone.key + '\',\'' + item.type + '\')">';
 
-                if (isSel && i > 0) {
-                    html += '<span class="chip-arrow" onclick="event.stopPropagation();reorder(\'' + zone.key + '\',' + i + ',' + (i-1) + ')">&#9664;</span>';
-                }
                 // Mini preview for custom items
                 if (item.type === "custom" && props) {
                     if (props.emoji) {
@@ -2595,6 +2680,10 @@ QString ShotServer::generateLayoutPage() const
                 } else {
                     html += DISPLAY_NAMES[item.type] || item.type;
                 }
+                // Persistent "has options" indicator.
+                if (typeHasOptions(item.type)) {
+                    html += '<span class="chip-opts" title="Has options">' + GEAR_SVG + '</span>';
+                }
                 // Inline data-mode selector for a selected Scale Weight chip.
                 if (isSel && item.type === "scaleWeight") {
                     var dm = item.dataMode || "gross";
@@ -2607,7 +2696,7 @@ QString ShotServer::generateLayoutPage() const
                     html += '</select>';
                 }
                 // Inline display-mode selector for selected readout chips.
-                if (isSel && (item.type === "machineStatus" || item.type === "temperature" || item.type === "steamTemperature" || item.type === "scaleWeight")) {
+                if (isSel && (item.type === "machineStatus" || item.type === "temperature" || item.type === "steamTemperature" || item.type === "scaleWeight" || item.type === "waterLevel")) {
                     var disp = item.displayMode || "text";
                     var dispModes = [["text","Text"],["icon","Icon"]];
                     html += '<select class="chip-mode" onchange="setDisplayMode(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
@@ -2630,22 +2719,30 @@ QString ShotServer::generateLayoutPage() const
                     html += '<option value="0"' + (!si ? ' selected' : '') + '>Icon off</option>';
                     html += '</select>';
                 }
-                if (isSel && i < items.length - 1) {
-                    html += '<span class="chip-arrow" onclick="event.stopPropagation();reorder(\'' + zone.key + '\',' + i + ',' + (i+1) + ')">&#9654;</span>';
-                }
                 if (isSel) {
                     html += '<span class="chip-remove" onclick="event.stopPropagation();removeItem(\'' + item.id + '\',\'' + zone.key + '\')">&times;</span>';
                 }
                 html += '</span>';
             }
 
-            // Add button with dropdown
+            // Add button with dropdown: filter field + category headers, sorted
+            // by label within each category.
             html += '<div style="position:relative;display:inline-block">';
             html += '<button class="add-btn" onclick="event.stopPropagation();toggleAddMenu(this)">+</button>';
             html += '<div class="add-dropdown">';
-            for (var w = 0; w < WIDGET_TYPES.length; w++) {
-                var wt = WIDGET_TYPES[w];
+            html += '<input class="add-filter" type="text" placeholder="Filter widgets…" oninput="filterAddMenu(this)" onclick="event.stopPropagation()">';
+            var sortedTypes = WIDGET_TYPES.slice().sort(function(a, b) {
+                return a.cat !== b.cat ? a.cat - b.cat : a.label.localeCompare(b.label);
+            });
+            var lastCat = -1;
+            for (var w = 0; w < sortedTypes.length; w++) {
+                var wt = sortedTypes[w];
+                if (wt.cat !== lastCat) {
+                    html += '<div class="add-cat-header" data-cat="' + wt.cat + '">' + CAT_NAMES[wt.cat] + '</div>';
+                    lastCat = wt.cat;
+                }
                 html += '<div class="add-dropdown-item' + (wt.screensaver ? ' screensaver' : (wt.special ? ' special' : '')) + '" ';
+                html += 'data-cat="' + wt.cat + '" data-label="' + wt.label + '" ';
                 html += 'onclick="event.stopPropagation();addItem(\'' + wt.type + '\',\'' + zone.key + '\');this.parentElement.classList.remove(\'open\')">';
                 html += wt.label + '</div>';
             }

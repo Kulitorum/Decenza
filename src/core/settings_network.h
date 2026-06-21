@@ -130,6 +130,16 @@ public:
     Q_INVOKABLE void setItemProperty(const QString& itemId, const QString& key, const QVariant& value);
     Q_INVOKABLE QVariantMap getItemProperties(const QString& itemId) const;
 
+    // Single source of truth for "does this widget type expose per-instance
+    // options?" Consumed by both editors (in-app indicator + open gesture, web
+    // indicator + open affordance) so the has-options cue and the open behaviour
+    // never drift. See docs: layout-widget-instance-config.
+    Q_INVOKABLE static bool typeHasOptions(const QString& type);
+    // Whether a placed item instance is "configured" — its type has options, or
+    // it carries any per-instance property beyond the bare type/id. Used to gate
+    // remove-confirmation so an accidental tap can't discard a set-up widget.
+    Q_INVOKABLE bool itemIsConfigured(const QString& itemId) const;
+
 signals:
     void savedSearchesChanged();
     void shotHistorySortFieldChanged();

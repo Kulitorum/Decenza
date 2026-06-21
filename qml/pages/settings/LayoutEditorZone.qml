@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
+import QtQml.Models
 import Decenza
 import "../../components"
 
@@ -17,11 +18,19 @@ Rectangle {
     property int yOffset: 0
     property real zoneScale: 1.0
 
+    // True while a chip is being dragged for reorder (suppresses selection
+    // highlight so it doesn't jump during live swaps).
+    property bool _dragging: false
+    // Whether a screen reader is active — gates the accessible-only reorder
+    // fallback buttons (drag has no assistive-tech equivalent).
+    readonly property bool _a11yEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+
     signal itemTapped(string itemId)
     signal zoneTapped()
     signal itemRemoved(string itemId)
     signal moveLeft(string itemId)
     signal moveRight(string itemId)
+    signal reorder(int fromIndex, int toIndex)
     signal addItemRequested(string type)
     signal moveUp()
     signal moveDown()
@@ -64,26 +73,12 @@ Rectangle {
             }
 
             // Zone options (distribution / alignment / style / populate)
-            Rectangle {
-                width: Theme.scaled(32)
-                height: Theme.scaled(32)
-                radius: Theme.scaled(6)
-                color: optMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
-                border.color: Theme.borderColor
-                border.width: 1
-
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("layoutEditor.zoneOptions", "%1 options").arg(root.zoneLabel)
-                Accessible.focusable: true
-                Accessible.onPressAction: root.zoneOptionsRequested()
-
-                Image {
-                    anchors.centerIn: parent
-                    width: Theme.scaled(18); height: Theme.scaled(18)
-                    source: "qrc:/icons/more-vertical.svg"
-                    fillMode: Image.PreserveAspectFit
-                }
-                MouseArea { id: optMa; anchors.fill: parent; onClicked: root.zoneOptionsRequested() }
+            StyledIconButton {
+                implicitWidth: Theme.scaled(32)
+                implicitHeight: Theme.scaled(32)
+                icon.source: "qrc:/icons/more-vertical.svg"
+                accessibleName: TranslationManager.translate("layoutEditor.zoneOptions", "%1 options").arg(root.zoneLabel)
+                onClicked: root.zoneOptionsRequested()
             }
 
             Item { Layout.fillWidth: true }
@@ -96,62 +91,32 @@ Rectangle {
                 font: Theme.captionFont
             }
 
-            // UP arrow
-            Rectangle {
+            // UP arrow (ArrowLeft rotated to point up \u2014 avoids a new asset)
+            StyledIconButton {
                 visible: root.showPositionControls
-                width: Theme.scaled(32)
-                height: Theme.scaled(32)
-                radius: Theme.scaled(6)
-                color: upMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
-                border.color: Theme.borderColor
-                border.width: 1
-
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("layoutEditor.moveZoneUp", "Move %1 up").arg(root.zoneLabel)
-                Accessible.focusable: true
-                Accessible.onPressAction: root.moveUp()
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "\u25B2"
-                    color: Theme.primaryColor
-                    font.pixelSize: Theme.scaled(16)
-                }
-
-                MouseArea {
-                    id: upMa
-                    anchors.fill: parent
-                    onClicked: root.moveUp()
-                }
+                implicitWidth: Theme.scaled(32)
+                implicitHeight: Theme.scaled(32)
+                icon.source: "qrc:/icons/ArrowLeft.svg"
+                icon.width: Theme.scaled(14)
+                icon.height: Theme.scaled(14)
+                rotation: 90
+                inactiveColor: Theme.primaryColor
+                accessibleName: TranslationManager.translate("layoutEditor.moveZoneUp", "Move %1 up").arg(root.zoneLabel)
+                onClicked: root.moveUp()
             }
 
-            // DOWN arrow
-            Rectangle {
+            // DOWN arrow (ArrowLeft rotated to point down)
+            StyledIconButton {
                 visible: root.showPositionControls
-                width: Theme.scaled(32)
-                height: Theme.scaled(32)
-                radius: Theme.scaled(6)
-                color: downMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
-                border.color: Theme.borderColor
-                border.width: 1
-
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("layoutEditor.moveZoneDown", "Move %1 down").arg(root.zoneLabel)
-                Accessible.focusable: true
-                Accessible.onPressAction: root.moveDown()
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "\u25BC"
-                    color: Theme.primaryColor
-                    font.pixelSize: Theme.scaled(16)
-                }
-
-                MouseArea {
-                    id: downMa
-                    anchors.fill: parent
-                    onClicked: root.moveDown()
-                }
+                implicitWidth: Theme.scaled(32)
+                implicitHeight: Theme.scaled(32)
+                icon.source: "qrc:/icons/ArrowLeft.svg"
+                icon.width: Theme.scaled(14)
+                icon.height: Theme.scaled(14)
+                rotation: 270
+                inactiveColor: Theme.primaryColor
+                accessibleName: TranslationManager.translate("layoutEditor.moveZoneDown", "Move %1 down").arg(root.zoneLabel)
+                onClicked: root.moveDown()
             }
 
             // Scale separator
@@ -171,63 +136,29 @@ Rectangle {
             }
 
             // Scale DOWN (smaller)
-            Rectangle {
+            StyledIconButton {
                 visible: root.showPositionControls
-                width: Theme.scaled(32)
-                height: Theme.scaled(32)
-                radius: Theme.scaled(6)
-                color: scaleDownMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
-                border.color: Theme.borderColor
-                border.width: 1
-
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("layoutEditor.makeZoneSmaller", "Make %1 smaller").arg(root.zoneLabel)
-                Accessible.focusable: true
-                Accessible.onPressAction: root.scaleDown()
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "\u2212"
-                    color: Theme.primaryColor
-                    font.pixelSize: Theme.scaled(18)
-                    font.bold: true
-                }
-
-                MouseArea {
-                    id: scaleDownMa
-                    anchors.fill: parent
-                    onClicked: root.scaleDown()
-                }
+                implicitWidth: Theme.scaled(32)
+                implicitHeight: Theme.scaled(32)
+                icon.source: "qrc:/icons/minus.svg"
+                icon.width: Theme.scaled(14)
+                icon.height: Theme.scaled(14)
+                inactiveColor: Theme.primaryColor
+                accessibleName: TranslationManager.translate("layoutEditor.makeZoneSmaller", "Make %1 smaller").arg(root.zoneLabel)
+                onClicked: root.scaleDown()
             }
 
             // Scale UP (bigger)
-            Rectangle {
+            StyledIconButton {
                 visible: root.showPositionControls
-                width: Theme.scaled(32)
-                height: Theme.scaled(32)
-                radius: Theme.scaled(6)
-                color: scaleUpMa.pressed ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : "transparent"
-                border.color: Theme.borderColor
-                border.width: 1
-
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("layoutEditor.makeZoneBigger", "Make %1 bigger").arg(root.zoneLabel)
-                Accessible.focusable: true
-                Accessible.onPressAction: root.scaleUp()
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "+"
-                    color: Theme.primaryColor
-                    font.pixelSize: Theme.scaled(18)
-                    font.bold: true
-                }
-
-                MouseArea {
-                    id: scaleUpMa
-                    anchors.fill: parent
-                    onClicked: root.scaleUp()
-                }
+                implicitWidth: Theme.scaled(32)
+                implicitHeight: Theme.scaled(32)
+                icon.source: "qrc:/icons/plus.svg"
+                icon.width: Theme.scaled(14)
+                icon.height: Theme.scaled(14)
+                inactiveColor: Theme.primaryColor
+                accessibleName: TranslationManager.translate("layoutEditor.makeZoneBigger", "Make %1 bigger").arg(root.zoneLabel)
+                onClicked: root.scaleUp()
             }
         }
 
@@ -236,168 +167,257 @@ Rectangle {
             Layout.fillWidth: true
             spacing: Theme.spacingSmall
 
+            // Animate chips sliding out of the way during a drag reorder.
+            move: Transition {
+                NumberAnimation { properties: "x,y"; duration: 180; easing.type: Easing.OutQuad }
+            }
+
+            // Reorderable widget chips. Drag a chip to a new slot; the
+            // DelegateModel live-swaps and the Flow `move` transition slides the
+            // displaced chips. On release we persist via reorder(from,to).
+            // Pattern adapted from FavoritesListView.qml.
             Repeater {
-                model: root.items
-                delegate: Rectangle {
-                    id: itemChip
-                    width: chipRow.implicitWidth + Theme.scaled(16)
-                    height: Theme.scaled(36)
-                    radius: Theme.scaled(8)
-                    color: modelData.id === root.selectedItemId ? Theme.primaryColor : Theme.backgroundColor
-                    border.color: modelData.type === "custom" && modelData.id !== root.selectedItemId ? "orange" : Theme.borderColor
-                    border.width: modelData.type === "custom" && modelData.id !== root.selectedItemId ? 2 : 1
+                model: DelegateModel {
+                    id: visualModel
+                    model: root.items
 
-                    property bool isSelected: modelData.id === root.selectedItemId
+                    delegate: Item {
+                        id: chipDelegate
+                        width: chipBody.width
+                        height: chipBody.height
 
-                    Accessible.role: Accessible.Button
-                    Accessible.name: {
-                        var name = modelData.type === "custom"
-                            ? root.getTextChipLabel(modelData)
-                            : getItemDisplayName(modelData.type)
-                        var suffix = isSelected ? ", " + TranslationManager.translate("layoutEditor.selected", "selected") : ""
-                        return TranslationManager.translate("layoutEditor.widgetItem", "%1 widget").arg(name) + suffix
-                    }
-                    Accessible.focusable: true
-                    Accessible.onPressAction: root.itemTapped(modelData.id)
+                        readonly property int liveIndex: DelegateModel.itemsIndex
+                        readonly property bool isSelected: !root._dragging && (modelData.id === root.selectedItemId)
+                        readonly property bool hasOptions: Settings.network.typeHasOptions(modelData.type)
 
-                    RowLayout {
-                        id: chipRow
-                        anchors.centerIn: parent
-                        spacing: Theme.scaled(4)
+                        Rectangle {
+                            id: chipBody
+                            width: chipRow.implicitWidth + Theme.scaled(16)
+                            height: Theme.scaled(36)
+                            radius: Theme.scaled(8)
+                            color: chipDelegate.isSelected ? Theme.primaryColor : Theme.backgroundColor
+                            // A coloured border marks chips that carry per-instance
+                            // options (custom orange retained; others use accent).
+                            border.color: dragMa.drag.active ? Theme.primaryColor
+                                : (chipDelegate.hasOptions && !chipDelegate.isSelected
+                                    ? (modelData.type === "custom" ? "orange" : Theme.primaryColor)
+                                    : Theme.borderColor)
+                            border.width: (dragMa.drag.active || (chipDelegate.hasOptions && !chipDelegate.isSelected)) ? 2 : 1
+                            scale: dragMa.drag.active ? 1.05 : 1.0
+                            opacity: dragMa.drag.active ? 0.95 : 1.0
+                            z: dragMa.drag.active ? 100 : 1
 
-                        // Move left arrow (only visible when selected)
-                        Text {
-                            visible: itemChip.isSelected && index > 0
-                            text: "\u25C0"
-                            color: Theme.primaryContrastColor
-                            font.pixelSize: Theme.scaled(24)
+                            Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+
+                            Drag.active: dragMa.drag.active
+                            Drag.source: chipDelegate
+                            Drag.hotSpot.x: width / 2
+                            Drag.hotSpot.y: height / 2
+
+                            // Lift out to the overlay while dragging so the chip
+                            // renders above siblings and moves freely.
+                            states: State {
+                                when: dragMa.drag.active
+                                ParentChange { target: chipBody; parent: dragLayer }
+                            }
 
                             Accessible.role: Accessible.Button
-                            Accessible.name: TranslationManager.translate("layoutEditor.moveLeft", "Move left")
+                            Accessible.name: {
+                                var nm = modelData.type === "custom"
+                                    ? root.getTextChipLabel(modelData)
+                                    : getItemDisplayName(modelData.type)
+                                var suffix = chipDelegate.isSelected ? ", " + TranslationManager.translate("layoutEditor.selected", "selected") : ""
+                                return TranslationManager.translate("layoutEditor.widgetItem", "%1 widget").arg(nm) + suffix
+                            }
                             Accessible.focusable: true
-                            Accessible.onPressAction: root.moveLeft(modelData.id)
+                            Accessible.onPressAction: root.itemTapped(modelData.id)
 
+                            RowLayout {
+                                id: chipRow
+                                anchors.centerIn: parent
+                                spacing: Theme.scaled(4)
+
+                                // Accessible-only reorder fallback (drag has no
+                                // screen-reader equivalent). Hidden in normal use.
+                                StyledIconButton {
+                                    visible: root._a11yEnabled && chipDelegate.isSelected && chipDelegate.liveIndex > 0
+                                    implicitWidth: Theme.scaled(28)
+                                    implicitHeight: Theme.scaled(28)
+                                    icon.source: "qrc:/icons/ArrowLeft.svg"
+                                    icon.width: Theme.scaled(14)
+                                    icon.height: Theme.scaled(14)
+                                    active: chipDelegate.isSelected
+                                    activeColor: Theme.primaryContrastColor
+                                    accessibleName: TranslationManager.translate("layoutEditor.moveToStart", "Move toward start")
+                                    onClicked: root.moveLeft(modelData.id)
+                                }
+
+                                // Standard label for non-text items
+                                Text {
+                                    visible: modelData.type !== "custom"
+                                    text: getItemDisplayName(modelData.type)
+                                    color: chipDelegate.isSelected
+                                        ? Theme.primaryContrastColor
+                                        : ((modelData.type === "spacer" || modelData.type === "separator" || modelData.type === "weather") ? "orange"
+                                        : ((modelData.type.startsWith("screensaver") || modelData.type === "lastShot") ? "#64B5F6" : Theme.textColor))
+                                    font: Theme.bodyFont
+                                }
+
+                                // Mini preview for text items
+                                Row {
+                                    visible: modelData.type === "custom"
+                                    spacing: Theme.scaled(3)
+                                    Layout.alignment: Qt.AlignVCenter
+
+                                    Image {
+                                        visible: (modelData.emoji || "") !== ""
+                                        source: visible ? Theme.emojiToImage(modelData.emoji || "") : ""
+                                        sourceSize.width: Theme.scaled(18)
+                                        sourceSize.height: Theme.scaled(18)
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+
+                                    Text {
+                                        text: root.getTextChipLabel(modelData)
+                                        color: chipDelegate.isSelected ? Theme.primaryContrastColor : "orange"
+                                        font: Theme.captionFont
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                }
+
+                                // Accessible-only reorder fallback (toward end).
+                                StyledIconButton {
+                                    visible: root._a11yEnabled && chipDelegate.isSelected && chipDelegate.liveIndex < root.items.length - 1
+                                    implicitWidth: Theme.scaled(28)
+                                    implicitHeight: Theme.scaled(28)
+                                    icon.source: "qrc:/icons/ArrowLeft.svg"
+                                    icon.width: Theme.scaled(14)
+                                    icon.height: Theme.scaled(14)
+                                    rotation: 180
+                                    active: chipDelegate.isSelected
+                                    activeColor: Theme.primaryContrastColor
+                                    accessibleName: TranslationManager.translate("layoutEditor.moveToEnd", "Move toward end")
+                                    onClicked: root.moveRight(modelData.id)
+                                }
+
+                                // Options button \u2014 persistent has-options indicator
+                                // AND the explicit open-options affordance.
+                                StyledIconButton {
+                                    visible: chipDelegate.hasOptions
+                                    implicitWidth: Theme.scaled(28)
+                                    implicitHeight: Theme.scaled(28)
+                                    icon.source: "qrc:/icons/settings.svg"
+                                    icon.width: Theme.scaled(15)
+                                    icon.height: Theme.scaled(15)
+                                    active: chipDelegate.isSelected
+                                    activeColor: Theme.primaryContrastColor
+                                    accessibleName: TranslationManager.translate("layoutEditor.editOptions", "Edit %1 options").arg(getItemDisplayName(modelData.type))
+                                    onClicked: root.editCustomRequested(modelData.id, root.zoneName)
+                                }
+
+                                // Remove button. Always occupies its slot so
+                                // selecting a chip never resizes it (no jump);
+                                // it's faint by default and brightens on hover or
+                                // selection — so it's discoverable without a click.
+                                StyledIconButton {
+                                    implicitWidth: Theme.scaled(28)
+                                    implicitHeight: Theme.scaled(28)
+                                    icon.source: "qrc:/icons/cross.svg"
+                                    icon.width: Theme.scaled(14)
+                                    icon.height: Theme.scaled(14)
+                                    inactiveColor: Theme.errorColor
+                                    activeColor: Theme.errorColor
+                                    active: true
+                                    opacity: (chipDelegate.isSelected || chipHover.hovered) ? 1.0 : 0.4
+                                    accessibleName: TranslationManager.translate("layoutEditor.removeWidget", "Remove widget")
+                                    onClicked: root.itemRemoved(modelData.id)
+                                    Behavior on opacity { NumberAnimation { duration: 100 } }
+                                }
+                            }
+
+                            // Brighten the remove control on mouse hover (desktop);
+                            // on touch the chip's selection state reveals it.
+                            HoverHandler { id: chipHover }
+
+                            // Pointer interaction: drag to reorder, tap to select,
+                            // long-press to open options. A small drag threshold
+                            // keeps quick taps as selection. preventStealing keeps
+                            // the surrounding ScrollView from hijacking the drag.
                             MouseArea {
+                                id: dragMa
                                 anchors.fill: parent
-                                anchors.margins: -Theme.scaled(4)
-                                onClicked: root.moveLeft(modelData.id)
+                                z: -1
+                                drag.target: chipBody
+                                drag.threshold: Theme.scaled(8)
+                                preventStealing: true
+
+                                property int _startIndex: -1
+                                property bool _held: false
+
+                                onPressed: {
+                                    _startIndex = chipDelegate.liveIndex
+                                    _held = false
+                                }
+                                onPositionChanged: {
+                                    if (drag.active) root._dragging = true
+                                }
+                                onClicked: {
+                                    if (!drag.active && !_held) root.itemTapped(modelData.id)
+                                }
+                                onPressAndHold: {
+                                    if (!drag.active && chipDelegate.hasOptions) {
+                                        _held = true
+                                        root.editCustomRequested(modelData.id, root.zoneName)
+                                    }
+                                }
+                                onReleased: {
+                                    if (root._dragging) {
+                                        var endIndex = chipDelegate.liveIndex
+                                        if (_startIndex >= 0 && endIndex !== _startIndex)
+                                            root.reorder(_startIndex, endIndex)
+                                    }
+                                    root._dragging = false
+                                    _startIndex = -1
+                                }
+                                onCanceled: {
+                                    // Roll back any live swaps so the DelegateModel
+                                    // order matches the unchanged backing list.
+                                    if (root._dragging) {
+                                        var cur = chipDelegate.liveIndex
+                                        if (_startIndex >= 0 && cur !== _startIndex)
+                                            visualModel.items.move(cur, _startIndex, 1)
+                                    }
+                                    root._dragging = false
+                                    _startIndex = -1
+                                }
                             }
                         }
 
-                        // Standard label for non-text items
-                        Text {
-                            visible: modelData.type !== "custom"
-                            text: getItemDisplayName(modelData.type)
-                            color: modelData.id === root.selectedItemId
-                                ? Theme.primaryContrastColor
-                                : ((modelData.type === "spacer" || modelData.type === "separator" || modelData.type === "weather") ? "orange"
-                                : ((modelData.type.startsWith("screensaver") || modelData.type === "lastShot") ? "#64B5F6" : Theme.textColor))
-                            font: Theme.bodyFont
-                        }
-
-                        // Mini preview for text items
-                        Row {
-                            visible: modelData.type === "custom"
-                            spacing: Theme.scaled(3)
-                            Layout.alignment: Qt.AlignVCenter
-
-                            Image {
-                                visible: (modelData.emoji || "") !== ""
-                                source: visible ? Theme.emojiToImage(modelData.emoji || "") : ""
-                                sourceSize.width: Theme.scaled(18)
-                                sourceSize.height: Theme.scaled(18)
-                                anchors.verticalCenter: parent.verticalCenter
+                        // Live swap: when the dragged chip enters this slot,
+                        // shuffle the DelegateModel so chips animate out of the way.
+                        DropArea {
+                            anchors.fill: parent
+                            onEntered: function(drag) {
+                                var src = drag.source
+                                if (!src || src === chipDelegate) return
+                                var from = src.liveIndex
+                                var to = chipDelegate.liveIndex
+                                if (from !== to) visualModel.items.move(from, to, 1)
                             }
-
-                            Text {
-                                text: root.getTextChipLabel(modelData)
-                                color: modelData.id === root.selectedItemId ? Theme.primaryContrastColor : "orange"
-                                font: Theme.captionFont
-                                anchors.verticalCenter: parent.verticalCenter
-                            }
-                        }
-
-                        // Move right arrow (only visible when selected)
-                        Text {
-                            visible: itemChip.isSelected && index < root.items.length - 1
-                            text: "\u25B6"
-                            color: Theme.primaryContrastColor
-                            font.pixelSize: Theme.scaled(24)
-
-                            Accessible.role: Accessible.Button
-                            Accessible.name: TranslationManager.translate("layoutEditor.moveRight", "Move right")
-                            Accessible.focusable: true
-                            Accessible.onPressAction: root.moveRight(modelData.id)
-
-                            MouseArea {
-                                anchors.fill: parent
-                                anchors.margins: -Theme.scaled(4)
-                                onClicked: root.moveRight(modelData.id)
-                            }
-                        }
-
-                        // Remove button (only visible when selected)
-                        Text {
-                            visible: itemChip.isSelected
-                            text: "\u00D7"
-                            color: Theme.errorColor
-                            font.pixelSize: Theme.scaled(20)
-                            font.bold: true
-
-                            Accessible.role: Accessible.Button
-                            Accessible.name: TranslationManager.translate("layoutEditor.removeWidget", "Remove widget")
-                            Accessible.focusable: true
-                            Accessible.onPressAction: root.itemRemoved(modelData.id)
-
-                            MouseArea {
-                                anchors.fill: parent
-                                anchors.margins: -Theme.scaled(4)
-                                onClicked: root.itemRemoved(modelData.id)
-                            }
-                        }
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        z: -1
-                        onClicked: root.itemTapped(modelData.id)
-                        onPressAndHold: {
-                            if (modelData.type === "custom" || modelData.type.startsWith("screensaver") || modelData.type === "lastShot" || modelData.type === "shotPlan" || modelData.type === "scaleWeight"
-                                || modelData.type === "machineStatus" || modelData.type === "temperature" || modelData.type === "steamTemperature" || modelData.type === "sleep")
-                                root.editCustomRequested(modelData.id, root.zoneName)
                         }
                     }
                 }
             }
 
             // Add widget button
-            Rectangle {
+            StyledIconButton {
                 id: addButton
-                width: Theme.scaled(36)
-                height: Theme.scaled(36)
-                radius: Theme.scaled(8)
-                color: "transparent"
-                border.color: Theme.primaryColor
-                border.width: 1
-
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("layoutEditor.addWidgetTo", "Add widget to %1").arg(root.zoneLabel)
-                Accessible.focusable: true
-                Accessible.onPressAction: addPopup.open()
-
-                Text {
-                    anchors.centerIn: parent
-                    text: "+"
-                    color: Theme.primaryColor
-                    font.family: Theme.bodyFont.family
-                    font.pixelSize: Theme.bodyFont.pixelSize
-                    font.bold: true
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: addPopup.open()
-                }
+                implicitWidth: Theme.scaled(36)
+                implicitHeight: Theme.scaled(36)
+                icon.source: "qrc:/icons/plus.svg"
+                inactiveColor: Theme.primaryColor
+                accessibleName: TranslationManager.translate("layoutEditor.addWidgetTo", "Add widget to %1").arg(root.zoneLabel)
+                onClicked: addPopup.open()
 
                 Dialog {
                     id: addPopup
@@ -406,6 +426,7 @@ Rectangle {
                     anchors.centerIn: parent
                     padding: Theme.scaled(4)
                     closePolicy: Dialog.CloseOnPressOutside | Dialog.CloseOnEscape
+                    onOpened: widgetFilter.text = ""
 
                     background: Rectangle {
                         color: Theme.surfaceColor
@@ -414,86 +435,151 @@ Rectangle {
                         border.width: 1
                     }
 
-                    contentItem: ListView {
-                        id: addListView
-                        implicitWidth: Theme.scaled(200)
-                        implicitHeight: Math.min(contentHeight, Theme.scaled(400))
-                        boundsBehavior: Flickable.StopAtBounds
-                        clip: true
+                    contentItem: ColumnLayout {
+                        spacing: Theme.scaled(4)
 
-                        // Grouped by color (white, orange, blue), sorted by name within each group
-                        model: [
-                            // Actions & readouts (white)
-                            { type: "beans", label: TranslationManager.translate("layoutEditor.widgetBeans", "Beans") },
-                            { type: "equipment", label: TranslationManager.translate("layoutEditor.widgetEquipment", "Equipment") },
-                            { type: "espresso", label: TranslationManager.translate("layoutEditor.widgetEspresso", "Espresso") },
-                            { type: "autofavorites", label: TranslationManager.translate("layoutEditor.widgetFavorites", "Favorites") },
-                            { type: "flush", label: TranslationManager.translate("layoutEditor.widgetFlush", "Flush") },
-                            { type: "history", label: TranslationManager.translate("layoutEditor.widgetHistory", "History") },
-                            { type: "hotwater", label: TranslationManager.translate("layoutEditor.widgetHotWater", "Hot Water") },
-                            { type: "machineStatus", label: TranslationManager.translate("layoutEditor.widgetMachineStatus", "Machine Status") },
-                            { type: "scaleWeight", label: TranslationManager.translate("layoutEditor.widgetScaleWeight", "Scale Weight") },
-                            { type: "profileName", label: TranslationManager.translate("layoutEditor.widgetProfileName", "Profile Name") },
-                            { type: "doseWeight", label: TranslationManager.translate("layoutEditor.widgetDoseWeight", "Dose Weight") },
-                            { type: "milkWeight", label: TranslationManager.translate("layoutEditor.widgetMilkWeight", "Milk Weight") },
-                            { type: "ratioQuickSelect", label: TranslationManager.translate("layoutEditor.widgetRatioQuickSelect", "Ratio Quick-Select") },
-                            { type: "settings", label: TranslationManager.translate("layoutEditor.widgetSettings", "Settings") },
-                            { type: "shotPlan", label: TranslationManager.translate("layoutEditor.widgetShotPlan", "Shot Plan") },
-                            { type: "sleep", label: TranslationManager.translate("layoutEditor.widgetSleep", "Sleep") },
-                            { type: "steam", label: TranslationManager.translate("layoutEditor.widgetSteam", "Steam") },
-                            { type: "steamTemperature", label: TranslationManager.translate("layoutEditor.widgetSteamTemp", "Steam Temp") },
-                            { type: "temperature", label: TranslationManager.translate("layoutEditor.widgetTemperature", "Temperature") },
-                            { type: "batteryLevel", label: TranslationManager.translate("layoutEditor.widgetBatteryLevel", "Battery Level") },
-                            { type: "scaleBattery", label: TranslationManager.translate("layoutEditor.widgetScaleBattery", "Scale Battery") },
-                            { type: "ghcSimulator", label: TranslationManager.translate("layoutEditor.widgetGHCSimulator", "Mini GHC") },
-                            { type: "discuss", label: TranslationManager.translate("layoutEditor.widgetDiscuss", "Discuss") },
-                            { type: "waterLevel", label: TranslationManager.translate("layoutEditor.widgetWaterLevel", "Water Level") },
-                            // Utility (orange)
-                            { type: "custom", label: TranslationManager.translate("layoutEditor.widgetCustom", "Custom") },
-                            { type: "pageTitle", label: TranslationManager.translate("layoutEditor.widgetPageTitle", "Page Title") },
-                            { type: "quit", label: TranslationManager.translate("layoutEditor.widgetQuit", "Quit") },
-                            { type: "separator", label: TranslationManager.translate("layoutEditor.widgetSeparator", "Separator") },
-                            { type: "spacer", label: TranslationManager.translate("layoutEditor.widgetSpacer", "Spacer") },
-                            { type: "weather", label: TranslationManager.translate("layoutEditor.widgetWeather", "Weather") },
-                            // Screensavers & widgets (blue)
-                            { type: "screensaverPipes", label: TranslationManager.translate("layoutEditor.widget3DPipes", "3D Pipes") },
-                            { type: "screensaverAttractor", label: TranslationManager.translate("layoutEditor.widgetAttractors", "Attractors") },
-                            { type: "screensaverFlipClock", label: TranslationManager.translate("layoutEditor.widgetFlipClock", "Flip Clock") },
-                            { type: "lastShot", label: TranslationManager.translate("layoutEditor.widgetLastShot", "Last Shot") },
-                            { type: "screensaverShotMap", label: TranslationManager.translate("layoutEditor.widgetShotMap", "Shot Map") }
-                        ]
+                        StyledTextField {
+                            id: widgetFilter
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: Theme.scaled(220)
+                            placeholderText: TranslationManager.translate("layoutEditor.filterWidgets", "Filter widgets…")
+                        }
 
-                        delegate: Rectangle {
-                            width: addListView.width
-                            height: Theme.scaled(36)
-                            color: delegateMa.containsMouse ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.12) : "transparent"
-                            radius: Theme.scaled(4)
+                        ListView {
+                            id: addListView
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: Theme.scaled(220)
+                            implicitHeight: Math.min(contentHeight, Theme.scaled(380))
+                            boundsBehavior: Flickable.StopAtBounds
+                            clip: true
 
-                            Accessible.role: Accessible.MenuItem
-                            Accessible.name: TranslationManager.translate("layoutEditor.addWidget", "Add %1").arg(modelData.label)
-                            Accessible.focusable: true
-                            Accessible.onPressAction: {
-                                root.addItemRequested(modelData.type)
-                                addPopup.close()
+                            // Category labels indexed by the `cat` field below.
+                            readonly property var catNames: [
+                                TranslationManager.translate("layoutEditor.catActions", "Actions"),
+                                TranslationManager.translate("layoutEditor.catReadouts", "Readouts"),
+                                TranslationManager.translate("layoutEditor.catUtility", "Utility"),
+                                TranslationManager.translate("layoutEditor.catScreensavers", "Screensavers")
+                            ]
+
+                            // Full widget catalog: type, category index, label.
+                            // Same grouping/order the web picker uses.
+                            readonly property var catalog: [
+                                // Actions (0)
+                                { type: "espresso", cat: 0, label: TranslationManager.translate("layoutEditor.widgetEspresso", "Espresso") },
+                                { type: "steam", cat: 0, label: TranslationManager.translate("layoutEditor.widgetSteam", "Steam") },
+                                { type: "hotwater", cat: 0, label: TranslationManager.translate("layoutEditor.widgetHotWater", "Hot Water") },
+                                { type: "flush", cat: 0, label: TranslationManager.translate("layoutEditor.widgetFlush", "Flush") },
+                                { type: "sleep", cat: 0, label: TranslationManager.translate("layoutEditor.widgetSleep", "Sleep") },
+                                { type: "settings", cat: 0, label: TranslationManager.translate("layoutEditor.widgetSettings", "Settings") },
+                                { type: "quit", cat: 0, label: TranslationManager.translate("layoutEditor.widgetQuit", "Quit") },
+                                { type: "history", cat: 0, label: TranslationManager.translate("layoutEditor.widgetHistory", "History") },
+                                { type: "beans", cat: 0, label: TranslationManager.translate("layoutEditor.widgetBeans", "Beans") },
+                                { type: "equipment", cat: 0, label: TranslationManager.translate("layoutEditor.widgetEquipment", "Equipment") },
+                                { type: "autofavorites", cat: 0, label: TranslationManager.translate("layoutEditor.widgetFavorites", "Favorites") },
+                                { type: "discuss", cat: 0, label: TranslationManager.translate("layoutEditor.widgetDiscuss", "Discuss") },
+                                { type: "ghcSimulator", cat: 0, label: TranslationManager.translate("layoutEditor.widgetGHCSimulator", "Mini GHC") },
+                                // Readouts (1)
+                                { type: "machineStatus", cat: 1, label: TranslationManager.translate("layoutEditor.widgetMachineStatus", "Machine Status") },
+                                { type: "scaleWeight", cat: 1, label: TranslationManager.translate("layoutEditor.widgetScaleWeight", "Scale Weight") },
+                                { type: "temperature", cat: 1, label: TranslationManager.translate("layoutEditor.widgetTemperature", "Temperature") },
+                                { type: "steamTemperature", cat: 1, label: TranslationManager.translate("layoutEditor.widgetSteamTemp", "Steam Temp") },
+                                { type: "batteryLevel", cat: 1, label: TranslationManager.translate("layoutEditor.widgetBatteryLevel", "Battery Level") },
+                                { type: "scaleBattery", cat: 1, label: TranslationManager.translate("layoutEditor.widgetScaleBattery", "Scale Battery") },
+                                { type: "waterLevel", cat: 1, label: TranslationManager.translate("layoutEditor.widgetWaterLevel", "Water Level") },
+                                { type: "profileName", cat: 1, label: TranslationManager.translate("layoutEditor.widgetProfileName", "Profile Name") },
+                                { type: "doseWeight", cat: 1, label: TranslationManager.translate("layoutEditor.widgetDoseWeight", "Dose Weight") },
+                                { type: "milkWeight", cat: 1, label: TranslationManager.translate("layoutEditor.widgetMilkWeight", "Milk Weight") },
+                                { type: "ratioQuickSelect", cat: 1, label: TranslationManager.translate("layoutEditor.widgetRatioQuickSelect", "Ratio Quick-Select") },
+                                { type: "shotPlan", cat: 1, label: TranslationManager.translate("layoutEditor.widgetShotPlan", "Shot Plan") },
+                                // Utility (2)
+                                { type: "custom", cat: 2, label: TranslationManager.translate("layoutEditor.widgetCustom", "Custom") },
+                                { type: "pageTitle", cat: 2, label: TranslationManager.translate("layoutEditor.widgetPageTitle", "Page Title") },
+                                { type: "separator", cat: 2, label: TranslationManager.translate("layoutEditor.widgetSeparator", "Separator") },
+                                { type: "spacer", cat: 2, label: TranslationManager.translate("layoutEditor.widgetSpacer", "Spacer") },
+                                { type: "weather", cat: 2, label: TranslationManager.translate("layoutEditor.widgetWeather", "Weather") },
+                                // Screensavers (3)
+                                { type: "screensaverPipes", cat: 3, label: TranslationManager.translate("layoutEditor.widget3DPipes", "3D Pipes") },
+                                { type: "screensaverAttractor", cat: 3, label: TranslationManager.translate("layoutEditor.widgetAttractors", "Attractors") },
+                                { type: "screensaverFlipClock", cat: 3, label: TranslationManager.translate("layoutEditor.widgetFlipClock", "Flip Clock") },
+                                { type: "lastShot", cat: 3, label: TranslationManager.translate("layoutEditor.widgetLastShot", "Last Shot") },
+                                { type: "screensaverShotMap", cat: 3, label: TranslationManager.translate("layoutEditor.widgetShotMap", "Shot Map") }
+                            ]
+
+                            // Filtered + sorted (by category, then label) model,
+                            // with explicit header rows so grouping works with a
+                            // plain JS-array model (section.property needs roles).
+                            model: {
+                                var f = widgetFilter.text.trim().toLowerCase()
+                                var list = []
+                                for (var i = 0; i < catalog.length; i++) {
+                                    var e = catalog[i]
+                                    if (f === "" || e.label.toLowerCase().indexOf(f) >= 0)
+                                        list.push(e)
+                                }
+                                list.sort(function(a, b) {
+                                    return a.cat !== b.cat ? a.cat - b.cat : a.label.localeCompare(b.label)
+                                })
+                                var out = []
+                                var lastCat = -1
+                                for (var j = 0; j < list.length; j++) {
+                                    if (list[j].cat !== lastCat) {
+                                        out.push({ isHeader: true, label: catNames[list[j].cat], type: "", cat: list[j].cat })
+                                        lastCat = list[j].cat
+                                    }
+                                    out.push({ isHeader: false, label: list[j].label, type: list[j].type, cat: list[j].cat })
+                                }
+                                return out
                             }
 
-                            Text {
-                                anchors.left: parent.left
-                                anchors.leftMargin: Theme.scaled(12)
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: modelData.label
-                                color: (modelData.type.startsWith("screensaver") || modelData.type === "lastShot") ? "#64B5F6"
-                                    : (modelData.type === "spacer" || modelData.type === "separator" || modelData.type === "custom" || modelData.type === "weather") ? "orange" : Theme.textColor
-                                font: Theme.bodyFont
-                            }
+                            delegate: Rectangle {
+                                width: addListView.width
+                                height: modelData.isHeader ? Theme.scaled(24) : Theme.scaled(36)
+                                color: (!modelData.isHeader && delegateMa.containsMouse) ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.12) : "transparent"
+                                radius: Theme.scaled(4)
 
-                            MouseArea {
-                                id: delegateMa
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                onClicked: {
+                                Accessible.role: modelData.isHeader ? Accessible.StaticText : Accessible.MenuItem
+                                Accessible.name: modelData.isHeader
+                                    ? modelData.label
+                                    : TranslationManager.translate("layoutEditor.addWidget", "Add %1").arg(modelData.label)
+                                Accessible.focusable: !modelData.isHeader
+                                Accessible.onPressAction: {
+                                    if (modelData.isHeader) return
                                     root.addItemRequested(modelData.type)
                                     addPopup.close()
+                                }
+
+                                // Category header
+                                Text {
+                                    visible: modelData.isHeader
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: Theme.scaled(10)
+                                    anchors.bottom: parent.bottom
+                                    text: modelData.label
+                                    color: Theme.textSecondaryColor
+                                    font: Theme.captionFont
+                                }
+
+                                // Widget row
+                                Text {
+                                    visible: !modelData.isHeader
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: Theme.scaled(12)
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: modelData.label
+                                    color: (modelData.type.startsWith("screensaver") || modelData.type === "lastShot") ? "#64B5F6"
+                                        : (modelData.type === "spacer" || modelData.type === "separator" || modelData.type === "custom" || modelData.type === "weather") ? "orange" : Theme.textColor
+                                    font: Theme.bodyFont
+                                }
+
+                                MouseArea {
+                                    id: delegateMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    enabled: !modelData.isHeader
+                                    onClicked: {
+                                        root.addItemRequested(modelData.type)
+                                        addPopup.close()
+                                    }
                                 }
                             }
                         }
@@ -508,6 +594,14 @@ Rectangle {
         anchors.fill: parent
         z: -1
         onClicked: root.zoneTapped()
+    }
+
+    // Overlay that hosts a chip while it is being dragged, so it renders above
+    // its siblings and can move outside the Flow's layout flow.
+    Item {
+        id: dragLayer
+        anchors.fill: parent
+        z: 100
     }
 
     // Build a short label for a text item chip from its content/action
