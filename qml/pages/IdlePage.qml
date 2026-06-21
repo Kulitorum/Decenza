@@ -887,8 +887,11 @@ Page {
     // ============================================================
     // Lower-mid bar (optional, from layout lowerMidBar zone)
     // Full-width band above the bottom action bar. Empty -> zero height.
-    // Height-gated: hidden when the viewport is too short to fit it, so the
-    // center content keeps its room (runtime-adaptive, no device-class check).
+    // Height-gated: hidden unless the viewport has room for the bar plus a
+    // minimum center height (runtime-adaptive, no device-class check). This is a
+    // heuristic on total free height, not a hard guarantee against the
+    // vertically-centered center content reaching under the bar on mid-height
+    // viewports; raise the threshold if overlap is seen.
     // ============================================================
     property var lowerMidBarOptions: layoutConfig.zoneOptions ? (layoutConfig.zoneOptions.lowerMidBar || ({})) : ({})
     readonly property bool lowerMidBarHasItems: idlePage.lowerMidBarItems.length > 0

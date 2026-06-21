@@ -3,9 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-// Quick coffee:water ratio chooser, opened from the home-screen status bar.
-// Offers the three classic styles (Ristretto 1:1, Normale 1:2, Lungo 1:3),
-// applies the pick to Settings.brew.lastUsedRatio only (the stop-at-weight target
+// Quick coffee:water ratio chooser, opened from the ratioQuickSelect layout
+// widget (placeable in any zone). Offers three user-configurable presets
+// (Ristretto / Normale / Lungo; defaults 1:1 / 1:2 / 1:3, read from
+// Settings.brew.ratioPreset1/2/3), and applies the pick to
+// Settings.brew.lastUsedRatio only (the stop-at-weight target
 // derives from dose × ratio at the proper commit point, not from this dialog), and
 // includes a short "about ratios" help panel. Descriptions are original but
 // the ratio styles/learning are adapted from La Marzocco Home's article
@@ -23,8 +25,8 @@ Dialog {
     property bool showHelp: false
     readonly property double currentRatio: Settings.brew.lastUsedRatio
 
-    // The three classic styles. `desc` are our own words, informed by the
-    // La Marzocco article credited below.
+    // The three presets (ratios are user-configurable, defaulting to 1/2/3).
+    // `desc` are our own words, informed by the La Marzocco article credited below.
     readonly property var presets: [
         { ratio: Settings.brew.ratioPreset1, key: "ratio.ristretto", name: "Ristretto",
           desc: "Short & concentrated — syrupy and heavy-bodied with intense flavour. Cuts through milk; suits darker roasts." },

@@ -52,7 +52,9 @@ Item {
                 id: ratioValue
                 anchors.centerIn: parent
                 text: root.ratioText
-                color: Theme.primaryColor  // accent text contrasts against the light pill fill
+                // Pill fill is the zone text color (light on an accentBar zone);
+                // accent-colored text reads against it in the intended placements.
+                color: Theme.primaryColor
                 font.pixelSize: Theme.scaled(20)
                 font.bold: true
             }

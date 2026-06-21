@@ -353,6 +353,9 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             m_settings->network()->setZoneOption(zone, "style", "accentBar");
         } else if (preset == "clear") {
             m_settings->network()->setZoneItems(zone, QVariantList());
+        } else {
+            sendResponse(socket, 400, "application/json", R"({"error":"Unknown preset"})");
+            return;
         }
         sendJson(socket, R"({"success":true})");
     }

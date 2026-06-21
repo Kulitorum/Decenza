@@ -109,7 +109,7 @@ Item {
     // Ensure there's always a way to reach Settings from the home screen
     function ensureSettingsAccessible() {
         var zones = ["statusBar", "topLeft", "topRight", "centerStatus", "centerTop",
-                     "centerMiddle", "bottomLeft", "bottomRight"]
+                     "centerMiddle", "lowerMidBar", "bottomLeft", "bottomRight"]
         for (var z = 0; z < zones.length; z++) {
             var items = Settings.network.getZoneItems(zones[z])
             for (var i = 0; i < items.length; i++) {
