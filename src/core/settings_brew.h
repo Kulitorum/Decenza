@@ -94,7 +94,6 @@ public:
     bool doseCaptureSoundEnabled() const;
     void setDoseCaptureSoundEnabled(bool enabled);
 
-
     double lastSteamMilkG() const;
     void setLastSteamMilkG(double g);
     double lastSteamTimeS() const;

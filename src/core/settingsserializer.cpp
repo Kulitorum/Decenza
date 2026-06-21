@@ -450,13 +450,17 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                     if (p.contains("calibMilkG")) settings->brew()->setSteamPitcherCalibration(idx, p["calibMilkG"].toDouble());
                 }
             }
-            // Apply the selected pitcher AFTER the presets are rebuilt — setting it
-            // before the clear/re-add would leave it clamped to a stale index.
-            if (steam.contains("selectedPitcher")) {
-                const int sel = steam["selectedPitcher"].toInt();
-                if (sel >= 0 && sel < static_cast<int>(settings->brew()->steamPitcherPresets().size()))
-                    settings->brew()->setSelectedSteamCup(sel);
-            }
+        }
+        // Apply the selected pitcher AFTER any preset rebuild (and regardless of
+        // whether this JSON carried a presets array) — setting it mid-rebuild would
+        // leave it clamped to a stale index. Out-of-range is dropped with a log.
+        if (steam.contains("selectedPitcher")) {
+            const int sel = steam["selectedPitcher"].toInt();
+            if (sel >= 0 && sel < static_cast<int>(settings->brew()->steamPitcherPresets().size()))
+                settings->brew()->setSelectedSteamCup(sel);
+            else
+                qWarning() << "SettingsSerializer: imported selectedPitcher" << sel
+                           << "out of range after import; leaving current selection";
         }
     }
 
