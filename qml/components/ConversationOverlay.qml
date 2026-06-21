@@ -399,23 +399,68 @@ Rectangle {
                     }
                 }
 
-                // Error message display
+                // Error message display (with Retry when the failed turn can be re-sent)
                 Rectangle {
-                    visible: MainController.aiManager && MainController.aiManager.conversation &&
-                             MainController.aiManager.conversation.errorMessage.length > 0 &&
-                             !MainController.aiManager.conversation.busy
+                    id: errorBox
+                    readonly property var _conv: MainController.aiManager ? MainController.aiManager.conversation : null
+                    visible: _conv && _conv.errorMessage.length > 0 && !_conv.busy
                     Layout.fillWidth: true
-                    height: Theme.scaled(28)
+                    Layout.preferredHeight: Theme.scaled(36)
                     radius: Theme.scaled(4)
                     color: Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.15)
                     border.color: Theme.errorColor
                     border.width: 1
 
-                    Text {
-                        anchors.centerIn: parent
-                        text: MainController.aiManager && MainController.aiManager.conversation ? (MainController.aiManager.conversation.errorMessage || "") : ""
-                        font.pixelSize: Theme.scaled(11)
-                        color: Theme.errorColor
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.scaled(10)
+                        anchors.rightMargin: Theme.scaled(6)
+                        spacing: Theme.scaled(8)
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: errorBox._conv ? (errorBox._conv.errorMessage || "") : ""
+                            font.pixelSize: Theme.scaled(11)
+                            color: Theme.errorColor
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        // Retry: re-sends the preserved failed turn without retyping.
+                        Rectangle {
+                            id: retryButton
+                            visible: errorBox._conv && errorBox._conv.canRetry
+                            Layout.preferredWidth: Theme.scaled(64)
+                            Layout.preferredHeight: Theme.scaled(28)
+                            radius: Theme.scaled(6)
+                            color: Theme.errorColor
+                            border.width: 0
+
+                            Accessible.role: Accessible.Button
+                            Accessible.name: TranslationManager.translate("conversation.retry.accessible", "Retry sending message")
+                            Accessible.focusable: true
+                            Accessible.onPressAction: retryArea.clicked(null)
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: TranslationManager.translate("conversation.retry", "Retry")
+                                font: Theme.bodyFont
+                                color: Theme.primaryContrastColor
+                                Accessible.ignored: true
+                            }
+
+                            MouseArea {
+                                id: retryArea
+                                anchors.fill: parent
+                                enabled: retryButton.visible
+                                onClicked: {
+                                    if (errorBox._conv)
+                                        errorBox._conv.retry()
+                                }
+                            }
+                        }
                     }
                 }
 
