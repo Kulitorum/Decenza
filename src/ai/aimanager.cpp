@@ -115,6 +115,7 @@ void AIManager::createProviders()
     // Create Gemini provider
     QString geminiKey = m_settings->ai()->geminiApiKey();
     auto* gemini = new GeminiProvider(m_networkManager, geminiKey, this);
+    gemini->setModel(m_settings->ai()->providerModel("gemini"));  // empty → keeps default
     connect(gemini, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(gemini, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
     connect(gemini, &AIProvider::testResult, this, &AIManager::onTestResult);
@@ -155,6 +156,21 @@ QString AIManager::modelDisplayName(const QString& providerId) const
 {
     AIProvider* provider = providerById(providerId);
     return provider ? provider->shortModelName() : QString();
+}
+
+QVariantList AIManager::availableModels(const QString& providerId) const
+{
+    QVariantList out;
+    AIProvider* provider = providerById(providerId);
+    if (!provider) return out;
+    const QList<AIProvider::ModelOption> models = provider->availableModels();
+    for (const AIProvider::ModelOption& opt : models) {
+        QVariantMap entry;
+        entry["id"] = opt.id;
+        entry["name"] = opt.displayName;
+        out.append(entry);
+    }
+    return out;
 }
 
 void AIManager::setSelectedProvider(const QString& provider)
@@ -1262,6 +1278,7 @@ void AIManager::onSettingsChanged()
     auto* gemini = dynamic_cast<GeminiProvider*>(m_geminiProvider.get());
     if (gemini) {
         gemini->setApiKey(m_settings->ai()->geminiApiKey());
+        gemini->setModel(m_settings->ai()->providerModel("gemini"));  // empty → keeps default
     }
 
     auto* openrouter = dynamic_cast<OpenRouterProvider*>(m_openrouterProvider.get());

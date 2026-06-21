@@ -224,6 +224,63 @@ KeyboardAwareContainer {
                     }
                 }
 
+                // Model selection (providers exposing a fixed catalog of >1 model).
+                // Generic: any provider whose availableModels() returns multiple
+                // entries lights this up automatically — no per-provider wiring.
+                ColumnLayout {
+                    id: modelSelect
+                    // Re-evaluated when the active provider changes (the binding
+                    // references Settings.ai.aiProvider).
+                    property var options: MainController.aiManager
+                        ? MainController.aiManager.availableModels(Settings.ai.aiProvider)
+                        : []
+                    property string currentProvider: Settings.ai.aiProvider
+                    visible: options.length > 1
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+
+                    Tr {
+                        key: "settings.ai.model"
+                        fallback: "Model"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                        font.bold: true
+                    }
+
+                    StyledComboBox {
+                        Layout.fillWidth: true
+                        model: modelSelect.options
+                        textRole: "name"
+                        accessibleLabel: TranslationManager.translate("settings.ai.modelAccessible", "AI model")
+                        // Index of the stored selection; default to 0 (recommended)
+                        // when unset or stale, without writing it back.
+                        currentIndex: {
+                            var sel = Settings.ai.providerModel(modelSelect.currentProvider)
+                            for (var i = 0; i < modelSelect.options.length; i++) {
+                                if (modelSelect.options[i].id === sel) return i
+                            }
+                            return 0
+                        }
+                        // onActivated fires only on user selection, so programmatic
+                        // currentIndex changes (provider switch) never write back.
+                        onActivated: function(index) {
+                            if (index >= 0 && index < modelSelect.options.length) {
+                                Settings.ai.setProviderModel(modelSelect.currentProvider,
+                                                             modelSelect.options[index].id)
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: TranslationManager.translate("settings.ai.modelHint",
+                            "3.5 Flash is the most capable. 2.5 Flash is more available (fewer busy errors).")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(11)
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+                }
+
                 // OpenRouter model settings
                 ColumnLayout {
                     visible: Settings.ai.aiProvider === "openrouter"

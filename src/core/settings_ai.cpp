@@ -101,3 +101,17 @@ void SettingsAI::setOpenrouterModel(const QString& model) {
         emit configurationChanged();
     }
 }
+
+QString SettingsAI::providerModel(const QString& providerId) const {
+    if (providerId.isEmpty()) return QString();
+    return m_settings.value("ai/model/" + providerId, "").toString();
+}
+
+void SettingsAI::setProviderModel(const QString& providerId, const QString& modelId) {
+    if (providerId.isEmpty()) return;
+    if (providerModel(providerId) != modelId) {
+        m_settings.setValue("ai/model/" + providerId, modelId);
+        emit providerModelChanged();
+        emit configurationChanged();
+    }
+}

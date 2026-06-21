@@ -609,11 +609,42 @@ GeminiProvider::GeminiProvider(QNetworkAccessManager* networkManager,
 {
 }
 
+QList<AIProvider::ModelOption> GeminiProvider::availableModels() const
+{
+    // Order = UI order; first entry is the recommended default.
+    return {
+        { "gemini-3.5-flash", "3.5 Flash" },
+        { "gemini-2.5-flash", "2.5 Flash" },
+    };
+}
+
+void GeminiProvider::setModel(const QString& modelId)
+{
+    if (modelId.isEmpty())
+        return;  // unset → keep the current default
+    for (const ModelOption& opt : availableModels()) {
+        if (opt.id == modelId) {
+            m_model = modelId;
+            return;
+        }
+    }
+    qWarning() << "GeminiProvider::setModel ignoring unknown model id:" << modelId;
+}
+
+QString GeminiProvider::shortModelName() const
+{
+    for (const ModelOption& opt : availableModels()) {
+        if (opt.id == m_model)
+            return opt.displayName;
+    }
+    return m_model;
+}
+
 QString GeminiProvider::apiUrl() const
 {
     // Use URL without key - key is passed via header for better security
     return QString("https://generativelanguage.googleapis.com/v1beta/models/%1:generateContent")
-        .arg(MODEL);
+        .arg(m_model);
 }
 
 void GeminiProvider::sendRequest(const QJsonObject& requestBody)
@@ -625,11 +656,18 @@ void GeminiProvider::sendRequest(const QJsonObject& requestBody)
     req.setRawHeader("x-goog-api-key", m_apiKey.toUtf8());
     req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
 
-    // Gemini 3.x ignores the 2.5-era integer thinkingBudget; it needs the thinkingLevel
-    // enum, else thinking defaults to "medium" (billed at the $9/MTok output rate).
+    // Thinking config differs by model family: the 2.5 family uses the integer
+    // thinkingBudget (0 disables thinking), while 3.x+ uses the thinkingLevel
+    // enum and ignores thinkingBudget — sending the wrong knob lets thinking
+    // default to "medium" (billed at the $9/MTok output rate). Pick by family
+    // so each selectable model keeps thinking minimal/off.
     QJsonObject bodyWithConfig = requestBody;
     QJsonObject thinkingConfig;
-    thinkingConfig["thinkingLevel"] = "minimal";
+    if (m_model.startsWith(QStringLiteral("gemini-2"))) {
+        thinkingConfig["thinkingBudget"] = 0;       // 2.5 family: disable thinking
+    } else {
+        thinkingConfig["thinkingLevel"] = "minimal"; // 3.x+ family
+    }
     QJsonObject generationConfig;
     generationConfig["thinkingConfig"] = thinkingConfig;
     generationConfig["maxOutputTokens"] = 1024;  // also bounds thinking tokens; matches other providers
