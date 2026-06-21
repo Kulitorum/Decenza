@@ -618,10 +618,14 @@ GeminiProvider::GeminiProvider(QNetworkAccessManager* networkManager,
 
 QList<AIProvider::ModelOption> GeminiProvider::availableModels() const
 {
-    // Order = UI order; first entry is the recommended default.
+    // Order = UI order; first entry is the recommended default. 2.5 Flash leads
+    // as the lowest-cost sensible default for shot analysis — thinking adds
+    // little here and 2.5 can disable it entirely (thinkingBudget 0), plus it
+    // has more provisioned capacity (fewer 503s). 3.5 Flash is the opt-in
+    // "more capable" choice. Revisit as new models / pricing land.
     return {
-        { "gemini-3.5-flash", "3.5 Flash" },
         { "gemini-2.5-flash", "2.5 Flash" },
+        { "gemini-3.5-flash", "3.5 Flash" },
     };
 }
 
