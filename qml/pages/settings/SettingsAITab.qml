@@ -12,6 +12,16 @@ KeyboardAwareContainer {
     property string testResultMessage: ""
     property bool testResultSuccess: false
 
+    // modelDisplayName()/availableModels() are non-reactive invokables. Bump
+    // this on configurationChanged (which fires after the model is applied) and
+    // reference it in those bindings so provider-card subtitles refresh when the
+    // selected model changes.
+    property int configTick: 0
+    Connections {
+        target: MainController.aiManager
+        function onConfigurationChanged() { aiTab.configTick++ }
+    }
+
     // Helper function to check if provider has a key configured
     function isProviderConfigured(providerId) {
         switch(providerId) {
@@ -132,7 +142,10 @@ KeyboardAwareContainer {
                                     }
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
-                                        text: MainController.aiManager ? MainController.aiManager.modelDisplayName(modelData.id) : ""
+                                        text: {
+                                            aiTab.configTick  // dependency: refresh on model change
+                                            return MainController.aiManager ? MainController.aiManager.modelDisplayName(modelData.id) : ""
+                                        }
                                         font.pixelSize: Theme.scaled(11)
                                         color: isSelected ? Qt.rgba(1,1,1,0.8) : Theme.textSecondaryColor
                                         Accessible.ignored: true
