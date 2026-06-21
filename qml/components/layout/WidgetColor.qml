@@ -11,15 +11,19 @@ QtObject {
     id: widgetColor
 
     // Picker choices, in display order. "default" leads so the non-destructive
-    // option is first.
-    readonly property var choices: [
-        { value: "default", label: TranslationManager.translate("layoutEditor.colorDefault", "Default") },
-        { value: "white",   label: TranslationManager.translate("layoutEditor.colorWhite", "White") },
-        { value: "green",   label: TranslationManager.translate("layoutEditor.colorGreen", "Green") },
-        { value: "red",     label: TranslationManager.translate("layoutEditor.colorRed", "Red") },
-        { value: "blue",    label: TranslationManager.translate("layoutEditor.colorBlue", "Blue") },
-        { value: "orange",  label: TranslationManager.translate("layoutEditor.colorOrange", "Orange") }
-    ]
+    // option is first. Reading translationVersion makes the labels re-evaluate on
+    // a language switch — required because this singleton is never recreated.
+    readonly property var choices: {
+        var _v = TranslationManager.translationVersion
+        return [
+            { value: "default", label: TranslationManager.translate("layoutEditor.colorDefault", "Default") },
+            { value: "white",   label: TranslationManager.translate("layoutEditor.colorWhite", "White") },
+            { value: "green",   label: TranslationManager.translate("layoutEditor.colorGreen", "Green") },
+            { value: "red",     label: TranslationManager.translate("layoutEditor.colorRed", "Red") },
+            { value: "blue",    label: TranslationManager.translate("layoutEditor.colorBlue", "Blue") },
+            { value: "orange",  label: TranslationManager.translate("layoutEditor.colorOrange", "Orange") }
+        ]
+    }
 
     // The override color for a named choice, or `fallback` (the widget's own
     // natural color) for "default"/unset/unknown.
