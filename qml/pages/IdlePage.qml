@@ -346,6 +346,9 @@ Page {
         // before the user places the pitcher
         if (activePresetFunction === "steam" && typeof MachineState !== "undefined") {
             MachineState.tareScale()
+            // Fresh steam attempt: drop any milk captured but not consumed by a prior
+            // (abandoned) attempt, so it can't scale this one.
+            if (Window.window) Window.window.sessionMeasuredMilkG = 0
         }
 
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled && activePresetFunction !== "") {

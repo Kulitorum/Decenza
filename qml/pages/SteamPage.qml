@@ -265,6 +265,7 @@ Page {
         function onSelectedSteamPitcherChanged() {
             steamPage.steamTimeoutScaled = false
             steamPage.steamTimeoutUserAdjusted = false
+            steamPage.lastOnScaleMilk = 0   // captured net milk is pitcher-specific
         }
     }
 
@@ -1819,8 +1820,7 @@ Page {
                         }
 
                         // Weigh the milk now on the scale and use it as the reference.
-                        // Works with a saved empty-pitcher weight, or a scale tared with
-                        // the empty pitcher (net milk = the raw reading).
+                        // Requires a saved empty-pitcher weight (net milk = scale - pitcher).
                         Rectangle {
                             id: refMilkWeighBtn
                             visible: ScaleDevice.connected && !ScaleDevice.isFlowScale
