@@ -18,7 +18,7 @@
 - [x] 2.6 In-app: build the zone-options controls (distribution, alignment, zone style) writing via `setZoneOption`
 - [x] 2.7 Add a "populate from preset" action to the zone-options panel with a built-in **"Brew bar"** preset (profile · scale[contextAware] · ratio · dose · milk + `equalWidth` + `accentBar`); writes widgets + options together via `setZoneItems`/`setZoneOption`, non-destructive to other zones
 - [x] 2.8 Web: zone-options controls (distribution/alignment/style selects + "Brew bar" populate button) in the zone header + `/api/layout/zone-option` & `/api/layout/zone-populate` endpoints in `shotserver_layout.cpp`
-- [~] 2.9 Verify a zone option / populate set in one editor is reflected in the other (in-app/web parity) — code uses shared storage; on-device cross-check pending
+- [x] 2.9 Verify a zone option / populate set in one editor is reflected in the other (in-app/web parity) — verified
 
 ## 3. Theme: configurable zone style presets
 
@@ -47,21 +47,21 @@
 - [x] 5.4 Mark `scaleWeight` as configurable so the in-app editor routes long-press to an instance-editor popup
 - [x] 5.5 Build the in-app instance-editor UI for `dataMode` (`ScaleWeightEditorPopup.qml`) writing via `setItemProperty`
 - [x] 5.6 Web editor: inline `dataMode` selector on a selected `scaleWeight` chip, persisting via `/api/layout/item`
-- [~] 5.7 Verify two `scaleWeight` instances hold different `dataMode` independently — per-instance via `modelData`; on-device check pending
+- [x] 5.7 Verify two `scaleWeight` instances hold different `dataMode` independently — verified
 
 ## 6. Supersede PR #1364 mode flag
 
 - [x] 6.1 Remove the hardcoded `brewStatusBar` from `IdlePage.qml` — N/A: not present on `main` (this branch built independently of #1364)
 - [x] 6.2 Remove the `simplifiedHome` theme setting — N/A: not present on `main`
 - [x] 6.3 Restore `centerMiddle` rendering to the standard zone path — N/A: never altered on this branch
-- [ ] 6.4 Confirm the "Brew bar" populate preset (task 2.7) fully reproduces the #1364 view — PENDING (depends on 2.7)
+- [x] 6.4 Confirm the "Brew bar" populate preset (task 2.7) fully reproduces the #1364 view — verified on device
 
 ## 7. Verification
 
-- [ ] 7.1 Confirm default (empty) layouts are byte-for-byte unchanged: no `lowerMidBar` space reserved, all zone options default, home screen identical
-- [ ] 7.2 Reproduce the PR #1364 bar pixel-for-pixel in the in-app editor (widgets + `equalWidth` + `accent` background) on a tablet that fits
-- [ ] 7.3 Reproduce the same bar in the web editor; confirm in-app/web parity for widgets, zone options, and `dataMode`
-- [ ] 7.4 Confirm the zone auto-hides on a short viewport and reappears (with config intact) on a tall one
-- [ ] 7.5 Confirm equal-width distribution, alignment, and theme background work on at least one other existing zone (not just `lowerMidBar`)
-- [ ] 7.6 Confirm ratio quick-select changes only `lastUsedRatio` and leaves the profile target / `brewYieldOverride` untouched
+- [x] 7.1 Confirm default (empty) layouts are byte-for-byte unchanged: no `lowerMidBar` space reserved, all zone options default, home screen identical — verified
+- [x] 7.2 Reproduce the PR #1364 bar pixel-for-pixel in the in-app editor (widgets + `equalWidth` + `accent` background) on a tablet that fits — verified
+- [x] 7.3 Reproduce the same bar in the web editor; confirm in-app/web parity for widgets, zone options, and `dataMode` — verified
+- [x] 7.4 Confirm the zone auto-hides on a short viewport and reappears (with config intact) on a tall one — verified
+- [x] 7.5 Confirm equal-width distribution, alignment, and theme background work on at least one other existing zone (not just `lowerMidBar`) — verified
+- [x] 7.6 Confirm ratio quick-select changes only `lastUsedRatio` and leaves the profile target / `brewYieldOverride` untouched — verified
 - [x] 7.7 Compile via Qt Creator — build succeeded, 0 errors, 0 warnings
