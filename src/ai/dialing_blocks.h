@@ -4,6 +4,7 @@
 #include "aiconversation.h"   // HistoricalAssistantTurn — input to buildRecentAdviceBlock
 #include "../core/basketaliases.h"  // basket spec derivation inside buildCurrentBeanBlock
 #include "../core/puckprep.h"       // puck-prep flags + distribution inside buildCurrentBeanBlock
+#include "../history/shotprojection.h"  // source type for beanInputsFromProjection (inline)
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -15,7 +16,6 @@
 class QSqlDatabase;
 class Settings;
 class ProfileManager;
-class ShotProjection;
 
 // Shared block builders for the dialing-context payload. Both
 // `dialing_get_context` (MCP tool) and the in-app advisor's user-prompt
@@ -186,6 +186,12 @@ struct CurrentBeanBlockInputs {
     QString beanType;
     QString roastLevel;
     QString roastDate;
+    // Bean storage lifecycle (bean-bag-inventory), snapshotted at shot time.
+    // When either is set, buildBeanFreshness reports storage as KNOWN and ages
+    // the beans from the thaw date instead of asking the user. Empty = no
+    // freeze history recorded for this shot.
+    QString frozenDate;
+    QString defrostDate;
     QString grinderBrand;
     QString grinderModel;
     QString grinderBurrs;
@@ -210,6 +216,35 @@ struct CurrentBeanBlockInputs {
     // process/tasting data instead of just free-text brand+name strings.
     QString beanBaseJson;
 };
+
+// Map a persisted shot record to the currentBean inputs. THE single source of
+// truth for that mapping: both `dialing_get_context` (MCP) and the advisor's
+// `summarizeFromHistory` path build `CurrentBeanBlockInputs` from a
+// ShotProjection through here, so the two surfaces cannot drift — a field
+// added to currentBean is wired in exactly one place. Inline for the same
+// reason as buildCurrentBeanBlock below (test binaries that link only
+// shotsummarizer.cpp pick it up without dialing_blocks.cpp).
+inline CurrentBeanBlockInputs beanInputsFromProjection(const ShotProjection& sd)
+{
+    CurrentBeanBlockInputs in;
+    in.beanBrand = sd.beanBrand;
+    in.beanType = sd.beanType;
+    in.roastLevel = sd.roastLevel;
+    in.roastDate = sd.roastDate;
+    in.frozenDate = sd.frozenDate;
+    in.defrostDate = sd.defrostDate;
+    in.grinderBrand = sd.grinderBrand;
+    in.grinderModel = sd.grinderModel;
+    in.grinderBurrs = sd.grinderBurrs;
+    in.basketBrand = sd.basketBrand;
+    in.basketModel = sd.basketModel;
+    in.puckPrep = sd.puckPrep;
+    in.grinderSetting = sd.grinderSetting;
+    in.rpm = static_cast<int>(sd.rpm);
+    in.doseWeightG = sd.doseWeightG;
+    in.beanBaseJson = sd.beanBaseJson;
+    return in;
+}
 
 // Defined inline so test binaries that link only `shotsummarizer.cpp`
 // (and not the rest of `dialing_blocks.cpp`'s DB-dependent
@@ -266,7 +301,8 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
         bean["puckPrep"] = puck;
     }
 
-    const QJsonObject freshness = DialingHelpers::buildBeanFreshness(in.roastDate);
+    const QJsonObject freshness = DialingHelpers::buildBeanFreshness(
+        in.roastDate, in.frozenDate, in.defrostDate);
     if (!freshness.isEmpty())
         bean["beanFreshness"] = freshness;
 

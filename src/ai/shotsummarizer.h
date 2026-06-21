@@ -11,6 +11,7 @@
 
 #include "../history/shotprojection.h"
 #include "shotanalysis.h"  // ShotAnalysis::ExpertBand — expertBandForKbId return type (D14)
+#include "dialing_blocks.h"  // CurrentBeanBlockInputs — carried on ShotSummary
 
 class ShotDataModel;
 class Profile;
@@ -135,6 +136,14 @@ struct ShotSummary {
     // so the LLM has a stop-reason anchor instead of inventing one when
     // yieldG looks short.
     QString stoppedBy;
+
+    // Canonical currentBean inputs for this shot, built ONCE from the source:
+    // DialingBlocks::beanInputsFromProjection() on the persisted/advisor path,
+    // or the live ShotMetadata path in summarize(). buildCurrentBeanBlock()
+    // renders straight from this, so the bean/grinder/basket/puck/freeze
+    // mapping lives in one place and the advisor and dialing_get_context
+    // surfaces cannot drift.
+    DialingBlocks::CurrentBeanBlockInputs beanInputs;
 };
 
 class ShotSummarizer : public QObject {

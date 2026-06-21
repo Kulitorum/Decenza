@@ -245,6 +245,24 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     summary.enjoymentScore = metadata.espressoEnjoyment;
     summary.tastingNotes = metadata.espressoNotes;
 
+    // Canonical currentBean inputs for the live path. ShotMetadata carries
+    // bean identity + freeze/thaw dates but not resolved puck-prep / basket
+    // strings (only an equipmentId), so those stay empty here; the persisted
+    // (ShotProjection) path fills them via beanInputsFromProjection.
+    summary.beanInputs.beanBrand = metadata.beanBrand;
+    summary.beanInputs.beanType = metadata.beanType;
+    summary.beanInputs.roastLevel = metadata.roastLevel;
+    summary.beanInputs.roastDate = metadata.roastDate;
+    summary.beanInputs.frozenDate = metadata.frozenDate;
+    summary.beanInputs.defrostDate = metadata.defrostDate;
+    summary.beanInputs.grinderBrand = metadata.grinderBrand;
+    summary.beanInputs.grinderModel = metadata.grinderModel;
+    summary.beanInputs.grinderBurrs = metadata.grinderBurrs;
+    summary.beanInputs.grinderSetting = metadata.grinderSetting;
+    summary.beanInputs.rpm = static_cast<int>(metadata.rpm);
+    summary.beanInputs.doseWeightG = doseWeight;
+    summary.beanInputs.beanBaseJson = metadata.beanBaseJson;
+
     // Phase processing — walk the typed marker list once to build the
     // HistoryPhaseMarker stream `analyzeShot` consumes, then hand that stream
     // to buildPhaseSummariesForRange to compute the per-phase metrics for
@@ -394,6 +412,11 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     summary.drinkEy = shotData.drinkEyPct;
     summary.enjoymentScore = shotData.enjoyment0to100;
     summary.tastingNotes = shotData.espressoNotes;
+
+    // Canonical currentBean inputs — single shared mapping. Carries the
+    // puck-prep, basket, and freeze/thaw fields the old per-surface hand-roll
+    // dropped, so the advisor sees the same currentBean as dialing_get_context.
+    summary.beanInputs = DialingBlocks::beanInputsFromProjection(shotData);
     // ShotProjection.stoppedBy was introduced by #1161 (see
     // shotprojection.h:127); #1280 added the forwarding into buildShotBlock
     // so the standalone shot prompt carries the stop-reason anchor too.
@@ -506,22 +529,13 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
 
 static QJsonObject buildCurrentBeanBlock(const ShotSummary& summary)
 {
-    // Delegates to the shared helper so this surface and
-    // `dialing_get_context.currentBean` produce byte-equivalent JSON for
-    // the same resolved shot.
-    DialingBlocks::CurrentBeanBlockInputs in;
-    in.beanBrand = summary.beanBrand;
-    in.beanType = summary.beanType;
-    in.roastLevel = summary.roastLevel;
-    in.roastDate = summary.roastDate;
-    in.grinderBrand = summary.grinderBrand;
-    in.grinderModel = summary.grinderModel;
-    in.grinderBurrs = summary.grinderBurrs;
-    in.grinderSetting = summary.grinderSetting;
-    in.rpm = summary.rpm;
-    in.doseWeightG = summary.doseWeight;
-    in.beanBaseJson = summary.beanBaseJson;
-    return DialingBlocks::buildCurrentBeanBlock(in);
+    // Renders straight from the inputs the summarize path already assembled
+    // via the shared DialingBlocks mapper, so this surface and
+    // `dialing_get_context.currentBean` produce byte-equivalent JSON for the
+    // same resolved shot — the field mapping (incl. puck-prep, basket, and
+    // freeze/thaw dates) lives in one place (beanInputsFromProjection), never
+    // duplicated here.
+    return DialingBlocks::buildCurrentBeanBlock(summary.beanInputs);
 }
 
 static QJsonObject buildCurrentProfileBlock(const ShotSummary& summary)
@@ -1143,13 +1157,15 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "tasted (score 1–100, 1–2 lines of flavor notes, TDS reading if available)\n"
         "before suggesting changes. Curve-only analysis without taste feedback\n"
         "misses the variable that matters most.\n\n"
-        "**`currentBean.beanFreshness`**: when present, carries `roastDate`,\n"
-        "`freshnessKnown` (currently always `false` until storage tracking is\n"
-        "added), and an `instruction`. NEVER quote calendar age until\n"
-        "`freshnessKnown` is `true`. Many users freeze beans and thaw weekly —\n"
-        "calendar days from `roastDate` are not freshness without storage context.\n"
-        "ASK the user about storage before applying any bean-aging guidance from\n"
-        "the dial-in reference tables.\n\n"
+        "**`currentBean.beanFreshness`**: carries `roastDate`, a `freshnessKnown`\n"
+        "flag, and an `instruction`. When `freshnessKnown` is `false`, storage is\n"
+        "unknown — NEVER quote calendar age; ASK the user about storage first\n"
+        "(many users freeze beans and thaw weekly, so calendar days from\n"
+        "`roastDate` are not freshness without storage context). When\n"
+        "`freshnessKnown` is `true`, the block also carries `frozenDate` and/or\n"
+        "`defrostDate`: storage IS known, so do NOT ask — freezing pauses\n"
+        "staling, so age the beans from `defrostDate` (the thaw), not `roastDate`.\n"
+        "Always follow the block's `instruction` field.\n\n"
         "**`dialInSessions[].context`**: hoists shot-identity fields shared across\n"
         "an iteration session (`grinderBrand`, `grinderModel`, `grinderBurrs`,\n"
         "`beanBrand`, `beanType`). When a per-shot entry under `shots[]` omits\n"

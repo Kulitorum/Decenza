@@ -130,34 +130,55 @@ inline HoistedSession hoistSessionContext(const QList<ShotIdentity>& shots)
     return out;
 }
 
-// Fixed instruction text shipped on every populated `beanFreshness` block.
-// Reads as imperative, not advisory — calendar age is a category-mistake
-// against actual bean freshness when storage history is unknown (frozen,
-// thawed weekly, vacuum-sealed, etc.). The previous advisory note was
-// demonstrably skimmed past; this one tells the AI explicitly to ASK
+// Instruction shipped when the bag's storage history is UNKNOWN (no freeze
+// or thaw dates recorded). Reads as imperative, not advisory — calendar age
+// is a category-mistake against actual bean freshness when storage history is
+// unknown (frozen, thawed weekly, vacuum-sealed, etc.). The previous advisory
+// note was demonstrably skimmed past; this one tells the AI explicitly to ASK
 // before quoting age.
 inline constexpr const char* kBeanFreshnessInstruction =
     "Calendar age from roastDate is NOT freshness — many users freeze and "
     "thaw weekly. ASK the user about storage before applying any "
     "bean-aging guidance.";
 
+// Instruction shipped when the bag DOES carry storage history (a frozenDate
+// and/or defrostDate is present). Storage is no longer a missing variable, so
+// the AI must NOT ask about it — and must not treat calendar days from
+// roastDate as staleness. Freezing pauses staling, so the aging clock runs
+// from defrostDate (the thaw), not roastDate: beans frozen since roast and
+// recently thawed are fresh regardless of calendar age.
+inline constexpr const char* kBeanFreshnessKnownInstruction =
+    "Storage history is known from the dates below — do NOT ask the user "
+    "about storage. Freezing pauses staling: count bean age from defrostDate "
+    "(the thaw), not roastDate. Beans frozen since roast and recently thawed "
+    "are fresh regardless of how many calendar days have passed since roast.";
+
 // Build the `currentBean.beanFreshness` block. Replaces the deprecated
 // `daysSinceRoast` + `daysSinceRoastNote` fields. Returns an empty object
-// (caller suppresses the parent assignment) when `roastDate` is empty.
+// (caller suppresses the parent assignment) only when there is nothing to say
+// — no `roastDate` AND no freeze/thaw dates.
 //
-// The block intentionally contains NO precomputed day count under any
-// field name — the AI must do the subtraction itself in front of the
-// user, which makes the assumption visible. `freshnessKnown` is always
-// `false` until a separate change introduces a storage-mode setting.
+// `freshnessKnown` is `true` when the bag carries a `frozenDate` and/or
+// `defrostDate`: that storage history is the variable whose absence the
+// unknown-case instruction asks the user to supply, so its presence flips the
+// guidance from "ASK about storage" to "age from the thaw date." The block
+// still contains NO precomputed day count under any field name — the AI does
+// the subtraction itself (from `defrostDate` when freshness is known).
 //
 // Pure function: easy to unit-test, no DB / Settings dependency.
-inline QJsonObject buildBeanFreshness(const QString& roastDate)
+inline QJsonObject buildBeanFreshness(const QString& roastDate,
+                                      const QString& frozenDate = QString(),
+                                      const QString& defrostDate = QString())
 {
-    if (roastDate.isEmpty()) return QJsonObject();
+    const bool known = !frozenDate.isEmpty() || !defrostDate.isEmpty();
+    if (roastDate.isEmpty() && !known) return QJsonObject();
     QJsonObject block;
-    block["roastDate"] = roastDate;
-    block["freshnessKnown"] = false;
-    block["instruction"] = QString::fromUtf8(kBeanFreshnessInstruction);
+    if (!roastDate.isEmpty()) block["roastDate"] = roastDate;
+    if (!frozenDate.isEmpty()) block["frozenDate"] = frozenDate;
+    if (!defrostDate.isEmpty()) block["defrostDate"] = defrostDate;
+    block["freshnessKnown"] = known;
+    block["instruction"] = QString::fromUtf8(
+        known ? kBeanFreshnessKnownInstruction : kBeanFreshnessInstruction);
     return block;
 }
 
