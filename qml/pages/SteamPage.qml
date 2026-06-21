@@ -197,12 +197,12 @@ Page {
         if (!ScaleDevice.connected) return 0
         var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
         if (!preset || preset.disabled) return 0
+        // Net milk = scale reading minus the saved empty-pitcher weight. A saved
+        // pitcher weight is REQUIRED (same gate as auto-capture), so there is one
+        // consistent rule and no tare-vs-saved-weight ambiguity to trip over.
         var pitcherWt = preset.pitcherWeightG ?? 0
-        // If an empty-pitcher weight is saved, net milk = scale - pitcher.
-        // Otherwise assume the user tared the scale with the empty pitcher, so
-        // the live reading is already net milk.
-        var milk = pitcherWt > 0 ? (MachineState.scaleWeight - pitcherWt)
-                                 : MachineState.scaleWeight
+        if (pitcherWt <= 0) return 0
+        var milk = MachineState.scaleWeight - pitcherWt
         return (milk >= 20 && milk <= 1500) ? milk : 0
     }
 
@@ -253,28 +253,6 @@ Page {
     Connections {
         target: Settings.brew
         function onSelectedSteamPitcherChanged() { steamPage.steamTimeoutScaled = false }
-    }
-
-    // Confirm before storing the empty-pitcher weight (footgun: weighing a pitcher
-    // that still has milk in it would skew every net-milk reading thereafter).
-    property real pendingPitcherWeight: 0
-    Dialog {
-        id: pitcherWeighConfirm
-        parent: Overlay.overlay
-        anchors.centerIn: parent
-        modal: true
-        width: Math.min(Theme.scaled(380), parent ? parent.width * 0.9 : Theme.scaled(380))
-        standardButtons: Dialog.Save | Dialog.Cancel
-        contentItem: Text {
-            text: TranslationManager.translate("steam.confirmPitcherWeight",
-                "Store %1 g as the empty pitcher weight? Make sure the pitcher is empty (no milk).")
-                .arg(steamPage.pendingPitcherWeight.toFixed(1))
-            wrapMode: Text.WordWrap
-            color: Theme.textColor
-            font: Theme.bodyFont
-            padding: Theme.spacingLarge
-        }
-        onAccepted: Settings.brew.setSteamPitcherWeight(Settings.brew.selectedSteamPitcher, steamPage.pendingPitcherWeight)
     }
 
     function syncSteamTimeout() {
@@ -1681,86 +1659,6 @@ Page {
                             }
                             onValueCommitted: function(newValue) {
                                 MainController.setSteamTemperatureImmediate(newValue)
-                            }
-                        }
-                    }
-
-                    // Milk pitcher section: the empty-pitcher weight for the selected
-                    // preset. Shows the saved value and lets you adjust it (type or +/-).
-                    // Used to work out milk weight (scale - pitcher) and, when a preset
-                    // is calibrated, to scale the steam time. Re-weigh via the Weight
-                    // row's Save button below.
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.scaled(16)
-                        visible: !steamPage.currentPitcherDisabled
-
-                        Column {
-                            spacing: Theme.scaled(4)
-                            Tr {
-                                key: "steam.label.pitcherWeight"
-                                fallback: "Milk pitcher"
-                                color: Theme.textColor
-                                font.pixelSize: Theme.scaled(24)
-                                Accessible.ignored: true
-                            }
-                            Tr {
-                                key: "steam.hint.pitcherWeight"
-                                fallback: "Empty pitcher weight"
-                                color: Theme.textSecondaryColor
-                                font: Theme.labelFont
-                            }
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        ValueInput {
-                            id: pitcherWeightInput
-                            Layout.preferredWidth: Theme.scaled(150)
-                            from: 0
-                            to: 1000
-                            stepSize: 0.1
-                            decimals: 1
-                            suffix: " g"
-                            value: {
-                                var _ = Settings.brew.steamPitcherPresets
-                                var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-                                return preset ? (preset.pitcherWeightG ?? 0) : 0
-                            }
-                            valueColor: Theme.weightColor
-                            accessibleName: TranslationManager.translate("steam.label.pitcherWeight", "Milk pitcher weight")
-                            onValueModified: function(newValue) {
-                                Settings.brew.setSteamPitcherWeight(Settings.brew.selectedSteamPitcher, newValue)
-                            }
-                        }
-
-                        // Weigh the empty pitcher now on the scale.
-                        Rectangle {
-                            id: pitcherWeighBtn
-                            visible: ScaleDevice.connected && !ScaleDevice.isFlowScale
-                            readonly property bool btnEnabled: MachineState.scaleWeight > 0
-                            opacity: btnEnabled ? 1.0 : 0.4
-                            width: Theme.scaled(84); height: Theme.scaled(44)
-                            radius: Theme.cardRadius
-                            color: pitcherWeighMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                            Accessible.role: Accessible.Button
-                            Accessible.name: TranslationManager.translate("steam.accessible.weighPitcher", "Weigh empty pitcher from the scale")
-                            Accessible.focusable: true
-                            Accessible.onPressAction: pitcherWeighMa.clicked(null)
-                            Tr {
-                                anchors.centerIn: parent
-                                key: "steam.label.weigh"; fallback: "Weigh"
-                                color: Theme.primaryContrastColor; font: Theme.bodyFont
-                                Accessible.ignored: true
-                            }
-                            MouseArea {
-                                id: pitcherWeighMa
-                                anchors.fill: parent
-                                enabled: pitcherWeighBtn.btnEnabled
-                                onClicked: {
-                                    steamPage.pendingPitcherWeight = MachineState.scaleWeight
-                                    pitcherWeighConfirm.open()
-                                }
                             }
                         }
                     }
