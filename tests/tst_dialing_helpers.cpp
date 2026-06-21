@@ -154,6 +154,12 @@ void TstDialingHelpers::buildBeanFreshness_populatedRoastDate_carriesFreshnessKn
     QVERIFY2(instruction.contains(QStringLiteral("freeze"))
              || instruction.contains(QStringLiteral("frozen")),
              "instruction must surface the freezing pattern that breaks calendar-age reasoning");
+    // Unknown storage must not emit empty freeze-date keys — absence of the
+    // keys is how "no storage history" is signalled to the advisor.
+    QVERIFY2(!block.contains(QStringLiteral("frozenDate")),
+             "unknown-storage block must omit frozenDate, not emit it empty");
+    QVERIFY2(!block.contains(QStringLiteral("defrostDate")),
+             "unknown-storage block must omit defrostDate, not emit it empty");
 }
 
 void TstDialingHelpers::buildBeanFreshness_neverEmitsAnyDayCountField()

@@ -245,23 +245,17 @@ ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
     summary.enjoymentScore = metadata.espressoEnjoyment;
     summary.tastingNotes = metadata.espressoNotes;
 
-    // Canonical currentBean inputs for the live path. ShotMetadata carries
-    // bean identity + freeze/thaw dates but not resolved puck-prep / basket
-    // strings (only an equipmentId), so those stay empty here; the persisted
-    // (ShotProjection) path fills them via beanInputsFromProjection.
-    summary.beanInputs.beanBrand = metadata.beanBrand;
-    summary.beanInputs.beanType = metadata.beanType;
-    summary.beanInputs.roastLevel = metadata.roastLevel;
-    summary.beanInputs.roastDate = metadata.roastDate;
-    summary.beanInputs.frozenDate = metadata.frozenDate;
-    summary.beanInputs.defrostDate = metadata.defrostDate;
-    summary.beanInputs.grinderBrand = metadata.grinderBrand;
-    summary.beanInputs.grinderModel = metadata.grinderModel;
-    summary.beanInputs.grinderBurrs = metadata.grinderBurrs;
-    summary.beanInputs.grinderSetting = metadata.grinderSetting;
-    summary.beanInputs.rpm = static_cast<int>(metadata.rpm);
-    summary.beanInputs.doseWeightG = doseWeight;
-    summary.beanInputs.beanBaseJson = metadata.beanBaseJson;
+    // NOTE: summary.beanInputs is intentionally left empty on this live path.
+    // The AI advisor always summarizes a *persisted* shot — a fresh shot
+    // reaches it as a ShotProjection via onShotReady (the shot is saved before
+    // the advisor/conversation window opens) and is routed through
+    // summarizeFromHistory(), which builds beanInputs from the single shared
+    // beanInputsFromProjection() mapper. This overload has no production
+    // advisor caller (it backs the detector-pipeline unit tests), so building
+    // currentBean here would only add a second, drift-prone ShotMetadata→
+    // currentBean mapping for no consumer. If a live currentBean is ever
+    // needed, persist the shot (or build a ShotProjection) and go through
+    // beanInputsFromProjection().
 
     // Phase processing — walk the typed marker list once to build the
     // HistoryPhaseMarker stream `analyzeShot` consumes, then hand that stream
@@ -529,12 +523,15 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
 
 static QJsonObject buildCurrentBeanBlock(const ShotSummary& summary)
 {
-    // Renders straight from the inputs the summarize path already assembled
-    // via the shared DialingBlocks mapper, so this surface and
-    // `dialing_get_context.currentBean` produce byte-equivalent JSON for the
-    // same resolved shot — the field mapping (incl. puck-prep, basket, and
-    // freeze/thaw dates) lives in one place (beanInputsFromProjection), never
-    // duplicated here.
+    // Renders straight from the beanInputs the summarize path already
+    // assembled: via the shared beanInputsFromProjection mapper on the
+    // persisted/advisor path (summarizeFromHistory), or hand-rolled from
+    // ShotMetadata on the live path. On the persisted path this is
+    // byte-equivalent to dialing_get_context.currentBean for the same shot
+    // (both feed beanInputsFromProjection). The live path is a deliberate
+    // subset — ShotMetadata carries no resolved basket/puck strings — so it
+    // omits those sub-objects. Either way the field mapping lives in the
+    // mapper / the live populate block, never duplicated here.
     return DialingBlocks::buildCurrentBeanBlock(summary.beanInputs);
 }
 
@@ -1157,8 +1154,9 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "tasted (score 1–100, 1–2 lines of flavor notes, TDS reading if available)\n"
         "before suggesting changes. Curve-only analysis without taste feedback\n"
         "misses the variable that matters most.\n\n"
-        "**`currentBean.beanFreshness`**: carries `roastDate`, a `freshnessKnown`\n"
-        "flag, and an `instruction`. When `freshnessKnown` is `false`, storage is\n"
+        "**`currentBean.beanFreshness`**: carries an optional `roastDate`, a\n"
+        "`freshnessKnown` flag, and an `instruction`. When `freshnessKnown` is\n"
+        "`false`, storage is\n"
         "unknown — NEVER quote calendar age; ASK the user about storage first\n"
         "(many users freeze beans and thaw weekly, so calendar days from\n"
         "`roastDate` are not freshness without storage context). When\n"

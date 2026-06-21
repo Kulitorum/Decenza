@@ -214,6 +214,8 @@ private slots:
         sd.frozenDate = QStringLiteral("2026-04-16");
         sd.defrostDate = QStringLiteral("2026-06-20");
         sd.puckPrep = QStringLiteral("rdt,shaker"); // canonical sorted set
+        sd.basketBrand = QStringLiteral("Decent");
+        sd.basketModel = QStringLiteral("18g Ridged");
         sd.doseWeightG = 18.0;
 
         const QJsonObject bean = DialingBlocks::buildCurrentBeanBlock(
@@ -226,6 +228,14 @@ private slots:
         QCOMPARE(puck[QStringLiteral("rdt")].toBool(), true);
         QCOMPARE(puck[QStringLiteral("shaker")].toBool(), true);
         QCOMPARE(puck[QStringLiteral("wdt")].toBool(), false);
+
+        // Basket flowed through too — the advisor's old hand-roll dropped it
+        // entirely, so pin its identity here as part of the same regression.
+        QVERIFY2(bean.contains(QStringLiteral("basket")),
+                 "currentBean must carry the basket sub-object");
+        const QJsonObject basket = bean[QStringLiteral("basket")].toObject();
+        QCOMPARE(basket[QStringLiteral("brand")].toString(), QStringLiteral("Decent"));
+        QCOMPARE(basket[QStringLiteral("model")].toString(), QStringLiteral("18g Ridged"));
 
         // Freeze/thaw flowed through and marked storage known.
         const QJsonObject fresh = bean[QStringLiteral("beanFreshness")].toObject();

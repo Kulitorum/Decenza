@@ -143,6 +143,13 @@ struct ShotSummary {
     // renders straight from this, so the bean/grinder/basket/puck/freeze
     // mapping lives in one place and the advisor and dialing_get_context
     // surfaces cannot drift.
+    //
+    // This is the authoritative carrier for bean/grinder identity. The flat
+    // beanBrand/beanType/roastDate/grinderModel/... fields above mirror a
+    // subset of it for prompt sections not yet migrated (prose body, the
+    // standalone `shot` block); both are populated from the same source in
+    // each summarize path, so keep them in sync until those consumers read
+    // beanInputs directly and the flat fields can be retired.
     DialingBlocks::CurrentBeanBlockInputs beanInputs;
 };
 
