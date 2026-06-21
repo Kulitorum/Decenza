@@ -6,6 +6,7 @@
 #include "core/settings_app.h"
 #include "core/settings_brew.h"
 #include "core/settings_dye.h"
+#include "core/settings_network.h"
 #include "core/settings_theme.h"
 #include "core/settings_visualizer.h"
 #include "core/settingsserializer.h"
@@ -382,6 +383,61 @@ private slots:
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
         QCOMPARE(m_settings.app()->autoLoadProfileFilename(), QString("preferred-profile"));
         QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 17);
+    }
+
+    // ==========================================
+    // ==========================================
+    // Layout: configurable-type allowlist + per-instance "configured" gate
+    // ==========================================
+
+    // typeHasOptions is the single source of truth for which widget types expose
+    // per-instance options (drives the editor's gear indicator + open routing).
+    // Pin the allowlist so dropping a type or breaking the screensaver prefix
+    // match is a visible, deliberate change.
+    void typeHasOptionsAllowlist() {
+        const QStringList configurable = {
+            "custom", "scaleWeight", "shotPlan", "sleep", "machineStatus",
+            "temperature", "steamTemperature", "waterLevel", "lastShot"
+        };
+        for (const QString& t : configurable)
+            QVERIFY2(SettingsNetwork::typeHasOptions(t), qPrintable("expected configurable: " + t));
+
+        // Any screensaver* type is configurable (prefix match).
+        QVERIFY(SettingsNetwork::typeHasOptions("screensaver"));
+        QVERIFY(SettingsNetwork::typeHasOptions("screensaverFlipClock"));
+
+        // Plain widgets and unknown/empty types are not.
+        QVERIFY(!SettingsNetwork::typeHasOptions("spacer"));
+        QVERIFY(!SettingsNetwork::typeHasOptions("separator"));
+        QVERIFY(!SettingsNetwork::typeHasOptions("pageTitle"));
+        QVERIFY(!SettingsNetwork::typeHasOptions("espresso"));
+        QVERIFY(!SettingsNetwork::typeHasOptions(""));
+    }
+
+    // itemIsConfigured gates the remove-confirmation that protects a set-up
+    // widget from an accidental tap. Cover its two true-branches (configurable
+    // type; or a plain type carrying an extra property) and the false cases.
+    void itemIsConfiguredBranches() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{\"statusBar\":["
+            "{\"type\":\"temperature\",\"id\":\"t1\"},"
+            "{\"type\":\"separator\",\"id\":\"sep1\"},"
+            "{\"type\":\"spacer\",\"id\":\"sp1\",\"width\":20}"
+            "]}}"));
+
+        // Configurable type → configured, even with only type/id stored.
+        QVERIFY(net->itemIsConfigured("t1"));
+        // Plain type, only type/id → not configured.
+        QVERIFY(!net->itemIsConfigured("sep1"));
+        // Plain type but carries an extra (non type/id) property → configured.
+        QVERIFY(net->itemIsConfigured("sp1"));
+        // Unknown id → empty props → not configured.
+        QVERIFY(!net->itemIsConfigured("does_not_exist"));
+
+        net->setLayoutConfiguration(orig);
     }
 
     // ==========================================

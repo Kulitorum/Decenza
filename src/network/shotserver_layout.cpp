@@ -2426,7 +2426,7 @@ QString ShotServer::generateLayoutPage() const
         {type:"weather",cat:2,label:"Weather",special:true},
         // Screensavers (3)
         {type:"screensaverPipes",cat:3,label:"3D Pipes",screensaver:true},
-        {type:"screensaverAttractor",cat:3,label:"Attractor",screensaver:true},
+        {type:"screensaverAttractor",cat:3,label:"Attractors",screensaver:true},
         {type:"screensaverFlipClock",cat:3,label:"Flip Clock",screensaver:true},
         {type:"lastShot",cat:3,label:"Last Shot",screensaver:true},
         {type:"screensaverShotMap",cat:3,label:"Shot Map",screensaver:true}

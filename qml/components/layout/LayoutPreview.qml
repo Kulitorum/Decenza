@@ -8,17 +8,21 @@ import Decenza
 // at the device reference size (960x600), then scales to fit, so what you see
 // matches what ships.
 //
-// Reactivity: every zone binding reads `_cfg` (the layout JSON) through the
-// helper functions, so the preview re-renders whenever the layout changes.
+// Reactivity: the C++ getters (getZoneItems/getZoneOption/...) take only a zone
+// string, so a QML binding that calls them gains NO dependency on the layout
+// config and would never re-evaluate. Each helper therefore reads `_cfg` into an
+// unused local `d` purely to register a binding dependency on
+// `layoutConfiguration`; that `var d = _cfg` line is load-bearing — do not
+// "clean it up" or the preview stops updating when the layout changes.
 Item {
     id: previewRoot
     clip: true
 
     readonly property var _cfg: Settings.network.layoutConfiguration
-    function _items(z) { var d = _cfg; return Settings.network.getZoneItems(z) }
-    function _scale(z) { var d = _cfg; return Settings.network.getZoneScale(z) }
-    function _offset(z) { var d = _cfg; return Settings.network.getZoneYOffset(z) }
-    function _opt(z, k, dv) { var d = _cfg; return Settings.network.getZoneOption(z, k, dv) }
+    function _items(z) { var d = _cfg; return Settings.network.getZoneItems(z) }   // d: dependency tap, keep
+    function _scale(z) { var d = _cfg; return Settings.network.getZoneScale(z) }   // d: dependency tap, keep
+    function _offset(z) { var d = _cfg; return Settings.network.getZoneYOffset(z) } // d: dependency tap, keep
+    function _opt(z, k, dv) { var d = _cfg; return Settings.network.getZoneOption(z, k, dv) } // d: dependency tap, keep
 
     Item {
         id: canvas
