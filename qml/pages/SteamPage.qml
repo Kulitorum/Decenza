@@ -88,6 +88,21 @@ Page {
         }
     }
 
+    // Last net-milk reading while the pitcher rested on the scale this session, used to
+    // apply the weight-scaled steam time at steam-start even after the pitcher is lifted
+    // to the wand. Decoupled from the auto-capture's settle detector, whose virtual zero
+    // can fail to seed when the loaded pitcher never leaves the scale. Reset at session end.
+    property real lastOnScaleMilk: 0
+    Connections {
+        target: MachineState
+        function onScaleWeightChanged() {
+            if (!steamPage.isSteaming) {
+                var m = steamPage.currentMeasuredMilk()
+                if (m > 0) steamPage.lastOnScaleMilk = m
+            }
+        }
+    }
+
     // Reset state when steaming starts/ends
     onIsSteamingChanged: {
         console.log("SteamPage: isSteaming changed to", isSteaming, "phase=", MachineState.phase, "steamSoftStopped=", steamSoftStopped)
@@ -95,6 +110,19 @@ Page {
             wasSteaming = true
             steamSoftStopped = false
             _lastAnnouncedSteamWeight = 0
+            // Apply the weight-scaled steam time NOW, at steam-start, using the same direct
+            // calc as the "Expected steam time" readout (falling back to the last on-scale
+            // reading once the pitcher is lifted). The auto-capture can't be relied on here,
+            // so this is what actually makes the steam scale. setSteamTimeoutImmediate pushes
+            // it to the DE1 and takes effect even mid-steam.
+            var _scaledNow = steamPage.scaledSteamTimeout()
+            if (_scaledNow <= 0 && steamPage.lastOnScaleMilk > 0)
+                _scaledNow = steamPage.steamTimeForMilk(steamPage.lastOnScaleMilk)
+            if (_scaledNow > 0) {
+                Settings.brew.steamTimeout = _scaledNow
+                steamPage.steamTimeoutScaled = true
+                MainController.setSteamTimeoutImmediate(_scaledNow)
+            }
             // Drop any banner left over from a prior session so it doesn't
             // carry into the new one. SteamHealthTracker re-arms its per-session
             // latch at the first sample of the new session, so if the new
@@ -135,6 +163,7 @@ Page {
                 // duration here instead of reusing this session's scaled time
                 // (otherwise a small pour after a large one would over-steam).
                 steamPage.steamTimeoutScaled = false
+                steamPage.lastOnScaleMilk = 0
                 steamPage.syncSteamTimeout()
                 Settings.brew.steamFlow = getCurrentPitcherFlow()
                 if (!Settings.brew.keepSteamHeaterOn) {
