@@ -3,6 +3,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QDesktopServices>
+#include <QSet>
 #include <QUrl>
 
 #ifdef Q_OS_IOS
@@ -257,11 +258,11 @@ QString SettingsNetwork::defaultLayoutJson() const {
 
     zones["topLeft"] = QJsonArray();
     zones["topRight"] = QJsonArray();
-    zones["centerStatus"] = QJsonArray({
-        QJsonObject({{"type", "temperature"}, {"id", "temp1"}}),
-        QJsonObject({{"type", "waterLevel"}, {"id", "water1"}}),
-        QJsonObject({{"type", "machineStatus"}, {"id", "conn1"}}),
-    });
+    // Center status readouts are intentionally empty by default: temperature,
+    // waterLevel and machineStatus all live in the status bar below, so showing
+    // them again here would just duplicate the status bar. Users can still add
+    // readouts to this zone if they want the larger center display.
+    zones["centerStatus"] = QJsonArray();
     zones["centerTop"] = QJsonArray({
         QJsonObject({{"type", "espresso"}, {"id", "espresso1"}}),
         QJsonObject({{"type", "steam"}, {"id", "steam1"}}),
@@ -282,16 +283,18 @@ QString SettingsNetwork::defaultLayoutJson() const {
         QJsonObject({{"type", "autofavorites"}, {"id", "autofavorites1"}}),
         QJsonObject({{"type", "settings"}, {"id", "settings1"}}),
     });
+    // Status bar uses icon display mode for its readouts — more compact and
+    // legible in the bar than text labels.
     zones["statusBar"] = QJsonArray({
         QJsonObject({{"type", "pageTitle"}, {"id", "pagetitle1"}}),
         QJsonObject({{"type", "spacer"}, {"id", "spacer_sb1"}}),
-        QJsonObject({{"type", "temperature"}, {"id", "temp_sb1"}}),
+        QJsonObject({{"type", "temperature"}, {"id", "temp_sb1"}, {"displayMode", "icon"}}),
         QJsonObject({{"type", "separator"}, {"id", "sep_sb1"}}),
-        QJsonObject({{"type", "waterLevel"}, {"id", "water_sb1"}}),
+        QJsonObject({{"type", "waterLevel"}, {"id", "water_sb1"}, {"displayMode", "icon"}}),
         QJsonObject({{"type", "separator"}, {"id", "sep_sb2"}}),
-        QJsonObject({{"type", "scaleWeight"}, {"id", "scale_sb1"}}),
+        QJsonObject({{"type", "scaleWeight"}, {"id", "scale_sb1"}, {"displayMode", "icon"}}),
         QJsonObject({{"type", "separator"}, {"id", "sep_sb3"}}),
-        QJsonObject({{"type", "machineStatus"}, {"id", "conn_sb1"}}),
+        QJsonObject({{"type", "machineStatus"}, {"id", "conn_sb1"}, {"displayMode", "icon"}}),
     });
     // Lower-mid bar: optional, general-purpose full-width band above the bottom
     // action bar. Empty by default so it reserves no space and changes nothing
@@ -584,6 +587,38 @@ void SettingsNetwork::resetLayoutToDefault() {
     invalidateLayoutCache();
     m_settings.remove("layout/configuration");
     emit layoutConfigurationChanged();
+}
+
+bool SettingsNetwork::typeHasOptions(const QString& type) {
+    // Every screensaver opens the screensaver editor (some show only "no
+    // settings", but they still route to an editor — keep parity with the
+    // open behaviour so the indicator and the gesture agree).
+    if (type.startsWith(QLatin1String("screensaver")))
+        return true;
+    static const QSet<QString> kConfigurable = {
+        QStringLiteral("custom"),
+        QStringLiteral("scaleWeight"),
+        QStringLiteral("shotPlan"),
+        QStringLiteral("sleep"),
+        QStringLiteral("machineStatus"),
+        QStringLiteral("temperature"),
+        QStringLiteral("steamTemperature"),
+        QStringLiteral("waterLevel"),
+        QStringLiteral("lastShot"),
+    };
+    return kConfigurable.contains(type);
+}
+
+bool SettingsNetwork::itemIsConfigured(const QString& itemId) const {
+    QVariantMap props = getItemProperties(itemId);
+    if (typeHasOptions(props.value(QStringLiteral("type")).toString()))
+        return true;
+    // Any stored property beyond the bare type/id means the user customised it.
+    for (auto it = props.constBegin(); it != props.constEnd(); ++it) {
+        if (it.key() != QLatin1String("type") && it.key() != QLatin1String("id"))
+            return true;
+    }
+    return false;
 }
 
 bool SettingsNetwork::hasItemType(const QString& type) const {
