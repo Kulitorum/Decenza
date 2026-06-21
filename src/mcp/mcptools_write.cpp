@@ -686,7 +686,17 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 }
                 const QVariantList catalog = aiManager->availableModels(aiModelTargetProvider);
                 if (catalog.isEmpty()) {
-                    respond(QJsonObject{{"error", QString("Provider '%1' has no selectable models via aiModel. For OpenRouter/Ollama set openrouterModel/ollamaModel instead.").arg(aiModelTargetProvider)}});
+                    // Only providers with a model catalog (Gemini today) accept
+                    // aiModel. OpenRouter/Ollama have their own free-text model
+                    // field; OpenAI/Anthropic are single fixed-model.
+                    QString hint;
+                    if (aiModelTargetProvider == QStringLiteral("openrouter"))
+                        hint = QStringLiteral(" Set openrouterModel instead.");
+                    else if (aiModelTargetProvider == QStringLiteral("ollama"))
+                        hint = QStringLiteral(" Set ollamaModel instead.");
+                    else
+                        hint = QStringLiteral(" This provider uses a single fixed model; aiModel cannot be set for it.");
+                    respond(QJsonObject{{"error", QString("Provider '%1' has no selectable models via aiModel.%2").arg(aiModelTargetProvider, hint)}});
                     return;
                 }
                 QStringList validIds;
