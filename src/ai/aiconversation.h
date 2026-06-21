@@ -36,6 +36,7 @@ class AIConversation : public QObject {
     Q_PROPERTY(QString providerName READ providerName NOTIFY providerChanged)
     Q_PROPERTY(int messageCount READ messageCount NOTIFY historyChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorOccurred)
+    Q_PROPERTY(bool canRetry READ canRetry NOTIFY canRetryChanged)
     Q_PROPERTY(QString contextLabel READ contextLabel NOTIFY contextLabelChanged)
 
 public:
@@ -47,6 +48,9 @@ public:
     QString providerName() const;
     int messageCount() const { return static_cast<int>(m_messages.size()); }
     QString errorMessage() const { return m_errorMessage; }
+    // True when the last turn is an unanswered user message and no request is
+    // in flight — i.e. the previous request failed and can be re-sent verbatim.
+    bool canRetry() const;
     QString contextLabel() const { return m_contextLabel; }
 
     QString storageKey() const { return m_storageKey; }
@@ -64,6 +68,14 @@ public:
      * Uses the existing system prompt and history
      */
     Q_INVOKABLE bool followUp(const QString& userMessage);
+
+    /**
+     * Re-send the last failed turn. Valid only when canRetry() is true (not
+     * busy, last turn is an unanswered user message). Re-uses the stored
+     * message and system prompt verbatim — does not append a new turn and does
+     * not re-run the per-follow-up rating/metadata-capture hooks.
+     */
+    Q_INVOKABLE void retry();
 
     /**
      * Clear conversation history
@@ -229,6 +241,7 @@ signals:
     void errorOccurred(const QString& error);
     void busyChanged();
     void historyChanged();
+    void canRetryChanged();
     void contextLabelChanged();
     void providerChanged();
     void savedConversationChanged();

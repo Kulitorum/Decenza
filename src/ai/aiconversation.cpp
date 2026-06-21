@@ -107,6 +107,19 @@ bool AIConversation::followUp(const QString& userMessage)
 
     m_errorMessage.clear();
 
+    // If the previous request failed, its user turn was kept in history (for
+    // retry) and is now the last entry. The user is sending a NEW message
+    // instead of retrying, so drop that stale unanswered turn — otherwise we
+    // would emit two consecutive user-role messages, which providers such as
+    // Anthropic reject. Only applies when the last entry is a user turn; a
+    // normal follow-up after a successful turn ends on an assistant turn and is
+    // untouched. Runs before the rating hook below, which scans for the prior
+    // *assistant* turn and is therefore unaffected by removing a trailing user.
+    if (!m_messages.isEmpty() &&
+        m_messages.last().toObject().value("role").toString() == QStringLiteral("user")) {
+        m_messages.removeLast();
+    }
+
     // Closed-loop rating capture (issue #1055 Layer 1). When the prior
     // assistant turn asked the user about taste AND the reply carries
     // a numeric score, persist that score back to ShotProjection so
@@ -156,6 +169,7 @@ void AIConversation::clearHistory()
     m_errorMessage.clear();
 
     emit historyChanged();
+    emit canRetryChanged();
     emit savedConversationChanged();
     qDebug() << "AIConversation: History cleared for key:" << m_storageKey;
 }
@@ -167,6 +181,7 @@ void AIConversation::resetInMemory()
     m_lastResponse.clear();
     m_errorMessage.clear();
     emit historyChanged();
+    emit canRetryChanged();
 }
 
 void AIConversation::setStorageKey(const QString& key)
@@ -382,6 +397,7 @@ void AIConversation::sendRequest()
 
     m_busy = true;
     emit busyChanged();
+    emit canRetryChanged();
 
     trimHistory();
 
@@ -408,6 +424,7 @@ void AIConversation::onAnalysisComplete(const QString& response)
 
     emit busyChanged();
     emit historyChanged();
+    emit canRetryChanged();
     emit responseReceived(response);
 
     qDebug() << "AIConversation: Response received, history now has" << m_messages.size() << "messages";
@@ -420,16 +437,39 @@ void AIConversation::onAnalysisFailed(const QString& error)
     m_busy = false;
     m_errorMessage = error;
 
-    // Remove the last user message since it failed
-    if (!m_messages.isEmpty()) {
-        m_messages.removeLast();
-    }
-
+    // Keep the failed user turn in history so the user can retry it without
+    // retyping (see openspec/changes/add-ai-advisor-retry). The turn is not
+    // persisted — saveToStorage only runs on success — so a failed turn never
+    // survives a reload.
     emit busyChanged();
     emit historyChanged();
+    emit canRetryChanged();
     emit errorOccurred(error);
 
     qDebug() << "AIConversation: Request failed:" << error;
+}
+
+bool AIConversation::canRetry() const
+{
+    if (m_busy || m_messages.isEmpty())
+        return false;
+    return m_messages.last().toObject().value("role").toString() == QStringLiteral("user");
+}
+
+void AIConversation::retry()
+{
+    if (!canRetry()) {
+        qDebug() << "AIConversation::retry ignored — no pending failed turn (busy:" << m_busy
+                 << "messages:" << m_messages.size() << ")";
+        return;
+    }
+
+    // Re-send the existing pending turn verbatim. Unlike followUp(), this does
+    // not append a new user message and does not re-run the rating/metadata
+    // capture hooks — those already fired when the turn was first submitted.
+    m_errorMessage.clear();
+    emit errorOccurred(m_errorMessage);
+    sendRequest();
 }
 
 QString AIConversation::getConversationText() const
