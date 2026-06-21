@@ -17,6 +17,13 @@ Dialog {
     property string distribution: "packed"
     property string alignment: "center"
     property string zoneStyle: "standard"
+    property string itemSize: "compact"
+
+    // Item size (compact bar style vs large center style) applies to the bar
+    // zones that can grow — the status bar stays fixed, and center zones already
+    // render large.
+    readonly property bool canSizeItems: zoneName === "lowerMidBar"
+        || zoneName.indexOf("top") === 0 || zoneName.indexOf("bottom") === 0
 
     function openForZone(name, label) {
         popup.zoneName = name
@@ -24,6 +31,7 @@ Dialog {
         popup.distribution = Settings.network.getZoneOption(name, "distribution", "packed")
         popup.alignment = Settings.network.getZoneOption(name, "alignment", "center")
         popup.zoneStyle = Settings.network.getZoneOption(name, "style", "standard")
+        popup.itemSize = Settings.network.getZoneOption(name, "itemSize", "compact")
         popup.open()
     }
 
@@ -171,6 +179,17 @@ Dialog {
                 { value: "accentBar", label: TranslationManager.translate("layoutEditor.styleAccent", "Accent bar") }
             ]
             onPicked: function(v) { popup.zoneStyle = v; popup.setOption("style", v) }
+        }
+
+        OptionRow {
+            visible: popup.canSizeItems
+            title: TranslationManager.translate("layoutEditor.zoneItemSize", "Item size")
+            current: popup.itemSize
+            choices: [
+                { value: "compact", label: TranslationManager.translate("layoutEditor.itemSizeCompact", "Compact") },
+                { value: "large",   label: TranslationManager.translate("layoutEditor.itemSizeLarge", "Large") }
+            ]
+            onPicked: function(v) { popup.itemSize = v; popup.setOption("itemSize", v) }
         }
 
         // Populate from a built-in preset.

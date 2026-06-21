@@ -2606,7 +2606,8 @@ QString ShotServer::generateLayoutPage() const
             html += '<div class="zone-card' + (zoneSelected ? ' selected' : '') + '" style="' + (isPairStart || isPairEnd ? 'flex:1' : '') + '" onclick="zoneClick(\'' + zone.key + '\',event)">';
             html += '<div class="zone-header"><span class="zone-title">' + zone.label + '</span>';
 
-            if (zone.hasOffset) {
+            // Center zones plus the lower-mid bar expose position (offset) + scale.
+            if (zone.hasOffset || zone.key === "lowerMidBar") {
                 var offset = 0;
                 if (layoutData && layoutData.offsets && layoutData.offsets[zone.key] !== undefined)
                     offset = layoutData.offsets[zone.key];
@@ -2640,6 +2641,11 @@ QString ShotServer::generateLayoutPage() const
                 [["left","Left"],["center","Center"],["right","Right"]]);
             html += optSel(zone.key, "style", zopts.style || "standard",
                 [["standard","Standard"],["surface","Surface"],["accentBar","Accent bar"]]);
+            // Item size (compact bar vs large center style) applies to the
+            // growable bar zones — not the fixed status bar or the center zones.
+            if (!zone.hasOffset && zone.key !== "statusBar")
+                html += optSel(zone.key, "itemSize", zopts.itemSize || "compact",
+                    [["compact","Compact"],["large","Large"]]);
             if (zone.key !== "statusBar")
                 html += '<button class="zone-opt-btn" onclick="populateZone(\'' + zone.key + '\',\'brewBar\');event.stopPropagation()">Brew bar</button>';
             if (zone.key === "statusBar")

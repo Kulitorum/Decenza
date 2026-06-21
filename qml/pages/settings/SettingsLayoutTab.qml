@@ -499,6 +499,9 @@ Item {
                     items: layoutTab.getZoneItems("lowerMidBar")
                     selectedItemId: layoutTab.selectedItemId
                     zoneSelected: layoutTab.selectedZoneName === "lowerMidBar"
+                    showPositionControls: true
+                    yOffset: layoutTab.getZoneYOffset("lowerMidBar")
+                    zoneScale: layoutTab.getZoneScale("lowerMidBar")
 
                     onItemTapped: function(itemId) { layoutTab.onItemTapped(itemId, "lowerMidBar") }
                     onZoneTapped: layoutTab.onZoneTapped("lowerMidBar")
@@ -509,6 +512,11 @@ Item {
                     onAddItemRequested: function(type) { Settings.network.addItem(type, "lowerMidBar") }
                     onEditCustomRequested: function(itemId, zoneName) { layoutTab.openCustomEditor(itemId, zoneName) }
                     onZoneOptionsRequested: layoutTab.openZoneOptions(zoneName, zoneLabel)
+
+                    onMoveUp: Settings.network.setZoneYOffset("lowerMidBar", yOffset - 5)
+                    onMoveDown: Settings.network.setZoneYOffset("lowerMidBar", yOffset + 5)
+                    onScaleUp: Settings.network.setZoneScale("lowerMidBar", zoneScale + 0.05)
+                    onScaleDown: Settings.network.setZoneScale("lowerMidBar", zoneScale - 0.05)
                 }
 
                 // Bottom bar zones
@@ -559,45 +567,58 @@ Item {
             }
         }
 
-        // Right column: pinned live preview (stays visible while editing) + Library
-        ColumnLayout {
+        // Right column: live preview + Library. Scrollable so the Library stays
+        // reachable even when the (large) preview would otherwise push it off.
+        ScrollView {
+            id: rightScroll
             // Roughly an even split so the preview is large enough to be useful.
             Layout.preferredWidth: Math.max(Theme.scaled(380), layoutTab.width * 0.42)
             Layout.minimumWidth: Theme.scaled(340)
             Layout.fillHeight: true
-            spacing: Theme.spacingMedium
+            contentWidth: availableWidth
+            clip: true
 
-            Tr {
-                key: "settings.layout.preview"
-                fallback: "Preview"
-                color: Theme.textColor
-                font: Theme.subtitleFont
-                Layout.fillWidth: true
-            }
+            ColumnLayout {
+                width: rightScroll.availableWidth
+                spacing: Theme.spacingMedium
 
-            // Live home-screen preview (5:3, matches the device reference aspect)
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: width / 1.6
-                color: Theme.backgroundColor
-                radius: Theme.cardRadius
-                border.color: Theme.borderColor
-                border.width: 1
-                clip: true
-
-                LayoutPreview {
-                    anchors.fill: parent
-                    anchors.margins: Theme.scaled(4)
+                Tr {
+                    key: "settings.layout.preview"
+                    fallback: "Preview"
+                    color: Theme.textColor
+                    font: Theme.subtitleFont
+                    Layout.fillWidth: true
                 }
-            }
 
-            LibraryPanel {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
+                // Live home-screen preview (8:5, matches the 960x600 device reference aspect)
+                Rectangle {
+                    id: previewBox
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: width / 1.6
+                    color: Theme.backgroundColor
+                    radius: Theme.cardRadius
+                    border.color: Theme.borderColor
+                    border.width: 1
+                    clip: true
 
-                selectedItemId: layoutTab.selectedItemId
-                selectedFromZone: layoutTab.selectedFromZone
-                selectedZoneName: layoutTab.selectedZoneName
+                    LayoutPreview {
+                        anchors.fill: parent
+                        anchors.margins: Theme.scaled(4)
+                    }
+                }
+
+                LibraryPanel {
+                    Layout.fillWidth: true
+                    // Fill the leftover viewport height when there's room; clamp to
+                    // a usable minimum so the whole column scrolls (rather than
+                    // hiding the Library) when the preview is tall.
+                    Layout.preferredHeight: Math.max(Theme.scaled(340),
+                        rightScroll.height - previewBox.height - Theme.scaled(56))
+
+                    selectedItemId: layoutTab.selectedItemId
+                    selectedFromZone: layoutTab.selectedFromZone
+                    selectedZoneName: layoutTab.selectedZoneName
+                }
             }
         }
     }
