@@ -247,6 +247,40 @@ private slots:
         QJsonObject result = f.callTool("profiles_get_detail", {{"filename", ""}});
         QVERIFY(result.contains("error"));
     }
+
+    // ===== profiles_rename =====
+
+    void renameRequiresFilename()
+    {
+        McpTestFixture f;
+        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
+
+        QJsonObject result = f.callTool("profiles_rename", {{"filename", ""}, {"title", "New Name"}});
+        QVERIFY(result.contains("error"));
+        QVERIFY(!result.contains("success"));
+    }
+
+    void renameRequiresTitle()
+    {
+        McpTestFixture f;
+        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
+
+        // Whitespace-only title trims to empty and must be rejected.
+        QJsonObject result = f.callTool("profiles_rename", {{"filename", "some_profile"}, {"title", "   "}});
+        QVERIFY(result.contains("error"));
+        QVERIFY(!result.contains("success"));
+    }
+
+    void renameUnknownProfileReturnsError()
+    {
+        McpTestFixture f;
+        registerProfileTools(&f.registry, &f.profileManager, &f.settings);
+
+        QJsonObject result = f.callTool("profiles_rename",
+                                        {{"filename", "definitely_not_a_real_profile"}, {"title", "New Name"}});
+        QVERIFY(result.contains("error"));
+        QVERIFY(result["error"].toString().contains("not found", Qt::CaseInsensitive));
+    }
 };
 
 QTEST_MAIN(tst_McpToolsProfiles)

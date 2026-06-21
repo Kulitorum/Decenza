@@ -594,6 +594,67 @@ void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileMana
         },
         "settings");
 
+    // profiles_rename
+    registry->registerTool(
+        "profiles_rename",
+        "Rename a user or downloaded profile in place. Changes only the profile's display title and "
+        "keeps the same filename, so favorites, auto-load, and the selected list stay intact. "
+        "Built-in profiles are read-only and cannot be renamed — use profiles_save with a new "
+        "filename/title to make an editable copy instead.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"filename", QJsonObject{{"type", "string"}, {"description", "Profile filename to rename (without .json)"}}},
+                {"title", QJsonObject{{"type", "string"}, {"description", "New display title for the profile"}}},
+                {"confirmed", QJsonObject{{"type", "boolean"}, {"description", "Set to true after user confirms this action in chat"}}}
+            }},
+            {"required", QJsonArray{"filename", "title"}}
+        },
+        [profileManager](const QJsonObject& args) -> QJsonObject {
+            QJsonObject result;
+            if (!profileManager) {
+                result["error"] = "Controller not available";
+                return result;
+            }
+
+            QString filename = args["filename"].toString();
+            QString newTitle = args["title"].toString().trimmed();
+            if (filename.isEmpty()) {
+                result["error"] = "filename is required";
+                return result;
+            }
+            if (newTitle.isEmpty()) {
+                result["error"] = "title is required";
+                return result;
+            }
+
+            if (!profileManager->profileExists(filename)) {
+                result["error"] = "Profile not found: " + filename;
+                return result;
+            }
+
+            if (profileManager->isBuiltInFilename(filename)) {
+                result["error"] = "Cannot rename built-in profile '" + filename +
+                    "'. Built-in profiles are read-only — use profiles_save with a new "
+                    "filename/title to make an editable copy instead.";
+                result["filename"] = filename;
+                return result;
+            }
+
+            // Tool handlers run on the main thread (via ShotServer), so call directly
+            bool success = profileManager->renameProfile(filename, newTitle);
+            if (success) {
+                result["success"] = true;
+                result["message"] = "Profile renamed to: " + newTitle;
+                result["filename"] = filename;
+                result["title"] = newTitle;
+            } else {
+                result["error"] = "Failed to rename profile: " + filename;
+            }
+            return result;
+        },
+        "settings");
+
     // profiles_create
     registry->registerTool(
         "profiles_create",
