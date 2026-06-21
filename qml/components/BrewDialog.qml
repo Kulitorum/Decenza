@@ -791,6 +791,72 @@ Dialog {
                     onTextEdited: root.grindRpm = parseInt(text) || 0
                 }
             }
+
+            // --- Home-screen ratio quick-select presets. Rarely changed, so
+            // they sit at the bottom. These three values are what the
+            // home-screen ratio button offers as Ristretto / Normale / Lungo. ---
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(12)
+                Layout.preferredHeight: 1
+                color: Theme.borderColor
+            }
+            Text {
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.scaled(4)
+                text: TranslationManager.translate("brewDialog.ratioPresetsHeader", "Home-screen ratio presets")
+                font: Theme.bodyFont
+                color: Theme.textColor
+            }
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("brewDialog.ratioPresetsHint", "The three quick-select ratios offered by the home-screen ratio button.")
+                font: Theme.captionFont
+                color: Theme.textSecondaryColor
+                wrapMode: Text.WordWrap
+            }
+            Repeater {
+                model: [
+                    { rlabel: TranslationManager.translate("ratio.ristretto.name", "Ristretto"), idx: 1 },
+                    { rlabel: TranslationManager.translate("ratio.normale.name", "Normale"), idx: 2 },
+                    { rlabel: TranslationManager.translate("ratio.lungo.name", "Lungo"), idx: 3 }
+                ]
+                delegate: RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+                    Text {
+                        text: modelData.rlabel
+                        font: Theme.bodyFont
+                        color: Theme.textSecondaryColor
+                        Layout.preferredWidth: Theme.scaled(90)
+                        Accessible.ignored: true
+                    }
+                    Text {
+                        text: "1:"
+                        font: Theme.bodyFont
+                        color: Theme.textColor
+                        Accessible.ignored: true
+                    }
+                    ValueInput {
+                        Layout.fillWidth: true
+                        from: 0.5
+                        to: 6.0
+                        stepSize: 0.1
+                        decimals: 1
+                        accentColor: Theme.primaryColor
+                        accessibleName: modelData.rlabel + " " + TranslationManager.translate("brewDialog.ratioWord", "ratio")
+                        value: modelData.idx === 1 ? Settings.brew.ratioPreset1
+                             : modelData.idx === 2 ? Settings.brew.ratioPreset2
+                             : Settings.brew.ratioPreset3
+                        onValueModified: function(newValue) {
+                            if (modelData.idx === 1) Settings.brew.ratioPreset1 = newValue
+                            else if (modelData.idx === 2) Settings.brew.ratioPreset2 = newValue
+                            else Settings.brew.ratioPreset3 = newValue
+                        }
+                    }
+                }
+            }
         }
 
         // Buttons

@@ -48,7 +48,17 @@ Item {
         }
         return false
     }
-    readonly property real scaledSpacing: Theme.scaled(10) * zoneScale
+    // Gap between center-zone widgets. Widened to 18 only for the distributed
+    // simplified-home rows (so they aren't cramped); every other zone keeps 10.
+    readonly property real scaledSpacing: Theme.scaled(distributeItems ? 18 : 10) * zoneScale
+
+    // Spread items across the full width (instead of clustering them centered) for
+    // the status / profile rows in simplified-home mode, so they sit at left /
+    // middle / right rather than bunched. Only in simplified mode — the default
+    // zone-driven layout keeps its centered clustering.
+    readonly property bool distributeItems:
+        Settings.theme.simplifiedHome
+        && (zoneName === "centerStatus" || zoneName === "centerMiddle") && !hasSpacer
     readonly property real availableWidth: width - Theme.scaled(20) * zoneScale -
         (buttonCount > 1 ? (buttonCount - 1) * scaledSpacing : 0)
     readonly property real buttonWidth: buttonCount > 0
@@ -67,14 +77,20 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         spacing: root.scaledSpacing
 
-        // Auto-centering spacer (hides when user has their own spacers)
-        Item { Layout.fillWidth: true; visible: !root.hasSpacer }
+        // Auto-centering spacer (hides when user has their own spacers, or when
+        // the zone distributes items across the full width)
+        Item { Layout.fillWidth: true; visible: !root.hasSpacer && !root.distributeItems }
 
         Repeater {
             model: root.items
             delegate: LayoutItemDelegate {
                 zoneName: root.zoneName
                 Layout.preferredWidth: {
+                    // Distribute mode: every item gets an equal-width cell (base 0
+                    // + equal fillWidth share), independent of its text width, so
+                    // the content centers in exact thirds/halves (e.g. water level
+                    // lands on screen-center regardless of how wide its text is).
+                    if (root.distributeItems) return 0
                     // Flip clock: interpolate between buttonWidth and wide based on clockScale
                     if (modelData.type === "screensaverFlipClock") {
                         var s = typeof modelData.clockScale === "number" ? modelData.clockScale : 1.0
@@ -94,11 +110,12 @@ Item {
                     return root.buttonWidth
                 }
                 Layout.preferredHeight: modelData.type === "spacer" ? -1 : root.buttonHeight
-                Layout.fillWidth: modelData.type === "spacer"
+                Layout.fillWidth: modelData.type === "spacer" || root.distributeItems
             }
         }
 
-        // Auto-centering spacer (hides when user has their own spacers)
-        Item { Layout.fillWidth: true; visible: !root.hasSpacer }
+        // Auto-centering spacer (hides when user has their own spacers, or when
+        // the zone distributes items across the full width)
+        Item { Layout.fillWidth: true; visible: !root.hasSpacer && !root.distributeItems }
     }
 }

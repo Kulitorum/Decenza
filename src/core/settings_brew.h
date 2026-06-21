@@ -19,9 +19,14 @@ class SettingsBrew : public QObject {
     // Dose cup tare: empty weight of the dosing vessel, subtracted from the scale
     // reading in "Get from scale" so the dose is net beans. Default 0 = no tare.
     Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight WRITE setDoseCupTareWeight NOTIFY doseCupTareWeightChanged)
-    // Whether the confirmation "ding" plays when a bean dose auto-captures. Default
-    // off — not everyone wants the sound; toggled by the bell on the Dose cup row.
+    // Whether the confirmation "ding" plays when a dose/milk auto-captures. Default
+    // off — toggled by the bell on the Dose cup row.
     Q_PROPERTY(bool doseCaptureSoundEnabled READ doseCaptureSoundEnabled WRITE setDoseCaptureSoundEnabled NOTIFY doseCaptureSoundEnabledChanged)
+    // Home-screen quick-select brew-ratio presets (Ristretto / Normale / Lungo).
+    // User-tweakable in Espresso Setup; shown on the home-screen ratio chooser.
+    Q_PROPERTY(double ratioPreset1 READ ratioPreset1 WRITE setRatioPreset1 NOTIFY ratioPreset1Changed)
+    Q_PROPERTY(double ratioPreset2 READ ratioPreset2 WRITE setRatioPreset2 NOTIFY ratioPreset2Changed)
+    Q_PROPERTY(double ratioPreset3 READ ratioPreset3 WRITE setRatioPreset3 NOTIFY ratioPreset3Changed)
 
     // Steam
     Q_PROPERTY(double steamTemperature READ steamTemperature WRITE setSteamTemperature NOTIFY steamTemperatureChanged)
@@ -84,6 +89,14 @@ public:
 
     bool doseCaptureSoundEnabled() const;
     void setDoseCaptureSoundEnabled(bool enabled);
+
+    double ratioPreset1() const;
+    void setRatioPreset1(double r);
+    double ratioPreset2() const;
+    void setRatioPreset2(double r);
+    double ratioPreset3() const;
+    void setRatioPreset3(double r);
+
 
     // Steam
     double steamTemperature() const;
@@ -190,6 +203,9 @@ signals:
     void lastUsedRatioChanged();
     void doseCupTareWeightChanged();
     void doseCaptureSoundEnabledChanged();
+    void ratioPreset1Changed();
+    void ratioPreset2Changed();
+    void ratioPreset3Changed();
     void steamTemperatureChanged();
     void steamTimeoutChanged();
     void steamFlowChanged();

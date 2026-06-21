@@ -621,6 +621,16 @@ void SettingsTheme::setCurrentPageColors(const QStringList& colors) {
     }
 }
 
+bool SettingsTheme::simplifiedHome() const {
+    return m_settings.value("layout/simplifiedHome", false).toBool();
+}
+void SettingsTheme::setSimplifiedHome(bool enabled) {
+    if (simplifiedHome() != enabled) {
+        m_settings.setValue("layout/simplifiedHome", enabled);
+        emit simplifiedHomeChanged();
+    }
+}
+
 void SettingsTheme::flashThemeColor(const QString& colorName) {
     // Stop any existing flash
     if (m_flashTimer) {

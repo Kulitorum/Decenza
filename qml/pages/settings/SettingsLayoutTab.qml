@@ -183,6 +183,17 @@ Item {
                     wrapMode: Text.Wrap
                 }
 
+                // Opt-in alternate layout modes (default off). When on, a fixed
+                // simplified home / compact status bar replaces the configurable
+                // zones below — the zone editor still works when they're off.
+                StyledSwitch {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.layout.simplifiedHome", "Use simplified home screen")
+                    accessibleName: text
+                    checked: Settings.theme.simplifiedHome
+                    onToggled: Settings.theme.simplifiedHome = checked
+                }
+
                 // Status Bar zone (visible on all pages)
                 LayoutEditorZone {
                     Layout.fillWidth: true

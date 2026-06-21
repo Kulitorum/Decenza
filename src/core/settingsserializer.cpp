@@ -60,6 +60,9 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     espresso["lastUsedRatio"] = settings->brew()->lastUsedRatio();
     espresso["doseCupTareWeight"] = settings->brew()->doseCupTareWeight();
     espresso["doseCaptureSoundEnabled"] = settings->brew()->doseCaptureSoundEnabled();
+    espresso["ratioPreset1"] = settings->brew()->ratioPreset1();
+    espresso["ratioPreset2"] = settings->brew()->ratioPreset2();
+    espresso["ratioPreset3"] = settings->brew()->ratioPreset3();
     root["espresso"] = espresso;
 
     // Steam settings
@@ -208,6 +211,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     QJsonObject theme;
     theme["activeThemeName"] = settings->theme()->activeThemeName();
     theme["themeMode"] = settings->theme()->themeMode();
+    theme["simplifiedHome"] = settings->theme()->simplifiedHome();
 
     // Export active palette as customColors (backward compat) plus both palettes
     QJsonObject customColors;
@@ -403,6 +407,9 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (espresso.contains("lastUsedRatio")) settings->brew()->setLastUsedRatio(espresso["lastUsedRatio"].toDouble());
         if (espresso.contains("doseCupTareWeight")) settings->brew()->setDoseCupTareWeight(espresso["doseCupTareWeight"].toDouble());
         if (espresso.contains("doseCaptureSoundEnabled")) settings->brew()->setDoseCaptureSoundEnabled(espresso["doseCaptureSoundEnabled"].toBool());
+        if (espresso.contains("ratioPreset1")) settings->brew()->setRatioPreset1(espresso["ratioPreset1"].toDouble());
+        if (espresso.contains("ratioPreset2")) settings->brew()->setRatioPreset2(espresso["ratioPreset2"].toDouble());
+        if (espresso.contains("ratioPreset3")) settings->brew()->setRatioPreset3(espresso["ratioPreset3"].toDouble());
     }
 
     // Steam settings
@@ -617,6 +624,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         QJsonObject theme = json["theme"].toObject();
         if (theme.contains("activeThemeName")) settings->theme()->setActiveThemeName(theme["activeThemeName"].toString());
         if (theme.contains("themeMode")) settings->theme()->setThemeMode(theme["themeMode"].toString());
+        if (theme.contains("simplifiedHome")) settings->theme()->setSimplifiedHome(theme["simplifiedHome"].toBool());
 
         // Restore dual palettes if present (new format)
         if (theme.contains("customColorsDark")) {

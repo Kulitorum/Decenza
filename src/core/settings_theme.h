@@ -44,6 +44,11 @@ class SettingsTheme : public QObject {
     // Colors detected on the current page (set from QML tree walker)
     Q_PROPERTY(QStringList currentPageColors READ currentPageColors WRITE setCurrentPageColors NOTIFY currentPageColorsChanged)
 
+    // Alternate layout modes (opt-in; default OFF, so the zone-driven layout system
+    // stays authoritative). When ON, a fixed simplified home / compact status bar is
+    // rendered instead of the configurable zones.
+    Q_PROPERTY(bool simplifiedHome READ simplifiedHome WRITE setSimplifiedHome NOTIFY simplifiedHomeChanged)
+
 public:
     explicit SettingsTheme(QObject* parent = nullptr);
 
@@ -114,6 +119,9 @@ public:
     QStringList currentPageColors() const { return m_currentPageColors; }
     void setCurrentPageColors(const QStringList& colors);
 
+    bool simplifiedHome() const;
+    void setSimplifiedHome(bool enabled);
+
     double screenBrightness() const;
     void setScreenBrightness(double brightness);
 
@@ -135,6 +143,7 @@ signals:
     void flashPhaseChanged();
     void currentPageColorsChanged();
     void screenBrightnessChanged();
+    void simplifiedHomeChanged();
 
 private:
     void updateResolvedMode();

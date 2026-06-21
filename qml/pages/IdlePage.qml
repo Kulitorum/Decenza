@@ -149,6 +149,14 @@ Page {
 
     // Track which function's presets are showing (used by center-zone action items)
     property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush", "beans", "equipment"
+    // Opt-in simplified home composition (fixed brew stat bar + setup buttons).
+    // Default off → the configurable zone-driven layout is used unchanged.
+    readonly property bool simplifiedHome: Settings.theme.simplifiedHome
+
+    // Last milk weight measured this session (for the bottom status row). 0 = none yet.
+    // Populated by the steaming auto-capture feature (not present in this build); stays
+    // 0 here, so the Milk cell in the brew status bar shows "—".
+    property real measuredMilkG: 0
 
     // Idle bean auto-capture: tracks a virtual zero off the empty scale, then when
     // the dose cup (with beans) rests stable it sets the dose (dyeBeanWeight) and
@@ -310,16 +318,28 @@ Page {
         onClicked: activePresetFunction = ""
     }
 
+    // Quick coffee:water ratio chooser (opened from the bottom status bar)
+    RatioPresetDialog {
+        id: ratioPresetDialog
+    }
+
     // ============================================================
     // Top info section (from layout topLeft/topRight zones)
     // ============================================================
     ColumnLayout {
+        id: topInfoSection
+        // In simplified mode the top stats live in the global status bar, so this is
+        // hidden when its zones are empty (to reclaim the reserved height). In the
+        // default zone-driven layout it behaves as before (always shown).
+        visible: !idlePage.simplifiedHome
+                 || idlePage.topLeftItems.length > 0 || idlePage.topRightItems.length > 0
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.margins: Theme.standardMargin
-        anchors.topMargin: Theme.pageTopMargin
-        spacing: Theme.scaled(20)
+        anchors.topMargin: idlePage.simplifiedHome ? (Theme.statusBarHeight + Theme.scaled(8))
+                                                    : Theme.pageTopMargin
+        spacing: idlePage.simplifiedHome ? 0 : Theme.scaled(20)
 
         RowLayout {
             Layout.alignment: Qt.AlignHCenter
@@ -339,25 +359,49 @@ Page {
         }
     }
 
+    // Thin high-contrast line directly beneath the global status bar — its bottom
+    // border. Pinned at the status bar's height so it sits flush under the top
+    // stats row regardless of the (often empty) topLeft/topRight zones.
+    Rectangle {
+        id: topStatsBorder
+        visible: idlePage.simplifiedHome
+        anchors.top: parent.top
+        anchors.topMargin: Theme.statusBarHeight
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: Theme.scaled(2)
+        color: Theme.primaryColor
+    }
+
     // ============================================================
     // Center content (from layout centerTop/centerMiddle zones)
     // ============================================================
     ColumnLayout {
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: Theme.scaled(50)
+        // Simplified: anchored below the status-bar border so it grows DOWNWARD, and
+        // capped at the brew status bar so it can't bleed behind it. Default: the
+        // original vertically-centred placement.
+        anchors.top: idlePage.simplifiedHome ? topStatsBorder.bottom : undefined
+        anchors.topMargin: idlePage.simplifiedHome ? Theme.scaled(12) : 0
+        anchors.bottom: idlePage.simplifiedHome ? brewStatusBar.top : undefined
+        anchors.bottomMargin: idlePage.simplifiedHome ? Theme.scaled(12) : 0
+        anchors.verticalCenter: idlePage.simplifiedHome ? undefined : parent.verticalCenter
+        anchors.verticalCenterOffset: idlePage.simplifiedHome ? 0 : Theme.scaled(50)
         anchors.leftMargin: Theme.standardMargin
         anchors.rightMargin: Theme.standardMargin
         spacing: Theme.scaled(20)
+        clip: idlePage.simplifiedHome
 
-        // Status readouts (temp, water level, connection)
+        // Status readouts (temp, water level, connection). In simplified mode the
+        // same info lives in the top status bar, so this is hidden to avoid crowding;
+        // in the default layout it shows whenever the zone has items.
         LayoutCenterZone {
             Layout.fillWidth: true
             Layout.topMargin: idlePage.centerStatusYOffset
             zoneName: "centerStatus"
             items: idlePage.centerStatusItems
-            visible: idlePage.centerStatusItems.length > 0
+            visible: !idlePage.simplifiedHome && idlePage.centerStatusItems.length > 0
             zoneScale: idlePage.centerStatusScale
         }
 
@@ -751,9 +795,131 @@ Page {
     }
 
     // ============================================================
+    // Brew status row (across the bottom, above the action bar)
+    // ============================================================
+    Rectangle {
+        id: brewStatusBar
+        visible: idlePage.simplifiedHome
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: bottomBar.top
+        height: Theme.scaled(82)
+        // Accent-coloured bar with its guaranteed-contrast text colour, so it stands
+        // out and stays readable on any theme (including dark / custom palettes).
+        color: Theme.primaryColor
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.spacingMedium
+            anchors.rightMargin: Theme.spacingMedium
+            spacing: Theme.spacingSmall
+
+            // Current espresso profile
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1   // equal cells regardless of content width
+                spacing: 0
+                Tr { key: "idle.status.profile"; fallback: "Profile"; color: Theme.primaryContrastColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight }
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                    text: ProfileManager.currentProfileName || "—"
+                    color: Theme.primaryContrastColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                }
+            }
+
+            // Live net scale weight (context-aware: net milk in steam mode, else net beans)
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                spacing: 0
+                Tr { key: "idle.status.scale"; fallback: "Scale"; color: Theme.primaryContrastColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: {
+                        if (!ScaleDevice.connected) return "—"
+                        var net
+                        if (idlePage.activePresetFunction === "steam") {
+                            var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+                            var pw = (p && !p.disabled) ? (p.pitcherWeightG ?? 0) : 0
+                            net = Math.max(0, MachineState.scaleWeight - pw)
+                        } else {
+                            net = Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight)
+                        }
+                        return net.toFixed(1) + " g"
+                    }
+                    color: Theme.primaryContrastColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                }
+            }
+
+            // Coffee:water ratio — tappable quick-select button (opens the ratio chooser)
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                spacing: Theme.scaled(2)
+                Tr { key: "idle.status.ratio"; fallback: "Ratio"; color: Theme.primaryContrastColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.preferredWidth: ratioValueText.implicitWidth + Theme.spacingMedium * 2
+                    Layout.preferredHeight: Theme.scaled(32)
+                    radius: height / 2
+                    color: ratioBtnMa.pressed ? Qt.darker(Theme.primaryContrastColor, 1.15) : Theme.primaryContrastColor
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("idle.ratio.button", "Brew ratio")
+                                     + " 1:" + Settings.brew.lastUsedRatio.toFixed(1) + ". "
+                                     + TranslationManager.translate("idle.ratio.tapToChange", "Tap to change")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: ratioBtnMa.clicked(null)
+                    Text {
+                        id: ratioValueText
+                        anchors.centerIn: parent
+                        text: "1:" + Settings.brew.lastUsedRatio.toFixed(1)
+                        color: Theme.primaryColor
+                        font.pixelSize: Theme.scaled(20); font.bold: true
+                    }
+                    MouseArea { id: ratioBtnMa; anchors.fill: parent; onClicked: ratioPresetDialog.open() }
+                }
+            }
+
+            // Beans measured indicator (+ amount)
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                spacing: 0
+                Tr { key: "idle.status.beans"; fallback: "Beans"; color: Theme.primaryContrastColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight.toFixed(1) + " g"
+                                                        : TranslationManager.translate("idle.status.none", "—")
+                    color: Theme.primaryContrastColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                }
+            }
+
+            // Milk measured indicator (+ amount)
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                spacing: 0
+                Tr { key: "idle.status.milk"; fallback: "Milk"; color: Theme.primaryContrastColor; font: Theme.labelFont; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: idlePage.measuredMilkG > 0 ? idlePage.measuredMilkG.toFixed(1) + " g"
+                                                     : TranslationManager.translate("idle.status.none", "—")
+                    color: Theme.primaryContrastColor; font.pixelSize: Theme.scaled(21); font.bold: true
+                }
+            }
+        }
+    }
+
+    // ============================================================
     // Bottom bar (from layout bottomLeft/bottomRight zones)
     // ============================================================
     Rectangle {
+        id: bottomBar
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
