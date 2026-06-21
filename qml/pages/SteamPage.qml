@@ -116,10 +116,14 @@ Page {
             // so this is what actually makes the steam scale. setSteamTimeoutImmediate pushes
             // it to the DE1 and takes effect even mid-steam.
             // Respect a manual ±5 override: if the user dialed the time by hand, don't
-            // overwrite it with the weight-scaled value at steam-start.
+            // overwrite it with the weight-scaled value at steam-start. Otherwise use the
+            // live scaled time, falling back to the milk captured this session once the
+            // pitcher is lifted to the wand.
             var _scaledNow = steamPage.steamTimeoutUserAdjusted ? 0 : steamPage.scaledSteamTimeout()
-            if (_scaledNow <= 0 && !steamPage.steamTimeoutUserAdjusted && steamPage.lastOnScaleMilk > 0)
-                _scaledNow = steamPage.steamTimeForMilk(steamPage.lastOnScaleMilk)
+            if (_scaledNow <= 0 && !steamPage.steamTimeoutUserAdjusted) {
+                var _cm = steamPage.capturedMilkForScaling()
+                if (_cm > 0) _scaledNow = steamPage.steamTimeForMilk(_cm)
+            }
             if (_scaledNow > 0) {
                 Settings.brew.steamTimeout = _scaledNow
                 steamPage.steamTimeoutScaled = true
@@ -292,6 +296,15 @@ Page {
         onAccepted: Settings.brew.setSteamPitcherWeight(Settings.brew.selectedSteamPitcher, steamPage.pendingPitcherWeight)
     }
 
+    // Net milk to scale against once the pitcher is off the scale: prefer the value
+    // captured THIS session (set by the home-screen OR steam auto-capture, shared via the
+    // window) and fall back to the last reading seen on the steam page. 0 = none yet.
+    function capturedMilkForScaling() {
+        if (typeof Window !== "undefined" && Window.window && Window.window.sessionMeasuredMilkG > 0)
+            return Window.window.sessionMeasuredMilkG
+        return steamPage.lastOnScaleMilk
+    }
+
     // Sync steamTimeout to the selected preset WITHOUT clobbering a weight-scaled
     // value. If milk is on the scale now, use the scaled time. If the preset is
     // calibrated but milk isn't on the scale (e.g. lifted to the wand / arriving
@@ -300,6 +313,10 @@ Page {
     // duration when the preset isn't calibrated.
     function syncSteamTimeout() {
         var live = scaledSteamTimeout()
+        if (live <= 0) {
+            var cap = capturedMilkForScaling()   // pitcher lifted: use the captured milk
+            if (cap > 0) live = steamTimeForMilk(cap)
+        }
         if (live > 0) {
             Settings.brew.steamTimeout = live
             steamPage.steamTimeoutScaled = true
