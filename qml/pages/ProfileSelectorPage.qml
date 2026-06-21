@@ -897,6 +897,21 @@ Page {
                 }
             }
 
+            // Rename profile (user/downloaded only — built-ins are read-only)
+            AccessibleButton {
+                visible: !profileActionsDialog.profileIsBuiltIn
+                Layout.fillWidth: true
+                Layout.preferredHeight: visible ? Theme.scaled(40) : 0
+                text: TranslationManager.translate("profileselector.menu.rename", "Rename Profile")
+                accessibleName: TranslationManager.translate("profileselector.accessible.rename_profile", "Rename profile")
+                onClicked: {
+                    profileActionsDialog.close()
+                    renameProfileDialog.profileFilename = profileActionsDialog.profileFilename
+                    renameProfileDialog.currentTitle = profileActionsDialog.profileTitle
+                    renameProfileDialog.open()
+                }
+            }
+
             // Set / Disable Auto-Load (Selected-list only)
             AccessibleButton {
                 visible: profileActionsDialog.viewIsSelectedList || profileActionsDialog.profileIsSelected
@@ -1390,6 +1405,142 @@ Page {
                                     copyProfileDialog.close()
                                 } else {
                                     profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.copy_failed", "Failed to copy profile"))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Item { implicitHeight: Theme.scaled(8) }
+            }
+        }
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.scaled(8)
+            border.color: Theme.borderColor
+        }
+    }
+
+    // Rename profile dialog
+    Dialog {
+        id: renameProfileDialog
+        anchors.centerIn: parent
+        width: Theme.scaled(400)
+        padding: 0
+        modal: true
+
+        property string profileFilename: ""
+        property string currentTitle: ""
+
+        onAboutToShow: {
+            renameProfileNameField.text = currentTitle
+            renameProfileNameField.forceActiveFocus()
+            renameProfileNameField.selectAll()
+        }
+
+        header: Item {
+            implicitHeight: Theme.scaled(50)
+
+            Text {
+                anchors.left: parent.left
+                anchors.leftMargin: Theme.scaled(20)
+                anchors.verticalCenter: parent.verticalCenter
+                text: TranslationManager.translate("profileselector.renameProfile.title", "Rename Profile")
+                font: Theme.titleFont
+                color: Theme.textColor
+            }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 1
+                color: Theme.borderColor
+            }
+        }
+
+        contentItem: KeyboardAwareContainer {
+            inOverlay: true
+            textFields: [renameProfileNameField]
+            implicitHeight: renameProfileColumn.implicitHeight
+            implicitWidth: renameProfileColumn.implicitWidth
+
+            // Accessible.* must attach to an Item-derived object; Dialog
+            // (a Popup) is not one, so the dialog semantics live on its
+            // contentItem instead.
+            Accessible.role: Accessible.Dialog
+            Accessible.name: TranslationManager.translate("profileselector.renameProfile.title", "Rename Profile")
+
+            ColumnLayout {
+                id: renameProfileColumn
+                anchors.fill: parent
+                spacing: Theme.scaled(12)
+
+                Item { implicitHeight: Theme.scaled(8) }
+
+                Text {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.scaled(20)
+                    Layout.rightMargin: Theme.scaled(20)
+                    text: TranslationManager.translate("profileselector.renameProfile.label", "Enter a new name:")
+                    color: Theme.textColor
+                    font: Theme.bodyFont
+                    wrapMode: Text.Wrap
+                }
+
+                StyledTextField {
+                    id: renameProfileNameField
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.scaled(20)
+                    Layout.rightMargin: Theme.scaled(20)
+                    Layout.preferredHeight: Theme.scaled(44)
+                    placeholder: TranslationManager.translate("profileselector.renameProfile.placeholder", "Profile name")
+
+                    Keys.onReturnPressed: {
+                        Qt.inputMethod.commit()
+                        // Mirror the button's enabled condition so Enter on an
+                        // empty or unchanged title is a no-op without surprises.
+                        if (renameProfileButton.enabled) {
+                            renameProfileButton.clicked()
+                        }
+                    }
+                }
+
+                Item { implicitHeight: Theme.scaled(8) }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.scaled(20)
+                    Layout.rightMargin: Theme.scaled(20)
+                    spacing: Theme.scaled(12)
+
+                    Item { Layout.fillWidth: true }
+
+                    AccessibleButton {
+                        text: TranslationManager.translate("common.button.cancel", "Cancel")
+                        accessibleName: TranslationManager.translate("common.accessibility.cancel", "Cancel")
+                        Layout.preferredHeight: Theme.scaled(40)
+                        onClicked: renameProfileDialog.close()
+                    }
+
+                    AccessibleButton {
+                        id: renameProfileButton
+                        text: TranslationManager.translate("profileselector.renameProfile.button", "Rename")
+                        accessibleName: TranslationManager.translate("profileselector.renameProfile.accessible", "Rename profile")
+                        primary: true
+                        enabled: renameProfileNameField.displayText.trim() !== ""
+                                 && renameProfileNameField.displayText.trim() !== renameProfileDialog.currentTitle
+                        Layout.preferredHeight: Theme.scaled(40)
+                        onClicked: {
+                            Qt.inputMethod.commit()
+                            var newTitle = renameProfileNameField.text.trim()
+                            if (newTitle !== "" && newTitle !== renameProfileDialog.currentTitle) {
+                                if (ProfileManager.renameProfile(renameProfileDialog.profileFilename, newTitle)) {
+                                    profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.profile_renamed", "Profile renamed"))
+                                    renameProfileDialog.close()
+                                } else {
+                                    profileSelectorPage.showToast(TranslationManager.translate("profileselector.toast.rename_failed", "Failed to rename profile"))
                                 }
                             }
                         }
