@@ -8,8 +8,15 @@
 #include "ble/protocol/de1characteristics.h"
 #include "core/settings_visualizer.h"
 #include "profile/recipeparams.h"
+#include "ai/aimanager.h"
 
 using namespace DE1::Characteristic;
+
+// Stub for AIManager::availableModels — mcptools_write.cpp references it for
+// aiModel validation, but this test passes a null AIManager (no aiModel paths
+// under test) and does not link aimanager.cpp (which would drag in the whole
+// AI subsystem). Defining it here satisfies the linker; it is never called.
+QVariantList AIManager::availableModels(const QString&) const { return {}; }
 
 // Forward declarations — implemented in mcptools_write.cpp
 class ProfileManager;
@@ -29,7 +36,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                         AccessibilityManager* accessibility,
                         ScreensaverVideoManager* screensaver,
                         TranslationManager* translation,
-                        BatteryManager* battery);
+                        BatteryManager* battery,
+                        AIManager* aiManager);
 
 // Test MCP write tools (settings_set, profiles_set_active) against ProfileManager + MockTransport.
 // Critical regression: settings_set temperature/weight must trigger BLE upload.
@@ -139,9 +147,9 @@ private:
     void registerTools(McpTestFixture& f)
     {
         // Pass nullptr for dependencies not needed by the profile paths under test
-        // (visualizer, bagStorage, accessibility, screensaver, translation, battery).
+        // (visualizer, bagStorage, accessibility, screensaver, translation, battery, aiManager).
         registerWriteTools(&f.registry, &f.profileManager, nullptr, &f.settings,
-                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
     }
 
 private slots:
