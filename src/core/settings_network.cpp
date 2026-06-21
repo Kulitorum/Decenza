@@ -260,7 +260,7 @@ QString SettingsNetwork::defaultLayoutJson() const {
     zones["centerStatus"] = QJsonArray({
         QJsonObject({{"type", "temperature"}, {"id", "temp1"}}),
         QJsonObject({{"type", "waterLevel"}, {"id", "water1"}}),
-        QJsonObject({{"type", "connectionStatus"}, {"id", "conn1"}}),
+        QJsonObject({{"type", "machineStatus"}, {"id", "conn1"}}),
     });
     zones["centerTop"] = QJsonArray({
         QJsonObject({{"type", "espresso"}, {"id", "espresso1"}}),
@@ -291,7 +291,7 @@ QString SettingsNetwork::defaultLayoutJson() const {
         QJsonObject({{"type", "separator"}, {"id", "sep_sb2"}}),
         QJsonObject({{"type", "scaleWeight"}, {"id", "scale_sb1"}}),
         QJsonObject({{"type", "separator"}, {"id", "sep_sb3"}}),
-        QJsonObject({{"type", "connectionStatus"}, {"id", "conn_sb1"}}),
+        QJsonObject({{"type", "machineStatus"}, {"id", "conn_sb1"}}),
     });
     // Lower-mid bar: optional, general-purpose full-width band above the bottom
     // action bar. Empty by default so it reserves no space and changes nothing
@@ -331,7 +331,7 @@ QJsonObject SettingsNetwork::getLayoutObject() const {
             QJsonObject({{"type", "separator"}, {"id", "sep_sb2"}}),
             QJsonObject({{"type", "scaleWeight"}, {"id", "scale_sb1"}}),
             QJsonObject({{"type", "separator"}, {"id", "sep_sb3"}}),
-            QJsonObject({{"type", "connectionStatus"}, {"id", "conn_sb1"}}),
+            QJsonObject({{"type", "machineStatus"}, {"id", "conn_sb1"}}),
         });
         layout["zones"] = zones;
     }
@@ -358,6 +358,29 @@ QJsonObject SettingsNetwork::getLayoutObject() const {
         if (textMigrated)
             zones[zoneName] = items;
     }
+
+    // Migration: merge "connectionStatus" into "machineStatus" (composable-status-bar).
+    // The machine-status widget shows the phase and "Disconnected" when offline,
+    // subsuming the old Online/Offline widget; they are now one widget.
+    bool connMigrated = false;
+    for (const QString& zoneName : zones.keys()) {
+        QJsonArray items = zones[zoneName].toArray();
+        bool changed = false;
+        for (int i = 0; i < items.size(); ++i) {
+            QJsonObject item = items[i].toObject();
+            if (item["type"].toString() == "connectionStatus") {
+                item["type"] = "machineStatus";
+                items[i] = item;
+                changed = true;
+                connMigrated = true;
+            }
+        }
+        if (changed)
+            zones[zoneName] = items;
+    }
+    if (connMigrated)
+        layout["zones"] = zones;
+
     // Migration: ensure an Equipment idle button exists (add-equipment-packages).
     // Inject it immediately after the beans item so every upgraded user gets it
     // in a sensible default place regardless of their custom layout (fall back to
@@ -633,6 +656,27 @@ void SettingsNetwork::setZoneItems(const QString& zoneName, const QVariantList& 
         arr.append(QJsonObject::fromVariantMap(v.toMap()));
     zones[zoneName] = arr;
     layout["zones"] = zones;
+    saveLayoutObject(layout);
+}
+
+void SettingsNetwork::resetZoneToDefault(const QString& zoneName) {
+    QJsonObject def = QJsonDocument::fromJson(defaultLayoutJson().toUtf8()).object();
+    QJsonObject defZones = def["zones"].toObject();
+
+    QJsonObject layout = getLayoutObject();
+    QJsonObject zones = layout["zones"].toObject();
+    // Default items (empty array if the zone isn't in the default layout).
+    zones[zoneName] = defZones.value(zoneName).toArray();
+    layout["zones"] = zones;
+
+    // Drop this zone's per-zone options/offset/scale so they revert to defaults.
+    for (const QString& mapKey : { QStringLiteral("zoneOptions"), QStringLiteral("offsets"), QStringLiteral("scales") }) {
+        QJsonObject m = layout[mapKey].toObject();
+        if (m.contains(zoneName)) {
+            m.remove(zoneName);
+            layout[mapKey] = m;
+        }
+    }
     saveLayoutObject(layout);
 }
 

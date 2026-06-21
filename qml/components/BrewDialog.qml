@@ -594,7 +594,7 @@ Dialog {
                 spacing: Theme.scaled(8)
 
                 Text {
-                    text: TranslationManager.translate("brewDialog.ratioLabel", "Ratio: 1:")
+                    text: TranslationManager.translate("brewDialog.ratioLabel2", "Ratio:")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.preferredWidth: Theme.scaled(75)
@@ -616,6 +616,17 @@ Dialog {
                         root.targetManuallySet = false  // Reset manual flag when ratio changes
                         root.ratio = newValue
                     }
+                }
+
+                // Show the multiplier (the stepper) as a ratio too, so it's clear
+                // 1.8 == 1:1.8 (matches the ratio widget / scale widget display).
+                Text {
+                    text: "1:" + root.ratio.toFixed(1)
+                    font: Theme.bodyFont
+                    color: Theme.primaryColor
+                    Layout.preferredWidth: Theme.scaled(60)
+                    horizontalAlignment: Text.AlignRight
+                    Accessible.ignored: true
                 }
             }
 

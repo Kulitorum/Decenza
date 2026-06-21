@@ -96,7 +96,13 @@ Item {
         if (type.startsWith("screensaver") || type === "lastShot" || type === "shotPlan") {
             screensaverEditorPopup.openForItem(itemId, zoneName, props)
         } else if (type === "scaleWeight") {
-            scaleWeightEditorPopup.openForItem(itemId, props.dataMode || "")
+            scaleWeightEditorPopup.openForItem(itemId, props.dataMode || "", props.displayMode || "")
+        } else if (type === "machineStatus" || type === "temperature" || type === "steamTemperature") {
+            displayModeEditorPopup.openForItem(itemId, props.displayMode || "")
+        } else if (type === "sleep") {
+            sleepEditorPopup.openForItem(itemId,
+                props.allowQuit !== undefined ? props.allowQuit : true,
+                props.showIcon !== undefined ? props.showIcon : true)
         } else {
             customEditorPopup.openForItem(itemId, zoneName, props)
         }
@@ -145,6 +151,14 @@ Item {
 
     ScaleWeightEditorPopup {
         id: scaleWeightEditorPopup
+    }
+
+    DisplayModeEditorPopup {
+        id: displayModeEditorPopup
+    }
+
+    SleepEditorPopup {
+        id: sleepEditorPopup
     }
 
     // Two-column layout: zone editors on left, library panel on right

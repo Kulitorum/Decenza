@@ -7,6 +7,11 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+    property var modelData: ({})
+
+    // Per-instance display mode (composable-status-bar): "text" (default) or
+    // "icon" (a steam icon ahead of the value). Read from stored props.
+    readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
 
     readonly property real currentTemp: DE1Device.steamTemperature
     readonly property real targetTemp: Settings.brew.steamTemperature
@@ -24,15 +29,29 @@ Item {
         id: compactContent
         visible: root.isCompact
         anchors.fill: parent
-        implicitWidth: compactTemp.implicitWidth
-        implicitHeight: compactTemp.implicitHeight
+        implicitWidth: compactRow.implicitWidth
+        implicitHeight: compactRow.implicitHeight
 
-        Text {
-            id: compactTemp
+        Row {
+            id: compactRow
             anchors.centerIn: parent
-            text: DE1Device.connected ? root.currentTemp.toFixed(0) + "\u00B0C" : "\u2014"
-            color: Theme.warningColor
-            font: Theme.bodyFont
+            spacing: Theme.scaled(6)
+
+            ThemedIcon {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.displayMode === "icon"
+                source: "qrc:/icons/steam.svg"
+                iconSize: Theme.scaled(20)
+                color: Theme.warningColor
+            }
+
+            Text {
+                id: compactTemp
+                anchors.verticalCenter: parent.verticalCenter
+                text: DE1Device.connected ? root.currentTemp.toFixed(0) + "\u00B0C" : "\u2014"
+                color: Theme.warningColor
+                font: Theme.bodyFont
+            }
         }
 
         MouseArea {

@@ -125,6 +125,8 @@ public:
     Q_INVOKABLE void setZoneOption(const QString& zoneName, const QString& key, const QString& value);
     // Replace a zone's items in one step (used by "populate from preset").
     Q_INVOKABLE void setZoneItems(const QString& zoneName, const QVariantList& items);
+    // Reset a single zone to its default items + options (counterpart to clear).
+    Q_INVOKABLE void resetZoneToDefault(const QString& zoneName);
     Q_INVOKABLE void setItemProperty(const QString& itemId, const QString& key, const QVariant& value);
     Q_INVOKABLE QVariantMap getItemProperties(const QString& itemId) const;
 

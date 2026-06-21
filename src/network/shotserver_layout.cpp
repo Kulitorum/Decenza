@@ -351,8 +351,21 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             m_settings->network()->setZoneItems(zone, items);
             m_settings->network()->setZoneOption(zone, "distribution", "equalWidth");
             m_settings->network()->setZoneOption(zone, "style", "accentBar");
+        } else if (preset == "compactStatusBar") {
+            QVariantList items;
+            items.append(QVariantMap{{"type", "machineStatus"}, {"id", "csb_status"}, {"displayMode", "icon"}});
+            items.append(QVariantMap{{"type", "temperature"}, {"id", "csb_grouptemp"}, {"displayMode", "icon"}});
+            items.append(QVariantMap{{"type", "steamTemperature"}, {"id", "csb_steamtemp"}, {"displayMode", "icon"}});
+            items.append(QVariantMap{{"type", "spacer"}, {"id", "csb_sp1"}});
+            items.append(QVariantMap{{"type", "sleep"}, {"id", "csb_sleep"}});
+            items.append(QVariantMap{{"type", "spacer"}, {"id", "csb_sp2"}});
+            items.append(QVariantMap{{"type", "scaleWeight"}, {"id", "csb_scale"}, {"displayMode", "icon"}});
+            items.append(QVariantMap{{"type", "batteryLevel"}, {"id", "csb_battery"}});
+            m_settings->network()->setZoneItems(zone, items);
         } else if (preset == "clear") {
             m_settings->network()->setZoneItems(zone, QVariantList());
+        } else if (preset == "reset") {
+            m_settings->network()->resetZoneToDefault(zone);
         } else {
             sendResponse(socket, 400, "application/json", R"({"error":"Unknown preset"})");
             return;
@@ -2351,7 +2364,6 @@ QString ShotServer::generateLayoutPage() const
     var WIDGET_TYPES = [
         // Actions & readouts (white)
         {type:"beans",label:"Beans"},
-        {type:"connectionStatus",label:"Connection"},
         {type:"equipment",label:"Equipment"},
         {type:"espresso",label:"Espresso"},
         {type:"autofavorites",label:"Favorites"},
@@ -2394,7 +2406,7 @@ QString ShotServer::generateLayoutPage() const
         espresso:"Espresso",steam:"Steam",hotwater:"Hot Water",flush:"Flush",
         beans:"Beans",equipment:"Equipment",history:"History",autofavorites:"Favorites",sleep:"Sleep",
         settings:"Settings",temperature:"Temp",steamTemperature:"Steam",
-        batteryLevel:"Battery",scaleBattery:"Scale Bat",waterLevel:"Water",connectionStatus:"Connection",scaleWeight:"Scale",
+        batteryLevel:"Battery",scaleBattery:"Scale Bat",waterLevel:"Water",connectionStatus:"Machine",scaleWeight:"Scale",
         profileName:"Profile",doseWeight:"Dose",milkWeight:"Milk",ratioQuickSelect:"Ratio",
         shotPlan:"Shot Plan",pageTitle:"Title",spacer:"Spacer",separator:"Sep",
         custom:"Custom",weather:"Weather",quit:"Quit",
@@ -2403,7 +2415,7 @@ QString ShotServer::generateLayoutPage() const
         lastShot:"Last Shot",
         discuss:"Discuss",
         ghcSimulator:"Mini GHC",
-        machineStatus:"Status"
+        machineStatus:"Machine"
     };
 
     var ACTIONS = [
@@ -2540,7 +2552,10 @@ QString ShotServer::generateLayoutPage() const
                 [["left","Left"],["center","Center"],["right","Right"]]);
             html += optSel(zone.key, "style", zopts.style || "standard",
                 [["standard","Standard"],["surface","Surface"],["accentBar","Accent bar"]]);
-            html += '<button class="zone-opt-btn" onclick="populateZone(\'' + zone.key + '\',\'brewBar\');event.stopPropagation()">Brew bar</button>';
+            if (zone.key !== "statusBar")
+                html += '<button class="zone-opt-btn" onclick="populateZone(\'' + zone.key + '\',\'brewBar\');event.stopPropagation()">Brew bar</button>';
+            html += '<button class="zone-opt-btn" onclick="populateZone(\'' + zone.key + '\',\'compactStatusBar\');event.stopPropagation()">Compact bar</button>';
+            html += '<button class="zone-opt-btn" onclick="resetZone(\'' + zone.key + '\');event.stopPropagation()">Reset</button>';
             html += '<button class="zone-opt-btn clear" onclick="clearZone(\'' + zone.key + '\');event.stopPropagation()">Clear</button>';
             html += '</div>';
 
@@ -2585,6 +2600,30 @@ QString ShotServer::generateLayoutPage() const
                         var msel = (dm === modes[mm][0]) ? ' selected' : '';
                         html += '<option value="' + modes[mm][0] + '"' + msel + '>' + modes[mm][1] + '</option>';
                     }
+                    html += '</select>';
+                }
+                // Inline display-mode selector for selected readout chips.
+                if (isSel && (item.type === "machineStatus" || item.type === "temperature" || item.type === "steamTemperature" || item.type === "scaleWeight")) {
+                    var disp = item.displayMode || "text";
+                    var dispModes = [["text","Text"],["icon","Icon"]];
+                    html += '<select class="chip-mode" onchange="setDisplayMode(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
+                    for (var dd = 0; dd < dispModes.length; dd++) {
+                        var dsel = (disp === dispModes[dd][0]) ? ' selected' : '';
+                        html += '<option value="' + dispModes[dd][0] + '"' + dsel + '>' + dispModes[dd][1] + '</option>';
+                    }
+                    html += '</select>';
+                }
+                // Inline quit toggle for a selected Sleep chip.
+                if (isSel && item.type === "sleep") {
+                    var aq = (item.allowQuit === undefined) ? true : item.allowQuit;
+                    html += '<select class="chip-mode" onchange="setAllowQuit(\'' + item.id + '\',this.value===\'1\')" onclick="event.stopPropagation()">';
+                    html += '<option value="1"' + (aq ? ' selected' : '') + '>Quit on long-press</option>';
+                    html += '<option value="0"' + (!aq ? ' selected' : '') + '>No quit</option>';
+                    html += '</select>';
+                    var si = (item.showIcon === undefined) ? true : item.showIcon;
+                    html += '<select class="chip-mode" onchange="setShowIcon(\'' + item.id + '\',this.value===\'1\')" onclick="event.stopPropagation()">';
+                    html += '<option value="1"' + (si ? ' selected' : '') + '>Icon on</option>';
+                    html += '<option value="0"' + (!si ? ' selected' : '') + '>Icon off</option>';
                     html += '</select>';
                 }
                 if (isSel && i < items.length - 1) {
@@ -2734,6 +2773,24 @@ QString ShotServer::generateLayoutPage() const
         });
     }
 
+    function setDisplayMode(itemId, mode) {
+        apiPost("/api/layout/item", {itemId: itemId, key: "displayMode", value: mode}, function() {
+            loadLayout();
+        });
+    }
+
+    function setAllowQuit(itemId, allow) {
+        apiPost("/api/layout/item", {itemId: itemId, key: "allowQuit", value: allow}, function() {
+            loadLayout();
+        });
+    }
+
+    function setShowIcon(itemId, show) {
+        apiPost("/api/layout/item", {itemId: itemId, key: "showIcon", value: show}, function() {
+            loadLayout();
+        });
+    }
+
     function populateZone(zone, preset) {
         apiPost("/api/layout/zone-populate", {zone: zone, preset: preset}, function() {
             loadLayout();
@@ -2743,6 +2800,13 @@ QString ShotServer::generateLayoutPage() const
     function clearZone(zone) {
         if (!confirm("Clear all widgets from this zone?")) return;
         apiPost("/api/layout/zone-populate", {zone: zone, preset: "clear"}, function() {
+            loadLayout();
+        });
+    }
+
+    function resetZone(zone) {
+        if (!confirm("Reset this zone to its default?")) return;
+        apiPost("/api/layout/zone-populate", {zone: zone, preset: "reset"}, function() {
             loadLayout();
         });
     }

@@ -3,42 +3,28 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-// Per-instance editor for a Scale Weight widget (composable-brew-bar): picks the
-// data mode for this instance only. Persists via Settings.network.setItemProperty.
+// Per-instance display-mode editor (composable-status-bar) for readout widgets:
+// text vs icon. Persists via Settings.network.setItemProperty.
 Dialog {
     id: popup
 
     property string itemId: ""
-    property string dataMode: ""
     property string displayMode: "text"
 
-    function openForItem(id, mode, display) {
+    function openForItem(id, mode) {
         popup.itemId = id
-        popup.dataMode = (mode && mode.length > 0) ? mode : "gross"
-        popup.displayMode = (display && display.length > 0) ? display : "text"
+        popup.displayMode = (mode && mode.length > 0) ? mode : "text"
         popup.open()
     }
 
     function pick(mode) {
-        popup.dataMode = mode
-        Settings.network.setItemProperty(popup.itemId, "dataMode", mode)
-    }
-
-    function pickDisplay(mode) {
         popup.displayMode = mode
         Settings.network.setItemProperty(popup.itemId, "displayMode", mode)
     }
 
-    readonly property var displayChoices: [
+    readonly property var choices: [
         { value: "text", label: TranslationManager.translate("layoutEditor.displayText", "Text") },
         { value: "icon", label: TranslationManager.translate("layoutEditor.displayIcon", "Icon + value") }
-    ]
-
-    readonly property var choices: [
-        { value: "gross",        label: TranslationManager.translate("layoutEditor.scaleGross", "Gross weight") },
-        { value: "netBeans",     label: TranslationManager.translate("layoutEditor.scaleNetBeans", "Net beans (minus dose tare)") },
-        { value: "netMilk",      label: TranslationManager.translate("layoutEditor.scaleNetMilk", "Net milk (minus pitcher)") },
-        { value: "contextAware", label: TranslationManager.translate("layoutEditor.scaleContext", "Context-aware (milk while steaming, else beans)") }
     ]
 
     modal: true
@@ -46,7 +32,7 @@ Dialog {
     parent: Overlay.overlay
     x: Math.round((parent.width - width) / 2)
     y: Math.round((parent.height - height) / 2)
-    width: Math.min(Theme.scaled(460), parent.width - Theme.spacingLarge * 2)
+    width: Math.min(Theme.scaled(420), parent.width - Theme.spacingLarge * 2)
     padding: Theme.spacingMedium
 
     background: Rectangle {
@@ -60,43 +46,6 @@ Dialog {
         spacing: Theme.spacingMedium
 
         Text {
-            text: TranslationManager.translate("layoutEditor.scaleDataMode", "Scale data mode")
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(20)
-            font.bold: true
-        }
-
-        Repeater {
-            model: popup.choices
-            delegate: Rectangle {
-                required property var modelData
-                readonly property bool sel: popup.dataMode === modelData.value
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(44)
-                radius: Theme.buttonRadius
-                color: sel ? Theme.primaryColor : "transparent"
-                border.color: sel ? Theme.primaryColor : Theme.borderColor
-                border.width: 1
-                Accessible.role: Accessible.Button
-                Accessible.name: modelData.label
-                Accessible.focusable: true
-                Accessible.onPressAction: choiceMa.clicked(null)
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: Theme.spacingMedium
-                    anchors.right: parent.right
-                    anchors.rightMargin: Theme.spacingMedium
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: modelData.label
-                    color: parent.sel ? Theme.primaryContrastColor : Theme.textColor
-                    font: Theme.labelFont
-                    elide: Text.ElideRight
-                }
-                MouseArea { id: choiceMa; anchors.fill: parent; onClicked: popup.pick(modelData.value) }
-            }
-        }
-
-        Text {
             text: TranslationManager.translate("layoutEditor.displayMode", "Display")
             color: Theme.textColor
             font.pixelSize: Theme.scaled(20)
@@ -107,7 +56,7 @@ Dialog {
             Layout.fillWidth: true
             spacing: Theme.spacingSmall
             Repeater {
-                model: popup.displayChoices
+                model: popup.choices
                 delegate: Rectangle {
                     required property var modelData
                     readonly property bool sel: popup.displayMode === modelData.value
@@ -120,14 +69,14 @@ Dialog {
                     Accessible.role: Accessible.Button
                     Accessible.name: modelData.label
                     Accessible.focusable: true
-                    Accessible.onPressAction: dispMa.clicked(null)
+                    Accessible.onPressAction: choiceMa.clicked(null)
                     Text {
                         anchors.centerIn: parent
                         text: modelData.label
                         color: parent.sel ? Theme.primaryContrastColor : Theme.textColor
                         font: Theme.labelFont
                     }
-                    MouseArea { id: dispMa; anchors.fill: parent; onClicked: popup.pickDisplay(modelData.value) }
+                    MouseArea { id: choiceMa; anchors.fill: parent; onClicked: popup.pick(modelData.value) }
                 }
             }
         }

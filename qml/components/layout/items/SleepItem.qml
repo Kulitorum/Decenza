@@ -9,6 +9,15 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+    property var modelData: ({})
+
+    // Per-instance option (composable-status-bar): whether long-press quits the
+    // app. Default true (current behaviour). When false, the widget sleeps on tap
+    // only — a centred Sleep with no hidden exit. The explicit Quit widget remains.
+    readonly property bool allowQuit: (modelData && modelData.allowQuit !== undefined) ? modelData.allowQuit : true
+
+    // Per-instance option: show the sleep icon. Default true (current behaviour).
+    readonly property bool showIcon: (modelData && modelData.showIcon !== undefined) ? modelData.showIcon : true
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
@@ -50,6 +59,7 @@ Item {
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
             Image {
+                visible: root.showIcon
                 source: "qrc:/icons/sleep.svg"
                 sourceSize.width: Theme.scaled(28)
                 sourceSize.height: Theme.scaled(28)
@@ -75,12 +85,12 @@ Item {
         AccessibleTapHandler {
             id: sleepCompactTap
             anchors.fill: parent
-            supportLongPress: true
+            supportLongPress: root.allowQuit
             longPressInterval: 1000
             accessibleName: TranslationManager.translate("idle.accessible.sleep", "Sleep") + ". " + TranslationManager.translate("idle.accessible.sleep.description", "Put the machine to sleep")
-            accessibleDescription: TranslationManager.translate("idle.accessible.sleep.hint", "Long-press to quit the app.")
+            accessibleDescription: root.allowQuit ? TranslationManager.translate("idle.accessible.sleep.hint", "Long-press to quit the app.") : ""
             onAccessibleClicked: root.doSleep()
-            onAccessibleLongPressed: Qt.quit()
+            onAccessibleLongPressed: if (root.allowQuit) Qt.quit()
         }
     }
 
@@ -96,12 +106,12 @@ Item {
             anchors.fill: parent
             translationKey: "idle.button.sleep"
             translationFallback: "Sleep"
-            iconSource: "qrc:/icons/sleep.svg"
+            iconSource: root.showIcon ? "qrc:/icons/sleep.svg" : ""
             backgroundColor: Theme.buttonDisabled
             onClicked: root.doSleep()
-            onPressAndHold: Qt.quit()
+            onPressAndHold: if (root.allowQuit) Qt.quit()
 
-            Accessible.description: TranslationManager.translate("idle.accessible.sleep.hint", "Long-press to quit the app.")
+            Accessible.description: root.allowQuit ? TranslationManager.translate("idle.accessible.sleep.hint", "Long-press to quit the app.") : ""
         }
     }
 }

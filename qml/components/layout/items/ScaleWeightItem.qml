@@ -15,6 +15,10 @@ Item {
     // weight), "contextAware" (net milk while steaming, else net beans).
     readonly property string dataMode: (modelData && modelData.dataMode) ? modelData.dataMode : ""
 
+    // Per-instance display mode (composable-status-bar): "text" (default, status
+    // dot + value) or "icon" (a scale icon ahead of the value).
+    readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
+
     function _pitcherWeight() {
         var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
         return (p && !p.disabled) ? (p.pitcherWeightG ?? 0) : 0
@@ -158,8 +162,17 @@ Item {
             spacing: Theme.spacingSmall
             visible: root.scaleConnected && !root.showScaleWarning
 
+            ThemedIcon {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.displayMode === "icon"
+                source: "qrc:/icons/scale.svg"
+                iconSize: Theme.scaled(18)
+                color: root.scaleColor(scaleMouseArea.pressed)
+            }
+
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
+                visible: root.displayMode !== "icon"
                 width: Theme.scaled(8)
                 height: Theme.scaled(8)
                 radius: Theme.scaled(4)

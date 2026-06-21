@@ -16,16 +16,26 @@ Item {
     // Fill modes occupy the full width, so alignment has no effect on them.
     readonly property bool fillWidthMode: distribution === "equalWidth" || distribution === "spaced"
 
+    // A user spacer also wants the row to span the full width so it can expand
+    // (e.g. the status bar's pageTitle-then-spacer layout). Fill the row for fill
+    // modes or when a spacer is present; otherwise shrink-to-content and align.
+    readonly property bool hasSpacer: {
+        for (var i = 0; i < items.length; i++)
+            if (items[i].type === "spacer") return true
+        return false
+    }
+    readonly property bool fillRow: fillWidthMode || hasSpacer
+
     implicitHeight: Theme.bottomBarHeight
     implicitWidth: itemsRow.implicitWidth
 
     RowLayout {
         id: itemsRow
         anchors.verticalCenter: parent.verticalCenter
-        anchors.left: (root.fillWidthMode || root.alignment === "left") ? parent.left : undefined
-        anchors.right: (root.fillWidthMode || root.alignment === "right") ? parent.right : undefined
-        anchors.horizontalCenter: (!root.fillWidthMode && root.alignment === "center") ? parent.horizontalCenter : undefined
-        width: root.fillWidthMode ? parent.width : Math.min(implicitWidth, parent.width)
+        anchors.left: (root.fillRow || root.alignment === "left") ? parent.left : undefined
+        anchors.right: (root.fillRow || root.alignment === "right") ? parent.right : undefined
+        anchors.horizontalCenter: (!root.fillRow && root.alignment === "center") ? parent.horizontalCenter : undefined
+        width: root.fillRow ? parent.width : Math.min(implicitWidth, parent.width)
         spacing: Theme.spacingMedium
 
         Repeater {
