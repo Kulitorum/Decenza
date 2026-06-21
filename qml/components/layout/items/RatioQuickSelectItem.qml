@@ -5,8 +5,8 @@ import "../.."
 
 // Layout widget: coffee:water ratio quick-select (composable-brew-bar).
 // Shows the current ratio as a 1:X.X pill; tapping opens the ratio chooser.
-// Selecting a preset sets ONLY Settings.brew.lastUsedRatio (never the persistent
-// profile target / brewYieldOverride).
+// Selecting a preset applies the ratio live (records lastUsedRatio and recomputes
+// the stop-at-weight target from the measured dose).
 Item {
     id: root
     property bool isCompact: false

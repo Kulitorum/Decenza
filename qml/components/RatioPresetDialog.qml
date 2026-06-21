@@ -6,9 +6,9 @@ import Decenza
 // Quick coffee:water ratio chooser, opened from the ratioQuickSelect layout
 // widget (placeable in any zone). Offers three user-configurable presets
 // (Ristretto / Normale / Lungo; defaults 1:1 / 1:2 / 1:3, read from
-// Settings.brew.ratioPreset1/2/3), and applies the pick to
-// Settings.brew.lastUsedRatio only (the stop-at-weight target
-// derives from dose × ratio at the proper commit point, not from this dialog), and
+// Settings.brew.ratioPreset1/2/3). Applying a pick records lastUsedRatio and
+// recomputes the stop-at-weight target (yield = dose × ratio) so the ratio takes
+// effect live in the scale widget, Brew Settings, and the machine target. Also
 // includes a short "about ratios" help panel. Descriptions are original but
 // the ratio styles/learning are adapted from La Marzocco Home's article
 // "Brew Ratios Around the World" (credited in the footer).
@@ -37,16 +37,16 @@ Dialog {
     ]
 
     function applyRatio(r) {
-        // Set ONLY the ratio preference. The stop-at-weight target derives from
-        // dose × ratio at the proper commit point: the bean auto-capture (which has
-        // a freshly measured dose) computes brewYieldOverride = dose × lastUsedRatio.
-        // Espresso Setup shows a ratio derived from the existing dose/target, so a
-        // ratio picked here is not applied retroactively until the next capture.
-        // We deliberately do NOT poke the persistent brewYieldOverride from a tap:
-        // that would override the profile target from a possibly-default dose and
-        // bypass the per-bag override discipline — the exact anti-pattern flagged
-        // for the bean path.
+        // Apply the chosen ratio live: record the preference and recompute the
+        // stop-at-weight target (yield = dose × ratio) so the new ratio shows up
+        // everywhere immediately — the scale widget (ProfileManager.brewByRatio),
+        // Brew Settings, and the machine target. Setting brewYieldOverride emits
+        // brewOverridesChanged, which ProfileManager turns into a targetWeight sync
+        // + targetWeightChanged. Uses the measured dose (dyeBeanWeight), falling
+        // back to 18 g when none is recorded.
         Settings.brew.lastUsedRatio = r
+        var dose = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
+        Settings.brew.brewYieldOverride = dose * r
         root.close()
     }
 

@@ -47,7 +47,7 @@ The layout palette SHALL provide a `milkWeight` widget that displays the most re
 
 ### Requirement: Ratio quick-select widget
 
-The layout palette SHALL provide a `ratioQuickSelect` widget that displays the current coffee-to-water ratio as a `1:X.X` pill and, when tapped, opens the ratio chooser (`RatioPresetDialog`). Selecting a preset SHALL set only `Settings.brew.lastUsedRatio` and SHALL NOT modify the persistent profile target or `brewYieldOverride`.
+The layout palette SHALL provide a `ratioQuickSelect` widget that displays the current coffee-to-water ratio as a `1:X.X` pill and, when tapped, opens the ratio chooser (`RatioPresetDialog`). Selecting a preset SHALL apply the ratio live: record `Settings.brew.lastUsedRatio` and recompute the stop-at-weight target (`brewYieldOverride = dose × ratio`, using the measured dose) so the new ratio is reflected immediately in the scale widget, Brew Settings, and the machine target.
 
 #### Scenario: Displays the current ratio
 
@@ -59,11 +59,12 @@ The layout palette SHALL provide a `ratioQuickSelect` widget that displays the c
 - **WHEN** the user taps the widget
 - **THEN** the ratio chooser SHALL open with the editable Ristretto / Normale / Lungo presets
 
-#### Scenario: Selecting a preset updates only the live ratio
+#### Scenario: Selecting a preset applies the ratio live
 
 - **WHEN** the user picks a ratio preset
 - **THEN** `Settings.brew.lastUsedRatio` SHALL be updated
-- **AND** the persistent profile target and `brewYieldOverride` SHALL be unchanged
+- **AND** the stop-at-weight target SHALL be recomputed as `dose × ratio` (using the measured dose, defaulting to 18 g when none is recorded)
+- **AND** the new ratio SHALL be reflected in the scale widget, Brew Settings, and the machine target weight
 
 #### Scenario: Accessible as a button
 
