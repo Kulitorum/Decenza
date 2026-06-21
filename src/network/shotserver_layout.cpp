@@ -2606,7 +2606,8 @@ QString ShotServer::generateLayoutPage() const
             html += '<div class="zone-card' + (zoneSelected ? ' selected' : '') + '" style="' + (isPairStart || isPairEnd ? 'flex:1' : '') + '" onclick="zoneClick(\'' + zone.key + '\',event)">';
             html += '<div class="zone-header"><span class="zone-title">' + zone.label + '</span>';
 
-            if (zone.hasOffset) {
+            // Center zones plus the lower-mid bar expose position (offset) + scale.
+            if (zone.hasOffset || zone.key === "lowerMidBar") {
                 var offset = 0;
                 if (layoutData && layoutData.offsets && layoutData.offsets[zone.key] !== undefined)
                     offset = layoutData.offsets[zone.key];

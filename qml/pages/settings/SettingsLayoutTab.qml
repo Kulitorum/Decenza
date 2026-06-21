@@ -590,7 +590,7 @@ Item {
                     Layout.fillWidth: true
                 }
 
-                // Live home-screen preview (5:3, matches the device reference aspect)
+                // Live home-screen preview (8:5, matches the 960x600 device reference aspect)
                 Rectangle {
                     id: previewBox
                     Layout.fillWidth: true
