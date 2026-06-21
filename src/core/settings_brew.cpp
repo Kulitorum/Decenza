@@ -385,9 +385,10 @@ double SettingsBrew::netMilkForPitcher(int index, double scaleReading) const {
     QVariantMap p = getSteamPitcherPreset(index);
     if (p.isEmpty() || p.value("disabled").toBool()) return 0.0;
     double pitcherWt = p.value("pitcherWeightG", 0.0).toDouble();
-    // Net milk = scale − saved empty-pitcher weight; if no tare is saved, assume the
-    // user tared the scale with the empty pitcher, so the reading is already net.
-    double milk = pitcherWt > 0.0 ? (scaleReading - pitcherWt) : scaleReading;
+    // One consistent net-milk rule: require a saved empty-pitcher weight (same gate as
+    // auto-capture), so there's no tare-vs-saved ambiguity. Net milk = scale − pitcher.
+    if (pitcherWt <= 0.0) return 0.0;
+    double milk = scaleReading - pitcherWt;
     return (milk >= 50.0 && milk <= 1500.0) ? milk : 0.0;
 }
 
