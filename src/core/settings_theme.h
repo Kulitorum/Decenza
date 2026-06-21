@@ -44,6 +44,10 @@ class SettingsTheme : public QObject {
     // Colors detected on the current page (set from QML tree walker)
     Q_PROPERTY(QStringList currentPageColors READ currentPageColors WRITE setCurrentPageColors NOTIFY currentPageColorsChanged)
 
+    // Compact, icon-led top status bar (opt-in; default OFF -> the configurable
+    // statusBar layout zone is used).
+    Q_PROPERTY(bool compactStatusBar READ compactStatusBar WRITE setCompactStatusBar NOTIFY compactStatusBarChanged)
+
 public:
     explicit SettingsTheme(QObject* parent = nullptr);
 
@@ -114,6 +118,9 @@ public:
     QStringList currentPageColors() const { return m_currentPageColors; }
     void setCurrentPageColors(const QStringList& colors);
 
+    bool compactStatusBar() const;
+    void setCompactStatusBar(bool enabled);
+
     double screenBrightness() const;
     void setScreenBrightness(double brightness);
 
@@ -134,6 +141,7 @@ signals:
     void flashColorNameChanged();
     void flashPhaseChanged();
     void currentPageColorsChanged();
+    void compactStatusBarChanged();
     void screenBrightnessChanged();
 
 private:

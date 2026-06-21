@@ -183,6 +183,16 @@ Item {
                     wrapMode: Text.Wrap
                 }
 
+                // Opt-in compact status bar (default off). When on, a fixed icon-led
+                // status bar replaces the configurable status-bar zone below.
+                StyledSwitch {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.layout.compactStatusBar", "Use compact status bar")
+                    accessibleName: text
+                    checked: Settings.theme.compactStatusBar
+                    onToggled: Settings.theme.compactStatusBar = checked
+                }
+
                 // Status Bar zone (visible on all pages)
                 LayoutEditorZone {
                     Layout.fillWidth: true

@@ -621,6 +621,16 @@ void SettingsTheme::setCurrentPageColors(const QStringList& colors) {
     }
 }
 
+bool SettingsTheme::compactStatusBar() const {
+    return m_settings.value("layout/compactStatusBar", false).toBool();
+}
+void SettingsTheme::setCompactStatusBar(bool enabled) {
+    if (compactStatusBar() != enabled) {
+        m_settings.setValue("layout/compactStatusBar", enabled);
+        emit compactStatusBarChanged();
+    }
+}
+
 void SettingsTheme::flashThemeColor(const QString& colorName) {
     // Stop any existing flash
     if (m_flashTimer) {

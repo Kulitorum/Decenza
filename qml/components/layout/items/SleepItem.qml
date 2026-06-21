@@ -5,13 +5,19 @@ import QtQuick.Window
 import Decenza
 import "../.."
 
+// Normally renders the Sleep button wherever the layout places it. When the opt-in
+// compact status bar (Settings.theme.compactStatusBar) is enabled, Sleep lives in
+// the top bar instead, so this widget collapses to nothing to avoid a duplicate.
 Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
 
-    implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
-    implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
+    readonly property bool hidden: Settings.theme.compactStatusBar
+
+    visible: !hidden
+    implicitWidth: hidden ? 0 : (isCompact ? compactContent.implicitWidth : fullContent.implicitWidth)
+    implicitHeight: hidden ? 0 : (isCompact ? compactContent.implicitHeight : fullContent.implicitHeight)
 
     function doSleep() {
         if (ScaleDevice && ScaleDevice.connected) {
@@ -31,7 +37,7 @@ Item {
     // --- COMPACT MODE ---
     Item {
         id: compactContent
-        visible: root.isCompact
+        visible: !root.hidden && root.isCompact
         anchors.fill: parent
         implicitWidth: compactSleepRow.implicitWidth + Theme.scaled(16)
         implicitHeight: Theme.bottomBarHeight
@@ -87,7 +93,7 @@ Item {
     // --- FULL MODE ---
     Item {
         id: fullContent
-        visible: !root.isCompact
+        visible: !root.hidden && !root.isCompact
         anchors.fill: parent
         implicitWidth: Theme.scaled(150)
         implicitHeight: Theme.scaled(120)
