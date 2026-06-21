@@ -177,6 +177,7 @@ Item {
                 case "settings":         src = "items/SettingsItem.qml"; break
                 case "temperature":      src = "items/TemperatureItem.qml"; break
                 case "waterLevel":       src = "items/WaterLevelItem.qml"; break
+                case "clock":            src = "items/ClockItem.qml"; break
                 // connectionStatus merged into machineStatus (alias): the machine
                 // status shows the phase and "Disconnected" when offline, replacing
                 // the old binary Online/Offline widget.

@@ -69,6 +69,7 @@
         <file>icons/warning.svg</file>
         <file>icons/more-vertical.svg</file>
         <file>icons/grid.svg</file>
+        <file>icons/clock.svg</file>
         <!-- Coffee Cup (3D-rendered layers for CupFillView) -->
         <file>CoffeeCup/BackGround.png</file>
         <file>CoffeeCup/Mask.png</file>

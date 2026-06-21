@@ -26,6 +26,7 @@ Item {
             case "scaleWeight":
             case "weather":
             case "ghcSimulator":
+            case "clock":
                 return true
             default:
                 return false

@@ -2418,6 +2418,7 @@ QString ShotServer::generateLayoutPage() const
         {type:"milkWeight",cat:1,label:"Milk Weight"},
         {type:"ratioQuickSelect",cat:1,label:"Ratio Quick-Select"},
         {type:"shotPlan",cat:1,label:"Shot Plan"},
+        {type:"clock",cat:1,label:"Clock"},
         // Utility (2)
         {type:"custom",cat:2,label:"Custom",special:true},
         {type:"pageTitle",cat:2,label:"Page Title",special:true},
@@ -2445,7 +2446,8 @@ QString ShotServer::generateLayoutPage() const
         lastShot:"Last Shot",
         discuss:"Discuss",
         ghcSimulator:"Mini GHC",
-        machineStatus:"Machine"
+        machineStatus:"Machine",
+        clock:"Time"
     };
 
     var ACTIONS = [
@@ -2536,7 +2538,7 @@ QString ShotServer::generateLayoutPage() const
     function typeHasOptions(type) {
         if (type.indexOf("screensaver") === 0) return true;
         return ["custom","scaleWeight","shotPlan","sleep","machineStatus",
-                "temperature","steamTemperature","waterLevel","lastShot"].indexOf(type) >= 0;
+                "temperature","steamTemperature","waterLevel","clock","lastShot"].indexOf(type) >= 0;
     }
 
     // Persistent "has options" indicator drawn on configurable chips.
@@ -2696,7 +2698,7 @@ QString ShotServer::generateLayoutPage() const
                     html += '</select>';
                 }
                 // Inline display-mode selector for selected readout chips.
-                if (isSel && (item.type === "machineStatus" || item.type === "temperature" || item.type === "steamTemperature" || item.type === "scaleWeight" || item.type === "waterLevel")) {
+                if (isSel && (item.type === "machineStatus" || item.type === "temperature" || item.type === "steamTemperature" || item.type === "scaleWeight" || item.type === "waterLevel" || item.type === "clock")) {
                     var disp = item.displayMode || "text";
                     var dispModes = [["text","Text"],["icon","Icon"]];
                     html += '<select class="chip-mode" onchange="setDisplayMode(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
