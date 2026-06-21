@@ -59,6 +59,12 @@ Dialog {
             { type: "batteryLevel",     id: "csb_battery" }
         ]
         Settings.network.setZoneItems(popup.zoneName, items)
+        // The compact bar centres Sleep via spacers, so it needs packed
+        // distribution and the standard (transparent) style — reset them in case a
+        // previous preset (e.g. Brew bar) left equalWidth/accentBar.
+        setOption("distribution", "packed");  popup.distribution = "packed"
+        setOption("alignment", "center");     popup.alignment = "center"
+        setOption("style", "standard");       popup.zoneStyle = "standard"
     }
 
     modal: true
@@ -198,7 +204,10 @@ Dialog {
             }
 
             // Compact status bar preset (icon-led readouts + centred Sleep).
+            // Offered only for the status bar — it injects status readouts, which
+            // don't belong in the brew-oriented zones.
             Rectangle {
+                visible: popup.zoneName === "statusBar"
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(44)
                 radius: Theme.buttonRadius

@@ -72,6 +72,7 @@ Dialog {
                 }
             }
             StyledSwitch {
+                accessibleName: TranslationManager.translate("layoutEditor.sleepAllowQuit", "Long-press to quit")
                 checked: popup.allowQuit
                 onToggled: popup.setAllowQuit(checked)
             }
@@ -95,6 +96,7 @@ Dialog {
                 }
             }
             StyledSwitch {
+                accessibleName: TranslationManager.translate("layoutEditor.sleepShowIcon", "Show icon")
                 checked: popup.showIcon
                 onToggled: popup.setShowIcon(checked)
             }

@@ -366,7 +366,7 @@ QJsonObject SettingsNetwork::getLayoutObject() const {
     for (const QString& zoneName : zones.keys()) {
         QJsonArray items = zones[zoneName].toArray();
         bool changed = false;
-        for (int i = 0; i < items.size(); ++i) {
+        for (qsizetype i = 0; i < items.size(); ++i) {
             QJsonObject item = items[i].toObject();
             if (item["type"].toString() == "connectionStatus") {
                 item["type"] = "machineStatus";
@@ -425,7 +425,7 @@ QJsonObject SettingsNetwork::getLayoutObject() const {
         }
     }
 
-    if (textMigrated || equipmentInjected) {
+    if (textMigrated || equipmentInjected || connMigrated) {
         layout["zones"] = zones;
         // Persist the migration so it only runs once
         const_cast<SettingsNetwork*>(this)->saveLayoutObject(layout);

@@ -362,6 +362,9 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             items.append(QVariantMap{{"type", "scaleWeight"}, {"id", "csb_scale"}, {"displayMode", "icon"}});
             items.append(QVariantMap{{"type", "batteryLevel"}, {"id", "csb_battery"}});
             m_settings->network()->setZoneItems(zone, items);
+            // Compact bar centres Sleep via spacers — needs packed + standard.
+            m_settings->network()->setZoneOption(zone, "distribution", "packed");
+            m_settings->network()->setZoneOption(zone, "style", "standard");
         } else if (preset == "clear") {
             m_settings->network()->setZoneItems(zone, QVariantList());
         } else if (preset == "reset") {
@@ -2554,7 +2557,8 @@ QString ShotServer::generateLayoutPage() const
                 [["standard","Standard"],["surface","Surface"],["accentBar","Accent bar"]]);
             if (zone.key !== "statusBar")
                 html += '<button class="zone-opt-btn" onclick="populateZone(\'' + zone.key + '\',\'brewBar\');event.stopPropagation()">Brew bar</button>';
-            html += '<button class="zone-opt-btn" onclick="populateZone(\'' + zone.key + '\',\'compactStatusBar\');event.stopPropagation()">Compact bar</button>';
+            if (zone.key === "statusBar")
+                html += '<button class="zone-opt-btn" onclick="populateZone(\'' + zone.key + '\',\'compactStatusBar\');event.stopPropagation()">Compact bar</button>';
             html += '<button class="zone-opt-btn" onclick="resetZone(\'' + zone.key + '\');event.stopPropagation()">Reset</button>';
             html += '<button class="zone-opt-btn clear" onclick="clearZone(\'' + zone.key + '\');event.stopPropagation()">Clear</button>';
             html += '</div>';
