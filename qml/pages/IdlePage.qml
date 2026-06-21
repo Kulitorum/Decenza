@@ -384,7 +384,7 @@ Page {
         // original vertically-centred placement.
         anchors.top: idlePage.simplifiedHome ? topStatsBorder.bottom : undefined
         anchors.topMargin: idlePage.simplifiedHome ? Theme.scaled(12) : 0
-        anchors.bottom: idlePage.simplifiedHome ? brewStatusBar.top : undefined
+        anchors.bottom: idlePage.simplifiedHome ? simplifiedSetupZone.top : undefined
         anchors.bottomMargin: idlePage.simplifiedHome ? Theme.scaled(12) : 0
         anchors.verticalCenter: idlePage.simplifiedHome ? undefined : parent.verticalCenter
         anchors.verticalCenterOffset: idlePage.simplifiedHome ? 0 : Theme.scaled(50)
@@ -783,7 +783,10 @@ Page {
             }
         }
 
-        // Center middle zone (shot plan, etc.)
+        // Center middle zone (shot plan, etc.). In simplified mode the shot-plan
+        // setup buttons are pinned above the brew status bar instead (see
+        // simplifiedSetupZone) so an open preset row can't push them out of view;
+        // this in-column copy is therefore hidden there.
         LayoutCenterZone {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignHCenter
@@ -791,7 +794,26 @@ Page {
             zoneName: "centerMiddle"
             items: idlePage.centerMiddleItems
             zoneScale: idlePage.centerMiddleScale
+            visible: !idlePage.simplifiedHome
         }
+    }
+
+    // Simplified-home setup buttons (Profile / Espresso / Steam), pinned in a fixed
+    // slot just above the brew status bar so they stay visible no matter which preset
+    // row is open or how tall the centre content gets. Renders the same centerMiddle
+    // widget (shot plan) that the in-column zone shows in the default layout.
+    LayoutCenterZone {
+        id: simplifiedSetupZone
+        visible: idlePage.simplifiedHome
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: Theme.standardMargin
+        anchors.rightMargin: Theme.standardMargin
+        anchors.bottom: brewStatusBar.top
+        anchors.bottomMargin: Theme.scaled(10)
+        zoneName: "centerMiddle"
+        items: idlePage.centerMiddleItems
+        zoneScale: idlePage.centerMiddleScale
     }
 
     // ============================================================
