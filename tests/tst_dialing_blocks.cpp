@@ -199,6 +199,52 @@ private slots:
     }
 
     // -------------------------------------------------------------------
+    // beanInputsFromProjection — the single shared ShotProjection→currentBean
+    // mapper. Regression guard for the advisor/dialing drift where puck-prep
+    // and freeze/thaw data were dropped: a shot carrying them must surface a
+    // puckPrep sub-object and a known beanFreshness block through the mapper.
+    // Pure (no DB), so it runs anywhere.
+    // -------------------------------------------------------------------
+    void beanInputsFromProjection_carriesPuckPrepAndFreeze()
+    {
+        ShotProjection sd;
+        sd.beanBrand = QStringLiteral("Prodigal");
+        sd.beanType = QStringLiteral("Milk Blend");
+        sd.roastDate = QStringLiteral("2026-04-15");
+        sd.frozenDate = QStringLiteral("2026-04-16");
+        sd.defrostDate = QStringLiteral("2026-06-20");
+        sd.puckPrep = QStringLiteral("rdt,shaker"); // canonical sorted set
+        sd.basketBrand = QStringLiteral("Decent");
+        sd.basketModel = QStringLiteral("18g Ridged");
+        sd.doseWeightG = 18.0;
+
+        const QJsonObject bean = DialingBlocks::buildCurrentBeanBlock(
+            DialingBlocks::beanInputsFromProjection(sd));
+
+        // Puck-prep flowed through as a sub-object with the set flags true.
+        QVERIFY2(bean.contains(QStringLiteral("puckPrep")),
+                 "currentBean must carry the puckPrep sub-object");
+        const QJsonObject puck = bean[QStringLiteral("puckPrep")].toObject();
+        QCOMPARE(puck[QStringLiteral("rdt")].toBool(), true);
+        QCOMPARE(puck[QStringLiteral("shaker")].toBool(), true);
+        QCOMPARE(puck[QStringLiteral("wdt")].toBool(), false);
+
+        // Basket flowed through too — the advisor's old hand-roll dropped it
+        // entirely, so pin its identity here as part of the same regression.
+        QVERIFY2(bean.contains(QStringLiteral("basket")),
+                 "currentBean must carry the basket sub-object");
+        const QJsonObject basket = bean[QStringLiteral("basket")].toObject();
+        QCOMPARE(basket[QStringLiteral("brand")].toString(), QStringLiteral("Decent"));
+        QCOMPARE(basket[QStringLiteral("model")].toString(), QStringLiteral("18g Ridged"));
+
+        // Freeze/thaw flowed through and marked storage known.
+        const QJsonObject fresh = bean[QStringLiteral("beanFreshness")].toObject();
+        QCOMPARE(fresh[QStringLiteral("freshnessKnown")].toBool(), true);
+        QCOMPARE(fresh[QStringLiteral("frozenDate")].toString(), QStringLiteral("2026-04-16"));
+        QCOMPARE(fresh[QStringLiteral("defrostDate")].toString(), QStringLiteral("2026-06-20"));
+    }
+
+    // -------------------------------------------------------------------
     // dialInSessionsBlock — 4 shots on profile A across 2 sessions.
     // The first three shots cluster within the 60-min session window;
     // the fourth is 24h later, so it lands in its own session.

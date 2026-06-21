@@ -21,6 +21,10 @@ private slots:
     void buildBeanFreshness_emptyRoastDate_returnsEmptyObject();
     void buildBeanFreshness_populatedRoastDate_carriesFreshnessKnownAndInstruction();
     void buildBeanFreshness_neverEmitsAnyDayCountField();
+    // Freeze/thaw tracking — known storage flips guidance from ASK to thaw-age.
+    void buildBeanFreshness_freezeDates_setKnownAndUseThawInstruction();
+    void buildBeanFreshness_emptyRoastButFrozen_stillEmitsKnownBlock();
+    void buildBeanFreshness_defrostOnly_isKnown();
 
     // hoistSessionContext (openspec optimize-dialing-context-payload, task 1)
     void hoistSessionContext_emptySession_returnsEmpty();
@@ -150,6 +154,12 @@ void TstDialingHelpers::buildBeanFreshness_populatedRoastDate_carriesFreshnessKn
     QVERIFY2(instruction.contains(QStringLiteral("freeze"))
              || instruction.contains(QStringLiteral("frozen")),
              "instruction must surface the freezing pattern that breaks calendar-age reasoning");
+    // Unknown storage must not emit empty freeze-date keys — absence of the
+    // keys is how "no storage history" is signalled to the advisor.
+    QVERIFY2(!block.contains(QStringLiteral("frozenDate")),
+             "unknown-storage block must omit frozenDate, not emit it empty");
+    QVERIFY2(!block.contains(QStringLiteral("defrostDate")),
+             "unknown-storage block must omit defrostDate, not emit it empty");
 }
 
 void TstDialingHelpers::buildBeanFreshness_neverEmitsAnyDayCountField()
@@ -176,6 +186,53 @@ void TstDialingHelpers::buildBeanFreshness_neverEmitsAnyDayCountField()
         QVERIFY2(!key.contains(QStringLiteral("Day")),
                  qPrintable(QString("unexpected day-related key in beanFreshness: %1").arg(key)));
     }
+}
+
+void TstDialingHelpers::buildBeanFreshness_freezeDates_setKnownAndUseThawInstruction()
+{
+    // When the bag carries freeze/thaw dates, storage is KNOWN: the block must
+    // surface the dates, flip freshnessKnown to true, and drop the "ASK about
+    // storage" directive in favour of thaw-based aging guidance.
+    const QJsonObject block = buildBeanFreshness(QStringLiteral("2026-04-15"),
+                                                 QStringLiteral("2026-04-16"),
+                                                 QStringLiteral("2026-06-20"));
+    QCOMPARE(block["roastDate"].toString(), QStringLiteral("2026-04-15"));
+    QCOMPARE(block["frozenDate"].toString(), QStringLiteral("2026-04-16"));
+    QCOMPARE(block["defrostDate"].toString(), QStringLiteral("2026-06-20"));
+    QCOMPARE(block["freshnessKnown"].toBool(), true);
+    const QString instruction = block["instruction"].toString();
+    QVERIFY2(!instruction.contains(QStringLiteral("ASK")),
+             "known-storage instruction must NOT ask the user about storage");
+    QVERIFY2(instruction.contains(QStringLiteral("defrostDate"))
+             || instruction.contains(QStringLiteral("thaw")),
+             "known-storage instruction must anchor aging on the thaw date");
+}
+
+void TstDialingHelpers::buildBeanFreshness_emptyRoastButFrozen_stillEmitsKnownBlock()
+{
+    // Freeze data alone is enough to emit the block — the old contract
+    // suppressed the block whenever roastDate was empty, which would have
+    // discarded known storage history.
+    const QJsonObject block = buildBeanFreshness(QString(),
+                                                 QStringLiteral("2026-04-16"),
+                                                 QStringLiteral("2026-06-20"));
+    QVERIFY2(!block.isEmpty(), "block must be emitted when freeze data is present even without roastDate");
+    QVERIFY2(!block.contains(QStringLiteral("roastDate")),
+             "roastDate must be omitted when not supplied");
+    QCOMPARE(block["freshnessKnown"].toBool(), true);
+    QCOMPARE(block["frozenDate"].toString(), QStringLiteral("2026-04-16"));
+}
+
+void TstDialingHelpers::buildBeanFreshness_defrostOnly_isKnown()
+{
+    // A thaw date with no recorded freeze date still counts as known storage.
+    const QJsonObject block = buildBeanFreshness(QStringLiteral("2026-04-15"),
+                                                 QString(),
+                                                 QStringLiteral("2026-06-20"));
+    QCOMPARE(block["freshnessKnown"].toBool(), true);
+    QVERIFY2(!block.contains(QStringLiteral("frozenDate")),
+             "frozenDate must be omitted when not supplied");
+    QCOMPARE(block["defrostDate"].toString(), QStringLiteral("2026-06-20"));
 }
 
 // ---- hoistSessionContext (openspec optimize-dialing-context-payload, task 1) ----

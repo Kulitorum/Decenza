@@ -11,10 +11,7 @@
 
 #include "../history/shotprojection.h"
 #include "shotanalysis.h"  // ShotAnalysis::ExpertBand — expertBandForKbId return type (D14)
-
-class ShotDataModel;
-class Profile;
-struct ShotMetadata;
+#include "dialing_blocks.h"  // CurrentBeanBlockInputs — carried on ShotSummary
 struct HistoryPhaseMarker;
 
 // Summary of a single phase (e.g., Preinfusion, Extraction)
@@ -106,11 +103,9 @@ struct ShotSummary {
     // currentProfile.recommendedDoseG field shipped by dialing_get_context).
     double recommendedDoseG = 0;
 
-    // Bean / grinder / tasting metadata. Source depends on the path:
-    // `summarize()` (live) reads from the just-collected `ShotMetadata`;
-    // `summarizeFromHistory()` reads from the shot's saved database
-    // record. The fields named here mirror the columns under those two
-    // sources — this struct is not itself a live-DYE snapshot.
+    // Bean / grinder / tasting metadata, read from the shot's saved database
+    // record by `summarizeFromHistory()`. The fields named here mirror those
+    // columns — this struct is not itself a live-DYE snapshot.
     QString beanBrand;
     QString beanType;
     QString roastDate;
@@ -135,6 +130,21 @@ struct ShotSummary {
     // so the LLM has a stop-reason anchor instead of inventing one when
     // yieldG looks short.
     QString stoppedBy;
+
+    // Canonical currentBean inputs for this shot, built ONCE by
+    // summarizeFromHistory() via DialingBlocks::beanInputsFromProjection().
+    // buildCurrentBeanBlock() renders straight from this, so the
+    // bean/grinder/basket/puck/freeze
+    // mapping lives in one place and the advisor and dialing_get_context
+    // surfaces cannot drift.
+    //
+    // This is the authoritative carrier for bean/grinder identity. The flat
+    // beanBrand/beanType/roastDate/grinderModel/... fields above mirror a
+    // subset of it for prompt sections not yet migrated (prose body, the
+    // standalone `shot` block); both are populated from the same source in
+    // each summarize path, so keep them in sync until those consumers read
+    // beanInputs directly and the flat fields can be retired.
+    DialingBlocks::CurrentBeanBlockInputs beanInputs;
 };
 
 class ShotSummarizer : public QObject {
@@ -143,18 +153,12 @@ class ShotSummarizer : public QObject {
 public:
     explicit ShotSummarizer(QObject* parent = nullptr);
 
-    // Main summarization method. `stoppedBy` is the same classification
-    // MainController persists to the shot record (#1161, line ~2050); pass
-    // it in so the live and saved paths surface identical stop-reason
-    // anchors in the standalone shot JSON block.
-    ShotSummary summarize(const ShotDataModel* shotData,
-                          const Profile* profile,
-                          const ShotMetadata& metadata,
-                          double doseWeight,
-                          double finalWeight,
-                          const QString& stoppedBy = QString()) const;
-
-    // Summarize from historical shot data (typed projection from database)
+    // Summarize a shot from its typed database projection. This is the only
+    // summarization entry point: every surface (the in-app advisor + post-shot
+    // review, the conversation overlay, ai_advisor_invoke, dialing_get_context)
+    // operates on a persisted shot — a fresh shot reaches the advisor as a
+    // ShotProjection via onShotReady, saved before any AI window opens — so
+    // there is no separate live/ShotMetadata path.
     ShotSummary summarizeFromHistory(const ShotProjection& shotData) const;
 
     // Per openspec optimize-dialing-context-payload (task 10): the
@@ -341,8 +345,7 @@ private:
     // Build a synthetic single-phase PhaseSummary spanning the full shot.
     // Used as a fallback for shots with no phase markers (legacy shots, or
     // shots aborted before frame 0 emitted) so callers don't have to
-    // special-case the no-markers shape. Both summarize() and
-    // summarizeFromHistory() share this helper.
+    // special-case the no-markers shape. Used by summarizeFromHistory().
     static PhaseSummary makeWholeShotPhase(const QVector<QPointF>& pressure,
                                            const QVector<QPointF>& flow,
                                            const QVector<QPointF>& temperature,
@@ -352,10 +355,9 @@ private:
     // curve series. Skips phases with `endTime <= startTime` (degenerate
     // spans contribute nothing to per-phase metrics) but the caller's
     // parallel HistoryPhaseMarker list still includes them so the marker
-    // stream `analyzeShot` consumes is unaffected. Single source of truth
-    // shared by `summarize()` (live shot) and `summarizeFromHistory()`
-    // (saved shot) — both paths build the typed marker list from their
-    // own input source then call this helper.
+    // stream `analyzeShot` consumes is unaffected. Called by
+    // `summarizeFromHistory()` after it builds the typed marker list from the
+    // shot projection.
     static QList<PhaseSummary> buildPhaseSummariesForRange(
         const QVector<QPointF>& pressure,
         const QVector<QPointF>& flow,
@@ -373,9 +375,8 @@ private:
     // particular drives the grind-vs-yield arms inside `analyzeShot`; a
     // forgotten assignment leaves it at 0.0 and silently disables those arms.
     //
-    // Used by `summarize()` (live) and the slow path of `summarizeFromHistory()`
-    // (saved-shot recompute), so those two paths can no longer drift on
-    // detector wiring. The fast path of `summarizeFromHistory` bypasses
+    // Used by the slow path of `summarizeFromHistory()` (saved-shot recompute),
+    // so detector wiring lives in one place. The fast path of `summarizeFromHistory` bypasses
     // this helper — it consumes pre-computed `summaryLines` +
     // `detectorResults.pourTruncated` from `convertShotRecord` (PR #939, D).
     void runShotAnalysisAndPopulate(ShotSummary& summary,

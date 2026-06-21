@@ -293,24 +293,11 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                     // the in-app advisor's user prompt build through the
                     // same helper so a single system-prompt reading lands
                     // on byte-equivalent JSON.
-                    {
-                        DialingBlocks::CurrentBeanBlockInputs in;
-                        in.beanBrand = sd.beanBrand;
-                        in.beanType = sd.beanType;
-                        in.roastLevel = sd.roastLevel;
-                        in.roastDate = sd.roastDate;
-                        in.grinderBrand = sd.grinderBrand;
-                        in.grinderModel = sd.grinderModel;
-                        in.grinderBurrs = sd.grinderBurrs;
-                        in.basketBrand = sd.basketBrand;
-                        in.basketModel = sd.basketModel;
-                        in.puckPrep = sd.puckPrep;
-                        in.grinderSetting = sd.grinderSetting;
-                        in.rpm = static_cast<int>(sd.rpm);
-                        in.doseWeightG = sd.doseWeightG;
-                        in.beanBaseJson = sd.beanBaseJson;
-                        result["currentBean"] = DialingBlocks::buildCurrentBeanBlock(in);
-                    }
+                    // Single shared mapper (DialingBlocks::beanInputsFromProjection)
+                    // so this surface and the advisor's summarizeFromHistory path
+                    // build currentBean from a ShotProjection identically.
+                    result["currentBean"] = DialingBlocks::buildCurrentBeanBlock(
+                        DialingBlocks::beanInputsFromProjection(sd));
 
                     // --- Profile (single canonical block) ---
                     // Per openspec optimize-dialing-context-payload (task 8):

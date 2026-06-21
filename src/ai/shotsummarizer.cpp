@@ -1,9 +1,7 @@
 #include "shotsummarizer.h"
 #include "shotanalysis.h"
 #include "../history/shothistory_types.h"  // HistoryPhaseMarker — passed to ShotAnalysis::analyzeShot
-#include "../models/shotdatamodel.h"
 #include "../profile/profile.h"
-#include "../network/visualizeruploader.h"  // ShotMetadata struct (lives in this header for historical reasons)
 #include "../core/grinderaliases.h"
 #include "dialing_helpers.h"  // shared buildBeanFreshness — same shape on both surfaces
 #include "dialing_blocks.h"   // shared buildCurrentBeanBlock — single source of truth for currentBean
@@ -162,149 +160,6 @@ void ShotSummarizer::runShotAnalysisAndPopulate(ShotSummary& summary,
     summary.pourTruncatedDetected = analysis.detectors.pourTruncated;
 }
 
-ShotSummary ShotSummarizer::summarize(const ShotDataModel* shotData,
-                                       const Profile* profile,
-                                       const ShotMetadata& metadata,
-                                       double doseWeight,
-                                       double finalWeight,
-                                       const QString& stoppedBy) const
-{
-    ShotSummary summary;
-    summary.stoppedBy = stoppedBy;
-
-    if (!shotData) {
-        return summary;
-    }
-
-    // Profile info
-    if (profile) {
-        summary.profileTitle = profile->title();
-        summary.profileNotes = profile->profileNotes();
-        summary.profileAuthor = profile->author();
-        summary.beverageType = profile->beverageType();
-        summary.targetWeight = profile->targetWeight();
-        summary.targetTemperatureC = profile->espressoTemperature();
-        if (profile->hasRecommendedDose())
-            summary.recommendedDoseG = profile->recommendedDose();
-
-        // Profile style from editor type — tells the AI what kind of extraction curve to expect
-        QString editorStr = profile->editorType();
-        if (editorStr != QLatin1String("advanced")) {
-            summary.profileType = profileTypeDescription(editorStr);
-        } else {
-            summary.profileType = profile->mode() == Profile::Mode::FrameBased ? "Frame-based" : "Direct Control";
-        }
-
-        summary.profileKbId = computeProfileKbId(profile->title(), editorStr);
-
-        // Frame recipe — describeFramesFromJson takes a JSON string, so
-        // serialize the runtime profile back to JSON for it.
-        summary.profileRecipe = Profile::describeFramesFromJson(profile->toJsonString());
-    }
-
-    // Get the data vectors
-    const auto& pressureData = shotData->pressureData();
-    const auto& flowData = shotData->flowData();
-    const auto& tempData = shotData->temperatureData();
-    const auto& cumulativeWeightData = shotData->cumulativeWeightData();  // Cumulative weight (g)
-
-    if (pressureData.isEmpty()) {
-        return summary;
-    }
-
-    // Store raw curve data for detailed AI analysis
-    summary.pressureCurve = pressureData;
-    summary.flowCurve = flowData;
-    summary.tempCurve = tempData;
-    summary.weightCurve = cumulativeWeightData;  // Cumulative weight (g) — matches history path
-
-    // Store target/goal curves (what the profile intended)
-    summary.pressureGoalCurve = shotData->pressureGoalData();
-    summary.flowGoalCurve = shotData->flowGoalData();
-    summary.tempGoalCurve = shotData->temperatureGoalData();
-
-    // Overall metrics
-    summary.totalDuration = pressureData.last().x();
-    summary.doseWeight = doseWeight;
-    summary.finalWeight = finalWeight;
-    summary.ratio = doseWeight > 0 ? finalWeight / doseWeight : 0;
-
-    // DYE metadata
-    summary.beanBrand = metadata.beanBrand;
-    summary.beanType = metadata.beanType;
-    summary.beanBaseJson = metadata.beanBaseJson;
-    summary.roastDate = metadata.roastDate;
-    summary.roastLevel = metadata.roastLevel;
-    summary.grinderBrand = metadata.grinderBrand;
-    summary.grinderModel = metadata.grinderModel;
-    summary.grinderBurrs = metadata.grinderBurrs;
-    summary.grinderSetting = metadata.grinderSetting;
-    summary.rpm = static_cast<int>(metadata.rpm);
-    summary.drinkTds = metadata.drinkTds;
-    summary.drinkEy = metadata.drinkEy;
-    summary.enjoymentScore = metadata.espressoEnjoyment;
-    summary.tastingNotes = metadata.espressoNotes;
-
-    // Phase processing — walk the typed marker list once to build the
-    // HistoryPhaseMarker stream `analyzeShot` consumes, then hand that stream
-    // to buildPhaseSummariesForRange to compute the per-phase metrics for
-    // the AI prompt. Detector orchestration runs after both passes complete.
-    QList<HistoryPhaseMarker> historyMarkers;
-    const auto& markers = shotData->phaseMarkersList();
-    historyMarkers.reserve(markers.size());
-
-    if (markers.isEmpty()) {
-        summary.phases.append(makeWholeShotPhase(pressureData, flowData,
-                                                 tempData, cumulativeWeightData,
-                                                 summary.totalDuration));
-    } else {
-        // Build the typed marker list once; it feeds both the per-phase
-        // metric helper and ShotAnalysis::analyzeShot. The marker list can
-        // differ in length from the resulting PhaseSummary list — degenerate
-        // phases (endTime <= startTime) contribute a marker (frame
-        // transitions matter to skip-first-frame detection) but no
-        // PhaseSummary entry. They are consumed by different code paths
-        // and never joined by index.
-        for (qsizetype i = 0; i < markers.size(); i++) {
-            const PhaseMarker& marker = markers[i];
-            HistoryPhaseMarker h;
-            h.time = marker.time;
-            h.label = marker.label;
-            h.frameNumber = marker.frameNumber;
-            h.isFlowMode = marker.isFlowMode;
-            h.transitionReason = marker.transitionReason;
-            historyMarkers.append(h);
-        }
-        summary.phases = buildPhaseSummariesForRange(
-            pressureData, flowData, tempData, cumulativeWeightData,
-            historyMarkers, summary.totalDuration);
-    }
-
-    // Detector orchestration delegated to runShotAnalysisAndPopulate, the
-    // shared helper that wraps analyzeShot and stamps both summaryLines and
-    // pourTruncatedDetected onto summary. The suppression cascade (pour
-    // truncated → channeling/temp/grind forced false) lives in exactly one
-    // place — see SHOT_REVIEW.md §3.
-    const QStringList analysisFlags = getAnalysisFlags(summary.profileKbId);
-    const double firstFrameSeconds = (profile && !profile->steps().isEmpty())
-        ? profile->steps().first().seconds : -1.0;
-    // Pass the profile's real frame count so detectSkipFirstFrame correctly
-    // suppresses 1-frame profiles (no second frame to skip to). Without this,
-    // analyzeShot would default to expectedFrameCount = -1 and emit a false-
-    // positive "First profile step skipped" line on every 1-frame shot — a
-    // divergence from the save/load/MCP paths which already pass frameCount.
-    const int frameCount = (profile && !profile->steps().isEmpty())
-        ? static_cast<int>(profile->steps().size()) : -1;
-
-    runShotAnalysisAndPopulate(summary,
-        pressureData, flowData, cumulativeWeightData,
-        shotData->conductanceDerivativeData(), historyMarkers,
-        summary.pressureGoalCurve, summary.flowGoalCurve, analysisFlags,
-        firstFrameSeconds, summary.targetWeight, frameCount);
-
-    return summary;
-}
-
 // Helper to convert QVariantList of {x, y} maps to QVector<QPointF>
 static QVector<QPointF> variantListToPoints(const QVariantList& list)
 {
@@ -394,6 +249,11 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     summary.drinkEy = shotData.drinkEyPct;
     summary.enjoymentScore = shotData.enjoyment0to100;
     summary.tastingNotes = shotData.espressoNotes;
+
+    // Canonical currentBean inputs — single shared mapping. Carries the
+    // puck-prep, basket, and freeze/thaw fields the old per-surface hand-roll
+    // dropped, so the advisor sees the same currentBean as dialing_get_context.
+    summary.beanInputs = DialingBlocks::beanInputsFromProjection(shotData);
     // ShotProjection.stoppedBy was introduced by #1161 (see
     // shotprojection.h:127); #1280 added the forwarding into buildShotBlock
     // so the standalone shot prompt carries the stop-reason anchor too.
@@ -506,22 +366,12 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
 
 static QJsonObject buildCurrentBeanBlock(const ShotSummary& summary)
 {
-    // Delegates to the shared helper so this surface and
-    // `dialing_get_context.currentBean` produce byte-equivalent JSON for
-    // the same resolved shot.
-    DialingBlocks::CurrentBeanBlockInputs in;
-    in.beanBrand = summary.beanBrand;
-    in.beanType = summary.beanType;
-    in.roastLevel = summary.roastLevel;
-    in.roastDate = summary.roastDate;
-    in.grinderBrand = summary.grinderBrand;
-    in.grinderModel = summary.grinderModel;
-    in.grinderBurrs = summary.grinderBurrs;
-    in.grinderSetting = summary.grinderSetting;
-    in.rpm = summary.rpm;
-    in.doseWeightG = summary.doseWeight;
-    in.beanBaseJson = summary.beanBaseJson;
-    return DialingBlocks::buildCurrentBeanBlock(in);
+    // Renders straight from the beanInputs that summarizeFromHistory()
+    // assembled via the shared beanInputsFromProjection() mapper — the same
+    // mapper dialing_get_context uses — so the two surfaces emit byte-
+    // equivalent currentBean JSON for the same shot. The field mapping lives
+    // in the mapper, never duplicated here.
+    return DialingBlocks::buildCurrentBeanBlock(summary.beanInputs);
 }
 
 static QJsonObject buildCurrentProfileBlock(const ShotSummary& summary)
@@ -1143,13 +993,16 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "tasted (score 1–100, 1–2 lines of flavor notes, TDS reading if available)\n"
         "before suggesting changes. Curve-only analysis without taste feedback\n"
         "misses the variable that matters most.\n\n"
-        "**`currentBean.beanFreshness`**: when present, carries `roastDate`,\n"
-        "`freshnessKnown` (currently always `false` until storage tracking is\n"
-        "added), and an `instruction`. NEVER quote calendar age until\n"
-        "`freshnessKnown` is `true`. Many users freeze beans and thaw weekly —\n"
-        "calendar days from `roastDate` are not freshness without storage context.\n"
-        "ASK the user about storage before applying any bean-aging guidance from\n"
-        "the dial-in reference tables.\n\n"
+        "**`currentBean.beanFreshness`**: carries an optional `roastDate`, a\n"
+        "`freshnessKnown` flag, and an `instruction`. When `freshnessKnown` is\n"
+        "`false`, storage is\n"
+        "unknown — NEVER quote calendar age; ASK the user about storage first\n"
+        "(many users freeze beans and thaw weekly, so calendar days from\n"
+        "`roastDate` are not freshness without storage context). When\n"
+        "`freshnessKnown` is `true`, the block also carries `frozenDate` and/or\n"
+        "`defrostDate`: storage IS known, so do NOT ask — freezing pauses\n"
+        "staling, so age the beans from `defrostDate` (the thaw), not `roastDate`.\n"
+        "Always follow the block's `instruction` field.\n\n"
         "**`dialInSessions[].context`**: hoists shot-identity fields shared across\n"
         "an iteration session (`grinderBrand`, `grinderModel`, `grinderBurrs`,\n"
         "`beanBrand`, `beanType`). When a per-shot entry under `shots[]` omits\n"
