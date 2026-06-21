@@ -165,6 +165,8 @@ QVariantList AIManager::availableModels(const QString& providerId) const
     if (!provider) return out;
     const QList<AIProvider::ModelOption> models = provider->availableModels();
     for (const AIProvider::ModelOption& opt : models) {
+        // Keys are a contract with SettingsAITab.qml: "name" is the combo's
+        // textRole, "id" is read back on selection. Keep both in sync with the QML.
         QVariantMap entry;
         entry["id"] = opt.id;
         entry["name"] = opt.displayName;

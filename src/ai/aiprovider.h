@@ -193,10 +193,10 @@ private:
     void sendRequest(const QJsonObject& requestBody);
 
     QString m_apiKey;
-    // Default model. 3.5 Flash is the most capable Flash; 2.5 Flash trades a
-    // little capability for far more provisioned capacity (fewer 503s).
-    static constexpr const char* DEFAULT_MODEL = "gemini-3.5-flash";
-    QString m_model = DEFAULT_MODEL;
+    // Selected wire model. Defaulted in the constructor to the first
+    // availableModels() entry (the recommended default), so the C++ default and
+    // the UI's "unset → index 0" fallback reference the same fact and can't drift.
+    QString m_model;
     QString apiUrl() const;
 };
 

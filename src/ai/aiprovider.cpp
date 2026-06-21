@@ -607,6 +607,13 @@ GeminiProvider::GeminiProvider(QNetworkAccessManager* networkManager,
     : AIProvider(networkManager, parent)
     , m_apiKey(apiKey)
 {
+    // Default to the recommended model = first catalog entry. Keeps the default
+    // a single source of truth (no parallel DEFAULT_MODEL constant to keep in
+    // sync with the list order). availableModels() dispatches to this class
+    // since the object under construction is a GeminiProvider.
+    const QList<ModelOption> models = availableModels();
+    if (!models.isEmpty())
+        m_model = models.first().id;
 }
 
 QList<AIProvider::ModelOption> GeminiProvider::availableModels() const
@@ -663,10 +670,14 @@ void GeminiProvider::sendRequest(const QJsonObject& requestBody)
     // so each selectable model keeps thinking minimal/off.
     QJsonObject bodyWithConfig = requestBody;
     QJsonObject thinkingConfig;
+    // Gate on the gemini-2.x prefix — 2.5 Flash is the only 2.x model in the
+    // catalog today, so this selects it exactly. If a future gemini-2.x model
+    // with different thinking semantics is added, prefer encoding the thinking
+    // API in ModelOption over widening this string check.
     if (m_model.startsWith(QStringLiteral("gemini-2"))) {
-        thinkingConfig["thinkingBudget"] = 0;       // 2.5 family: disable thinking
+        thinkingConfig["thinkingBudget"] = 0;       // 2.x: integer budget knob, 0 = off
     } else {
-        thinkingConfig["thinkingLevel"] = "minimal"; // 3.x+ family
+        thinkingConfig["thinkingLevel"] = "minimal"; // 3.x+: thinkingLevel enum
     }
     QJsonObject generationConfig;
     generationConfig["thinkingConfig"] = thinkingConfig;

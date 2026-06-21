@@ -252,6 +252,23 @@ KeyboardAwareContainer {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(8)
 
+                    // Index of the stored selection; default to 0 (the recommended
+                    // first entry) when unset or stale, without writing it back.
+                    function selectedIndex() {
+                        var sel = Settings.ai.providerModel(currentProvider)
+                        for (var i = 0; i < options.length; i++) {
+                            if (options[i].id === sel) return i
+                        }
+                        return 0
+                    }
+
+                    // StyledComboBox assigns currentIndex imperatively on user
+                    // selection, which severs the declarative binding below. Re-arm
+                    // it on every provider switch so the combo tracks the stored
+                    // model for whichever provider is now showing (matters once a
+                    // second multi-model provider exists).
+                    onCurrentProviderChanged: modelCombo.currentIndex = Qt.binding(modelSelect.selectedIndex)
+
                     Tr {
                         key: "settings.ai.model"
                         fallback: "Model"
@@ -261,19 +278,12 @@ KeyboardAwareContainer {
                     }
 
                     StyledComboBox {
+                        id: modelCombo
                         Layout.fillWidth: true
                         model: modelSelect.options
                         textRole: "name"
                         accessibleLabel: TranslationManager.translate("settings.ai.modelAccessible", "AI model")
-                        // Index of the stored selection; default to 0 (recommended)
-                        // when unset or stale, without writing it back.
-                        currentIndex: {
-                            var sel = Settings.ai.providerModel(modelSelect.currentProvider)
-                            for (var i = 0; i < modelSelect.options.length; i++) {
-                                if (modelSelect.options[i].id === sel) return i
-                            }
-                            return 0
-                        }
+                        currentIndex: modelSelect.selectedIndex()
                         // onActivated fires only on user selection, so programmatic
                         // currentIndex changes (provider switch) never write back.
                         onActivated: function(index) {
@@ -284,8 +294,11 @@ KeyboardAwareContainer {
                         }
                     }
 
+                    // Provider-specific guidance. Gated to Gemini so it can't show
+                    // wrong copy for a future provider that gains multiple models.
                     Text {
-                        text: TranslationManager.translate("settings.ai.modelHint",
+                        visible: modelSelect.currentProvider === "gemini"
+                        text: TranslationManager.translate("settings.ai.modelHint.gemini",
                             "3.5 Flash is the most capable. 2.5 Flash is more available (fewer busy errors).")
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
