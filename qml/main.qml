@@ -539,6 +539,13 @@ ApplicationWindow {
     // duration when the session ends, so "use as baseline" never adopts a mismatched
     // (milk, time) pair. 0 = no milk measured this session.
     property real sessionMeasuredMilkG: 0
+    // The captured milk is specific to the selected pitcher's tare + calibration, so
+    // drop it when the pitcher changes — otherwise a new pitcher's steam could scale to
+    // the previous pitcher's milk.
+    Connections {
+        target: Settings.brew
+        function onSelectedSteamPitcherChanged() { root.sessionMeasuredMilkG = 0 }
+    }
 
     // Save the most recent steam session as an atomic (milk weight, duration) pair
     // so steam setup can adopt it as a baseline. Both fields are written together at

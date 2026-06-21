@@ -248,7 +248,7 @@ Page {
         if (calibMilk <= 0) return 0
         var milk = currentMeasuredMilk()
         if (milk <= 0) return 0
-        var scaled = Math.round(preset.duration * (milk / calibMilk))
+        var scaled = Math.round((preset.duration ?? 0) * (milk / calibMilk))
         return Math.max(5, Math.min(120, scaled))
     }
 
@@ -260,7 +260,7 @@ Page {
         if (!preset || preset.disabled) return 0
         var calibMilk = preset.calibMilkG ?? 0
         if (calibMilk <= 0 || milk <= 0) return 0
-        return Math.max(5, Math.min(120, Math.round(preset.duration * (milk / calibMilk))))
+        return Math.max(5, Math.min(120, Math.round((preset.duration ?? 0) * (milk / calibMilk))))
     }
 
     // Selected preset's reference milk weight (the baseline paired with its duration).
@@ -283,7 +283,10 @@ Page {
     property bool steamTimeoutScaled: false
     Connections {
         target: Settings.brew
-        function onSelectedSteamPitcherChanged() { steamPage.steamTimeoutScaled = false }
+        function onSelectedSteamPitcherChanged() {
+            steamPage.steamTimeoutScaled = false
+            steamPage.lastOnScaleMilk = 0   // captured net milk is pitcher-specific
+        }
     }
 
     // Net milk to scale against once the pitcher is off the scale: prefer the value
@@ -1539,8 +1542,7 @@ Page {
                         }
 
                         // Weigh the milk now on the scale and use it as the reference.
-                        // Works with a saved empty-pitcher weight, or a scale tared with
-                        // the empty pitcher (net milk = the raw reading).
+                        // Requires a saved empty-pitcher weight (net milk = scale - pitcher).
                         Rectangle {
                             id: refMilkWeighBtn
                             visible: ScaleDevice.connected && !ScaleDevice.isFlowScale
