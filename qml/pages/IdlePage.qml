@@ -225,10 +225,13 @@ Page {
             return (p && !p.disabled) ? (p.pitcherWeightG ?? 0) : 0
         }
         // Opt-in (Settings.brew.milkAutoCaptureEnabled, default on) and only while
-        // the steam flow is showing — so a stray weight never silently changes the
-        // steam stop time.
+        // the steam flow is showing AND this page is the active StackView page — so a
+        // stray weight never silently changes the steam stop time, and the capture
+        // can't double-fire alongside SteamPage's own copy when SteamPage is pushed
+        // on top (long-press) while activePresetFunction is still "steam".
         active: Settings.brew.milkAutoCaptureEnabled
                 && idlePage.activePresetFunction === "steam"
+                && idlePage.StackView.status === StackView.Active
                 && ScaleDevice.connected && !ScaleDevice.isFlowScale
         minNet: 20
         maxNet: 1500
