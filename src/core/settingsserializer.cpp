@@ -420,7 +420,6 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         if (steam.contains("disabled")) settings->brew()->setSteamDisabled(steam["disabled"].toBool());
         if (steam.contains("autoFlushSeconds")) settings->brew()->setSteamAutoFlushSeconds(steam["autoFlushSeconds"].toInt());
         if (steam.contains("twoTapStop")) settings->hardware()->setSteamTwoTapStop(steam["twoTapStop"].toBool());
-        if (steam.contains("milkAutoCaptureEnabled")) settings->brew()->setMilkAutoCaptureEnabled(steam["milkAutoCaptureEnabled"].toBool());
 
         // Import pitcher presets
         if (steam.contains("pitcherPresets")) {
@@ -434,7 +433,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             for (const QJsonValue& v : presets) {
                 QJsonObject p = v.toObject();
                 const bool disabled = p["disabled"].toBool();
-                const int before = static_cast<int>(settings->brew()->steamPitcherPresets().size());
+                const qsizetype before = settings->brew()->steamPitcherPresets().size();
                 if (disabled) {
                     settings->brew()->addSteamPitcherPresetDisabled(p["name"].toString());
                 } else {
@@ -443,14 +442,19 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                 // Restore weight + milk calibration ONLY for an enabled preset whose
                 // add actually appended one entry — never onto a disabled preset, nor
                 // (if a corrupt store no-ops the add) onto the wrong/previous one.
-                const int after = static_cast<int>(settings->brew()->steamPitcherPresets().size());
+                const qsizetype after = settings->brew()->steamPitcherPresets().size();
                 if (!disabled && after == before + 1) {
-                    const int idx = after - 1;
+                    const int idx = static_cast<int>(after) - 1;
                     if (p.contains("pitcherWeightG")) settings->brew()->setSteamPitcherWeight(idx, p["pitcherWeightG"].toDouble());
                     if (p.contains("calibMilkG")) settings->brew()->setSteamPitcherCalibration(idx, p["calibMilkG"].toDouble());
                 }
             }
         }
+        // Apply the master toggle AFTER the preset loop: setSteamPitcherCalibration()
+        // auto-enables weight-timed steaming, so applying it earlier would let a
+        // calibrated preset clobber a backup where the user had the feature OFF.
+        // The serialized value must win.
+        if (steam.contains("milkAutoCaptureEnabled")) settings->brew()->setMilkAutoCaptureEnabled(steam["milkAutoCaptureEnabled"].toBool());
         // Apply the selected pitcher AFTER any preset rebuild (and regardless of
         // whether this JSON carried a presets array) — setting it mid-rebuild would
         // leave it clamped to a stale index. Out-of-range is dropped with a log.
