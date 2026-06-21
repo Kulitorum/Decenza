@@ -2042,8 +2042,13 @@ bool ProfileManager::renameProfile(const QString& filename, const QString& newTi
     }
 
     // Favorites store the display title alongside the filename — keep it in sync.
+    // The profile JSON is already written at this point, so a sync miss would
+    // leave the favorites list showing a stale title; surface it rather than
+    // swallow it (the preceding isFavoriteProfile guard makes it near-unreachable).
     if (m_settings && m_settings->app()->isFavoriteProfile(filename)) {
-        m_settings->app()->updateFavoriteProfile(filename, filename, trimmedTitle);
+        if (!m_settings->app()->updateFavoriteProfile(filename, filename, trimmedTitle)) {
+            qWarning() << "ProfileManager::renameProfile: favorite title sync failed for" << filename;
+        }
     }
 
     // If the renamed profile is the one currently loaded, update the live copy so

@@ -1439,6 +1439,94 @@ private slots:
         QFile::remove(f.profileManager.userProfilesPath() + "/test_user_copy_xyz.json");
     }
 
+    // === renameProfile (in-place title rename) ===
+
+    void renameProfileChangesTitleKeepsFilename() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / BeforeRename", 37.0);
+        QVERIFY(f.profileManager.saveProfile("rename_test_xyz"));
+
+        bool ok = f.profileManager.renameProfile("rename_test_xyz", "D-Flow / AfterRename");
+
+        QVERIFY(ok);
+        // Filename is unchanged — the same file holds the new title.
+        QString path = f.profileManager.userProfilesPath() + "/rename_test_xyz.json";
+        QVERIFY(QFile::exists(path));
+        // The on-disk title reflects the rename; other fields are preserved.
+        QVariantMap p = f.profileManager.getProfileByFilename("rename_test_xyz");
+        QCOMPARE(p["title"].toString(), QString("D-Flow / AfterRename"));
+        QCOMPARE(p["target_weight"].toDouble(), 37.0);
+
+        QFile::remove(path);
+    }
+
+    void renameProfileUpdatesActiveProfileAndEmitsSignal() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / ActiveBefore");
+        QVERIFY(f.profileManager.saveProfile("rename_active_xyz"));
+        QCOMPARE(f.profileManager.baseProfileName(), "rename_active_xyz");
+
+        QSignalSpy spy(&f.profileManager, &ProfileManager::currentProfileChanged);
+        bool ok = f.profileManager.renameProfile("rename_active_xyz", "D-Flow / ActiveAfter");
+
+        QVERIFY(ok);
+        // The live copy of the active profile reflects the new title immediately.
+        QCOMPARE(f.profileManager.currentProfileName(), QString("D-Flow / ActiveAfter"));
+        QVERIFY(spy.count() >= 1);
+
+        QFile::remove(f.profileManager.userProfilesPath() + "/rename_active_xyz.json");
+    }
+
+    void renameProfileSyncsFavoriteTitle() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / FavBefore");
+        QVERIFY(f.profileManager.saveProfile("rename_fav_xyz"));
+        f.settings.app()->addFavoriteProfile("D-Flow / FavBefore", "rename_fav_xyz");
+        QVERIFY(f.settings.app()->isFavoriteProfile("rename_fav_xyz"));
+
+        bool ok = f.profileManager.renameProfile("rename_fav_xyz", "D-Flow / FavAfter");
+
+        QVERIFY(ok);
+        // Favorite stays keyed by the same filename, with its stored title updated.
+        QVERIFY(f.settings.app()->isFavoriteProfile("rename_fav_xyz"));
+        QString favTitle;
+        const QVariantList favs = f.settings.app()->favoriteProfiles();
+        for (const QVariant& v : favs) {
+            const QVariantMap m = v.toMap();
+            if (m["filename"].toString() == "rename_fav_xyz") {
+                favTitle = m["name"].toString();
+                break;
+            }
+        }
+        QCOMPARE(favTitle, QString("D-Flow / FavAfter"));
+
+        QFile::remove(f.profileManager.userProfilesPath() + "/rename_fav_xyz.json");
+    }
+
+    void renameProfileRejectsEmptyTitle() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "D-Flow / Whitespace");
+        QVERIFY(f.profileManager.saveProfile("rename_empty_xyz"));
+
+        // Whitespace-only title trims to empty and must be rejected.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("renameProfile"));
+        QVERIFY(!f.profileManager.renameProfile("rename_empty_xyz", "   "));
+
+        QFile::remove(f.profileManager.userProfilesPath() + "/rename_empty_xyz.json");
+    }
+
+    void renameProfileRejectsBuiltIn() {
+        McpTestFixture f;
+        // "default" is a known built-in (read-only QRC resource).
+        if (!f.profileManager.isBuiltInFilename("default")) {
+            QSKIP("No built-in profiles in test binary QRC");
+        }
+        // renameProfile refuses built-in profiles via ProfileSource::BuiltIn —
+        // built-ins are read-only, so they can only be copied, not renamed.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("renameProfile"));
+        QVERIFY(!f.profileManager.renameProfile("default", "Hacked Title"));
+    }
+
     // === ProfileSaveHelper::compareProfiles() — unified duplicate detection ===
 
     void compareProfilesIdentical() {

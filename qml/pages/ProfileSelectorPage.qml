@@ -1499,7 +1499,9 @@ Page {
 
                     Keys.onReturnPressed: {
                         Qt.inputMethod.commit()
-                        if (renameProfileNameField.displayText.trim() !== "") {
+                        // Mirror the button's enabled condition so Enter on an
+                        // empty or unchanged title is a no-op without surprises.
+                        if (renameProfileButton.enabled) {
                             renameProfileButton.clicked()
                         }
                     }
