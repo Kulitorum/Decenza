@@ -4,7 +4,8 @@ import Decenza
 import "../.."
 
 // Current-time readout. Like the other status readouts it supports a per-instance
-// display mode: "text" (default) or "icon" (a clock icon ahead of the time).
+// display mode: "text" (default) or "icon" (a clock icon shown with the time —
+// beside it in a bar, above it in center zones).
 // Respects the 12/24-hour setting and updates every second.
 Item {
     id: root
@@ -18,7 +19,10 @@ Item {
     property string timeText: ""
     function _refresh() {
         var now = new Date()
-        timeText = Qt.formatTime(now, Settings.app.use12HourTime ? "h:mmap" : "hh:mm")
+        // 24-hour branch uses HH (explicit 0-23) to match the other dedicated
+        // clocks (ScreensaverPage, ShotMapScreensaver). hh without an am/pm
+        // specifier is equivalent, but HH is unambiguous.
+        timeText = Qt.formatTime(now, Settings.app.use12HourTime ? "h:mmap" : "HH:mm")
     }
 
     Timer {

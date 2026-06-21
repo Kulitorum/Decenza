@@ -691,7 +691,7 @@ Rectangle {
             "screensaverShotMap": TranslationManager.translate("layoutEditor.chipMap", "Map"),
             "quit": TranslationManager.translate("layoutEditor.chipQuit", "Quit"),
             "discuss": TranslationManager.translate("layoutEditor.chipDiscuss", "Discuss"),
-            "clock": TranslationManager.translate("layoutEditor.chipClock2", "Clock")
+            "clock": TranslationManager.translate("layoutEditor.chipTime", "Time")
         }
         return names[type] || type
     }

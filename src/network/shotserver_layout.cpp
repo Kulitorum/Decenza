@@ -2447,7 +2447,7 @@ QString ShotServer::generateLayoutPage() const
         discuss:"Discuss",
         ghcSimulator:"Mini GHC",
         machineStatus:"Machine",
-        clock:"Clock"
+        clock:"Time"
     };
 
     var ACTIONS = [
