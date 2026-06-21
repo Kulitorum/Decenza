@@ -32,6 +32,8 @@ Rectangle {
         var win = Window.window
         if (win && typeof win.goToScreensaver === "function")
             win.goToScreensaver()
+        else
+            console.warn("StatusBar.doSleep: no goToScreensaver on the window")
     }
 
     // ---------------------------------------------------------------------------
@@ -137,15 +139,9 @@ Rectangle {
             Layout.preferredHeight: Theme.scaled(40)
             Layout.preferredWidth: sleepRow.implicitWidth + Theme.spacingMedium * 2
             radius: height / 2
-            color: sleepMa.pressed ? Qt.darker(Theme.surfaceColor, 1.4) : Qt.lighter(Theme.surfaceColor, 1.3)
+            color: sleepMa.isPressed ? Qt.darker(Theme.surfaceColor, 1.4) : Qt.lighter(Theme.surfaceColor, 1.3)
             border.width: Theme.scaled(1)
             border.color: Theme.primaryColor
-
-            Accessible.role: Accessible.Button
-            Accessible.name: TranslationManager.translate("idle.accessible.sleep", "Sleep") + ". "
-                             + TranslationManager.translate("idle.accessible.sleep.description", "Put the machine to sleep")
-            Accessible.focusable: true
-            Accessible.onPressAction: sleepMa.clicked(null)
 
             Row {
                 id: sleepRow
@@ -166,10 +162,15 @@ Rectangle {
                     Accessible.ignored: true  // the Button parent provides the name
                 }
             }
-            MouseArea {
+            // AccessibleMouseArea (not a raw MouseArea) so a screen-reader user
+            // exploring the bar gets an announce-first/activate-on-second-tap guard —
+            // Sleep is state-changing, we don't want first-touch to sleep the machine.
+            AccessibleMouseArea {
                 id: sleepMa
                 anchors.fill: parent
-                onClicked: statusBarRoot.doSleep()
+                accessibleName: TranslationManager.translate("idle.accessible.sleep", "Sleep") + ". "
+                                + TranslationManager.translate("idle.accessible.sleep.description", "Put the machine to sleep")
+                onAccessibleClicked: statusBarRoot.doSleep()
             }
         }
 
@@ -185,8 +186,8 @@ Rectangle {
         }
         StatusItem {
             // Device/tablet battery (BatteryManager). Only shown on mobile, where the
-            // reading is real — on desktop BatteryManager reports a constant 100%,
-            // which would be a misleading fake full-battery icon.
+            // reading is real — on desktop there is no battery source (a placeholder
+            // value), which would otherwise show a misleading full-battery icon.
             readonly property int deviceBattery: BatteryManager.batteryPercent
             visible: Qt.platform.os === "android" || Qt.platform.os === "ios"
             iconSource: statusBarRoot.batteryIcon(deviceBattery)
