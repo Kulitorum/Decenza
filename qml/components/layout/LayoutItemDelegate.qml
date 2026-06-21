@@ -16,8 +16,17 @@ Item {
     readonly property string itemType: modelData.type || ""
     readonly property string itemId: modelData.id || ""
 
-    // Is this a bar zone (compact rendering)?
-    readonly property bool isCompact: zoneName.startsWith("top") || zoneName.startsWith("bottom") || zoneName === "statusBar" || zoneName === "lowerMidBar"
+    // Per-zone item-size override ("auto" | "compact" | "large"). "auto" keeps
+    // the zone's natural style (bar zones compact, center zones large); the
+    // others force the widget's compact or large rendering regardless of zone.
+    property string itemSize: "auto"
+
+    // Is this rendered compact (bar style) vs large (center style)?
+    readonly property bool isCompact: {
+        if (root.itemSize === "large") return false
+        if (root.itemSize === "compact") return true
+        return zoneName.startsWith("top") || zoneName.startsWith("bottom") || zoneName === "statusBar" || zoneName === "lowerMidBar"
+    }
 
     // Action button types that get compiled to CustomItem in center zones
     readonly property bool isCompiledType: {

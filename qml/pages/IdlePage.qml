@@ -99,6 +99,12 @@ Page {
     property real centerTopScale: layoutConfig.scales ? (layoutConfig.scales.centerTop || 1.0) : 1.0
     property real centerMiddleScale: layoutConfig.scales ? (layoutConfig.scales.centerMiddle || 1.0) : 1.0
 
+    // Per-zone item size ("compact" | "large"); bars grow to fit large items.
+    function zoneItemSize(zone) {
+        return (layoutConfig.zoneOptions && layoutConfig.zoneOptions[zone]
+                && layoutConfig.zoneOptions[zone].itemSize) || "compact"
+    }
+
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("idle.pageTitle", "Idle")
         MainController.bagStorage.requestInventory()
@@ -443,6 +449,7 @@ Page {
             LayoutBarZone {
                 zoneName: "topLeft"
                 items: idlePage.topLeftItems
+                itemSize: idlePage.zoneItemSize("topLeft")
             }
 
             Item { Layout.fillWidth: true }
@@ -450,6 +457,7 @@ Page {
             LayoutBarZone {
                 zoneName: "topRight"
                 items: idlePage.topRightItems
+                itemSize: idlePage.zoneItemSize("topRight")
             }
         }
     }
@@ -894,8 +902,13 @@ Page {
     // viewports; raise the threshold if overlap is seen.
     // ============================================================
     property var lowerMidBarOptions: layoutConfig.zoneOptions ? (layoutConfig.zoneOptions.lowerMidBar || ({})) : ({})
+    // Lower-mid bar position (offset) + scale, matching the center-zone controls.
+    readonly property int lowerMidBarYOffset: layoutConfig.offsets ? (layoutConfig.offsets.lowerMidBar || 0) : 0
+    readonly property real lowerMidBarScale: layoutConfig.scales ? (layoutConfig.scales.lowerMidBar || 1.0) : 1.0
     readonly property bool lowerMidBarHasItems: idlePage.lowerMidBarItems.length > 0
-    readonly property real lowerMidBarFullHeight: Theme.scaled(82)
+    // Auto-grow: the band fits its content (large item-size makes it taller),
+    // never smaller than the standard bar height.
+    readonly property real lowerMidBarFullHeight: Math.max(Theme.scaled(82), lmbZone.implicitHeight)
     readonly property bool lowerMidBarFits:
         (idlePage.height - Theme.statusBarHeight - Theme.bottomBarHeight - lowerMidBarFullHeight) >= Theme.scaled(220)
     readonly property bool lowerMidBarVisible: lowerMidBarHasItems && lowerMidBarFits
@@ -905,11 +918,14 @@ Page {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: bottomBar.top
+        // Negative offset (the editor's "up") lifts the band off the bottom bar.
+        anchors.bottomMargin: -idlePage.lowerMidBarYOffset
         visible: idlePage.lowerMidBarVisible
         height: visible ? idlePage.lowerMidBarFullHeight : 0
         color: Theme.zoneBackgroundColor(idlePage.lowerMidBarOptions.style)
 
         LayoutBarZone {
+            id: lmbZone
             anchors.fill: parent
             anchors.leftMargin: Theme.spacingMedium
             anchors.rightMargin: Theme.spacingMedium
@@ -918,6 +934,8 @@ Page {
             distribution: idlePage.lowerMidBarOptions.distribution || "packed"
             alignment: idlePage.lowerMidBarOptions.alignment || "center"
             zoneStyle: idlePage.lowerMidBarOptions.style || "standard"
+            itemSize: idlePage.lowerMidBarOptions.itemSize || "compact"
+            zoneScale: idlePage.lowerMidBarScale
         }
     }
 
@@ -929,7 +947,8 @@ Page {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        height: Theme.bottomBarHeight
+        // Auto-grow to fit large item-size; standard bar height otherwise.
+        height: Math.max(Theme.bottomBarHeight, blZone.implicitHeight, brZone.implicitHeight)
         color: Theme.bottomBarColor
 
         RowLayout {
@@ -939,16 +958,20 @@ Page {
             spacing: Theme.spacingMedium
 
             LayoutBarZone {
+                id: blZone
                 zoneName: "bottomLeft"
                 items: idlePage.bottomLeftItems
+                itemSize: idlePage.zoneItemSize("bottomLeft")
                 Layout.fillHeight: true
             }
 
             Item { Layout.fillWidth: true }
 
             LayoutBarZone {
+                id: brZone
                 zoneName: "bottomRight"
                 items: idlePage.bottomRightItems
+                itemSize: idlePage.zoneItemSize("bottomRight")
                 Layout.fillHeight: true
             }
         }

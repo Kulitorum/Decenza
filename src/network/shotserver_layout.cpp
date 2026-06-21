@@ -2640,6 +2640,11 @@ QString ShotServer::generateLayoutPage() const
                 [["left","Left"],["center","Center"],["right","Right"]]);
             html += optSel(zone.key, "style", zopts.style || "standard",
                 [["standard","Standard"],["surface","Surface"],["accentBar","Accent bar"]]);
+            // Item size (compact bar vs large center style) applies to the
+            // growable bar zones — not the fixed status bar or the center zones.
+            if (!zone.hasOffset && zone.key !== "statusBar")
+                html += optSel(zone.key, "itemSize", zopts.itemSize || "compact",
+                    [["compact","Compact"],["large","Large"]]);
             if (zone.key !== "statusBar")
                 html += '<button class="zone-opt-btn" onclick="populateZone(\'' + zone.key + '\',\'brewBar\');event.stopPropagation()">Brew bar</button>';
             if (zone.key === "statusBar")

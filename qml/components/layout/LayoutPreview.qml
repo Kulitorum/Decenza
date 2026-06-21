@@ -87,6 +87,7 @@ Item {
                         distribution: previewRoot._opt("topLeft", "distribution", "packed")
                         alignment: previewRoot._opt("topLeft", "alignment", "center")
                         zoneStyle: previewRoot._opt("topLeft", "style", "standard")
+                        itemSize: previewRoot._opt("topLeft", "itemSize", "compact")
                     }
                     Item { Layout.fillWidth: true }
                     LayoutBarZone {
@@ -95,6 +96,7 @@ Item {
                         distribution: previewRoot._opt("topRight", "distribution", "packed")
                         alignment: previewRoot._opt("topRight", "alignment", "center")
                         zoneStyle: previewRoot._opt("topRight", "style", "standard")
+                        itemSize: previewRoot._opt("topRight", "itemSize", "compact")
                     }
                 }
             }
@@ -135,8 +137,9 @@ Item {
                 }
             }
 
-            // Lower-mid bar (full-width band above the bottom bar, height-gated)
-            property real lowerMidFullHeight: Theme.scaled(82)
+            // Lower-mid bar (full-width band above the bottom bar, height-gated).
+            // Auto-grows to fit large item-size, matching IdlePage.
+            property real lowerMidFullHeight: Math.max(Theme.scaled(82), lmbPreviewZone.implicitHeight)
             property bool lowerMidVisible: previewRoot._items("lowerMidBar").length > 0
                 && (height - Theme.bottomBarHeight - lowerMidFullHeight) >= Theme.scaled(220)
 
@@ -145,11 +148,13 @@ Item {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: previewBottomBar.top
+                anchors.bottomMargin: -previewRoot._offset("lowerMidBar")
                 visible: pageArea.lowerMidVisible
                 height: visible ? pageArea.lowerMidFullHeight : 0
                 color: Theme.zoneBackgroundColor(previewRoot._opt("lowerMidBar", "style", "standard"))
 
                 LayoutBarZone {
+                    id: lmbPreviewZone
                     anchors.fill: parent
                     anchors.leftMargin: Theme.spacingMedium
                     anchors.rightMargin: Theme.spacingMedium
@@ -158,6 +163,8 @@ Item {
                     distribution: previewRoot._opt("lowerMidBar", "distribution", "packed")
                     alignment: previewRoot._opt("lowerMidBar", "alignment", "center")
                     zoneStyle: previewRoot._opt("lowerMidBar", "style", "standard")
+                    itemSize: previewRoot._opt("lowerMidBar", "itemSize", "compact")
+                    zoneScale: previewRoot._scale("lowerMidBar")
                 }
             }
 
@@ -167,7 +174,8 @@ Item {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                height: Theme.bottomBarHeight
+                // Auto-grow to fit large item-size, matching IdlePage.
+                height: Math.max(Theme.bottomBarHeight, blPreviewZone.implicitHeight, brPreviewZone.implicitHeight)
                 color: Theme.bottomBarColor
 
                 RowLayout {
@@ -177,21 +185,25 @@ Item {
                     spacing: Theme.spacingMedium
 
                     LayoutBarZone {
+                        id: blPreviewZone
                         zoneName: "bottomLeft"
                         items: previewRoot._items("bottomLeft")
                         Layout.fillHeight: true
                         distribution: previewRoot._opt("bottomLeft", "distribution", "packed")
                         alignment: previewRoot._opt("bottomLeft", "alignment", "center")
                         zoneStyle: previewRoot._opt("bottomLeft", "style", "standard")
+                        itemSize: previewRoot._opt("bottomLeft", "itemSize", "compact")
                     }
                     Item { Layout.fillWidth: true }
                     LayoutBarZone {
+                        id: brPreviewZone
                         zoneName: "bottomRight"
                         items: previewRoot._items("bottomRight")
                         Layout.fillHeight: true
                         distribution: previewRoot._opt("bottomRight", "distribution", "packed")
                         alignment: previewRoot._opt("bottomRight", "alignment", "center")
                         zoneStyle: previewRoot._opt("bottomRight", "style", "standard")
+                        itemSize: previewRoot._opt("bottomRight", "itemSize", "compact")
                     }
                 }
             }
