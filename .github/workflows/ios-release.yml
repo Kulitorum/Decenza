@@ -76,16 +76,18 @@ jobs:
           target: 'ios'
           arch: 'ios'
           modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtimageformats qtcanvaspainter'
-          # Qt-for-iOS caching was previously disabled because the iOS Qt install
-          # (~4.2 GB on disk) pushed the repo past GitHub's 10 GB cache budget and
-          # forced LRU eviction to thrash the other 5 platforms' Qt/ccache entries.
-          # That budget pressure is now resolved: the "Prune stale ccache caches"
-          # step in macos-release.yml keeps the store bounded (~6-7 GB steady state),
-          # so caching iOS Qt is affordable and saves ~4-5 min of cold Qt download
-          # per iOS build. If budget pressure ever returns, the prune step will
-          # surface it — re-evaluate then rather than disabling this again blindly.
-          cache: true
-          cache-key-prefix: 'qt-ios-v1'
+          # Qt-for-iOS caching is intentionally disabled. The iOS Qt cache is too
+          # large to coexist with the other platforms under GitHub's 10 GB per-repo
+          # cache cap: even after the "Prune stale ccache caches" step (macos-release.yml)
+          # trimmed the duplicate ccache piles to ~7.3 GB, re-enabling iOS Qt caching
+          # was MEASURED at 3.96 GB for the single qt-ios cache entry (it barely
+          # compresses), pushing the store to 10.53 GB — over the cap and back into
+          # LRU-eviction thrash. See the experiment in PR #1383 (re-enable) and its
+          # revert. iOS is our least cache-critical build, so it pays the ~5 min cold
+          # Qt-install cost to keep windows/macos/linux/android Qt caches resident.
+          # Do NOT re-enable without first shrinking the iOS Qt cache (e.g. trimming
+          # unused modules) so the total stays comfortably under 10 GB.
+          cache: false
 
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
