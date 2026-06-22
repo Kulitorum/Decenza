@@ -1,5 +1,6 @@
 pragma Singleton
 import QtQuick
+import Decenza // for the Theme singleton — without this, Theme is undefined here
 
 // Per-instance color override for readout layout widgets (clock, temperature,
 // steam temp, water level, machine status, scale weight). "default" (or unset)
