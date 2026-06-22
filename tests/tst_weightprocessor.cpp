@@ -25,10 +25,11 @@ private:
     }
 
     void configureEspresso(WeightProcessor& wp, double targetWeight, int preinfuseFrames,
-                           QVector<double> frameExitWeights = {}) {
+                           QVector<double> frameExitWeights = {},
+                           QVector<FrameExitCondition> frameExitConditions = {}) {
         QVector<double> learningDrips;
         QVector<double> learningFlows;
-        wp.configure(targetWeight, preinfuseFrames, frameExitWeights,
+        wp.configure(targetWeight, preinfuseFrames, frameExitWeights, frameExitConditions,
                      learningDrips, learningFlows, false, 0.38);
     }
 
@@ -48,6 +49,18 @@ private:
             wp.processWeight(weight);
             m_fakeClock += intervalMs;
         }
+    }
+
+    // Arm a single mixed frame (frame 0) and bring the worker to the point where
+    // the per-frame weight check runs. Frame 1 has no weight exit.
+    void armMixedFrame(WeightProcessor& wp, double exitWeight,
+                       FrameExitCondition fw) {
+        QVector<double> weights = {exitWeight, 0.0};
+        QVector<FrameExitCondition> conds = {fw, {}};
+        configureEspresso(wp, 0, 0, weights, conds);   // no SAW target
+        wp.startExtraction();
+        wp.markExtractionStart();
+        wp.setTareComplete(true);
     }
 
 private slots:
@@ -236,6 +249,227 @@ private slots:
         m_fakeClock += 200;
 
         QCOMPARE(skipSpy.count(), 0);  // Disabled, no skip
+    }
+
+    // ==========================================
+    // Step-exit arbiter (mixed weight + firmware exit frames)
+    // ==========================================
+
+    // Firmware far from its threshold → fire immediately, no deferral.
+    void mixedFrameFiresWhenFirmwareFar() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        armMixedFrame(wp, 1.0, {FrameExitCondition::Kind::PressureOver, 9.0});
+
+        QSignalSpy skipSpy(&wp, &WeightProcessor::skipFrame);
+        wp.setCurrentFrame(0, /*pressure*/ 2.0, /*flow*/ 0.0);  // far from 9 bar
+        wp.processWeight(2.0);                                  // weight ≥ 1g
+
+        QCOMPARE(skipSpy.count(), 1);
+        QCOMPARE(skipSpy.first().at(0).toInt(), 0);
+    }
+
+    // Firmware near and trending toward its threshold → defer until the cap.
+    void mixedFrameDefersWhenNearTrending() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        armMixedFrame(wp, 1.0, {FrameExitCondition::Kind::PressureOver, 2.0});
+
+        QSignalSpy skipSpy(&wp, &WeightProcessor::skipFrame);
+
+        // window = max(0.20*2, 0.3) = 0.4 bar; all readings within and rising.
+        const double rising[] = {1.7, 1.8, 1.9};
+        for (int i = 0; i < 3; i++) {
+            wp.setCurrentFrame(0, rising[i], 0.0);
+            wp.processWeight(2.0);
+            m_fakeClock += 200;
+            if (i < StepExitArbiter::kMaxDeferralSamples - 1)
+                QCOMPARE(skipSpy.count(), 0);  // still deferring
+        }
+        // Cap (kMaxDeferralSamples=3) reached on the 3rd sample → fire once.
+        QCOMPARE(skipSpy.count(), 1);
+    }
+
+    // Firmware near but NOT trending → fire early (before the cap).
+    void mixedFrameFiresWhenNearNotTrending() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        armMixedFrame(wp, 1.0, {FrameExitCondition::Kind::PressureOver, 2.0});
+
+        QSignalSpy skipSpy(&wp, &WeightProcessor::skipFrame);
+
+        wp.setCurrentFrame(0, 1.9, 0.0);   // near (distance 0.1)
+        wp.processWeight(2.0);
+        QCOMPARE(skipSpy.count(), 0);       // first sample defers
+        m_fakeClock += 200;
+
+        wp.setCurrentFrame(0, 1.7, 0.0);   // near but falling → not trending
+        wp.processWeight(2.0);
+        QCOMPARE(skipSpy.count(), 1);       // fires before the cap
+    }
+
+    // The core race guard: firmware advances the frame while the tablet is
+    // deferring → the tablet must NOT send a (now stale) skip for the old frame.
+    void firmwareAdvanceDuringDeferralNoDoubleSkip() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        armMixedFrame(wp, 1.0, {FrameExitCondition::Kind::PressureOver, 2.0});
+
+        QSignalSpy skipSpy(&wp, &WeightProcessor::skipFrame);
+
+        // Defer on frame 0 (near + trending).
+        wp.setCurrentFrame(0, 1.7, 0.0);
+        wp.processWeight(2.0);
+        m_fakeClock += 200;
+        wp.setCurrentFrame(0, 1.8, 0.0);
+        wp.processWeight(2.0);
+        m_fakeClock += 200;
+        QCOMPARE(skipSpy.count(), 0);
+
+        // Firmware fires its own pressure exit: frame advances to 1.
+        wp.setCurrentFrame(1, 1.5, 0.0);
+        wp.processWeight(2.0);
+
+        // Frame 1 has no weight exit → nothing skipped. Crucially, no skip was
+        // ever sent for frame 0: the firmware owned that transition.
+        QCOMPARE(skipSpy.count(), 0);
+    }
+
+    // Regression for the imported "soup" profile: fill frame has
+    // pressure_over 2.0 + weight 1.0; 1 g is reached as pressure trends through
+    // 2 bar. Before the arbiter this double-skipped the fill frame, collapsing
+    // the 2-frame profile. The tablet must defer and let firmware own the exit.
+    void soupProfileNoDoubleSkip() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        armMixedFrame(wp, 1.0, {FrameExitCondition::Kind::PressureOver, 2.0});
+
+        QSignalSpy skipSpy(&wp, &WeightProcessor::skipFrame);
+
+        // Weight already past 1 g while pressure ramps toward 2 bar (trending) —
+        // the tablet defers rather than racing the firmware. Firmware fires
+        // within a sample or two (well before the deferral cap).
+        const double ramp[] = {1.6, 1.85};
+        for (double p : ramp) {
+            wp.setCurrentFrame(0, p, 0.0);
+            wp.processWeight(1.5);
+            m_fakeClock += 200;
+        }
+        QCOMPARE(skipSpy.count(), 0);  // deferred, no tablet skip yet
+
+        // Firmware crosses 2.0 bar and advances fill → hold on its own.
+        wp.setCurrentFrame(1, 2.1, 0.0);
+        wp.processWeight(1.5);
+
+        // No tablet skip on the fill frame → exactly one (firmware) advance.
+        QCOMPARE(skipSpy.count(), 0);
+    }
+
+    // Direct StepExitArbiter unit checks (proximity, trend, pruning).
+    void arbiterProximityAndTrend() {
+        StepExitArbiter a;
+        const FrameExitCondition over9{FrameExitCondition::Kind::PressureOver, 9.0};
+
+        // Far from threshold → Fire.
+        QCOMPARE(a.evaluate(0, over9, /*p*/ 2.0, /*f*/ 0.0),
+                 StepExitArbiter::Verdict::Fire);
+
+        // Near threshold, first sample → Defer (benefit of the doubt).
+        const FrameExitCondition over2{FrameExitCondition::Kind::PressureOver, 2.0};
+        QCOMPARE(a.evaluate(1, over2, 1.9, 0.0),
+                 StepExitArbiter::Verdict::Defer);
+        // Second sample falling → not trending → Fire.
+        QCOMPARE(a.evaluate(1, over2, 1.7, 0.0),
+                 StepExitArbiter::Verdict::Fire);
+    }
+
+    void arbiterOnFrameAdvancedPrunes() {
+        StepExitArbiter a;
+        const FrameExitCondition over2{FrameExitCondition::Kind::PressureOver, 2.0};
+
+        // Build two deferral samples on frame 0 (rising → trending → Defer).
+        QCOMPARE(a.evaluate(0, over2, 1.7, 0.0), StepExitArbiter::Verdict::Defer);
+        QCOMPARE(a.evaluate(0, over2, 1.8, 0.0), StepExitArbiter::Verdict::Defer);
+
+        // Machine leaves frame 0 then (hypothetically) re-enters: state must be
+        // pruned, so the next evaluate is a fresh first sample → Defer, not the
+        // cap-fire that a count of 3 would have produced.
+        a.onFrameAdvanced(1);
+        QCOMPARE(a.evaluate(0, over2, 1.9, 0.0), StepExitArbiter::Verdict::Defer);
+    }
+
+    // Flow exits must read the flow sensor (not pressure) and use the flow window.
+    void arbiterUsesFlowSensorForFlowExit() {
+        StepExitArbiter a;
+        const FrameExitCondition flowOver{FrameExitCondition::Kind::FlowOver, 2.5};
+        // Pressure is deliberately at/near a pressure threshold; only flow matters.
+        // flow far from 2.5 → Fire.
+        QCOMPARE(a.evaluate(0, flowOver, /*p*/ 9.0, /*f*/ 0.5),
+                 StepExitArbiter::Verdict::Fire);
+        // flow near 2.5 (window max(0.25*2.5,0.2)=0.625; distance 0.2) → Defer.
+        QCOMPARE(a.evaluate(1, flowOver, /*p*/ 0.0, /*f*/ 2.3),
+                 StepExitArbiter::Verdict::Defer);
+    }
+
+    // "under" exits trend toward the threshold by FALLING, not rising.
+    void arbiterTrendForUnderExit() {
+        StepExitArbiter a;
+        const FrameExitCondition flowUnder{FrameExitCondition::Kind::FlowUnder, 1.0};
+        // window = max(0.25*1.0,0.2)=0.25; readings near 1.0 and falling → Defer.
+        QCOMPARE(a.evaluate(0, flowUnder, 0.0, 1.2), StepExitArbiter::Verdict::Defer);
+        QCOMPARE(a.evaluate(0, flowUnder, 0.0, 1.1), StepExitArbiter::Verdict::Defer);
+
+        // pressure_under, rising away from threshold → not trending → Fire.
+        const FrameExitCondition pUnder{FrameExitCondition::Kind::PressureUnder, 1.0};
+        QCOMPARE(a.evaluate(2, pUnder, 1.1, 0.0), StepExitArbiter::Verdict::Defer);  // first sample
+        QCOMPARE(a.evaluate(2, pUnder, 1.2, 0.0), StepExitArbiter::Verdict::Fire);   // rose away
+    }
+
+    // Non-actionable firmware exit (value ≤ 0, or Kind::None) → fire as weight-only.
+    void arbiterNonActionableFires() {
+        StepExitArbiter a;
+        QCOMPARE(a.evaluate(0, {FrameExitCondition::Kind::PressureOver, 0.0}, 0.0, 0.0),
+                 StepExitArbiter::Verdict::Fire);
+        QCOMPARE(a.evaluate(0, FrameExitCondition{}, 5.0, 5.0),  // Kind::None
+                 StepExitArbiter::Verdict::Fire);
+    }
+
+    // The absolute proximity floor governs low-threshold exits (not the fraction).
+    void arbiterProximityFloorOnLowThreshold() {
+        StepExitArbiter a;
+        // value 0.5: 0.20*0.5 = 0.1, but the 0.3 bar floor widens the window.
+        // A reading 0.25 out is "far" under the fraction alone but "near" with
+        // the floor → Defer, proving the floor is in effect.
+        const FrameExitCondition over{FrameExitCondition::Kind::PressureOver, 0.5};
+        QCOMPARE(a.evaluate(0, over, /*p*/ 0.25, 0.0),
+                 StepExitArbiter::Verdict::Defer);
+    }
+
+    // FrameExitCondition::fromExitFields maps each exitType to the right Kind/value.
+    void frameExitConditionMapping() {
+        using K = FrameExitCondition::Kind;
+        auto c = FrameExitCondition::fromExitFields(true, "pressure_over", 2.0, 0, 6, 0);
+        QCOMPARE(int(c.kind), int(K::PressureOver)); QCOMPARE(c.value, 2.0);
+        c = FrameExitCondition::fromExitFields(true, "pressure_under", 0, 1.5, 6, 0);
+        QCOMPARE(int(c.kind), int(K::PressureUnder)); QCOMPARE(c.value, 1.5);
+        c = FrameExitCondition::fromExitFields(true, "flow_over", 0, 0, 2.5, 0);
+        QCOMPARE(int(c.kind), int(K::FlowOver)); QCOMPARE(c.value, 2.5);
+        c = FrameExitCondition::fromExitFields(true, "flow_under", 0, 0, 0, 1.0);
+        QCOMPARE(int(c.kind), int(K::FlowUnder)); QCOMPARE(c.value, 1.0);
+
+        // exitIf false → no firmware exit regardless of fields.
+        c = FrameExitCondition::fromExitFields(false, "pressure_over", 2.0, 0, 0, 0);
+        QCOMPARE(int(c.kind), int(K::None));
+        QVERIFY(!c.isActionable());
+
+        // "weight" is app-side → None, no warning expected.
+        c = FrameExitCondition::fromExitFields(true, "weight", 0, 0, 0, 0);
+        QCOMPARE(int(c.kind), int(K::None));
+
+        // Unrecognized exitType with exitIf set → None + a warning (guard disabled).
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("unrecognized exitType"));
+        c = FrameExitCondition::fromExitFields(true, "bogus", 1, 1, 1, 1);
+        QCOMPARE(int(c.kind), int(K::None));
     }
 
     // ==========================================
@@ -444,7 +678,7 @@ private slots:
         WeightProcessor wp;
         installFakeClock(wp);
         QVector<double> empty;
-        wp.configure(36.0, 0, empty, empty, empty, false);
+        wp.configure(36.0, 0, empty, {}, empty, empty, false);
         wp.startExtraction();
         wp.markExtractionStart();
         wp.setTareComplete(true);

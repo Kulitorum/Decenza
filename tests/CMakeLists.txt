@@ -599,6 +599,7 @@ endif()
 add_decenza_test(tst_weightprocessor
     tst_weightprocessor.cpp
     ${CMAKE_SOURCE_DIR}/src/machine/weightprocessor.cpp
+    ${CMAKE_SOURCE_DIR}/src/machine/stepexitarbiter.cpp
 )
 
 # --- tst_scalefeedliveness: stall detector driven by sample arrival, not value
@@ -608,6 +609,7 @@ add_decenza_test(tst_scalefeedliveness
     mocks/MockScaleDevice.h
     ${CMAKE_SOURCE_DIR}/src/ble/scaledevice.cpp
     ${CMAKE_SOURCE_DIR}/src/machine/weightprocessor.cpp
+    ${CMAKE_SOURCE_DIR}/src/machine/stepexitarbiter.cpp
 )
 
 # --- tst_scaleblepriority: connection-priority backoff decision logic (#1093/#1176) ---
@@ -633,6 +635,7 @@ add_decenza_test(tst_sawprediction
 add_decenza_test(tst_saw
     tst_saw.cpp
     ${CMAKE_SOURCE_DIR}/src/machine/weightprocessor.cpp
+    ${CMAKE_SOURCE_DIR}/src/machine/stepexitarbiter.cpp
 )
 
 # --- tst_settling: SAW settling trimSettlingData(), m_sawSettling flag, shot save ordering ---

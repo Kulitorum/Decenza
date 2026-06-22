@@ -34,7 +34,7 @@ private:
         QVector<double> frameExitWeights;  // No per-frame exits for simplicity
         QVector<double> learningDrips;     // No learning data — use fallback
         QVector<double> learningFlows;
-        wp.configure(targetWeight, preinfuseFrames, frameExitWeights,
+        wp.configure(targetWeight, preinfuseFrames, frameExitWeights, {},
                      learningDrips, learningFlows, false, 0.38);
     }
 
@@ -187,7 +187,7 @@ private slots:
         installFakeClock(wp);
         QVector<double> frameExits = {0.0, 0.2, 0.0};  // Frame 1 exits at 0.2g
         QVector<double> learningDrips, learningFlows;
-        wp.configure(36.0, 2, frameExits, learningDrips, learningFlows, false, 0.38);
+        wp.configure(36.0, 2, frameExits, {}, learningDrips, learningFlows, false, 0.38);
         wp.startExtraction();
         wp.markExtractionStart();
         wp.setTareComplete(true);
@@ -208,7 +208,7 @@ private slots:
         installFakeClock(wp);
         QVector<double> frameExits = {0.0, 0.2, 0.0};
         QVector<double> learningDrips, learningFlows;
-        wp.configure(36.0, 2, frameExits, learningDrips, learningFlows, false, 0.38);
+        wp.configure(36.0, 2, frameExits, {}, learningDrips, learningFlows, false, 0.38);
         wp.startExtraction();
         wp.markExtractionStart();
         wp.setTareComplete(true);

@@ -311,6 +311,26 @@ void WeightProcessor::processWeight(double weight)
     if (m_currentFrame >= 0 && m_currentFrame < m_frameExitWeights.size()) {
         double exitWeight = m_frameExitWeights[m_currentFrame];
         if (exitWeight > 0 && weight >= exitWeight && !m_frameWeightSkipSent.contains(m_currentFrame)) {
+            // On a mixed frame (weight exit + firmware exit), the firmware can
+            // advance the frame on its own while our blind SkipToNext is in
+            // flight, double-advancing the profile. Consult the arbiter: defer
+            // the tablet skip when the firmware is near and trending toward its
+            // own exit, otherwise fire normally. Weight-only frames (no firmware
+            // exit) skip the arbiter and fire as before.
+            const FrameExitCondition fwExit =
+                (m_currentFrame < m_frameExitConditions.size())
+                    ? m_frameExitConditions[m_currentFrame]
+                    : FrameExitCondition{};
+            if (fwExit.kind != FrameExitCondition::Kind::None) {
+                if (m_stepExitArbiter.evaluate(m_currentFrame, fwExit,
+                                               m_currentPressure, m_currentFlow)
+                    == StepExitArbiter::Verdict::Defer) {
+                    // Do not send and do not mark sent — re-evaluate next sample.
+                    // If the firmware advances meanwhile, the next sample sees a
+                    // new m_currentFrame and never skips the frame it already left.
+                    return;
+                }
+            }
             qDebug() << "[Weight-Worker] FRAME-WEIGHT EXIT: weight" << weight
                      << ">=" << exitWeight << "on frame" << m_currentFrame;
             m_frameWeightSkipSent.insert(m_currentFrame);
@@ -321,12 +341,14 @@ void WeightProcessor::processWeight(double weight)
 
 void WeightProcessor::configure(double targetWeight, int preinfuseFrameCount,
                                 QVector<double> frameExitWeights,
+                                QVector<FrameExitCondition> frameExitConditions,
                                 QVector<double> learningDrips, QVector<double> learningFlows,
                                 bool sawConverged, double sensorLagSeconds)
 {
     m_targetWeight = targetWeight;
     m_preinfuseFrameCount = preinfuseFrameCount;
     m_frameExitWeights = frameExitWeights;
+    m_frameExitConditions = frameExitConditions;
     m_learningDrips = learningDrips;
     m_learningFlows = learningFlows;
     m_sawConverged = sawConverged;
@@ -341,8 +363,15 @@ void WeightProcessor::setTargetWeight(double weight)
     m_targetWeight = weight;
 }
 
-void WeightProcessor::setCurrentFrame(int frameNumber)
+void WeightProcessor::setCurrentFrame(int frameNumber, double pressure, double flow)
 {
+    m_currentPressure = pressure;
+    m_currentFlow = flow;
+    if (frameNumber != m_currentFrame) {
+        // Firmware advanced: drop arbiter deferral state for frames it has
+        // passed, so a deferred weight skip is never sent for a stale frame.
+        m_stepExitArbiter.onFrameAdvanced(frameNumber);
+    }
     m_currentFrame = frameNumber;
     // setCurrentFrame() is driven by the DE1 shot-sample stream (~5Hz), which
     // keeps ticking even when the scale is silent — the cadence that detects an
@@ -447,6 +476,7 @@ void WeightProcessor::startExtraction()
     m_stopTriggered = false;
     m_extractionStartTime = 0;  // Set later by markExtractionStart() when flow actually begins
     m_frameWeightSkipSent.clear();
+    m_stepExitArbiter.reset();
     m_weightSamples.clear();
 
     m_lastRawWeight = 0;
@@ -505,6 +535,7 @@ void WeightProcessor::resetForRetare()
     m_extractionStartTime = 0;  // Will be set when extraction actually starts
     m_stopTriggered = false;
     m_frameWeightSkipSent.clear();
+    m_stepExitArbiter.reset();
     m_lastWallClockMs = 0;
     m_lastSampleTs = 0;
     resetStallTracking();
