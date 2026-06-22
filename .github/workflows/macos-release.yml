@@ -325,3 +325,52 @@ jobs:
         if: always()
         run: |
           security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+
+      - name: Prune stale ccache caches
+        if: always()
+        continue-on-error: true  # never fail a release over cache housekeeping
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          # ccache-action / sccache write a NEW timestamp-suffixed cache entry every
+          # build (GH caches are immutable, so the action can't update in place — it
+          # finds the latest via prefix restore-keys). Old copies are never cleaned,
+          # so 5-6 stale copies of each platform's ccache pile up (~9 GB) and push the
+          # repo past GitHub's 10 GB cap, triggering LRU eviction of still-useful
+          # Qt/ccache entries and causing cold builds. macOS is the slowest build, so
+          # by the time this final step runs the faster *other* platforms have already
+          # saved their fresh caches and we can prune their old copies in one pass.
+          # macOS's OWN cache is saved by ccache-action's post-job step, which runs
+          # AFTER all main steps — so it does not exist yet at prune time and is never
+          # at risk of deletion here; the current macOS entry lands afterward. (This
+          # is why KEEP must stay >= 2: the live build's macOS copy is not yet counted,
+          # so KEEP=1 would over-prune the macOS group.)
+          #
+          # Keep the newest 2 copies of each ccache/sccache prefix (grouped per ref so
+          # a main-scoped entry survives a newer tag-push build), delete the rest.
+          # qt-*/openssl-* use stable keys (no timestamp suffix) and are excluded by
+          # the regex filter — they are exactly the caches we want to keep restorable.
+          # gh's built-in --jq does not accept --arg/--argjson, so pipe to real jq.
+          KEEP=2
+          TS='-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$'
+          gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
+            --json id,key,createdAt,ref \
+            | jq -r --argjson keep "$KEEP" --arg ts "$TS" '
+                map(select(.key | test($ts)))
+                | group_by((.key | sub($ts; "")) + "@@" + .ref)
+                | map(sort_by(.createdAt) | reverse | .[$keep:])
+                | flatten
+                | .[] | "\(.id)\t\(.key)"
+              ' \
+            | while IFS=$'\t' read -r id key; do
+                [ -n "$id" ] || continue
+                if gh cache delete "$id" --repo "$GITHUB_REPOSITORY"; then
+                  echo "- deleted \`$key\` (id $id)" >> "$GITHUB_STEP_SUMMARY"
+                else
+                  echo "::warning::Failed to delete cache $key (id $id)"
+                fi
+              done
+          gh api "repos/$GITHUB_REPOSITORY/actions/cache/usage" --jq \
+            '"Remaining: \(.active_caches_count) caches, \((.active_caches_size_in_bytes/1073741824)*100|round/100) GB / 10 GB cap"' \
+            >> "$GITHUB_STEP_SUMMARY" || true
