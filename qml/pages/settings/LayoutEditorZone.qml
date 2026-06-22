@@ -491,7 +491,7 @@ Rectangle {
                                 { type: "milkWeight", cat: 1, label: TranslationManager.translate("layoutEditor.widgetMilkWeight", "Milk Weight") },
                                 { type: "ratioQuickSelect", cat: 1, label: TranslationManager.translate("layoutEditor.widgetRatioQuickSelect", "Ratio Quick-Select") },
                                 { type: "shotPlan", cat: 1, label: TranslationManager.translate("layoutEditor.widgetShotPlan", "Shot Plan") },
-                                { type: "clock", cat: 1, label: TranslationManager.translate("layoutEditor.widgetClock", "Clock") },
+                                { type: "clock", cat: 1, label: TranslationManager.translate("layoutEditor.chipTime", "Time") },
                                 // Utility (2)
                                 { type: "custom", cat: 2, label: TranslationManager.translate("layoutEditor.widgetCustom", "Custom") },
                                 { type: "pageTitle", cat: 2, label: TranslationManager.translate("layoutEditor.widgetPageTitle", "Page Title") },

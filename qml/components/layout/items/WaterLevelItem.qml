@@ -13,6 +13,10 @@ Item {
     // "icon" (a water icon ahead of the value). Read from stored props.
     readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
 
+    // Per-instance color override; "default"/unset keeps the water level color.
+    readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
+    readonly property color readoutColor: WidgetColor.resolve(colorChoice, Theme.waterLevelColor)
+
     property bool showMl: Settings.app.waterLevelDisplayUnit === "ml"
 
     // Margin = mm of water above the effective refill threshold.
@@ -126,14 +130,14 @@ Item {
                 visible: root.displayMode === "icon"
                 source: "qrc:/icons/water.svg"
                 iconSize: Theme.scaled(20)
-                color: Theme.waterLevelColor
+                color: root.readoutColor
                 opacity: root.pulseOpacity
             }
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.displayText
-                color: Theme.waterLevelColor
+                color: root.readoutColor
                 opacity: root.pulseOpacity
                 font: Theme.bodyFont
                 Accessible.ignored: true
@@ -159,14 +163,14 @@ Item {
                 visible: root.displayMode === "icon"
                 source: "qrc:/icons/water.svg"
                 iconSize: Theme.scaled(28)
-                color: Theme.waterLevelColor
+                color: root.readoutColor
                 opacity: root.pulseOpacity
             }
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 text: root.displayText
-                color: Theme.waterLevelColor
+                color: root.readoutColor
                 opacity: root.pulseOpacity
                 font: Theme.valueFont
                 Accessible.ignored: true

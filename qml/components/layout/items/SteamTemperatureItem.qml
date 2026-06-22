@@ -13,6 +13,10 @@ Item {
     // "icon" (a steam icon ahead of the value). Read from stored props.
     readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
 
+    // Per-instance color override; "default"/unset keeps the steam warning color.
+    readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
+    readonly property color readoutColor: WidgetColor.resolve(colorChoice, Theme.warningColor)
+
     readonly property real currentTemp: DE1Device.steamTemperature
     readonly property real targetTemp: Settings.brew.steamTemperature
 
@@ -42,14 +46,14 @@ Item {
                 visible: root.displayMode === "icon"
                 source: "qrc:/icons/steam.svg"
                 iconSize: Theme.scaled(20)
-                color: Theme.warningColor
+                color: root.readoutColor
             }
 
             Text {
                 id: compactTemp
                 anchors.verticalCenter: parent.verticalCenter
                 text: DE1Device.connected ? root.currentTemp.toFixed(0) + "\u00B0C" : "\u2014"
-                color: Theme.warningColor
+                color: root.readoutColor
                 font: Theme.bodyFont
             }
         }
@@ -85,7 +89,7 @@ Item {
                 visible: root.displayMode === "icon"
                 source: "qrc:/icons/steam.svg"
                 iconSize: Theme.scaled(28)
-                color: Theme.warningColor
+                color: root.readoutColor
             }
 
             Row {
@@ -93,7 +97,7 @@ Item {
                 spacing: Theme.scaled(4)
                 Text {
                     text: DE1Device.connected ? root.currentTemp.toFixed(0) + "\u00B0C" : "\u2014"
-                    color: Theme.warningColor
+                    color: root.readoutColor
                     font: Theme.valueFont
                 }
                 Text {

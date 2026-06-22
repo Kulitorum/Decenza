@@ -668,6 +668,7 @@ endif()
 # QML module - mark singletons
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/SettingsTabs.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/components/layout/WidgetColor.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 # Define QML files list for dependency tracking
 set(QML_FILES
@@ -851,6 +852,8 @@ set(QML_FILES
     qml/components/layout/ZoneOptionsPopup.qml
     qml/components/layout/ScaleWeightEditorPopup.qml
     qml/components/layout/DisplayModeEditorPopup.qml
+    qml/components/layout/WidgetColor.qml
+    qml/components/layout/WidgetColorPicker.qml
     qml/components/layout/SleepEditorPopup.qml
     qml/components/layout/ScreensaverEditorPopup.qml
     qml/components/layout/EmojiPicker.qml

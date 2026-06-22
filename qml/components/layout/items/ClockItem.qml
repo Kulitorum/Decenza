@@ -15,6 +15,10 @@ Item {
 
     readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
 
+    // Per-instance color override; "default"/unset keeps the theme text color.
+    // See WidgetColor for the shared palette used by all readout widgets.
+    readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
+
     // Re-evaluated each second by the timer below.
     property string timeText: ""
     function _refresh() {
@@ -59,13 +63,13 @@ Item {
                 visible: root.displayMode === "icon"
                 source: "qrc:/icons/clock.svg"
                 iconSize: Theme.scaled(20)
-                color: Theme.textColor
+                color: WidgetColor.resolve(root.colorChoice, Theme.textColor)
             }
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.timeText
-                color: Theme.textColor
+                color: WidgetColor.resolve(root.colorChoice, Theme.textColor)
                 font: Theme.bodyFont
                 Accessible.ignored: true
             }
@@ -90,13 +94,13 @@ Item {
                 visible: root.displayMode === "icon"
                 source: "qrc:/icons/clock.svg"
                 iconSize: Theme.scaled(28)
-                color: Theme.textColor
+                color: WidgetColor.resolve(root.colorChoice, Theme.textColor)
             }
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 text: root.timeText
-                color: Theme.textColor
+                color: WidgetColor.resolve(root.colorChoice, Theme.textColor)
                 font: Theme.valueFont
                 Accessible.ignored: true
             }

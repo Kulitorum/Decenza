@@ -12,10 +12,11 @@ Dialog {
     property string dataMode: ""
     property string displayMode: "text"
 
-    function openForItem(id, mode, display) {
+    function openForItem(id, mode, display, color) {
         popup.itemId = id
         popup.dataMode = (mode && mode.length > 0) ? mode : "gross"
         popup.displayMode = (display && display.length > 0) ? display : "text"
+        colorPicker.colorChoice = (color && color.length > 0) ? color : "default"
         popup.open()
     }
 
@@ -46,7 +47,7 @@ Dialog {
     parent: Overlay.overlay
     x: Math.round((parent.width - width) / 2)
     y: Math.round((parent.height - height) / 2)
-    width: Math.min(Theme.scaled(460), parent.width - Theme.spacingLarge * 2)
+    width: Math.min(Theme.scaled(520), parent.width - Theme.spacingLarge * 2)
     padding: Theme.spacingMedium
 
     background: Rectangle {
@@ -130,6 +131,12 @@ Dialog {
                     MouseArea { id: dispMa; anchors.fill: parent; onClicked: popup.pickDisplay(modelData.value) }
                 }
             }
+        }
+
+        WidgetColorPicker {
+            id: colorPicker
+            Layout.fillWidth: true
+            itemId: popup.itemId
         }
 
         Rectangle {
