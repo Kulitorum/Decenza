@@ -11,11 +11,13 @@ Dialog {
     property string itemId: ""
     property string dataMode: ""
     property string displayMode: "text"
+    property bool showRatio: true
 
-    function openForItem(id, mode, display, color) {
+    function openForItem(id, mode, display, color, ratio) {
         popup.itemId = id
         popup.dataMode = (mode && mode.length > 0) ? mode : "gross"
         popup.displayMode = (display && display.length > 0) ? display : "text"
+        popup.showRatio = (ratio === undefined) ? true : ratio
         colorPicker.colorChoice = (color && color.length > 0) ? color : "default"
         popup.open()
     }
@@ -28,6 +30,11 @@ Dialog {
     function pickDisplay(mode) {
         popup.displayMode = mode
         Settings.network.setItemProperty(popup.itemId, "displayMode", mode)
+    }
+
+    function setShowRatio(v) {
+        popup.showRatio = v
+        Settings.network.setItemProperty(popup.itemId, "showRatio", v)
     }
 
     readonly property var displayChoices: [
@@ -130,6 +137,30 @@ Dialog {
                     }
                     MouseArea { id: dispMa; anchors.fill: parent; onClicked: popup.pickDisplay(modelData.value) }
                 }
+            }
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.spacingMedium
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 0
+                Text {
+                    text: TranslationManager.translate("layoutEditor.scaleShowRatio", "Show ratio")
+                    color: Theme.textColor
+                    font: Theme.bodyFont
+                }
+                Text {
+                    text: TranslationManager.translate("layoutEditor.scaleShowRatioHint", "Off = weight only, no 1:X.X suffix")
+                    color: Theme.textSecondaryColor
+                    font: Theme.captionFont
+                }
+            }
+            StyledSwitch {
+                accessibleName: TranslationManager.translate("layoutEditor.scaleShowRatio", "Show ratio")
+                checked: popup.showRatio
+                onToggled: popup.setShowRatio(checked)
             }
         }
 

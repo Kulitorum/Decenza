@@ -19,6 +19,12 @@ Item {
     // connected-dot + value) or "icon" (a scale icon ahead of the value).
     readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
 
+    // Per-instance "show ratio" toggle: when brew-by-ratio is active the weight
+    // is suffixed with "1:X.X". Defaults to true (today's behaviour); set false
+    // to suppress where the ratio is already shown elsewhere (ratio pill / status
+    // bar).
+    readonly property bool showRatio: (modelData && modelData.showRatio !== undefined) ? modelData.showRatio : true
+
     function _pitcherWeight() {
         var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
         return (p && !p.disabled) ? (p.pitcherWeightG ?? 0) : 0
@@ -104,7 +110,7 @@ Item {
     function weightText() {
         var weight = root.displayedWeight().toFixed(1)
         var suffix = root.isFlowScale ? "g~" : "g"
-        if (ProfileManager.brewByRatioActive) {
+        if (root.showRatio && ProfileManager.brewByRatioActive) {
             return weight + suffix + " 1:" + ProfileManager.brewByRatio.toFixed(1)
         }
         return weight + suffix
