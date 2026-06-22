@@ -344,7 +344,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         if (preset == "brewBar") {
             QVariantList items;
             items.append(QVariantMap{{"type", "profileName"}, {"id", "lmb_profile"}});
-            items.append(QVariantMap{{"type", "scaleWeight"}, {"id", "lmb_scale"}, {"dataMode", "contextAware"}});
+            items.append(QVariantMap{{"type", "scaleWeight"}, {"id", "lmb_scale"}, {"dataMode", "contextAware"}, {"displayMode", "icon"}});
             items.append(QVariantMap{{"type", "ratioQuickSelect"}, {"id", "lmb_ratio"}});
             items.append(QVariantMap{{"type", "doseWeight"}, {"id", "lmb_dose"}});
             items.append(QVariantMap{{"type", "milkWeight"}, {"id", "lmb_milk"}});
@@ -2716,6 +2716,12 @@ QString ShotServer::generateLayoutPage() const
                         html += '<option value="' + modes[mm][0] + '"' + msel + '>' + modes[mm][1] + '</option>';
                     }
                     html += '</select>';
+                    // Show-ratio toggle: suppress the redundant 1:X.X suffix.
+                    var sr = (item.showRatio === undefined) ? true : item.showRatio;
+                    html += '<select class="chip-mode" onchange="setShowRatio(\'' + item.id + '\',this.value===\'1\')" onclick="event.stopPropagation()">';
+                    html += '<option value="1"' + (sr ? ' selected' : '') + '>Ratio on</option>';
+                    html += '<option value="0"' + (!sr ? ' selected' : '') + '>Ratio off</option>';
+                    html += '</select>';
                 }
                 // Inline display-mode selector for selected readout chips.
                 if (isSel && READOUT_TYPES.indexOf(item.type) !== -1) {
@@ -2927,6 +2933,12 @@ QString ShotServer::generateLayoutPage() const
 
     function setShowIcon(itemId, show) {
         apiPost("/api/layout/item", {itemId: itemId, key: "showIcon", value: show}, function() {
+            loadLayout();
+        });
+    }
+
+    function setShowRatio(itemId, show) {
+        apiPost("/api/layout/item", {itemId: itemId, key: "showRatio", value: show}, function() {
             loadLayout();
         });
     }

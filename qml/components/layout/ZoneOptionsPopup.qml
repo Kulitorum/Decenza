@@ -43,7 +43,7 @@ Dialog {
     function populateBrewBar() {
         var items = [
             { type: "profileName",      id: "lmb_profile" },
-            { type: "scaleWeight",      id: "lmb_scale", dataMode: "contextAware" },
+            { type: "scaleWeight",      id: "lmb_scale", dataMode: "contextAware", displayMode: "icon" },
             { type: "ratioQuickSelect", id: "lmb_ratio" },
             { type: "doseWeight",       id: "lmb_dose" },
             { type: "milkWeight",       id: "lmb_milk" }
