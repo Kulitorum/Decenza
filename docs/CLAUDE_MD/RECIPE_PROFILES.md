@@ -450,7 +450,7 @@ frame-advance that truncates short 2–3 frame profiles.
 `WeightProcessor`) guards this. On a mixed frame, when the weight threshold is
 reached the arbiter checks the live firmware sensor against its own threshold:
 - **far from threshold** → fire the tablet skip now (weight is the intended exit);
-- **near and trending toward it** → defer (≤ 3 samples, ~300–600 ms) so firmware owns the transition;
+- **near and trending toward it** → defer (≤ 3 samples, ~200–400 ms worst case) so firmware owns the transition;
 - **near but not trending** → fire (firmware unlikely to fire on its own).
 
 If the firmware advances the frame mid-deferral, `onFrameAdvanced()` drops the

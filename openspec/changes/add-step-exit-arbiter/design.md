@@ -42,7 +42,7 @@ Proximity window (carried from reaprime, calibrated to DE1 sensor noise):
 
 Trend: across the recorded readings for this frame, every consecutive pair must step toward the threshold (`>` for `*_over`, `<` for `*_under`); a single reversal → not trending. First sample (no prior) → assume trending (give firmware the benefit of the doubt).
 
-`maxDeferralSamples`: must be ≥ 3 so the not-trending branch (which needs ≥ 2 recorded readings) is reachable before the cap fires — otherwise the early-fire trend logic is bypassed. `WeightProcessor`'s per-frame check runs on the scale tick (~5–10 Hz), so 3 samples ≈ 300–600 ms worst-case deferral. Value lives as a named constant with the cadence assumption documented.
+`maxDeferralSamples`: must be ≥ 3 so the not-trending branch (which needs ≥ 2 recorded readings) is reachable before the cap fires — otherwise the early-fire trend logic is bypassed. `WeightProcessor`'s per-frame check runs on the scale tick (~5–10 Hz); firing on the 3rd recorded sample spans 2 inter-sample intervals, so worst-case deferral is ~200–400 ms. Value lives as a named constant with the cadence assumption documented.
 
 ### 2. Feed live sensors into `WeightProcessor`
 Extend the DE1-tick path to carry pressure/flow alongside the frame: `setCurrentFrame(int frame, double pressure = 0.0, double flow = 0.0)` (defaults keep existing tests/callers valid). It stores `m_currentPressure` / `m_currentFlow` and, when `frame` changes, calls `m_arbiter.onFrameAdvanced(frame)`. The main.cpp connection ([main.cpp:676-680](../../../src/main.cpp)) already receives pressure (arg 2) and flow (arg 3) from `ShotTimingController::sampleReady` — it just forwards them now.

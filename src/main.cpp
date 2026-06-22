@@ -730,20 +730,10 @@ int main(int argc, char *argv[])
                              frameExitConditions.reserve(steps.size());
                              for (const auto& step : steps) {
                                  frameExitWeights.append(step.exitWeight);
-
-                                 FrameExitCondition fwExit;
-                                 if (step.exitIf) {
-                                     if (step.exitType == QLatin1String("pressure_over")) {
-                                         fwExit = {FrameExitCondition::Kind::PressureOver, step.exitPressureOver};
-                                     } else if (step.exitType == QLatin1String("pressure_under")) {
-                                         fwExit = {FrameExitCondition::Kind::PressureUnder, step.exitPressureUnder};
-                                     } else if (step.exitType == QLatin1String("flow_over")) {
-                                         fwExit = {FrameExitCondition::Kind::FlowOver, step.exitFlowOver};
-                                     } else if (step.exitType == QLatin1String("flow_under")) {
-                                         fwExit = {FrameExitCondition::Kind::FlowUnder, step.exitFlowUnder};
-                                     }
-                                 }
-                                 frameExitConditions.append(fwExit);
+                                 frameExitConditions.append(FrameExitCondition::fromExitFields(
+                                     step.exitIf, step.exitType,
+                                     step.exitPressureOver, step.exitPressureUnder,
+                                     step.exitFlowOver, step.exitFlowUnder));
                              }
                          }
 
