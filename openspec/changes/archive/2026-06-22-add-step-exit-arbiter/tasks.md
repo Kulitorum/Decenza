@@ -35,4 +35,4 @@
 
 - [x] 6.1 Update `docs/CLAUDE_MD/RECIPE_PROFILES.md` to document the arbitration and the double-skip it prevents.
 - [x] 6.2 Build via Qt Creator (0 errors / 0 warnings) and run the full test suite (2448 passed, 0 warnings).
-- [ ] 6.3 Run `/opsx:archive` as the final commit on the branch before merge.
+- [x] 6.3 Run `/opsx:archive` as the final commit on the branch before merge.
