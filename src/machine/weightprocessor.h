@@ -8,6 +8,8 @@
 #include <QDateTime>
 #include <functional>
 
+#include "stepexitarbiter.h"
+
 // Runs on a dedicated worker thread. Receives weight samples from the scale,
 // computes LSLR flow rates, and makes SAW/per-frame-exit decisions
 // independently of main thread congestion.
@@ -35,12 +37,16 @@ public slots:
     void processWeight(double weight);
     void configure(double targetWeight, int preinfuseFrameCount,
                    QVector<double> frameExitWeights,
+                   QVector<FrameExitCondition> frameExitConditions,
                    QVector<double> learningDrips, QVector<double> learningFlows,
                    bool sawConverged, double sensorLagSeconds = 0.38);
     // Live SAW target update (e.g. user pressed +10g mid-shot). Writes are serialized
     // on the worker thread via QueuedConnection from main thread, so no extra locking.
     void setTargetWeight(double weight);
-    void setCurrentFrame(int frameNumber);
+    // pressure/flow are the live firmware sensor readings from the same DE1
+    // shot sample; cached for the step-exit arbiter. Defaulted so existing
+    // callers/tests that only have a frame number still compile.
+    void setCurrentFrame(int frameNumber, double pressure = 0.0, double flow = 0.0);
     // Scale-feed-liveness gate input (BLE connection-priority backstop).
     // setShotCycleActive(true) is set when the espresso cycle enters
     // EspressoPreheating and cleared on any non-preheat phase (idle/sleep/
@@ -180,6 +186,12 @@ private:
     double m_targetWeight = 0;
     int m_preinfuseFrameCount = 0;  // SAW suppressed until m_currentFrame >= this
     QVector<double> m_frameExitWeights;
+    // Per-frame firmware exit conditions (parallel to m_frameExitWeights).
+    // Empty/None entries mean the frame has no firmware exit → no arbitration.
+    QVector<FrameExitCondition> m_frameExitConditions;
+    // Latest cached firmware sensor readings (DE1 tick, ~5Hz) for the arbiter.
+    double m_currentPressure = 0.0;
+    double m_currentFlow = 0.0;
 
     // SAW learning data snapshot (filtered to current scale type at configure time)
     QVector<double> m_learningDrips;
@@ -189,6 +201,10 @@ private:
 
     // Per-frame exit tracking (avoid duplicate skip commands)
     QSet<int> m_frameWeightSkipSent;
+
+    // Arbitrates the tablet weight skip vs the firmware exit on mixed frames,
+    // preventing a double frame-advance. Per-shot; reset at extraction start.
+    StepExitArbiter m_stepExitArbiter;
 
     // Wall-clock source (injectable for testing — avoids 77s of QTest::qWait)
     std::function<qint64()> m_wallClock = [] { return QDateTime::currentMSecsSinceEpoch(); };

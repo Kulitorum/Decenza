@@ -674,9 +674,10 @@ int main(int argc, char *argv[])
     // Forward frame number updates from shot samples to worker thread.
     // With &weightProcessor as context, Qt auto-uses QueuedConnection (cross-thread).
     QObject::connect(&timingController, &ShotTimingController::sampleReady,
-                     &weightProcessor, [&weightProcessor](double, double, double, double,
+                     &weightProcessor, [&weightProcessor](double, double pressure, double flow, double,
                          double, double, double, int frameNumber, bool) {
-                         weightProcessor.setCurrentFrame(frameNumber);
+                         // pressure/flow feed the step-exit arbiter (mixed-frame race guard).
+                         weightProcessor.setCurrentFrame(frameNumber, pressure, flow);
                      });
 
     // Shot lifecycle → WeightProcessor: configure at shot start, stop at shot end.
@@ -717,13 +718,32 @@ int main(int argc, char *argv[])
 
                          // Build frame exit weights and preinfuse count from current profile
                          QVector<double> frameExitWeights;
+                         // Per-frame firmware exit conditions (parallel to frameExitWeights):
+                         // lets the step-exit arbiter avoid double frame-advances on frames
+                         // that carry both a weight exit and a firmware pressure/flow exit.
+                         QVector<FrameExitCondition> frameExitConditions;
                          const Profile& profile = mainController.profileManager()->currentProfile();
                          int preinfuseFrameCount = profile.preinfuseFrameCount();
                          {
                              const auto& steps = profile.steps();
                              frameExitWeights.reserve(steps.size());
+                             frameExitConditions.reserve(steps.size());
                              for (const auto& step : steps) {
                                  frameExitWeights.append(step.exitWeight);
+
+                                 FrameExitCondition fwExit;
+                                 if (step.exitIf) {
+                                     if (step.exitType == QLatin1String("pressure_over")) {
+                                         fwExit = {FrameExitCondition::Kind::PressureOver, step.exitPressureOver};
+                                     } else if (step.exitType == QLatin1String("pressure_under")) {
+                                         fwExit = {FrameExitCondition::Kind::PressureUnder, step.exitPressureUnder};
+                                     } else if (step.exitType == QLatin1String("flow_over")) {
+                                         fwExit = {FrameExitCondition::Kind::FlowOver, step.exitFlowOver};
+                                     } else if (step.exitType == QLatin1String("flow_under")) {
+                                         fwExit = {FrameExitCondition::Kind::FlowUnder, step.exitFlowUnder};
+                                     }
+                                 }
+                                 frameExitConditions.append(fwExit);
                              }
                          }
 
@@ -732,8 +752,8 @@ int main(int argc, char *argv[])
                          double sensorLagSeconds = SettingsCalibration::sensorLag(scaleType);
 
                          QMetaObject::invokeMethod(&weightProcessor,
-                             [&weightProcessor, targetWeight, preinfuseFrameCount, frameExitWeights, drips, flows, converged, tareComplete, sensorLagSeconds]() {
-                                 weightProcessor.configure(targetWeight, preinfuseFrameCount, frameExitWeights, drips, flows, converged,
+                             [&weightProcessor, targetWeight, preinfuseFrameCount, frameExitWeights, frameExitConditions, drips, flows, converged, tareComplete, sensorLagSeconds]() {
+                                 weightProcessor.configure(targetWeight, preinfuseFrameCount, frameExitWeights, frameExitConditions, drips, flows, converged,
                                                            sensorLagSeconds);
                                  weightProcessor.startExtraction();
                                  if (tareComplete) {

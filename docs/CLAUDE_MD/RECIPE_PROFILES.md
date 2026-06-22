@@ -436,6 +436,29 @@ if (frame.exitWeight > 0) {
 if (frame.exitIf && frame.exitType == "weight" ...) // BUG!
 ```
 
+### Mixed-frame race & the Step-Exit Arbiter
+
+When a frame carries **both** a weight exit and a firmware exit (e.g. the D-Flow
+`Filling` frame, or imported "soup" profiles with `pressure_over 2.0` + `weight 1.0`),
+the two can fire within the same ~100 ms window. `SkipToNext` is **blind/relative** —
+it advances whatever frame the DE1 is currently in, with no frame index. So if the
+firmware's own exit fires while the app's `SkipToNext` is in flight, the firmware
+advances the frame *and* the late tablet skip advances it again — a double
+frame-advance that truncates short 2–3 frame profiles.
+
+`StepExitArbiter` (`src/machine/stepexitarbiter.{h,cpp}`, owned per-shot by
+`WeightProcessor`) guards this. On a mixed frame, when the weight threshold is
+reached the arbiter checks the live firmware sensor against its own threshold:
+- **far from threshold** → fire the tablet skip now (weight is the intended exit);
+- **near and trending toward it** → defer (≤ 3 samples, ~300–600 ms) so firmware owns the transition;
+- **near but not trending** → fire (firmware unlikely to fire on its own).
+
+If the firmware advances the frame mid-deferral, `onFrameAdvanced()` drops the
+deferral state and the tablet never sends a stale skip for the frame the firmware
+already left. Weight-only and firmware-only frames bypass the arbiter entirely
+(behavior unchanged). It is always on — no user-facing setting. See the
+`step-exit-arbitration` capability spec and `tst_weightprocessor.cpp`.
+
 ---
 
 ## Decenza vs de1app Default Values

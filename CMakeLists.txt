@@ -270,6 +270,7 @@ set(SOURCES
     src/core/btlogfilter.cpp
     src/machine/machinestate.cpp
     src/machine/weightprocessor.cpp
+    src/machine/stepexitarbiter.cpp
     src/profile/profile.cpp
     src/profile/profileframe.cpp
     src/profile/profileconverter.cpp
@@ -457,6 +458,7 @@ set(HEADERS
     src/core/btlogfilter.h
     src/machine/machinestate.h
     src/machine/weightprocessor.h
+    src/machine/stepexitarbiter.h
     src/profile/profile.h
     src/profile/profileframe.h
     src/profile/profileconverter.h

@@ -28,7 +28,7 @@ class tst_ScaleFeedLiveness : public QObject {
     void configureActiveShot(WeightProcessor& wp) {
         const QVector<double> none;
         wp.setWallClock([this] { return m_clock; });
-        wp.configure(36.0, 1, none, none, none, false, 0.38);
+        wp.configure(36.0, 1, none, {}, none, none, false, 0.38);
         wp.startExtraction();          // sets m_active=true, m_tareComplete=false,
                                        // m_lastWallClockMs=0, resets stall tracking
         wp.setTareComplete(true);      // must follow startExtraction()
