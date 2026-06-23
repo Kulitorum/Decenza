@@ -13,6 +13,7 @@
 class QSqlDatabase;
 class QJsonArray;
 class QJsonObject;
+class SerialDbWorker;
 
 // A coffee bag: the single bean concept that replaced bean presets
 // (openspec change bean-bag-inventory). A bag IS the active bean state —
@@ -221,13 +222,18 @@ signals:
     void bagsChanged();
 
 private:
-    // Run `work(db)` on a background thread, then `done` on the main thread.
+    // Run `work(db)` on a background thread, then `done(dbOpened)` on the main
+    // thread. Read callers must skip their "Ready" emission when dbOpened is
+    // false (open failure → empty result that must not be read as not-found).
     void runAsync(const QString& connPrefix,
                   std::function<void(QSqlDatabase&)> work,
-                  std::function<void()> done);
+                  std::function<void(bool dbOpened)> done);
 
     static CoffeeBag bagFromQueryRow(const class QSqlQuery& query);
 
     QString m_dbPath;
     std::shared_ptr<std::atomic<bool>> m_destroyed = std::make_shared<std::atomic<bool>>(false);
+    // Serializes all background DB work onto one FIFO worker thread so successive
+    // writes to the same row apply in submission order (see SerialDbWorker).
+    std::unique_ptr<SerialDbWorker> m_dbWorker;
 };

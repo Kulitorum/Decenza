@@ -1061,6 +1061,112 @@ private slots:
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
     }
 
+    // Regression for the same-row write reorder that SerialDbWorker fixes. Fire
+    // many writes at ONE package row back-to-back with NO settle between them and
+    // assert the LAST submitted value is the one that SETTLES. Under the old
+    // fresh-thread-per-request dispatch the OS scheduler could run an earlier
+    // write last, clobbering the newer value (SQLite serializes commits, but not
+    // in submission order); the single FIFO worker makes submission order the
+    // commit order. We assert the settled value (drain, then re-read) rather than
+    // first-observation: QTRY passes the instant it sees "49", and a reverted
+    // per-thread build could expose "49" transiently mid-race before an earlier
+    // write commits last — only the post-drain re-read distinguishes "49 is final"
+    // (FIFO) from "49 was briefly seen" (reordered). (The existing dual-write test
+    // above has a settle loop that mostly closes the window, so it only caught the
+    // bug flakily — this one is deterministic.)
+    void packageWritesApplyInSubmissionOrder() {
+        const QString path = freshDb();
+        withRawDb(path, "fifo_tables", [&](QSqlDatabase& db) {
+            EquipmentStorage::ensureTablesStatic(db);
+        });
+        qint64 pkgId = -1;
+        withRawDb(path, "fifo_seed", [&](QSqlDatabase& db) {
+            EquipmentPackage p; p.lastGrindSetting = "seed";
+            pkgId = EquipmentStorage::createPackageWithGrinderStatic(db, p, "Turin", "DF83V", "83mm flat steel");
+        });
+        QVERIFY(pkgId > 0);
+
+        EquipmentStorage eqStorage; eqStorage.initialize(path);
+
+        const int kWrites = 50;
+        for (int i = 0; i < kWrites; i++)
+            eqStorage.requestUpdatePackage(pkgId,
+                {{QStringLiteral("lastGrindSetting"), QString::number(i)}});
+
+        auto pkgGrind = [&]() { QString v; withRawDb(path, "fifo_read",
+            [&](QSqlDatabase& db) { v = EquipmentStorage::loadPackageStatic(db, pkgId).lastGrindSetting; }); return v; };
+        QTRY_COMPARE_WITH_TIMEOUT(pkgGrind(), QString::number(kWrites - 1), 15000);
+
+        // Drain every write, then re-assert the SETTLED value is still the last
+        // submitted. This is the real revert-detector: a reordered build's final
+        // commit is the random last-scheduled write, almost never "49".
+        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
+        QCOMPARE(pkgGrind(), QString::number(kWrites - 1));
+    }
+
+    // A DB-open FAILURE must not be delivered to readers as an empty result.
+    // SettingsDye reads an empty packageReady/bagReady as "row vanished" and
+    // clears the active selection, so a transient open failure would silently
+    // wipe valid state — hence runAsync gates the read emit on dbOpened. A
+    // GENUINE not-found (db opens, row absent) must still emit empty, since that
+    // real clear is how a deleted selection gets cleared.
+    void readEmitSuppressedOnDbOpenFailure() {
+        // (a) Unopenable path (parent dir absent) -> requestPackage stays silent.
+        EquipmentStorage bad;
+        bad.initialize(m_tempDir.filePath(QStringLiteral("no_such_dir/eq.db")));
+        QSignalSpy badSpy(&bad, &EquipmentStorage::packageReady);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("withTempDb: DB open failed"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("SerialDbWorker: failed to open DB"));
+        bad.requestPackage(1);
+        for (int i = 0; i < 60; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
+        QCOMPARE(badSpy.count(), 0);
+
+        // (b) Real DB, missing row -> the empty result IS delivered (real clear).
+        const QString path = freshDb();
+        withRawDb(path, "nf_tables", [&](QSqlDatabase& db) { EquipmentStorage::ensureTablesStatic(db); });
+        EquipmentStorage ok; ok.initialize(path);
+        QSignalSpy okSpy(&ok, &EquipmentStorage::packageReady);
+        ok.requestPackage(999999);
+        QTRY_COMPARE_WITH_TIMEOUT(okSpy.count(), 1, 15000);
+        QVERIFY(okSpy.at(0).at(1).toMap().isEmpty());
+
+        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
+    }
+
+    // Same contract for ShotHistoryStorage::requestShot, which uses a DIFFERENT
+    // code path (post() + hand-rolled `if (!opened) return`, not run()'s gate) and
+    // guards the most destructive consumer: MainController's migration16 reads an
+    // invalid shotReady as "shot gone" and PERMANENTLY drops a pending Visualizer
+    // sync. requestShot's own !m_ready guard shares m_dbPath with the worker, so
+    // initialize() can't produce "ready but worker-open-fails" — we set that state
+    // directly via the DECENZA_TESTING friend seam.
+    void requestShotEmitSuppressedOnDbOpenFailure() {
+        // (a) m_ready=true + unopenable path (parent dir absent) -> no shotReady.
+        ShotHistoryStorage bad;
+        bad.m_ready = true;
+        bad.m_dbPath = m_tempDir.filePath(QStringLiteral("no_such_dir/shots.db"));
+        QSignalSpy badSpy(&bad, &ShotHistoryStorage::shotReady);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("withTempDb: DB open failed"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("requestShot.*DB open failed"));
+        bad.requestShot(1);
+        for (int i = 0; i < 60; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
+        QCOMPARE(badSpy.count(), 0);
+
+        // (b) m_ready + real schema DB (0 shots), missing row -> shotReady STILL
+        // fires (genuine not-found, db opened). Point m_dbPath at a freshDb()
+        // schema file rather than re-initialize() — that would re-open the shared
+        // ShotHistoryConnection freshDb() already used and warn "still in use".
+        ShotHistoryStorage ok;
+        ok.m_ready = true;
+        ok.m_dbPath = freshDb();
+        QSignalSpy okSpy(&ok, &ShotHistoryStorage::shotReady);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Shot not found: 999999"));
+        ok.requestShot(999999);
+        QTRY_COMPARE_WITH_TIMEOUT(okSpy.count(), 1, 15000);
+
+        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
+    }
+
     // VisualizerUploader::buildBagEnrichBody — the pure fill-blanks diff that
     // decides which descriptive fields get PATCHed onto the server's coffee bag.
     // Locks the blob->API field mapping (a typo here silently drops a field) and

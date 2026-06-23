@@ -10,9 +10,11 @@
 #include <QVariantList>
 #include <QDateTime>
 #include <atomic>
+#include <functional>
 #include <memory>
 
 class QThread;
+class SerialDbWorker;
 
 class ShotDataModel;
 class Profile;
@@ -278,6 +280,14 @@ signals:
     void shotBadgesUpdated(qint64 shotId, bool channelingDetected, bool grindIssueDetected, bool skipFirstFrameDetected, bool pourTruncatedDetected);
 
 private:
+    // Post shot-CRUD background work onto a single FIFO worker thread, so two
+    // writes to the same shot row dispatched close together apply in submission
+    // order (a fresh-thread-per-request scheme lets the OS scheduler reorder
+    // them — see SerialDbWorker). `task` opens its own withTempDb connection and
+    // marshals results back to the main thread itself. Heavy one-shot ops
+    // (backup/import) deliberately stay on their own threads.
+    void runOnDbThread(std::function<void()> task);
+
     bool createTables();
     bool runMigrations();
     // Version-independent merge-import of legacy bean/presets QSettings into
@@ -342,6 +352,11 @@ private:
     // read on background threads (before QMetaObject::invokeMethod).
     std::shared_ptr<std::atomic<bool>> m_destroyed = std::make_shared<std::atomic<bool>>(false);
 
+    // Serializes shot-CRUD background work onto one FIFO worker thread so
+    // successive writes to the same shot row apply in submission order
+    // (see runOnDbThread / SerialDbWorker).
+    std::unique_ptr<SerialDbWorker> m_dbWorker;
+
     static const QString DB_CONNECTION_NAME;
 
 #ifdef DECENZA_TESTING
@@ -356,5 +371,11 @@ public:
     // stays unmet. Either way the schema_version is not bumped. 0 (default) =
     // no fault. Production builds never compile this member.
     static int s_faultInjectMigration;
+
+    // Lets the read-gating test put the storage in the one state initialize()
+    // can't reach on its own: m_ready=true with an m_dbPath whose parent dir is
+    // absent, so the worker's withTempDb open fails while the !m_ready guard is
+    // bypassed — exercising requestShot's open-failure gate directly.
+    friend class tst_CoffeeBags;
 #endif
 };

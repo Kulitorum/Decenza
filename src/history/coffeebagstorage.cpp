@@ -216,6 +216,12 @@ CoffeeBagStorage::CoffeeBagStorage(QObject* parent)
 CoffeeBagStorage::~CoffeeBagStorage()
 {
     *m_destroyed = true;
+    // Stop the worker before members vanish. reset() runs ~SerialDbWorker, which
+    // quit()s (discarding queued-but-unstarted tasks) and wait()s for the single
+    // in-flight task to finish its DB work — all while `this` is still alive. The
+    // m_destroyed flag, set just above, suppresses that task's result callback so
+    // it can't touch a half-destroyed object.
+    m_dbWorker.reset();
 }
 
 void CoffeeBagStorage::initialize(const QString& dbPath)
@@ -225,26 +231,15 @@ void CoffeeBagStorage::initialize(const QString& dbPath)
 
 void CoffeeBagStorage::runAsync(const QString& connPrefix,
                                 std::function<void(QSqlDatabase&)> work,
-                                std::function<void()> done)
+                                std::function<void(bool dbOpened)> done)
 {
     if (m_dbPath.isEmpty()) {
         qWarning() << "CoffeeBagStorage: not initialized, dropping" << connPrefix;
         return;
     }
-    const QString dbPath = m_dbPath;
-    auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, connPrefix, work = std::move(work),
-                                       done = std::move(done), destroyed]() {
-        if (!withTempDb(dbPath, connPrefix, [&](QSqlDatabase& db) { work(db); }))
-            qWarning() << "CoffeeBagStorage: failed to open DB for" << connPrefix;
-        if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [done = std::move(done), destroyed]() {
-            if (*destroyed) return;
-            done();
-        }, Qt::QueuedConnection);
-    });
-    QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
+    if (!m_dbWorker)
+        m_dbWorker = std::make_unique<SerialDbWorker>(QStringLiteral("CoffeeBagStorageWorker"));
+    m_dbWorker->run(m_dbPath, connPrefix, std::move(work), std::move(done), this, m_destroyed);
 }
 
 void CoffeeBagStorage::requestInventory()
@@ -261,7 +256,9 @@ void CoffeeBagStorage::requestInventory()
                 bags->append(map);
             }
         },
-        [this, bags]() { emit inventoryReady(*bags); });
+        // Read: skip the emit on open failure so the UI keeps its current list
+        // instead of being told the inventory is empty.
+        [this, bags](bool dbOpened) { if (dbOpened) emit inventoryReady(*bags); });
 }
 
 void CoffeeBagStorage::requestBag(qint64 bagId)
@@ -273,7 +270,10 @@ void CoffeeBagStorage::requestBag(qint64 bagId)
             if (bag.isValid())
                 *result = bag.toVariantMap();
         },
-        [this, bagId, result]() { emit bagReady(bagId, *result); });
+        // Read: skip the emit on open failure. An empty result here would be read
+        // by SettingsDye as "active bag vanished" and clear the user's selection;
+        // only a genuine not-found (db opened, row absent) should do that.
+        [this, bagId, result](bool dbOpened) { if (dbOpened) emit bagReady(bagId, *result); });
 }
 
 void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
@@ -288,7 +288,8 @@ void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
             if (*newId > 0)
                 *created = loadBagStatic(db, *newId).toVariantMap();
         },
-        [this, newId, created]() {
+        // Write: emit regardless — *newId is -1 on failure, a terminal status.
+        [this, newId, created](bool) {
             emit bagCreated(*newId, *created);
             if (*newId > 0)
                 emit bagsChanged();
@@ -315,7 +316,9 @@ void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
             if (*success && propagateBeanBase)
                 propagateBeanBaseStatic(db, bagId);
         },
-        [this, bagId, fields, success]() {
+        // Write: emit regardless — *success is false on open failure, the
+        // terminal status callers (e.g. the MCP bag_update tool) wait on.
+        [this, bagId, fields, success](bool) {
             emit bagUpdated(bagId, *success);
             if (*success) {
                 emit bagsChanged();
@@ -342,7 +345,7 @@ void CoffeeBagStorage::requestTouchLastUsed(qint64 bagId)
             if (!query.exec())
                 qWarning() << "CoffeeBagStorage: touch last_used failed:" << query.lastError().text();
         },
-        []() {});
+        [](bool) {});
 }
 
 void CoffeeBagStorage::requestDeleteBag(qint64 bagId)
@@ -370,7 +373,8 @@ void CoffeeBagStorage::requestDeleteBag(qint64 bagId)
             if (!*success)
                 qWarning() << "CoffeeBagStorage: delete failed:" << deleteQuery.lastError().text();
         },
-        [this, bagId, success]() {
+        // Write: emit regardless — *success is false on open failure, terminal.
+        [this, bagId, success](bool) {
             emit bagDeleted(bagId, *success);
             if (*success)
                 emit bagsChanged();

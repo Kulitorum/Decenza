@@ -240,6 +240,12 @@ EquipmentStorage::EquipmentStorage(QObject* parent)
 EquipmentStorage::~EquipmentStorage()
 {
     *m_destroyed = true;
+    // Stop the worker before members vanish. reset() runs ~SerialDbWorker, which
+    // quit()s (discarding queued-but-unstarted tasks) and wait()s for the single
+    // in-flight task to finish its DB work — all while `this` is still alive. The
+    // m_destroyed flag, set just above, suppresses that task's result callback so
+    // it can't touch a half-destroyed object.
+    m_dbWorker.reset();
 }
 
 void EquipmentStorage::initialize(const QString& dbPath)
@@ -249,26 +255,15 @@ void EquipmentStorage::initialize(const QString& dbPath)
 
 void EquipmentStorage::runAsync(const QString& connPrefix,
                                 std::function<void(QSqlDatabase&)> work,
-                                std::function<void()> done)
+                                std::function<void(bool dbOpened)> done)
 {
     if (m_dbPath.isEmpty()) {
         qWarning() << "EquipmentStorage: not initialized, dropping" << connPrefix;
         return;
     }
-    const QString dbPath = m_dbPath;
-    auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, connPrefix, work = std::move(work),
-                                       done = std::move(done), destroyed]() {
-        if (!withTempDb(dbPath, connPrefix, [&](QSqlDatabase& db) { work(db); }))
-            qWarning() << "EquipmentStorage: failed to open DB for" << connPrefix;
-        if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [done = std::move(done), destroyed]() {
-            if (*destroyed) return;
-            done();
-        }, Qt::QueuedConnection);
-    });
-    QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
+    if (!m_dbWorker)
+        m_dbWorker = std::make_unique<SerialDbWorker>(QStringLiteral("EquipmentStorageWorker"));
+    m_dbWorker->run(m_dbPath, connPrefix, std::move(work), std::move(done), this, m_destroyed);
 }
 
 void EquipmentStorage::requestInventory()
@@ -280,7 +275,9 @@ void EquipmentStorage::requestInventory()
             for (const EquipmentPackageView& entry : inventory)
                 packages->append(entry.toVariantMap());
         },
-        [this, packages]() { emit inventoryReady(*packages); });
+        // Read: skip the emit on open failure so the UI keeps its current list
+        // instead of being told the inventory is empty.
+        [this, packages](bool dbOpened) { if (dbOpened) emit inventoryReady(*packages); });
 }
 
 void EquipmentStorage::requestPackage(qint64 packageId)
@@ -298,7 +295,10 @@ void EquipmentStorage::requestPackage(qint64 packageId)
                 *result = view.toVariantMap();
             }
         },
-        [this, packageId, result]() { emit packageReady(packageId, *result); });
+        // Read: skip the emit on open failure. An empty result here would be read
+        // by SettingsDye as "package gone" and clear the grinder identity; only a
+        // genuine not-found (db opened, row absent) should do that.
+        [this, packageId, result](bool dbOpened) { if (dbOpened) emit packageReady(packageId, *result); });
 }
 
 void EquipmentStorage::requestCreatePackage(const QVariantMap& packageMap)
@@ -334,7 +334,8 @@ void EquipmentStorage::requestCreatePackage(const QVariantMap& packageMap)
                 *created = view.toVariantMap();
             }
         },
-        [this, newId, created]() {
+        // Write: emit regardless — *newId is -1 on failure, a terminal status.
+        [this, newId, created](bool) {
             emit packageCreated(*newId, *created);
             if (*newId > 0)
                 emit packagesChanged();
@@ -394,7 +395,9 @@ void EquipmentStorage::requestUpdatePackage(qint64 packageId, const QVariantMap&
                 any = updatePackageFieldsStatic(db, *resultId, pkgFields) || any;
             *success = any;
         },
-        [this, resultId, success]() {
+        // Write: emit regardless — *success is false on open failure, the
+        // terminal status callers wait on.
+        [this, resultId, success](bool) {
             emit packageUpdated(*resultId, *success);
             if (*success)
                 emit packagesChanged();
@@ -418,7 +421,7 @@ void EquipmentStorage::requestTouchLastUsed(qint64 packageId)
             if (!query.exec())
                 qWarning() << "EquipmentStorage: touch last_used failed:" << query.lastError().text();
         },
-        []() {});
+        [](bool) {});
 }
 
 void EquipmentStorage::requestDeletePackage(qint64 packageId)
@@ -461,7 +464,8 @@ void EquipmentStorage::requestDeletePackage(qint64 packageId)
                 qWarning() << "EquipmentStorage: delete failed:" << delPkg.lastError().text();
             }
         },
-        [this, packageId, success]() {
+        // Write: emit regardless — *success is false on open failure, terminal.
+        [this, packageId, success](bool) {
             emit packageDeleted(packageId, *success);
             if (*success)
                 emit packagesChanged();
