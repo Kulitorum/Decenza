@@ -371,5 +371,11 @@ public:
     // stays unmet. Either way the schema_version is not bumped. 0 (default) =
     // no fault. Production builds never compile this member.
     static int s_faultInjectMigration;
+
+    // Lets the read-gating test put the storage in the one state initialize()
+    // can't reach on its own: m_ready=true with an m_dbPath whose parent dir is
+    // absent, so the worker's withTempDb open fails while the !m_ready guard is
+    // bypassed — exercising requestShot's open-failure gate directly.
+    friend class tst_CoffeeBags;
 #endif
 };

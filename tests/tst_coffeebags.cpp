@@ -1133,6 +1133,40 @@ private slots:
         for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
     }
 
+    // Same contract for ShotHistoryStorage::requestShot, which uses a DIFFERENT
+    // code path (post() + hand-rolled `if (!opened) return`, not run()'s gate) and
+    // guards the most destructive consumer: MainController's migration16 reads an
+    // invalid shotReady as "shot gone" and PERMANENTLY drops a pending Visualizer
+    // sync. requestShot's own !m_ready guard shares m_dbPath with the worker, so
+    // initialize() can't produce "ready but worker-open-fails" — we set that state
+    // directly via the DECENZA_TESTING friend seam.
+    void requestShotEmitSuppressedOnDbOpenFailure() {
+        // (a) m_ready=true + unopenable path (parent dir absent) -> no shotReady.
+        ShotHistoryStorage bad;
+        bad.m_ready = true;
+        bad.m_dbPath = m_tempDir.filePath(QStringLiteral("no_such_dir/shots.db"));
+        QSignalSpy badSpy(&bad, &ShotHistoryStorage::shotReady);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("withTempDb: DB open failed"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("requestShot.*DB open failed"));
+        bad.requestShot(1);
+        for (int i = 0; i < 60; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
+        QCOMPARE(badSpy.count(), 0);
+
+        // (b) m_ready + real schema DB (0 shots), missing row -> shotReady STILL
+        // fires (genuine not-found, db opened). Point m_dbPath at a freshDb()
+        // schema file rather than re-initialize() — that would re-open the shared
+        // ShotHistoryConnection freshDb() already used and warn "still in use".
+        ShotHistoryStorage ok;
+        ok.m_ready = true;
+        ok.m_dbPath = freshDb();
+        QSignalSpy okSpy(&ok, &ShotHistoryStorage::shotReady);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Shot not found: 999999"));
+        ok.requestShot(999999);
+        QTRY_COMPARE_WITH_TIMEOUT(okSpy.count(), 1, 15000);
+
+        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
+    }
+
     // VisualizerUploader::buildBagEnrichBody — the pure fill-blanks diff that
     // decides which descriptive fields get PATCHed onto the server's coffee bag.
     // Locks the blob->API field mapping (a typo here silently drops a field) and
