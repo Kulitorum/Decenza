@@ -57,6 +57,27 @@ private:
         return buildR2Packet(0x03, 0x00, data);
     }
 
+    // Build a full TDS packet incl. refractive index: PackNo=2,
+    // Data1-2 = tds*100, Data3-6 = ri*100000 (big-endian)
+    static QByteArray buildTdsPacketWithRi(double tds, double ri) {
+        uint16_t tdsRaw = static_cast<uint16_t>(qRound(tds * 100.0));
+        uint32_t riRaw = static_cast<uint32_t>(qRound(ri * 100000.0));
+        QByteArray data;
+        data.append(static_cast<char>(0x02));  // PackNo = 2 (TDS result)
+        data.append(static_cast<char>((tdsRaw >> 8) & 0xFF));
+        data.append(static_cast<char>(tdsRaw & 0xFF));
+        data.append(static_cast<char>((riRaw >> 24) & 0xFF));
+        data.append(static_cast<char>((riRaw >> 16) & 0xFF));
+        data.append(static_cast<char>((riRaw >> 8) & 0xFF));
+        data.append(static_cast<char>(riRaw & 0xFF));
+        return buildR2Packet(0x03, 0x00, data);
+    }
+
+    // Build a device-model response: Func=0, Cmd=1, Data = ASCII model string
+    static QByteArray buildDeviceModelPacket(const QByteArray& model) {
+        return buildR2Packet(0x00, 0x01, model);
+    }
+
     // Build a temperature packet: Func=3, Cmd=0, PackNo=1
     // Prism temp = tempC * 10, tank temp = tempC * 10
     static QByteArray buildTemperaturePacket(double tempC) {
@@ -205,6 +226,40 @@ private slots:
         QCOMPARE(tdsSpy.at(0).at(0).toDouble(), 9.25);
         QCOMPARE(r2.tds(), 9.25);
         QCOMPARE(completeSpy.count(), 1);
+    }
+
+    // === Instrumentation: refractive index + device model (Brix-vs-TDS diagnosis) ===
+
+    // A full pack-2 with the refractive-index sub-field still parses TDS correctly,
+    // and the RI is logged for cross-checking whether concentration is TDS or Brix.
+    void parseTdsPacketWithRefractiveIndex() {
+        DiFluidR2 r2(nullptr);
+        QSignalSpy tdsSpy(&r2, &DiFluidR2::tdsChanged);
+
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression("Refractive index: 1\\.35520 \\(raw=135520\\)"));
+        r2.handlePacket(buildTdsPacketWithRi(8.50, 1.35520));
+
+        QCOMPARE(tdsSpy.count(), 1);
+        QCOMPARE(tdsSpy.at(0).at(0).toDouble(), 8.50);
+        QCOMPARE(r2.tds(), 8.50);
+    }
+
+    // Genuine R2 Extract reports model "DFT-R102" — logged as TDS-bearing.
+    void parseDeviceModelGenuineExtract() {
+        DiFluidR2 r2(nullptr);
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression("Device model: \"DFT-R102\".*genuine R2 Extract"));
+        r2.handlePacket(buildDeviceModelPacket("DFT-R102"));
+    }
+
+    // Any other model (Brix variant / rebrand / clone) is flagged so a Brix-as-TDS
+    // reading is diagnosable from the log.
+    void parseDeviceModelNonExtractFlagged() {
+        DiFluidR2 r2(nullptr);
+        QTest::ignoreMessage(QtDebugMsg,
+            QRegularExpression("Device model: \"ATOM-R2X\".*NOT a standard R2 Extract"));
+        r2.handlePacket(buildDeviceModelPacket("ATOM-R2X"));
     }
 
     // === Out-of-range sentinel rejection (regression) ===

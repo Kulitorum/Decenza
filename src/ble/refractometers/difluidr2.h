@@ -63,6 +63,10 @@ private:
     // Applies the out-of-range sanity gate so every consumer-bound TDS is
     // validated identically regardless of which path produced it.
     void emitTdsResult(quint16 tdsRaw, bool isAverage);
+    // Instrumentation: log the refractive index (Data3-6) carried alongside the
+    // concentration in pack 2/3. RI is the device's ground-truth optical reading and
+    // the cross-check for whether the concentration field is coffee TDS or raw Brix.
+    void logRefractiveIndex(const QByteArray& packet, quint8 dataLen);
     bool validateChecksum(const QByteArray& packet) const;
     void sendCommand(const QByteArray& cmd);
 
@@ -72,6 +76,7 @@ private:
 
     ScaleBleTransport* m_transport = nullptr;
     QString m_name = "DiFluid R2";
+    QString m_deviceModel;  // From Get-Device-Model query; "DFT-R102" == genuine R2 Extract
     bool m_connected = false;
     bool m_serviceFound = false;
     bool m_characteristicsReady = false;
