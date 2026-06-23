@@ -504,9 +504,9 @@ void MachineState::updatePhase() {
             // Normally startTimer() is sent later when extraction begins, separating
             // the two commands by the preheating phase to avoid BLE command contention
             // (WriteWithoutResponse can silently drop back-to-back packets).
-            // Only split for scales with a true independent reset — some scales implement
-            // resetTimer() as tare (Eclair) or send the same bytes as startTimer (DiFluid),
-            // so splitting would cause unwanted side effects during preheating.
+            // Only split for scales with a true independent reset — some scales send the
+            // same bytes for resetTimer() as startTimer() (DiFluid), so splitting would
+            // cause unwanted side effects during preheating.
             // If already flowing (machine skipped preheating), send both now — there
             // won't be a separate extraction-start transition to send startTimer().
             if (m_scale && m_scale->hasIndependentTimerReset()) {

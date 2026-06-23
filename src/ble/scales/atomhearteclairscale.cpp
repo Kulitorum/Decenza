@@ -99,9 +99,11 @@ void AtomheartEclairScale::onCharacteristicsDiscoveryFinished(const QBluetoothUu
     m_characteristicsReady = true;
     setConnected(true);
 
-    // de1app enables weight notifications twice (200ms + 800ms) because the Eclair
-    // sometimes ignores the first enable and never starts streaming weight.
-    ECLAIR_LOG("Scheduling notification enable at 200ms and 800ms (de1app timing)");
+    // de1app PR #349 enables weight notifications twice (200ms + 800ms) because the
+    // Eclair sometimes ignores the first enable and never starts streaming weight.
+    // Note: these are fire-and-forget — there is no read-back confirming the scale
+    // actually started streaming (see connected-but-silent gap tracked separately).
+    ECLAIR_LOG("Scheduling notification enable at 200ms and 800ms (de1app PR #349 timing)");
     for (int delayMs : {200, 800}) {
         QTimer::singleShot(delayMs, this, [this, delayMs]() {
             if (!m_transport || !m_characteristicsReady) return;
@@ -173,6 +175,6 @@ void AtomheartEclairScale::stopTimer() {
 }
 
 void AtomheartEclairScale::resetTimer() {
-    // Eclair has a dedicated timer-reset command (distinct from tare)
+    // de1app PR #349 gives the Eclair a dedicated timer-reset opcode, distinct from tare
     sendCommand(QByteArray::fromHex("520101"));
 }

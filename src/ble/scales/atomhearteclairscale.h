@@ -19,8 +19,9 @@ public slots:
     void startTimer() override;
     void stopTimer() override;
     void resetTimer() override;
-    // Eclair has a dedicated timer-reset opcode (0x52) distinct from tare, so the base
-    // class default (true) applies — reset/start can be split across the preheating phase.
+    // de1app PR #349 gives the Eclair a dedicated timer-reset opcode (0x52) distinct from
+    // tare, so the base class default (true) applies — reset/start can be split across the
+    // preheating phase.
     void sendKeepAlive() override;
 
 private slots:
