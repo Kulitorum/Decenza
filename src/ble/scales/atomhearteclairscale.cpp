@@ -31,9 +31,20 @@ AtomheartEclairScale::AtomheartEclairScale(ScaleBleTransport* transport, QObject
         connect(m_transport, &ScaleBleTransport::logMessage,
                 this, &ScaleDevice::logMessage);
     }
+
+    // Watchdog fires if no weight updates arrive after enabling notifications
+    m_watchdogTimer = new QTimer(this);
+    m_watchdogTimer->setSingleShot(true);
+    connect(m_watchdogTimer, &QTimer::timeout, this, &AtomheartEclairScale::onWatchdogTimeout);
+
+    // Tickle timer fires if weight updates stop arriving once streaming
+    m_tickleTimer = new QTimer(this);
+    m_tickleTimer->setSingleShot(true);
+    connect(m_tickleTimer, &QTimer::timeout, this, &AtomheartEclairScale::onTickleTimeout);
 }
 
 AtomheartEclairScale::~AtomheartEclairScale() {
+    stopWatchdog();
     if (m_transport) {
         m_transport->disconnectFromDevice();
     }
@@ -63,11 +74,13 @@ void AtomheartEclairScale::onTransportConnected() {
 
 void AtomheartEclairScale::onTransportDisconnected() {
     ECLAIR_LOG("Transport disconnected");
+    stopWatchdog();
     setConnected(false);
 }
 
 void AtomheartEclairScale::onTransportError(const QString& message) {
     ECLAIR_WARN(QString("Transport error: %1").arg(message));
+    stopWatchdog();
     setConnected(false);
 }
 
@@ -97,20 +110,21 @@ void AtomheartEclairScale::onCharacteristicsDiscoveryFinished(const QBluetoothUu
 
     ECLAIR_LOG("Characteristics discovered");
     m_characteristicsReady = true;
-    setConnected(true);
 
-    // de1app PR #349 enables weight notifications twice (200ms + 800ms) because the
-    // Eclair sometimes ignores the first enable and never starts streaming weight.
-    // Note: these are fire-and-forget — there is no read-back confirming the scale
-    // actually started streaming (see connected-but-silent gap tracked separately).
-    ECLAIR_LOG("Scheduling notification enable at 200ms and 800ms (de1app PR #349 timing)");
-    for (int delayMs : {200, 800}) {
-        QTimer::singleShot(delayMs, this, [this, delayMs]() {
-            if (!m_transport || !m_characteristicsReady) return;
-            ECLAIR_LOG(QString("Enabling notifications (%1ms)").arg(delayMs));
-            m_transport->enableNotifications(Scale::AtomheartEclair::SERVICE, Scale::AtomheartEclair::STATUS);
-        });
-    }
+    // Enable notifications after a 200ms settle (de1app timing), then start the
+    // watchdog. We deliberately do NOT call setConnected(true) here — connected
+    // state is deferred until the first weight frame actually arrives (see
+    // tickleWatchdog), so a scale that never streams weight is reported as not
+    // connected rather than appearing connected-but-stuck-at-0g.
+    ECLAIR_LOG("Scheduling notification enable in 200ms (de1app timing)");
+    QTimer::singleShot(200, this, [this]() {
+        if (!m_transport || !m_characteristicsReady) {
+            ECLAIR_WARN("Transport gone before notification enable");
+            return;
+        }
+        enableNotifications();
+        startWatchdog();
+    });
 }
 
 bool AtomheartEclairScale::validateXor(const QByteArray& data) {
@@ -143,6 +157,9 @@ void AtomheartEclairScale::onCharacteristicChanged(const QBluetoothUuid& charact
                 return;
             }
 
+            // Valid weight frame — feed the watchdog (also flips connected on first frame)
+            tickleWatchdog();
+
             // Weight is 4-byte signed int32 in milligrams (little-endian)
             int32_t weightMg = d[1] | (d[2] << 8) | (d[3] << 16) | (d[4] << 24);
             double weight = weightMg / 1000.0;  // Convert to grams
@@ -157,9 +174,74 @@ void AtomheartEclairScale::sendCommand(const QByteArray& cmd) {
     m_transport->writeCharacteristic(Scale::AtomheartEclair::SERVICE, Scale::AtomheartEclair::CMD, cmd);
 }
 
+void AtomheartEclairScale::enableNotifications() {
+    if (!m_transport || !m_characteristicsReady) {
+        ECLAIR_WARN("enableNotifications() - transport or characteristics not ready");
+        return;
+    }
+    ECLAIR_LOG("Enabling weight notifications on STATUS characteristic");
+    m_transport->enableNotifications(Scale::AtomheartEclair::SERVICE, Scale::AtomheartEclair::STATUS);
+}
+
+void AtomheartEclairScale::startWatchdog() {
+    m_watchdogRetries = 0;
+    m_updatesReceived = false;
+    m_watchdogTimer->start(WATCHDOG_TIMEOUT_MS);
+    ECLAIR_LOG(QString("Started watchdog, waiting for first weight update (timeout: %1ms)").arg(WATCHDOG_TIMEOUT_MS));
+}
+
+void AtomheartEclairScale::tickleWatchdog() {
+    // First valid weight frame — the scale is proven functional, so report connected now.
+    if (!m_updatesReceived) {
+        m_updatesReceived = true;
+        m_watchdogTimer->stop();
+        ECLAIR_LOG("First weight update received, reporting connected");
+        if (!isConnected()) {
+            setConnected(true);
+        }
+    }
+
+    // Restart the no-update timeout; if weight stops streaming we re-enable notifications.
+    m_tickleTimer->start(TICKLE_TIMEOUT_MS);
+}
+
+void AtomheartEclairScale::stopWatchdog() {
+    if (m_watchdogTimer) m_watchdogTimer->stop();
+    if (m_tickleTimer) m_tickleTimer->stop();
+    m_updatesReceived = false;
+    m_watchdogRetries = 0;
+}
+
+void AtomheartEclairScale::onWatchdogTimeout() {
+    if (m_updatesReceived) return;  // Data started arriving, nothing to do
+
+    m_watchdogRetries++;
+    if (m_watchdogRetries >= MAX_WATCHDOG_RETRIES) {
+        ECLAIR_WARN(QString("No weight updates after %1 retries, reporting disconnected").arg(MAX_WATCHDOG_RETRIES));
+        setConnected(false);
+        return;
+    }
+
+    ECLAIR_WARN(QString("No weight updates, re-enabling notifications (retry %1 of %2)")
+                    .arg(m_watchdogRetries).arg(MAX_WATCHDOG_RETRIES));
+    enableNotifications();
+    m_watchdogTimer->start(WATCHDOG_TIMEOUT_MS);
+}
+
+void AtomheartEclairScale::onTickleTimeout() {
+    // Weight was streaming and then stopped — try re-enabling notifications once more.
+    ECLAIR_WARN(QString("No weight updates for %1ms, re-enabling notifications").arg(TICKLE_TIMEOUT_MS));
+    m_updatesReceived = false;
+    m_watchdogRetries = 0;
+    enableNotifications();
+    m_watchdogTimer->start(WATCHDOG_TIMEOUT_MS);
+}
+
 void AtomheartEclairScale::sendKeepAlive() {
     // No keep-alive needed — notifications stay active without periodic CCCD re-writes.
-    // Re-writing the CCCD risks AuthorizationError disconnects.
+    // Re-writing the CCCD risks AuthorizationError disconnects, so the watchdog only
+    // re-enables on missing data (onWatchdogTimeout/onTickleTimeout), never on a timer
+    // while weight is streaming normally.
 }
 
 void AtomheartEclairScale::tare() {
