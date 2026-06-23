@@ -99,13 +99,16 @@ void AtomheartEclairScale::onCharacteristicsDiscoveryFinished(const QBluetoothUu
     m_characteristicsReady = true;
     setConnected(true);
 
-    // de1app uses 200ms delay for Atomheart Eclair
-    ECLAIR_LOG("Scheduling notification enable in 200ms (de1app timing)");
-    QTimer::singleShot(200, this, [this]() {
-        if (!m_transport || !m_characteristicsReady) return;
-        ECLAIR_LOG("Enabling notifications (200ms)");
-        m_transport->enableNotifications(Scale::AtomheartEclair::SERVICE, Scale::AtomheartEclair::STATUS);
-    });
+    // de1app enables weight notifications twice (200ms + 800ms) because the Eclair
+    // sometimes ignores the first enable and never starts streaming weight.
+    ECLAIR_LOG("Scheduling notification enable at 200ms and 800ms (de1app timing)");
+    for (int delayMs : {200, 800}) {
+        QTimer::singleShot(delayMs, this, [this, delayMs]() {
+            if (!m_transport || !m_characteristicsReady) return;
+            ECLAIR_LOG(QString("Enabling notifications (%1ms)").arg(delayMs));
+            m_transport->enableNotifications(Scale::AtomheartEclair::SERVICE, Scale::AtomheartEclair::STATUS);
+        });
+    }
 }
 
 bool AtomheartEclairScale::validateXor(const QByteArray& data) {
@@ -162,14 +165,14 @@ void AtomheartEclairScale::tare() {
 }
 
 void AtomheartEclairScale::startTimer() {
-    sendCommand(QByteArray::fromHex("430101"));
+    sendCommand(QByteArray::fromHex("530101"));
 }
 
 void AtomheartEclairScale::stopTimer() {
-    sendCommand(QByteArray::fromHex("430000"));
+    sendCommand(QByteArray::fromHex("450101"));
 }
 
 void AtomheartEclairScale::resetTimer() {
-    // Eclair resets timer on tare
-    tare();
+    // Eclair has a dedicated timer-reset command (distinct from tare)
+    sendCommand(QByteArray::fromHex("520101"));
 }
