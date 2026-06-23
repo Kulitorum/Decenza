@@ -73,6 +73,16 @@ DiFluidR2::DiFluidR2(ScaleBleTransport* transport, QObject* parent)
         initCmd.append(static_cast<char>(checksum));
         R2_LOG(QString("Sending init query: %1").arg(QString(initCmd.toHex(' '))));
         sendCommand(initCmd);
+
+        // Instrumentation: identify the unit. Per DiFluid's official protocolR2.md, a
+        // genuine R2 Extract (model "DFT-R102") transmits coffee *TDS* in pack 2, while
+        // Brix-only variants (R2 PU/PP) and rebrands/clones transmit *Brix* in the same
+        // "concentration" field — which we'd then mislabel as TDS. Logging the model
+        // string lets us tell them apart when a reading looks like Brix, not TDS.
+        // These are fixed DataLen=0 queries straight from the spec (checksum baked in).
+        R2_LOG("Querying device model + firmware (instrumentation)");
+        sendCommand(QByteArray::fromHex("DFDF000100BF"));  // Get Device Model (Func 0, Cmd 1)
+        sendCommand(QByteArray::fromHex("DFDF000200C0"));  // Get Firmware Version (Func 0, Cmd 2)
     });
 
     if (m_transport) {
@@ -285,8 +295,33 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
         return;
     }
 
+    // Func 0 = Device Info: decode the model/firmware strings for instrumentation.
+    // Model "DFT-R102" == genuine R2 Extract (transmits coffee TDS); anything else is a
+    // Brix variant / rebrand and the pack-2 concentration field is Brix, not TDS.
+    if (func == 0) {
+        const QByteArray data = packet.mid(5, dataLen);
+        if (cmd == 1) {  // Device Model
+            m_deviceModel = QString::fromLatin1(data);
+            R2_LOG(QString("Device model: \"%1\"%2")
+                       .arg(m_deviceModel,
+                            m_deviceModel == QLatin1String("DFT-R102")
+                                ? QStringLiteral(" (genuine R2 Extract — concentration = TDS)")
+                                : QStringLiteral(" (NOT a standard R2 Extract — concentration may be Brix, not TDS)")));
+        } else if (cmd == 2) {  // Firmware Version
+            R2_LOG(QString("Firmware version: \"%1\"").arg(QString::fromLatin1(data)));
+        } else {
+            R2_LOG(QString("Device info response: Cmd=%1 data=%2")
+                       .arg(cmd).arg(QString(data.toHex(' '))));
+        }
+        return;
+    }
+
     // Func 3 = Device Action (test results)
     if (func == 3) {
+        // Instrumentation: full raw bytes of every result packet, so a Brix-vs-TDS
+        // mismatch (concentration field vs. the refractive index) is diagnosable from logs.
+        R2_LOG(QString("Action packet raw: %1").arg(QString(packet.toHex(' '))));
+
         if (cmd == 254) {
             // Error response
             uint8_t errClass = dataLen > 0 ? static_cast<uint8_t>(packet[5]) : 0;
@@ -339,10 +374,11 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             break;
         }
         case 2: {
-            // TDS result: Data1-2 = concentration * 100 (Data3-6 = refractive index, not parsed)
+            // TDS result: Data1-2 = concentration * 100, Data3-6 = refractive index * 100000
             if (dataLen < 3) return;
             quint16 tdsRaw = static_cast<quint16>(
                 (static_cast<uint8_t>(packet[6]) << 8) | static_cast<uint8_t>(packet[7]));
+            logRefractiveIndex(packet, dataLen);
             emitTdsResult(tdsRaw, /*isAverage=*/false);
             break;
         }
@@ -351,6 +387,7 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             if (dataLen < 3) return;
             quint16 tdsRaw = static_cast<quint16>(
                 (static_cast<uint8_t>(packet[6]) << 8) | static_cast<uint8_t>(packet[7]));
+            logRefractiveIndex(packet, dataLen);
             emitTdsResult(tdsRaw, /*isAverage=*/true);
             break;
         }
@@ -397,6 +434,21 @@ void DiFluidR2::emitTdsResult(quint16 tdsRaw, bool isAverage) {
     m_measurementTimer.stop();
     m_measuring = false;
     emit measuringChanged();
+}
+
+void DiFluidR2::logRefractiveIndex(const QByteArray& packet, quint8 dataLen) {
+    // Data3-6 (packet bytes 8..11) = refractive index * 100000. Caller already verified
+    // the packet holds dataLen data bytes, so bytes 8..11 are in range when dataLen >= 7.
+    if (dataLen < 7) {
+        R2_LOG("No refractive index in packet (short packet / older firmware)");
+        return;
+    }
+    quint32 riRaw = (static_cast<quint32>(static_cast<uint8_t>(packet[8])) << 24)
+                  | (static_cast<quint32>(static_cast<uint8_t>(packet[9])) << 16)
+                  | (static_cast<quint32>(static_cast<uint8_t>(packet[10])) << 8)
+                  | static_cast<quint32>(static_cast<uint8_t>(packet[11]));
+    R2_LOG(QString("Refractive index: %1 (raw=%2)")
+               .arg(riRaw / 100000.0, 0, 'f', 5).arg(riRaw));
 }
 
 bool DiFluidR2::validateChecksum(const QByteArray& packet) const {
