@@ -57,8 +57,8 @@ public slots:
     virtual void resetTimer() {}
     // Whether resetTimer() is a true no-side-effect reset (distinct from startTimer/tare).
     // False for scales where resetTimer() has side effects (e.g., DiFluid sends same bytes
-    // as startTimer, Eclair delegates to tare). When false, MachineState sends reset+start
-    // together at extraction start instead of splitting them across the preheating phase.
+    // as startTimer). When false, MachineState sends reset+start together at extraction
+    // start instead of splitting them across the preheating phase.
     virtual bool hasIndependentTimerReset() const { return true; }
     virtual void sleep() { emit sleepCompleted(); }  // Put scale to sleep (battery power saving - full power off)
     virtual void wake() {}   // Wake scale from sleep (enable LCD)
