@@ -240,6 +240,10 @@ EquipmentStorage::EquipmentStorage(QObject* parent)
 EquipmentStorage::~EquipmentStorage()
 {
     *m_destroyed = true;
+    // Stop the worker before members vanish: its destructor quit/wait()s the
+    // thread, so any in-flight task finishes (or is skipped via m_destroyed)
+    // while `this` is still alive.
+    m_dbWorker.reset();
 }
 
 void EquipmentStorage::initialize(const QString& dbPath)
@@ -255,20 +259,9 @@ void EquipmentStorage::runAsync(const QString& connPrefix,
         qWarning() << "EquipmentStorage: not initialized, dropping" << connPrefix;
         return;
     }
-    const QString dbPath = m_dbPath;
-    auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, connPrefix, work = std::move(work),
-                                       done = std::move(done), destroyed]() {
-        if (!withTempDb(dbPath, connPrefix, [&](QSqlDatabase& db) { work(db); }))
-            qWarning() << "EquipmentStorage: failed to open DB for" << connPrefix;
-        if (*destroyed) return;
-        QMetaObject::invokeMethod(this, [done = std::move(done), destroyed]() {
-            if (*destroyed) return;
-            done();
-        }, Qt::QueuedConnection);
-    });
-    QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
+    if (!m_dbWorker)
+        m_dbWorker = std::make_unique<SerialDbWorker>();
+    m_dbWorker->run(m_dbPath, connPrefix, std::move(work), std::move(done), this, m_destroyed);
 }
 
 void EquipmentStorage::requestInventory()

@@ -13,6 +13,7 @@
 class QSqlDatabase;
 class QJsonArray;
 class QJsonObject;
+class SerialDbWorker;
 
 // A coffee bag: the single bean concept that replaced bean presets
 // (openspec change bean-bag-inventory). A bag IS the active bean state —
@@ -230,4 +231,7 @@ private:
 
     QString m_dbPath;
     std::shared_ptr<std::atomic<bool>> m_destroyed = std::make_shared<std::atomic<bool>>(false);
+    // Serializes all background DB work onto one FIFO worker thread so successive
+    // writes to the same row apply in submission order (see SerialDbWorker).
+    std::unique_ptr<SerialDbWorker> m_dbWorker;
 };

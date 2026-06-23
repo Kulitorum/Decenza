@@ -12,6 +12,7 @@
 
 class QSqlDatabase;
 class QSqlQuery;
+class SerialDbWorker;
 
 // An equipment item: one typed component of a package. The kinds today are
 // "grinder", the optional "basket" (add-basket-equipment), and the optional
@@ -259,4 +260,7 @@ private:
 
     QString m_dbPath;
     std::shared_ptr<std::atomic<bool>> m_destroyed = std::make_shared<std::atomic<bool>>(false);
+    // Serializes all background DB work onto one FIFO worker thread so successive
+    // writes to the same row apply in submission order (see SerialDbWorker).
+    std::unique_ptr<SerialDbWorker> m_dbWorker;
 };
