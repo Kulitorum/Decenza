@@ -1063,14 +1063,17 @@ private slots:
 
     // Regression for the same-row write reorder that SerialDbWorker fixes. Fire
     // many writes at ONE package row back-to-back with NO settle between them and
-    // assert the LAST submitted value wins. Under the old fresh-thread-per-request
-    // dispatch the OS scheduler could run an earlier write last, clobbering the
-    // newer value (SQLite serializes commits, but not in submission order); the
-    // single FIFO worker makes submission order the commit order. The absence of
-    // any inter-dispatch wait is what makes this fail ~every run if the fix is
-    // reverted — a per-thread build lands the final value last only by ~1/N luck.
-    // (The existing dual-write test above has a settle loop that mostly closes the
-    // window, so it only caught the bug flakily — this one is deterministic.)
+    // assert the LAST submitted value is the one that SETTLES. Under the old
+    // fresh-thread-per-request dispatch the OS scheduler could run an earlier
+    // write last, clobbering the newer value (SQLite serializes commits, but not
+    // in submission order); the single FIFO worker makes submission order the
+    // commit order. We assert the settled value (drain, then re-read) rather than
+    // first-observation: QTRY passes the instant it sees "49", and a reverted
+    // per-thread build could expose "49" transiently mid-race before an earlier
+    // write commits last — only the post-drain re-read distinguishes "49 is final"
+    // (FIFO) from "49 was briefly seen" (reordered). (The existing dual-write test
+    // above has a settle loop that mostly closes the window, so it only caught the
+    // bug flakily — this one is deterministic.)
     void packageWritesApplyInSubmissionOrder() {
         const QString path = freshDb();
         withRawDb(path, "fifo_tables", [&](QSqlDatabase& db) {
@@ -1094,8 +1097,11 @@ private slots:
             [&](QSqlDatabase& db) { v = EquipmentStorage::loadPackageStatic(db, pkgId).lastGrindSetting; }); return v; };
         QTRY_COMPARE_WITH_TIMEOUT(pkgGrind(), QString::number(kWrites - 1), 15000);
 
-        // Drain so no background callback fires during teardown.
+        // Drain every write, then re-assert the SETTLED value is still the last
+        // submitted. This is the real revert-detector: a reordered build's final
+        // commit is the random last-scheduled write, almost never "49".
         for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
+        QCOMPARE(pkgGrind(), QString::number(kWrites - 1));
     }
 
     // A DB-open FAILURE must not be delivered to readers as an empty result.
@@ -1117,6 +1123,7 @@ private slots:
 
         // (b) Real DB, missing row -> the empty result IS delivered (real clear).
         const QString path = freshDb();
+        withRawDb(path, "nf_tables", [&](QSqlDatabase& db) { EquipmentStorage::ensureTablesStatic(db); });
         EquipmentStorage ok; ok.initialize(path);
         QSignalSpy okSpy(&ok, &EquipmentStorage::packageReady);
         ok.requestPackage(999999);

@@ -2859,6 +2859,13 @@ void MainController::dispatchNextPendingVisualizerSync()
     // object dies first (Qt auto-disconnects on `this`, then the lambda
     // copy in Qt's connection store gets cleaned up). Pre-shared_ptr
     // this used a raw `new` that leaked on context destruction.
+    // Note: requestShot does NOT emit shotReady on a DB-open FAILURE (only on a
+    // genuine load — found or not-found). That is deliberate: the !isValid()
+    // branch below permanently drops the pending entry, so a transient open
+    // failure must not reach it. On such a failure this connection simply never
+    // fires; the queue stalls and resumes next boot. Do not "fix" that stall by
+    // making requestShot emit an empty projection on open failure — it would
+    // silently discard the sync. (See ShotHistoryStorage::requestShot.)
     QPointer<MainController> self(this);
     auto conn = std::make_shared<QMetaObject::Connection>();
     *conn = connect(m_shotHistory, &ShotHistoryStorage::shotReady, this,

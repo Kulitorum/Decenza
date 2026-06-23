@@ -82,7 +82,9 @@ public:
     // Post `work(db)` to the worker thread (FIFO), then deliver `done(dbOpened)`
     // back on `receiver`'s thread via a queued call. `dbOpened` is false when the
     // connection could not be opened — in which case `work` never ran and any
-    // captured result is empty/default. Read callers MUST gate their "Ready"
+    // captured result is empty/default. Note `dbOpened == true` means only that
+    // the connection opened and `work` ran, NOT that `work` succeeded — a write
+    // caller still reports its own success/failure from inside `work`. Read callers MUST gate their "Ready"
     // emission on `dbOpened`: delivering an empty result on an open *failure* is
     // indistinguishable from a genuine not-found, and a consumer that treats
     // empty as "row vanished" (e.g. SettingsDye clearing the active bag) would
