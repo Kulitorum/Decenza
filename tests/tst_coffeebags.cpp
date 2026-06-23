@@ -1061,6 +1061,43 @@ private slots:
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
     }
 
+    // Regression for the same-row write reorder that SerialDbWorker fixes. Fire
+    // many writes at ONE package row back-to-back with NO settle between them and
+    // assert the LAST submitted value wins. Under the old fresh-thread-per-request
+    // dispatch the OS scheduler could run an earlier write last, clobbering the
+    // newer value (SQLite serializes commits, but not in submission order); the
+    // single FIFO worker makes submission order the commit order. The absence of
+    // any inter-dispatch wait is what makes this fail ~every run if the fix is
+    // reverted — a per-thread build lands the final value last only by ~1/N luck.
+    // (The existing dual-write test above has a settle loop that mostly closes the
+    // window, so it only caught the bug flakily — this one is deterministic.)
+    void packageWritesApplyInSubmissionOrder() {
+        const QString path = freshDb();
+        withRawDb(path, "fifo_tables", [&](QSqlDatabase& db) {
+            EquipmentStorage::ensureTablesStatic(db);
+        });
+        qint64 pkgId = -1;
+        withRawDb(path, "fifo_seed", [&](QSqlDatabase& db) {
+            EquipmentPackage p; p.lastGrindSetting = "seed";
+            pkgId = EquipmentStorage::createPackageWithGrinderStatic(db, p, "Turin", "DF83V", "83mm flat steel");
+        });
+        QVERIFY(pkgId > 0);
+
+        EquipmentStorage eqStorage; eqStorage.initialize(path);
+
+        const int kWrites = 50;
+        for (int i = 0; i < kWrites; i++)
+            eqStorage.requestUpdatePackage(pkgId,
+                {{QStringLiteral("lastGrindSetting"), QString::number(i)}});
+
+        auto pkgGrind = [&]() { QString v; withRawDb(path, "fifo_read",
+            [&](QSqlDatabase& db) { v = EquipmentStorage::loadPackageStatic(db, pkgId).lastGrindSetting; }); return v; };
+        QTRY_COMPARE_WITH_TIMEOUT(pkgGrind(), QString::number(kWrites - 1), 15000);
+
+        // Drain so no background callback fires during teardown.
+        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
+    }
+
     // VisualizerUploader::buildBagEnrichBody — the pure fill-blanks diff that
     // decides which descriptive fields get PATCHed onto the server's coffee bag.
     // Locks the blob->API field mapping (a typo here silently drops a field) and

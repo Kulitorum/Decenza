@@ -216,9 +216,11 @@ CoffeeBagStorage::CoffeeBagStorage(QObject* parent)
 CoffeeBagStorage::~CoffeeBagStorage()
 {
     *m_destroyed = true;
-    // Stop the worker before members vanish: its destructor quit/wait()s the
-    // thread, so any in-flight task finishes (or is skipped via m_destroyed)
-    // while `this` is still alive.
+    // Stop the worker before members vanish. reset() runs ~SerialDbWorker, which
+    // quit()s (discarding queued-but-unstarted tasks) and wait()s for the single
+    // in-flight task to finish its DB work — all while `this` is still alive. The
+    // m_destroyed flag, set just above, suppresses that task's result callback so
+    // it can't touch a half-destroyed object.
     m_dbWorker.reset();
 }
 
@@ -236,7 +238,7 @@ void CoffeeBagStorage::runAsync(const QString& connPrefix,
         return;
     }
     if (!m_dbWorker)
-        m_dbWorker = std::make_unique<SerialDbWorker>();
+        m_dbWorker = std::make_unique<SerialDbWorker>(QStringLiteral("CoffeeBagStorageWorker"));
     m_dbWorker->run(m_dbPath, connPrefix, std::move(work), std::move(done), this, m_destroyed);
 }
 

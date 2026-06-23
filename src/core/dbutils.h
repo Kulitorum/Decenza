@@ -45,10 +45,14 @@ static bool withTempDb(const QString& dbPath, const QString& connPrefix, Work&& 
 // in submission order — so the ordering has to be enforced before the lock.
 //
 // One worker per owning storage. The thread is created lazily on first use and
-// torn down in the destructor. `run()` must be called from the owner's thread.
+// torn down in the destructor. post()/run() (and thus the lazy first-use) must
+// always be called from the SAME thread — the owner's — because they mutate
+// m_thread/m_context without synchronization; a debug Q_ASSERT enforces this.
+// Results are delivered on `receiver`'s thread, which need not be that thread.
 class SerialDbWorker {
 public:
-    SerialDbWorker() = default;
+    explicit SerialDbWorker(const QString& name = QStringLiteral("SerialDbWorker"))
+        : m_name(name) {}
     ~SerialDbWorker() {
         if (!m_thread)
             return;
@@ -71,6 +75,9 @@ public:
         ensureStarted();
         QMetaObject::invokeMethod(m_context, std::move(task), Qt::QueuedConnection);
     }
+
+    // Identifies which storage's worker this is in a thread dump.
+    QString name() const { return m_name; }
 
     // Post `work(db)` to the worker thread (FIFO), then deliver `done()` back on
     // `receiver`'s thread via a queued call. `destroyed` guards delivery if the
@@ -97,15 +104,21 @@ public:
 
 private:
     void ensureStarted() {
+        // m_thread/m_context are touched here and in post() without a lock, so
+        // every call must come from the one owner thread (see class comment).
+        Q_ASSERT(!m_ownerThread || m_ownerThread == QThread::currentThread());
         if (m_thread)
             return;
+        m_ownerThread = QThread::currentThread();
         m_thread = new QThread;
-        m_thread->setObjectName(QStringLiteral("SerialDbWorker"));
+        m_thread->setObjectName(m_name);
         m_context = new QObject;          // event-loop affinity = the worker thread
         m_context->moveToThread(m_thread);
         m_thread->start();
     }
 
+    QString m_name;
+    QThread* m_ownerThread = nullptr;  // thread that first used this worker
     QThread* m_thread = nullptr;
     QObject* m_context = nullptr;
 };
