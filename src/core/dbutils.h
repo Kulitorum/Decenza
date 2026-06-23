@@ -62,6 +62,16 @@ public:
     SerialDbWorker(const SerialDbWorker&) = delete;
     SerialDbWorker& operator=(const SerialDbWorker&) = delete;
 
+    // Post an arbitrary task to the worker thread (FIFO). The task runs on the
+    // worker thread and is responsible for opening its own DB connection (via
+    // withTempDb) and marshaling any result back to its owner's thread itself
+    // (e.g. QMetaObject::invokeMethod(receiver, ..., Qt::QueuedConnection)). For
+    // callers whose work receives a ready db handle, prefer run() below.
+    void post(std::function<void()> task) {
+        ensureStarted();
+        QMetaObject::invokeMethod(m_context, std::move(task), Qt::QueuedConnection);
+    }
+
     // Post `work(db)` to the worker thread (FIFO), then deliver `done()` back on
     // `receiver`'s thread via a queued call. `destroyed` guards delivery if the
     // owner is torn down while a task is in flight.
@@ -70,21 +80,19 @@ public:
              std::function<void()> done,
              QObject* receiver,
              std::shared_ptr<std::atomic<bool>> destroyed) {
-        ensureStarted();
-        QMetaObject::invokeMethod(m_context,
-            [dbPath, connPrefix, work = std::move(work), done = std::move(done),
-             receiver, destroyed]() mutable {
-                if (!withTempDb(dbPath, connPrefix, [&](QSqlDatabase& db) { work(db); }))
-                    qWarning() << "SerialDbWorker: failed to open DB for" << connPrefix;
-                if (destroyed->load())
-                    return;
-                QMetaObject::invokeMethod(receiver,
-                    [done = std::move(done), destroyed]() {
-                        if (destroyed->load())
-                            return;
-                        done();
-                    }, Qt::QueuedConnection);
-            }, Qt::QueuedConnection);
+        post([dbPath, connPrefix, work = std::move(work), done = std::move(done),
+              receiver, destroyed]() mutable {
+            if (!withTempDb(dbPath, connPrefix, [&](QSqlDatabase& db) { work(db); }))
+                qWarning() << "SerialDbWorker: failed to open DB for" << connPrefix;
+            if (destroyed->load())
+                return;
+            QMetaObject::invokeMethod(receiver,
+                [done = std::move(done), destroyed]() {
+                    if (destroyed->load())
+                        return;
+                    done();
+                }, Qt::QueuedConnection);
+        });
     }
 
 private:

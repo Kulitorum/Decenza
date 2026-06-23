@@ -55,7 +55,18 @@ ShotHistoryStorage::ShotHistoryStorage(QObject* parent)
 ShotHistoryStorage::~ShotHistoryStorage()
 {
     *m_destroyed = true;
+    // Stop the CRUD worker before members vanish: its destructor quit/wait()s the
+    // thread, so any in-flight task finishes (or is skipped via m_destroyed) while
+    // `this` is still alive.
+    m_dbWorker.reset();
     close();
+}
+
+void ShotHistoryStorage::runOnDbThread(std::function<void()> task)
+{
+    if (!m_dbWorker)
+        m_dbWorker = std::make_unique<SerialDbWorker>();
+    m_dbWorker->post(std::move(task));
 }
 
 void ShotHistoryStorage::close()
@@ -1568,7 +1579,7 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     // Run DB work on background thread
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, data = std::move(data), destroyed]() {
+    runOnDbThread([this, dbPath, data = std::move(data), destroyed]() {
         qint64 shotId = saveShotStatic(dbPath, data);
 
         // Capture only the fields needed for logging (avoid copying the large compressedSamples blob)
@@ -1601,9 +1612,6 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
             emit shotSaved(shotId);
         }, Qt::QueuedConnection);
     });
-
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 
     return 0;  // Async — actual shotId delivered via shotSaved signal
 }
@@ -1812,7 +1820,7 @@ void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QStrin
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, shotId, visualizerId, visualizerUrl, destroyed]() {
+    runOnDbThread([this, dbPath, shotId, visualizerId, visualizerUrl, destroyed]() {
         bool success = false;
         bool opened = withTempDb(dbPath, "shs_vizupd", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
@@ -1841,8 +1849,6 @@ void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QStrin
             emit visualizerInfoUpdated(shotId, success);
         }, Qt::QueuedConnection);
     });
-    thread->start();
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
 }
 
 bool ShotHistoryStorage::reconcileVisualizerLinksStatic(
@@ -1941,7 +1947,7 @@ void ShotHistoryStorage::requestReconcileVisualizerLinks(const QVariantList& clo
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, cloudShots, windowStartEpoch, destroyed]() {
+    runOnDbThread([this, dbPath, cloudShots, windowStartEpoch, destroyed]() {
         QVariantList linked;
         bool staticOk = false;
         const bool opened = withTempDb(dbPath, "shs_vizrecon", [&](QSqlDatabase& db) {
@@ -1961,8 +1967,6 @@ void ShotHistoryStorage::requestReconcileVisualizerLinks(const QVariantList& clo
             emit visualizerLinksReconciled(ok, linked);
         }, Qt::QueuedConnection);
     });
-    thread->start();
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
 }
 
 void ShotHistoryStorage::requestMostRecentShotId()
@@ -1974,7 +1978,7 @@ void ShotHistoryStorage::requestMostRecentShotId()
 
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, destroyed]() {
+    runOnDbThread([this, dbPath, destroyed]() {
         qint64 shotId = -1;
         bool opened = withTempDb(dbPath, "shs_recent", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
@@ -1990,8 +1994,6 @@ void ShotHistoryStorage::requestMostRecentShotId()
             emit mostRecentShotIdReady(shotId);
         }, Qt::QueuedConnection);
     });
-    thread->start();
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
 }
 
 void ShotHistoryStorage::requestShot(qint64 shotId)
@@ -2004,7 +2006,7 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
     const QString dbPath = m_dbPath;
 
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, shotId, destroyed]() {
+    runOnDbThread([this, dbPath, shotId, destroyed]() {
         ShotRecord record;
         bool badgesPersisted = false;
         withTempDb(dbPath, "shs_shot", [&](QSqlDatabase& db) {
@@ -2033,9 +2035,6 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
             }
         }, Qt::QueuedConnection);
     });
-
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
@@ -2050,7 +2049,7 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
     // outBadgesPersisted to drive that signal.
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, shotId, destroyed]() {
+    runOnDbThread([this, dbPath, shotId, destroyed]() {
         bool recordFound = false;
         bool badgesPersisted = false;
         bool newChanneling = false;
@@ -2075,9 +2074,6 @@ void ShotHistoryStorage::requestReanalyzeBadges(qint64 shotId)
             },
             Qt::QueuedConnection);
     });
-
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 void ShotHistoryStorage::computeDerivedCurves(ShotRecord& record)
@@ -2461,7 +2457,7 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
     QString sql = "DELETE FROM shots WHERE id IN (" + placeholders.join(",") + ")";
 
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, sql, shotIds, destroyed]() {
+    runOnDbThread([this, dbPath, sql, shotIds, destroyed]() {
         bool success = false;
         withTempDb(dbPath, "shs_delete", [&](QSqlDatabase& db) {
             db.transaction();
@@ -2495,9 +2491,6 @@ void ShotHistoryStorage::deleteShots(const QVariantList& shotIds)
             }
         }, Qt::QueuedConnection);
     });
-
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
@@ -2511,7 +2504,7 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
 
-    QThread* thread = QThread::create([this, dbPath, shotId, destroyed]() {
+    runOnDbThread([this, dbPath, shotId, destroyed]() {
         bool success = false;
         withTempDb(dbPath, "shs_rdel", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
@@ -2541,9 +2534,6 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
             }
         }, Qt::QueuedConnection);
     });
-
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotId, const QVariantMap& metadata)
@@ -2637,7 +2627,7 @@ void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariant
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
 
-    QThread* thread = QThread::create([this, dbPath, shotId, metadata, destroyed]() {
+    runOnDbThread([this, dbPath, shotId, metadata, destroyed]() {
         bool success = false;
         withTempDb(dbPath, "shs_rupd", [&](QSqlDatabase& db) {
             success = updateShotMetadataStatic(db, shotId, metadata);
@@ -2658,9 +2648,6 @@ void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariant
             qDebug() << "ShotHistoryStorage: Async updated metadata for shot" << shotId << "success:" << success;
         }, Qt::QueuedConnection);
     });
-
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 // Note: getDistinctValues / requestDistinct* / requestAutoFavorites* /
@@ -2671,7 +2658,7 @@ void ShotHistoryStorage::updateTotalShots()
     // Async: run COUNT on background thread using existing static helper
     const QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, destroyed]() {
+    runOnDbThread([this, dbPath, destroyed]() {
         int count = getShotCountStatic(dbPath);
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, count, destroyed]() {
@@ -2686,8 +2673,6 @@ void ShotHistoryStorage::updateTotalShots()
             }
         }, Qt::QueuedConnection);
     });
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
 bool ShotHistoryStorage::performDatabaseCopy(const QString& destPath)
@@ -3523,7 +3508,7 @@ void ShotHistoryStorage::refreshTotalShots()
     // Run COUNT query on background thread to avoid blocking the main thread
     QString dbPath = m_dbPath;
     auto destroyed = m_destroyed;
-    QThread* thread = QThread::create([this, dbPath, destroyed]() {
+    runOnDbThread([this, dbPath, destroyed]() {
         int count = getShotCountStatic(dbPath);
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, count, destroyed]() {
@@ -3541,7 +3526,5 @@ void ShotHistoryStorage::refreshTotalShots()
             }
         }, Qt::QueuedConnection);
     });
-    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-    thread->start();
 }
 
