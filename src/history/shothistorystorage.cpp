@@ -1990,7 +1990,9 @@ void ShotHistoryStorage::requestMostRecentShotId()
         if (!opened)
             qWarning() << "ShotHistoryStorage: requestMostRecentShotId failed - could not open DB";
 
-        if (*destroyed) return;
+        // Skip the emit on open failure: -1 here means "no shots" to a consumer,
+        // and a transient open failure must not masquerade as an empty history.
+        if (*destroyed || !opened) return;
         QMetaObject::invokeMethod(this, [this, shotId, destroyed]() {
             if (*destroyed) return;
             emit mostRecentShotIdReady(shotId);
@@ -2011,9 +2013,17 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
     runOnDbThread([this, dbPath, shotId, destroyed]() {
         ShotRecord record;
         bool badgesPersisted = false;
-        withTempDb(dbPath, "shs_shot", [&](QSqlDatabase& db) {
+        const bool opened = withTempDb(dbPath, "shs_shot", [&](QSqlDatabase& db) {
             record = loadShotRecordStatic(db, shotId, &badgesPersisted);
         });
+        // On a DB-open failure `record` is default/invalid; do NOT deliver it as a
+        // shotReady. MainController's migration16 visualizer-sync reads an invalid
+        // projection as "shot no longer exists" and permanently pops a pending sync
+        // — a transient open failure must not trigger that drop. A genuine
+        // not-found (db opened, row absent) still emits, preserving that path.
+        if (!opened)
+            qWarning() << "ShotHistoryStorage: requestShot — DB open failed for shot"
+                       << shotId << "(no shotReady emitted)";
 
         // Convert to QVariantMap on main thread (touches QML-visible data).
         // shotReady carries the recomputed badges already; shotBadgesUpdated
@@ -2021,7 +2031,7 @@ void ShotHistoryStorage::requestShot(qint64 shotId)
         // listeners that care about "this shot just got its badges corrected"
         // (e.g., a future history-list filter that wants to refresh) get a
         // signal without having to re-query.
-        if (*destroyed) return;
+        if (*destroyed || !opened) return;
         QMetaObject::invokeMethod(this, [this, shotId, record = std::move(record), badgesPersisted, destroyed]() {
             if (*destroyed) {
                 qDebug() << "ShotHistoryStorage: requestShot callback dropped (object destroyed)";

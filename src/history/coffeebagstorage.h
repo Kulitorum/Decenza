@@ -222,10 +222,12 @@ signals:
     void bagsChanged();
 
 private:
-    // Run `work(db)` on a background thread, then `done` on the main thread.
+    // Run `work(db)` on a background thread, then `done(dbOpened)` on the main
+    // thread. Read callers must skip their "Ready" emission when dbOpened is
+    // false (open failure → empty result that must not be read as not-found).
     void runAsync(const QString& connPrefix,
                   std::function<void(QSqlDatabase&)> work,
-                  std::function<void()> done);
+                  std::function<void(bool dbOpened)> done);
 
     static CoffeeBag bagFromQueryRow(const class QSqlQuery& query);
 

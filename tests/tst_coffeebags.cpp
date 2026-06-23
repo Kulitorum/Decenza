@@ -1098,6 +1098,34 @@ private slots:
         for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
     }
 
+    // A DB-open FAILURE must not be delivered to readers as an empty result.
+    // SettingsDye reads an empty packageReady/bagReady as "row vanished" and
+    // clears the active selection, so a transient open failure would silently
+    // wipe valid state — hence runAsync gates the read emit on dbOpened. A
+    // GENUINE not-found (db opens, row absent) must still emit empty, since that
+    // real clear is how a deleted selection gets cleared.
+    void readEmitSuppressedOnDbOpenFailure() {
+        // (a) Unopenable path (parent dir absent) -> requestPackage stays silent.
+        EquipmentStorage bad;
+        bad.initialize(m_tempDir.filePath(QStringLiteral("no_such_dir/eq.db")));
+        QSignalSpy badSpy(&bad, &EquipmentStorage::packageReady);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("withTempDb: DB open failed"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("SerialDbWorker: failed to open DB"));
+        bad.requestPackage(1);
+        for (int i = 0; i < 60; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
+        QCOMPARE(badSpy.count(), 0);
+
+        // (b) Real DB, missing row -> the empty result IS delivered (real clear).
+        const QString path = freshDb();
+        EquipmentStorage ok; ok.initialize(path);
+        QSignalSpy okSpy(&ok, &EquipmentStorage::packageReady);
+        ok.requestPackage(999999);
+        QTRY_COMPARE_WITH_TIMEOUT(okSpy.count(), 1, 15000);
+        QVERIFY(okSpy.at(0).at(1).toMap().isEmpty());
+
+        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
+    }
+
     // VisualizerUploader::buildBagEnrichBody — the pure fill-blanks diff that
     // decides which descriptive fields get PATCHed onto the server's coffee bag.
     // Locks the blob->API field mapping (a typo here silently drops a field) and

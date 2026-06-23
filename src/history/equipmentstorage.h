@@ -254,9 +254,12 @@ signals:
     void packagesChanged();
 
 private:
+    // Run `work(db)` on a background thread, then `done(dbOpened)` on the main
+    // thread. Read callers must skip their "Ready" emission when dbOpened is
+    // false (open failure → empty result that must not be read as not-found).
     void runAsync(const QString& connPrefix,
                   std::function<void(QSqlDatabase&)> work,
-                  std::function<void()> done);
+                  std::function<void(bool dbOpened)> done);
 
     QString m_dbPath;
     std::shared_ptr<std::atomic<bool>> m_destroyed = std::make_shared<std::atomic<bool>>(false);

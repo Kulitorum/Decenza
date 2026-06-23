@@ -79,25 +79,33 @@ public:
     // Identifies which storage's worker this is in a thread dump.
     QString name() const { return m_name; }
 
-    // Post `work(db)` to the worker thread (FIFO), then deliver `done()` back on
-    // `receiver`'s thread via a queued call. `destroyed` guards delivery if the
-    // owner is torn down while a task is in flight.
+    // Post `work(db)` to the worker thread (FIFO), then deliver `done(dbOpened)`
+    // back on `receiver`'s thread via a queued call. `dbOpened` is false when the
+    // connection could not be opened — in which case `work` never ran and any
+    // captured result is empty/default. Read callers MUST gate their "Ready"
+    // emission on `dbOpened`: delivering an empty result on an open *failure* is
+    // indistinguishable from a genuine not-found, and a consumer that treats
+    // empty as "row vanished" (e.g. SettingsDye clearing the active bag) would
+    // wipe valid state on a transient DB hiccup. Write callers can ignore it —
+    // their work already tracks success and reports a terminal status either way.
+    // `destroyed` guards delivery if the owner is torn down while in flight.
     void run(const QString& dbPath, const QString& connPrefix,
              std::function<void(QSqlDatabase&)> work,
-             std::function<void()> done,
+             std::function<void(bool dbOpened)> done,
              QObject* receiver,
              std::shared_ptr<std::atomic<bool>> destroyed) {
         post([dbPath, connPrefix, work = std::move(work), done = std::move(done),
               receiver, destroyed]() mutable {
-            if (!withTempDb(dbPath, connPrefix, [&](QSqlDatabase& db) { work(db); }))
+            const bool dbOpened = withTempDb(dbPath, connPrefix, [&](QSqlDatabase& db) { work(db); });
+            if (!dbOpened)
                 qWarning() << "SerialDbWorker: failed to open DB for" << connPrefix;
             if (destroyed->load())
                 return;
             QMetaObject::invokeMethod(receiver,
-                [done = std::move(done), destroyed]() {
+                [done = std::move(done), dbOpened, destroyed]() {
                     if (destroyed->load())
                         return;
-                    done();
+                    done(dbOpened);
                 }, Qt::QueuedConnection);
         });
     }
