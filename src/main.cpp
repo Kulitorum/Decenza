@@ -435,6 +435,7 @@ int main(int argc, char *argv[])
         if (activity.isValid()) {
             QJniObject resolver = activity.callObjectMethod(
                 "getContentResolver", "()Landroid/content/ContentResolver;");
+            QJniEnvironment().checkAndClearExceptions();
             auto secureSetting = [&](const char *key) -> QString {
                 if (!resolver.isValid())
                     return QStringLiteral("?");
@@ -460,6 +461,7 @@ int main(int argc, char *argv[])
             if (!pkg.isEmpty()) {
                 QJniObject pm = activity.callObjectMethod(
                     "getPackageManager", "()Landroid/content/pm/PackageManager;");
+                QJniEnvironment().checkAndClearExceptions();
                 if (pm.isValid()) {
                     QJniObject info = pm.callObjectMethod(
                         "getPackageInfo", "(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;",
@@ -467,6 +469,7 @@ int main(int argc, char *argv[])
                     QJniEnvironment().checkAndClearExceptions();
                     if (info.isValid()) {
                         QJniObject ver = info.getObjectField<jstring>("versionName");
+                        QJniEnvironment().checkAndClearExceptions();
                         qDebug() << "Screen reader package:" << pkg
                                  << "version:" << (ver.isValid() ? ver.toString() : QString());
                     }
@@ -481,6 +484,7 @@ int main(int argc, char *argv[])
             QJniObject am = activity.callObjectMethod(
                 "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;",
                 QJniObject::fromString(QStringLiteral("accessibility")).object());
+            QJniEnvironment().checkAndClearExceptions();
             if (am.isValid()) {
                 QJniObject list = am.callObjectMethod(
                     "getEnabledAccessibilityServiceList", "(I)Ljava/util/List;",
@@ -491,6 +495,7 @@ int main(int argc, char *argv[])
                     for (jint i = 0; i < n; ++i) {
                         QJniObject svc = list.callObjectMethod(
                             "get", "(I)Ljava/lang/Object;", i);
+                        QJniEnvironment().checkAndClearExceptions();
                         if (svc.isValid())
                             qDebug() << "A11y service config:" << svc.toString();
                     }
