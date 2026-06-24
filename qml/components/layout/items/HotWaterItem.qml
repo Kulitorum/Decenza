@@ -23,6 +23,21 @@ Item {
         return null
     }
 
+    // Highlight this button while its mode is the one currently selected on the
+    // home screen (its presets are expanded), so you can see which screen you're in.
+    // Mirror idlePage.activePresetFunction into a local reactive property. Reading
+    // it directly through the `var idlePage` does NOT register a QML binding
+    // dependency, so isActive never re-evaluated on tap. Track it explicitly.
+    property string _activeFn: root.idlePage ? root.idlePage.activePresetFunction : ""
+    Connections {
+        target: root.idlePage
+        ignoreUnknownSignals: true
+        function onActivePresetFunctionChanged() {
+            root._activeFn = root.idlePage ? root.idlePage.activePresetFunction : ""
+        }
+    }
+    readonly property bool isActive: _activeFn === "hotwater" || presetPopup.visible
+
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
@@ -64,14 +79,15 @@ Item {
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     colorization: 1.0
-                    colorizationColor: Theme.textColor
+                    colorizationColor: root.isActive ? Theme.accentColor : Theme.textColor
                 }
             }
             Tr {
                 key: "idle.button.hotwater"
                 fallback: "Hot Water"
                 font: Theme.bodyFont
-                color: DE1Device.guiEnabled ? Theme.textColor : Theme.textSecondaryColor
+                color: !DE1Device.guiEnabled ? Theme.textSecondaryColor
+                       : (root.isActive ? Theme.accentColor : Theme.textColor)
                 Accessible.ignored: true
             }
         }
@@ -103,6 +119,8 @@ Item {
             translationFallback: "Hot Water"
             iconSource: "qrc:/icons/water.svg"
             enabled: DE1Device.guiEnabled
+            active: root.isActive
+            backgroundColor: root.isActive ? Theme.accentColor : Theme.primaryColor
             supportDoubleClick: true
             onClicked: root.togglePresets()
             onPressAndHold: root.goToHotWater()
