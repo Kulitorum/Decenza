@@ -31,6 +31,7 @@
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
+#include <QJniEnvironment>
 #endif
 
 
@@ -414,11 +415,88 @@ int main(int argc, char *argv[])
 #ifdef Q_OS_ANDROID
     {
         jint sdkInt = QJniObject::getStaticField<jint>("android/os/Build$VERSION", "SDK_INT");
+        QJniObject release = QJniObject::getStaticObjectField<jstring>("android/os/Build$VERSION", "RELEASE");
         QJniObject model = QJniObject::getStaticObjectField<jstring>("android/os/Build", "MODEL");
         QJniObject mfr = QJniObject::getStaticObjectField<jstring>("android/os/Build", "MANUFACTURER");
-        qDebug() << "Android SDK:" << sdkInt
+        qDebug() << "Android" << (release.isValid() ? release.toString() : QString())
+                 << "SDK:" << sdkInt
                  << "device:" << (mfr.isValid() ? mfr.toString() : QString())
                  << (model.isValid() ? model.toString() : QString());
+
+        // Screen-reader fingerprint. TalkBack is a Play-Store app that updates
+        // independently of the OS, and its handling of synthesized text-change
+        // events has regressed our typing echo (issue #1300) with no OS/settings
+        // change. The debug log previously carried none of this, so capture the
+        // OS-level accessibility settings + TalkBack's package version here to
+        // make every a11y log self-diagnosing. NOTE: TalkBack's *internal* feature
+        // toggles (keyboard echo, verbosity) live in its private prefs and are not
+        // readable by other apps — only these system-level settings are.
+        QJniObject activity = QNativeInterface::QAndroidApplication::context();
+        if (activity.isValid()) {
+            QJniObject resolver = activity.callObjectMethod(
+                "getContentResolver", "()Landroid/content/ContentResolver;");
+            auto secureSetting = [&](const char *key) -> QString {
+                if (!resolver.isValid())
+                    return QStringLiteral("?");
+                QJniObject jkey = QJniObject::fromString(QString::fromLatin1(key));
+                QJniObject val = QJniObject::callStaticObjectMethod(
+                    "android/provider/Settings$Secure", "getString",
+                    "(Landroid/content/ContentResolver;Ljava/lang/String;)Ljava/lang/String;",
+                    resolver.object(), jkey.object());
+                QJniEnvironment().checkAndClearExceptions();
+                return val.isValid() ? val.toString() : QString();
+            };
+            const QString services = secureSetting("enabled_accessibility_services");
+            qDebug() << "Accessibility settings:"
+                     << "enabled=" << secureSetting("accessibility_enabled")
+                     << "touchExploration=" << secureSetting("touch_exploration_enabled")
+                     << "QAccessible.isActive=" << QAccessible::isActive();
+            qDebug() << "Accessibility services:" << services;
+
+            // TalkBack version: the package id is the part before '/' of the first
+            // enabled service component (getPackageInfo throws NameNotFound for an
+            // absent package, so clear the JNI exception afterward).
+            const QString pkg = services.section(u'/', 0, 0).section(u':', 0, 0).trimmed();
+            if (!pkg.isEmpty()) {
+                QJniObject pm = activity.callObjectMethod(
+                    "getPackageManager", "()Landroid/content/pm/PackageManager;");
+                if (pm.isValid()) {
+                    QJniObject info = pm.callObjectMethod(
+                        "getPackageInfo", "(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;",
+                        QJniObject::fromString(pkg).object(), 0);
+                    QJniEnvironment().checkAndClearExceptions();
+                    if (info.isValid()) {
+                        QJniObject ver = info.getObjectField<jstring>("versionName");
+                        qDebug() << "Screen reader package:" << pkg
+                                 << "version:" << (ver.isValid() ? ver.toString() : QString());
+                    }
+                }
+            }
+
+            // Per-service configuration (the closest readable thing to "TalkBack
+            // settings"): AccessibilityServiceInfo.toString() dumps the event types
+            // it subscribes to, capabilities, feedbackType, and flags. The
+            // user-facing keyboard-echo/verbosity toggles are NOT here (private to
+            // TalkBack), but eventTypes/flags reveal what events it accepts.
+            QJniObject am = activity.callObjectMethod(
+                "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;",
+                QJniObject::fromString(QStringLiteral("accessibility")).object());
+            if (am.isValid()) {
+                QJniObject list = am.callObjectMethod(
+                    "getEnabledAccessibilityServiceList", "(I)Ljava/util/List;",
+                    (jint)0xFFFFFFFF);  // FEEDBACK_ALL_MASK
+                QJniEnvironment().checkAndClearExceptions();
+                if (list.isValid()) {
+                    const jint n = list.callMethod<jint>("size", "()I");
+                    for (jint i = 0; i < n; ++i) {
+                        QJniObject svc = list.callObjectMethod(
+                            "get", "(I)Ljava/lang/Object;", i);
+                        if (svc.isValid())
+                            qDebug() << "A11y service config:" << svc.toString();
+                    }
+                }
+            }
+        }
     }
 #endif
 
