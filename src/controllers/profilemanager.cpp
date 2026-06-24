@@ -1131,6 +1131,23 @@ void ProfileManager::loadProfile(const QString& profileName) {
         }
     }
 
+    // One-time on-disk repair: if fromJson had to clamp a bogus stored
+    // espresso_temperature back into the frame range (e.g. a stale 93 baked in by an
+    // older Visualizer import — see Profile::fromJson), persist the corrected value so
+    // the profile is repaired exactly once instead of re-healed on every load. Skip
+    // read-only/built-in profiles (qrc, can't and needn't be rewritten).
+    if (found && m_currentProfile.espressoTemperatureHealed() && !m_currentProfile.isReadOnly()) {
+        bool repaired = false;
+        if (m_profileStorage && m_profileStorage->isConfigured()
+            && m_profileStorage->profileExists(resolvedName)) {
+            repaired = m_profileStorage->writeProfile(resolvedName, m_currentProfile.toJsonString());
+        } else if (!path.isEmpty() && !path.startsWith(QLatin1Char(':'))) {
+            repaired = m_currentProfile.saveToFile(path);
+        }
+        if (repaired)
+            qInfo() << "ProfileManager::loadProfile: repaired stale espresso_temperature on disk for" << resolvedName;
+    }
+
     // Save current profile as previous before switching (only if new profile was found)
     if (found && !m_baseProfileName.isEmpty() && m_baseProfileName != resolvedName)
         m_previousProfileName = m_baseProfileName;
