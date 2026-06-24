@@ -3,7 +3,9 @@ import QtQuick.Layouts
 import Decenza
 
 // Layout widget: measured dose weight (composable-brew-bar).
-// Shows Settings.dye.dyeBeanWeight; "—" when no dose recorded.
+// Live-then-hold: shows the live net-bean weight while weighing, freezes the
+// captured dose at the beep, holds it, then falls back to the last recorded
+// dose (Settings.dye.dyeBeanWeight), or "—" when none.
 Item {
     id: root
     property bool isCompact: false
@@ -12,9 +14,71 @@ Item {
     property bool zoneValueBold: false
 
     readonly property string labelText: TranslationManager.translate("idle.status.beans", "Beans")
-    readonly property string valueText: Settings.dye.dyeBeanWeight > 0
-                                        ? Settings.dye.dyeBeanWeight.toFixed(1) + " g"
-                                        : "—"
+
+    // Live-then-hold dose: show the live net-bean weight while a dose is being
+    // weighed, freeze the captured dose once the stable-capture "beep" sets
+    // Settings.dye.dyeBeanWeight, and hold it until a fresh dose is placed on the
+    // scale. Falls back to the last recorded dose when idle. Event-based — no timers.
+    property bool scaleConnected: ScaleDevice && ScaleDevice.connected
+    property real _held: 0
+    property bool _wasEmpty: true
+    // Latched true when a cup sits on the scale during an operation, cleared when the
+    // cup is lifted — suppresses a post-shot brew cup reading as live beans in Idle
+    // (the _operating phase gate alone doesn't cover the return-to-Idle window).
+    property bool _postExtraction: false
+    function _liveNet() { return Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight) }
+    readonly property bool _loaded: root.scaleConnected
+        && MachineState.scaleWeight > (Settings.brew.doseCupTareWeight + 0.3)
+
+    // Live net-bean display only makes sense while dosing. During espresso preheat or
+    // an active operation (preinfusion/pour/ending/steam/water/flush) the scale is
+    // measuring the brew cup / milk / water, so a "beans = scale − cup tare" reading
+    // there is a phantom; suppress the live path in those phases (the held/recorded
+    // dose still shows). Preheat is included because the brew cup goes on the scale
+    // then, before Preinfusion flips.
+    readonly property bool _operating:
+        MachineState.phase === MachineStateType.Phase.EspressoPreheating
+        || MachineState.phase === MachineStateType.Phase.Preinfusion
+        || MachineState.phase === MachineStateType.Phase.Pouring
+        || MachineState.phase === MachineStateType.Phase.Ending
+        || MachineState.phase === MachineStateType.Phase.Steaming
+        || MachineState.phase === MachineStateType.Phase.HotWater
+        || MachineState.phase === MachineStateType.Phase.Flushing
+
+    Connections {
+        target: MachineState
+        function onScaleWeightChanged() {
+            if (MachineState.scaleWeight < 1.0) {
+                root._wasEmpty = true            // cup lifted off
+                root._held = 0                   // drop the hold so the idle fallback (dyeBeanWeight) stays fresh
+                root._postExtraction = false     // cup gone -> clear the post-operation latch
+            } else {
+                // A cup on the scale during an operation (pour/steam/…): latch until it's
+                // lifted, so a brew cup left on after the shot doesn't read as live beans.
+                if (root._operating) root._postExtraction = true
+                if (root._wasEmpty && root._liveNet() > 0.3) {
+                    root._held = 0               // a fresh dose is being placed -> go live
+                    root._wasEmpty = false
+                }
+            }
+        }
+    }
+    Connections {
+        target: Settings.dye
+        function onDyeBeanWeightChanged() {
+            // Stable-capture "beep" landed while a dose is on the scale -> hold it.
+            if (Settings.dye.dyeBeanWeight > 0 && root._loaded)
+                root._held = Settings.dye.dyeBeanWeight
+        }
+    }
+
+    readonly property string valueText: {
+        if (root._held > 0) return root._held.toFixed(1) + " g"          // held captured dose
+        if (root._loaded && !root._operating && !root._postExtraction)   // live while weighing (not mid/post-operation)
+            return root._liveNet().toFixed(1) + " g"
+        return Settings.dye.dyeBeanWeight > 0                            // idle: last recorded
+               ? Settings.dye.dyeBeanWeight.toFixed(1) + " g" : "—"
+    }
 
     implicitWidth: col.implicitWidth
     implicitHeight: col.implicitHeight

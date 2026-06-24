@@ -2721,7 +2721,7 @@ QString ShotServer::generateLayoutPage() const
                 // Inline data-mode selector for a selected Scale Weight chip.
                 if (isSel && item.type === "scaleWeight") {
                     var dm = item.dataMode || "gross";
-                    var modes = [["gross","Gross"],["netBeans","Net beans"],["netMilk","Net milk"],["contextAware","Context"]];
+                    var modes = [["gross","Gross"],["netBeans","Net beans"],["netMilk","Net milk"],["contextAware","Context"],["beansHold","Beans (hold)"],["expectedYield","Expected output"]];
                     html += '<select class="chip-mode" onchange="setScaleMode(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
                     for (var mm = 0; mm < modes.length; mm++) {
                         var msel = (dm === modes[mm][0]) ? ' selected' : '';

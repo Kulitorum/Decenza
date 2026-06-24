@@ -46,7 +46,9 @@ Dialog {
         { value: "gross",        label: TranslationManager.translate("layoutEditor.scaleGross", "Gross weight") },
         { value: "netBeans",     label: TranslationManager.translate("layoutEditor.scaleNetBeans", "Net beans (minus dose tare)") },
         { value: "netMilk",      label: TranslationManager.translate("layoutEditor.scaleNetMilk", "Net milk (minus pitcher)") },
-        { value: "contextAware", label: TranslationManager.translate("layoutEditor.scaleContext", "Context-aware (milk while steaming, else beans)") }
+        { value: "contextAware", label: TranslationManager.translate("layoutEditor.scaleContext", "Context-aware (milk while steaming, else beans)") },
+        { value: "beansHold",    label: TranslationManager.translate("layoutEditor.scaleBeansHold", "Beans (live, then hold captured dose)") },
+        { value: "expectedYield", label: TranslationManager.translate("layoutEditor.scaleExpectedYield", "Expected output (dose × ratio)") }
     ]
 
     modal: true

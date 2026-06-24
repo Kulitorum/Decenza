@@ -12,7 +12,10 @@ Item {
 
     // Per-instance data mode (composable-brew-bar): "" / "gross" (raw weight,
     // default), "netBeans" (minus dose-cup tare), "netMilk" (minus pitcher
-    // weight), "contextAware" (net milk while steaming, else net beans).
+    // weight), "contextAware" (net milk while steaming, else net beans),
+    // "beansHold" (live net beans, then hold the captured dose after the beep),
+    // "expectedYield" (the target output, dose × ratio = ProfileManager.targetWeight;
+    //   a computed value, but currently shown only when a scale is configured).
     readonly property string dataMode: (modelData && modelData.dataMode) ? modelData.dataMode : ""
 
     // Per-instance display mode (composable-status-bar): "text" (default, a
@@ -30,7 +33,47 @@ Item {
         return (p && !p.disabled) ? (p.pitcherWeightG ?? 0) : 0
     }
 
+    // "beansHold": show LIVE net beans while dosing, then freeze the captured
+    // dose once a stable capture has set Settings.dye.dyeBeanWeight, holding it
+    // until the cup is lifted (scale returns to ~0), then go live again for the
+    // next dose. Event-based — no timers.
+    property real _heldDose: 0
+    // Latched true when a cup sits on the scale during an operation, cleared when the
+    // cup is lifted — suppresses a post-shot brew cup reading as live beans in Idle.
+    property bool _postExtraction: false
+    Connections {
+        target: Settings.dye
+        function onDyeBeanWeightChanged() {
+            if (root.dataMode === "beansHold" && Settings.dye.dyeBeanWeight > 0
+                    && MachineState.scaleWeight > Settings.brew.doseCupTareWeight)
+                root._heldDose = Settings.dye.dyeBeanWeight
+        }
+    }
+    Connections {
+        target: MachineState
+        function onScaleWeightChanged() {
+            if (root.dataMode !== "beansHold") return
+            if (MachineState.scaleWeight < 1.0) {
+                root._heldDose = 0            // cup lifted -> next dose reads live
+                root._postExtraction = false  // and clear the post-operation latch
+            } else if (root._operating) {
+                root._postExtraction = true   // cup on scale during an op -> latch until lifted
+            }
+        }
+    }
+
     // Apply the per-instance data mode to the raw scale reading.
+    // Operating phases where a live net-beans reading would be a phantom (the scale is
+    // measuring the brew cup / milk / water, not beans). Mirrors DoseWeightItem._operating.
+    readonly property bool _operating:
+        MachineState.phase === MachineStateType.Phase.EspressoPreheating
+        || MachineState.phase === MachineStateType.Phase.Preinfusion
+        || MachineState.phase === MachineStateType.Phase.Pouring
+        || MachineState.phase === MachineStateType.Phase.Ending
+        || MachineState.phase === MachineStateType.Phase.Steaming
+        || MachineState.phase === MachineStateType.Phase.HotWater
+        || MachineState.phase === MachineStateType.Phase.Flushing
+
     function displayedWeight() {
         var w = MachineState.scaleWeight
         if (root.dataMode === "netBeans")
@@ -40,6 +83,21 @@ Item {
         if (root.dataMode === "contextAware") {
             var steaming = MachineState.phase === MachineStateType.Phase.Steaming
             return Math.max(0, w - (steaming ? root._pitcherWeight() : Settings.brew.doseCupTareWeight))
+        }
+        if (root.dataMode === "beansHold") {
+            // Mirrors DoseWeightItem's live→hold→recorded chain: the frozen captured
+            // dose if we have one this cycle; else the live net beans while actually
+            // dosing; else (mid/post-operation, or cup off) the last recorded dose —
+            // never the phantom live scale reading (a brew/milk cup on the scale).
+            if (root._heldDose > 0) return root._heldDose
+            var net = (root._operating || root._postExtraction)
+                      ? 0 : Math.max(0, w - Settings.brew.doseCupTareWeight)
+            return net > 0.3 ? net : Settings.dye.dyeBeanWeight
+        }
+        if (root.dataMode === "expectedYield") {
+            // Target espresso output = dose x ratio (ProfileManager keeps this as
+            // the active stop-at-weight target when brewing by ratio).
+            return ProfileManager.targetWeight
         }
         return w
     }
@@ -109,7 +167,7 @@ Item {
 
     function weightText() {
         var weight = root.displayedWeight().toFixed(1)
-        var suffix = root.isFlowScale ? "g~" : "g"
+        var suffix = (root.isFlowScale && root.dataMode !== "expectedYield") ? "g~" : "g"
         if (root.showRatio && ProfileManager.brewByRatioActive) {
             return weight + suffix + " 1:" + ProfileManager.brewByRatio.toFixed(1)
         }
