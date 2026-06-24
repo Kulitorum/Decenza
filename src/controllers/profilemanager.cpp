@@ -1131,21 +1131,32 @@ void ProfileManager::loadProfile(const QString& profileName) {
         }
     }
 
-    // One-time on-disk repair: if fromJson had to clamp a bogus stored
-    // espresso_temperature back into the frame range (e.g. a stale 93 baked in by an
-    // older Visualizer import — see Profile::fromJson), persist the corrected value so
-    // the profile is repaired exactly once instead of re-healed on every load. Skip
-    // read-only/built-in profiles (qrc, can't and needn't be rewritten).
+    // One-time on-disk repair: if fromJson had to re-derive a missing or
+    // stale-default espresso_temperature from the frames (e.g. the 93.0 default
+    // baked in by an older Visualizer import — see Profile::fromJson), persist the
+    // corrected value so the profile is repaired exactly once instead of re-healed
+    // on every load. Skip read-only/built-in profiles (qrc, can't and needn't be
+    // rewritten).
     if (found && m_currentProfile.espressoTemperatureHealed() && !m_currentProfile.isReadOnly()) {
+        bool writable = false;
         bool repaired = false;
         if (m_profileStorage && m_profileStorage->isConfigured()
             && m_profileStorage->profileExists(resolvedName)) {
+            writable = true;
             repaired = m_profileStorage->writeProfile(resolvedName, m_currentProfile.toJsonString());
         } else if (!path.isEmpty() && !path.startsWith(QLatin1Char(':'))) {
+            writable = true;
             repaired = m_currentProfile.saveToFile(path);
         }
-        if (repaired)
+        if (repaired) {
             qInfo() << "ProfileManager::loadProfile: repaired stale espresso_temperature on disk for" << resolvedName;
+        } else if (writable) {
+            // Write failed: the in-memory value is corrected, but the heal will run
+            // again on the next load. Surface it so a persistent failure (read-only
+            // FS, permissions, full disk) isn't invisible.
+            qWarning() << "ProfileManager::loadProfile: failed to persist espresso_temperature repair for"
+                       << resolvedName << "- corrected in memory only, will retry on next load";
+        }
     }
 
     // Save current profile as previous before switching (only if new profile was found)

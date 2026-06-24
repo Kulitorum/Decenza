@@ -243,6 +243,29 @@ private slots:
         QVERIFY(!p.espressoTemperatureHealed());
     }
 
+    void espressoTemperatureStringEncodedDefaultIsRepaired() {
+        // de1app/Visualizer serialize numbers as strings. A leaked "93.00" default
+        // must still be recognised and repaired after jsonToDouble parses it.
+        QJsonObject obj = makeTempProfileJson(/*includeScalar=*/false, 0.0, {84.0, 79.0, 52.0});
+        obj["espresso_temperature"] = QString("93.00");
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.espressoTemperature(), 84.0);
+        QVERIFY(p.espressoTemperatureHealed());
+    }
+
+    void espressoTemperatureRepairRoundTripDoesNotReheal() {
+        // The "repaired once" contract: a healed profile, serialized via toJson and
+        // reparsed, comes back with the key present and in range — so it must NOT
+        // heal again (no infinite re-write loop on disk).
+        Profile healed = Profile::fromJson(QJsonDocument(
+            makeTempProfileJson(/*includeScalar=*/true, 93.0, {84.0, 79.0, 52.0})));
+        QVERIFY(healed.espressoTemperatureHealed());
+
+        Profile reloaded = Profile::fromJson(healed.toJson());
+        QCOMPARE(reloaded.espressoTemperature(), 84.0);
+        QVERIFY(!reloaded.espressoTemperatureHealed());
+    }
+
     // ===== Nested exit conditions (de1app v2 format) =====
 
     void jsonNestedExitPressureOver() {
