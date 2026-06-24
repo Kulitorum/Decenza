@@ -155,6 +155,41 @@ private slots:
         QCOMPARE(f.profileManager.frameCount(), 2);
     }
 
+    // === Temperature override anchor (bug fix) ===
+
+    // applyTemperatureToProfile (the "Update Profile" save path) must shift every
+    // frame by the delta from espressoTemperature — the SAME anchor as the
+    // live-brew override path — not from the first frame. Build a profile where
+    // espressoTemperature (90) differs from steps[0] (88) so the two anchors give
+    // different results, and assert the espressoTemperature anchor is used.
+    void applyTemperatureUsesEspressoTemperatureAnchor() {
+        McpTestFixture f;
+        QJsonObject obj;
+        obj["title"] = "Anchor Test";
+        obj["legacy_profile_type"] = "settings_2c";
+        obj["espresso_temperature"] = 90.0;  // in [88,93] range → not healed
+        QJsonArray steps;
+        for (double t : {88.0, 93.0}) {
+            QJsonObject fr;
+            fr["name"] = "f";
+            fr["temperature"] = t;
+            fr["pump"] = "flow";
+            fr["flow"] = 2.0;
+            fr["seconds"] = 10.0;
+            steps.append(fr);
+        }
+        obj["steps"] = steps;
+        f.profileManager.loadProfileFromJson(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+        QCOMPARE(f.profileManager.currentProfile().espressoTemperature(), 90.0);
+        QCOMPARE(f.profileManager.currentProfile().steps()[0].temperature, 88.0);
+
+        // New temp 92 → delta = 92 - 90 = +2 (NOT 92 - 88 = +4).
+        f.profileManager.applyTemperatureToProfile(92.0);
+        QCOMPARE(f.profileManager.currentProfile().espressoTemperature(), 92.0);
+        QCOMPARE(f.profileManager.currentProfile().steps()[0].temperature, 90.0);  // 88 + 2
+        QCOMPARE(f.profileManager.currentProfile().steps()[1].temperature, 95.0);  // 93 + 2
+    }
+
     // === Signal emission ===
 
     void loadProfileEmitsCurrentProfileChanged() {

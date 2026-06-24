@@ -42,10 +42,15 @@ Text {
     text: {
         var parts = []
         if (showProfile && profileName) {
-            var tempStr = profileTemp > 0 ? profileTemp.toFixed(0) + "\u00B0C" : ""
-            if (Settings.brew.hasTemperatureOverride && Math.abs(overrideTemp - profileTemp) > 0.1) {
-                tempStr = profileTemp.toFixed(0) + " \u2192 " + overrideTemp.toFixed(0) + "\u00B0C"
-            }
+            // Adaptive temperature rendering (single / list / ellipsis + delta tag).
+            // Shared with BrewDialog via ProfileManager.temperatureDisplay so a
+            // multi-temp profile is shown honestly and the override delta applies
+            // to all steps. Bindings re-evaluate on profile + override changes via
+            // the referenced profileTemp / Settings.brew properties.
+            var tempStr = profileTemp > 0
+                ? ProfileManager.temperatureDisplay(profileTemp,
+                        Settings.brew.hasTemperatureOverride, overrideTemp)
+                : ""
             parts.push(profileName + (tempStr ? " (" + tempStr + ")" : ""))
         }
         if (showRoaster && roasterBrand)

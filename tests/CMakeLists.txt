@@ -39,6 +39,7 @@ set(PROFILE_SOURCES
     ${CMAKE_SOURCE_DIR}/src/profile/recipegenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/recipeanalyzer.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/recipeparams.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/temperaturedisplay.cpp
 )
 
 set(CORE_SOURCES
@@ -124,6 +125,12 @@ add_decenza_test(tst_profile
     tst_profile.cpp
     ${PROFILE_SOURCES}
     ${CODEC_SOURCES}
+)
+
+# --- tst_temperaturedisplay: adaptive temp-override display formatter ---
+add_decenza_test(tst_temperaturedisplay
+    tst_temperaturedisplay.cpp
+    ${CMAKE_SOURCE_DIR}/src/profile/temperaturedisplay.cpp
 )
 
 # --- tst_profileframe: ProfileFrame JSON/TCL/flags tests (minimal deps) ---
