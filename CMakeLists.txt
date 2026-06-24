@@ -744,6 +744,7 @@ set(QML_FILES
     qml/components/RatioPresetDialog.qml
     qml/components/StableWeightCapture.qml
     qml/components/ShotPlanText.qml
+    qml/components/SteamPlanText.qml
     qml/components/ProfileGraph.qml
     qml/components/ProfilePreviewPopup.qml
     qml/components/ProfileInfoButton.qml
@@ -838,6 +839,8 @@ set(QML_FILES
     qml/components/layout/items/MilkWeightItem.qml
     qml/components/layout/items/RatioQuickSelectItem.qml
     qml/components/layout/items/ShotPlanItem.qml
+    qml/components/layout/items/SteamPlanItem.qml
+    qml/components/layout/items/PlanItem.qml
     qml/components/layout/items/SpacerItem.qml
     qml/components/layout/items/CustomItem.qml
     qml/components/layout/items/WeatherItem.qml

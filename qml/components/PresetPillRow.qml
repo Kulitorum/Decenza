@@ -13,6 +13,7 @@ FocusScope {
     property var pillSuffixFn: null  // Optional: function(index) => string suffix appended to pill text (e.g. " (125g)")
     property int pillSuffixVersion: 0  // Increment from outside to force pill text refresh without full layout recalc
     property real pillSuffixMaxWidth: 0  // Reserve extra horizontal space per pill for the suffix
+    property var pillLabelFn: null  // Optional: function(index, name) => transformed base label (e.g. append " Pitcher")
     // When true AND a pill is selected, append an "unsaved" marker to that pill.
     // Callers opt in by binding this to their own dirty state — e.g.
     // ProfileManager.profileModified for the espresso row. Rows that have no
@@ -71,6 +72,7 @@ FocusScope {
     // Base name for layout calculation (no live suffix — avoids layout recalc on every scale tick)
     function pillLayoutName(index) {
         var name = presets[index] ? (presets[index].name || "") : ""
+        if (pillLabelFn) name = pillLabelFn(index, name)
         if (modified && index === selectedIndex) {
             name = modifiedIsReadOnly
                 ? name + " " + TranslationManager.translate("presets.modified", "(modified)")
@@ -115,6 +117,7 @@ FocusScope {
     onPresetsChanged: recalcTimer.restart()
     onEffectiveMaxWidthChanged: recalcTimer.restart()
     onPillSuffixFnChanged: recalcTimer.restart()
+    onPillLabelFnChanged: recalcTimer.restart()
     // Dirty-state changes alter pill widths ("*Name" / " (modified)") so they trigger a
     // layout recalc. Because `modified` is a bindable property, we get changes from any
     // upstream source (ProfileManager, Settings, etc.) via the QML binding system without

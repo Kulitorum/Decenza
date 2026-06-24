@@ -33,13 +33,13 @@ Rectangle {
         try { return JSON.parse(bag.beanBaseData) } catch (e) { return ({}) }
     }
 
-    // Canonical attribute line: origin · variety · process (only what exists)
+    // Canonical attribute line: origin • variety • process (only what exists)
     readonly property string attrLine: {
         var parts = []
         if (beanBase.origin) parts.push(String(beanBase.origin))
         if (beanBase.variety) parts.push(String(beanBase.variety))
         if (beanBase.process) parts.push(String(beanBase.process))
-        return parts.join(" · ")
+        return parts.join("  •  ")
     }
 
     function daysSince(isoDate) {
@@ -62,7 +62,7 @@ Rectangle {
         return Qt.formatDate(d, Qt.locale().dateFormat(Locale.ShortFormat))
     }
 
-    // Roast date · freeze state line (omits anything unknown — no
+    // Roast date • freeze state line (omits anything unknown — no
     // placeholders). The user freezes beans, so the actual roast date is more
     // meaningful than days-since-roast.
     readonly property string metaLine: {
@@ -78,7 +78,7 @@ Rectangle {
         } else if (isFrozen) {
             parts.push(TranslationManager.translate("beans.summary.frozen", "Frozen"))
         }
-        return parts.join(" · ")
+        return parts.join("  •  ")
     }
 
     readonly property string accessibleSummary: {

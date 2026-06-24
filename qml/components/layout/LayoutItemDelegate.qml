@@ -198,6 +198,8 @@ Item {
                 case "milkWeight":       src = "items/MilkWeightItem.qml"; break
                 case "ratioQuickSelect": src = "items/RatioQuickSelectItem.qml"; break
                 case "shotPlan":         src = "items/ShotPlanItem.qml"; break
+                case "steamPlan":        src = "items/SteamPlanItem.qml"; break
+                case "plan":             src = "items/PlanItem.qml"; break
                 case "spacer":           src = "items/SpacerItem.qml"; break
                 case "custom":           src = "items/CustomItem.qml"; break
                 case "weather":          src = "items/WeatherItem.qml"; break

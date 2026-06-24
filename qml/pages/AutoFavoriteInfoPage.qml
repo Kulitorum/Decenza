@@ -91,7 +91,7 @@ Page {
             width: parent.width
             spacing: Theme.spacingMedium
 
-            // Header: Bean · Profile · Grinder + shot count
+            // Header: Bean • Profile • Grinder + shot count
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(2)
@@ -111,7 +111,7 @@ Page {
                     }
 
                     Text {
-                        text: "  \u00b7  "
+                        text: "  •  "
                         font: Theme.titleFont
                         color: Theme.textSecondaryColor
                         visible: _hasBean && _hasProfile
@@ -129,7 +129,7 @@ Page {
                     }
 
                     Text {
-                        text: "  \u00b7  "
+                        text: "  •  "
                         font: Theme.titleFont
                         color: Theme.textSecondaryColor
                         visible: _hasGrinder && (_hasBean || _hasProfile)
