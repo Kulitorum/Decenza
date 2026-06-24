@@ -38,11 +38,11 @@ Item {
         return ""
     }
 
-    readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? "#555555" : Theme.surfaceColor)
+    readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? Theme.primaryColor : Theme.surfaceColor)
 
-    // A brew-settings widget highlights (yellow, like the espresso button
-    // when no favorite is selected) whenever a brew override is in effect —
-    // i.e. temperature or yield differs from the active profile's default.
+    // A brew-settings widget highlights (Theme.highlightColor) whenever a brew
+    // override is in effect — i.e. temperature or ratio differs from the active
+    // profile's default.
     readonly property bool _isBrewSettingsWidget: action === "brewSettings"
         || longPressAction === "brewSettings" || doubleclickAction === "brewSettings"
     readonly property bool _brewOverrideActive: {
@@ -54,6 +54,34 @@ Item {
         (_isBrewSettingsWidget && _brewOverrideActive) ? Theme.highlightColor : _parsedBgColor
     // Content color for text and icon tinting on the button background
     readonly property color _contentColor: Theme.primaryContrastColor
+
+    // Active-mode highlight: a togglePreset button (Espresso/Steam/Flush/Hot Water
+    // in the centre zone) shows a darker ring while its preset row is expanded,
+    // so you can see which mode is selected. CustomItem is the full/centre-mode
+    // renderer for these buttons; it writes activePresetFunction on tap but, unlike
+    // the dedicated per-mode items (EspressoItem, etc.), did not read it back — so
+    // the button never lit up. Mirror it into a local reactive property (reading a
+    // sub-property through a `var` doesn't register a binding dependency, hence the
+    // Connections), then compare against the mode this button toggles.
+    readonly property string _toggleMode:
+        action.indexOf("togglePreset:") === 0 ? action.substring("togglePreset:".length) : ""
+    property var idlePage: {
+        var p = root.parent
+        while (p) {
+            if (p.objectName === "idlePage") return p
+            p = p.parent
+        }
+        return null
+    }
+    property string _activeFn: idlePage ? idlePage.activePresetFunction : ""
+    Connections {
+        target: root.idlePage
+        ignoreUnknownSignals: true
+        function onActivePresetFunctionChanged() {
+            root._activeFn = root.idlePage ? root.idlePage.activePresetFunction : ""
+        }
+    }
+    readonly property bool isActive: _toggleMode !== "" && _activeFn === _toggleMode
 
     readonly property int qtAlignment: {
         switch (textAlign) {
@@ -409,6 +437,8 @@ Item {
             }
             radius: Theme.cardRadius
             opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
+            border.width: root.isActive ? Theme.scaled(3) : 0
+            border.color: Qt.darker(root._effectiveBackground, 1.5)
         }
 
         RowLayout {
@@ -441,7 +471,7 @@ Item {
         AccessibleTapHandler {
             id: compactTap
             anchors.fill: parent
-            accessibleName: Theme.toAccessibleText(root.resolvedText)
+            accessibleName: Theme.toAccessibleText(root.resolvedText) + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: root._accessibleHint
             supportLongPress: root.longPressAction !== ""
             supportDoubleClick: root.doubleclickAction !== ""
@@ -465,6 +495,8 @@ Item {
             color: fullTap.isPressed ? Qt.darker(root._effectiveBackground, 1.2) : root._effectiveBackground
             radius: Theme.cardRadius
             opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
+            border.width: root.isActive ? Theme.scaled(3) : 0
+            border.color: Qt.darker(root._effectiveBackground, 1.5)
         }
 
         // Layout with emoji: icon above text (like ActionButton)
@@ -520,7 +552,7 @@ Item {
         AccessibleTapHandler {
             id: fullTap
             anchors.fill: parent
-            accessibleName: Theme.toAccessibleText(root.resolvedText)
+            accessibleName: Theme.toAccessibleText(root.resolvedText) + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: root._accessibleHint
             supportLongPress: root.longPressAction !== ""
             supportDoubleClick: root.doubleclickAction !== ""
