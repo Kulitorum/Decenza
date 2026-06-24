@@ -422,18 +422,20 @@ Dialog {
                 }
 
                 // Profile's actual temperature(s), shown adaptively (single / spaced
-                // mid-dot list / first…last ellipsis) via the shared formatter. The
-                // stepper above is a delta, so this is the only place the profile's
-                // absolute temperature(s) appear — always shown for reference.
+                // mid-dot list / first…last ellipsis) via the shared formatter. When
+                // a delta is dialed in, append the offset tag (e.g. "90 · 88°C +4°")
+                // and switch to the temperature color — mirrors the shot plan and
+                // makes it obvious the change applies to these temps.
                 Text {
                     id: tempSubtext
+                    readonly property bool tempPending: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
                     visible: root.profileTemperature > 0
                     text: TranslationManager.translate("brewDialog.profileTempStructure", "Profile: %1")
-                        .arg(ProfileManager.temperatureDisplay(root.profileTemperature, false, 0))
+                        .arg(ProfileManager.temperatureDisplay(root.profileTemperature, tempPending, root.temperatureValue))
                     font.family: Theme.bodyFont.family
                     font.pixelSize: Theme.scaled(14)
                     font.italic: true
-                    color: Theme.textSecondaryColor
+                    color: tempPending ? Theme.temperatureColor : Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignHCenter
                     Layout.leftMargin: Theme.scaled(75) + Theme.scaled(8)
                     Accessible.role: Accessible.StaticText
