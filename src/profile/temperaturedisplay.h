@@ -15,9 +15,11 @@
 // When an override is active a signed delta tag is appended ("90 · 88°C +1°"),
 // expressing "all steps +1°" directly rather than recomputing per-step values.
 //
+// The `fahrenheit` argument converts the values and swaps the unit symbol to °F
+// (the numeric examples above are the default Celsius rendering).
 // Logic lives here (not in QML) so it is unit-testable; the output carries no
-// translatable words (only numbers, °C, separators and the delta tag), so the
-// callers compose any surrounding labels.
+// translatable words (only numbers, the °C/°F unit symbol, separators and the
+// delta tag), so the callers compose any surrounding labels.
 namespace TemperatureDisplay {
 
 // Number of distinct temperatures among the frames (within 0.05°C tolerance).
@@ -30,7 +32,9 @@ int distinctCount(const QVector<double>& stepTemps);
 //                 stepTemps is empty
 //   hasOverride – whether a brew temperature override is active
 //   overrideTemp– the active override value (ignored when !hasOverride)
+//   fahrenheit  – when true the (Celsius) inputs are converted to °F for display
+//                 (absolute ×9/5+32, delta ×9/5) and the unit symbol becomes °F
 QString format(const QVector<double>& stepTemps, double anchorTemp,
-               bool hasOverride, double overrideTemp);
+               bool hasOverride, double overrideTemp, bool fahrenheit = false);
 
 } // namespace TemperatureDisplay

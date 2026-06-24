@@ -7,6 +7,7 @@ using namespace TemperatureDisplay;
 
 // Text literals used by the formatter, mirrored here so the test reads clearly.
 static const QString DEG   = QStringLiteral("°C");
+static const QString DEGF  = QStringLiteral("°F");
 static const QString SEP   = QStringLiteral(" · ");
 static const QString ELLIP = QStringLiteral("…");
 
@@ -109,6 +110,51 @@ private slots:
     void fractionalFormatting() {
         QCOMPARE(format({88.5, 93}, 88.5, false, 0),
                  QStringLiteral("88.5") + SEP + QStringLiteral("93") + DEG);
+    }
+
+    // ===== Fahrenheit conversion (fahrenheit = true) =====
+    // Absolute values convert ×9/5+32; the delta tag scales ×9/5 (no +32 shift);
+    // the sub-threshold suppression stays keyed in Celsius. These guard the classic
+    // C/F trap where a refactor funnelling absolute + delta through one converter
+    // would render "+33.8°" instead of "+1.8°".
+    void fahrenheitSingleAbsolute() {
+        // 93°C → 199.4°F
+        QCOMPARE(format({93, 93}, 93, false, 0, true), QStringLiteral("199.4") + DEGF);
+    }
+    void fahrenheitDeltaScalesNotShifts() {
+        // 90°C → 194°F; delta +1°C → +1.8°F (scaled, not +33.8°)
+        QCOMPARE(format({90, 90, 90}, 90, true, 91, true),
+                 QStringLiteral("194") + DEGF + QStringLiteral(" +1.8°"));
+    }
+    void fahrenheitNegativeDelta() {
+        // 90,85 → 194,185; delta -2°C → -3.6°F
+        QCOMPARE(format({90, 85}, 90, true, 88, true),
+                 QStringLiteral("194") + SEP + QStringLiteral("185") + DEGF + QStringLiteral(" -3.6°"));
+    }
+    void fahrenheitTwoListConvertsBoth() {
+        // 88,93 → 190.4,199.4
+        QCOMPARE(format({88, 93}, 88, false, 0, true),
+                 QStringLiteral("190.4") + SEP + QStringLiteral("199.4") + DEGF);
+    }
+    void fahrenheitEllipsisConvertsBothEndpoints() {
+        // 84…52 → 183.2…125.6
+        QCOMPARE(format({84, 79, 52}, 84, false, 0, true),
+                 QStringLiteral("183.2") + ELLIP + QStringLiteral("125.6") + DEGF);
+    }
+    void fahrenheitEmptyFallsBackToAnchor() {
+        // empty → anchor 93 → 199.4°F; delta +1°C → +1.8°F
+        QCOMPARE(format({}, 93, true, 94, true),
+                 QStringLiteral("199.4") + DEGF + QStringLiteral(" +1.8°"));
+    }
+    void fahrenheitSuppressionGateStaysCelsius() {
+        // 0.04°C delta (= 0.072°F) is below the Celsius suppression threshold → no tag,
+        // even though 0.072 would exceed a naive 0.05°F gate.
+        QCOMPARE(format({90, 90}, 90, true, 90.04, true), QStringLiteral("194") + DEGF);
+    }
+    void fahrenheitDefaultArgMatchesFalse() {
+        // the fahrenheit=false default must behave exactly like explicit false
+        QCOMPARE(format({88, 93}, 88, true, 90),
+                 format({88, 93}, 88, true, 90, false));
     }
 };
 

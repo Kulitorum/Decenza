@@ -268,7 +268,7 @@ KeyboardAwareContainer {
 
                         Text {
                             property real temp: typeof DE1Device.steamTemperature === 'number' ? DE1Device.steamTemperature : 0
-                            text: TranslationManager.translate("settings.preferences.current", "Current:") + " " + temp.toFixed(0) + "°C"
+                            text: TranslationManager.translate("settings.preferences.current", "Current:") + " " + Theme.formatTemperature(temp, 0)
                             color: Theme.textSecondaryColor
                             font.family: Theme.bodyFont.family
                             font.pixelSize: Theme.scaled(12)
@@ -1088,6 +1088,55 @@ KeyboardAwareContainer {
                                 accessibleName: TranslationManager.translate("settings.options.showInMl", "Show in milliliters")
                                 onToggled: {
                                     Settings.app.waterLevelDisplayUnit = checked ? "ml" : "percent"
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Temperature display unit (Celsius / Fahrenheit). Storage stays Celsius;
+                // this only changes how temps are shown and entered across the app.
+                Rectangle {
+                    id: temperatureUnitCard
+                    objectName: "temperatureUnit"
+                    Layout.fillWidth: true
+                    implicitHeight: tempUnitContent.implicitHeight + Theme.scaled(30)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+
+                    ColumnLayout {
+                        id: tempUnitContent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(15)
+                        spacing: Theme.scaled(8)
+
+                        Text {
+                            text: TranslationManager.translate("settings.options.temperatureUnit", "Temperature unit")
+                            color: Theme.textColor
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.scaled(16)
+                            font.bold: true
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: TranslationManager.translate("settings.options.showInFahrenheit", "Show temperatures in Fahrenheit (°F)")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                                wrapMode: Text.WordWrap
+                            }
+
+                            StyledSwitch {
+                                checked: Settings.app.temperatureUnit === "fahrenheit"
+                                accessibleName: TranslationManager.translate("settings.options.showInFahrenheitAccessible", "Show temperatures in Fahrenheit")
+                                onToggled: {
+                                    Settings.app.temperatureUnit = checked ? "fahrenheit" : "celsius"
                                 }
                             }
                         }

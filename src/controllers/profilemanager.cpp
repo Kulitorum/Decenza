@@ -2719,7 +2719,9 @@ QString ProfileManager::temperatureDisplay(double anchorTemp, bool hasOverride,
     temps.reserve(static_cast<qsizetype>(m_currentProfile.steps().size()));
     for (const ProfileFrame& f : m_currentProfile.steps())
         temps.append(f.temperature);
-    return TemperatureDisplay::format(temps, anchorTemp, hasOverride, overrideTemp);
+    const bool fahrenheit = m_settings && m_settings->app()
+        && m_settings->app()->temperatureUnit() == QLatin1String("fahrenheit");
+    return TemperatureDisplay::format(temps, anchorTemp, hasOverride, overrideTemp, fahrenheit);
 }
 
 void ProfileManager::migrateProfileFolders() {

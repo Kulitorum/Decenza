@@ -172,8 +172,8 @@ Item {
         if (!text) return ""
         var result = sanitizeHtml(text)
         // Machine
-        result = result.replace(/%TEMP%/g, typeof DE1Device !== "undefined" ? DE1Device.temperature.toFixed(1) : "—")
-        result = result.replace(/%STEAM_TEMP%/g, typeof DE1Device !== "undefined" ? DE1Device.steamTemperature.toFixed(0) + "\u00B0" : "—")
+        result = result.replace(/%TEMP%/g, typeof DE1Device !== "undefined" ? Theme.cToDisplay(DE1Device.temperature).toFixed(1) : "—")
+        result = result.replace(/%STEAM_TEMP%/g, typeof DE1Device !== "undefined" ? Theme.cToDisplay(DE1Device.steamTemperature).toFixed(0) + "\u00B0" : "—")
         result = result.replace(/%PRESSURE%/g, typeof DE1Device !== "undefined" ? DE1Device.pressure.toFixed(1) : "—")
         result = result.replace(/%FLOW%/g, typeof DE1Device !== "undefined" ? DE1Device.flow.toFixed(1) : "—")
         result = result.replace(/%WATER%/g, typeof DE1Device !== "undefined" ? DE1Device.waterLevel.toFixed(0) : "—")
@@ -188,7 +188,7 @@ Item {
         // Profile (ProfileManager)
         result = result.replace(/%TARGET_WEIGHT%/g, typeof ProfileManager !== "undefined" ? ProfileManager.targetWeight.toFixed(1) : "—")
         result = result.replace(/%PROFILE%/g, typeof ProfileManager !== "undefined" ? ProfileManager.currentProfileName : "—")
-        result = result.replace(/%TARGET_TEMP%/g, typeof ProfileManager !== "undefined" ? ProfileManager.profileTargetTemperature.toFixed(1) : "—")
+        result = result.replace(/%TARGET_TEMP%/g, typeof ProfileManager !== "undefined" ? Theme.cToDisplay(ProfileManager.profileTargetTemperature).toFixed(1) : "—")
         result = result.replace(/%RATIO%/g, typeof ProfileManager !== "undefined" ? ProfileManager.brewByRatio.toFixed(1) : "—")
         result = result.replace(/%DOSE%/g, typeof ProfileManager !== "undefined" ? ProfileManager.brewByRatioDose.toFixed(1) : "—")
         // Scale device
