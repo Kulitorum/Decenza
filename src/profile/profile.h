@@ -63,6 +63,13 @@ public:
     double espressoTemperature() const { return m_espressoTemperature; }
     void setEspressoTemperature(double temp) { m_espressoTemperature = temp; }
 
+    // True when fromJson() re-derived espresso_temperature from the first frame
+    // because the stored value was missing, or was the bare 93.0 default sitting
+    // outside the frame range (a stale Visualizer import). Transient (not
+    // serialized) — lets callers persist the repair once. See Profile::fromJson /
+    // ProfileManager::loadProfile.
+    bool espressoTemperatureHealed() const { return m_espressoTemperatureHealed; }
+
     // Temperature presets for quick adjustment (de1app feature)
     QList<double> temperaturePresets() const { return m_temperaturePresets; }
     void setTemperaturePresets(const QList<double>& presets) { m_temperaturePresets = presets; }
@@ -268,6 +275,7 @@ private:
 
     // Temperature
     double m_espressoTemperature = 93.0;
+    bool m_espressoTemperatureHealed = false;  // transient; set by fromJson() when re-derived from frames, not serialized
     QList<double> m_temperaturePresets = {88.0, 90.0, 93.0, 96.0};
 
     // Recommended dose

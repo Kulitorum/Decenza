@@ -177,6 +177,95 @@ private slots:
         QCOMPARE(p.steps()[0].pressure, 9.0);
     }
 
+    // ===== espresso_temperature reconciliation against frames =====
+
+    // Build an advanced (settings_2c) profile JSON with the given top-level
+    // espresso_temperature handling and frame temps. If includeScalar is false the
+    // top-level key is omitted entirely (mirrors Visualizer's /profile?format=json).
+    static QJsonObject makeTempProfileJson(bool includeScalar, double scalar,
+                                           const QList<double>& frameTemps) {
+        QJsonObject obj;
+        obj["title"] = "Temp Profile";
+        obj["legacy_profile_type"] = "settings_2c";
+        if (includeScalar)
+            obj["espresso_temperature"] = scalar;
+        QJsonArray steps;
+        for (double t : frameTemps) {
+            QJsonObject frame;
+            frame["name"] = "f";
+            frame["temperature"] = t;
+            frame["pump"] = "flow";
+            frame["flow"] = 2.0;
+            frame["seconds"] = 10.0;
+            steps.append(frame);
+        }
+        obj["steps"] = steps;
+        return obj;
+    }
+
+    void espressoTemperatureAbsentDerivesFromFirstFrame() {
+        // Visualizer's /profile?format=json omits the top-level espresso_temperature
+        // entirely — the scalar must come from the first frame, never the bare 93.0
+        // default. (Regression guard: the obj[...] insertion side-effect previously
+        // defeated the absent-key path, so the 93.0 default leaked through.)
+        Profile p = Profile::fromJson(QJsonDocument(
+            makeTempProfileJson(/*includeScalar=*/false, 0.0, {84.0, 79.0, 52.0})));
+        QCOMPARE(p.espressoTemperature(), 84.0);
+        QVERIFY(p.espressoTemperatureHealed());
+    }
+
+    void espressoTemperatureLeakedDefaultIsRepaired() {
+        // An already-stored victim of the import bug: espresso_temperature is the
+        // bare 93.0 default sitting above an 84/79/52 profile. Re-derived from the
+        // first frame on load so it can be repaired on disk once.
+        Profile p = Profile::fromJson(QJsonDocument(
+            makeTempProfileJson(/*includeScalar=*/true, 93.0, {84.0, 79.0, 52.0})));
+        QCOMPARE(p.espressoTemperature(), 84.0);
+        QVERIFY(p.espressoTemperatureHealed());
+    }
+
+    void espressoTemperatureAuthoredAboveFramesIsAuthoritative() {
+        // Authored divergence (NOT the 93.0 default): a cool preheat frame paired
+        // with a hotter scalar. Even above the frame range it must be left alone —
+        // the semantic #961 locked in. Only the exact-93.0-default fingerprint heals.
+        Profile p = Profile::fromJson(QJsonDocument(
+            makeTempProfileJson(/*includeScalar=*/true, 90.0, {88.0, 88.0})));
+        QCOMPARE(p.espressoTemperature(), 90.0);
+        QVERIFY(!p.espressoTemperatureHealed());
+    }
+
+    void espressoTemperatureDefaultWithinFramesIsKept() {
+        // A genuine 93°C profile: scalar is 93.0 but the frames actually reach it,
+        // so it is in range and must NOT be treated as a leaked default.
+        Profile p = Profile::fromJson(QJsonDocument(
+            makeTempProfileJson(/*includeScalar=*/true, 93.0, {90.0, 93.0, 91.0})));
+        QCOMPARE(p.espressoTemperature(), 93.0);
+        QVERIFY(!p.espressoTemperatureHealed());
+    }
+
+    void espressoTemperatureStringEncodedDefaultIsRepaired() {
+        // de1app/Visualizer serialize numbers as strings. A leaked "93.00" default
+        // must still be recognised and repaired after jsonToDouble parses it.
+        QJsonObject obj = makeTempProfileJson(/*includeScalar=*/false, 0.0, {84.0, 79.0, 52.0});
+        obj["espresso_temperature"] = QString("93.00");
+        Profile p = Profile::fromJson(QJsonDocument(obj));
+        QCOMPARE(p.espressoTemperature(), 84.0);
+        QVERIFY(p.espressoTemperatureHealed());
+    }
+
+    void espressoTemperatureRepairRoundTripDoesNotReheal() {
+        // The "repaired once" contract: a healed profile, serialized via toJson and
+        // reparsed, comes back with the key present and in range — so it must NOT
+        // heal again (no infinite re-write loop on disk).
+        Profile healed = Profile::fromJson(QJsonDocument(
+            makeTempProfileJson(/*includeScalar=*/true, 93.0, {84.0, 79.0, 52.0})));
+        QVERIFY(healed.espressoTemperatureHealed());
+
+        Profile reloaded = Profile::fromJson(healed.toJson());
+        QCOMPARE(reloaded.espressoTemperature(), 84.0);
+        QVERIFY(!reloaded.espressoTemperatureHealed());
+    }
+
     // ===== Nested exit conditions (de1app v2 format) =====
 
     void jsonNestedExitPressureOver() {

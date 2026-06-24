@@ -434,6 +434,15 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
     Profile profile;
     QJsonObject obj = doc.object();
 
+    // Snapshot key presence BEFORE any obj[...] access. QJsonObject's non-const
+    // operator[] inserts a null member as a side effect of the reads below, after
+    // which obj.contains("espresso_temperature") is always true — so the
+    // absent-key reconciliation further down must consult this snapshot, not
+    // obj.contains(). (This insertion is exactly what silently broke Visualizer
+    // imports: their JSON omits espresso_temperature, but the dead contains-guard
+    // let the 93.0 default leak through and get saved. See below.)
+    const bool hadEspressoTemperature = obj.contains(QStringLiteral("espresso_temperature"));
+
     profile.setTitle(obj["title"].toString("Default"));
     profile.m_author = obj["author"].toString();
     // Support both legacy "profile_notes" (old Decenza) and current "notes" (de1app) keys
@@ -556,13 +565,46 @@ Profile Profile::fromJson(const QJsonDocument& doc) {
         }
     }
 
-    // Default espresso_temperature from first frame only when the JSON omits it,
-    // so we never store NaN/0. Otherwise the top-level value is authoritative at
-    // load time — it can legitimately differ from steps[0].temperature (e.g. a
-    // cooler group preheat target paired with a hotter preinfusion ramp).
-    // (regenerateFromRecipe resyncs it from frames after recipe regeneration.)
-    if (!obj.contains("espresso_temperature") && !profile.m_steps.isEmpty()) {
-        profile.m_espressoTemperature = profile.m_steps.first().temperature;
+    // Reconcile espresso_temperature against the frames, which are the source of
+    // truth for what the machine actually brews. The top-level scalar stays
+    // authoritative when the author set it — it may legitimately differ from
+    // steps[0] (a cooler group preheat target paired with a hotter preinfusion ramp,
+    // as on the D-Flow / A-Flow built-ins; see PR #961). Two cases need repair:
+    //
+    //   1. Key absent → derive from the first frame. Visualizer's
+    //      /profile?format=json omits espresso_temperature entirely (per-step temps
+    //      only). Before this, the obj[...] side-effect insertion above defeated the
+    //      old `!obj.contains()` guard, so the 93.0 default leaked through and was
+    //      saved to disk — the actual Visualizer-import bug.
+    //   2. Key present but equal to the bare 93.0 default AND outside the frame
+    //      range → the fingerprint of a profile imported (and saved) while case 1
+    //      was broken. Re-derive from the first frame so already-stored victims are
+    //      repaired on load. A genuinely authored scalar is a real brew temp inside
+    //      the frames, so this never touches the intentional-divergence case above.
+    //
+    // m_espressoTemperatureHealed flags either repair so callers can persist it once
+    // (see ProfileManager::loadProfile). (regenerateFromRecipe resyncs from frames
+    // after recipe regeneration.)
+    if (!profile.m_steps.isEmpty()) {
+        double minTemp = profile.m_steps.first().temperature;
+        double maxTemp = minTemp;
+        for (const ProfileFrame& step : profile.m_steps) {
+            minTemp = qMin(minTemp, step.temperature);
+            maxTemp = qMax(maxTemp, step.temperature);
+        }
+        constexpr double kDefaultTemp = 93.0;  // matches m_espressoTemperature / jsonToDouble fallback
+        const bool leakedDefault = hadEspressoTemperature
+            && qFuzzyCompare(profile.m_espressoTemperature, kDefaultTemp)
+            && (kDefaultTemp > maxTemp + 0.1 || kDefaultTemp < minTemp - 0.1);
+        if (!hadEspressoTemperature || leakedDefault) {
+            if (leakedDefault) {
+                qDebug() << "Profile::fromJson: replacing leaked 93.0 default espresso_temperature"
+                         << "(frames" << minTemp << ".." << maxTemp << ") with first-frame temp for"
+                         << profile.m_title;
+            }
+            profile.m_espressoTemperature = profile.m_steps.first().temperature;
+            profile.m_espressoTemperatureHealed = true;
+        }
     }
 
     // De1app defaults NumberOfPreinfuseFrames to 0 when the field is missing
