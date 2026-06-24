@@ -180,7 +180,9 @@ public slots:
     // Adaptive temperature string for the shot-plan widget / Brew Settings dialog.
     // anchorTemp is the profile's espressoTemperature (pass profileTargetTemperature
     // so QML bindings re-evaluate on currentProfileChanged). When hasOverride, the
-    // whole curve is shown shifted by (overrideTemp - anchorTemp) with a delta tag.
+    // profile's own temperatures are shown UNSHIFTED with a signed delta tag
+    // appended (e.g. "90 · 88°C +1°") expressing the (overrideTemp - anchorTemp)
+    // offset applied to every step — values are not recomputed.
     Q_INVOKABLE QString temperatureDisplay(double anchorTemp, bool hasOverride,
                                            double overrideTemp) const;
     Q_INVOKABLE bool duplicateProfile(const QString& sourceFilename, const QString& newTitle);

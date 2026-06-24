@@ -24,7 +24,8 @@ private slots:
         QTest::newRow("two") << QVector<double>{88, 93} << 2;
         QTest::newRow("two-repeated") << QVector<double>{88, 88, 93, 93} << 2;
         QTest::newRow("three") << QVector<double>{84, 79, 52} << 3;
-        QTest::newRow("tolerance") << QVector<double>{88.0, 88.02} << 1;  // within 0.05
+        QTest::newRow("tolerance-inside") << QVector<double>{88.0, 88.02} << 1;   // within 0.05 → 1
+        QTest::newRow("tolerance-outside") << QVector<double>{88.0, 88.06} << 2;  // beyond 0.05 → 2
     }
     void distinctCount() {
         QFETCH(QVector<double>, temps);
@@ -66,7 +67,7 @@ private slots:
 
     // ----- negative delta -----
     void negativeDeltaTag() {
-        // anchor 90, override 88 → delta -2, two distinct temps → "90, 85°C -2°"
+        // anchor 90, override 88 → delta -2, two distinct temps → "90 · 85°C -2°"
         QCOMPARE(format({90, 85}, 90, true, 88),
                  QStringLiteral("90") + SEP + QStringLiteral("85") + DEG + QStringLiteral(" -2°"));
     }
@@ -74,6 +75,19 @@ private slots:
     // ----- zero delta: override equals anchor → no tag -----
     void zeroDeltaNoTag() {
         QCOMPARE(format({88, 93}, 88, true, 88),
+                 QStringLiteral("88") + SEP + QStringLiteral("93") + DEG);
+    }
+
+    // ----- sub-threshold delta (|delta| < 0.05) is suppressed -----
+    void subThresholdDeltaNoTag() {
+        QCOMPARE(format({90, 90}, 90, true, 90.04),
+                 QStringLiteral("90") + DEG);
+    }
+
+    // ----- branch keys on DISTINCT count, not frame count -----
+    void twoDistinctAmongThreeFrames() {
+        // three frames, two distinct → N=2 mid-dot list (not the N≥3 ellipsis)
+        QCOMPARE(format({88, 88, 93}, 88, false, 0),
                  QStringLiteral("88") + SEP + QStringLiteral("93") + DEG);
     }
 

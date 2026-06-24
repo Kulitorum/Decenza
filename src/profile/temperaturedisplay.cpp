@@ -69,7 +69,7 @@ QString format(const QVector<double>& stepTemps, double anchorTemp,
     if (distinct.size() <= 1)
         base = num(stepTemps.first()) + kDegC;                                   // N=1: single value
     else if (distinct.size() == 2)
-        base = num(distinct[0]) + kListSep + num(distinct[1]) + kDegC;           // N=2: comma list
+        base = num(distinct[0]) + kListSep + num(distinct[1]) + kDegC;           // N=2: spaced mid-dot list
     else
         base = num(stepTemps.first()) + kEllip + num(stepTemps.last()) + kDegC;  // N>=3: first…last
     return base + tag;

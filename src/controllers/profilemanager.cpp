@@ -2702,6 +2702,12 @@ void ProfileManager::applyTemperatureToProfile(double newTemperature) {
     m_currentProfile.setSteps(framesShiftedToTemperature(newTemperature));
     m_currentProfile.setEspressoTemperature(newTemperature);
     emit currentProfileChanged();
+    // The new temperature is now the profile default, so any active override is
+    // redundant. Clear it BEFORE re-uploading — otherwise uploadCurrentProfile would
+    // re-apply the (now stale) override as a second delta, making the uploaded shot
+    // disagree with the saved profile.
+    if (m_settings && m_settings->brew()->hasTemperatureOverride())
+        m_settings->brew()->clearTemperatureOverride();
     uploadCurrentProfile();
     if (!m_baseProfileName.isEmpty())
         saveProfile(m_baseProfileName);

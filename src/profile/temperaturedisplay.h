@@ -9,10 +9,10 @@
 // multi-temperature profile. These pure functions show the profile's own
 // temperature(s) plus the OFFSET that will be applied to every step (e.g. "+1°"),
 // keyed on the count of distinct frame temperatures (N):
-//   N = 1  → single value         "90°C"
-//   N = 2  → comma list           "90, 88°C"
-//   N ≥ 3  → first…last ellipsis   "84…52°C"   (trajectory order, not sorted)
-// When an override is active a signed delta tag is appended ("90, 88°C +1°"),
+//   N = 1  → single value          "90°C"
+//   N = 2  → spaced mid-dot list   "90 · 88°C"
+//   N ≥ 3  → first…last ellipsis    "84…52°C"   (trajectory order, not sorted)
+// When an override is active a signed delta tag is appended ("90 · 88°C +1°"),
 // expressing "all steps +1°" directly rather than recomputing per-step values.
 //
 // Logic lives here (not in QML) so it is unit-testable; the output carries no

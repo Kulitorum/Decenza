@@ -184,10 +184,47 @@ private slots:
         QCOMPARE(f.profileManager.currentProfile().steps()[0].temperature, 88.0);
 
         // New temp 92 → delta = 92 - 90 = +2 (NOT 92 - 88 = +4).
+        QSignalSpy changedSpy(&f.profileManager, &ProfileManager::currentProfileChanged);
         f.profileManager.applyTemperatureToProfile(92.0);
         QCOMPARE(f.profileManager.currentProfile().espressoTemperature(), 92.0);
         QCOMPARE(f.profileManager.currentProfile().steps()[0].temperature, 90.0);  // 88 + 2
         QCOMPARE(f.profileManager.currentProfile().steps()[1].temperature, 95.0);  // 93 + 2
+        QVERIFY(changedSpy.count() >= 1);  // QML bindings depend on this signal
+    }
+
+    // "Update Profile" must clear any active temperature override before
+    // re-uploading. Otherwise uploadCurrentProfile() re-applies the now-stale
+    // override as a second delta, making the uploaded shot disagree with the saved
+    // profile (the bug class this whole change fixes).
+    void applyTemperatureClearsActiveOverride() {
+        McpTestFixture f;
+        QJsonObject obj;
+        obj["title"] = "Override Clear Test";
+        obj["legacy_profile_type"] = "settings_2c";
+        obj["espresso_temperature"] = 90.0;
+        QJsonArray steps;
+        for (double t : {88.0, 93.0}) {
+            QJsonObject fr;
+            fr["name"] = "f";
+            fr["temperature"] = t;
+            fr["pump"] = "flow";
+            fr["flow"] = 2.0;
+            fr["seconds"] = 10.0;
+            steps.append(fr);
+        }
+        obj["steps"] = steps;
+        f.profileManager.loadProfileFromJson(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+
+        f.settings.brew()->setTemperatureOverride(92.0);  // a standing override
+        QVERIFY(f.settings.brew()->hasTemperatureOverride());
+
+        // Bake +4 (94 from the 90 anchor). The override must be cleared so it isn't
+        // double-applied; frames must reflect only the bake.
+        f.profileManager.applyTemperatureToProfile(94.0);
+        QVERIFY(!f.settings.brew()->hasTemperatureOverride());
+        QCOMPARE(f.profileManager.currentProfile().espressoTemperature(), 94.0);
+        QCOMPARE(f.profileManager.currentProfile().steps()[0].temperature, 92.0);  // 88 + 4
+        QCOMPARE(f.profileManager.currentProfile().steps()[1].temperature, 97.0);  // 93 + 4
     }
 
     // === Signal emission ===
