@@ -155,6 +155,28 @@ QtObject {
         return stripEmoji(html.replace(/<[^>]*>/g, "")).trim()
     }
 
+    // Escape user-supplied text so it can be safely embedded in a StyledText/RichText
+    // string (a bean or roaster name containing & < > would otherwise be mis-parsed).
+    function escapeHtml(s) {
+        return String(s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+    }
+
+    // Join already-computed text parts with a separator dot that renders slightly
+    // larger and bolder than the surrounding text. Returns StyledText HTML (relative
+    // sizing — no hardcoded sizes); the host Text must set textFormat: Text.StyledText.
+    function joinWithBullet(parts) {
+        var sep = " <font size=\"+1\"><b>•</b></font> "
+        var out = []
+        for (var i = 0; i < parts.length; i++) {
+            var p = String(parts[i])
+            if (p.length > 0) out.push(escapeHtml(p))
+        }
+        return out.join(sep)
+    }
+
     // Truncate a UTF-16 string at `cap` code units and append an ellipsis,
     // backing off one unit if cap would split a surrogate pair so we
     // don't emit an orphaned high surrogate to the accessibility tree.

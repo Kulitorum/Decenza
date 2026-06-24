@@ -40,7 +40,7 @@ Dialog {
         : [(pkg && pkg.grinderBrand) || "", (pkg && pkg.grinderModel) || ""]
               .filter(function(s) { return s.length > 0 }).join(" ")
 
-    // Puck-prep set flags as a "WDT · Shaker" summary (add-puckprep-equipment),
+    // Puck-prep set flags as a "WDT • Shaker" summary (add-puckprep-equipment),
     // empty when the package has no puck prep.
     readonly property string puckPrepSummary: {
         var _ = TranslationManager.translationVersion
@@ -51,7 +51,7 @@ Dialog {
         if (pkg.puckPrep_puckScreen) labels.push(TranslationManager.translate("equipment.dialog.puckScreen", "Puck screen"))
         if (pkg.puckPrep_paperFilter) labels.push(TranslationManager.translate("equipment.dialog.puckPaper", "Bottom paper filter"))
         if (pkg.puckPrep_rdt) labels.push(TranslationManager.translate("equipment.dialog.puckRdt", "RDT (spritz)"))
-        return labels.join(" · ")
+        return labels.join(" • ")
     }
 
     background: Rectangle {
@@ -107,7 +107,7 @@ Dialog {
                 value: {
                     var g = (root.pkg && root.pkg.lastGrindSetting) || ""
                     var showRpm = root.pkg && root.pkg.rpmCapable && root.pkg.lastRpm > 0
-                    return showRpm ? (g.length > 0 ? g + "  ·  " + root.pkg.lastRpm + " rpm"
+                    return showRpm ? (g.length > 0 ? g + "  •  " + root.pkg.lastRpm + " rpm"
                                                    : root.pkg.lastRpm + " rpm")
                                    : g
                 }
