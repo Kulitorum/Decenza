@@ -35,7 +35,9 @@ Page {
                 steamPage.syncSteamTimeout()
                 Settings.brew.steamFlow = getCurrentPitcherFlow()
                 Settings.brew.steamTemperature = getCurrentPitcherTemperature()
-                steamTempSlider.value = getCurrentPitcherTemperature()
+                // steamTempSlider.value re-derives from Settings.brew.steamTemperature
+                // via its cToDisplay binding — no imperative write (that would freeze
+                // the binding at an untagged display-unit snapshot).
                 // Start heating steam heater (ignores keepSteamHeaterOn - user wants to steam)
                 // startSteamHeating clears steamDisabled flag automatically
                 MainController.startSteamHeating("steampage-activated")
@@ -234,7 +236,10 @@ Page {
     function saveCurrentPitcher(duration, flow, temperature) {
         var name = getCurrentPitcherName()
         if (name && !isCurrentPitcherDisabled()) {
-            var temp = (temperature !== undefined) ? temperature : steamTempSlider.value
+            // temperature (when provided) is Celsius; otherwise fall back to the
+            // stored (Celsius) steam temperature — never the display widget, whose
+            // value carries no unit tag once read imperatively.
+            var temp = (temperature !== undefined) ? temperature : Settings.brew.steamTemperature
             Settings.brew.updateSteamPitcherPreset(Settings.brew.selectedSteamPitcher, name, duration, flow, temp)
         }
     }
@@ -763,7 +768,7 @@ Page {
                         // Show temperature during heating, countdown during puffing, time during steaming
                         text: {
                             if (isSteamHeating) {
-                                return Math.round(currentSteamTemp) + "°C / " + Math.round(targetSteamTemp) + "°C"
+                                return Theme.formatTemperature(currentSteamTemp, 0) + " / " + Theme.formatTemperature(targetSteamTemp, 0)
                             } else if (isPuffing && root.steamAutoFlushCountdown > 0) {
                                 return root.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.brew.steamAutoFlushSeconds + "s"
                             } else {
@@ -948,7 +953,7 @@ Page {
                     Text {
                         text: {
                             if (isSteamHeating) {
-                                return Math.round(currentSteamTemp) + "°C / " + Math.round(targetSteamTemp) + "°C"
+                                return Theme.formatTemperature(currentSteamTemp, 0) + " / " + Theme.formatTemperature(targetSteamTemp, 0)
                             } else if (isPuffing && root.steamAutoFlushCountdown > 0) {
                                 return root.steamAutoFlushCountdown.toFixed(1) + "s / " + Settings.brew.steamAutoFlushSeconds + "s"
                             } else {
@@ -968,7 +973,7 @@ Page {
                     }
 
                     Text {
-                        text: Math.round(currentSteamTemp) + "°C"
+                        text: Theme.formatTemperature(currentSteamTemp, 0)
                         color: Theme.temperatureColor
                         font: Theme.subtitleFont
                         Accessible.ignored: true
@@ -1110,7 +1115,7 @@ Page {
 
                     // Temperature display
                     Text {
-                        text: currentSteamTemp.toFixed(0) + " / " + targetSteamTemp.toFixed(0) + "°C"
+                        text: Theme.cToDisplay(currentSteamTemp).toFixed(0) + " / " + Theme.formatTemperature(targetSteamTemp, 0)
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(14)
                     }
@@ -1555,22 +1560,28 @@ Page {
                         ValueInput {
                             id: steamTempSlider
                             Layout.preferredWidth: Theme.scaled(180)
-                            from: 120
-                            to: 170
+                            from: Theme.cToDisplay(120)
+                            to: Theme.cToDisplay(170)
                             stepSize: 1
                             decimals: 0
-                            suffix: "°C"
-                            value: Settings.brew.steamTemperature
+                            suffix: Theme.tempUnitSuffix()
+                            // Stored in Celsius; shown and entered in the user's unit.
+                            value: Theme.cToDisplay(Settings.brew.steamTemperature)
                             valueColor: Theme.temperatureColor
                             accessibleName: TranslationManager.translate("steam.label.temperature", "Steam Temperature")
                             KeyNavigation.tab: pitcherWeightInput
                             KeyNavigation.backtab: flowSlider
                             onValueModified: function(newValue) {
-                                steamTempSlider.value = newValue
-                                saveCurrentPitcher(durationSlider.value, flowSlider.value, newValue)
+                                // newValue is in the display unit. Write through in Celsius;
+                                // the value binding re-derives from Settings.brew.steamTemperature
+                                // (updated via saveCurrentPitcher's preset-changed signal), so we
+                                // never imperatively write the slider — that would freeze its
+                                // binding at an untagged display-unit snapshot.
+                                saveCurrentPitcher(durationSlider.value, flowSlider.value, Theme.displayToC(newValue))
                             }
                             onValueCommitted: function(newValue) {
-                                MainController.setSteamTemperatureImmediate(newValue)
+                                // Convert the entered display value back to Celsius for storage.
+                                MainController.setSteamTemperatureImmediate(Theme.displayToC(newValue))
                             }
                         }
                     }
@@ -2155,7 +2166,7 @@ Page {
         }
         Rectangle { width: 1; height: Theme.scaled(30); color: Theme.primaryContrastColor; opacity: 0.3 }
         Text {
-            text: steamTempSlider.value.toFixed(0) + "°C"
+            text: steamTempSlider.value.toFixed(0) + Theme.tempUnitSuffix()
             color: Theme.primaryContrastColor
             font: Theme.bodyFont
         }
@@ -2444,7 +2455,7 @@ Page {
             // sets selectedSteamPitcher, so the subsequent startSteamHeating/
             // applySteamSettings push the per-pitcher temperature to the machine.
             var temp = getCurrentPitcherTemperature()
-            steamTempSlider.value = temp
+            // Slider re-derives from steamTemperature via its cToDisplay binding.
             Settings.brew.steamTemperature = temp
         }
         function onSteamPitcherPresetsChanged() {
@@ -2455,7 +2466,7 @@ Page {
             // applySteamSettings (back-navigation, keepSteamHeaterOn) pushes the
             // current value rather than a stale one.
             var temp = getCurrentPitcherTemperature()
-            steamTempSlider.value = temp
+            // Slider re-derives from steamTemperature via its cToDisplay binding.
             Settings.brew.steamTemperature = temp
         }
     }

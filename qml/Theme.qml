@@ -207,6 +207,19 @@ QtObject {
         return _truncateWithEllipsis(text, cap)
     }
 
+    // --- Temperature unit (display/entry only; storage stays Celsius) ---
+    function tempIsFahrenheit() { return Settings.app.temperatureUnit === "fahrenheit" }
+    function tempUnitSuffix() { return tempIsFahrenheit() ? "°F" : "°C" }
+    function cToDisplay(celsius) { return tempIsFahrenheit() ? (celsius * 9 / 5 + 32) : celsius }
+    function displayToC(value) { return tempIsFahrenheit() ? ((value - 32) * 5 / 9) : value }
+    // A temperature DELTA/offset scales only (no +32 origin shift): +4°C = +7.2°F.
+    function cDeltaToDisplay(deltaCelsius) { return tempIsFahrenheit() ? (deltaCelsius * 9 / 5) : deltaCelsius }
+    function displayToCDelta(deltaValue) { return tempIsFahrenheit() ? (deltaValue * 5 / 9) : deltaValue }
+    function formatTemperature(celsius, decimals) {
+        var d = (decimals === undefined) ? 0 : decimals
+        return cToDisplay(celsius).toFixed(d) + tempUnitSuffix()
+    }
+
     // Helper function to scale values
     function scaled(value) { return Math.round(value * scale) }
 

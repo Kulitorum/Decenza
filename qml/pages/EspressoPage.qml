@@ -41,7 +41,7 @@ Page {
             case 3: // Flow
                 return "Flow: " + DE1Device.flow.toFixed(1) + " milliliters per second"
             case 4: // Temperature
-                return "Temperature: " + DE1Device.temperature.toFixed(1) + " degrees"
+                return "Temperature: " + Theme.cToDisplay(DE1Device.temperature).toFixed(1) + " degrees"
             case 5: // Weight and/or Volume
                 var parts = []
                 if (MachineState.targetWeight > 0) parts.push(TranslationManager.translate("espresso.accessible.weight", "Weight:") + " " + espressoPage.currentWeight.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.of", "of") + " " + MachineState.targetWeight.toFixed(0) + " " + TranslationManager.translate("espresso.accessible.grams", "grams"))
@@ -850,18 +850,17 @@ Page {
                 spacing: Theme.scaled(2)
 
                 Accessible.role: Accessible.StaticText
-                Accessible.name: TranslationManager.translate("espresso.accessible.temperature", "Temperature:") + " " + DE1Device.temperature.toFixed(1) + " " + TranslationManager.translate("espresso.accessible.degrees", "degrees")
+                Accessible.name: TranslationManager.translate("espresso.accessible.temperature", "Temperature:") + " " + Theme.cToDisplay(DE1Device.temperature).toFixed(1) + " " + TranslationManager.translate("espresso.accessible.degrees", "degrees")
 
                 Text {
-                    text: DE1Device.temperature.toFixed(1)
+                    text: Theme.cToDisplay(DE1Device.temperature).toFixed(1)
                     color: Theme.temperatureColor
                     font.pixelSize: Theme.scaled(28)
                     font.weight: Font.Medium
                     Accessible.ignored: true
                 }
-                Tr {
-                    key: "espresso.unit.celsius"
-                    fallback: "°C"
+                Text {
+                    text: Theme.tempUnitSuffix()
                     color: Theme.textSecondaryColor
                     font: Theme.captionFont
                     Accessible.ignored: true

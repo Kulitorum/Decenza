@@ -28,7 +28,7 @@ Item {
 
     Accessible.role: Accessible.StaticText
     Accessible.name: {
-        var text = "Group temperature: " + DE1Device.temperature.toFixed(1) + " degrees, target: " + root.effectiveTargetTemp.toFixed(0) + " degrees"
+        var text = "Group temperature: " + Theme.cToDisplay(DE1Device.temperature).toFixed(1) + " degrees, target: " + Theme.cToDisplay(root.effectiveTargetTemp).toFixed(0) + " degrees"
         if (root.isRealOverride) text += " (override active)"
         return text
     }
@@ -58,7 +58,7 @@ Item {
             Text {
                 id: compactTemp
                 anchors.verticalCenter: parent.verticalCenter
-                text: DE1Device.temperature.toFixed(1) + "\u00B0C"
+                text: Theme.formatTemperature(DE1Device.temperature, 1)
                 color: root.readoutColor
                 font: Theme.bodyFont
                 Accessible.ignored: true
@@ -71,7 +71,7 @@ Item {
             onClicked: {
                 MachineState.tareScale()
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                    var announcement = "Group temperature: " + DE1Device.temperature.toFixed(1) + " degrees, target: " + root.effectiveTargetTemp.toFixed(0) + " degrees"
+                    var announcement = "Group temperature: " + Theme.cToDisplay(DE1Device.temperature).toFixed(1) + " degrees, target: " + Theme.cToDisplay(root.effectiveTargetTemp).toFixed(0) + " degrees"
                     if (root.isRealOverride) announcement += " (override active)"
                     AccessibilityManager.announceLabel(announcement)
                 }
@@ -104,14 +104,14 @@ Item {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: Theme.scaled(4)
                 Text {
-                    text: DE1Device.temperature.toFixed(1) + "\u00B0C"
+                    text: Theme.formatTemperature(DE1Device.temperature, 1)
                     color: root.readoutColor
                     font: Theme.valueFont
                     Accessible.ignored: true
                 }
                 Text {
                     anchors.baseline: parent.children[0].baseline
-                    text: "/ " + root.effectiveTargetTemp.toFixed(1) + "\u00B0C"
+                    text: "/ " + Theme.formatTemperature(root.effectiveTargetTemp, 1)
                     color: root.isRealOverride ? Theme.accentColor : Theme.textSecondaryColor
                     font.family: Theme.valueFont.family
                     font.pixelSize: Theme.valueFont.pixelSize / 2
@@ -143,7 +143,7 @@ Item {
             anchors.fill: parent
             onClicked: {
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                    var announcement = "Group temperature: " + DE1Device.temperature.toFixed(1) + " degrees, target: " + root.effectiveTargetTemp.toFixed(0) + " degrees"
+                    var announcement = "Group temperature: " + Theme.cToDisplay(DE1Device.temperature).toFixed(1) + " degrees, target: " + Theme.cToDisplay(root.effectiveTargetTemp).toFixed(0) + " degrees"
                     if (root.isRealOverride) announcement += " (override active)"
                     AccessibilityManager.announceLabel(announcement)
                 }
