@@ -160,7 +160,12 @@ void SettingsBrew::setDoseCupTareWeight(double weight) {
 }
 
 bool SettingsBrew::milkAutoCaptureEnabled() const {
-    return m_settings.value("steam/milkAutoCaptureEnabled", false).toBool();  // off by default; calibrating turns it on
+    // On by default so milk auto-capture mirrors bean dose-capture (which activates
+    // as soon as a dose-cup tare is saved). It still does nothing until a pitcher
+    // weight is saved (capture needs cupWeight > 0) and a reference milk is set
+    // (scaledSteamTime() returns 0 otherwise), so default-on only removes a redundant
+    // manual toggle. Users can still turn it off to stop the scale changing steam time.
+    return m_settings.value("steam/milkAutoCaptureEnabled", true).toBool();
 }
 void SettingsBrew::setMilkAutoCaptureEnabled(bool enabled) {
     if (milkAutoCaptureEnabled() != enabled) {
@@ -411,8 +416,8 @@ void SettingsBrew::setSteamPitcherCalibration(int index, double calibMilkG) {
         arr[index] = preset;
         m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
         emit steamPitcherPresetsChanged();
-        // Weight-timed steaming is off by default; setting a reference is the explicit
-        // opt-in, so calibrating turns it on. Clearing the reference leaves it as-is.
+        // Weight-timed steaming is on by default; setting a reference is the explicit
+        // reference for scaling. Clearing the reference leaves the toggle as-is.
         if (calibMilkG > 0)
             setMilkAutoCaptureEnabled(true);
     }

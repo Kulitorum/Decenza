@@ -25,8 +25,8 @@ class SettingsBrew : public QObject {
     // reading in "Get from scale" so the dose is net beans. Default 0 = no tare.
     Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight WRITE setDoseCupTareWeight NOTIFY doseCupTareWeightChanged)
     // Master toggle for weight-timed steaming (UI label "Weight-timed steaming").
-    // When off, steam time is never scaled from milk weight. Default OFF; setting a
-    // pitcher's reference milk (setSteamPitcherCalibration) turns it on automatically.
+    // When off, steam time is never scaled from milk weight. Default ON, mirroring bean
+    // dose-capture; it stays inert until a pitcher weight and reference milk are saved.
     Q_PROPERTY(bool milkAutoCaptureEnabled READ milkAutoCaptureEnabled WRITE setMilkAutoCaptureEnabled NOTIFY milkAutoCaptureEnabledChanged)
     // Whether the confirmation "ding" plays when a dose/milk auto-captures. Default
     // off — toggled by the bell on the Dose cup row.
