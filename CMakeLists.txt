@@ -279,6 +279,7 @@ set(SOURCES
     src/profile/recipeparams.cpp
     src/profile/recipegenerator.cpp
     src/profile/recipeanalyzer.cpp
+    src/profile/temperaturedisplay.cpp
     src/models/shotdatamodel.cpp
     src/models/steamdatamodel.cpp
     src/machine/steamhealthtracker.cpp

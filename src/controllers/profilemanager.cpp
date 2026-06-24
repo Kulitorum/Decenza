@@ -12,6 +12,7 @@
 #include "../profile/recipegenerator.h"
 #include "../profile/recipeanalyzer.h"
 #include "../profile/profilesavehelper.h"
+#include "../profile/temperaturedisplay.h"
 #include "../ai/shotsummarizer.h"
 #include <QDir>
 #include <QFile>
@@ -1592,15 +1593,10 @@ void ProfileManager::uploadCurrentProfile() {
         if (m_settings && m_settings->brew()->hasTemperatureOverride()) {
             Profile modifiedProfile = m_currentProfile;
             double overrideTemp = m_settings->brew()->temperatureOverride();
-            double delta = overrideTemp - m_currentProfile.espressoTemperature();
-            QList<ProfileFrame> steps = modifiedProfile.steps();
-            for (int i = 0; i < steps.size(); ++i) {
-                steps[i].temperature += delta;
-            }
-            modifiedProfile.setSteps(steps);
+            modifiedProfile.setSteps(framesShiftedToTemperature(overrideTemp));
             modifiedProfile.setEspressoTemperature(overrideTemp);
             qDebug() << "Uploading profile with temperature override:" << overrideTemp
-                     << "C (delta:" << delta << "C)";
+                     << "C (delta:" << (overrideTemp - m_currentProfile.espressoTemperature()) << "C)";
             m_device->uploadProfile(modifiedProfile);
             groupTemp = overrideTemp;
         } else {
@@ -2690,6 +2686,40 @@ double ProfileManager::getGroupTemperature() const {
         return temp;
     }
     return m_currentProfile.espressoTemperature();
+}
+
+QList<ProfileFrame> ProfileManager::framesShiftedToTemperature(double targetTemp) const {
+    const double delta = targetTemp - m_currentProfile.espressoTemperature();
+    QList<ProfileFrame> steps = m_currentProfile.steps();
+    for (int i = 0; i < steps.size(); ++i)
+        steps[i].temperature += delta;
+    return steps;
+}
+
+void ProfileManager::applyTemperatureToProfile(double newTemperature) {
+    // Bake the brew temperature into the profile using the SAME anchor as the
+    // live-brew override path (espressoTemperature), so saving and brewing agree.
+    m_currentProfile.setSteps(framesShiftedToTemperature(newTemperature));
+    m_currentProfile.setEspressoTemperature(newTemperature);
+    emit currentProfileChanged();
+    // The new temperature is now the profile default, so any active override is
+    // redundant. Clear it BEFORE re-uploading — otherwise uploadCurrentProfile would
+    // re-apply the (now stale) override as a second delta, making the uploaded shot
+    // disagree with the saved profile.
+    if (m_settings && m_settings->brew()->hasTemperatureOverride())
+        m_settings->brew()->clearTemperatureOverride();
+    uploadCurrentProfile();
+    if (!m_baseProfileName.isEmpty())
+        saveProfile(m_baseProfileName);
+}
+
+QString ProfileManager::temperatureDisplay(double anchorTemp, bool hasOverride,
+                                           double overrideTemp) const {
+    QVector<double> temps;
+    temps.reserve(static_cast<qsizetype>(m_currentProfile.steps().size()));
+    for (const ProfileFrame& f : m_currentProfile.steps())
+        temps.append(f.temperature);
+    return TemperatureDisplay::format(temps, anchorTemp, hasOverride, overrideTemp);
 }
 
 void ProfileManager::migrateProfileFolders() {

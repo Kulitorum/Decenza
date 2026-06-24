@@ -368,28 +368,39 @@ Dialog {
                     spacing: Theme.scaled(8)
 
                     Text {
-                        text: TranslationManager.translate("brewDialog.tempLabel", "Temp:")
+                        text: TranslationManager.translate("brewDialog.tempDeltaLabel", "Temp Delta:")
                         font: Theme.bodyFont
                         color: Theme.textSecondaryColor
                         Layout.alignment: Qt.AlignVCenter
-                        Layout.preferredWidth: Theme.scaled(75)
+                        // "Temp Delta:" is wider than the shared 75px column, so size
+                        // to content (with a 75px floor) like the Equipment label,
+                        // rather than a fixed 75px that clips it and lets the input
+                        // butt right against it. The RowLayout spacing adds the gap.
+                        Layout.minimumWidth: Theme.scaled(75)
                         Accessible.ignored: true  // Label for sighted users; input has accessibleName
                     }
 
+                    // The control is an OFFSET applied to the whole profile, not an
+                    // absolute temperature: it reads 0° at the profile default and
+                    // +N°/-N° when adjusted. temperatureValue stays absolute internally
+                    // (= profileTemperature + delta) so the OK / Update Profile paths
+                    // are unchanged; only the presentation is a delta.
                     ValueInput {
                         id: tempInput
                         Layout.fillWidth: true
-                        value: root.temperatureValue
-                        from: 70
-                        to: 100
+                        readonly property real delta: root.temperatureValue - root.profileTemperature
+                        value: delta
+                        from: 70 - root.profileTemperature
+                        to: 100 - root.profileTemperature
                         stepSize: 1
                         decimals: 0
-                        suffix: "°C"
-                        valueColor: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1 ? Theme.temperatureColor : Theme.textSecondaryColor
+                        suffix: "°"
+                        displayText: (delta > 0 ? "+" : "") + delta.toFixed(0) + "°"
+                        valueColor: Math.abs(delta) > 0.1 ? Theme.temperatureColor : Theme.textSecondaryColor
                         accentColor: Theme.temperatureColor
-                        accessibleName: TranslationManager.translate("brewDialog.brewTemperature", "Brew temperature")
+                        accessibleName: TranslationManager.translate("brewDialog.brewTempDelta", "Brew temperature offset")
                         onValueModified: function(newValue) {
-                            root.temperatureValue = newValue
+                            root.temperatureValue = root.profileTemperature + newValue
                         }
                     }
 
@@ -401,35 +412,34 @@ Dialog {
                         primary: true
                         enabled: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
                         onClicked: {
-                            var profile = ProfileManager.getCurrentProfile()
-                            if (profile && profile.steps.length > 0) {
-                                var delta = root.temperatureValue - profile.steps[0].temperature
-                                for (var i = 0; i < profile.steps.length; i++) {
-                                    profile.steps[i].temperature += delta
-                                }
-                                profile.espresso_temperature = root.temperatureValue
-                                ProfileManager.uploadProfile(profile)
-                            }
+                            // Bake the new temperature into the profile. Anchored on
+                            // espressoTemperature (same as the live-brew override path)
+                            // so save and brew shift every step by the same delta.
+                            ProfileManager.applyTemperatureToProfile(root.temperatureValue)
                             root.profileTemperature = root.temperatureValue
-                            if (ProfileManager.baseProfileName.length > 0) {
-                                ProfileManager.saveProfile(ProfileManager.baseProfileName)
-                            }
                         }
                     }
                 }
 
-                // Visual indicator showing profile default
+                // Profile's actual temperature(s), shown adaptively (single / spaced
+                // mid-dot list / first…last ellipsis) via the shared formatter. When
+                // a delta is dialed in, append the offset tag (e.g. "90 · 88°C +4°")
+                // and switch to the temperature color — mirrors the shot plan and
+                // makes it obvious the change applies to these temps.
                 Text {
-                    visible: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
-                    text: TranslationManager.translate("brewDialog.profileTempIndicator", "Profile: %1°C").arg(root.profileTemperature.toFixed(1))
+                    id: tempSubtext
+                    readonly property bool tempPending: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
+                    visible: root.profileTemperature > 0
+                    text: TranslationManager.translate("brewDialog.profileTempStructure", "Profile: %1")
+                        .arg(ProfileManager.temperatureDisplay(root.profileTemperature, tempPending, root.temperatureValue))
                     font.family: Theme.bodyFont.family
-                    font.pixelSize: Theme.scaled(11)
+                    font.pixelSize: Theme.scaled(14)
                     font.italic: true
-                    color: Theme.textSecondaryColor
+                    color: tempPending ? Theme.temperatureColor : Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignHCenter
                     Layout.leftMargin: Theme.scaled(75) + Theme.scaled(8)
                     Accessible.role: Accessible.StaticText
-                    Accessible.name: TranslationManager.translate("brewDialog.profileDefaultTemp", "Profile default temperature: %1 degrees").arg(root.profileTemperature.toFixed(1))
+                    Accessible.name: text
                 }
             }
 

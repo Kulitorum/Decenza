@@ -170,6 +170,21 @@ public slots:
     Q_INVOKABLE void uploadProfile(const QVariantMap& profileData);
     Q_INVOKABLE bool saveProfile(const QString& filename);
     Q_INVOKABLE bool saveProfileAs(const QString& filename, const QString& title);
+
+    // Bake a new brew temperature into the current profile: every frame is shifted
+    // by the delta from the profile's reference temperature (espressoTemperature),
+    // the scalar is updated, and the profile is uploaded and saved. Same anchor as
+    // the live-brew override path (uploadCurrentProfile) so save and brew agree.
+    Q_INVOKABLE void applyTemperatureToProfile(double newTemperature);
+
+    // Adaptive temperature string for the shot-plan widget / Brew Settings dialog.
+    // anchorTemp is the profile's espressoTemperature (pass profileTargetTemperature
+    // so QML bindings re-evaluate on currentProfileChanged). When hasOverride, the
+    // profile's own temperatures are shown UNSHIFTED with a signed delta tag
+    // appended (e.g. "90 · 88°C +1°") expressing the (overrideTemp - anchorTemp)
+    // offset applied to every step — values are not recomputed.
+    Q_INVOKABLE QString temperatureDisplay(double anchorTemp, bool hasOverride,
+                                           double overrideTemp) const;
     Q_INVOKABLE bool duplicateProfile(const QString& sourceFilename, const QString& newTitle);
     // Rename in place: changes only the profile's display title, keeping the same
     // filename (so favorites/auto-load/selected references stay valid). Built-in
@@ -219,6 +234,11 @@ signals:
     void autoLoadStaleCleared();
 
 private:
+    // Current profile's frames with every temperature shifted so the reference
+    // temperature (espressoTemperature) becomes targetTemp. Single source of truth
+    // for the override delta, shared by the live-brew and save-to-profile paths.
+    QList<ProfileFrame> framesShiftedToTemperature(double targetTemp) const;
+
     void loadDefaultProfile();
     void migrateProfileFolders();
     void migrateProfileFormat();
