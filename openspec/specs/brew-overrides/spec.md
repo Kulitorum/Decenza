@@ -5,7 +5,7 @@ TBD - created by archiving change add-brew-overrides. Update Purpose after archi
 ## Requirements
 ### Requirement: Persistent Brew Overrides
 
-Temperature overrides SHALL be applied as a delta offset relative to the profile's reference temperature (first frame / `espressoTemperature`). The delta is computed as `override - espressoTemperature` and added to each frame's individual temperature, preserving relative temperature differences between frames.
+Temperature overrides SHALL be applied as a delta offset relative to the profile's reference temperature, defined as the profile scalar `espressoTemperature`. The delta is computed as `override - espressoTemperature` and added to each frame's individual temperature, preserving relative temperature differences between frames. The same anchor (`espressoTemperature`) SHALL be used by every path that applies a temperature override as a delta — both the live-brew upload path and the Brew Dialog "Update Profile" (save-to-profile) path — so that a given override value produces an identical result whether it is brewed or saved.
 
 **Storage:** Temperature overrides are persistent (stored in QSettings) and survive app restarts. They are stored in shot history as dedicated `temperature_override` database columns.
 
@@ -14,7 +14,7 @@ Temperature overrides SHALL be applied as a delta offset relative to the profile
 - **AND** the user sets a brew temperature of 95°C in the BrewDialog
 - **THEN** the delta is +2°C (95 - 93)
 - **AND** the uploaded profile frames have temperatures [95, 95, 90, 90]
-- **AND** the IdlePage displays the override as "93 → 95°C"
+- **AND** the shot plan displays the override using the adaptive multi-temperature notation (see Shot Plan Display)
 
 #### Scenario: User sets temperature override lower than profile default
 - **WHEN** the profile has frames with temperatures [90, 90, 85] (espressoTemperature = 90)
@@ -22,18 +22,27 @@ Temperature overrides SHALL be applied as a delta offset relative to the profile
 - **THEN** the delta is -2°C (88 - 90)
 - **AND** the uploaded profile frames have temperatures [88, 88, 83]
 
+#### Scenario: Live-brew and save paths use the same anchor
+- **WHEN** a profile's `espressoTemperature` differs from its first frame temperature
+- **AND** the user sets a brew temperature override of T°C
+- **THEN** the delta applied by the live-brew upload path equals the delta applied by the "Update Profile" save path (both computed as `T - espressoTemperature`)
+- **AND** the temperatures previewed in the Brew Dialog match the temperatures that are brewed and the temperatures that are saved
+
 ### Requirement: Brew Dialog
-The system SHALL provide a BrewDialog accessible from the shot plan line on IdlePage and from the StatusBar. The dialog SHALL display the current profile name and bean info as a "Base Recipe" header, and allow editing temperature, dose, ratio, yield and grind (in this order) for the next shot.
+The system SHALL provide a BrewDialog accessible from the shot plan line on IdlePage and from the StatusBar. The dialog SHALL display the current profile name and bean info as a "Base Recipe" header, and allow editing temperature, dose, ratio, yield and grind (in this order) for the next shot. The temperature control SHALL be presented as a temperature **offset** (labeled "Temp Delta:") applied uniformly to the whole profile: it reads `0°` at the profile default and `+N°`/`-N°` when adjusted. Because the control no longer shows an absolute temperature, the dialog SHALL display the profile's actual temperature(s) below it, rendered adaptively (single value / spaced mid-dot list / first…last ellipsis), so the user can see what the offset is applied to.
 
 #### Scenario: Opening the BrewDialog
 - **WHEN** the user taps the shot plan text on IdlePage
 - **THEN** the BrewDialog opens with current values populated from Settings (DYE metadata and profile defaults)
 - **AND** the targetWeight and targetTemperature are set with a precedence order: overrides first, then profile defaults
 
-#### Scenario: Temperature override with save option
-- **WHEN** the user changes the temperature in the BrewDialog
-- **THEN** the dialog shows the profile default temperature below the input
-- **AND** a "Save" button allows permanently updating the profile temperature
+#### Scenario: Temperature offset control
+- **WHEN** the BrewDialog opens with no temperature override active
+- **THEN** the "Temp Delta:" control reads `0°`
+- **AND** the profile's actual temperature(s) are shown below it using the adaptive notation: a single value for a one-temperature profile, a spaced mid-dot list for two distinct temperatures (e.g. "Profile: 90 · 88°C"), or first-step…last-step ellipsis for three or more
+- **WHEN** the user adjusts the control to `+2°`
+- **THEN** every frame's temperature is raised by 2°C for the next shot (the profile structure shown below is unchanged)
+- **AND** a "Update Profile" action permanently bakes the `+2°` offset into every frame
 
 #### Scenario: Dose from scale
 - **WHEN** the user taps "Get from scale" in the BrewDialog
@@ -55,13 +64,30 @@ The system SHALL provide a BrewDialog accessible from the shot plan line on Idle
 ### Requirement: Shot Plan Display
 The system SHALL display a summary line showing the configured shot parameters: profile name with temperature, bean name with grind setting, and dose/yield weights. The line SHALL be clickable to open the BrewDialog. Visibility SHALL be controlled by a "Show shot plan" setting (default: enabled). When a "Show on all screens" setting is enabled, the shot plan line SHALL appear in the top status bar on all pages; otherwise it SHALL appear only on the IdlePage.
 
-#### Scenario: Shot plan with no overrides
-- **WHEN** no overrides are active and DYE metadata is populated
+The temperature portion SHALL render the profile's own temperature(s) adaptively based on the number of distinct frame temperatures (N), so that multi-temperature profiles are not misrepresented as a single value:
+- **N = 1:** a single value (e.g. `90°C`).
+- **N = 2:** both distinct temperatures listed with a spaced mid-dot separator (e.g. `88 · 93°C`).
+- **N ≥ 3:** the first-step temperature and last-step temperature joined by an ellipsis, preserving trajectory order rather than sorting (e.g. `84…52°C`).
+
+When a temperature override is active, the profile's temperatures SHALL still be shown (unshifted) followed by a signed delta tag expressing the offset applied to every step (e.g. `90°C +1°`, `88 · 93°C +2°`, `84…52°C -1°`). The override SHALL NOT be rendered as a recomputed single temperature or a from→to arrow. Multi-temperature profiles (N ≥ 2) SHALL render with the list/ellipsis notation even when no override is active.
+
+#### Scenario: Shot plan with single-temperature profile, no overrides
+- **WHEN** no overrides are active, the profile has one distinct frame temperature, and DYE metadata is populated
 - **THEN** the shot plan shows: "ProfileName (88°C) · BeanName (grind) · 18.0g in, 36.0g out"
 
-#### Scenario: Shot plan with temperature override
-- **WHEN** a temperature override is active
-- **THEN** the temperature portion shows the arrow notation: "ProfileName (88 → 90°C)"
+#### Scenario: Shot plan with single-temperature profile and temperature override
+- **WHEN** a temperature override of +2°C is active and the profile has one distinct frame temperature of 88°C
+- **THEN** the temperature portion shows the value and offset: "ProfileName (88°C +2°)"
+
+#### Scenario: Shot plan with two distinct temperatures
+- **WHEN** the profile has two distinct frame temperatures (e.g. 88 and 93)
+- **THEN** with no override the temperature portion shows the mid-dot list: "ProfileName (88 · 93°C)"
+- **AND** with a +2° override active it shows the list and offset: "ProfileName (88 · 93°C +2°)"
+
+#### Scenario: Shot plan with three or more distinct temperatures
+- **WHEN** the profile has three or more distinct frame temperatures with first-step 84°C and last-step 52°C
+- **THEN** with no override the temperature portion shows the ellipsis notation: "ProfileName (84…52°C)"
+- **AND** with a +1° override active it shows the ellipsis and offset: "ProfileName (84…52°C +1°)"
 
 #### Scenario: Shot plan hidden when empty
 - **WHEN** no profile is loaded and no DYE metadata is set
