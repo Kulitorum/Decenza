@@ -570,6 +570,38 @@ Item {
                         }
                     }
 
+                    // Visual during-shot live coaching cues. Separate from the
+                    // voice toggle above (which only gates spoken cues); this
+                    // controls the on-screen banner and works without TTS.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+
+                        Tr {
+                            key: "settings.accessibility.liveCoachingEnable"
+                            fallback: "Live Coaching Cues"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        StyledSwitch {
+                            checked: Settings.app.liveCoachingEnabled
+                            accessibleName: TranslationManager.translate("settings.accessibility.liveCoachingEnable", "Live Coaching Cues")
+                            onCheckedChanged: Settings.app.liveCoachingEnabled = checked
+                        }
+                    }
+
+                    Tr {
+                        Layout.fillWidth: true
+                        key: "settings.accessibility.liveCoachingDesc"
+                        fallback: "Short on-screen tips while a shot runs (e.g. running fast, possible channeling)"
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(11)
+                        wrapMode: Text.WordWrap
+                    }
+
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(8)

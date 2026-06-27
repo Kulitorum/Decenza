@@ -587,6 +587,24 @@ Page {
         }
     }
 
+    // During-shot live coaching cue banner — below the phase/status row, above
+    // the info bar. Only present while a shot is running.
+    LiveCoachingBanner {
+        id: liveCoachingBanner
+        z: 10
+        anchors.top: statusBanner.bottom
+        anchors.topMargin: Theme.spacingSmall
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: Theme.spacingMedium
+        anchors.rightMargin: Theme.spacingMedium
+        coach: MainController.liveShotCoach
+        coachEnabled: Settings.app.liveCoachingEnabled
+        // No outer visible binding: the banner self-gates on an active cue via its
+        // internal shouldShow/opacity (cues only fire during a shot), so it can run
+        // its own 220 ms fade-out at shot end instead of being cut off by a phase flip.
+    }
+
     // Stop button for headless machines (prominently placed above info bar)
     Rectangle {
         id: espressoStopButton

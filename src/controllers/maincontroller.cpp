@@ -73,6 +73,11 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // Create ProfileManager — owns all profile lifecycle operations
     m_profileManager = new ProfileManager(m_settings, m_device, m_machineState, m_profileStorage, this);
 
+    // Create LiveShotCoach — local, real-time during-shot coaching cues.
+    // Subscribes itself to DE1Device::shotSampleReceived and MachineState
+    // phase/scale-weight changes, reusing the same refs MainController holds.
+    m_liveShotCoach = new LiveShotCoach(m_device, m_machineState, this);
+
     // Connect to shot sample updates
     if (m_device) {
         connect(m_device, &DE1Device::shotSampleReceived,
