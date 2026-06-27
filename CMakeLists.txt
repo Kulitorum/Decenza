@@ -301,6 +301,7 @@ set(SOURCES
     src/ai/aiprovider.cpp
     src/ai/aiconversation.cpp
     src/ai/conductance.cpp
+    src/ai/liveshotcoach.cpp
     src/ai/shotanalysis.cpp
     src/ai/shotsummarizer.cpp
     src/ai/shotsummarizer_kb.cpp
@@ -489,6 +490,7 @@ set(HEADERS
     src/ai/aimanager.h
     src/ai/aiprovider.h
     src/ai/conductance.h
+    src/ai/liveshotcoach.h
     src/ai/shotanalysis.h
     src/ai/shotsummarizer.h
     src/history/shothistory_types.h
@@ -734,6 +736,7 @@ set(QML_FILES
 	qml/components/BrewDialog.qml
     qml/components/CircularGauge.qml
     qml/components/ConnectionIndicator.qml
+    qml/components/LiveCoachingBanner.qml
     qml/components/FavoritesListView.qml
     qml/components/PresetPillRow.qml
     qml/components/ValueInput.qml
