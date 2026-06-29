@@ -110,6 +110,8 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         p["volume"] = m["volume"].toInt();
         p["mode"] = m["mode"].toString();
         p["flowRate"] = m["flowRate"].toInt();
+        p["temperature"] = m.contains("temperature") ? m["temperature"].toDouble()
+                                                      : settings->brew()->waterTemperature();
         vesselPresets.append(p);
     }
     water["vesselPresets"] = vesselPresets;
@@ -508,7 +510,8 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             for (const QJsonValue& v : presets) {
                 QJsonObject p = v.toObject();
                 settings->brew()->addWaterVesselPreset(p["name"].toString(), p["volume"].toInt(),
-                                               p["mode"].toString("weight"), p["flowRate"].toInt(40));
+                                               p["mode"].toString("weight"), p["flowRate"].toInt(40),
+                                               p["temperature"].toDouble(85.0));
             }
         }
     }

@@ -175,9 +175,9 @@ Page {
     Timer { id: idleBeanCaptureTimer; interval: 3500; onTriggered: idlePage.beanCaptureShown = false }
     StableWeightCapture {
         id: beanCapture
-        rawWeight: ScaleDevice.connected ? MachineState.scaleWeight : 0
+        rawWeight: (ScaleDevice && ScaleDevice.connected) ? MachineState.scaleWeight : 0
         cupWeight: Settings.brew.doseCupTareWeight
-        active: ScaleDevice.connected && !ScaleDevice.isFlowScale
+        active: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
                 && idlePage.activePresetFunction !== "steam"
                 && idlePage.activePresetFunction !== "hotwater"
                 && idlePage.activePresetFunction !== "flush"
@@ -227,7 +227,7 @@ Page {
         // empty-pitcher weight (cupWeight) gives net milk, robust to an un-zeroed
         // scale. Auto-capture requires a saved pitcher weight (cupWeight > 0),
         // symmetric with beans requiring a saved dose-cup tare.
-        rawWeight: (ScaleDevice.connected && !ScaleDevice.isFlowScale) ? MachineState.scaleWeight : 0
+        rawWeight: (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale) ? MachineState.scaleWeight : 0
         cupWeight: {
             var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
             return (p && !p.disabled) ? (p.pitcherWeightG ?? 0) : 0
@@ -241,7 +241,7 @@ Page {
         active: Settings.brew.milkAutoCaptureEnabled
                 && idlePage.activePresetFunction === "steam"
                 && idlePage.StackView.status === StackView.Active
-                && ScaleDevice.connected && !ScaleDevice.isFlowScale
+                && ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
         minNet: 50   // nobody steams < 50 g milk; floor also keeps a bean cup from tripping milk capture
         maxNet: 1500
         tolerance: 1.5
@@ -545,7 +545,7 @@ Page {
                     supportLongPress: true
 
                     pillSuffixFn: function(index) {
-                        if (!ScaleDevice.connected || ScaleDevice.isFlowScale) return ""
+                        if (!ScaleDevice || !ScaleDevice.connected || ScaleDevice.isFlowScale) return ""
                         var preset = Settings.brew.steamPitcherPresets[index]
                         if (!preset) return ""
                         var pitcherWeight = preset.pitcherWeightG ?? 0
@@ -571,7 +571,7 @@ Page {
                             // truth in SettingsBrew. Net milk on the scale now, or the last
                             // measured weight if the pitcher was lifted to the wand.
                             var idx = Settings.brew.selectedSteamPitcher
-                            var milk = (ScaleDevice.connected && !ScaleDevice.isFlowScale)
+                            var milk = (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale)
                                        ? Settings.brew.netMilkForPitcher(idx, MachineState.scaleWeight) : 0
                             if (milk <= 0)
                                 milk = idlePage.measuredMilkG
@@ -723,7 +723,7 @@ Page {
                     // saved the auto-capture is off, so the readout/prompt stays hidden.
                     Row {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        visible: ScaleDevice.connected && !ScaleDevice.isFlowScale
+                        visible: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
                                  && Settings.brew.doseCupTareWeight > 0
                         spacing: Theme.scaled(8)
 
