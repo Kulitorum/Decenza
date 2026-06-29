@@ -230,6 +230,7 @@ Item {
                     if (preset) {
                         Settings.brew.steamTimeout = preset.duration
                         Settings.brew.steamFlow = preset.flow !== undefined ? preset.flow : 150
+                        Settings.brew.steamTemperature = (preset.temperature !== undefined) ? preset.temperature : Settings.brew.steamTemperature
                     }
                     MainController.applySteamSettings()
 

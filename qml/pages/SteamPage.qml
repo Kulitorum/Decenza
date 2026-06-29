@@ -34,6 +34,8 @@ Page {
                 // Sync Settings with selected preset
                 steamPage.syncSteamTimeout()
                 Settings.brew.steamFlow = getCurrentPitcherFlow()
+                Settings.brew.steamTemperature = getCurrentPitcherTemperature()
+                steamTempSlider.value = getCurrentPitcherTemperature()
                 // Start heating steam heater (ignores keepSteamHeaterOn - user wants to steam)
                 // startSteamHeating clears steamDisabled flag automatically
                 MainController.startSteamHeating("steampage-activated")
@@ -208,6 +210,14 @@ Page {
         return (preset.flow !== undefined) ? preset.flow : 150
     }
 
+    // Per-pitcher steam temperature. Disabled ("Off") presets and legacy presets
+    // with no stored temperature fall back to the current global steam temperature.
+    function getCurrentPitcherTemperature() {
+        var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+        if (!preset || preset.disabled) return Settings.brew.steamTemperature
+        return (preset.temperature !== undefined) ? preset.temperature : Settings.brew.steamTemperature
+    }
+
     function getCurrentPitcherName() {
         var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
         return preset ? preset.name : ""
@@ -221,10 +231,11 @@ Page {
     // Save current pitcher with new values. No-op for disabled presets — their
     // duration/flow are meaningless, and writing them via updateSteamPitcherPreset
     // would let slider drags silently bake values into the saved JSON.
-    function saveCurrentPitcher(duration, flow) {
+    function saveCurrentPitcher(duration, flow, temperature) {
         var name = getCurrentPitcherName()
         if (name && !isCurrentPitcherDisabled()) {
-            Settings.brew.updateSteamPitcherPreset(Settings.brew.selectedSteamPitcher, name, duration, flow)
+            var temp = (temperature !== undefined) ? temperature : steamTempSlider.value
+            Settings.brew.updateSteamPitcherPreset(Settings.brew.selectedSteamPitcher, name, duration, flow, temp)
         }
     }
 
@@ -234,7 +245,7 @@ Page {
 
     // Net milk currently on the scale for the selected pitcher (0 if none/invalid).
     function currentMeasuredMilk() {
-        if (!ScaleDevice.connected) return 0
+        if (!ScaleDevice || !ScaleDevice.connected) return 0
         return Settings.brew.netMilkForPitcher(Settings.brew.selectedSteamPitcher, MachineState.scaleWeight)
     }
 
@@ -1556,6 +1567,7 @@ Page {
                             KeyNavigation.backtab: flowSlider
                             onValueModified: function(newValue) {
                                 steamTempSlider.value = newValue
+                                saveCurrentPitcher(durationSlider.value, flowSlider.value, newValue)
                             }
                             onValueCommitted: function(newValue) {
                                 MainController.setSteamTemperatureImmediate(newValue)
@@ -2408,7 +2420,9 @@ Page {
                         Qt.inputMethod.commit()
                         if (newPitcherName.text.trim() !== "") {
                             var presetCount = Settings.brew.steamPitcherPresets.length
-                            Settings.brew.addSteamPitcherPreset(newPitcherName.text.trim(), 30, 150)
+                            Settings.brew.addSteamPitcherPreset(newPitcherName.text.trim(), 30, 150, Settings.brew.steamTemperature)
+                            // Selecting the new preset fires onSelectedSteamPitcherChanged,
+                            // which loads its temperature into the slider/active temp.
                             Settings.brew.selectedSteamPitcher = presetCount
                             newPitcherName.text = ""
                             addPitcherDialog.close()
@@ -2425,10 +2439,18 @@ Page {
         function onSelectedSteamPitcherChanged() {
             durationSlider.value = getCurrentPitcherDuration()
             flowSlider.value = getCurrentPitcherFlow()
+            // Load the newly-selected pitcher's temperature into both the slider and
+            // the active steam temperature. This runs synchronously when a pill tap
+            // sets selectedSteamPitcher, so the subsequent startSteamHeating/
+            // applySteamSettings push the per-pitcher temperature to the machine.
+            var temp = getCurrentPitcherTemperature()
+            steamTempSlider.value = temp
+            Settings.brew.steamTemperature = temp
         }
         function onSteamPitcherPresetsChanged() {
             durationSlider.value = getCurrentPitcherDuration()
             flowSlider.value = getCurrentPitcherFlow()
+            steamTempSlider.value = getCurrentPitcherTemperature()
         }
     }
 }

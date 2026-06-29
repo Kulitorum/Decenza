@@ -578,6 +578,7 @@ Page {
                             var t = Settings.brew.scaledSteamTime(idx, milk)
                             Settings.brew.steamTimeout = t > 0 ? t : preset.duration  // 0 → fixed duration
                             Settings.brew.steamFlow = preset.flow !== undefined ? preset.flow : 150
+                            Settings.brew.steamTemperature = (preset.temperature !== undefined) ? preset.temperature : Settings.brew.steamTemperature
                         }
                         MainController.applySteamSettings()
 

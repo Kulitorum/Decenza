@@ -82,6 +82,12 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         p["name"] = m["name"].toString();
         p["duration"] = m["duration"].toInt();
         p["flow"] = m["flow"].toInt();
+        // Per-pitcher steam temperature; legacy presets (and pre-temperature
+        // backups) fall back to the current global steam temperature. Disabled
+        // presets carry no temperature — the heater is off for them.
+        if (!m.value("disabled").toBool())
+            p["temperature"] = m.contains("temperature") ? m["temperature"].toDouble()
+                                                         : settings->brew()->steamTemperature();
         // The weight-based-steaming feature is keyed on these, so they must round-trip.
         if (m.contains("pitcherWeightG")) p["pitcherWeightG"] = m["pitcherWeightG"].toDouble();
         if (m.contains("calibMilkG")) p["calibMilkG"] = m["calibMilkG"].toDouble();
@@ -439,7 +445,12 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                 if (disabled) {
                     settings->brew()->addSteamPitcherPresetDisabled(p["name"].toString());
                 } else {
-                    settings->brew()->addSteamPitcherPreset(p["name"].toString(), p["duration"].toInt(), p["flow"].toInt());
+                    // Legacy presets predate the per-pitcher temperature field; fall
+                    // back to the device's current global steam temperature.
+                    const double presetTemp = p.contains("temperature") ? p["temperature"].toDouble()
+                                                                        : settings->brew()->steamTemperature();
+                    settings->brew()->addSteamPitcherPreset(p["name"].toString(), p["duration"].toInt(),
+                                                            p["flow"].toInt(), presetTemp);
                 }
                 // Restore weight + milk calibration ONLY for an enabled preset whose
                 // add actually appended one entry — never onto a disabled preset, nor

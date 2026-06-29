@@ -294,7 +294,7 @@ void SettingsBrew::setSelectedSteamCup(int index) {
     }
 }
 
-void SettingsBrew::addSteamPitcherPreset(const QString& name, int duration, int flow) {
+void SettingsBrew::addSteamPitcherPreset(const QString& name, int duration, int flow, double temperature) {
     QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonArray arr = doc.array();
@@ -303,6 +303,7 @@ void SettingsBrew::addSteamPitcherPreset(const QString& name, int duration, int 
     preset["name"] = name;
     preset["duration"] = duration;
     preset["flow"] = flow;
+    preset["temperature"] = temperature;
     arr.append(preset);
 
     m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
@@ -323,16 +324,17 @@ void SettingsBrew::addSteamPitcherPresetDisabled(const QString& name) {
     emit steamPitcherPresetsChanged();
 }
 
-void SettingsBrew::updateSteamPitcherPreset(int index, const QString& name, int duration, int flow) {
+void SettingsBrew::updateSteamPitcherPreset(int index, const QString& name, int duration, int flow, double temperature) {
     QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
     QJsonDocument doc = QJsonDocument::fromJson(data);
     QJsonArray arr = doc.array();
 
     if (index >= 0 && index < static_cast<int>(arr.size())) {
-        QJsonObject preset = arr[index].toObject();  // Read existing to preserve pitcherWeightG
+        QJsonObject preset = arr[index].toObject();  // Read existing to preserve pitcherWeightG / calibMilkG
         preset["name"] = name;
         preset["duration"] = duration;
         preset["flow"] = flow;
+        preset["temperature"] = temperature;
         arr[index] = preset;
 
         m_settings.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
