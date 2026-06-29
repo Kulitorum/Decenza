@@ -86,9 +86,9 @@ Each tool has a `category` that determines the minimum access level required:
 
 | Category | Min Access Level | Tools |
 |----------|-----------------|-------|
-| `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, profiles_get_auto_load, settings_get, dialing_get_context, dialing_get_grinder_calibration, bag_list, equipment_list |
-| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, shots_upload_to_visualizer, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority, bag_select, equipment_select |
-| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, profiles_rename, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, apply_theme, bag_update, equipment_update |
+| `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, profiles_get_auto_load, settings_get, dialing_get_context, dialing_get_grinder_calibration, bag_list, equipment_list, steam_pitcher_list, water_vessel_list |
+| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, shots_upload_to_visualizer, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority, bag_select, equipment_select, steam_pitcher_select, water_vessel_select |
+| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, profiles_rename, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, apply_theme, bag_update, equipment_update, steam_pitcher_add, steam_pitcher_update, steam_pitcher_delete, water_vessel_add, water_vessel_update, water_vessel_delete |
 
 ### Tool → Confirmation Level Mapping
 
@@ -229,6 +229,21 @@ The `de1://dialing` resource's grinder block also exposes `packageId`, `rpmAdjus
 | `mqtt_connect` | Connect to the configured MQTT broker. | control |
 | `mqtt_disconnect` | Disconnect from the MQTT broker. | control |
 | `mqtt_publish_discovery` | Publish Home Assistant MQTT discovery messages. Requires connected broker. | control |
+
+### Steam & Hot Water Presets
+Steam pitcher / hot-water vessel presets each carry their own duration/flow/volume and a **per-preset temperature**. `*_select` switches the active preset and applies it to the machine (like `bag_select`/`equipment_select`); `*_add` appends and selects the new preset; updates are partial (only provided fields change, and editing the selected preset re-applies it). Units are human-readable (temperatureC, flowMlPerSec, durationSec, volumeMl) — the store keeps steam flow in hundredths and water flow in tenths of mL/s, converted in the tool layer.
+| Tool | Description | Category |
+|------|-------------|----------|
+| `steam_pitcher_list` | List steam pitcher presets (name, durationSec, flowMlPerSec, temperatureC; pitcherWeightG/calibMilkG when calibrated; disabled "Off" presets carry only name+disabled) plus `selectedIndex`. | read |
+| `steam_pitcher_add` | Add a steam pitcher preset and select it. Optional durationSec/flowMlPerSec/temperatureC (temperature defaults to the current global steam temperature); `disabled=true` adds an "Off" preset that turns the heater off. | settings |
+| `steam_pitcher_update` | Update a pitcher by index — partial; unspecified fields keep their values. Editing the selected pitcher re-applies it to the machine. Disabled presets can't be edited (delete + re-add). | settings |
+| `steam_pitcher_delete` | Delete a steam pitcher preset by index. | settings |
+| `steam_pitcher_select` | Switch the active pitcher by index; applies its duration/flow/temperature to the machine. | control |
+| `water_vessel_list` | List hot water vessel presets (name, volumeMl, mode "weight"/"volume", flowMlPerSec, temperatureC) plus `selectedIndex`. | read |
+| `water_vessel_add` | Add a hot water vessel preset and select it. Optional volumeMl/mode/flowMlPerSec/temperatureC (temperature defaults to the current global hot water temperature). | settings |
+| `water_vessel_update` | Update a vessel by index — partial. Editing the selected vessel re-applies it to the machine. | settings |
+| `water_vessel_delete` | Delete a hot water vessel preset by index. | settings |
+| `water_vessel_select` | Switch the active vessel by index; applies its volume/mode/flow/temperature to the machine. | control |
 
 ### Devices & Scale
 | Tool | Description | Category |
