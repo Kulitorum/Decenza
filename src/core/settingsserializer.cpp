@@ -110,6 +110,8 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
         p["volume"] = m["volume"].toInt();
         p["mode"] = m["mode"].toString();
         p["flowRate"] = m["flowRate"].toInt();
+        p["temperature"] = m.contains("temperature") ? m["temperature"].toDouble()
+                                                      : settings->brew()->waterTemperature();
         vesselPresets.append(p);
     }
     water["vesselPresets"] = vesselPresets;
@@ -507,8 +509,14 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             QJsonArray presets = water["vesselPresets"].toArray();
             for (const QJsonValue& v : presets) {
                 QJsonObject p = v.toObject();
+                // Legacy presets predate the per-preset temperature field; fall back to
+                // the device's current global hot-water temperature (matches the export
+                // side) rather than a hard-coded literal.
+                double presetTemp = p.contains("temperature") ? p["temperature"].toDouble()
+                                                              : settings->brew()->waterTemperature();
                 settings->brew()->addWaterVesselPreset(p["name"].toString(), p["volume"].toInt(),
-                                               p["mode"].toString("weight"), p["flowRate"].toInt(40));
+                                               p["mode"].toString("weight"), p["flowRate"].toInt(40),
+                                               presetTemp);
             }
         }
     }

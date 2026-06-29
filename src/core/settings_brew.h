@@ -185,8 +185,8 @@ public:
     int selectedWaterVessel() const;
     void setSelectedWaterCup(int index);
 
-    Q_INVOKABLE void addWaterVesselPreset(const QString& name, int volume, const QString& mode = "weight", int flowRate = 40);
-    Q_INVOKABLE void updateWaterVesselPreset(int index, const QString& name, int volume, const QString& mode = "weight", int flowRate = 40);
+    Q_INVOKABLE void addWaterVesselPreset(const QString& name, int volume, const QString& mode = "weight", int flowRate = 40, double temperature = 85.0);
+    Q_INVOKABLE void updateWaterVesselPreset(int index, const QString& name, int volume, const QString& mode = "weight", int flowRate = 40, double temperature = 85.0);
     Q_INVOKABLE void removeWaterVesselPreset(int index);
     Q_INVOKABLE void moveWaterVesselPreset(int from, int to);
     Q_INVOKABLE QVariantMap getWaterVesselPreset(int index) const;

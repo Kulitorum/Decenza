@@ -11,6 +11,8 @@
 #include "core/settings_visualizer.h"
 #include "core/settingsserializer.h"
 #include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QRegularExpression>
 
 // Test Settings property round-trip and signal emission.
@@ -72,6 +74,8 @@ private:
     int m_origAutoLoadRevertMinutes;
     QString m_origDyeBeanBaseId;
     QString m_origDyeBeanBaseData;
+    double m_origWaterTemperature;
+    QByteArray m_origVesselPresets;
 
 private slots:
 
@@ -91,6 +95,9 @@ private slots:
         m_origAutoLoadRevertMinutes = m_settings.app()->autoLoadRevertMinutes();
         m_origDyeBeanBaseId = m_settings.dye()->dyeBeanBaseId();
         m_origDyeBeanBaseData = m_settings.dye()->dyeBeanBaseData();
+        m_origWaterTemperature = m_settings.brew()->waterTemperature();
+        { QSettings raw("DecentEspresso", "DE1Qt");
+          m_origVesselPresets = raw.value("water/vesselPresets").toByteArray(); }
     }
 
     void cleanup() {
@@ -109,6 +116,10 @@ private slots:
         m_settings.app()->setAutoLoadRevertMinutes(m_origAutoLoadRevertMinutes);
         m_settings.dye()->setDyeBeanBaseId(m_origDyeBeanBaseId);
         m_settings.dye()->setDyeBeanBaseData(m_origDyeBeanBaseData);
+        m_settings.brew()->setWaterTemperature(m_origWaterTemperature);
+        { QSettings raw("DecentEspresso", "DE1Qt");
+          raw.setValue("water/vesselPresets", m_origVesselPresets);
+          raw.sync(); }
     }
 
     // ==========================================
@@ -383,6 +394,52 @@ private slots:
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
         QCOMPARE(m_settings.app()->autoLoadProfileFilename(), QString("preferred-profile"));
         QCOMPARE(m_settings.app()->autoLoadRevertMinutes(), 17);
+    }
+
+    void waterVesselPresetTemperatureRoundTrip() {
+        // Per-preset hot-water temperature must survive an export -> import cycle.
+        m_settings.brew()->addWaterVesselPreset("Tea", 250, "weight", 40, 92.0);
+        const int idx = static_cast<int>(m_settings.brew()->waterVesselPresets().size()) - 1;
+
+        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+
+        // Mutate the preset's temperature to confirm import overwrites it.
+        m_settings.brew()->updateWaterVesselPreset(idx, "Tea", 250, "weight", 40, 70.0);
+        QCOMPARE(m_settings.brew()->getWaterVesselPreset(idx)["temperature"].toDouble(), 70.0);
+
+        // importFromJson emits an expected favorites-replacement warning (see
+        // autoLoadBundleRoundTrip) — suppress it for the no-warnings-in-tests rule.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+
+        QCOMPARE(m_settings.brew()->getWaterVesselPreset(idx)["temperature"].toDouble(), 92.0);
+    }
+
+    void waterVesselPresetLegacyTemperatureFallsBackToGlobal() {
+        // A preset object that predates the per-preset temperature field (no
+        // "temperature" key) must export with the device's current global
+        // hot-water temperature, not 0 — this guards the migration fallback in
+        // SettingsSerializer::exportToJson.
+        QJsonObject legacy;
+        legacy["name"] = "Legacy";
+        legacy["volume"] = 200;
+        legacy["mode"] = "weight";
+        legacy["flowRate"] = 40;
+        QJsonArray arr; arr.append(legacy);
+        { QSettings raw("DecentEspresso", "DE1Qt");
+          raw.setValue("water/vesselPresets", QJsonDocument(arr).toJson());
+          raw.sync(); }
+
+        // Read through a fresh Settings instance so it picks up the raw write
+        // (avoids a stale per-instance QSettings cache).
+        Settings fresh;
+        fresh.brew()->setWaterTemperature(88.0);
+        const QJsonObject bundle = SettingsSerializer::exportToJson(&fresh, false);
+
+        const QJsonArray exported = bundle["water"].toObject()["vesselPresets"].toArray();
+        QCOMPARE(exported.size(), 1);
+        QCOMPARE(exported[0].toObject()["temperature"].toDouble(), 88.0);
     }
 
     // ==========================================
