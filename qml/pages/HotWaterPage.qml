@@ -65,7 +65,7 @@ Page {
     }
 
     // Save current vessel with all parameters. Temperature defaults to the
-    // current input so callers that only change volume/flow keep the preset's temp.
+    // current temperature input so callers that only change volume/flow keep it.
     function saveCurrentVessel(volume, flowRate, temperature) {
         var name = getCurrentVesselName()
         if (name) {
@@ -77,6 +77,10 @@ Page {
     // Select a vessel preset and load all of its parameters into the inputs.
     // Legacy presets with no stored temperature fall back to the current value.
     function selectVessel(index, vesselData) {
+        // getWaterVesselPreset() returns an empty {} for an out-of-range index;
+        // bail rather than write undefined volume/mode into Settings.
+        if (!vesselData || vesselData.volume === undefined)
+            return
         var flow = (vesselData.flowRate !== undefined) ? vesselData.flowRate : 40
         var temp = (vesselData.temperature !== undefined) ? vesselData.temperature : Settings.brew.waterTemperature
         Settings.brew.selectedWaterVessel = index
@@ -174,6 +178,7 @@ Page {
                                 Settings.brew.waterVolume = modelData.volume
                                 Settings.brew.waterVolumeMode = (modelData.mode ?? "weight")
                                 Settings.hardware.hotWaterFlowRate = (modelData.flowRate !== undefined) ? modelData.flowRate : 40
+                                Settings.brew.waterTemperature = (modelData.temperature !== undefined) ? modelData.temperature : Settings.brew.waterTemperature
                                 MainController.applyHotWaterSettings()
                             }
                         }
@@ -1036,6 +1041,11 @@ Page {
                         Qt.inputMethod.commit()
                         if (newVesselNameInput.text.length > 0) {
                             Settings.brew.addWaterVesselPreset(newVesselNameInput.text, 200, "weight", 40, Settings.brew.waterTemperature)
+                            // Select the just-added preset (appended at the end) and load its
+                            // values into the inputs, so edits apply to the new preset rather
+                            // than the previously-selected one.
+                            var newIndex = Settings.brew.waterVesselPresets.length - 1
+                            selectVessel(newIndex, Settings.brew.getWaterVesselPreset(newIndex))
                             newVesselNameInput.text = ""
                             addVesselDialog.close()
                         }
