@@ -2450,7 +2450,13 @@ Page {
         function onSteamPitcherPresetsChanged() {
             durationSlider.value = getCurrentPitcherDuration()
             flowSlider.value = getCurrentPitcherFlow()
-            steamTempSlider.value = getCurrentPitcherTemperature()
+            // Keep the active steam temperature in sync (not just the slider) when the
+            // selected pitcher is edited from anywhere — e.g. via MCP — so a later
+            // applySteamSettings (back-navigation, keepSteamHeaterOn) pushes the
+            // current value rather than a stale one.
+            var temp = getCurrentPitcherTemperature()
+            steamTempSlider.value = temp
+            Settings.brew.steamTemperature = temp
         }
     }
 }

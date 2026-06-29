@@ -71,6 +71,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
     auto applySteamPitcher = [settings, mainController](int index) {
         if (!settings) return;
         const QVariantMap p = settings->brew()->getSteamPitcherPreset(index);
+        if (p.isEmpty()) return;  // out-of-range index returns an empty map
         if (p.value("disabled").toBool()) {
             if (mainController) mainController->turnOffSteamHeater();
             return;
@@ -86,6 +87,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
     auto applyWaterVessel = [settings, mainController](int index) {
         if (!settings) return;
         const QVariantMap p = settings->brew()->getWaterVesselPreset(index);
+        if (p.isEmpty()) return;  // out-of-range index returns an empty map
         settings->brew()->setWaterVolume(p.value("volume").toInt());
         settings->brew()->setWaterVolumeMode(p.contains("mode") ? p.value("mode").toString()
                                                                  : QStringLiteral("weight"));
@@ -124,13 +126,14 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
     registry->registerTool(
         "steam_pitcher_add",
         "Add a new steam pitcher preset and select it. Provide a name; durationSec, flowMlPerSec "
-        "and temperatureC are optional (default 30s / 1.5 mL/s / 160°C). Set disabled=true to add "
-        "an \"Off\" preset that turns the steam heater off (other fields are ignored).",
+        "and temperatureC are optional (default 30s / 1.5 mL/s; temperature defaults to the current "
+        "global steam temperature). Set disabled=true to add an \"Off\" preset that turns the steam "
+        "heater off (other fields are ignored).",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{
             {"name", QJsonObject{{"type", "string"}, {"description", "Display name for the pitcher preset"}}},
             {"durationSec", QJsonObject{{"type", "integer"}, {"description", "Steam duration in seconds (default 30)"}}},
             {"flowMlPerSec", QJsonObject{{"type", "number"}, {"description", "Steam flow rate in mL/s (default 1.5)"}}},
-            {"temperatureC", QJsonObject{{"type", "number"}, {"description", "Steam temperature in °C (default 160)"}}},
+            {"temperatureC", QJsonObject{{"type", "number"}, {"description", "Steam temperature in °C (defaults to the current global steam temperature)"}}},
             {"disabled", QJsonObject{{"type", "boolean"}, {"description", "Add an \"Off\" preset (heater off). Other fields ignored."}}},
             {"confirmed", kConfirmedProp.value("confirmed")}
         }}, {"required", QJsonArray{"name"}}},
@@ -171,7 +174,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             {"temperatureC", QJsonObject{{"type", "number"}, {"description", "New steam temperature in °C"}}},
             {"confirmed", kConfirmedProp.value("confirmed")}
         }}, {"required", QJsonArray{"index"}}},
-        [settings](const QJsonObject& args) -> QJsonObject {
+        [settings, applySteamPitcher](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) { result["error"] = "Settings unavailable"; return result; }
             const int index = args.value("index").toInt();
@@ -192,6 +195,9 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
                 : (existing.contains("temperature") ? existing.value("temperature").toDouble()
                                                      : settings->brew()->steamTemperature());
             settings->brew()->updateSteamPitcherPreset(index, name, duration, flow, temp);
+            // If we edited the active pitcher, re-apply so the live steam settings
+            // (and the machine) reflect the change immediately.
+            if (index == settings->brew()->selectedSteamPitcher()) applySteamPitcher(index);
             result["success"] = true;
             return result;
         },
@@ -238,7 +244,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             result["selectedIndex"] = index;
             return result;
         },
-        "settings");
+        "control");  // switching the active pitcher, like bag_select / equipment_select
 
     // ---------------------------------------------------------------------
     // Hot water vessel presets
@@ -268,13 +274,14 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
     registry->registerTool(
         "water_vessel_add",
         "Add a new hot water vessel preset and select it. Provide a name; volumeMl, mode, "
-        "flowMlPerSec and temperatureC are optional (default 200 mL / weight / 4.0 mL/s / 85°C).",
+        "flowMlPerSec and temperatureC are optional (default 200 mL / weight / 4.0 mL/s; "
+        "temperature defaults to the current global hot water temperature).",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{
             {"name", QJsonObject{{"type", "string"}, {"description", "Display name for the vessel preset"}}},
             {"volumeMl", QJsonObject{{"type", "integer"}, {"description", "Target volume in mL (default 200)"}}},
             {"mode", QJsonObject{{"type", "string"}, {"description", "\"weight\" or \"volume\" (default weight)"}}},
             {"flowMlPerSec", QJsonObject{{"type", "number"}, {"description", "Hot water flow rate in mL/s (default 4.0)"}}},
-            {"temperatureC", QJsonObject{{"type", "number"}, {"description", "Hot water temperature in °C (default 85)"}}},
+            {"temperatureC", QJsonObject{{"type", "number"}, {"description", "Hot water temperature in °C (defaults to the current global hot water temperature)"}}},
             {"confirmed", kConfirmedProp.value("confirmed")}
         }}, {"required", QJsonArray{"name"}}},
         [settings, applyWaterVessel](const QJsonObject& args) -> QJsonObject {
@@ -311,7 +318,7 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             {"temperatureC", QJsonObject{{"type", "number"}, {"description", "New hot water temperature in °C"}}},
             {"confirmed", kConfirmedProp.value("confirmed")}
         }}, {"required", QJsonArray{"index"}}},
-        [settings](const QJsonObject& args) -> QJsonObject {
+        [settings, applyWaterVessel](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
             if (!settings) { result["error"] = "Settings unavailable"; return result; }
             const int index = args.value("index").toInt();
@@ -330,6 +337,9 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
                 : (existing.contains("temperature") ? existing.value("temperature").toDouble()
                                                      : settings->brew()->waterTemperature());
             settings->brew()->updateWaterVesselPreset(index, name, volume, mode, flowRate, temp);
+            // If we edited the active vessel, re-apply so the live hot water settings
+            // (and the machine) reflect the change immediately.
+            if (index == settings->brew()->selectedWaterVessel()) applyWaterVessel(index);
             result["success"] = true;
             return result;
         },
@@ -376,5 +386,5 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             result["selectedIndex"] = index;
             return result;
         },
-        "settings");
+        "control");  // switching the active vessel, like bag_select / equipment_select
 }

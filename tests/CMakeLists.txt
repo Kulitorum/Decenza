@@ -761,6 +761,39 @@ add_decenza_test(tst_mcptools_write
 target_link_libraries(tst_mcptools_write PRIVATE Qt6::Graphs Qt6::Quick Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
 target_include_directories(tst_mcptools_write PRIVATE ${CMAKE_BINARY_DIR})
 
+# --- tst_mcptools_presets: steam-pitcher / water-vessel preset MCP tools ---
+# (unit conversions, partial-update merge, apply-on-select). MainController is
+# passed null; CONTROLLER_SOURCES is linked only to satisfy its referenced symbols.
+find_package(Qt6 REQUIRED COMPONENTS TextToSpeech Multimedia)
+add_decenza_test(tst_mcptools_presets
+    tst_mcptools_presets.cpp
+    ${MCP_MOC_HEADERS}
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_presets.cpp
+    ${PROFILEMANAGER_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/core/accessibilitymanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/screensaver/screensavervideomanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/batterymanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
+    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${MACHINE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_mcptools_presets PRIVATE Qt6::Graphs Qt6::Quick Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
+target_include_directories(tst_mcptools_presets PRIVATE ${CMAKE_BINARY_DIR})
+
 # --- tst_mcpserver_session: Session management, ping, subscribe/unsubscribe ---
 # Uses real mcpserver.cpp but stubs out tool/resource registration functions
 # to avoid linking mcptools_*.cpp and their heavy transitive deps.
