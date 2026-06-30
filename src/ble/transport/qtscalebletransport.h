@@ -81,6 +81,14 @@ private:
     void logWouldBackoff(const QString& reason, const QString& triggerKind,
                          double stallSec);
     int64_t nowMs();  // monotonic ms for the detector window
+    // True only when the controller is connected/discovered. Guards write/read/
+    // notify so a periodic write (e.g. a scale heartbeat) issued after the link
+    // dropped isn't handed to a torn-down QLowEnergyController — the same
+    // write-to-a-dead-link bug class as the iOS-only crashes #1400/#1405, applied
+    // here defensively. This is the Android + Windows/Linux scale+refractometer
+    // transport (Darwin uses CoreBluetoothScaleBleTransport, which got its own
+    // guard; the DE1's BleTransport got the matching write guard).
+    bool isLinkReady() const;
 
     QLowEnergyController* m_controller = nullptr;
     QMap<QBluetoothUuid, QLowEnergyService*> m_services;

@@ -182,6 +182,10 @@ void QtScaleBleTransport::enableNotifications(const QBluetoothUuid& serviceUuid,
                                               const QBluetoothUuid& characteristicUuid) {
     QT_TRANSPORT_LOG(QString("Enabling notifications for %1").arg(characteristicUuid.toString()));
 
+    if (!isLinkReady()) {
+        QT_TRANSPORT_LOG("enableNotifications skipped - controller not connected");
+        return;
+    }
     QLowEnergyService* service = m_services.value(serviceUuid);
     if (!service) {
         QT_TRANSPORT_LOG("ERROR: Service not found for enabling notifications");
@@ -218,6 +222,15 @@ void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
                                               const QBluetoothUuid& characteristicUuid,
                                               const QByteArray& data,
                                               WriteType writeType) {
+    if (!isLinkReady()) {
+        // Controller not connected — handing a write to a torn-down
+        // QLowEnergyController is the same write-to-a-dead-link bug class as the
+        // iOS-only crashes #1400/#1405. Applied here defensively (no Android/
+        // desktop crash report yet); the periodic scale heartbeat is the most
+        // likely trigger. Drop it.
+        log("writeCharacteristic skipped - controller not connected");
+        return;
+    }
     QLowEnergyService* service = m_services.value(serviceUuid);
     if (!service) {
         emit error("Service not found for write");
@@ -240,6 +253,10 @@ void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
 
 void QtScaleBleTransport::readCharacteristic(const QBluetoothUuid& serviceUuid,
                                              const QBluetoothUuid& characteristicUuid) {
+    if (!isLinkReady()) {
+        log("readCharacteristic skipped - controller not connected");
+        return;
+    }
     QLowEnergyService* service = m_services.value(serviceUuid);
     if (!service) {
         emit error("Service not found for read");
@@ -257,6 +274,17 @@ void QtScaleBleTransport::readCharacteristic(const QBluetoothUuid& serviceUuid,
 
 bool QtScaleBleTransport::isConnected() const {
     return m_connected;
+}
+
+bool QtScaleBleTransport::isLinkReady() const {
+    // Guard on the live controller state, not m_connected (which lags the async
+    // disconnect callback). The controller sits in Discovered for normal
+    // operation and passes briefly through Connected before service discovery —
+    // accept both so connection-setup writes also go through.
+    const auto st = m_controller ? m_controller->state()
+                                 : QLowEnergyController::UnconnectedState;
+    return st == QLowEnergyController::ConnectedState
+        || st == QLowEnergyController::DiscoveredState;
 }
 
 void QtScaleBleTransport::onControllerConnected() {

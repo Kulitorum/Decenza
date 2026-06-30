@@ -141,6 +141,20 @@ struct CoreBluetoothScaleBleTransport::Impl {
     CBCharacteristic* findChar(const QBluetoothUuid& su, const QBluetoothUuid& cu) const {
         return chars.value(uuidKey(su, cu), nullptr);
     }
+
+    // A GATT operation is safe only when the adapter is powered on AND the
+    // peripheral is actually connected. Issuing a write/read to a stale
+    // CBPeripheral during a CBManagerStateResetting/PoweredOff transition
+    // crashes inside CoreBluetooth (issue #1405: the scale heartbeat timer kept
+    // firing through an adapter reset). CB invalidates all peripherals on those
+    // states and may NOT deliver didDisconnectPeripheral for an adapter-state
+    // change, so our `connected` flag can stay stale indefinitely — guard on the
+    // live CB state here instead.
+    bool readyForIO() const {
+        return isValid && mgr && periph
+            && mgr.state == CBManagerStatePoweredOn
+            && periph.state == CBPeripheralStateConnected;
+    }
 };
 
 @interface CBDelegateProxy : NSObject<CBCentralManagerDelegate, CBPeripheralDelegate>
@@ -161,12 +175,33 @@ struct CoreBluetoothScaleBleTransport::Impl {
         if (!d->isValid) return;
         d->log(QString("Central state=%1").arg(state));
 
-        if (state == CBManagerStatePoweredOn &&
-            (!d->targetName.isEmpty() || !d->targetUuidString.isEmpty()) &&
-            !d->periph)
-        {
-            d->log("PoweredOn: attempting connect now");
-            d->q->connectToDevice(d->targetUuidString, d->targetName);
+        if (state == CBManagerStatePoweredOn) {
+            if ((!d->targetName.isEmpty() || !d->targetUuidString.isEmpty()) && !d->periph) {
+                d->log("PoweredOn: attempting connect now");
+                d->q->connectToDevice(d->targetUuidString, d->targetName);
+            }
+        } else if (d->connected &&
+                   (state == CBManagerStatePoweredOff ||
+                    state == CBManagerStateUnsupported ||
+                    state == CBManagerStateUnauthorized)) {
+            // Terminal adapter loss while connected: CB has invalidated the
+            // peripheral and (per Apple) does NOT deliver didDisconnectPeripheral
+            // for an adapter-state change, so synthesize the disconnect —
+            // otherwise our `connected` flag stays stale and the scale never
+            // reconnects after Bluetooth is toggled back on.
+            //
+            // We deliberately do NOT do this for the transient states
+            // (CBManagerStateResetting/Unknown — "an update is imminent", usually
+            // self-recovers): tearing the link down there would bounce the scale
+            // mid-shot, the exact disruption #1176 forbids. The readyForIO() guard
+            // already blocks writes during those states, and that — not this
+            // synthesized disconnect — is what prevents the #1405 crash. If a
+            // Resetting does escalate to PoweredOff, this branch fires on that
+            // follow-up state.
+            d->connected = false;
+            d->clearCaches();
+            d->log(QString("Central state=%1 (terminal) — treating as disconnect").arg(state));
+            emit d->q->disconnected();
         }
     }, Qt::QueuedConnection);
 }
@@ -650,6 +685,10 @@ void CoreBluetoothScaleBleTransport::enableNotifications(const QBluetoothUuid& s
                                                         const QBluetoothUuid& characteristicUuid) {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (!m_impl || !m_impl->periph) { emit error("No peripheral"); return; }
+    if (!m_impl->readyForIO()) {
+        log("Skipping notify-enable — link not ready (adapter/peripheral not connected)");
+        return;
+    }
 
     CBCharacteristic* ch = m_impl->findChar(serviceUuid, characteristicUuid);
     if (!ch) {
@@ -678,6 +717,14 @@ void CoreBluetoothScaleBleTransport::writeCharacteristic(const QBluetoothUuid& s
                                                         WriteType writeType) {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (!m_impl || !m_impl->periph) { emit error("No peripheral"); return; }
+    if (!m_impl->readyForIO()) {
+        // Adapter resetting/off or peripheral no longer connected — writing to a
+        // stale CBPeripheral crashes CoreBluetooth (#1405). Drop the write; a real
+        // peripheral drop is torn down by didDisconnectPeripheral, and a terminal
+        // adapter loss by the centralManagerDidUpdateState handler.
+        log("Skipping write — link not ready (adapter/peripheral not connected)");
+        return;
+    }
 
     CBCharacteristic* ch = m_impl->findChar(serviceUuid, characteristicUuid);
     if (!ch) {
@@ -705,6 +752,10 @@ void CoreBluetoothScaleBleTransport::readCharacteristic(const QBluetoothUuid& se
                                                        const QBluetoothUuid& characteristicUuid) {
 #if defined(Q_OS_IOS) || defined(Q_OS_MACOS)
     if (!m_impl || !m_impl->periph) { emit error("No peripheral"); return; }
+    if (!m_impl->readyForIO()) {
+        log("Skipping read — link not ready (adapter/peripheral not connected)");
+        return;
+    }
 
     CBCharacteristic* ch = m_impl->findChar(serviceUuid, characteristicUuid);
     if (!ch) {
