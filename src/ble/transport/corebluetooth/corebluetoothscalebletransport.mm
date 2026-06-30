@@ -147,8 +147,9 @@ struct CoreBluetoothScaleBleTransport::Impl {
     // CBPeripheral during a CBManagerStateResetting/PoweredOff transition
     // crashes inside CoreBluetooth (issue #1405: the scale heartbeat timer kept
     // firing through an adapter reset). CB invalidates all peripherals on those
-    // states, but the didDisconnectPeripheral callback is async, so guard on the
-    // live CB state here rather than on our (lagging) `connected` flag.
+    // states and may NOT deliver didDisconnectPeripheral for an adapter-state
+    // change, so our `connected` flag can stay stale indefinitely — guard on the
+    // live CB state here instead.
     bool readyForIO() const {
         return isValid && mgr && periph
             && mgr.state == CBManagerStatePoweredOn
@@ -179,16 +180,27 @@ struct CoreBluetoothScaleBleTransport::Impl {
                 d->log("PoweredOn: attempting connect now");
                 d->q->connectToDevice(d->targetUuidString, d->targetName);
             }
-        } else if (d->connected) {
-            // Adapter left PoweredOn (Resetting/PoweredOff/Unauthorized) while we
-            // were connected: CB has invalidated the peripheral. Surface a
-            // disconnect now so the driver stops its periodic writes (e.g. the
-            // Acaia 3 s heartbeat) instead of writing to a stale peripheral and
-            // crashing CoreBluetooth (#1405). The readyForIO() guard on each
-            // write is the synchronous backstop; this is the prompt cleanup.
+        } else if (d->connected &&
+                   (state == CBManagerStatePoweredOff ||
+                    state == CBManagerStateUnsupported ||
+                    state == CBManagerStateUnauthorized)) {
+            // Terminal adapter loss while connected: CB has invalidated the
+            // peripheral and (per Apple) does NOT deliver didDisconnectPeripheral
+            // for an adapter-state change, so synthesize the disconnect —
+            // otherwise our `connected` flag stays stale and the scale never
+            // reconnects after Bluetooth is toggled back on.
+            //
+            // We deliberately do NOT do this for the transient states
+            // (CBManagerStateResetting/Unknown — "an update is imminent", usually
+            // self-recovers): tearing the link down there would bounce the scale
+            // mid-shot, the exact disruption #1176 forbids. The readyForIO() guard
+            // already blocks writes during those states, and that — not this
+            // synthesized disconnect — is what prevents the #1405 crash. If a
+            // Resetting does escalate to PoweredOff, this branch fires on that
+            // follow-up state.
             d->connected = false;
             d->clearCaches();
-            d->log("Central no longer PoweredOn — treating as disconnect");
+            d->log(QString("Central state=%1 (terminal) — treating as disconnect").arg(state));
             emit d->q->disconnected();
         }
     }, Qt::QueuedConnection);
@@ -707,8 +719,9 @@ void CoreBluetoothScaleBleTransport::writeCharacteristic(const QBluetoothUuid& s
     if (!m_impl || !m_impl->periph) { emit error("No peripheral"); return; }
     if (!m_impl->readyForIO()) {
         // Adapter resetting/off or peripheral no longer connected — writing to a
-        // stale CBPeripheral crashes CoreBluetooth (#1405). Drop the write; the
-        // state-change handler emits disconnected() to tear the link down.
+        // stale CBPeripheral crashes CoreBluetooth (#1405). Drop the write; a real
+        // peripheral drop is torn down by didDisconnectPeripheral, and a terminal
+        // adapter loss by the centralManagerDidUpdateState handler.
         log("Skipping write — link not ready (adapter/peripheral not connected)");
         return;
     }

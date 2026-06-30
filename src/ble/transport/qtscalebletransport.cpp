@@ -224,8 +224,10 @@ void QtScaleBleTransport::writeCharacteristic(const QBluetoothUuid& serviceUuid,
                                               WriteType writeType) {
     if (!isLinkReady()) {
         // Controller not connected — handing a write to a torn-down
-        // QLowEnergyController is the write-to-a-dead-link crash class (#1400/
-        // #1405). The periodic scale heartbeat is the usual culprit; drop it.
+        // QLowEnergyController is the same write-to-a-dead-link bug class as the
+        // iOS-only crashes #1400/#1405. Applied here defensively (no Android/
+        // desktop crash report yet); the periodic scale heartbeat is the most
+        // likely trigger. Drop it.
         log("writeCharacteristic skipped - controller not connected");
         return;
     }
@@ -276,8 +278,9 @@ bool QtScaleBleTransport::isConnected() const {
 
 bool QtScaleBleTransport::isLinkReady() const {
     // Guard on the live controller state, not m_connected (which lags the async
-    // disconnect callback). Connection-setup writes happen in Discovered state,
-    // so both Connected and Discovered count as ready.
+    // disconnect callback). The controller sits in Discovered for normal
+    // operation and passes briefly through Connected before service discovery —
+    // accept both so connection-setup writes also go through.
     const auto st = m_controller ? m_controller->state()
                                  : QLowEnergyController::UnconnectedState;
     return st == QLowEnergyController::ConnectedState

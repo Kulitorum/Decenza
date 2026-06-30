@@ -775,8 +775,9 @@ void BleTransport::writeCharacteristic(const QBluetoothUuid& uuid, const QByteAr
     // Don't hand a write to Qt once the controller has left the connected/
     // discovered state. Writing through a torn-down QLowEnergyController crashes
     // inside DarwinBTCentralManager's write queue on the LE dispatch queue
-    // (iOS #1400 — the periodic MMR keepalive kept writing to a dead link). We
-    // guard on controller state (not isConnected(), which also requires
+    // (iOS #1400 — symbolicated to the GATT write path; the periodic MMR
+    // keepalive is the likely trigger writing to a dead link). We guard on
+    // controller state (not isConnected(), which also requires
     // m_characteristicsReady) so connection-setup writes still go through.
     const auto controllerState = m_controller ? m_controller->state()
                                                : QLowEnergyController::UnconnectedState;
