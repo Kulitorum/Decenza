@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
+import "DateUtils.js" as DateUtils
 
 // Unified "Change Beans" dialog (bean-bag-inventory): one ranked search across
 // inventory bags (Tier 0), Bean Base canonical, and the local shot history,
@@ -26,6 +27,12 @@ Dialog {
 
     property string context: "brew"   // "brew" | "inventory" | "idle" | "postShot" | "historicalShot"
     property var shotId: 0            // shot to retag (postShot / historicalShot)
+
+    // True while a screen reader (TalkBack/VoiceOver) is driving the UI. Date
+    // fields drop their input mask in this mode — the "____-__-__" skeleton is
+    // read aloud character-by-character and makes the field unusable. Sighted
+    // users keep the mask, which guides and validates typing.
+    readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
 
     // Emitted after the context's selection semantics ran. `bag` is the
     // selected/created bag's map (CoffeeBag-shaped keys).
@@ -915,16 +922,17 @@ Dialog {
                             Layout.fillWidth: true
                             text: root.fRoastDate
                             placeholder: TranslationManager.translate("changebeans.form.roastDate.placeholder", "yyyy-mm-dd (optional)")
-                            accessibleName: TranslationManager.translate("changebeans.form.roastDate.accessible", "Roast date, optional")
+                            accessibleName: TranslationManager.translate("changebeans.form.roastDate.accessible", "Roast date, optional. Enter year, then month, then day, or use the calendar button next to this field.")
                             inputMethodHints: Qt.ImhDate
-                            inputMask: "9999-99-99"
+                            inputMask: root._accessibilityMode ? "" : "9999-99-99"
                             onTextEdited: root.fRoastDate = text.replace(/_/g, "")
+                            onEditingFinished: root.fRoastDate = DateUtils.normalizeDateString(text.replace(/_/g, ""))
                         }
 
                         AccessibleButton {
                             Layout.preferredWidth: Theme.scaled(44)
                             Layout.preferredHeight: Theme.scaled(44)
-                            accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
+                            accessibleName: TranslationManager.translate("changebeans.form.roastDate.openCalendar", "Open calendar to pick roast date")
                             leftPadding: Theme.scaled(8)
                             rightPadding: Theme.scaled(8)
                             icon.source: "qrc:/emoji/1f4c5.svg"
@@ -999,16 +1007,17 @@ Dialog {
                             id: frozenDateInput
                             Layout.fillWidth: true
                             text: root.fFrozenDate
-                            accessibleName: TranslationManager.translate("changebeans.form.frozenDate.accessible", "Frozen date")
+                            accessibleName: TranslationManager.translate("changebeans.form.frozenDate.accessible", "Frozen date. Enter year, then month, then day, or use the calendar button next to this field.")
                             inputMethodHints: Qt.ImhDate
-                            inputMask: "9999-99-99"
+                            inputMask: root._accessibilityMode ? "" : "9999-99-99"
                             onTextEdited: root.fFrozenDate = text.replace(/_/g, "")
+                            onEditingFinished: root.fFrozenDate = DateUtils.normalizeDateString(text.replace(/_/g, ""))
                         }
 
                         AccessibleButton {
                             Layout.preferredWidth: Theme.scaled(44)
                             Layout.preferredHeight: Theme.scaled(44)
-                            accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
+                            accessibleName: TranslationManager.translate("changebeans.form.frozenDate.openCalendar", "Open calendar to pick frozen date")
                             leftPadding: Theme.scaled(8)
                             rightPadding: Theme.scaled(8)
                             icon.source: "qrc:/emoji/1f4c5.svg"
@@ -1036,16 +1045,17 @@ Dialog {
                             Layout.fillWidth: true
                             text: root.fDefrostDate
                             placeholder: TranslationManager.translate("changebeans.form.roastDate.placeholder", "yyyy-mm-dd (optional)")
-                            accessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Defrost date, optional")
+                            accessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Defrost date, optional. Enter year, then month, then day, or use the calendar button next to this field.")
                             inputMethodHints: Qt.ImhDate
-                            inputMask: "9999-99-99"
+                            inputMask: root._accessibilityMode ? "" : "9999-99-99"
                             onTextEdited: root.fDefrostDate = text.replace(/_/g, "")
+                            onEditingFinished: root.fDefrostDate = DateUtils.normalizeDateString(text.replace(/_/g, ""))
                         }
 
                         AccessibleButton {
                             Layout.preferredWidth: Theme.scaled(44)
                             Layout.preferredHeight: Theme.scaled(44)
-                            accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
+                            accessibleName: TranslationManager.translate("changebeans.form.defrostDate.openCalendar", "Open calendar to pick defrost date")
                             leftPadding: Theme.scaled(8)
                             rightPadding: Theme.scaled(8)
                             icon.source: "qrc:/emoji/1f4c5.svg"

@@ -76,19 +76,31 @@ Dialog {
     contentItem: ColumnLayout {
         spacing: 0
 
-        // Header with month/year navigation
+        // Header with year + month navigation. The double-chevron buttons jump a
+        // whole year so the user need not tap through twelve months to reach a
+        // past roast/freeze date — a win for sighted and screen-reader users alike.
         RowLayout {
             Layout.fillWidth: true
             Layout.margins: Theme.scaled(12)
-            spacing: Theme.scaled(8)
+            spacing: Theme.scaled(4)
 
             AccessibleButton {
-                Layout.preferredWidth: Theme.scaled(36)
+                Layout.preferredWidth: Theme.scaled(32)
+                Layout.preferredHeight: Theme.scaled(36)
+                text: "<<"
+                accessibleName: TranslationManager.translate("datepicker.previousYear", "Previous year")
+                leftPadding: Theme.scaled(2)
+                rightPadding: Theme.scaled(2)
+                onClicked: monthGrid.year--
+            }
+
+            AccessibleButton {
+                Layout.preferredWidth: Theme.scaled(32)
                 Layout.preferredHeight: Theme.scaled(36)
                 text: "<"
                 accessibleName: TranslationManager.translate("datepicker.previousMonth", "Previous month")
-                leftPadding: Theme.scaled(4)
-                rightPadding: Theme.scaled(4)
+                leftPadding: Theme.scaled(2)
+                rightPadding: Theme.scaled(2)
                 onClicked: {
                     if (monthGrid.month === 0) {
                         monthGrid.month = 11
@@ -105,16 +117,17 @@ Dialog {
                 font: Theme.subtitleFont
                 color: Theme.textColor
                 horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
                 Accessible.ignored: true
             }
 
             AccessibleButton {
-                Layout.preferredWidth: Theme.scaled(36)
+                Layout.preferredWidth: Theme.scaled(32)
                 Layout.preferredHeight: Theme.scaled(36)
                 text: ">"
                 accessibleName: TranslationManager.translate("datepicker.nextMonth", "Next month")
-                leftPadding: Theme.scaled(4)
-                rightPadding: Theme.scaled(4)
+                leftPadding: Theme.scaled(2)
+                rightPadding: Theme.scaled(2)
                 onClicked: {
                     if (monthGrid.month === 11) {
                         monthGrid.month = 0
@@ -123,6 +136,16 @@ Dialog {
                         monthGrid.month++
                     }
                 }
+            }
+
+            AccessibleButton {
+                Layout.preferredWidth: Theme.scaled(32)
+                Layout.preferredHeight: Theme.scaled(36)
+                text: ">>"
+                accessibleName: TranslationManager.translate("datepicker.nextYear", "Next year")
+                leftPadding: Theme.scaled(2)
+                rightPadding: Theme.scaled(2)
+                onClicked: monthGrid.year++
             }
         }
 
