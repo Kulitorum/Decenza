@@ -76,6 +76,7 @@ private:
     QString m_origDyeBeanBaseData;
     double m_origWaterTemperature;
     QByteArray m_origVesselPresets;
+    QByteArray m_origPitcherPresets;
 
 private slots:
 
@@ -97,7 +98,8 @@ private slots:
         m_origDyeBeanBaseData = m_settings.dye()->dyeBeanBaseData();
         m_origWaterTemperature = m_settings.brew()->waterTemperature();
         { QSettings raw("DecentEspresso", "DE1Qt");
-          m_origVesselPresets = raw.value("water/vesselPresets").toByteArray(); }
+          m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();
+          m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray(); }
     }
 
     void cleanup() {
@@ -119,6 +121,7 @@ private slots:
         m_settings.brew()->setWaterTemperature(m_origWaterTemperature);
         { QSettings raw("DecentEspresso", "DE1Qt");
           raw.setValue("water/vesselPresets", m_origVesselPresets);
+          raw.setValue("steam/pitcherPresets", m_origPitcherPresets);
           raw.sync(); }
     }
 
@@ -440,6 +443,47 @@ private slots:
         const QJsonArray exported = bundle["water"].toObject()["vesselPresets"].toArray();
         QCOMPARE(exported.size(), 1);
         QCOMPARE(exported[0].toObject()["temperature"].toDouble(), 88.0);
+    }
+
+    void steamPitcherPresetTemperatureRoundTrip() {
+        // Per-pitcher steam temperature must survive an export -> import cycle.
+        m_settings.brew()->addSteamPitcherPreset("Latte", 45, 150, 135.0);
+        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+
+        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+
+        // Mutate the preset's temperature to confirm import overwrites it.
+        m_settings.brew()->updateSteamPitcherPreset(idx, "Latte", 45, 150, 120.0);
+        QCOMPARE(m_settings.brew()->getSteamPitcherPreset(idx)["temperature"].toDouble(), 120.0);
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+
+        QCOMPARE(m_settings.brew()->getSteamPitcherPreset(idx)["temperature"].toDouble(), 135.0);
+    }
+
+    void steamPitcherLegacyTemperatureFallsBackToGlobal() {
+        // A pitcher preset that predates the per-pitcher temperature field (no
+        // "temperature" key) must export with the device's current global steam
+        // temperature, not 0 — guards the migration fallback in exportToJson.
+        QJsonObject legacy;
+        legacy["name"] = "Legacy";
+        legacy["duration"] = 30;
+        legacy["flow"] = 150;
+        QJsonArray arr; arr.append(legacy);
+        { QSettings raw("DecentEspresso", "DE1Qt");
+          raw.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
+          raw.sync(); }
+
+        // Read through a fresh Settings instance so it picks up the raw write.
+        Settings fresh;
+        fresh.brew()->setSteamTemperature(142.0);
+        const QJsonObject bundle = SettingsSerializer::exportToJson(&fresh, false);
+
+        const QJsonArray exported = bundle["steam"].toObject()["pitcherPresets"].toArray();
+        QCOMPARE(exported.size(), 1);
+        QCOMPARE(exported[0].toObject()["temperature"].toDouble(), 142.0);
     }
 
     // ==========================================
