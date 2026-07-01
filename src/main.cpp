@@ -2946,13 +2946,13 @@ int main(int argc, char *argv[])
         }
         qDebug() << "[AppState] applicationStateChanged ->" << name;
 
+        // Gate BatteryManager's poll while suspended; re-arm on any other state
+        // so a missed Active transition can't strand it (see m_appActive in
+        // batterymanager.h for the full rationale).
+        batteryManager.setAppActive(state != Qt::ApplicationSuspended);
+
         if (state == Qt::ApplicationSuspended) {
             wasSuspended = true;
-
-            // Gate BatteryManager's periodic poll while suspended. Its 60 s timer
-            // isn't tied to app lifecycle, so it can otherwise keep firing JNI
-            // battery reads in the background (see m_appActive in batterymanager.h).
-            batteryManager.setAppActive(false);
 
 #ifdef Q_OS_ANDROID
             // Disable accessibility bridge before surface is destroyed.
@@ -2987,7 +2987,6 @@ int main(int argc, char *argv[])
         else if (state == Qt::ApplicationActive && wasSuspended) {
             qDebug() << "App resumed from suspended state";
             wasSuspended = false;
-            batteryManager.setAppActive(true);
 
 #ifdef Q_OS_ANDROID
             // Re-enable accessibility bridge now that the EGL surface is valid again
