@@ -2949,9 +2949,9 @@ int main(int argc, char *argv[])
         if (state == Qt::ApplicationSuspended) {
             wasSuspended = true;
 
-            // Stop BatteryManager's periodic JNI battery reads before anything else.
-            // Its 60 s poll timer isn't tied to app lifecycle, so it can otherwise fire
-            // while Android is mid-teardown of the Activity/Context and crash (issue #1408).
+            // Gate BatteryManager's periodic poll while suspended. Its 60 s timer
+            // isn't tied to app lifecycle, so it can otherwise keep firing JNI
+            // battery reads in the background (see m_appActive in batterymanager.h).
             batteryManager.setAppActive(false);
 
 #ifdef Q_OS_ANDROID

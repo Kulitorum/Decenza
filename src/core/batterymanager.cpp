@@ -111,8 +111,8 @@ void BatteryManager::setChargingMode(int mode) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void BatteryManager::checkBattery() {
-    // See m_appActive: skip while the app is suspended/backgrounded so we don't
-    // race Android's Activity teardown with a JNI battery-status read.
+    // See m_appActive: nothing useful to poll while suspended, and it keeps
+    // JNI battery reads out of the suspend window.
     if (!m_appActive)
         return;
 

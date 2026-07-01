@@ -124,16 +124,17 @@ private:
     Settings*  m_settings = nullptr;
     QTimer     m_checkTimer;  // Fires every 60 s to run checkBattery()
 
-    // Guards checkBattery() against running while Android is tearing down the
-    // Activity. m_checkTimer keeps ticking on its own 60 s cadence regardless of
-    // app lifecycle state, so its callback can land after applicationStateChanged
-    // reports Suspended but before the process actually stops. On Android,
-    // readPlatformBatteryPercent() calls into JNI (QtNative.getContext(),
-    // registerReceiver()); doing that while the Activity/Context is mid-destroy
-    // makes ART hard-abort (SIGABRT in JavaVMExt::AddGlobalRef) instead of
-    // failing gracefully. main.cpp clears this synchronously in the same
-    // single-threaded event loop the timer fires on, so it's set before any
-    // timeout event processed afterward can reach readPlatformBatteryPercent().
+    // Suspend gate for the poll. m_checkTimer keeps ticking on its own 60 s
+    // cadence regardless of app lifecycle state, so its callback can land after
+    // applicationStateChanged reports Suspended but before Android freezes the
+    // event loop. There's nothing useful for the poll to do in that window:
+    // ensureChargerOn() has already forced the DE1 USB port ON (the terminal
+    // safe state, which the DE1's 10-minute auto-enable keeps asserted), the UI
+    // isn't visible, and main.cpp re-runs checkBattery() on resume. Skipping
+    // also avoids doing JNI work while suspended — the poll's JNI allocation is
+    // where crash #1408 surfaced (though the abort there was ART's global-ref
+    // table filling up over hours, i.e. a leak elsewhere; this gate removes the
+    // suspended-poll trigger, it does not fix such a leak).
     bool m_appActive = true;
 
     int  m_batteryPercent = 100;
