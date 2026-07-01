@@ -28,12 +28,6 @@ Dialog {
     property string context: "brew"   // "brew" | "inventory" | "idle" | "postShot" | "historicalShot"
     property var shotId: 0            // shot to retag (postShot / historicalShot)
 
-    // True while a screen reader (TalkBack/VoiceOver) is driving the UI. Date
-    // fields drop their input mask in this mode — the "____-__-__" skeleton is
-    // read aloud character-by-character and makes the field unusable. Sighted
-    // users keep the mask, which guides and validates typing.
-    readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
-
     // Emitted after the context's selection semantics ran. `bag` is the
     // selected/created bag's map (CoffeeBag-shaped keys).
     signal bagSelected(int bagId, var bag)
@@ -442,7 +436,7 @@ Dialog {
         else if (!identityKnown)
             roasterInput.forceActiveFocus()
         else
-            roastDateInput.forceActiveFocus()
+            roastDateField.textField.forceActiveFocus()
 
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
             AccessibilityManager.announce(mode === "search"
@@ -466,9 +460,9 @@ Dialog {
         implicitWidth: root.width
         implicitHeight: Math.min(mainColumn.implicitHeight,
                                  root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight)
-        textFields: [searchField, roasterInput.textField, coffeeInput.textField, roastDateInput,
+        textFields: [searchField, roasterInput.textField, coffeeInput.textField, roastDateField.textField,
                      grindSettingInput, doseInput, yieldInput,
-                     notesInput, frozenDateInput, defrostDateInput]
+                     notesInput, frozenDateField.textField, defrostDateField.textField]
         targetFlickable: formFlickable
 
         ColumnLayout {
@@ -913,39 +907,15 @@ Dialog {
                     }
 
                     // --- Roast date: ALWAYS blank in create modes, optional ---
-                    FieldRow {
+                    BeanDateField {
+                        id: roastDateField
                         labelKey: "changebeans.form.roastDate"
                         labelFallback: "Roasted:"
-
-                        StyledTextField {
-                            id: roastDateInput
-                            Layout.fillWidth: true
-                            text: root.fRoastDate
-                            placeholder: TranslationManager.translate("changebeans.form.roastDate.placeholder", "yyyy-mm-dd (optional)")
-                            accessibleName: TranslationManager.translate("changebeans.form.roastDate.accessible", "Roast date, optional. Enter year, then month, then day, or use the calendar button next to this field.")
-                            inputMethodHints: Qt.ImhDate
-                            inputMask: root._accessibilityMode ? "" : "9999-99-99"
-                            onTextEdited: root.fRoastDate = text.replace(/_/g, "")
-                            onEditingFinished: root.fRoastDate = DateUtils.normalizeDateString(text.replace(/_/g, ""))
-                        }
-
-                        AccessibleButton {
-                            Layout.preferredWidth: Theme.scaled(44)
-                            Layout.preferredHeight: Theme.scaled(44)
-                            accessibleName: TranslationManager.translate("changebeans.form.roastDate.openCalendar", "Open calendar to pick roast date")
-                            leftPadding: Theme.scaled(8)
-                            rightPadding: Theme.scaled(8)
-                            icon.source: "qrc:/emoji/1f4c5.svg"
-                            icon.width: Theme.scaled(20)
-                            icon.height: Theme.scaled(20)
-                            text: ""
-                            onClicked: roastDatePicker.openWithDate(root.fRoastDate)
-                        }
-
-                        DatePickerDialog {
-                            id: roastDatePicker
-                            onDateSelected: function(dateString) { root.fRoastDate = dateString }
-                        }
+                        value: root.fRoastDate
+                        placeholder: TranslationManager.translate("changebeans.form.roastDate.placeholder", "yyyy-mm-dd (optional)")
+                        fieldAccessibleName: TranslationManager.translate("changebeans.form.roastDate.accessible", "Roast date, optional. Enter year, then month, then day, or use the calendar button next to this field.")
+                        calendarAccessibleName: TranslationManager.translate("changebeans.form.roastDate.openCalendar", "Open calendar to pick roast date")
+                        onValueEdited: root.fRoastDate = dateString
                     }
 
                     // --- Roast level: editable only when not supplied by the pick ---
@@ -998,77 +968,29 @@ Dialog {
                         Item { Layout.fillWidth: true }
                     }
 
-                    FieldRow {
+                    BeanDateField {
+                        id: frozenDateField
                         visible: root.fFreeze
                         labelKey: "changebeans.form.frozenDate"
                         labelFallback: "Frozen:"
-
-                        StyledTextField {
-                            id: frozenDateInput
-                            Layout.fillWidth: true
-                            text: root.fFrozenDate
-                            accessibleName: TranslationManager.translate("changebeans.form.frozenDate.accessible", "Frozen date. Enter year, then month, then day, or use the calendar button next to this field.")
-                            inputMethodHints: Qt.ImhDate
-                            inputMask: root._accessibilityMode ? "" : "9999-99-99"
-                            onTextEdited: root.fFrozenDate = text.replace(/_/g, "")
-                            onEditingFinished: root.fFrozenDate = DateUtils.normalizeDateString(text.replace(/_/g, ""))
-                        }
-
-                        AccessibleButton {
-                            Layout.preferredWidth: Theme.scaled(44)
-                            Layout.preferredHeight: Theme.scaled(44)
-                            accessibleName: TranslationManager.translate("changebeans.form.frozenDate.openCalendar", "Open calendar to pick frozen date")
-                            leftPadding: Theme.scaled(8)
-                            rightPadding: Theme.scaled(8)
-                            icon.source: "qrc:/emoji/1f4c5.svg"
-                            icon.width: Theme.scaled(20)
-                            icon.height: Theme.scaled(20)
-                            text: ""
-                            onClicked: frozenDatePicker.openWithDate(root.fFrozenDate)
-                        }
-
-                        DatePickerDialog {
-                            id: frozenDatePicker
-                            onDateSelected: function(dateString) { root.fFrozenDate = dateString }
-                        }
+                        value: root.fFrozenDate
+                        fieldAccessibleName: TranslationManager.translate("changebeans.form.frozenDate.accessible", "Frozen date. Enter year, then month, then day, or use the calendar button next to this field.")
+                        calendarAccessibleName: TranslationManager.translate("changebeans.form.frozenDate.openCalendar", "Open calendar to pick frozen date")
+                        onValueEdited: root.fFrozenDate = dateString
                     }
 
                     // Defrost date is only directly editable in edit mode
                     // ("Next Portion" on the bag card is the everyday path)
-                    FieldRow {
+                    BeanDateField {
+                        id: defrostDateField
                         visible: root.fFreeze && root.formMode === "edit"
                         labelKey: "changebeans.form.defrostDate"
                         labelFallback: "Defrosted:"
-
-                        StyledTextField {
-                            id: defrostDateInput
-                            Layout.fillWidth: true
-                            text: root.fDefrostDate
-                            placeholder: TranslationManager.translate("changebeans.form.roastDate.placeholder", "yyyy-mm-dd (optional)")
-                            accessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Defrost date, optional. Enter year, then month, then day, or use the calendar button next to this field.")
-                            inputMethodHints: Qt.ImhDate
-                            inputMask: root._accessibilityMode ? "" : "9999-99-99"
-                            onTextEdited: root.fDefrostDate = text.replace(/_/g, "")
-                            onEditingFinished: root.fDefrostDate = DateUtils.normalizeDateString(text.replace(/_/g, ""))
-                        }
-
-                        AccessibleButton {
-                            Layout.preferredWidth: Theme.scaled(44)
-                            Layout.preferredHeight: Theme.scaled(44)
-                            accessibleName: TranslationManager.translate("changebeans.form.defrostDate.openCalendar", "Open calendar to pick defrost date")
-                            leftPadding: Theme.scaled(8)
-                            rightPadding: Theme.scaled(8)
-                            icon.source: "qrc:/emoji/1f4c5.svg"
-                            icon.width: Theme.scaled(20)
-                            icon.height: Theme.scaled(20)
-                            text: ""
-                            onClicked: defrostDatePicker.openWithDate(root.fDefrostDate)
-                        }
-
-                        DatePickerDialog {
-                            id: defrostDatePicker
-                            onDateSelected: function(dateString) { root.fDefrostDate = dateString }
-                        }
+                        value: root.fDefrostDate
+                        placeholder: TranslationManager.translate("changebeans.form.roastDate.placeholder", "yyyy-mm-dd (optional)")
+                        fieldAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Defrost date, optional. Enter year, then month, then day, or use the calendar button next to this field.")
+                        calendarAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.openCalendar", "Open calendar to pick defrost date")
+                        onValueEdited: root.fDefrostDate = dateString
                     }
 
                     // --- Grinder setting + dose (the per-bag dial-in fields) ---
@@ -1232,6 +1154,59 @@ Dialog {
             Layout.alignment: Qt.AlignVCenter
             Layout.preferredWidth: Theme.scaled(85)
             Accessible.ignored: true
+        }
+    }
+
+    // Bean date entry row (roast / frozen / defrost): the labelled FieldRow plus a
+    // date text field and a calendar-picker button. Single-sources the accessibility
+    // contract for bean dates: the input mask is dropped while a screen reader is
+    // active — TalkBack/VoiceOver read its unfilled "____-__-__" skeleton aloud
+    // character-by-character, which makes the field unusable — and free-text entry
+    // is normalized on commit. Sighted users keep the mask, which guides and
+    // validates typing. The caller binds `value` to its backing string and writes
+    // it back in onValueEdited (a signal, so the field never touches caller state).
+    component BeanDateField: FieldRow {
+        id: dateField
+
+        property string value: ""
+        property string placeholder: ""
+        property string fieldAccessibleName: ""
+        property string calendarAccessibleName: ""
+        // Exposes the text input so the dialog's KeyboardAwareContainer can track
+        // it and onOpened can focus it — same convention as roasterInput.textField.
+        property alias textField: dateInput
+        signal valueEdited(string dateString)
+
+        readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+
+        StyledTextField {
+            id: dateInput
+            Layout.fillWidth: true
+            text: dateField.value
+            placeholder: dateField.placeholder
+            accessibleName: dateField.fieldAccessibleName
+            inputMethodHints: Qt.ImhDate
+            inputMask: dateField._accessibilityMode ? "" : "9999-99-99"
+            onTextEdited: dateField.valueEdited(text.replace(/_/g, ""))
+            onEditingFinished: dateField.valueEdited(DateUtils.normalizeDateString(text.replace(/_/g, "")))
+        }
+
+        AccessibleButton {
+            Layout.preferredWidth: Theme.scaled(44)
+            Layout.preferredHeight: Theme.scaled(44)
+            accessibleName: dateField.calendarAccessibleName
+            leftPadding: Theme.scaled(8)
+            rightPadding: Theme.scaled(8)
+            icon.source: "qrc:/emoji/1f4c5.svg"
+            icon.width: Theme.scaled(20)
+            icon.height: Theme.scaled(20)
+            text: ""
+            onClicked: datePicker.openWithDate(dateField.value)
+        }
+
+        DatePickerDialog {
+            id: datePicker
+            onDateSelected: function(dateString) { dateField.valueEdited(dateString) }
         }
     }
 }
