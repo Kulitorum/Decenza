@@ -26,7 +26,7 @@
 
 ## 4. Validation
 
-- [ ] 4.1 Unit coverage for `DateUtils.js` helpers — BLOCKED: project has no QML/JS test harness (all tests are C++ `tst_*.cpp`). Needs a QuickTest target stood up, or the pure logic exercised another way. See wrap-up.
+- [x] 4.1 Unit coverage for `DateUtils.js` helpers — DECISION: not adding a QML/JS (QuickTest) harness just for this change. Pure helpers were validated via an ad-hoc Node run (separator incl. CJK fallback, locale order, `orderWords` i18n, `caretForDigits`, `localizedToIso`/`formatAsTyped`/`isoToLocalized`); ongoing verification is manual/on-device.
 - [x] 4.2 `qmllint` (resolved import paths) on both QML files — no errors, no new warnings (count 217, down from 227 baseline)
 - [ ] 4.3 Quick compile / QML-load check via Qt Creator (macOS) — qmllint passed statically; runtime QML load not yet verified
 - [ ] 4.4 Manual matrix: US (month-first), a day-first locale, ISO locale — entry, progressive formatting, calendar selection, stored value (needs running app)
@@ -41,4 +41,4 @@
 
 - [x] 6.1 Commit the locale-aware implementation to the branch / PR #1406, superseding the interim mask-removal approach
 - [ ] 6.2 Archive this OpenSpec change (`/opsx:archive`) as the final commit on the branch before merge
-- [ ] 6.3 Decide on `DateUtils.js` test coverage (4.1): stand up QuickTest, or accept manual/on-device verification for this change
+- [x] 6.3 `DateUtils.js` test coverage decided: no QuickTest harness for this change; accept ad-hoc Node validation + manual/on-device verification
