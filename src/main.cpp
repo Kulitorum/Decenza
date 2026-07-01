@@ -2949,6 +2949,11 @@ int main(int argc, char *argv[])
         if (state == Qt::ApplicationSuspended) {
             wasSuspended = true;
 
+            // Stop BatteryManager's periodic JNI battery reads before anything else.
+            // Its 60 s poll timer isn't tied to app lifecycle, so it can otherwise fire
+            // while Android is mid-teardown of the Activity/Context and crash (issue #1408).
+            batteryManager.setAppActive(false);
+
 #ifdef Q_OS_ANDROID
             // Disable accessibility bridge before surface is destroyed.
             // Prevents deadlock between QtAndroidAccessibility::runInObjectContext()
@@ -2982,6 +2987,7 @@ int main(int argc, char *argv[])
         else if (state == Qt::ApplicationActive && wasSuspended) {
             qDebug() << "App resumed from suspended state";
             wasSuspended = false;
+            batteryManager.setAppActive(true);
 
 #ifdef Q_OS_ANDROID
             // Re-enable accessibility bridge now that the EGL surface is valid again

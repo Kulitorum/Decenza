@@ -111,6 +111,11 @@ void BatteryManager::setChargingMode(int mode) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void BatteryManager::checkBattery() {
+    // See m_appActive: skip while the app is suspended/backgrounded so we don't
+    // race Android's Activity teardown with a JNI battery-status read.
+    if (!m_appActive)
+        return;
+
     int newPercent = readPlatformBatteryPercent();
 
     if (newPercent != m_batteryPercent) {

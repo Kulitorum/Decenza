@@ -84,6 +84,10 @@ public:
     // the tablet can charge while the app is not running. Matches de1app behaviour.
     void ensureChargerOn();
 
+    // Call from the applicationStateChanged handler. While inactive, checkBattery()
+    // becomes a no-op — see m_appActive for why.
+    void setAppActive(bool active) { m_appActive = active; }
+
 public slots:
     // Change the smart charging mode and apply it immediately. Persists to QSettings.
     void setChargingMode(int mode);
@@ -119,6 +123,18 @@ private:
     DE1Device* m_device   = nullptr;
     Settings*  m_settings = nullptr;
     QTimer     m_checkTimer;  // Fires every 60 s to run checkBattery()
+
+    // Guards checkBattery() against running while Android is tearing down the
+    // Activity. m_checkTimer keeps ticking on its own 60 s cadence regardless of
+    // app lifecycle state, so its callback can land after applicationStateChanged
+    // reports Suspended but before the process actually stops. On Android,
+    // readPlatformBatteryPercent() calls into JNI (QtNative.getContext(),
+    // registerReceiver()); doing that while the Activity/Context is mid-destroy
+    // makes ART hard-abort (SIGABRT in JavaVMExt::AddGlobalRef) instead of
+    // failing gracefully. main.cpp clears this synchronously in the same
+    // single-threaded event loop the timer fires on, so it's set before any
+    // timeout event processed afterward can reach readPlatformBatteryPercent().
+    bool m_appActive = true;
 
     int  m_batteryPercent = 100;
     bool m_isCharging     = true;
