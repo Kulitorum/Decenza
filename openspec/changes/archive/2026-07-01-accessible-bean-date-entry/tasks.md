@@ -40,5 +40,5 @@
 ## 6. Wrap-up
 
 - [x] 6.1 Commit the locale-aware implementation to the branch / PR #1406, superseding the interim mask-removal approach
-- [ ] 6.2 Archive this OpenSpec change (`/opsx:archive`) as the final commit on the branch before merge
+- [x] 6.2 Archive this OpenSpec change (`/opsx:archive`) as the final commit on the branch (this commit)
 - [x] 6.3 `DateUtils.js` test coverage decided: no QuickTest harness for this change; accept ad-hoc Node validation + manual/on-device verification
