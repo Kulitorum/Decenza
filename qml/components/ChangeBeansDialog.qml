@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
+import "DateUtils.js" as DateUtils
 
 // Unified "Change Beans" dialog (bean-bag-inventory): one ranked search across
 // inventory bags (Tier 0), Bean Base canonical, and the local shot history,
@@ -340,7 +341,7 @@ Dialog {
         var fields = {
             "roasterName": fRoaster.trim(),
             "coffeeName": fCoffee.trim(),
-            "roastDate": fRoastDate.replace(/_/g, "").length === 10 ? fRoastDate : "",
+            "roastDate": fRoastDate.length === 10 ? fRoastDate : "",
             "roastLevel": fRoastLevel,
             "beanBaseId": fBeanBaseId,
             "beanBaseData": fBeanBaseData,
@@ -349,10 +350,10 @@ Dialog {
             "doseWeightG": parseWeight(fDose),
             "yieldOverrideG": parseWeight(fYield),
             "notes": fNotes,
-            "frozenDate": fFreeze ? (fFrozenDate.replace(/_/g, "").length === 10 ? fFrozenDate : todayIso()) : ""
+            "frozenDate": fFreeze ? (fFrozenDate.length === 10 ? fFrozenDate : todayIso()) : ""
         }
         if (formMode === "edit") {
-            fields["defrostDate"] = fFreeze ? (fDefrostDate.replace(/_/g, "").length === 10 ? fDefrostDate : "") : ""
+            fields["defrostDate"] = fFreeze ? (fDefrostDate.length === 10 ? fDefrostDate : "") : ""
             // Re-point the bag's equipment package (<=0 -> NULL via the column hook).
             fields["equipmentId"] = fEquipmentId
             // A link change fixes the whole bag: propagate the (new or
@@ -435,7 +436,7 @@ Dialog {
         else if (!identityKnown)
             roasterInput.forceActiveFocus()
         else
-            roastDateInput.forceActiveFocus()
+            roastDateField.textField.forceActiveFocus()
 
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
             AccessibilityManager.announce(mode === "search"
@@ -459,9 +460,9 @@ Dialog {
         implicitWidth: root.width
         implicitHeight: Math.min(mainColumn.implicitHeight,
                                  root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight)
-        textFields: [searchField, roasterInput.textField, coffeeInput.textField, roastDateInput,
+        textFields: [searchField, roasterInput.textField, coffeeInput.textField, roastDateField.textField,
                      grindSettingInput, doseInput, yieldInput,
-                     notesInput, frozenDateInput, defrostDateInput]
+                     notesInput, frozenDateField.textField, defrostDateField.textField]
         targetFlickable: formFlickable
 
         ColumnLayout {
@@ -906,38 +907,14 @@ Dialog {
                     }
 
                     // --- Roast date: ALWAYS blank in create modes, optional ---
-                    FieldRow {
+                    BeanDateField {
+                        id: roastDateField
                         labelKey: "changebeans.form.roastDate"
                         labelFallback: "Roasted:"
-
-                        StyledTextField {
-                            id: roastDateInput
-                            Layout.fillWidth: true
-                            text: root.fRoastDate
-                            placeholder: TranslationManager.translate("changebeans.form.roastDate.placeholder", "yyyy-mm-dd (optional)")
-                            accessibleName: TranslationManager.translate("changebeans.form.roastDate.accessible", "Roast date, optional")
-                            inputMethodHints: Qt.ImhDate
-                            inputMask: "9999-99-99"
-                            onTextEdited: root.fRoastDate = text.replace(/_/g, "")
-                        }
-
-                        AccessibleButton {
-                            Layout.preferredWidth: Theme.scaled(44)
-                            Layout.preferredHeight: Theme.scaled(44)
-                            accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
-                            leftPadding: Theme.scaled(8)
-                            rightPadding: Theme.scaled(8)
-                            icon.source: "qrc:/emoji/1f4c5.svg"
-                            icon.width: Theme.scaled(20)
-                            icon.height: Theme.scaled(20)
-                            text: ""
-                            onClicked: roastDatePicker.openWithDate(root.fRoastDate)
-                        }
-
-                        DatePickerDialog {
-                            id: roastDatePicker
-                            onDateSelected: function(dateString) { root.fRoastDate = dateString }
-                        }
+                        value: root.fRoastDate
+                        fieldAccessibleName: TranslationManager.translate("changebeans.form.roastDate.accessible", "Roast date, optional.")
+                        calendarAccessibleName: TranslationManager.translate("changebeans.form.roastDate.openCalendar", "Open calendar to pick roast date")
+                        onValueEdited: root.fRoastDate = dateString
                     }
 
                     // --- Roast level: editable only when not supplied by the pick ---
@@ -982,7 +959,7 @@ Dialog {
                             accessibleName: TranslationManager.translate("changebeans.form.freeze.accessible", "Track this bag as frozen")
                             onToggled: {
                                 root.fFreeze = checked
-                                if (checked && root.fFrozenDate.replace(/_/g, "").length !== 10)
+                                if (checked && root.fFrozenDate.length !== 10)
                                     root.fFrozenDate = root.todayIso()
                             }
                         }
@@ -990,75 +967,28 @@ Dialog {
                         Item { Layout.fillWidth: true }
                     }
 
-                    FieldRow {
+                    BeanDateField {
+                        id: frozenDateField
                         visible: root.fFreeze
                         labelKey: "changebeans.form.frozenDate"
                         labelFallback: "Frozen:"
-
-                        StyledTextField {
-                            id: frozenDateInput
-                            Layout.fillWidth: true
-                            text: root.fFrozenDate
-                            accessibleName: TranslationManager.translate("changebeans.form.frozenDate.accessible", "Frozen date")
-                            inputMethodHints: Qt.ImhDate
-                            inputMask: "9999-99-99"
-                            onTextEdited: root.fFrozenDate = text.replace(/_/g, "")
-                        }
-
-                        AccessibleButton {
-                            Layout.preferredWidth: Theme.scaled(44)
-                            Layout.preferredHeight: Theme.scaled(44)
-                            accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
-                            leftPadding: Theme.scaled(8)
-                            rightPadding: Theme.scaled(8)
-                            icon.source: "qrc:/emoji/1f4c5.svg"
-                            icon.width: Theme.scaled(20)
-                            icon.height: Theme.scaled(20)
-                            text: ""
-                            onClicked: frozenDatePicker.openWithDate(root.fFrozenDate)
-                        }
-
-                        DatePickerDialog {
-                            id: frozenDatePicker
-                            onDateSelected: function(dateString) { root.fFrozenDate = dateString }
-                        }
+                        value: root.fFrozenDate
+                        fieldAccessibleName: TranslationManager.translate("changebeans.form.frozenDate.accessible", "Frozen date.")
+                        calendarAccessibleName: TranslationManager.translate("changebeans.form.frozenDate.openCalendar", "Open calendar to pick frozen date")
+                        onValueEdited: root.fFrozenDate = dateString
                     }
 
                     // Defrost date is only directly editable in edit mode
                     // ("Next Portion" on the bag card is the everyday path)
-                    FieldRow {
+                    BeanDateField {
+                        id: defrostDateField
                         visible: root.fFreeze && root.formMode === "edit"
                         labelKey: "changebeans.form.defrostDate"
                         labelFallback: "Defrosted:"
-
-                        StyledTextField {
-                            id: defrostDateInput
-                            Layout.fillWidth: true
-                            text: root.fDefrostDate
-                            placeholder: TranslationManager.translate("changebeans.form.roastDate.placeholder", "yyyy-mm-dd (optional)")
-                            accessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Defrost date, optional")
-                            inputMethodHints: Qt.ImhDate
-                            inputMask: "9999-99-99"
-                            onTextEdited: root.fDefrostDate = text.replace(/_/g, "")
-                        }
-
-                        AccessibleButton {
-                            Layout.preferredWidth: Theme.scaled(44)
-                            Layout.preferredHeight: Theme.scaled(44)
-                            accessibleName: TranslationManager.translate("datepicker.openCalendar", "Open calendar")
-                            leftPadding: Theme.scaled(8)
-                            rightPadding: Theme.scaled(8)
-                            icon.source: "qrc:/emoji/1f4c5.svg"
-                            icon.width: Theme.scaled(20)
-                            icon.height: Theme.scaled(20)
-                            text: ""
-                            onClicked: defrostDatePicker.openWithDate(root.fDefrostDate)
-                        }
-
-                        DatePickerDialog {
-                            id: defrostDatePicker
-                            onDateSelected: function(dateString) { root.fDefrostDate = dateString }
-                        }
+                        value: root.fDefrostDate
+                        fieldAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Defrost date, optional.")
+                        calendarAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.openCalendar", "Open calendar to pick defrost date")
+                        onValueEdited: root.fDefrostDate = dateString
                     }
 
                     // --- Grinder setting + dose (the per-bag dial-in fields) ---
@@ -1222,6 +1152,126 @@ Dialog {
             Layout.alignment: Qt.AlignVCenter
             Layout.preferredWidth: Theme.scaled(85)
             Accessible.ignored: true
+        }
+    }
+
+    // Bean date entry row (roast / frozen / defrost): the labelled FieldRow plus a
+    // locale-aware date text field and a calendar-picker button. Single-sources the
+    // accessibility contract for bean dates:
+    //   - No inputMask. A masked field pre-fills a "____-__-__" skeleton that Qt
+    //     exposes via displayText() to the accessibility tree, so TalkBack/VoiceOver
+    //     announce a skeleton of blanks. This field starts genuinely empty instead.
+    //   - Entry order + separator follow the host locale (US month-first, most of
+    //     the world day-first, ISO year-first); the value is always STORED as ISO
+    //     yyyy-mm-dd — only the displayed order is localized.
+    //   - Digits-only keypad, separators inserted progressively as the user types.
+    // The caller binds `value` (ISO) and writes it back in onValueEdited (a signal,
+    // so the field never touches caller state).
+    component BeanDateField: FieldRow {
+        id: dateField
+
+        property string value: ""                  // stored ISO yyyy-mm-dd (or "")
+        property string fieldAccessibleName: ""
+        property string calendarAccessibleName: ""
+        // Exposes the text input so the dialog's KeyboardAwareContainer can track
+        // it and onOpened can focus it — same convention as roasterInput.textField.
+        property alias textField: dateInput
+        signal valueEdited(string dateString)      // emits ISO yyyy-mm-dd (or "")
+
+        // Locale-derived entry order/separator (pure helpers in DateUtils).
+        readonly property string _dateFormat: Qt.locale().dateFormat(Locale.ShortFormat)
+        readonly property var _order: DateUtils.dateOrderFromFormat(dateField._dateFormat)
+        readonly property string _sep: DateUtils.dateSeparatorFromFormat(dateField._dateFormat)
+        readonly property string _placeholder: dateField._order.map(function(k) {
+            return k === "y" ? "yyyy" : (k === "M" ? "mm" : "dd")
+        }).join(dateField._sep)
+        // Spoken order hint, fully translated: each segment word and the joiner are
+        // looked up here (QML can reach TranslationManager; DateUtils cannot), so a
+        // non-English screen reader hears the order in its own language.
+        readonly property string _orderHint:
+            TranslationManager.translate("dateentry.orderHint", "Enter %1.").replace("%1",
+                DateUtils.orderWords(dateField._order,
+                    ({ y: TranslationManager.translate("dateentry.segment.year", "year"),
+                       M: TranslationManager.translate("dateentry.segment.month", "month"),
+                       d: TranslationManager.translate("dateentry.segment.day", "day") }),
+                    TranslationManager.translate("dateentry.orderConnector", ", then ")))
+
+        StyledTextField {
+            id: dateInput
+            Layout.fillWidth: true
+            placeholder: dateField._placeholder
+            // Persistent label + spoken order + calendar hint, assembled via a
+            // translatable template so translators control ordering and spacing.
+            accessibleName: TranslationManager.translate("dateentry.fieldAccessible", "%1 %2 %3")
+                .replace("%1", dateField.fieldAccessibleName)
+                .replace("%2", dateField._orderHint)
+                .replace("%3", TranslationManager.translate("dateentry.calendarHint", "Or use the calendar button next to this field."))
+            inputMethodHints: Qt.ImhDigitsOnly | Qt.ImhPreferNumbers
+
+            // value (ISO) -> displayed localized text. Set imperatively, not via a
+            // `text:` binding, because user editing breaks a text binding; this
+            // Connections re-syncs the display whenever the stored value changes
+            // (calendar selection, form load/reset) and the user isn't mid-edit.
+            Component.onCompleted:
+                text = DateUtils.isoToLocalized(dateField.value, dateField._order, dateField._sep)
+            Connections {
+                target: dateField
+                function onValueChanged() {
+                    if (!dateInput.activeFocus)
+                        dateInput.text = DateUtils.isoToLocalized(dateField.value, dateField._order, dateField._sep)
+                }
+            }
+
+            // Progressive formatting: separators appear as segments fill. Reassigning
+            // `text` would send the caret to the end, so preserve it by the count of
+            // digits before the caret (stable across separator insertion) and restore
+            // it after reformatting — lets the user edit an earlier segment in place.
+            onTextEdited: {
+                var digitsBeforeCaret = text.substring(0, cursorPosition).replace(/\D/g, "").length
+                var formatted = DateUtils.formatAsTyped(text, dateField._order, dateField._sep)
+                if (formatted !== text)
+                    text = formatted
+                cursorPosition = DateUtils.caretForDigits(text, digitsBeforeCaret)
+            }
+
+            // Commit: parse localized -> ISO, store it, and reconcile the display so
+            // shown and stored can't diverge. Empty stores ""; a complete valid date
+            // stores its ISO; an incomplete/invalid entry is reverted to the stored
+            // value (never left diverging from what a subsequent Save would persist).
+            onEditingFinished: {
+                if (text.replace(/\D/g, "").length === 0) {
+                    dateField.valueEdited("")
+                    text = ""
+                    return
+                }
+                var iso = DateUtils.localizedToIso(text, dateField._order)
+                if (iso.length > 0) {
+                    dateField.valueEdited(iso)
+                    text = DateUtils.isoToLocalized(iso, dateField._order, dateField._sep)
+                } else {
+                    // Incomplete/invalid: revert to the stored value so the shown text
+                    // matches what Save would persist (no silent divergence).
+                    text = DateUtils.isoToLocalized(dateField.value, dateField._order, dateField._sep)
+                }
+            }
+        }
+
+        AccessibleButton {
+            Layout.preferredWidth: Theme.scaled(44)
+            Layout.preferredHeight: Theme.scaled(44)
+            accessibleName: dateField.calendarAccessibleName
+            leftPadding: Theme.scaled(8)
+            rightPadding: Theme.scaled(8)
+            icon.source: "qrc:/emoji/1f4c5.svg"
+            icon.width: Theme.scaled(20)
+            icon.height: Theme.scaled(20)
+            text: ""
+            onClicked: datePicker.openWithDate(dateField.value)
+        }
+
+        DatePickerDialog {
+            id: datePicker
+            onDateSelected: function(dateString) { dateField.valueEdited(dateString) }
         }
     }
 }
