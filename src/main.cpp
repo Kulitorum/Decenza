@@ -2946,6 +2946,11 @@ int main(int argc, char *argv[])
         }
         qDebug() << "[AppState] applicationStateChanged ->" << name;
 
+        // Gate BatteryManager's poll while suspended; re-arm on any other state
+        // so a missed Active transition can't strand it (see m_appActive in
+        // batterymanager.h for the full rationale).
+        batteryManager.setAppActive(state != Qt::ApplicationSuspended);
+
         if (state == Qt::ApplicationSuspended) {
             wasSuspended = true;
 

@@ -33,6 +33,17 @@ BatteryManager::BatteryManager(QObject* parent)
 // Setup
 // ─────────────────────────────────────────────────────────────────────────────
 
+void BatteryManager::setAppActive(bool active) {
+    if (m_appActive == active)
+        return;
+    m_appActive = active;
+    // One line per transition so the gap in the periodic battery telemetry is
+    // attributable from the log — a silently gated poll is indistinguishable
+    // from a frozen event loop otherwise.
+    qDebug() << "BatteryManager: poll" << (active ? "re-armed (app no longer suspended)"
+                                                  : "gated (app suspended)");
+}
+
 void BatteryManager::setDE1Device(DE1Device* device) {
     m_device = device;
 
@@ -41,6 +52,9 @@ void BatteryManager::setDE1Device(DE1Device* device) {
     // sit for up to a minute with its USB port in the wrong state — on at 70 % when we
     // want it off, for example. We only act on the rising edge (isConnected == true);
     // the disconnect edge is handled by the early return in applySmartCharging().
+    // If the DE1 reconnects while the app is suspended this apply is gated (see
+    // m_appActive) — resume re-runs checkBattery(), and the DE1's 10-minute
+    // auto-enable keeps the tablet charging in the interim.
     connect(device, &DE1Device::connectedChanged, this, [this]() {
         if (m_device && m_device->isConnected())
             checkBattery();
@@ -111,6 +125,11 @@ void BatteryManager::setChargingMode(int mode) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 void BatteryManager::checkBattery() {
+    // See m_appActive: nothing useful to poll while suspended, and it keeps
+    // JNI battery reads out of the suspend window.
+    if (!m_appActive)
+        return;
+
     int newPercent = readPlatformBatteryPercent();
 
     if (newPercent != m_batteryPercent) {

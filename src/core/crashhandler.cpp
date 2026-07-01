@@ -20,6 +20,10 @@
 #include <unwind.h>
 #include <dlfcn.h>
 #include <cxxabi.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <errno.h>
 #endif
 
 #if (defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)) || defined(Q_OS_MACOS) || defined(Q_OS_IOS)
@@ -36,6 +40,12 @@
 static char s_crashLogPath[512] = {0};
 static char s_debugLogPath[512] = {0};
 static char s_lastDebugMessage[4096] = {0};
+
+#ifdef Q_OS_ANDROID
+// "--pid=<N>" argument for logcat, precomputed in install() so the signal
+// handler never has to format it.
+static char s_logcatPidArg[32] = {0};
+#endif
 
 // Store recent debug messages for context
 static QtMessageHandler s_previousHandler = nullptr;
@@ -104,6 +114,83 @@ static void writeBacktraceToFile(FILE* f)
             fprintf(f, "  #%zu: %p\n", i, buffer[i]);
         }
     }
+}
+
+// Append the tail of this process's logcat to the crash log. The point is the
+// abort message: when ART kills us (JNI errors like global reference table
+// overflow, CheckJNI failures), it logs the FATAL reason — and for ref-table
+// overflow, a dump of the table's dominant classes — to logd *before* raising
+// SIGABRT. Our own qDebug log never sees that text, so without this section a
+// SIGABRT-from-ART report shows where we were, but not why ART aborted (#1408).
+//
+// An app may always read its own logs (logd filters by UID, no READ_LOGS
+// needed). fork() in a signal handler is not strictly async-signal-safe, but
+// between fork and exec the child calls only dup2/execl/_exit (all AS-safe;
+// the fd is captured before the fork) and the rest of this crash handler
+// already relies on far less safe machinery (stdio, demangling).
+//
+// Every outcome writes a distinct marker line: this section exists to explain
+// crashes, so an empty section must be attributable (exec denied vs. logd
+// rotated this pid out vs. capture killed) rather than read as "no entries".
+static void appendLogcatTailToFile(FILE* f)
+{
+    fprintf(f, "\nSystem log tail (logcat, includes ART abort message if any):\n");
+    // Flush stdio before the child writes to the shared file description so
+    // output doesn't interleave out of order.
+    fflush(f);
+    const int outFd = fileno(f);
+    const off_t startOffset = lseek(outFd, 0, SEEK_CUR);
+
+    pid_t child = fork();
+    if (child == 0) {
+        if (dup2(outFd, STDOUT_FILENO) < 0 || dup2(outFd, STDERR_FILENO) < 0)
+            _exit(126);
+        execl("/system/bin/logcat", "logcat", "-d", "-t", "200",
+              s_logcatPidArg, static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    if (child < 0) {
+        fprintf(f, "  (fork failed, no logcat capture)\n");
+        return;
+    }
+
+    // Bounded wait: logcat -d exits almost immediately, but never let a wedged
+    // child hang the crash handler. ~3 s cap, then kill and move on.
+    for (int i = 0; i < 60; ++i) {
+        int status = 0;
+        pid_t r = waitpid(child, &status, WNOHANG);
+        if (r == child) {
+            if (WIFEXITED(status) && WEXITSTATUS(status) == 127)
+                fprintf(f, "  (logcat exec failed — no capture)\n");
+            else if (WIFEXITED(status) && WEXITSTATUS(status) == 126)
+                fprintf(f, "  (dup2 failed in capture child — no capture)\n");
+            else if (WIFSIGNALED(status))
+                fprintf(f, "  (logcat died on signal %d)\n", WTERMSIG(status));
+            else if (lseek(outFd, 0, SEEK_CUR) == startOffset)
+                fprintf(f, "  (logcat ran but wrote nothing — entries for this pid may have rotated out of logd)\n");
+            else
+                fprintf(f, "  (end of logcat tail)\n");
+            return;
+        }
+        if (r < 0) {
+            // ECHILD (e.g. SIGCHLD set to SIG_IGN elsewhere in the process):
+            // we can no longer observe the child, so make sure it isn't still
+            // writing into this file while we finish the report.
+            kill(child, SIGKILL);
+            fprintf(f, "  (waitpid failed, errno=%d — log tail above may be incomplete)\n", errno);
+            return;
+        }
+        struct timespec ts = {0, 50 * 1000 * 1000};  // 50 ms
+        nanosleep(&ts, nullptr);
+    }
+    // Timed out. Kill and reap best-effort only — a blocking waitpid here could
+    // hang the whole crash handler on a child stuck in uninterruptible sleep,
+    // which on a distressed device is exactly when this code runs.
+    kill(child, SIGKILL);
+    struct timespec ts = {0, 50 * 1000 * 1000};  // 50 ms
+    nanosleep(&ts, nullptr);
+    waitpid(child, nullptr, WNOHANG);
+    fprintf(f, "  (logcat killed after 3s — output above may be truncated or missing)\n");
 }
 #endif
 
@@ -200,6 +287,12 @@ void CrashHandler::writeCrashLog(int signal, const char* signalName)
     fprintf(f, "\nBacktrace: not available on this platform\n");
 #endif
 
+#ifdef Q_OS_ANDROID
+    // Only into crash.log (which becomes the report's "Crash Log" section) —
+    // not into the debug.log copy below, whose tail is submitted separately.
+    appendLogcatTailToFile(f);
+#endif
+
     fprintf(f, "\n=== END CRASH REPORT ===\n");
     fflush(f);
     fclose(f);
@@ -260,6 +353,10 @@ void CrashHandler::install()
     QString debugPath = dataPath + "/debug.log";
     QByteArray debugPathBytes = debugPath.toUtf8();
     strncpy(s_debugLogPath, debugPathBytes.constData(), sizeof(s_debugLogPath) - 1);
+
+#ifdef Q_OS_ANDROID
+    snprintf(s_logcatPidArg, sizeof(s_logcatPidArg), "--pid=%d", getpid());
+#endif
 
     qDebug() << "CrashHandler: Installing signal handlers, crash log path:" << logPath;
 

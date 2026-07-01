@@ -84,6 +84,10 @@ public:
     // the tablet can charge while the app is not running. Matches de1app behaviour.
     void ensureChargerOn();
 
+    // Call from the applicationStateChanged handler: false on Suspended, true on
+    // any other state. While false, checkBattery() is a no-op — see m_appActive.
+    void setAppActive(bool active);
+
 public slots:
     // Change the smart charging mode and apply it immediately. Persists to QSettings.
     void setChargingMode(int mode);
@@ -119,6 +123,29 @@ private:
     DE1Device* m_device   = nullptr;
     Settings*  m_settings = nullptr;
     QTimer     m_checkTimer;  // Fires every 60 s to run checkBattery()
+
+    // Suspend gate for the poll. m_checkTimer keeps ticking on its own 60 s
+    // cadence regardless of app lifecycle state, so its callback can land after
+    // applicationStateChanged reports Suspended but before Android freezes the
+    // event loop. There's nothing useful for the poll to do in that window:
+    // ensureChargerOn() runs later in the same suspend handler — before the
+    // event loop can deliver a gated tick — and commands the DE1 USB port ON
+    // when the DE1 is connected (when it isn't, the DE1's own 10-minute
+    // auto-enable restores the port by itself); the UI isn't visible; and
+    // main.cpp re-runs checkBattery() on resume. Skipping also keeps JNI work
+    // out of the suspend window — the poll's JNI allocation is where crash
+    // #1408 surfaced (its stack aborts inside ART's AddGlobalRef, whose FATAL
+    // path is global-ref table overflow, i.e. a slow leak elsewhere; the gate
+    // removes the suspended-poll trigger, it does not fix such a leak).
+    //
+    // main.cpp re-arms the gate on ANY non-Suspended state, not just Active —
+    // a resume can land on Inactive and stay there (split-screen with the
+    // other window focused, focus-stealing overlays), and a gate that waits
+    // for the literal Active transition would strand the poll off while the
+    // app is visible: battery display frozen and, worse, smart charging no
+    // longer reasserting port-OFF, so the DE1's 10-minute auto-enable would
+    // quietly charge the tablet past the configured ceiling.
+    bool m_appActive = true;
 
     int  m_batteryPercent = 100;
     bool m_isCharging     = true;
