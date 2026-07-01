@@ -1,5 +1,102 @@
 .pragma library
 
+// ---------------------------------------------------------------------------
+// Locale-aware date entry helpers.
+//
+// The field DISPLAYS/ACCEPTS dates in the host locale's order (US month-first,
+// most of the world day-first, ISO year-first) but STORES them as ISO
+// yyyy-mm-dd. The order/separator functions below are pure and take the locale
+// short-format string as input (the QML caller obtains it via
+// `Qt.locale().dateFormat(Locale.ShortFormat)`), which keeps them unit-testable
+// without a live locale and avoids referencing the `Locale` enum inside this
+// .pragma library.
+// ---------------------------------------------------------------------------
+
+function _pad2(n) { return String(n).padStart(2, '0') }
+
+// Parse a locale short-format pattern (e.g. "M/d/yy", "dd/MM/yyyy", "yyyy/M/d")
+// into an ordered array of segment tokens: subset/permutation of ["y","M","d"].
+// Falls back to ISO order ["y","M","d"] when the pattern can't be parsed.
+function dateOrderFromFormat(fmt) {
+    if (!fmt) return ["y", "M", "d"]
+    var order = []
+    var seen = {}
+    for (var i = 0; i < fmt.length; i++) {
+        var c = fmt.charAt(i)
+        var token = (c === 'y' || c === 'Y') ? "y"
+                  : (c === 'M') ? "M"
+                  : (c === 'd') ? "d" : ""
+        if (token && !seen[token]) { seen[token] = true; order.push(token) }
+    }
+    return order.length === 3 ? order : ["y", "M", "d"]
+}
+
+// Extract the separator run from a locale short-format pattern. Returns the
+// first non-letter character (/, -, .). Falls back to "-" (ISO).
+function dateSeparatorFromFormat(fmt) {
+    if (!fmt) return "-"
+    var m = /[^A-Za-z]/.exec(fmt)
+    return m ? m[0] : "-"
+}
+
+// Human-readable order for the accessible description, e.g. "month, then day,
+// then year". `order` is the array from dateOrderFromFormat.
+function orderWords(order) {
+    var words = { y: "year", M: "month", d: "day" }
+    var out = (order && order.length === 3) ? order : ["y", "M", "d"]
+    return out.map(function (k) { return words[k] }).join(", then ")
+}
+
+// Progressive "format as you type": given the current text, strip to digits and
+// re-insert the separator as each segment (year=4 digits, month/day=2) fills.
+// Separators are only appended after complete segments, so nothing is injected
+// ahead of a segment the user has not reached yet.
+function formatAsTyped(text, order, separator) {
+    var digits = (text || "").replace(/\D/g, "")
+    var ord = (order && order.length === 3) ? order : ["y", "M", "d"]
+    var out = ""
+    var idx = 0
+    for (var i = 0; i < ord.length && idx < digits.length; i++) {
+        var len = ord[i] === "y" ? 4 : 2
+        var seg = digits.substr(idx, len)
+        if (i > 0 && out.length > 0) out += separator
+        out += seg
+        idx += len
+        if (seg.length < len) break   // segment incomplete — no trailing separator
+    }
+    return out
+}
+
+// Parse a completed localized entry to ISO yyyy-mm-dd using the locale order.
+// Returns "" for blank OR for anything that isn't a valid, complete date, so an
+// incomplete/garbage entry never corrupts the stored value.
+function localizedToIso(text, order) {
+    if (!text) return ""
+    var nums = (text.split(/\D+/)).filter(function (s) { return s.length > 0 })
+    if (nums.length !== 3) return ""
+    var ord = (order && order.length === 3) ? order : ["y", "M", "d"]
+    var seg = {}
+    for (var i = 0; i < 3; i++) seg[ord[i]] = parseInt(nums[i], 10)
+    var y = seg["y"], mo = seg["M"], d = seg["d"]
+    if (isNaN(y) || isNaN(mo) || isNaN(d)) return ""
+    if (y < 100) y += 2000           // 2-digit year → 20xx
+    if (y < 1900 || y > 2100) return ""
+    if (mo < 1 || mo > 12) return ""
+    if (d < 1 || d > 31) return ""
+    return y + "-" + _pad2(mo) + "-" + _pad2(d)
+}
+
+// Render a stored ISO yyyy-mm-dd date in the locale order/separator for display.
+// Returns "" for blank; returns the input unchanged if it isn't ISO-shaped.
+function isoToLocalized(iso, order, separator) {
+    if (!iso) return ""
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+    if (!m) return iso
+    var v = { y: m[1], M: m[2], d: m[3] }
+    var ord = (order && order.length === 3) ? order : ["y", "M", "d"]
+    return ord.map(function (k) { return v[k] }).join(separator || "-")
+}
+
 // Attempt to normalize a date string to yyyy-mm-dd format.
 // Handles common wrong formats such as m/d/yyyy, mm/dd/yyyy, d/m/yyyy,
 // and yyyy/mm/dd (correct digits, wrong separator).

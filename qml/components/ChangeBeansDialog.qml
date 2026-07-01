@@ -912,8 +912,7 @@ Dialog {
                         labelKey: "changebeans.form.roastDate"
                         labelFallback: "Roasted:"
                         value: root.fRoastDate
-                        placeholder: TranslationManager.translate("changebeans.form.roastDate.placeholder", "yyyy-mm-dd (optional)")
-                        fieldAccessibleName: TranslationManager.translate("changebeans.form.roastDate.accessible", "Roast date, optional. Enter year, then month, then day, or use the calendar button next to this field.")
+                        fieldAccessibleName: TranslationManager.translate("changebeans.form.roastDate.accessible", "Roast date, optional.")
                         calendarAccessibleName: TranslationManager.translate("changebeans.form.roastDate.openCalendar", "Open calendar to pick roast date")
                         onValueEdited: root.fRoastDate = dateString
                     }
@@ -974,7 +973,7 @@ Dialog {
                         labelKey: "changebeans.form.frozenDate"
                         labelFallback: "Frozen:"
                         value: root.fFrozenDate
-                        fieldAccessibleName: TranslationManager.translate("changebeans.form.frozenDate.accessible", "Frozen date. Enter year, then month, then day, or use the calendar button next to this field.")
+                        fieldAccessibleName: TranslationManager.translate("changebeans.form.frozenDate.accessible", "Frozen date.")
                         calendarAccessibleName: TranslationManager.translate("changebeans.form.frozenDate.openCalendar", "Open calendar to pick frozen date")
                         onValueEdited: root.fFrozenDate = dateString
                     }
@@ -987,8 +986,7 @@ Dialog {
                         labelKey: "changebeans.form.defrostDate"
                         labelFallback: "Defrosted:"
                         value: root.fDefrostDate
-                        placeholder: TranslationManager.translate("changebeans.form.roastDate.placeholder", "yyyy-mm-dd (optional)")
-                        fieldAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Defrost date, optional. Enter year, then month, then day, or use the calendar button next to this field.")
+                        fieldAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Defrost date, optional.")
                         calendarAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.openCalendar", "Open calendar to pick defrost date")
                         onValueEdited: root.fDefrostDate = dateString
                     }
@@ -1158,37 +1156,79 @@ Dialog {
     }
 
     // Bean date entry row (roast / frozen / defrost): the labelled FieldRow plus a
-    // date text field and a calendar-picker button. Single-sources the accessibility
-    // contract for bean dates: the input mask is dropped while a screen reader is
-    // active — TalkBack/VoiceOver read its unfilled "____-__-__" skeleton aloud
-    // character-by-character, which makes the field unusable — and free-text entry
-    // is normalized on commit. Sighted users keep the mask, which guides and
-    // validates typing. The caller binds `value` to its backing string and writes
-    // it back in onValueEdited (a signal, so the field never touches caller state).
+    // locale-aware date text field and a calendar-picker button. Single-sources the
+    // accessibility contract for bean dates:
+    //   - No inputMask. A masked field pre-fills a "____-__-__" skeleton that Qt
+    //     exposes via displayText() to the accessibility tree, so TalkBack/VoiceOver
+    //     announce a skeleton of blanks. This field starts genuinely empty instead.
+    //   - Entry order + separator follow the host locale (US month-first, most of
+    //     the world day-first, ISO year-first); the value is always STORED as ISO
+    //     yyyy-mm-dd — only the displayed order is localized.
+    //   - Digits-only keypad, separators inserted progressively as the user types.
+    // The caller binds `value` (ISO) and writes it back in onValueEdited (a signal,
+    // so the field never touches caller state).
     component BeanDateField: FieldRow {
         id: dateField
 
-        property string value: ""
-        property string placeholder: ""
+        property string value: ""                  // stored ISO yyyy-mm-dd (or "")
         property string fieldAccessibleName: ""
         property string calendarAccessibleName: ""
         // Exposes the text input so the dialog's KeyboardAwareContainer can track
         // it and onOpened can focus it — same convention as roasterInput.textField.
         property alias textField: dateInput
-        signal valueEdited(string dateString)
+        signal valueEdited(string dateString)      // emits ISO yyyy-mm-dd (or "")
 
-        readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
+        // Locale-derived entry order/separator (pure helpers in DateUtils).
+        readonly property string _dateFormat: Qt.locale().dateFormat(Locale.ShortFormat)
+        readonly property var _order: DateUtils.dateOrderFromFormat(dateField._dateFormat)
+        readonly property string _sep: DateUtils.dateSeparatorFromFormat(dateField._dateFormat)
+        readonly property string _placeholder: dateField._order.map(function(k) {
+            return k === "y" ? "yyyy" : (k === "M" ? "mm" : "dd")
+        }).join(dateField._sep)
+        readonly property string _orderHint:
+            TranslationManager.translate("dateentry.orderHint", "Enter %1.")
+                .replace("%1", DateUtils.orderWords(dateField._order))
 
         StyledTextField {
             id: dateInput
             Layout.fillWidth: true
-            text: dateField.value
-            placeholder: dateField.placeholder
-            accessibleName: dateField.fieldAccessibleName
-            inputMethodHints: Qt.ImhDate
-            inputMask: dateField._accessibilityMode ? "" : "9999-99-99"
-            onTextEdited: dateField.valueEdited(text.replace(/_/g, ""))
-            onEditingFinished: dateField.valueEdited(DateUtils.normalizeDateString(text.replace(/_/g, "")))
+            placeholder: dateField._placeholder
+            // Persistent label (from caller) + spoken order (locale) + calendar hint.
+            accessibleName: dateField.fieldAccessibleName + " " + dateField._orderHint + " "
+                + TranslationManager.translate("dateentry.calendarHint", "Or use the calendar button next to this field.")
+            inputMethodHints: Qt.ImhDigitsOnly | Qt.ImhPreferNumbers
+
+            // value (ISO) -> displayed localized text. Set imperatively, not via a
+            // `text:` binding, because user editing breaks a text binding; this
+            // Connections re-syncs the display whenever the stored value changes
+            // (calendar selection, form load/reset) and the user isn't mid-edit.
+            Component.onCompleted:
+                text = DateUtils.isoToLocalized(dateField.value, dateField._order, dateField._sep)
+            Connections {
+                target: dateField
+                function onValueChanged() {
+                    if (!dateInput.activeFocus)
+                        dateInput.text = DateUtils.isoToLocalized(dateField.value, dateField._order, dateField._sep)
+                }
+            }
+
+            // Progressive formatting: separators appear as segments fill. The
+            // digits-only keypad means the user types only numbers; DateUtils adds
+            // the separators (never ahead of the caret).
+            onTextEdited: text = DateUtils.formatAsTyped(text, dateField._order, dateField._sep)
+
+            // Commit: parse localized -> ISO, store it, and reconcile the display so
+            // shown and stored can't diverge. A cleared field stores ""; an invalid
+            // partial is left as typed for correction and does NOT overwrite value.
+            onEditingFinished: {
+                var iso = DateUtils.localizedToIso(text, dateField._order)
+                if (iso.length > 0) {
+                    dateField.valueEdited(iso)
+                    text = DateUtils.isoToLocalized(iso, dateField._order, dateField._sep)
+                } else if (text.replace(/\D/g, "").length === 0) {
+                    dateField.valueEdited("")
+                }
+            }
         }
 
         AccessibleButton {
