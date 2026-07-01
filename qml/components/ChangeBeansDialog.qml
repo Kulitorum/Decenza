@@ -341,7 +341,7 @@ Dialog {
         var fields = {
             "roasterName": fRoaster.trim(),
             "coffeeName": fCoffee.trim(),
-            "roastDate": fRoastDate.replace(/_/g, "").length === 10 ? fRoastDate : "",
+            "roastDate": fRoastDate.length === 10 ? fRoastDate : "",
             "roastLevel": fRoastLevel,
             "beanBaseId": fBeanBaseId,
             "beanBaseData": fBeanBaseData,
@@ -350,10 +350,10 @@ Dialog {
             "doseWeightG": parseWeight(fDose),
             "yieldOverrideG": parseWeight(fYield),
             "notes": fNotes,
-            "frozenDate": fFreeze ? (fFrozenDate.replace(/_/g, "").length === 10 ? fFrozenDate : todayIso()) : ""
+            "frozenDate": fFreeze ? (fFrozenDate.length === 10 ? fFrozenDate : todayIso()) : ""
         }
         if (formMode === "edit") {
-            fields["defrostDate"] = fFreeze ? (fDefrostDate.replace(/_/g, "").length === 10 ? fDefrostDate : "") : ""
+            fields["defrostDate"] = fFreeze ? (fDefrostDate.length === 10 ? fDefrostDate : "") : ""
             // Re-point the bag's equipment package (<=0 -> NULL via the column hook).
             fields["equipmentId"] = fEquipmentId
             // A link change fixes the whole bag: propagate the (new or
@@ -959,7 +959,7 @@ Dialog {
                             accessibleName: TranslationManager.translate("changebeans.form.freeze.accessible", "Track this bag as frozen")
                             onToggled: {
                                 root.fFreeze = checked
-                                if (checked && root.fFrozenDate.replace(/_/g, "").length !== 10)
+                                if (checked && root.fFrozenDate.length !== 10)
                                     root.fFrozenDate = root.todayIso()
                             }
                         }
@@ -1185,17 +1185,27 @@ Dialog {
         readonly property string _placeholder: dateField._order.map(function(k) {
             return k === "y" ? "yyyy" : (k === "M" ? "mm" : "dd")
         }).join(dateField._sep)
+        // Spoken order hint, fully translated: each segment word and the joiner are
+        // looked up here (QML can reach TranslationManager; DateUtils cannot), so a
+        // non-English screen reader hears the order in its own language.
         readonly property string _orderHint:
-            TranslationManager.translate("dateentry.orderHint", "Enter %1.")
-                .replace("%1", DateUtils.orderWords(dateField._order))
+            TranslationManager.translate("dateentry.orderHint", "Enter %1.").replace("%1",
+                DateUtils.orderWords(dateField._order,
+                    ({ y: TranslationManager.translate("dateentry.segment.year", "year"),
+                       M: TranslationManager.translate("dateentry.segment.month", "month"),
+                       d: TranslationManager.translate("dateentry.segment.day", "day") }),
+                    TranslationManager.translate("dateentry.orderConnector", ", then ")))
 
         StyledTextField {
             id: dateInput
             Layout.fillWidth: true
             placeholder: dateField._placeholder
-            // Persistent label (from caller) + spoken order (locale) + calendar hint.
-            accessibleName: dateField.fieldAccessibleName + " " + dateField._orderHint + " "
-                + TranslationManager.translate("dateentry.calendarHint", "Or use the calendar button next to this field.")
+            // Persistent label + spoken order + calendar hint, assembled via a
+            // translatable template so translators control ordering and spacing.
+            accessibleName: TranslationManager.translate("dateentry.fieldAccessible", "%1 %2 %3")
+                .replace("%1", dateField.fieldAccessibleName)
+                .replace("%2", dateField._orderHint)
+                .replace("%3", TranslationManager.translate("dateentry.calendarHint", "Or use the calendar button next to this field."))
             inputMethodHints: Qt.ImhDigitsOnly | Qt.ImhPreferNumbers
 
             // value (ISO) -> displayed localized text. Set imperatively, not via a
@@ -1212,21 +1222,36 @@ Dialog {
                 }
             }
 
-            // Progressive formatting: separators appear as segments fill. The
-            // digits-only keypad means the user types only numbers; DateUtils adds
-            // the separators (never ahead of the caret).
-            onTextEdited: text = DateUtils.formatAsTyped(text, dateField._order, dateField._sep)
+            // Progressive formatting: separators appear as segments fill. Reassigning
+            // `text` would send the caret to the end, so preserve it by the count of
+            // digits before the caret (stable across separator insertion) and restore
+            // it after reformatting — lets the user edit an earlier segment in place.
+            onTextEdited: {
+                var digitsBeforeCaret = text.substring(0, cursorPosition).replace(/\D/g, "").length
+                var formatted = DateUtils.formatAsTyped(text, dateField._order, dateField._sep)
+                if (formatted !== text)
+                    text = formatted
+                cursorPosition = DateUtils.caretForDigits(text, digitsBeforeCaret)
+            }
 
             // Commit: parse localized -> ISO, store it, and reconcile the display so
-            // shown and stored can't diverge. A cleared field stores ""; an invalid
-            // partial is left as typed for correction and does NOT overwrite value.
+            // shown and stored can't diverge. Empty stores ""; a complete valid date
+            // stores its ISO; an incomplete/invalid entry is reverted to the stored
+            // value (never left diverging from what a subsequent Save would persist).
             onEditingFinished: {
+                if (text.replace(/\D/g, "").length === 0) {
+                    dateField.valueEdited("")
+                    text = ""
+                    return
+                }
                 var iso = DateUtils.localizedToIso(text, dateField._order)
                 if (iso.length > 0) {
                     dateField.valueEdited(iso)
                     text = DateUtils.isoToLocalized(iso, dateField._order, dateField._sep)
-                } else if (text.replace(/\D/g, "").length === 0) {
-                    dateField.valueEdited("")
+                } else {
+                    // Incomplete/invalid: revert to the stored value so the shown text
+                    // matches what Save would persist (no silent divergence).
+                    text = DateUtils.isoToLocalized(dateField.value, dateField._order, dateField._sep)
                 }
             }
         }

@@ -31,20 +31,44 @@ function dateOrderFromFormat(fmt) {
     return order.length === 3 ? order : ["y", "M", "d"]
 }
 
-// Extract the separator run from a locale short-format pattern. Returns the
-// first non-letter character (/, -, .). Falls back to "-" (ISO).
+// Extract the separator from a locale short-format pattern. Prefers a
+// conventional ASCII date separator (/, -, .). Locales that separate segments
+// with words (e.g. CJK "yyyy年M月d日") have no ASCII separator, so fall back to
+// "-" rather than surfacing a stray ideograph between segments. Falls back to
+// "-" (ISO) when nothing matches.
 function dateSeparatorFromFormat(fmt) {
     if (!fmt) return "-"
-    var m = /[^A-Za-z]/.exec(fmt)
+    var m = /[-\/.]/.exec(fmt)
     return m ? m[0] : "-"
 }
 
 // Human-readable order for the accessible description, e.g. "month, then day,
-// then year". `order` is the array from dateOrderFromFormat.
-function orderWords(order) {
-    var words = { y: "year", M: "month", d: "day" }
+// then year". `order` is the array from dateOrderFromFormat. `words` maps each
+// token (y/M/d) to a localized word and `connector` is the localized joiner —
+// both are supplied by the QML caller (which can reach TranslationManager),
+// keeping this .pragma library free of translation lookups. Defaults are
+// English so the function stays usable/testable without a caller.
+function orderWords(order, words, connector) {
+    var w = words || { y: "year", M: "month", d: "day" }
+    var c = (connector !== undefined && connector !== null) ? connector : ", then "
     var out = (order && order.length === 3) ? order : ["y", "M", "d"]
-    return out.map(function (k) { return words[k] }).join(", then ")
+    return out.map(function (k) { return w[k] }).join(c)
+}
+
+// Caret index in `text` just after the Nth digit. Lets a progressive-format
+// reassignment restore the caret to the digit the user was editing instead of
+// forcing it to the end of the field.
+function caretForDigits(text, n) {
+    if (n <= 0) return 0
+    var count = 0
+    for (var i = 0; i < text.length; i++) {
+        var ch = text.charAt(i)
+        if (ch >= '0' && ch <= '9') {
+            count++
+            if (count === n) return i + 1
+        }
+    }
+    return text.length
 }
 
 // Progressive "format as you type": given the current text, strip to digits and
