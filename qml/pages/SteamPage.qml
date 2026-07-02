@@ -2065,6 +2065,21 @@ Page {
         }
     }
 
+    // Live during-steam coaching cues (stretch -> roll -> almost -> stop), driven
+    // by LiveSteamCoach off the elapsed steam time. Self-gates on an active cue and
+    // speaks via AccessibilityManager; only shows while steaming.
+    LiveCoachingBanner {
+        z: 1000
+        anchors.top: parent.top
+        anchors.topMargin: Theme.scaled(110)
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: Theme.spacingMedium
+        anchors.rightMargin: Theme.spacingMedium
+        coach: MainController.liveSteamCoach
+        coachEnabled: Settings.app.liveSteamCoachingEnabled
+    }
+
     // Small flashing reminder while the milk pitcher is settling on the scale
     // (something is on the scale but the capture hasn't fired yet). Disappears
     // the instant it captures (the bell rings).

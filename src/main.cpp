@@ -609,6 +609,7 @@ int main(int argc, char *argv[])
     MainController mainController(&sharedNetworkManager, &settings, &de1Device, &machineState, &shotDataModel, &profileStorage);
     mainController.setSteamDataModel(&steamDataModel);
     mainController.setSteamHealthTracker(&steamHealthTracker);
+    mainController.setTranslationManager(&translationManager);  // for LiveSteamCoach cue i18n
     checkpoint("MainController");
 
     // Publishes machine phase/temp/last-shot to platform-shared storage for
