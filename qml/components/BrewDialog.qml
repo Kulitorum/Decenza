@@ -388,19 +388,22 @@ Dialog {
                     ValueInput {
                         id: tempInput
                         Layout.fillWidth: true
+                        // The offset is entered/shown in the user's unit (a delta scales
+                        // ×9/5 for °F, no origin shift); stored back as a Celsius delta.
                         readonly property real delta: root.temperatureValue - root.profileTemperature
-                        value: delta
-                        from: 70 - root.profileTemperature
-                        to: 100 - root.profileTemperature
+                        readonly property real displayDelta: Theme.cDeltaToDisplay(delta)
+                        value: displayDelta
+                        from: Theme.cDeltaToDisplay(70 - root.profileTemperature)
+                        to: Theme.cDeltaToDisplay(100 - root.profileTemperature)
                         stepSize: 1
                         decimals: 0
                         suffix: "°"
-                        displayText: (delta > 0 ? "+" : "") + delta.toFixed(0) + "°"
+                        displayText: (displayDelta > 0 ? "+" : "") + displayDelta.toFixed(0) + "°"
                         valueColor: Math.abs(delta) > 0.1 ? Theme.temperatureColor : Theme.textSecondaryColor
                         accentColor: Theme.temperatureColor
                         accessibleName: TranslationManager.translate("brewDialog.brewTempDelta", "Brew temperature offset")
                         onValueModified: function(newValue) {
-                            root.temperatureValue = root.profileTemperature + newValue
+                            root.temperatureValue = root.profileTemperature + Theme.displayToCDelta(newValue)
                         }
                     }
 
@@ -430,8 +433,13 @@ Dialog {
                     id: tempSubtext
                     readonly property bool tempPending: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
                     visible: root.profileTemperature > 0
-                    text: TranslationManager.translate("brewDialog.profileTempStructure", "Profile: %1")
-                        .arg(ProfileManager.temperatureDisplay(root.profileTemperature, tempPending, root.temperatureValue))
+                    text: {
+                        // temperatureDisplay() reads the C/F unit in C++ (not a QML-
+                        // capturable dependency), so read it here to re-evaluate on switch.
+                        void(Settings.app.temperatureUnit)
+                        return TranslationManager.translate("brewDialog.profileTempStructure", "Profile: %1")
+                            .arg(ProfileManager.temperatureDisplay(root.profileTemperature, tempPending, root.temperatureValue))
+                    }
                     font.family: Theme.bodyFont.family
                     font.pixelSize: Theme.scaled(14)
                     font.italic: true

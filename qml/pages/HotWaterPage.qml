@@ -713,20 +713,23 @@ Page {
                         ValueInput {
                             id: temperatureInput
                             Layout.preferredWidth: Theme.scaled(180)
-                            value: Settings.brew.waterTemperature
-                            from: 40
-                            to: 100
+                            // Stored in Celsius; shown and entered in the user's unit.
+                            value: Theme.cToDisplay(Settings.brew.waterTemperature)
+                            from: Theme.cToDisplay(40)
+                            to: Theme.cToDisplay(100)
                             stepSize: 1
-                            suffix: "°C"
+                            suffix: Theme.tempUnitSuffix()
                             valueColor: Theme.temperatureColor
                             accessibleName: TranslationManager.translate("hotwater.label.temperature", "Temperature")
                             KeyNavigation.tab: flowRateInput
                             KeyNavigation.backtab: volumeInput
 
                             onValueModified: function(newValue) {
-                                temperatureInput.value = newValue
-                                Settings.brew.waterTemperature = newValue
-                                saveCurrentVessel(volumeInput.value, flowRateInput.value, newValue)
+                                // Convert the entered display value back to Celsius for storage;
+                                // the bound value re-derives from the setting via cToDisplay.
+                                var celsius = Theme.displayToC(newValue)
+                                Settings.brew.waterTemperature = celsius
+                                saveCurrentVessel(volumeInput.value, flowRateInput.value, celsius)
                             }
                             onValueCommitted: MainController.applyHotWaterSettings()
                         }
@@ -797,7 +800,7 @@ Page {
         }
         Rectangle { width: 1; height: Theme.scaled(30); color: hotWaterBottomBar.contentColor; opacity: 0.3 }
         Text {
-            text: temperatureInput.value.toFixed(0) + "°C"
+            text: temperatureInput.value.toFixed(0) + Theme.tempUnitSuffix()
             color: hotWaterBottomBar.contentColor
             font: Theme.bodyFont
         }

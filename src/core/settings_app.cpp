@@ -479,6 +479,27 @@ void SettingsApp::setWaterLevelDisplayUnit(const QString& unit) {
     }
 }
 
+// Temperature display unit. Default Celsius; all internal storage stays Celsius.
+QString SettingsApp::temperatureUnit() const {
+    return m_settings.value("display/temperatureUnit", "celsius").toString();
+}
+
+void SettingsApp::setTemperatureUnit(const QString& unit) {
+    // Normalise + whitelist so a malformed value (e.g. from an imported settings
+    // file during device-to-device migration) can't be stored and silently
+    // re-exported as garbage. Anything outside {celsius, fahrenheit} degrades to
+    // celsius — loudly, not silently.
+    QString normalized = unit.trimmed().toLower();
+    if (normalized != QLatin1String("celsius") && normalized != QLatin1String("fahrenheit")) {
+        qWarning() << "SettingsApp: invalid temperatureUnit" << unit << "- coercing to celsius";
+        normalized = QStringLiteral("celsius");
+    }
+    if (temperatureUnit() != normalized) {
+        m_settings.setValue("display/temperatureUnit", normalized);
+        emit temperatureUnitChanged();
+    }
+}
+
 int SettingsApp::waterRefillPoint() const {
     return m_settings.value("water/refillPoint", 5).toInt();
 }

@@ -542,7 +542,7 @@ Item {
 
                                 Text {
                                     text: TranslationManager.translate("settings.calibration.steamTemperature", "Temperature") +
-                                          ": " + SteamHealthTracker.currentTemperature.toFixed(0) + "°C"
+                                          ": " + Theme.formatTemperature(SteamHealthTracker.currentTemperature, 0)
                                     color: {
                                         var range = SteamHealthTracker.temperatureThreshold - SteamHealthTracker.baselineTemperature
                                         if (range <= 0) return Theme.textColor
@@ -560,8 +560,8 @@ Item {
                                 Item { Layout.fillWidth: true }
 
                                 Text {
-                                    text: SteamHealthTracker.baselineTemperature.toFixed(0) + " — " +
-                                          SteamHealthTracker.temperatureThreshold.toFixed(0) + "°C"
+                                    text: Theme.cToDisplay(SteamHealthTracker.baselineTemperature).toFixed(0) + " — " +
+                                          Theme.formatTemperature(SteamHealthTracker.temperatureThreshold, 0)
                                     color: Theme.textSecondaryColor
                                     font.family: Theme.bodyFont.family
                                     font.pixelSize: Theme.scaled(11)
@@ -760,7 +760,10 @@ Item {
 
                 // Heater idle temperature
                 Text { text: TranslationManager.translate("settings.calibration.heaterIdleTemp", "Heater idle temperature"); font: Theme.captionFont; color: Theme.temperatureColor }
-                ValueInput { id: heaterIdleTempSlider; Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.heaterIdleTemp", "Heater idle temperature"); from: 0; to: 990; stepSize: 5; displayText: (value / 10).toFixed(1) + "\u00B0C"; rangeText: "0.0\u00B0C \u2014 99.0\u00B0C"; value: Settings.hardware.heaterIdleTemp; onValueModified: function(newValue) { Settings.hardware.heaterIdleTemp = Math.round(newValue) }; KeyNavigation.tab: heaterWarmupFlowSlider; KeyNavigation.backtab: doneButton }
+                // Slider mechanics stay in the internal scaled-integer space (value = \u00B0C \u00D7 10,
+                // 0\u2013990). Only the human-readable \u00B0C/\u00B0F label is unit-converted: value/10 is the
+                // Celsius reading, fed through cToDisplay; the stored scaled int is untouched.
+                ValueInput { id: heaterIdleTempSlider; Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.heaterIdleTemp", "Heater idle temperature"); from: 0; to: 990; stepSize: 5; displayText: Theme.cToDisplay(value / 10).toFixed(1) + Theme.tempUnitSuffix(); rangeText: Theme.formatTemperature(0, 1) + " \u2014 " + Theme.formatTemperature(99, 1); value: Settings.hardware.heaterIdleTemp; onValueModified: function(newValue) { Settings.hardware.heaterIdleTemp = Math.round(newValue) }; KeyNavigation.tab: heaterWarmupFlowSlider; KeyNavigation.backtab: doneButton }
 
                 // Heater warmup flow rate
                 Text { text: TranslationManager.translate("settings.calibration.heaterWarmupFlow", "Heater warmup flow rate"); font: Theme.captionFont; color: Theme.flowColor }
@@ -777,7 +780,11 @@ Item {
                 // Fan temperature threshold: 0 = "Always on" (fan runs continuously,
                 // matching DE1 firmware default); 1–60 suppresses fan below that temp.
                 Text { text: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); font: Theme.captionFont; color: Theme.temperatureColor }
-                ValueInput { id: fanThresholdSlider; Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); from: 0; to: 60; stepSize: 1; displayText: value === 0 ? TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") : value + "°C"; rangeText: TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") + " — 60°C"; value: Settings.hardware.fanThreshold; onValueModified: function(newValue) { Settings.hardware.fanThreshold = Math.round(newValue) }; KeyNavigation.tab: defaultsButton; KeyNavigation.backtab: heaterTestTimeoutSlider }
+                // The slider value stays in Celsius: 0 is the "Always on" sentinel (0°C == 32°F,
+                // so a unit-converted from/to would make the sentinel unreachable in Fahrenheit).
+                // Only the displayed threshold label is unit-converted (cToDisplay(value)); the
+                // stored Celsius value and the 0 sentinel are untouched.
+                ValueInput { id: fanThresholdSlider; Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); from: 0; to: 60; stepSize: 1; displayText: value === 0 ? TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") : Theme.formatTemperature(value, 0); rangeText: TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") + " — " + Theme.formatTemperature(60, 0); value: Settings.hardware.fanThreshold; onValueModified: function(newValue) { Settings.hardware.fanThreshold = Math.round(newValue) }; KeyNavigation.tab: defaultsButton; KeyNavigation.backtab: heaterTestTimeoutSlider }
 
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
 
