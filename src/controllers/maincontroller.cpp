@@ -73,6 +73,11 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // Create ProfileManager — owns all profile lifecycle operations
     m_profileManager = new ProfileManager(m_settings, m_device, m_machineState, m_profileStorage, this);
 
+    // Create LiveSteamCoach — local, real-time during-steam coaching cues. It
+    // subscribes itself to MachineState phase/shot-time changes and reads the
+    // target steam duration from Settings; no AI/network/DB in the hot path.
+    m_liveSteamCoach = new LiveSteamCoach(m_machineState, m_settings, this);
+
     // Connect to shot sample updates
     if (m_device) {
         connect(m_device, &DE1Device::shotSampleReceived,
