@@ -265,6 +265,18 @@ FocusScope {
 
                         Behavior on color { ColorAnimation { duration: 150 } }
 
+                        // Selected indicator: an accent ring so the active preset reads
+                        // clearly as selected (matches the active action-button highlight),
+                        // not just a fill that can blend into a light theme.
+                        Rectangle {
+                            anchors.fill: parent
+                            visible: pill.isSelected && !pill.isDisabled
+                            color: "transparent"
+                            border.width: Theme.scaled(3)
+                            border.color: Qt.darker(Theme.primaryColor, 1.5)
+                            radius: parent.radius
+                        }
+
                         // Focus indicator
                         Rectangle {
                             anchors.fill: parent
