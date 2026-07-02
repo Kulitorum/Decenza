@@ -470,7 +470,7 @@ Item {
                     var axisMax = chart.showWeightAxis ? weightAxis.max : tempAxis.max
                     return axisMax - index * (axisMax - axisMin) / 4
                 }
-                text: value.toFixed(0)
+                text: chart.showWeightAxis ? value.toFixed(0) : Theme.cToDisplay(value).toFixed(0)
                 x: 0
                 y: index / 4 * rightAxisLabels.height - height / 2
                 font: Theme.captionFont
@@ -481,7 +481,7 @@ Item {
 
         // Axis title
         Text {
-            text: chart.showWeightAxis ? "g" : "°C"
+            text: chart.showWeightAxis ? "g" : Theme.tempUnitSuffix()
             font: Theme.captionFont
             color: rightAxisLabels.labelColor
             rotation: 90
