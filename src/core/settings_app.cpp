@@ -562,6 +562,17 @@ void SettingsApp::setScreenCaptureEnabled(bool enabled) {
     }
 }
 
+bool SettingsApp::liveSteamCoachingEnabled() const {
+    return m_settings.value("steam/liveSteamCoachingEnabled", true).toBool();
+}
+
+void SettingsApp::setLiveSteamCoachingEnabled(bool enabled) {
+    if (liveSteamCoachingEnabled() != enabled) {
+        m_settings.setValue("steam/liveSteamCoachingEnabled", enabled);
+        emit liveSteamCoachingEnabledChanged();
+    }
+}
+
 // Device identity
 QString SettingsApp::deviceId() const {
     QString id = m_settings.value("device/uuid").toString();
