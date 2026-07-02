@@ -330,7 +330,7 @@ Item {
                     var parts = []
                     if (WeatherManager.locationName) parts.push(WeatherManager.locationName)
                     parts.push(WeatherManager.provider)
-                    return parts.join(" \u00B7 ")
+                    return parts.join(" \u2022 ")
                 }
                 color: Theme.textSecondaryColor
                 font.family: Theme.captionFont.family

@@ -87,7 +87,7 @@ Dialog {
         if (formBeanBase.origin) parts.push(String(formBeanBase.origin))
         if (formBeanBase.variety) parts.push(String(formBeanBase.variety))
         if (formBeanBase.process) parts.push(String(formBeanBase.process))
-        return parts.join(" · ")
+        return parts.join("  •  ")
     }
 
     // --- Manual-entry autosuggest (history + Bean Base canonical) ---
@@ -182,7 +182,7 @@ Dialog {
             return TranslationManager.translate("changebeans.source.history", "History")
         case "beanbase+history":
             return TranslationManager.translate("changebeans.source.beanbase", "Bean Base")
-                + " · " + TranslationManager.translate("changebeans.source.history", "History")
+                + "  •  " + TranslationManager.translate("changebeans.source.history", "History")
         }
         return ""
     }
