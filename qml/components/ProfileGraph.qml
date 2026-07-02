@@ -196,7 +196,7 @@ Item {
             Text {
                 required property int index
                 property real value: tempAxis.max - index * (tempAxis.max - tempAxis.min) / 4
-                text: value.toFixed(0)
+                text: Theme.cToDisplay(value).toFixed(0)
                 x: 0
                 y: index / 4 * rightAxisLabels.height - height / 2
                 font: Theme.captionFont

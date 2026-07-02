@@ -59,7 +59,7 @@ Page {
             } else {
                 parts.push(step.pressure.toFixed(2) + " bar")
             }
-            parts.push(step.temperature.toFixed(0) + " degrees")
+            parts.push(Theme.cToDisplay(step.temperature).toFixed(0) + " degrees")
             parts.push(step.seconds.toFixed(0) + " seconds")
             parts.push(step.transition === "smooth" ? "smooth transition" : "fast transition")
         } else {
@@ -77,7 +77,7 @@ Page {
                 }
             }
             if (step.temperature !== prev.temperature) {
-                parts.push(step.temperature.toFixed(0) + " degrees")
+                parts.push(Theme.cToDisplay(step.temperature).toFixed(0) + " degrees")
             }
             if (step.seconds !== prev.seconds) {
                 parts.push(step.seconds.toFixed(0) + " seconds")
@@ -346,8 +346,8 @@ Page {
                             text: {
                                 stepVersion
                                 if (!profile) return TranslationManager.translate("profileEditor.settings", "Settings")
-                                var temp = profile.steps.length > 0 ? profile.steps[0].temperature.toFixed(0) : "93"
-                                return TranslationManager.translate("profileEditor.settings", "Settings") + " (" + temp + "\u00B0C)"
+                                var temp = profile.steps.length > 0 ? Theme.formatTemperature(profile.steps[0].temperature, 0) : Theme.formatTemperature(93, 0)
+                                return TranslationManager.translate("profileEditor.settings", "Settings") + " (" + temp + ")"
                             }
                             accessibleName: TranslationManager.translate("profileEditor.openProfileSettings", "Open profile settings")
                             onClicked: profileSettingsPopup.open()
@@ -480,18 +480,20 @@ Page {
                 RowLayout { Layout.fillWidth: true
                     Text { text: TranslationManager.translate("profileEditor.allTemps", "All temps"); font: Theme.captionFont; color: Theme.textSecondaryColor }
                     Item { Layout.fillWidth: true }
-                    Text { text: stepVersion >= 0 && profile && profile.steps.length > 0 ? profile.steps[0].temperature.toFixed(1) + "\u00B0C" : "93.0\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
+                    Text { text: stepVersion >= 0 && profile && profile.steps.length > 0 ? Theme.formatTemperature(profile.steps[0].temperature, 1) : Theme.formatTemperature(93.0, 1); font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                 }
                 ValueInput {
                     Layout.fillWidth: true; valueColor: Theme.temperatureColor
-                    accessibleName: TranslationManager.translate("profileEditor.globalTemperature", "Global temperature"); from: 70; to: 100; stepSize: 0.1; suffix: " °C"
-                    value: { stepVersion; return profile && profile.steps.length > 0 ? profile.steps[0].temperature : 93 }
+                    accessibleName: TranslationManager.translate("profileEditor.globalTemperature", "Global temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix()
+                    // Stored in Celsius; shown and entered in the user's unit.
+                    value: { stepVersion; return Theme.cToDisplay(profile && profile.steps.length > 0 ? profile.steps[0].temperature : 93) }
                     // onValueModified mutates the profile per adjustment tick so the UI
                     // reflects the change live; onValueCommitted fires the BLE upload
                     // once on release instead of per tick.
                     onValueModified: function(newValue) {
                         if (profile && profile.steps.length > 0) {
-                            var rounded = Math.round(newValue * 10) / 10
+                            // newValue is in the display unit; convert to Celsius for storage.
+                            var rounded = Math.round(Theme.displayToC(newValue) * 10) / 10
                             var delta = rounded - profile.steps[0].temperature
                             for (var i = 0; i < profile.steps.length; i++) {
                                 profile.steps[i].temperature += delta
@@ -591,11 +593,12 @@ Page {
                 ValueInput {
                     Layout.preferredWidth: Theme.scaled(160); valueColor: Theme.temperatureColor
                     accessibleName: TranslationManager.translate("profileEditor.preheatTankAccessible", "Preheat water tank temperature")
-                    from: 0; to: 45; stepSize: 1; suffix: " °C"
-                    value: { stepVersion; return profile ? (profile.tank_desired_water_temperature ?? 0) : 0 }
+                    from: Theme.cToDisplay(0); to: Theme.cToDisplay(45); stepSize: 1; suffix: Theme.tempUnitSuffix()
+                    // Stored in Celsius; shown and entered in the user's unit.
+                    value: { stepVersion; return Theme.cToDisplay(profile ? (profile.tank_desired_water_temperature ?? 0) : 0) }
                     onValueModified: function(newValue) {
                         if (profile) {
-                            profile.tank_desired_water_temperature = Math.round(newValue)
+                            profile.tank_desired_water_temperature = Math.round(Theme.displayToC(newValue))
                         }
                     }
                     onValueCommitted: uploadProfile()
@@ -1221,7 +1224,7 @@ Page {
                 }
 
                 // Temperature
-                ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("profileEditor.stepTemperature", "Step temperature"); from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: stepVersion >= 0 && step ? step.temperature : 93; onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].temperature = Math.round(newValue * 10) / 10 } }; onValueCommitted: uploadProfile() }
+                ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("profileEditor.stepTemperature", "Step temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(stepVersion >= 0 && step ? step.temperature : 93); onValueModified: function(newValue) { if (profile && selectedStepIndex >= 0) { profile.steps[selectedStepIndex].temperature = Math.round(Theme.displayToC(newValue) * 10) / 10 } }; onValueCommitted: uploadProfile() }
 
                 // Sensor toggle
                 Text { text: TranslationManager.translate("profileEditor.sensor", "Sensor"); font: Theme.captionFont; color: Theme.textSecondaryColor }

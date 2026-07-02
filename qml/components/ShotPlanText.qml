@@ -40,6 +40,10 @@ Text {
     property double targetWeight: ProfileManager.targetWeight
 
     text: {
+        // temperatureDisplay() reads Settings.app.temperatureUnit in C++, which QML
+        // can't capture as a binding dependency — reference it here so the shot-plan
+        // widget re-renders when the user toggles °C/°F.
+        void(Settings.app.temperatureUnit)
         var parts = []
         if (showProfile && profileName) {
             // Adaptive temperature rendering (single / list / ellipsis + delta tag).

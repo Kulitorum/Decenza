@@ -419,6 +419,42 @@ private slots:
         QCOMPARE(m_settings.brew()->getWaterVesselPreset(idx)["temperature"].toDouble(), 92.0);
     }
 
+    void temperatureUnitRoundTrip() {
+        // The display temperature unit must survive an export -> import cycle. The
+        // serializer's export/import key strings are hand-mirrored, so a typo on
+        // either side would silently drop the setting during device-to-device
+        // migration — this asserts both sides agree.
+        m_settings.app()->setTemperatureUnit("fahrenheit");
+        QCOMPARE(m_settings.app()->temperatureUnit(), QString("fahrenheit"));
+
+        const QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+
+        // Mutate to confirm import actually overwrites it (not a silent no-op).
+        m_settings.app()->setTemperatureUnit("celsius");
+        QCOMPARE(m_settings.app()->temperatureUnit(), QString("celsius"));
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+
+        QCOMPARE(m_settings.app()->temperatureUnit(), QString("fahrenheit"));
+    }
+
+    void temperatureUnitSetterRejectsGarbage() {
+        // setTemperatureUnit whitelists {celsius, fahrenheit}: it normalises case and
+        // whitespace to a valid value, and coerces anything else to celsius (loudly)
+        // so imported garbage can't persist or re-export.
+        m_settings.app()->setTemperatureUnit("celsius");
+        // Case/whitespace normalise to a valid value — no warning, stored lowercased.
+        m_settings.app()->setTemperatureUnit("  Fahrenheit ");
+        QCOMPARE(m_settings.app()->temperatureUnit(), QString("fahrenheit"));
+        // An unknown unit coerces to celsius, with a warning.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("invalid temperatureUnit")));
+        m_settings.app()->setTemperatureUnit("kelvin");
+        QCOMPARE(m_settings.app()->temperatureUnit(), QString("celsius"));
+    }
+
     void waterVesselPresetLegacyTemperatureFallsBackToGlobal() {
         // A preset object that predates the per-preset temperature field (no
         // "temperature" key) must export with the device's current global

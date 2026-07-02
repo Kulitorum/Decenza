@@ -160,7 +160,7 @@ Page {
                             color: Theme.textSecondaryColor
                         }
                         Text {
-                            text: profileData ? (profileData.espresso_temperature || 0).toFixed(1) + " °C" : "-"
+                            text: profileData ? Theme.cToDisplay(profileData.espresso_temperature || 0).toFixed(1) + " " + Theme.tempUnitSuffix() : "-"
                             font: Theme.bodyFont
                             color: Theme.textColor
                         }
