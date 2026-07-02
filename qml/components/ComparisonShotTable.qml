@@ -20,7 +20,7 @@ ColumnLayout {
             case "profile": {
                 var name = info.profileName || "\u2014"
                 var t = info.temperatureOverrideC
-                return (t !== undefined && t !== null && t > 0) ? name + " (" + Math.round(t) + "\u00B0C)" : name
+                return (t !== undefined && t !== null && t > 0) ? name + " (" + Math.round(Theme.cToDisplay(t)) + Theme.tempUnitSuffix() + ")" : name
             }
             case "duration":  return (info.durationSec || 0).toFixed(1) + "s"
             case "dose":      return (info.doseWeightG || 0).toFixed(1) + "g"

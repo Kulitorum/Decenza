@@ -868,7 +868,7 @@ Page {
                                 var t = editShotData.temperatureOverrideC
                                 var result
                                 if (t !== undefined && t !== null && t > 0) {
-                                    result = name + " (" + Math.round(t) + "\u00B0C)"
+                                    result = name + " (" + Math.round(Theme.cToDisplay(t)) + Theme.tempUnitSuffix() + ")"
                                 } else {
                                     result = name
                                 }
