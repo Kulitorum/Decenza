@@ -562,6 +562,17 @@ void SettingsApp::setScreenCaptureEnabled(bool enabled) {
     }
 }
 
+bool SettingsApp::liveCoachingEnabled() const {
+    return m_settings.value("espresso/liveCoachingEnabled", true).toBool();
+}
+
+void SettingsApp::setLiveCoachingEnabled(bool enabled) {
+    if (liveCoachingEnabled() != enabled) {
+        m_settings.setValue("espresso/liveCoachingEnabled", enabled);
+        emit liveCoachingEnabledChanged();
+    }
+}
+
 // Device identity
 QString SettingsApp::deviceId() const {
     QString id = m_settings.value("device/uuid").toString();

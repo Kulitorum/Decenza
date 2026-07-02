@@ -71,6 +71,12 @@ class SettingsApp : public QObject {
     Q_PROPERTY(bool simulatedScaleEnabled READ simulatedScaleEnabled WRITE setSimulatedScaleEnabled NOTIFY simulatedScaleEnabledChanged)
     Q_PROPERTY(bool screenCaptureEnabled READ screenCaptureEnabled WRITE setScreenCaptureEnabled NOTIFY screenCaptureEnabledChanged)
 
+    // During-shot live coaching cues. When true (default), the LiveShotCoach
+    // service's short calm cues are shown in a banner on the espresso page
+    // while a shot runs. Voice for those cues is gated separately by the
+    // existing AccessibilityManager extractionAnnouncements* prefs.
+    Q_PROPERTY(bool liveCoachingEnabled READ liveCoachingEnabled WRITE setLiveCoachingEnabled NOTIFY liveCoachingEnabledChanged)
+
 public:
     explicit SettingsApp(QObject* parent = nullptr);
 
@@ -157,6 +163,10 @@ public:
     bool screenCaptureEnabled() const;
     void setScreenCaptureEnabled(bool enabled);
 
+    // During-shot live coaching cues
+    bool liveCoachingEnabled() const;
+    void setLiveCoachingEnabled(bool enabled);
+
     // Device identity (stable UUID for server communication)
     Q_INVOKABLE QString deviceId() const;
 
@@ -187,6 +197,7 @@ signals:
     void hideGhcSimulatorChanged();
     void simulatedScaleEnabledChanged();
     void screenCaptureEnabledChanged();
+    void liveCoachingEnabledChanged();
 
 private:
     mutable QSettings m_settings;
