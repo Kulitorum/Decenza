@@ -89,6 +89,7 @@
 #include "machine/steamhealthtracker.h"
 #include "controllers/maincontroller.h"
 #include "controllers/shottimingcontroller.h"
+#include "profile/temperaturedisplay.h"
 #include "ai/aimanager.h"
 #include "ai/aiconversation.h"
 #include "screensaver/screensavervideomanager.h"
@@ -1219,6 +1220,10 @@ int main(int argc, char *argv[])
 #endif
 
     checkpoint("Pre-QML setup done");
+
+    // Declared before the engine (like the other context-property backing objects)
+    // so it outlives the engine at scope unwind.
+    TemperatureDisplayBridge temperatureDisplayBridge;
 
     // Set up QML engine
     QQmlApplicationEngine engine;
@@ -2448,6 +2453,7 @@ int main(int argc, char *argv[])
     QQmlContext* context = engine.rootContext();
     context->setContextProperty("Settings", &settings);
     context->setContextProperty("TranslationManager", &translationManager);
+    context->setContextProperty("TemperatureDisplay", &temperatureDisplayBridge);
     context->setContextProperty("BLEManager", &bleManager);
     context->setContextProperty("DE1Device", &de1Device);
     context->setContextProperty("ScaleDevice", &flowScale);  // FlowScale initially, updated when physical scale connects
@@ -2739,6 +2745,7 @@ int main(int argc, char *argv[])
         ghcEngine.rootContext()->setContextProperty("DE1Device", &de1Device);
         ghcEngine.rootContext()->setContextProperty("DE1Simulator", &de1Simulator);
         ghcEngine.rootContext()->setContextProperty("Settings", &settings);
+        ghcEngine.rootContext()->setContextProperty("TemperatureDisplay", &temperatureDisplayBridge);
 
         QObject::connect(&ghcEngine, &QQmlApplicationEngine::objectCreated, &app,
             [](QObject *obj, const QUrl &objUrl) {

@@ -26,10 +26,13 @@ Item {
                   tip: TranslationManager.translate("graph.tip.pressure", "Pump pressure in bar. Shows the machine's intent — what it's trying to do.") },
                 { label: TranslationManager.translate("graph.flow", "Flow"), sColor: Theme.flowColor, key: "showFlow",
                   tip: TranslationManager.translate("graph.tip.flow", "Water flow rate in mL/s. Shows the coffee's response — how easily water passes through the puck.") },
+                // Keys bumped to *2 when the fallback gained the %1 unit placeholder:
+                // a cached translation of the old key has a literal "°C" and no %1,
+                // so .arg() would warn and the unit would never switch to °F.
                 { label: TranslationManager.translate("graph.temp", "Temp"), sColor: Theme.temperatureColor, key: "showTemperature",
-                  tip: TranslationManager.translate("graph.tip.temp", "Basket temperature in \u00B0C. The temperature at the group head thermocouple.") },
+                  tip: TranslationManager.translate("graph.tip.temp2", "Basket temperature in %1. The temperature at the group head thermocouple.").arg(Theme.tempUnitSuffix()) },
                 { label: TranslationManager.translate("graph.mixTemp", "Mix temp"), sColor: Theme.temperatureMixColor, key: "showTemperatureMix", advanced: true,
-                  tip: TranslationManager.translate("graph.tip.mixTemp", "Mix temperature in \u00B0C. The actual water temperature reaching the puck. Difference from basket temp reveals group head thermal stability.") },
+                  tip: TranslationManager.translate("graph.tip.mixTemp2", "Mix temperature in %1. The actual water temperature reaching the puck. Difference from basket temp reveals group head thermal stability.").arg(Theme.tempUnitSuffix()) },
                 { label: TranslationManager.translate("graph.weight", "Weight"), sColor: Theme.weightColor, key: "showWeight",
                   tip: TranslationManager.translate("graph.tip.weight", "Cumulative beverage weight in grams from the scale.") },
                 { label: TranslationManager.translate("graph.wtFlow", "Wt flow"), sColor: Theme.weightFlowColor, key: "showWeightFlow",

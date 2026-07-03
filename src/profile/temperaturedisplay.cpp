@@ -26,6 +26,26 @@ const QString kEllip   = QStringLiteral("…");     // …
 
 namespace TemperatureDisplay {
 
+double cToDisplay(double celsius, bool fahrenheit) {
+    return fahrenheit ? (celsius * 9.0 / 5.0 + 32.0) : celsius;
+}
+
+double displayToC(double display, bool fahrenheit) {
+    return fahrenheit ? ((display - 32.0) * 5.0 / 9.0) : display;
+}
+
+double cDeltaToDisplay(double deltaCelsius, bool fahrenheit) {
+    return fahrenheit ? (deltaCelsius * 9.0 / 5.0) : deltaCelsius;
+}
+
+double displayToCDelta(double deltaDisplay, bool fahrenheit) {
+    return fahrenheit ? (deltaDisplay * 5.0 / 9.0) : deltaDisplay;
+}
+
+QString unitSuffix(bool fahrenheit) {
+    return fahrenheit ? QStringLiteral("°F") : QStringLiteral("°C");
+}
+
 int distinctCount(const QVector<double>& stepTemps) {
     QVector<double> seen;
     for (double t : stepTemps) {
@@ -41,11 +61,9 @@ int distinctCount(const QVector<double>& stepTemps) {
 
 QString format(const QVector<double>& stepTemps, double anchorTemp,
                bool hasOverride, double overrideTemp, bool fahrenheit) {
-    // Display-unit conversion: absolute temps shift origin (×9/5 +32); a delta/offset
-    // scales only (×9/5). Storage is always Celsius; this is display-only.
-    const auto disp = [fahrenheit](double c) { return fahrenheit ? (c * 9.0 / 5.0 + 32.0) : c; };
-    const auto dispDelta = [fahrenheit](double d) { return fahrenheit ? (d * 9.0 / 5.0) : d; };
-    const QString suffix = fahrenheit ? QStringLiteral("°F") : QStringLiteral("°C");
+    const auto disp = [fahrenheit](double c) { return cToDisplay(c, fahrenheit); };
+    const auto dispDelta = [fahrenheit](double d) { return cDeltaToDisplay(d, fahrenheit); };
+    const QString suffix = unitSuffix(fahrenheit);
 
     const double delta = hasOverride ? (overrideTemp - anchorTemp) : 0.0;
     // Show the override as the OFFSET that will be applied to every step (e.g.
@@ -81,3 +99,23 @@ QString format(const QVector<double>& stepTemps, double anchorTemp,
 }
 
 } // namespace TemperatureDisplay
+
+double TemperatureDisplayBridge::cToDisplay(double celsius, bool fahrenheit) const {
+    return TemperatureDisplay::cToDisplay(celsius, fahrenheit);
+}
+
+double TemperatureDisplayBridge::displayToC(double display, bool fahrenheit) const {
+    return TemperatureDisplay::displayToC(display, fahrenheit);
+}
+
+double TemperatureDisplayBridge::cDeltaToDisplay(double deltaCelsius, bool fahrenheit) const {
+    return TemperatureDisplay::cDeltaToDisplay(deltaCelsius, fahrenheit);
+}
+
+double TemperatureDisplayBridge::displayToCDelta(double deltaDisplay, bool fahrenheit) const {
+    return TemperatureDisplay::displayToCDelta(deltaDisplay, fahrenheit);
+}
+
+QString TemperatureDisplayBridge::unitSuffix(bool fahrenheit) const {
+    return TemperatureDisplay::unitSuffix(fahrenheit);
+}

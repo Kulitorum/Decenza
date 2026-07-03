@@ -189,8 +189,8 @@ Item {
         var curves = [
             { key: "pressure", name: "Pressure", data: pressureData, unit: "bar" },
             { key: "flow", name: "Flow", data: flowData, unit: "mL/s" },
-            { key: "temperature", name: "Temp", data: temperatureData, unit: "°C" },
-            { key: "mixTemp", name: "Mix temp", data: temperatureMixData, unit: "°C" },
+            { key: "temperature", name: "Temp", data: temperatureData, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
+            { key: "mixTemp", name: "Mix temp", data: temperatureMixData, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
             { key: "weight", name: "Weight", data: weightData, unit: "g" },
             { key: "weightFlow", name: "Weight flow", data: weightFlowRateData, unit: "g/s" },
             { key: "resistance", name: "Resistance", data: resistanceData, unit: "" },
@@ -202,7 +202,7 @@ Item {
         for (var i = 0; i < curves.length; i++) {
             var v = findValueAtTime(curves[i].data, time)
             if (v !== null) {
-                vals[curves[i].key] = { name: curves[i].name, value: v, unit: curves[i].unit }
+                vals[curves[i].key] = { name: curves[i].name, value: curves[i].convert ? curves[i].convert(v) : v, unit: curves[i].unit }
             }
         }
 
@@ -238,8 +238,8 @@ Item {
         var curves = [
             { name: "Pressure", data: pressureData, show: showPressure, unit: "bar" },
             { name: "Flow", data: flowData, show: showFlow, unit: "mL/s" },
-            { name: "Temp", data: temperatureData, show: showTemperature, unit: "°C" },
-            { name: "Mix temp", data: temperatureMixData, show: showTemperatureMix && advancedMode, unit: "°C" },
+            { name: "Temp", data: temperatureData, show: showTemperature, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
+            { name: "Mix temp", data: temperatureMixData, show: showTemperatureMix && advancedMode, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
             { name: "Weight", data: weightData, show: showWeight, unit: "g" },
             { name: "Weight flow", data: weightFlowRateData, show: showWeightFlow, unit: "g/s" },
             { name: "Resistance", data: resistanceData, show: showResistance && advancedMode, unit: "" },
@@ -253,7 +253,8 @@ Item {
             if (!curves[i].show) continue
             var v = findValueAtTime(curves[i].data, time)
             if (v !== null) {
-                var entry = curves[i].name + " " + v.toFixed(1)
+                var dv = curves[i].convert ? curves[i].convert(v) : v
+                var entry = curves[i].name + " " + dv.toFixed(1)
                 if (curves[i].unit !== "") entry += " " + curves[i].unit
                 parts.push(entry)
             }
@@ -676,7 +677,7 @@ Item {
                     var axisMax = chart.showWeightAxis ? weightAxis.max : tempAxis.max
                     return axisMax - index * (axisMax - axisMin) / 4
                 }
-                text: value.toFixed(0)
+                text: chart.showWeightAxis ? value.toFixed(0) : Theme.cToDisplay(value).toFixed(0)
                 x: 0
                 y: index / 4 * rightAxisLabels.height - height / 2
                 font: Theme.captionFont
@@ -686,7 +687,7 @@ Item {
         }
 
         Text {
-            text: chart.showWeightAxis ? "g" : "°C"
+            text: chart.showWeightAxis ? "g" : Theme.tempUnitSuffix()
             font: Theme.captionFont
             color: rightAxisLabels.labelColor
             rotation: 90

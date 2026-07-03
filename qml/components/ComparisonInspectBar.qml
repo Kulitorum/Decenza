@@ -58,7 +58,7 @@ ColumnLayout {
                 }
                 Text {
                     text: modelData.hasTemperature
-                          ? modelData.temperature.toFixed(1) + " \u00B0C"
+                          ? Theme.cToDisplay(modelData.temperature).toFixed(1) + " " + Theme.tempUnitSuffix()
                           : "\u2014"
                     font: Theme.captionFont
                     color: Theme.textColor

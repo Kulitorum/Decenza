@@ -716,7 +716,7 @@ Page {
                                     var tempOvr = model.temperatureOverrideC || 0
                                     var result
                                     if (tempOvr > 0) {
-                                        result = name + " (" + Math.round(tempOvr) + "\u00B0C)"
+                                        result = name + " (" + Math.round(Theme.cToDisplay(tempOvr)) + Theme.tempUnitSuffix() + ")"
                                     } else {
                                         result = name
                                     }

@@ -156,6 +156,42 @@ private slots:
         QCOMPARE(format({88, 93}, 88, true, 90),
                  format({88, 93}, 88, true, 90, false));
     }
+
+    // ===== Conversion primitives =====
+    // Single source of the C/F math, shared with QML via TemperatureDisplayBridge
+    // (qml/Theme.qml's cToDisplay/tempUnitSuffix etc. delegate here).
+    void primitiveAbsoluteConversion() {
+        QCOMPARE(cToDisplay(90.0, false), 90.0);       // Celsius mode is identity
+        QCOMPARE(cToDisplay(90.0, true), 194.0);       // ×9/5 +32
+        QCOMPARE(cToDisplay(0.0, true), 32.0);
+        QCOMPARE(displayToC(194.0, true), 90.0);
+        QCOMPARE(displayToC(90.0, false), 90.0);
+    }
+    void primitiveDeltaScalesNotShifts() {
+        // A delta/offset must scale only — no +32 origin shift (the "+33.8°" trap).
+        QCOMPARE(cDeltaToDisplay(1.0, true), 1.8);
+        QCOMPARE(cDeltaToDisplay(-2.0, true), -3.6);
+        QCOMPARE(cDeltaToDisplay(0.0, true), 0.0);
+        QCOMPARE(cDeltaToDisplay(4.0, false), 4.0);    // Celsius mode is identity
+        QCOMPARE(displayToCDelta(1.8, true), 1.0);
+    }
+    void primitiveRoundTrips() {
+        QCOMPARE(displayToC(cToDisplay(93.5, true), true), 93.5);
+        QCOMPARE(displayToCDelta(cDeltaToDisplay(4.0, true), true), 4.0);
+    }
+    void primitiveUnitSuffix() {
+        QCOMPARE(unitSuffix(false), DEG);
+        QCOMPARE(unitSuffix(true), DEGF);
+    }
+    void bridgeDelegatesToPrimitives() {
+        const TemperatureDisplayBridge bridge;
+        QCOMPARE(bridge.cToDisplay(90.0, true), 194.0);
+        QCOMPARE(bridge.displayToC(194.0, true), 90.0);
+        QCOMPARE(bridge.cDeltaToDisplay(1.0, true), 1.8);
+        QCOMPARE(bridge.displayToCDelta(1.8, true), 1.0);
+        QCOMPARE(bridge.unitSuffix(true), DEGF);
+        QCOMPARE(bridge.unitSuffix(false), DEG);
+    }
 };
 
 QTEST_APPLESS_MAIN(tst_TemperatureDisplay)

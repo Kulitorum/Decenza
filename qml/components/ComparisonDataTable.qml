@@ -45,14 +45,14 @@ ColumnLayout {
         switch (key) {
             case "pressure":    return sv.hasPressure    ? sv.pressure.toFixed(1)    + (compact ? "" : " bar")  : "\u2014"
             case "flow":        return sv.hasFlow        ? sv.flow.toFixed(1)        + (compact ? "" : " mL/s") : "\u2014"
-            case "temp":        return sv.hasTemperature ? sv.temperature.toFixed(1) + (compact ? "" : " \u00B0C") : "\u2014"
+            case "temp":        return sv.hasTemperature ? Theme.cToDisplay(sv.temperature).toFixed(1) + (compact ? "" : " " + Theme.tempUnitSuffix()) : "\u2014"
             case "weight":      return sv.hasWeight      ? sv.weight.toFixed(1)      + (compact ? "" : " g")    : "\u2014"
             case "weightFlow":  return sv.hasWeightFlow  ? sv.weightFlow.toFixed(1)  + (compact ? "" : " g/s")  : "\u2014"
             case "resistance":  return sv.hasResistance  ? sv.resistance.toFixed(1)           : "\u2014"
             case "conductance": return sv.hasConductance ? sv.conductance.toFixed(1)          : "\u2014"
             case "dCdt":        return sv.hasConductanceDerivative ? sv.conductanceDerivative.toFixed(1) : "\u2014"
             case "darcyR":      return sv.hasDarcyResistance       ? sv.darcyResistance.toFixed(1)       : "\u2014"
-            case "mixTemp":     return sv.hasTemperatureMix        ? sv.temperatureMix.toFixed(1) + (compact ? "" : " \u00B0C") : "\u2014"
+            case "mixTemp":     return sv.hasTemperatureMix        ? Theme.cToDisplay(sv.temperatureMix).toFixed(1) + (compact ? "" : " " + Theme.tempUnitSuffix()) : "\u2014"
         }
         return "\u2014"
     }

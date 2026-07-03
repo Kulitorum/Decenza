@@ -201,7 +201,7 @@ Item {
             Text {
                 required property int index
                 property real value: chart.tempMax - index * (chart.tempMax - chart.tempMin) / 4
-                text: value.toFixed(0)
+                text: Theme.cToDisplay(value).toFixed(0)
                 x: 0
                 y: index / 4 * rightAxisLabels.height - height / 2
                 font: Theme.captionFont
@@ -211,7 +211,7 @@ Item {
         }
 
         Text {
-            text: "°C"
+            text: Theme.tempUnitSuffix()
             font: Theme.captionFont
             color: Theme.temperatureColor
             rotation: 90

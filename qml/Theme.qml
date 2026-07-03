@@ -208,13 +208,17 @@ QtObject {
     }
 
     // --- Temperature unit (display/entry only; storage stays Celsius) ---
+    // The conversion math lives in C++ (TemperatureDisplay bridge, unit-tested in
+    // tst_temperaturedisplay). These wrappers read Settings.app.temperatureUnit in
+    // JS — that read is what makes bindings re-evaluate on a unit toggle (property
+    // reads inside C++ methods are invisible to the QML binding engine).
     function tempIsFahrenheit() { return Settings.app.temperatureUnit === "fahrenheit" }
-    function tempUnitSuffix() { return tempIsFahrenheit() ? "°F" : "°C" }
-    function cToDisplay(celsius) { return tempIsFahrenheit() ? (celsius * 9 / 5 + 32) : celsius }
-    function displayToC(value) { return tempIsFahrenheit() ? ((value - 32) * 5 / 9) : value }
+    function tempUnitSuffix() { return TemperatureDisplay.unitSuffix(tempIsFahrenheit()) }
+    function cToDisplay(celsius) { return TemperatureDisplay.cToDisplay(celsius, tempIsFahrenheit()) }
+    function displayToC(value) { return TemperatureDisplay.displayToC(value, tempIsFahrenheit()) }
     // A temperature DELTA/offset scales only (no +32 origin shift): +4°C = +7.2°F.
-    function cDeltaToDisplay(deltaCelsius) { return tempIsFahrenheit() ? (deltaCelsius * 9 / 5) : deltaCelsius }
-    function displayToCDelta(deltaValue) { return tempIsFahrenheit() ? (deltaValue * 5 / 9) : deltaValue }
+    function cDeltaToDisplay(deltaCelsius) { return TemperatureDisplay.cDeltaToDisplay(deltaCelsius, tempIsFahrenheit()) }
+    function displayToCDelta(deltaValue) { return TemperatureDisplay.displayToCDelta(deltaValue, tempIsFahrenheit()) }
     function formatTemperature(celsius, decimals) {
         var d = (decimals === undefined) ? 0 : decimals
         return cToDisplay(celsius).toFixed(d) + tempUnitSuffix()
