@@ -336,7 +336,7 @@ Page {
                                 Item { Layout.fillWidth: true }
 
                                 Text {
-                                    text: val(recipe.pourTemperature, 90).toFixed(1) + "\u00B0C"
+                                    text: Theme.formatTemperature(val(recipe.pourTemperature, 90), 1)
                                     font.family: Theme.bodyFont.family
                                     font.pixelSize: Theme.bodyFont.pixelSize
                                     font.bold: true
@@ -378,9 +378,10 @@ Page {
                                 id: profileTempSlider
                                 Layout.fillWidth: true; valueColor: Theme.temperatureColor
                                 accessibleName: TranslationManager.translate("simpleProfileEditor.profileTemperature", "Profile temperature")
-                                from: 70; to: 100; stepSize: 0.1; suffix: " °C"
-                                value: val(recipe.pourTemperature, 90)
-                                onValueModified: function(newValue) { updateProfileTemp(Math.round(newValue * 10) / 10) }
+                                from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix()
+                                // Stored in Celsius; shown and entered in the user's unit.
+                                value: Theme.cToDisplay(val(recipe.pourTemperature, 90))
+                                onValueModified: function(newValue) { updateProfileTemp(Math.round(Theme.displayToC(newValue) * 10) / 10) }
                             }
 
                             // Dose
@@ -419,7 +420,7 @@ Page {
                                         radius: Theme.scaled(12); color: Qt.rgba(Theme.temperatureColor.r, Theme.temperatureColor.g, Theme.temperatureColor.b, 0.15)
                                         Accessible.role: Accessible.Button; Accessible.name: TranslationManager.translate("simpleProfileEditor.editPreinfuseTemperature", "Edit preinfuse temperature"); Accessible.focusable: true
                                         Accessible.onPressAction: tempPreinfuseArea.clicked(null)
-                                        Text { id: tempPreinfuseLabel; anchors.centerIn: parent; text: stepTemp("tempStart").toFixed(1) + "/" + stepTemp("tempPreinfuse").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor; Accessible.ignored: true }
+                                        Text { id: tempPreinfuseLabel; anchors.centerIn: parent; text: Theme.cToDisplay(stepTemp("tempStart")).toFixed(1) + "/" + Theme.formatTemperature(stepTemp("tempPreinfuse"), 1); font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor; Accessible.ignored: true }
                                         MouseArea { id: tempPreinfuseArea; anchors.fill: parent; onClicked: tempStepsDialog.open() }
                                     }
                                 }
@@ -465,7 +466,7 @@ Page {
                                         radius: Theme.scaled(12); color: Qt.rgba(Theme.temperatureColor.r, Theme.temperatureColor.g, Theme.temperatureColor.b, 0.15)
                                         Accessible.role: Accessible.Button; Accessible.name: TranslationManager.translate("simpleProfileEditor.editHoldTemperature", "Edit hold temperature"); Accessible.focusable: true
                                         Accessible.onPressAction: tempHoldArea.clicked(null)
-                                        Text { id: tempHoldLabel; anchors.centerIn: parent; text: stepTemp("tempHold").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor; Accessible.ignored: true }
+                                        Text { id: tempHoldLabel; anchors.centerIn: parent; text: Theme.formatTemperature(stepTemp("tempHold"), 1); font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor; Accessible.ignored: true }
                                         MouseArea { id: tempHoldArea; anchors.fill: parent; onClicked: tempStepsDialog.open() }
                                     }
                                 }
@@ -533,7 +534,7 @@ Page {
                                         radius: Theme.scaled(12); color: Qt.rgba(Theme.temperatureColor.r, Theme.temperatureColor.g, Theme.temperatureColor.b, 0.15)
                                         Accessible.role: Accessible.Button; Accessible.name: TranslationManager.translate("simpleProfileEditor.editDeclineTemperature", "Edit decline temperature"); Accessible.focusable: true
                                         Accessible.onPressAction: tempDeclineArea.clicked(null)
-                                        Text { id: tempDeclineLabel; anchors.centerIn: parent; text: stepTemp("tempDecline").toFixed(1) + "\u00B0C"; font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor; Accessible.ignored: true }
+                                        Text { id: tempDeclineLabel; anchors.centerIn: parent; text: Theme.formatTemperature(stepTemp("tempDecline"), 1); font.family: Theme.captionFont.family; font.pixelSize: Theme.captionFont.pixelSize; color: Theme.temperatureColor; Accessible.ignored: true }
                                         MouseArea { id: tempDeclineArea; anchors.fill: parent; onClicked: tempStepsDialog.open() }
                                     }
                                 }
@@ -755,9 +756,9 @@ Page {
                         Layout.fillWidth: true
                         Text { text: tr("start", "Start"); font: Theme.bodyFont; color: Theme.textColor }
                         Item { Layout.fillWidth: true }
-                        Text { text: val(recipe.tempStart, 90).toFixed(1) + "\u00B0C"; font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
+                        Text { text: Theme.formatTemperature(val(recipe.tempStart, 90), 1); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.startTemperature", "Start temperature"); from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.tempStart, 90); onValueModified: function(newValue) { updateRecipe("tempStart", Math.round(newValue * 10) / 10) } }
+                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.startTemperature", "Start temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(val(recipe.tempStart, 90)); onValueModified: function(newValue) { updateRecipe("tempStart", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
                 }
 
                 // 1: Preinfuse
@@ -768,9 +769,9 @@ Page {
                         Layout.fillWidth: true
                         Text { text: "1: " + tr("preinfuse", "Preinfuse"); font: Theme.bodyFont; color: Theme.textColor }
                         Item { Layout.fillWidth: true }
-                        Text { text: val(recipe.tempPreinfuse, 90).toFixed(1) + "\u00B0C"; font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
+                        Text { text: Theme.formatTemperature(val(recipe.tempPreinfuse, 90), 1); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfuseTemperature", "Preinfuse temperature"); from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.tempPreinfuse, 90); onValueModified: function(newValue) { updateRecipe("tempPreinfuse", Math.round(newValue * 10) / 10) } }
+                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.preinfuseTemperature", "Preinfuse temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(val(recipe.tempPreinfuse, 90)); onValueModified: function(newValue) { updateRecipe("tempPreinfuse", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
                 }
 
                 // 2: Hold / Rise and Hold
@@ -781,9 +782,9 @@ Page {
                         Layout.fillWidth: true
                         Text { text: isFlow ? ("2: " + tr("hold", "Hold")) : ("2: " + tr("riseAndHold", "Rise and Hold")); font: Theme.bodyFont; color: Theme.textColor }
                         Item { Layout.fillWidth: true }
-                        Text { text: val(recipe.tempHold, 90).toFixed(1) + "\u00B0C"; font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
+                        Text { text: Theme.formatTemperature(val(recipe.tempHold, 90), 1); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: isFlow ? TranslationManager.translate("simpleProfileEditor.holdTemperature", "Hold temperature") : TranslationManager.translate("simpleProfileEditor.riseAndHoldTemperature", "Rise and hold temperature"); from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.tempHold, 90); onValueModified: function(newValue) { updateRecipe("tempHold", Math.round(newValue * 10) / 10) } }
+                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: isFlow ? TranslationManager.translate("simpleProfileEditor.holdTemperature", "Hold temperature") : TranslationManager.translate("simpleProfileEditor.riseAndHoldTemperature", "Rise and hold temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(val(recipe.tempHold, 90)); onValueModified: function(newValue) { updateRecipe("tempHold", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
                 }
 
                 // 3: Decline
@@ -794,9 +795,9 @@ Page {
                         Layout.fillWidth: true
                         Text { text: "3: " + tr("decline", "Decline"); font: Theme.bodyFont; color: Theme.textColor }
                         Item { Layout.fillWidth: true }
-                        Text { text: val(recipe.tempDecline, 90).toFixed(1) + "\u00B0C"; font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
+                        Text { text: Theme.formatTemperature(val(recipe.tempDecline, 90), 1); font.family: Theme.bodyFont.family; font.pixelSize: Theme.bodyFont.pixelSize; font.bold: true; color: Theme.temperatureColor }
                     }
-                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.declineTemperature", "Decline temperature"); from: 70; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.tempDecline, 90); onValueModified: function(newValue) { updateRecipe("tempDecline", Math.round(newValue * 10) / 10) } }
+                    ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("simpleProfileEditor.declineTemperature", "Decline temperature"); from: Theme.cToDisplay(70); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(val(recipe.tempDecline, 90)); onValueModified: function(newValue) { updateRecipe("tempDecline", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
                 }
 
                 AccessibleButton {

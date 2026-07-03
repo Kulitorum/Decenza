@@ -24,8 +24,8 @@ Item {
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
     Accessible.role: Accessible.StaticText
-    Accessible.name: "Steam temperature: " + root.currentTemp.toFixed(0) +
-                     " degrees, target: " + root.targetTemp.toFixed(0) + " degrees"
+    Accessible.name: "Steam temperature: " + Theme.cToDisplay(root.currentTemp).toFixed(0) +
+                     " degrees, target: " + Theme.cToDisplay(root.targetTemp).toFixed(0) + " degrees"
     Accessible.focusable: true
 
     // --- COMPACT MODE (bar / status bar rendering) ---
@@ -52,7 +52,7 @@ Item {
             Text {
                 id: compactTemp
                 anchors.verticalCenter: parent.verticalCenter
-                text: DE1Device.connected ? root.currentTemp.toFixed(0) + "\u00B0C" : "\u2014"
+                text: DE1Device.connected ? Theme.formatTemperature(root.currentTemp, 0) : "\u2014"
                 color: root.readoutColor
                 font: Theme.bodyFont
             }
@@ -64,8 +64,8 @@ Item {
             onClicked: {
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                     AccessibilityManager.announceLabel(
-                        "Steam temperature: " + root.currentTemp.toFixed(0) +
-                        " degrees, target: " + root.targetTemp.toFixed(0) + " degrees")
+                        "Steam temperature: " + Theme.cToDisplay(root.currentTemp).toFixed(0) +
+                        " degrees, target: " + Theme.cToDisplay(root.targetTemp).toFixed(0) + " degrees")
                 }
             }
         }
@@ -96,13 +96,13 @@ Item {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: Theme.scaled(4)
                 Text {
-                    text: DE1Device.connected ? root.currentTemp.toFixed(0) + "\u00B0C" : "\u2014"
+                    text: DE1Device.connected ? Theme.formatTemperature(root.currentTemp, 0) : "\u2014"
                     color: root.readoutColor
                     font: Theme.valueFont
                 }
                 Text {
                     anchors.baseline: parent.children[0].baseline
-                    text: "/ " + root.targetTemp.toFixed(0) + "\u00B0C"
+                    text: "/ " + Theme.formatTemperature(root.targetTemp, 0)
                     color: Theme.textSecondaryColor
                     font.family: Theme.valueFont.family
                     font.pixelSize: Theme.valueFont.pixelSize / 2
@@ -122,8 +122,8 @@ Item {
             onClicked: {
                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                     AccessibilityManager.announceLabel(
-                        "Steam temperature: " + root.currentTemp.toFixed(0) +
-                        " degrees, target: " + root.targetTemp.toFixed(0) + " degrees")
+                        "Steam temperature: " + Theme.cToDisplay(root.currentTemp).toFixed(0) +
+                        " degrees, target: " + Theme.cToDisplay(root.targetTemp).toFixed(0) + " degrees")
                 }
             }
         }

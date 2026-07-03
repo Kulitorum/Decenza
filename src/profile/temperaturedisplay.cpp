@@ -19,7 +19,6 @@ QString deltaTag(double delta) {
     return sign + num(std::fabs(delta)) + QStringLiteral("°"); // °
 }
 
-const QString kDegC    = QStringLiteral("°C");   // °C
 const QString kListSep = QStringLiteral(" · ");   // separates the two distinct temps; a SPACED mid-dot (a comma reads as a decimal point, a tight "·" / slash read as a decimal / fraction)
 const QString kEllip   = QStringLiteral("…");     // …
 
@@ -41,18 +40,24 @@ int distinctCount(const QVector<double>& stepTemps) {
 }
 
 QString format(const QVector<double>& stepTemps, double anchorTemp,
-               bool hasOverride, double overrideTemp) {
+               bool hasOverride, double overrideTemp, bool fahrenheit) {
+    // Display-unit conversion: absolute temps shift origin (×9/5 +32); a delta/offset
+    // scales only (×9/5). Storage is always Celsius; this is display-only.
+    const auto disp = [fahrenheit](double c) { return fahrenheit ? (c * 9.0 / 5.0 + 32.0) : c; };
+    const auto dispDelta = [fahrenheit](double d) { return fahrenheit ? (d * 9.0 / 5.0) : d; };
+    const QString suffix = fahrenheit ? QStringLiteral("°F") : QStringLiteral("°C");
+
     const double delta = hasOverride ? (overrideTemp - anchorTemp) : 0.0;
     // Show the override as the OFFSET that will be applied to every step (e.g.
     // "+1°"), not as recomputed per-step values. This expresses "all steps +1°"
     // directly and never recomputes/misrepresents a "first temp". Suppressed when
     // the delta rounds to zero.
     const QString tag = (hasOverride && std::fabs(delta) >= 0.05)
-        ? QStringLiteral(" ") + deltaTag(delta) : QString();
+        ? QStringLiteral(" ") + deltaTag(dispDelta(delta)) : QString();
 
     // The base is the profile's own temperature(s), unshifted.
     if (stepTemps.isEmpty())
-        return num(anchorTemp) + kDegC + tag;
+        return num(disp(anchorTemp)) + suffix + tag;
 
     // Distinct values in first-seen (trajectory) order.
     QVector<double> distinct;
@@ -67,11 +72,11 @@ QString format(const QVector<double>& stepTemps, double anchorTemp,
 
     QString base;
     if (distinct.size() <= 1)
-        base = num(stepTemps.first()) + kDegC;                                   // N=1: single value
+        base = num(disp(stepTemps.first())) + suffix;                                       // N=1: single value
     else if (distinct.size() == 2)
-        base = num(distinct[0]) + kListSep + num(distinct[1]) + kDegC;           // N=2: spaced mid-dot list
+        base = num(disp(distinct[0])) + kListSep + num(disp(distinct[1])) + suffix;         // N=2: spaced mid-dot list
     else
-        base = num(stepTemps.first()) + kEllip + num(stepTemps.last()) + kDegC;  // N>=3: first…last
+        base = num(disp(stepTemps.first())) + kEllip + num(disp(stepTemps.last())) + suffix; // N>=3: first…last
     return base + tag;
 }
 

@@ -75,6 +75,7 @@ private:
     QString m_origDyeBeanBaseId;
     QString m_origDyeBeanBaseData;
     double m_origWaterTemperature;
+    QString m_origTemperatureUnit;
     QByteArray m_origVesselPresets;
     QByteArray m_origPitcherPresets;
 
@@ -97,6 +98,7 @@ private slots:
         m_origDyeBeanBaseId = m_settings.dye()->dyeBeanBaseId();
         m_origDyeBeanBaseData = m_settings.dye()->dyeBeanBaseData();
         m_origWaterTemperature = m_settings.brew()->waterTemperature();
+        m_origTemperatureUnit = m_settings.app()->temperatureUnit();
         { QSettings raw("DecentEspresso", "DE1Qt");
           m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();
           m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray(); }
@@ -119,6 +121,7 @@ private slots:
         m_settings.dye()->setDyeBeanBaseId(m_origDyeBeanBaseId);
         m_settings.dye()->setDyeBeanBaseData(m_origDyeBeanBaseData);
         m_settings.brew()->setWaterTemperature(m_origWaterTemperature);
+        m_settings.app()->setTemperatureUnit(m_origTemperatureUnit);
         { QSettings raw("DecentEspresso", "DE1Qt");
           raw.setValue("water/vesselPresets", m_origVesselPresets);
           raw.setValue("steam/pitcherPresets", m_origPitcherPresets);
@@ -417,6 +420,62 @@ private slots:
         QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
 
         QCOMPARE(m_settings.brew()->getWaterVesselPreset(idx)["temperature"].toDouble(), 92.0);
+    }
+
+    void temperatureUnitRoundTrip() {
+        // The display temperature unit must survive an export -> import cycle. The
+        // serializer's export/import key strings are hand-mirrored, so a typo on
+        // either side would silently drop the setting during device-to-device
+        // migration — this asserts both sides agree.
+        m_settings.app()->setTemperatureUnit("fahrenheit");
+        QCOMPARE(m_settings.app()->temperatureUnit(), QString("fahrenheit"));
+
+        const QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+
+        // Mutate to confirm import actually overwrites it (not a silent no-op).
+        m_settings.app()->setTemperatureUnit("celsius");
+        QCOMPARE(m_settings.app()->temperatureUnit(), QString("celsius"));
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+
+        QCOMPARE(m_settings.app()->temperatureUnit(), QString("fahrenheit"));
+    }
+
+    void temperatureUnitSetterRejectsGarbage() {
+        // setTemperatureUnit whitelists {celsius, fahrenheit}: it normalises case and
+        // whitespace to a valid value, and coerces anything else to celsius (loudly)
+        // so imported garbage can't persist or re-export.
+        m_settings.app()->setTemperatureUnit("celsius");
+        // Case/whitespace normalise to a valid value — no warning, stored lowercased.
+        m_settings.app()->setTemperatureUnit("  Fahrenheit ");
+        QCOMPARE(m_settings.app()->temperatureUnit(), QString("fahrenheit"));
+        // An unknown unit coerces to celsius, with a warning.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("invalid temperatureUnit")));
+        m_settings.app()->setTemperatureUnit("kelvin");
+        QCOMPARE(m_settings.app()->temperatureUnit(), QString("celsius"));
+    }
+
+    void temperatureUnitEmitsOnChangeOnly() {
+        // The setter's `if (temperatureUnit() != normalized)` guard must emit exactly
+        // once on a real change and stay silent on a no-op set.
+        m_settings.app()->setTemperatureUnit("celsius");
+        QSignalSpy spy(m_settings.app(), &SettingsApp::temperatureUnitChanged);
+        m_settings.app()->setTemperatureUnit("fahrenheit");   // change -> 1 emit
+        QCOMPARE(spy.count(), 1);
+        m_settings.app()->setTemperatureUnit("fahrenheit");   // no-op -> no further emit
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void temperatureUnitDefaultIsCelsius() {
+        // On fresh state (key absent) the getter default must be "celsius".
+        { QSettings raw("DecentEspresso", "DE1Qt");
+          raw.remove("display/temperatureUnit");
+          raw.sync(); }
+        QCOMPARE(m_settings.app()->temperatureUnit(), QString("celsius"));
+        // cleanup() restores the original via m_origTemperatureUnit.
     }
 
     void waterVesselPresetLegacyTemperatureFallsBackToGlobal() {

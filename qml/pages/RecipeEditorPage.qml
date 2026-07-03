@@ -426,7 +426,7 @@ Page {
 
                             // Temp
                             Text { text: TranslationManager.translate("recipeEditor.infuseTemp", "Temp"); font: Theme.captionFont; color: Theme.temperatureColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("recipeEditor.infuseTemperature", "Infuse temperature"); from: 80; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.fillTemperature, 88); onValueModified: function(newValue) { updateRecipe("fillTemperature", Math.round(newValue * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("recipeEditor.infuseTemperature", "Infuse temperature"); from: Theme.cToDisplay(80); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(val(recipe.fillTemperature, 88)); onValueModified: function(newValue) { updateRecipe("fillTemperature", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
 
                             // Pressure
                             Text { text: TranslationManager.translate("recipeEditor.infusePressureLabel", "Pressure"); font: Theme.captionFont; color: Theme.pressureColor }
@@ -486,7 +486,7 @@ Page {
 
                             // Temp
                             Text { text: TranslationManager.translate("recipeEditor.pourTemp", "Temp"); font: Theme.captionFont; color: Theme.temperatureColor }
-                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("recipeEditor.pourTemperature", "Pour temperature"); from: 80; to: 100; stepSize: 0.1; suffix: " °C"; value: val(recipe.pourTemperature, 93); onValueModified: function(newValue) { updateRecipe("pourTemperature", Math.round(newValue * 10) / 10) } }
+                            ValueInput { Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("recipeEditor.pourTemperature", "Pour temperature"); from: Theme.cToDisplay(80); to: Theme.cToDisplay(100); stepSize: 0.1; suffix: Theme.tempUnitSuffix(); value: Theme.cToDisplay(val(recipe.pourTemperature, 93)); onValueModified: function(newValue) { updateRecipe("pourTemperature", Math.round(Theme.displayToC(newValue) * 10) / 10) } }
 
                             // Grouped: flow, pressure, and time (ramp time for A-Flow)
                             Item {

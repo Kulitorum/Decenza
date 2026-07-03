@@ -601,7 +601,7 @@ Page {
                             Text {
                                 Layout.alignment: Qt.AlignHCenter
                                 property real temp: typeof DE1Device.steamTemperature === 'number' ? DE1Device.steamTemperature : 0
-                                text: temp.toFixed(0) + "°C"
+                                text: Theme.formatTemperature(temp, 0)
                                 font.pixelSize: Theme.scaled(36)
                                 font.weight: Font.Bold
                                 color: temp >= 60 ? Theme.errorColor : Theme.primaryColor
