@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QObject>
 #include <QString>
 #include <QVector>
 
@@ -22,6 +23,16 @@
 // delta tag), so the callers compose any surrounding labels.
 namespace TemperatureDisplay {
 
+// --- Unit-conversion primitives (display/entry only; storage stays Celsius) ---
+// An absolute temperature shifts origin (×9/5 +32); a DELTA/offset scales only
+// (+4°C = +7.2°F). Single source of the conversion math: format() below and the
+// QML Theme helpers (via TemperatureDisplayBridge) both delegate here.
+double cToDisplay(double celsius, bool fahrenheit);
+double displayToC(double display, bool fahrenheit);
+double cDeltaToDisplay(double deltaCelsius, bool fahrenheit);
+double displayToCDelta(double deltaDisplay, bool fahrenheit);
+QString unitSuffix(bool fahrenheit);
+
 // Number of distinct temperatures among the frames (within 0.05°C tolerance).
 int distinctCount(const QVector<double>& stepTemps);
 
@@ -38,3 +49,21 @@ QString format(const QVector<double>& stepTemps, double anchorTemp,
                bool hasOverride, double overrideTemp, bool fahrenheit = false);
 
 } // namespace TemperatureDisplay
+
+// Thin QML bridge for the conversion primitives above, registered as the
+// "TemperatureDisplay" context property so qml/Theme.qml delegates to the same
+// unit-tested math instead of mirroring it in JS. `fahrenheit` is an explicit
+// argument (not read from Settings here) because the QML binding engine cannot
+// track property reads inside C++ methods — the Theme wrappers read
+// Settings.app.temperatureUnit in JS so bindings re-evaluate on unit toggle.
+class TemperatureDisplayBridge : public QObject {
+    Q_OBJECT
+public:
+    explicit TemperatureDisplayBridge(QObject* parent = nullptr) : QObject(parent) {}
+
+    Q_INVOKABLE double cToDisplay(double celsius, bool fahrenheit) const;
+    Q_INVOKABLE double displayToC(double display, bool fahrenheit) const;
+    Q_INVOKABLE double cDeltaToDisplay(double deltaCelsius, bool fahrenheit) const;
+    Q_INVOKABLE double displayToCDelta(double deltaDisplay, bool fahrenheit) const;
+    Q_INVOKABLE QString unitSuffix(bool fahrenheit) const;
+};

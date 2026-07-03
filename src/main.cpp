@@ -89,6 +89,7 @@
 #include "machine/steamhealthtracker.h"
 #include "controllers/maincontroller.h"
 #include "controllers/shottimingcontroller.h"
+#include "profile/temperaturedisplay.h"
 #include "ai/aimanager.h"
 #include "ai/aiconversation.h"
 #include "screensaver/screensavervideomanager.h"
@@ -2446,8 +2447,10 @@ int main(int argc, char *argv[])
 
     // Expose C++ objects to QML
     QQmlContext* context = engine.rootContext();
+    TemperatureDisplayBridge temperatureDisplayBridge;
     context->setContextProperty("Settings", &settings);
     context->setContextProperty("TranslationManager", &translationManager);
+    context->setContextProperty("TemperatureDisplay", &temperatureDisplayBridge);
     context->setContextProperty("BLEManager", &bleManager);
     context->setContextProperty("DE1Device", &de1Device);
     context->setContextProperty("ScaleDevice", &flowScale);  // FlowScale initially, updated when physical scale connects
@@ -2739,6 +2742,7 @@ int main(int argc, char *argv[])
         ghcEngine.rootContext()->setContextProperty("DE1Device", &de1Device);
         ghcEngine.rootContext()->setContextProperty("DE1Simulator", &de1Simulator);
         ghcEngine.rootContext()->setContextProperty("Settings", &settings);
+        ghcEngine.rootContext()->setContextProperty("TemperatureDisplay", &temperatureDisplayBridge);
 
         QObject::connect(&ghcEngine, &QQmlApplicationEngine::objectCreated, &app,
             [](QObject *obj, const QUrl &objUrl) {
