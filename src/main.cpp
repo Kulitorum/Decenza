@@ -1221,6 +1221,10 @@ int main(int argc, char *argv[])
 
     checkpoint("Pre-QML setup done");
 
+    // Declared before the engine (like the other context-property backing objects)
+    // so it outlives the engine at scope unwind.
+    TemperatureDisplayBridge temperatureDisplayBridge;
+
     // Set up QML engine
     QQmlApplicationEngine engine;
     checkpoint("QML engine created");
@@ -2447,7 +2451,6 @@ int main(int argc, char *argv[])
 
     // Expose C++ objects to QML
     QQmlContext* context = engine.rootContext();
-    TemperatureDisplayBridge temperatureDisplayBridge;
     context->setContextProperty("Settings", &settings);
     context->setContextProperty("TranslationManager", &translationManager);
     context->setContextProperty("TemperatureDisplay", &temperatureDisplayBridge);

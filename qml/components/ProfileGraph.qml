@@ -183,7 +183,8 @@ Item {
 
     // Manual right-axis temperature labels — replaces what Qt Charts' axisYRight
     // used to render automatically. Five evenly-spaced labels mirror the original
-    // tickCount: 5 on a 80-100 °C range.
+    // tickCount: 5 on a 80-100 °C range; the axis scale stays Celsius and only the
+    // label text converts to the display unit (176-212 in Fahrenheit mode).
     Item {
         id: rightAxisLabels
         x: graphsView.plotArea.x + graphsView.plotArea.width + Theme.scaled(2)

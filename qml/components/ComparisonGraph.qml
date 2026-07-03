@@ -282,7 +282,7 @@ Item {
             var metrics = []
             if (sv.hasPressure)    metrics.push(sv.pressure.toFixed(1) + " bar")
             if (sv.hasFlow)        metrics.push(sv.flow.toFixed(1) + " mL/s")
-            if (sv.hasTemperature) metrics.push(sv.temperature.toFixed(1) + " degrees")
+            if (sv.hasTemperature) metrics.push(Theme.cToDisplay(sv.temperature).toFixed(1) + " " + Theme.tempUnitSuffix())
             if (sv.hasWeight)      metrics.push(sv.weight.toFixed(1) + " grams")
             if (metrics.length > 0)
                 parts.push(sv.dateTime + ": " + metrics.join(", "))
