@@ -65,10 +65,11 @@ void LiveSteamCoach::onPhaseChanged() {
     if (nowSteaming && !m_steaming) {
         // Steam just started: clear any stale state from a previous steam.
         // Deliberately NO evaluate() here: SteamPage applies the weight-scaled
-        // duration (and sets durationMilkDerived) in its OWN phaseChanged
-        // handler, which runs after this C++ slot. The first shot-time tick
-        // (~100ms) drives the opening cue instead, by which time the page
-        // state has settled — event-ordering, not a timer.
+        // duration (and sets durationMilkDerived) in its onIsSteamingChanged
+        // handler (isSteaming is a QML binding on MachineState.phase), which
+        // runs after this C++ slot. The first shot-time tick (~100ms) drives
+        // the opening cue instead, by which time the page state has settled —
+        // event-ordering, not a timer.
         resetState();
         m_steaming = true;
     } else if (!nowSteaming && m_steaming) {
@@ -137,7 +138,8 @@ void LiveSteamCoach::onSteamFlowStopped() {
     // before QML paints — the VISUAL pill is lost on that rare path. The
     // spoken cue below is emitted synchronously and always survives. On the
     // normal auto-stop path the phase stays Steaming through the purge, so
-    // the pill shows for its full auto-dismiss window.
+    // the pill shows until the phase exits Steaming (cues persist — there is
+    // no auto-dismiss).
     emitCue(QStringLiteral("steam-done"),
             tr_("steamCoach.cue.done", "Steam done"),
             QStringLiteral("positive"), /*speak=*/true, /*interrupt=*/true);
@@ -156,15 +158,16 @@ void LiveSteamCoach::evaluate() {
     // says nothing about the milk actually in the pitcher — pacing cues off
     // it would confidently endorse ruining it (200 mL against a 60 s preset
     // is destroyed long before "Almost there"). Show one informational pill
-    // (visual only — never spoken) so the silence is explained and actionable:
-    // rest the pitcher on the scale next time.
+    // so the silence is explained and actionable (rest the pitcher on the
+    // scale next time). Spoken politely too (when the audio setting is on) —
+    // an audio-only user would otherwise get unexplained dead air.
     if (!m_durationMilkDerived) {
         if (!m_firedNoCoaching) {
             m_firedNoCoaching = true;
             emitCue(QStringLiteral("no-coaching"),
                     tr_("steamCoach.cue.noCoaching",
                         "No coaching — milk weight not captured"),
-                    QStringLiteral("info"), /*speak=*/false);
+                    QStringLiteral("info"), /*speak=*/true);
         }
         return;
     }

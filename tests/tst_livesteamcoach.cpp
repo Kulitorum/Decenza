@@ -269,13 +269,14 @@ private slots:
     void completionFiresExactlyOnce() {
         Fixture fx(true, true, 20);
         fx.startSteam();
-        // Jump straight to 19s: the roll/almost latches are deliberately left
-        // partially unfired (only stretch+almost fire here; roll never ticks
-        // through 7s). That's what makes the frozen-clock re-tick below a real
-        // probe — without the m_flowStopped guard in evaluate(), it would fire
-        // the unlatched milestone and fail the count compare. Adding an
-        // earlier tick(7.0) here would silently defuse this test's pin on the
-        // never-coach-a-stopped-flow invariant.
+        // Jump straight to 19s: only STRETCH fires on this tick (evaluate()
+        // emits at most one cue per call and returns), leaving the roll and
+        // almost latches unfired. That's what makes the frozen-clock re-tick
+        // below a real probe — without the m_flowStopped guard in evaluate(),
+        // it would fire ALMOST (remaining 1s <= 3s) and fail the count
+        // compare. Ticking through the milestones before the stop would
+        // silently defuse this test's pin on the never-coach-a-stopped-flow
+        // invariant.
         fx.tick(19.0);
         fx.flowStopped();
         const int cuesAfterDone = fx.cueSpy.count();
@@ -329,25 +330,45 @@ private slots:
     // the pitcher this session), the coach must not coach AT ALL — a fixed
     // preset duration says nothing about the milk, and pacing cues off it
     // would endorse ruining it (e.g. 200 mL against a 60 s preset). The only
-    // output is one informational pill, visual only — never spoken.
-    void notMilkDerived_showsPillOnly_nothingSpoken() {
+    // output is one informational pill, announced ONCE politely (so an
+    // audio-only user isn't left with unexplained silence) — then nothing.
+    void notMilkDerived_pillOnceThenSilence() {
         Fixture fx(true, true, 60, /*milkDerived=*/false);
         fx.startSteam();
         fx.tick(0.1);
         QCOMPARE(fx.cueSpy.count(), 1);
         QCOMPARE(fx.coach.cueText(), QString::fromUtf8(NO_COACHING));
         QCOMPARE(fx.coach.cueSeverity(), QStringLiteral("info"));
-        QCOMPARE(fx.speakSpy.count(), 0);
+        QCOMPARE(fx.speakSpy.count(), 1);  // announced once, politely
+        QCOMPARE(fx.speakSpy.at(0).at(0).toString(), QString::fromUtf8(NO_COACHING));
+        QCOMPARE(fx.speakSpy.at(0).at(1).toBool(), false);
 
-        // No milestones ever fire, and the pill persists (no re-emits).
+        // No milestones ever fire, and the pill persists (no re-emits, no
+        // re-announcements).
         fx.tick(21.0);   // would be roll
         fx.tick(48.0);   // would be almost
         fx.tick(59.5);
         fx.flowStopped(); // would be done — must stay silent too
         QCOMPARE(fx.cueSpy.count(), 1);
-        QCOMPARE(fx.speakSpy.count(), 0);
+        QCOMPARE(fx.speakSpy.count(), 1);
         QVERIFY(fx.coach.cueActive());
         QCOMPARE(fx.coach.cueText(), QString::fromUtf8(NO_COACHING));
+    }
+
+    // The pill is itself behind the coaching opt-in: with both toggles off a
+    // not-milk-derived steam produces NOTHING — no pill, no speech. Pins the
+    // coachingActive() gate running before the pill emission (a refactor that
+    // hoists the pill above it would surface the pill to users who never
+    // enabled coaching).
+    void bothOff_notMilkDerived_noPillEither() {
+        Fixture fx(false, false, 60, /*milkDerived=*/false);
+        fx.startSteam();
+        for (double t = 1; t <= 59; t += 5)
+            fx.tick(t);
+        fx.flowStopped();
+        QCOMPARE(fx.cueSpy.count(), 0);
+        QCOMPARE(fx.speakSpy.count(), 0);
+        QVERIFY(!fx.coach.cueActive());
     }
 };
 

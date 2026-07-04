@@ -81,7 +81,7 @@ Each milestone cue (stretch, roll, almost, completion) SHALL fire at most once p
 
 ### Requirement: Coaching requires a milk-derived duration
 
-Coaching cues SHALL be emitted only when the session's steam duration was derived from the actual milk weight (weight-timed steaming enabled, calibrated, and the milk captured on the scale this session). A fixed preset duration says nothing about the milk in the pitcher, and pacing cues off it would endorse ruining the milk (e.g. 200 mL against a 60 s preset is destroyed long before "almost"). When coaching is enabled but the duration is not milk-derived, the coach SHALL emit a single informational pill explaining why ("no coaching — milk weight not captured"), on the visual banner only — it SHALL NOT be spoken — and SHALL otherwise behave as if the feature were off. Untimed/manual steams are never milk-derived.
+Coaching cues SHALL be emitted only when the session's steam duration was derived from the actual milk weight (weight-timed steaming enabled, calibrated, and the milk captured on the scale this session). A fixed preset duration says nothing about the milk in the pitcher, and pacing cues off it would endorse ruining the milk (e.g. 200 mL against a 60 s preset is destroyed long before "almost"). When coaching is enabled but the duration is not milk-derived, the coach SHALL emit a single informational pill explaining why ("no coaching — milk weight not captured") — shown on the banner and, when the audio setting is on, announced once politely so an audio-only user is not left with unexplained silence — and SHALL otherwise behave as if the feature were off. Untimed/manual steams are never milk-derived.
 
 #### Scenario: Captured milk enables full coaching
 
@@ -91,10 +91,10 @@ Coaching cues SHALL be emitted only when the session's steam duration was derive
 
 #### Scenario: No captured milk yields only the explanatory pill
 
-- **WHEN** coaching is enabled but the session's duration was not derived from a captured milk weight (weight-timed off, calibrated-but-not-captured, manual duration override, or untimed steam)
+- **WHEN** coaching is enabled but the session's duration was not derived from a captured milk weight (weight-timed off, calibrated-but-not-captured, a pre-steam manual duration override, or untimed steam; a mid-steam ±5 s nudge on a captured session keeps coaching against the adjusted, still milk-anchored target)
 - **THEN** a single informational pill explains that coaching is off because the milk weight was not captured
-- **AND** no milestone or completion cue is emitted
-- **AND** nothing is spoken
+- **AND** with the audio setting on, the pill text is announced once, politely
+- **AND** no milestone or completion cue is emitted or spoken
 
 #### Scenario: Feature off shows no pill
 

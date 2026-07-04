@@ -41,8 +41,10 @@ class TranslationManager;
 // about the milk in the pitcher, so pacing cues off it would confidently
 // endorse ruining the milk (200 mL against a 60 s preset is destroyed long
 // before "Almost there"). Without a milk-derived duration the coach emits a
-// single informational pill ("No coaching — milk weight not captured", visual
-// only) and otherwise behaves as if the feature were off.
+// single informational pill ("No coaching — milk weight not captured") —
+// shown on the banner and spoken politely when the audio setting is on, so an
+// audio-only user isn't left with unexplained silence — and otherwise behaves
+// as if the feature were off.
 //
 // Rate control is one-shot latching only — each milestone fires at most once per
 // steam operation (at most four cues total), so no spacing governor is needed and
