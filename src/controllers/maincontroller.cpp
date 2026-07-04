@@ -1922,6 +1922,9 @@ void MainController::onShotEnded() {
     if (m_profileManager) {
         const QString beverageType = m_profileManager->currentProfile().beverageType();
         if (Profile::isMaintenanceBeverageType(beverageType)) {
+            // Log the skip — this is the one maintenance gate with no other user-visible
+            // trace, and "my shot didn't get saved" is undiagnosable without it.
+            qInfo() << "Skipping shot history for maintenance profile, beverage_type:" << beverageType;
             if (m_shotDebugLogger)
                 m_shotDebugLogger->stopCapture();
             m_extractionStarted = false;

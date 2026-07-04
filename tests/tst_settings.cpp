@@ -588,7 +588,23 @@ private slots:
     }
 
     void effectiveSteamDurationSecZeroForMissingIndex() {
+        // A stale index (e.g. every preset deleted) must return 0 AND warn — unlike a
+        // disabled preset it's never deliberate, and QML guards can't detect it (an
+        // empty QVariantMap is a truthy {} in JS).
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("no steam pitcher preset at index")));
         QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(999, 300.0), 0);
+    }
+
+    void effectiveSteamDurationSecBaseWhenNoMilk() {
+        // Calibrated preset, weight-timing ON, but no milk available (no scale, nothing
+        // captured): must yield the base duration — not 0, and not the 5s clamp floor.
+        // The SteamItem popup tap relies on exactly this cell when tapped scale-less.
+        m_settings.brew()->addSteamPitcherPreset("Latte", 45, 150, 135.0);
+        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        m_settings.brew()->setSteamPitcherCalibration(idx, 300.0);  // also enables the toggle
+
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 0.0), 45);
     }
 
     void effectiveSteamDurationSecFallsBackWhenUncalibrated() {

@@ -157,10 +157,11 @@ public:
     // the milk weight / duration is non-positive.
     Q_INVOKABLE int scaledSteamTime(int index, double milkG) const;
     // Scaled-or-base resolution in one place: scaledSteamTime() when it yields a scaled
-    // value, else the preset's fixed duration (0 for a missing/disabled preset). Used by
-    // every preset-tap timeout write (idle pills, SteamPage pitcher cards + live pills,
-    // Steam widget popup), SteamPage's syncSteamTimeout, and the steam-plan display so
-    // they all agree. Steam-start and milk auto-capture writes deliberately use
+    // value, else the preset's fixed duration (0 for a missing/disabled preset; the
+    // missing case also warns). Used by every preset-selection timeout write (idle
+    // pills, SteamPage pitcher cards + live pills, Steam widget popup, MCP pitcher
+    // select), SteamPage's syncSteamTimeout, and the steam-plan display so they all
+    // agree. Steam-start and milk auto-capture writes deliberately use
     // scaledSteamTime() only — they must never replace a manually-adjusted or
     // already-scaled timeout with the base duration.
     Q_INVOKABLE int effectiveSteamDurationSec(int index, double milkG) const;

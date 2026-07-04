@@ -49,7 +49,9 @@ public:
     // internally (trim + lowercase) so odd-cased community-authored values match.
     // Single source for the QML Shot Plan warning (via ProfileManager), the
     // shot-history exclusion (maincontroller), the Visualizer upload gate, and the
-    // MCP upload gate — add any new maintenance beverage_type HERE only.
+    // MCP upload gate. Add any new maintenance beverage_type HERE — plus the
+    // selector category in profilemanager.cpp and the beverage-type list in
+    // PostShotReviewPage.qml if it should be user-visible.
     static bool isMaintenanceBeverageType(const QString& beverageType) {
         const QString t = beverageType.trimmed().toLower();
         return t == QLatin1String("cleaning") || t == QLatin1String("descale")

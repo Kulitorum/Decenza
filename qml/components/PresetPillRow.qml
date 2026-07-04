@@ -311,9 +311,10 @@ FocusScope {
                                 // Announce selection for accessibility feedback. Route through
                                 // pillDisplayName so the tap announcement matches what focus
                                 // announces (e.g. pillLabelFn's "Small Pitcher" transform).
-                                // pillDisplayName reads the LIVE presets list, which can lag a
-                                // deletion/reorder by the 1ms rowsModel rebuild — fall back to
-                                // the row's snapshot name rather than announcing nothing.
+                                // pillDisplayName reads the LIVE presets list with this row's
+                                // index, which the 1ms rowsModel rebuild can leave stale after
+                                // a deletion/reorder — fall back to the row's snapshot name
+                                // rather than announcing nothing.
                                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
                                     var announceName = pillDisplayName(modelData.index) || modelData.preset.name
                                     AccessibilityManager.announce(announceName + " " + TranslationManager.translate("presetPill.selected", "selected"))

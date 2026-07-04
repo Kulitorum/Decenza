@@ -221,6 +221,14 @@ Page {
     property string milkCaptureText: ""
     // Last milk weight measured this session (for the bottom status row). 0 = none yet.
     property real measuredMilkG: 0
+    // The captured milk is net of the SELECTED pitcher's saved weight, so it's wrong
+    // for any other pitcher — drop it on selection change, mirroring main.qml's reset
+    // of sessionMeasuredMilkG. Without this the pill tap's fallback could scale the
+    // new pitcher's steam by the previous pitcher's milk.
+    Connections {
+        target: Settings.brew
+        function onSelectedSteamPitcherChanged() { idlePage.measuredMilkG = 0 }
+    }
     Timer { id: idleMilkCaptureTimer; interval: 3500; onTriggered: idlePage.milkCaptureShown = false }
     StableWeightCapture {
         id: idleMilkCapture

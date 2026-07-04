@@ -446,7 +446,15 @@ int SettingsBrew::effectiveSteamDurationSec(int index, double milkG) const {
     int t = scaledSteamTime(index, milkG);
     if (t > 0) return t;
     QVariantMap p = getSteamPitcherPreset(index);
-    if (p.isEmpty() || p.value("disabled").toBool()) return 0;
+    if (p.isEmpty()) {
+        // A stale/out-of-range selection index (e.g. every preset deleted). Unlike a
+        // disabled preset, this is never a deliberate state — warn so the resulting
+        // 0s steam timeout is diagnosable.
+        qWarning() << "SettingsBrew: no steam pitcher preset at index" << index
+                   << "— steam timeout will be 0s";
+        return 0;
+    }
+    if (p.value("disabled").toBool()) return 0;
     int base = qRound(p.value("duration", 0.0).toDouble());
     // An enabled preset with no positive duration is corrupt (hand-edited/failed import);
     // returning 0 here silently programs a 0s steam target, so make it loud.

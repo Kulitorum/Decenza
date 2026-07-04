@@ -324,10 +324,12 @@ Page {
 
     // Sync steamTimeout to the selected preset WITHOUT clobbering a weight-scaled
     // value. Milk to scale against = the scale reading now, else the milk captured
-    // this session; the scaled-or-base resolution itself is the shared SettingsBrew
-    // helper. The one case that keeps the current value instead: a calibrated preset
-    // already scaled for this selection with the pitcher merely lifted to the wand —
-    // writing the base duration then would discard the measured-milk scaling.
+    // this session (or the last reading seen on this page — lastOnScaleMilk survives
+    // session end); the scaled-or-base resolution itself is the shared SettingsBrew
+    // helper. Kept-current cases: a calibrated preset already scaled for this
+    // selection with nothing to scale against right now (pitcher lifted to the wand,
+    // or weight-timing toggled off while the scaled flag is still latched) — writing
+    // the base duration then would discard the measured-milk scaling.
     function syncSteamTimeout() {
         if (isCurrentPitcherDisabled()) return   // heater is off — keep whatever's set
         var milk = currentMeasuredMilk()

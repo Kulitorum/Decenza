@@ -11,6 +11,8 @@
 #include "../core/settings_brew.h"
 #include "../core/settings_hardware.h"
 #include "../controllers/maincontroller.h"
+#include "../machine/machinestate.h"
+#include "../ble/scaledevice.h"
 
 #include <QJsonObject>
 #include <QJsonArray>
@@ -63,12 +65,13 @@ const QJsonObject kConfirmedProp{
 
 } // namespace
 
-void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainController* mainController)
+void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainController* mainController,
+                          MachineState* machineState)
 {
     // Apply a steam pitcher's stored parameters to the active steam settings and
     // push them to the machine — the non-UI equivalent of selecting the pitcher
     // on the Steam page. Used by select and by add (which auto-selects).
-    auto applySteamPitcher = [settings, mainController](int index) {
+    auto applySteamPitcher = [settings, mainController, machineState](int index) {
         if (!settings) return;
         const QVariantMap p = settings->brew()->getSteamPitcherPreset(index);
         if (p.isEmpty()) return;  // out-of-range index returns an empty map
@@ -76,7 +79,14 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
             if (mainController) mainController->turnOffSteamHeater();
             return;
         }
-        settings->brew()->setSteamTimeout(p.value("duration").toInt());
+        // Weight-scaled steaming: resolve scaled-or-base through the shared SettingsBrew
+        // helper (same as the UI preset taps) so an MCP pitcher select can't program an
+        // unscaled duration while the steam plan shows a scaled one. Net milk on the
+        // scale now; 0 (base duration) when no weighing scale is connected.
+        double milk = 0.0;
+        if (machineState && machineState->scale() && !machineState->scale()->isFlowScale())
+            milk = settings->brew()->netMilkForPitcher(index, machineState->scaleWeight());
+        settings->brew()->setSteamTimeout(settings->brew()->effectiveSteamDurationSec(index, milk));
         settings->brew()->setSteamFlow(p.value("flow").toInt());
         settings->brew()->setSteamTemperature(p.contains("temperature")
             ? p.value("temperature").toDouble() : settings->brew()->steamTemperature());
