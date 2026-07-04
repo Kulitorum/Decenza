@@ -356,23 +356,22 @@ Page {
     // It never captures; we only read loadPresent.
     StableWeightCapture {
         id: idlePitcherDetect
-        rawWeight: (ScaleDevice.connected && !ScaleDevice.isFlowScale) ? MachineState.scaleWeight : 0
+        rawWeight: (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale) ? MachineState.scaleWeight : 0
         active: Settings.brew.milkAutoCaptureEnabled
                 && idlePage.activePresetFunction === "steam"
                 && idlePage.StackView.status === StackView.Active
-                && ScaleDevice.connected && !ScaleDevice.isFlowScale
+                && ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
         minNet: 999999   // never auto-captures; only provides loadPresent
         loadThreshold: 50  // an empty pitcher already weighs well above this
     }
 
-    // Publish the selected operation (espresso/steam/…) to the window root so the
+    // Publish the selected operation (espresso/steam/…) to the Theme singleton so the
     // persistent status-bar widgets (e.g. the page-aware Plan widget) can tell what the
     // user has selected on the idle screen — they load as separate components and can't
     // read this property by scope. Cleared when this page isn't the active one.
     function _publishOperationMode() {
-        if (Window.window)
-            Window.window.currentOperationMode =
-                (StackView.status === StackView.Active) ? activePresetFunction : ""
+        Theme.currentOperationMode =
+            (StackView.status === StackView.Active) ? activePresetFunction : ""
     }
     StackView.onStatusChanged: _publishOperationMode()
 
@@ -593,12 +592,11 @@ Page {
                                 // truth in SettingsBrew. Net milk on the scale now, or the last
                                 // measured weight if the pitcher was lifted to the wand.
                                 var idx = Settings.brew.selectedSteamPitcher
-                                var milk = (ScaleDevice.connected && !ScaleDevice.isFlowScale)
+                                var milk = (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale)
                                            ? Settings.brew.netMilkForPitcher(idx, MachineState.scaleWeight) : 0
                                 if (milk <= 0)
                                     milk = idlePage.measuredMilkG
-                                var t = Settings.brew.scaledSteamTime(idx, milk)
-                                Settings.brew.steamTimeout = t > 0 ? t : preset.duration  // 0 → fixed duration
+                                Settings.brew.steamTimeout = Settings.brew.effectiveSteamDurationSec(idx, milk)
                                 Settings.brew.steamFlow = preset.flow !== undefined ? preset.flow : 150
                                 Settings.brew.steamTemperature = (preset.temperature !== undefined) ? preset.temperature : Settings.brew.steamTemperature
                             }
@@ -628,13 +626,17 @@ Page {
                     // "Place the milk pitcher on the scale" — same position as the bean prompt (below
                     // the pills). Shown only while idlePitcherDetect is active (weight-timed steaming on,
                     // steam selected, scale connected) and nothing is on the scale yet. Gently blinks.
+                    // The hint promises a beep ONLY when the capture sound will actually play — the
+                    // ding is separately gated on doseCaptureSoundEnabled (default off).
                     Text {
                         id: steamPlacePrompt
                         anchors.horizontalCenter: parent.horizontalCenter
                         horizontalAlignment: Text.AlignHCenter
                         visible: idlePitcherDetect.active && !idlePitcherDetect.loadPresent
                         text: TranslationManager.translate("idle.label.placePitcherOnScale", "Place the milk pitcher on the scale") + "\n"
-                            + TranslationManager.translate("idle.label.placePitcherHint", "(and wait for the beep before removing)")
+                            + (Settings.brew.doseCaptureSoundEnabled
+                                ? TranslationManager.translate("idle.label.placePitcherHint", "(and wait for the beep before removing)")
+                                : TranslationManager.translate("idle.label.placePitcherHintNoSound", "(hold still until the weight registers)"))
                         color: Theme.textSecondaryColor
                         font: Theme.labelFont
                         Accessible.role: Accessible.StaticText

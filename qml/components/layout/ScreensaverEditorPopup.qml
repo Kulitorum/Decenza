@@ -18,6 +18,7 @@ Dialog {
     property bool shotShowPhaseLabels: true  // Show frame transition labels
     property bool shotPlanShowProfile: true
     property bool shotPlanShowRoaster: true
+    property bool shotPlanShowCoffee: true
     property bool shotPlanShowGrind: true
     property bool shotPlanShowRoastDate: false
     property bool shotPlanShowDoseYield: true
@@ -45,6 +46,7 @@ Dialog {
         shotShowPhaseLabels = typeof props.shotShowPhaseLabels === "boolean" ? props.shotShowPhaseLabels : true
         shotPlanShowProfile = typeof props.shotPlanShowProfile === "boolean" ? props.shotPlanShowProfile : true
         shotPlanShowRoaster = typeof props.shotPlanShowRoaster === "boolean" ? props.shotPlanShowRoaster : true
+        shotPlanShowCoffee = typeof props.shotPlanShowCoffee === "boolean" ? props.shotPlanShowCoffee : true
         shotPlanShowGrind = typeof props.shotPlanShowGrind === "boolean" ? props.shotPlanShowGrind : true
         shotPlanShowRoastDate = typeof props.shotPlanShowRoastDate === "boolean" ? props.shotPlanShowRoastDate : false
         shotPlanShowDoseYield = typeof props.shotPlanShowDoseYield === "boolean" ? props.shotPlanShowDoseYield : true
@@ -83,6 +85,7 @@ Dialog {
         if (itemType === "shotPlan" || itemType === "plan") {
             Settings.network.setItemProperty(itemId, "shotPlanShowProfile", shotPlanShowProfile)
             Settings.network.setItemProperty(itemId, "shotPlanShowRoaster", shotPlanShowRoaster)
+            Settings.network.setItemProperty(itemId, "shotPlanShowCoffee", shotPlanShowCoffee)
             Settings.network.setItemProperty(itemId, "shotPlanShowGrind", shotPlanShowGrind)
             Settings.network.setItemProperty(itemId, "shotPlanShowRoastDate", shotPlanShowRoastDate)
             Settings.network.setItemProperty(itemId, "shotPlanShowDoseYield", shotPlanShowDoseYield)
@@ -105,8 +108,8 @@ Dialog {
                     case "screensaverAttractor": return TranslationManager.translate("screensaverEditor.title.attractor", "Attractors Settings")
                     case "screensaverShotMap": return TranslationManager.translate("screensaverEditor.title.shotMap", "Shot Map Settings")
                     case "lastShot": return TranslationManager.translate("screensaverEditor.title.lastShot", "Last Shot Settings")
-                    case "shotPlan":
-                    case "plan": return TranslationManager.translate("screensaverEditor.title.shotPlan", "Shot Plan Settings")
+                    case "shotPlan": return TranslationManager.translate("screensaverEditor.title.shotPlan", "Shot Plan Settings")
+                    case "plan": return TranslationManager.translate("screensaverEditor.title.plan", "Plan Settings")
                     default: return TranslationManager.translate("screensaverEditor.title.default", "Screensaver Settings")
                 }
             }
@@ -328,6 +331,16 @@ Dialog {
             spacing: Theme.spacingSmall
             visible: popup.itemType === "shotPlan" || popup.itemType === "plan"
 
+            // The page-aware Plan widget flips to the steam plan (no options) in steam
+            // context — tell the user which side these toggles configure.
+            Text {
+                visible: popup.itemType === "plan"
+                text: TranslationManager.translate("shotPlanEditor.planNote", "These options apply to the shot plan; the steam plan has no options.")
+                font: Theme.labelFont
+                color: Theme.textSecondaryColor
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
             StyledSwitch {
                 text: TranslationManager.translate("shotPlanEditor.showProfile", "Profile & temperature")
                 checked: popup.shotPlanShowProfile
@@ -339,7 +352,14 @@ Dialog {
                 onToggled: popup.shotPlanShowRoaster = checked
             }
             StyledSwitch {
-                text: TranslationManager.translate("shotPlanEditor.showGrind", "Coffee (grind)")
+                text: TranslationManager.translate("shotPlanEditor.showCoffee", "Coffee")
+                checked: popup.shotPlanShowCoffee
+                onToggled: popup.shotPlanShowCoffee = checked
+            }
+            StyledSwitch {
+                // New key (not the old shotPlanEditor.showGrind "Coffee (grind)") so stale
+                // translations of the old combined label can't mislabel the narrowed toggle.
+                text: TranslationManager.translate("shotPlanEditor.showGrindRpm", "Grind")
                 checked: popup.shotPlanShowGrind
                 onToggled: popup.shotPlanShowGrind = checked
             }

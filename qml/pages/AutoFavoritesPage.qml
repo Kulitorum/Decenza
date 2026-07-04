@@ -253,6 +253,7 @@ Page {
                                 text: "  ·  "
                                 font.family: Theme.subtitleFont.family
                                 font.pixelSize: Theme.subtitleFont.pixelSize
+                                font.bold: true
                                 color: Theme.textSecondaryColor
                                 visible: favoriteDelegate._hasBean && favoriteDelegate._hasProfile
                                 Accessible.ignored: true
@@ -273,6 +274,7 @@ Page {
                                 text: "  ·  "
                                 font.family: Theme.subtitleFont.family
                                 font.pixelSize: Theme.subtitleFont.pixelSize
+                                font.bold: true
                                 color: Theme.textSecondaryColor
                                 visible: favoriteDelegate._hasGrinder && (favoriteDelegate._hasBean || favoriteDelegate._hasProfile)
                                 Accessible.ignored: true

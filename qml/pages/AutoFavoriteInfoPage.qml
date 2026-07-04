@@ -112,7 +112,10 @@ Page {
 
                     Text {
                         text: "  ·  "
-                        font: Theme.titleFont
+                        // Bold separator dot (sub-properties, not font: + font.bold — QML gotcha)
+                        font.family: Theme.titleFont.family
+                        font.pixelSize: Theme.titleFont.pixelSize
+                        font.bold: true
                         color: Theme.textSecondaryColor
                         visible: _hasBean && _hasProfile
                         Accessible.ignored: true
@@ -130,7 +133,10 @@ Page {
 
                     Text {
                         text: "  ·  "
-                        font: Theme.titleFont
+                        // Bold separator dot (sub-properties, not font: + font.bold — QML gotcha)
+                        font.family: Theme.titleFont.family
+                        font.pixelSize: Theme.titleFont.pixelSize
+                        font.bold: true
                         color: Theme.textSecondaryColor
                         visible: _hasGrinder && (_hasBean || _hasProfile)
                         Accessible.ignored: true

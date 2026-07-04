@@ -441,6 +441,14 @@ int SettingsBrew::scaledSteamTime(int index, double milkG) const {
     return qBound(5, qRound(duration * (milkG / calibMilk)), 120);
 }
 
+int SettingsBrew::effectiveSteamDurationSec(int index, double milkG) const {
+    int t = scaledSteamTime(index, milkG);
+    if (t > 0) return t;
+    QVariantMap p = getSteamPitcherPreset(index);
+    if (p.isEmpty() || p.value("disabled").toBool()) return 0;
+    return qRound(p.value("duration", 0.0).toDouble());
+}
+
 QVariantMap SettingsBrew::getSteamPitcherPreset(int index) const {
     QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
     QJsonDocument doc = QJsonDocument::fromJson(data);

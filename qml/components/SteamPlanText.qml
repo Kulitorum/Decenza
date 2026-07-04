@@ -43,7 +43,16 @@ Item {
         if (_preset && (_preset.calibMilkG || 0) > 0) return _preset.calibMilkG
         return Settings.brew.lastSteamMilkG || 0
     }
-    readonly property int _duration: Settings.brew.steamTimeout
+    // The SELECTED preset's effective time (scaled when weight-timing has milk to work
+    // with, else its base duration) — not Settings.brew.steamTimeout, which holds
+    // whatever the last pill tap computed and can be stale for a fresh selection.
+    // effectiveSteamDurationSec() reads preset data + the weight-timing toggle in C++,
+    // so re-read both here to keep the binding live.
+    readonly property int _duration: {
+        void(Settings.brew.steamPitcherPresets)
+        void(Settings.brew.milkAutoCaptureEnabled)
+        return Settings.brew.effectiveSteamDurationSec(Settings.brew.selectedSteamPitcher, _targetMilk)
+    }
 
     readonly property string _milkStr: _targetMilk > 0 ? (_targetMilk.toFixed(0) + "g") : ""
     readonly property string _durStr: _duration > 0 ? (_duration + "s") : ""
@@ -58,9 +67,15 @@ Item {
     function _build(fmt, sep) {
         var _ = TranslationManager.translationVersion
         if (_presetOff) return ""
-        if (_milkStr !== "" && _pitcherName !== "" && _durStr !== "")
-            return TranslationManager.translate("steamplan.sentence", "Steam %1 of milk, using the %2 pitcher for %3")
-                .arg(fmt(_milkStr, true)).arg(fmt(_pitcherName, true)).arg(fmt(_durStr, true))
+        if (_milkStr !== "" && _pitcherName !== "" && _durStr !== "") {
+            // Pills display presets as "Small Pitcher" etc., so users name them that way —
+            // don't render "…the Large Pitcher pitcher". Separate full template (not string
+            // surgery) so translators control word order in both forms.
+            var tpl = _pitcherName.toLowerCase().indexOf("pitcher") >= 0
+                ? TranslationManager.translate("steamplan.sentenceNamedPitcher", "Steam %1 of milk, using the %2 for %3")
+                : TranslationManager.translate("steamplan.sentence", "Steam %1 of milk, using the %2 pitcher for %3")
+            return tpl.arg(fmt(_milkStr, true)).arg(fmt(_pitcherName, true)).arg(fmt(_durStr, true))
+        }
         // Degrade gracefully when a piece is missing.
         var parts = []
         if (_milkStr !== "") parts.push(fmt(_milkStr, true))

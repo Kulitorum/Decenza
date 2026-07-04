@@ -580,7 +580,8 @@ Page {
                                     // Compute the (weight-scaled) target ONCE and use it for both the
                                     // persisted Settings value and the value pushed to the DE1, so the
                                     // UI countdown target and the firmware TargetSteamLength agree.
-                                    var targetTimeout = scaledSteamTimeout() > 0 ? scaledSteamTimeout() : modelData.duration
+                                    var targetTimeout = Settings.brew.effectiveSteamDurationSec(
+                                        Settings.brew.selectedSteamPitcher, currentMeasuredMilk())
                                     Settings.brew.steamTimeout = targetTimeout
                                     Settings.brew.steamFlow = flow
                                     if (!isSteaming) {

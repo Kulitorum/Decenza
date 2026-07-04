@@ -12,6 +12,7 @@ Item {
 
     readonly property bool showProfile: modelData.shotPlanShowProfile !== false
     readonly property bool showRoaster: modelData.shotPlanShowRoaster !== false
+    readonly property bool showCoffee: modelData.shotPlanShowCoffee !== false
     readonly property bool showGrind: modelData.shotPlanShowGrind !== false
     readonly property bool showRoastDate: modelData.shotPlanShowRoastDate === true
     readonly property bool showDoseYield: modelData.shotPlanShowDoseYield !== false
@@ -30,9 +31,11 @@ Item {
     Accessible.role: Accessible.Button
     Accessible.name: {
         var plan = compactShotPlan.text || fullShotPlan.text || ""
-        return plan ? "Shot plan: " + plan + ". Tap to edit" : "Shot plan"
+        return plan ? TranslationManager.translate("plan.a11y.shotPlan", "Shot plan: %1. Tap to edit").arg(plan)
+                    : TranslationManager.translate("plan.a11y.shotPlanEmpty", "Shot plan")
     }
     Accessible.focusable: true
+    Accessible.onPressAction: root.openBrewSettings()
 
     // --- COMPACT MODE ---
     Item {
@@ -48,6 +51,7 @@ Item {
             visible: text !== ""
             showProfile: root.showProfile
             showRoaster: root.showRoaster
+            showCoffee: root.showCoffee
             showGrind: root.showGrind
             showRoastDate: root.showRoastDate
             showDoseYield: root.showDoseYield
@@ -69,6 +73,7 @@ Item {
             visible: text !== ""
             showProfile: root.showProfile
             showRoaster: root.showRoaster
+            showCoffee: root.showCoffee
             showGrind: root.showGrind
             showRoastDate: root.showRoastDate
             showDoseYield: root.showDoseYield

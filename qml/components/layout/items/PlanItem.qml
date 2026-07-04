@@ -6,9 +6,9 @@ import "../.."
 
 // A page-aware "plan" widget: shows the brew/shot plan on the home and espresso
 // pages, and the steam plan on the steam page. Drop one in the persistent status bar
-// and it reads correctly for whatever page you're on. Page detection uses
-// Window.window.currentPageObjectName (a root property on the ApplicationWindow)
-// rather than the pageStack id, which a separately-loaded widget cannot see by scope.
+// and it reads correctly for whatever page you're on. Page detection uses the Theme
+// singleton's currentPageObjectName/currentOperationMode (a separately-loaded widget
+// cannot see the pageStack id by scope; singleton properties bind reactively).
 Item {
     id: root
     property bool isCompact: false
@@ -17,34 +17,17 @@ Item {
 
     readonly property bool showProfile: modelData.shotPlanShowProfile !== false
     readonly property bool showRoaster: modelData.shotPlanShowRoaster !== false
+    readonly property bool showCoffee: modelData.shotPlanShowCoffee !== false
     readonly property bool showGrind: modelData.shotPlanShowGrind !== false
     readonly property bool showRoastDate: modelData.shotPlanShowRoastDate === true
     readonly property bool showDoseYield: modelData.shotPlanShowDoseYield !== false
 
-    // Page detection, mirrored imperatively from the window root: seed on completion / when the
-    // window resolves, and refresh on the window's currentPageObjectNameChanged /
-    // currentOperationModeChanged signals so it stays live across page changes.
-    readonly property var winRoot: root.Window.window
-    property string _pageName: ""
-    property string _opMode: ""
-    function _refreshPage() {
-        root._pageName = winRoot ? (winRoot.currentPageObjectName || "") : ""
-        root._opMode = winRoot ? (winRoot.currentOperationMode || "") : ""
-    }
-    onWinRootChanged: _refreshPage()
-    Component.onCompleted: _refreshPage()
-    Connections {
-        target: root.winRoot
-        ignoreUnknownSignals: true
-        function onCurrentPageObjectNameChanged() { root._refreshPage() }
-        function onCurrentOperationModeChanged() { root._refreshPage() }
-    }
-    // Steam context = steam selected on the idle screen, OR the full steam page, OR the machine actively
-    // steaming. MachineState.phase is a singleton property so it's read directly; the window-root strings
-    // are mirrored above (seeded on resolve, refreshed on their change signals — rename-fragile: a rename
-    // of the mirrored main.qml root properties silently freezes this on its last value).
-    readonly property bool _onSteamPage: _opMode === "steam"
-        || _pageName === "steamPage"
+    // Steam context = steam selected on the idle screen, OR the full steam page, OR the
+    // machine actively steaming. Theme.currentPageObjectName (set by main.qml's page-change
+    // handler) and Theme.currentOperationMode (published by IdlePage) are singleton
+    // properties, so these are plain reactive bindings — no Window.window mirroring.
+    readonly property bool _onSteamPage: Theme.currentOperationMode === "steam"
+        || Theme.currentPageObjectName === "steamPage"
         || (typeof MachineState !== "undefined" && MachineState.phase === MachineStateType.Phase.Steaming)
 
     function openBrewSettings() {
@@ -85,6 +68,7 @@ Item {
             visible: !root._onSteamPage && text !== ""
             showProfile: root.showProfile
             showRoaster: root.showRoaster
+            showCoffee: root.showCoffee
             showGrind: root.showGrind
             showRoastDate: root.showRoastDate
             showDoseYield: root.showDoseYield
@@ -111,6 +95,7 @@ Item {
             visible: !root._onSteamPage && text !== ""
             showProfile: root.showProfile
             showRoaster: root.showRoaster
+            showCoffee: root.showCoffee
             showGrind: root.showGrind
             showRoastDate: root.showRoastDate
             showDoseYield: root.showDoseYield

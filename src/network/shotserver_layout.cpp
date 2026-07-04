@@ -1954,6 +1954,7 @@ QString ShotServer::generateLayoutPage() const
 
             <div id="ssShotPlanSettings" style="display:none">
                 <div class="section-label">Visible elements</div>
+                <div id="spPlanNote" style="display:none;color:var(--text-secondary);font-size:0.85rem;margin:0.25rem 0 0.5rem">These options apply to the shot plan; the steam plan has no options.</div>
                 <div class="ss-slider-row">
                     <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
                         <input type="checkbox" id="spShowProfile" checked onchange="spToggleChanged()">
@@ -1968,8 +1969,14 @@ QString ShotServer::generateLayoutPage() const
                 </div>
                 <div class="ss-slider-row">
                     <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="spShowCoffee" checked onchange="spToggleChanged()">
+                        <span style="color:var(--text-secondary)">Coffee</span>
+                    </label>
+                </div>
+                <div class="ss-slider-row">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
                         <input type="checkbox" id="spShowGrind" checked onchange="spToggleChanged()">
-                        <span style="color:var(--text-secondary)">Coffee (grind)</span>
+                        <span style="color:var(--text-secondary)">Grind</span>
                     </label>
                 </div>
                 <div class="ss-slider-row">
@@ -3031,9 +3038,11 @@ QString ShotServer::generateLayoutPage() const
                 } else if (type === "shotPlan" || type === "plan") {
                     document.getElementById("spShowProfile").checked = typeof props.shotPlanShowProfile === "boolean" ? props.shotPlanShowProfile : true;
                     document.getElementById("spShowRoaster").checked = typeof props.shotPlanShowRoaster === "boolean" ? props.shotPlanShowRoaster : true;
+                    document.getElementById("spShowCoffee").checked = typeof props.shotPlanShowCoffee === "boolean" ? props.shotPlanShowCoffee : true;
                     document.getElementById("spShowGrind").checked = typeof props.shotPlanShowGrind === "boolean" ? props.shotPlanShowGrind : true;
                     document.getElementById("spShowRoastDate").checked = typeof props.shotPlanShowRoastDate === "boolean" ? props.shotPlanShowRoastDate : false;
                     document.getElementById("spShowDoseYield").checked = typeof props.shotPlanShowDoseYield === "boolean" ? props.shotPlanShowDoseYield : true;
+                    document.getElementById("spPlanNote").style.display = (type === "plan") ? "" : "none";
                     document.getElementById("ssShotPlanSettings").style.display = "";
                 } else {
                     document.getElementById("ssNoSettings").style.display = "";
@@ -3078,6 +3087,7 @@ QString ShotServer::generateLayoutPage() const
         } else if (ssEditingType === "shotPlan" || ssEditingType === "plan") {
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowProfile", value: document.getElementById("spShowProfile").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowRoaster", value: document.getElementById("spShowRoaster").checked}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowCoffee", value: document.getElementById("spShowCoffee").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowGrind", value: document.getElementById("spShowGrind").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowRoastDate", value: document.getElementById("spShowRoastDate").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowDoseYield", value: document.getElementById("spShowDoseYield").checked}, function() {});

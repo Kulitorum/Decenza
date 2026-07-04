@@ -49,7 +49,9 @@ ColumnLayout {
         return b.length > 0 ? TranslationManager.translate("equipment.card.basket", "Basket: %1").arg(b) : ""
     }
 
-    readonly property string puckPrepLine: {
+    // Plain joins feed accessibleSummary; the *Rich forms (styled bold dot, parts
+    // HTML-escaped by joinWithBullet) are what the Texts display.
+    readonly property var _puckLabels: {
         var _ = TranslationManager.translationVersion
         var labels = []
         if (_hasPuck("wdt")) labels.push(TranslationManager.translate("equipment.dialog.puckWdt", "WDT"))
@@ -57,19 +59,25 @@ ColumnLayout {
         if (_hasPuck("puckScreen")) labels.push(TranslationManager.translate("equipment.dialog.puckScreen", "Puck screen"))
         if (_hasPuck("paperFilter")) labels.push(TranslationManager.translate("equipment.dialog.puckPaper", "Bottom paper filter"))
         if (_hasPuck("rdt")) labels.push(TranslationManager.translate("equipment.dialog.puckRdt", "RDT (spritz)"))
-        return labels.length > 0
-            ? TranslationManager.translate("equipment.card.puckPrep", "Prep: %1").arg(labels.join(" · ")) : ""
+        return labels
     }
+    readonly property string puckPrepLine: _puckLabels.length > 0
+        ? TranslationManager.translate("equipment.card.puckPrep", "Prep: %1").arg(_puckLabels.join(" · ")) : ""
+    readonly property string puckPrepLineRich: _puckLabels.length > 0
+        ? Theme.escapeHtml(TranslationManager.translate("equipment.card.puckPrep", "Prep: %1"))
+              .arg(Theme.joinWithBullet(_puckLabels)) : ""
 
-    readonly property string lastDialLine: {
+    readonly property var _dialParts: {
         var _ = TranslationManager.translationVersion
         var parts = []
         if (String(grindSetting).length > 0)
             parts.push(TranslationManager.translate("equipment.card.lastGrind", "Grind %1").arg(grindSetting))
         if (rpmCapable && rpm > 0)
             parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(rpm))
-        return parts.join(" · ")
+        return parts
     }
+    readonly property string lastDialLine: _dialParts.join(" · ")
+    readonly property string lastDialLineRich: Theme.joinWithBullet(_dialParts)
 
     // Lineage qualifier text — only meaningful when equipmentState is set.
     readonly property string lineageText: {
@@ -128,7 +136,8 @@ ColumnLayout {
     Text {
         Layout.fillWidth: true
         visible: summary.lastDialLine.length > 0
-        text: summary.lastDialLine
+        text: summary.lastDialLineRich
+        textFormat: Text.StyledText
         font: Theme.captionFont
         color: Theme.textColor
         elide: Text.ElideRight
@@ -151,7 +160,8 @@ ColumnLayout {
     Text {
         Layout.fillWidth: true
         visible: summary.puckPrepLine.length > 0
-        text: summary.puckPrepLine
+        text: summary.puckPrepLineRich
+        textFormat: Text.StyledText
         font: Theme.labelFont
         color: Theme.textSecondaryColor
         wrapMode: Text.WordWrap

@@ -22,6 +22,11 @@ QtObject {
     // Per-page scale configuration mode (set by main.qml)
     property bool configurePageScaleEnabled: false
     property string currentPageObjectName: ""
+    // The operation selected on the idle screen ("espresso"/"steam"/…, "" when the idle
+    // page isn't active). Published by IdlePage._publishOperationMode(); read by the
+    // page-aware Plan widget. Lives here beside currentPageObjectName so page/mode state
+    // has ONE reactive home — don't add a second copy on the window root.
+    property string currentOperationMode: ""
 
     // Convert emoji character to pre-rendered SVG image path.
     // Passes through qrc:/icons/... paths unchanged.

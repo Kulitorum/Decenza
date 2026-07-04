@@ -660,13 +660,6 @@ ApplicationWindow {
     // Current page title - set by each page
     property string currentPageTitle: ""
 
-    // Current page objectName + selected idle-screen operation, exposed on the window
-    // root so layout widgets (separate components, can't see the pageStack id by scope)
-    // can react to navigation / mode selection via Window.window.
-    property string currentPageObjectName:
-        pageStack.currentItem ? (pageStack.currentItem.objectName || "") : ""
-    property string currentOperationMode: ""
-
     // Flag to prevent premature UI display
     property bool appInitialized: false
 

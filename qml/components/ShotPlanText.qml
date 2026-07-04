@@ -15,11 +15,12 @@ Item {
 
     signal clicked()
 
-    // Visibility flags (passed through by ShotPlanItem) — one per Shot Plan display option:
-    // Profile & temperature, Roaster, Coffee (grind), Roast date, Dose & yield. Each toggles its
-    // segment both in the sentence/tail and in the fallback fragment list.
+    // Visibility flags (passed through by ShotPlanItem/PlanItem) — one per Shot Plan display option:
+    // Profile & temperature, Roaster, Coffee, Grind (+ RPM), Roast date, Dose & yield. Each toggles
+    // its segment both in the sentence/tail and in the fallback fragment list.
     property bool showProfile: true
     property bool showRoaster: true
+    property bool showCoffee: true
     property bool showGrind: true
     property bool showRoastDate: false
     property bool showDoseYield: true
@@ -43,8 +44,16 @@ Item {
         Settings.brew.hasTemperatureOverride && Math.abs(overrideTemp - profileTemp) > 0.1
 
     // --- Per-toggle segments (empty string = hidden). ---
-    // Dose & yield: the shot's target output, plus dose-in (e.g. "18.0g in").
-    readonly property string _yieldStr: (showDoseYield && targetWeight > 0) ? (targetWeight.toFixed(1) + "g") : ""
+    // Dose & yield: the shot's target output, plus dose-in (e.g. "18.0g in"). A DELIBERATE yield
+    // override (the hasBrewYieldOverride flag, not raw drift — measured dose never exactly matches
+    // the profile's) renders as "36.0 → 40.0g", mirroring the temperature-override treatment.
+    readonly property string _yieldStr: {
+        if (!(showDoseYield && targetWeight > 0)) return ""
+        if (Settings.brew.hasBrewYieldOverride && profileYield > 0
+                && Math.abs(targetWeight - profileYield) > 0.1)
+            return profileYield.toFixed(1) + " → " + targetWeight.toFixed(1) + "g"
+        return targetWeight.toFixed(1) + "g"
+    }
     readonly property string _doseStr: (showDoseYield && dose > 0) ? (dose.toFixed(1) + "g") : ""
     // Profile & temperature (one option → both). temperatureDisplay() follows the C/F display unit;
     // its Settings.app.temperatureUnit read is in C++, invisible to QML bindings, so read it here.
@@ -54,8 +63,18 @@ Item {
         if (!(showProfile && profileTemp > 0)) return ""
         return ProfileManager.temperatureDisplay(profileTemp, Settings.brew.hasTemperatureOverride, overrideTemp)
     }
-    readonly property string _roasterStr: showRoaster ? ((roasterBrand + " " + coffeeName).trim()) : ""
-    readonly property string _grindStr: (showGrind && grindSize.length > 0) ? grindSize : ""
+    // Roaster = brand only; Coffee = bean name only; Grind = grinder setting + RPM when recorded.
+    // Each option gates exactly its named content so saved widget configs mean what they say.
+    readonly property string _roasterStr: (showRoaster && roasterBrand) ? roasterBrand : ""
+    readonly property string _coffeeStr: (showCoffee && coffeeName) ? coffeeName : ""
+    readonly property string _grindStr: {
+        if (!showGrind) return ""
+        var parts = []
+        if (grindSize.length > 0) parts.push(grindSize)
+        if (Settings.dye.dyeGrinderRpm > 0)
+            parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(Settings.dye.dyeGrinderRpm))
+        return parts.join(" · ")
+    }
     readonly property string _roastDateStr: (showRoastDate && roastDate.length > 0) ? roastDate : ""
     readonly property string _beverage: {
         var _ = TranslationManager.translationVersion   // re-evaluate on a live language switch
@@ -73,7 +92,11 @@ Item {
     function _build(fmt, sep) {
         var _ = TranslationManager.translationVersion
         var dose = (_doseStr !== "") ? TranslationManager.translate("shotplan.doseIn", "%1 in").arg(fmt(_doseStr, true)) : ""
-        var grind = (_grindStr !== "") ? TranslationManager.translate("shotplan.grind", "grind %1").arg(fmt(_grindStr, true)) : ""
+        // "grind" prefix only when there is a grinder setting; a recorded-RPM-only segment
+        // already reads as "90 rpm" and "grind 90 rpm" would be wrong.
+        var grind = (_grindStr === "") ? ""
+            : (grindSize.length > 0 ? TranslationManager.translate("shotplan.grind", "grind %1").arg(fmt(_grindStr, true))
+                                    : fmt(_grindStr, true))
         var roasted = (_roastDateStr !== "") ? TranslationManager.translate("shotplan.roasted", "roasted %1").arg(fmt(_roastDateStr, true)) : ""
         if (_yieldStr !== "" && _profileStr !== "" && _tempStr !== "") {
             var s = TranslationManager.translate("shotplan.sentence", "Brew %1 of %2, using %3 at %4")
@@ -81,6 +104,7 @@ Item {
             var tail = []
             if (dose !== "") tail.push(dose)
             if (_roasterStr !== "") tail.push(fmt(_roasterStr, true))
+            if (_coffeeStr !== "") tail.push(fmt(_coffeeStr, true))
             if (grind !== "") tail.push(grind)
             if (roasted !== "") tail.push(roasted)
             return tail.length > 0 ? (s + sep + tail.join(sep)) : s
@@ -91,6 +115,7 @@ Item {
         if (_profileStr !== "") parts.push(fmt(_profileStr, true))
         if (_tempStr !== "") parts.push(fmt(_tempStr, true))
         if (_roasterStr !== "") parts.push(fmt(_roasterStr, true))
+        if (_coffeeStr !== "") parts.push(fmt(_coffeeStr, true))
         if (grind !== "") parts.push(grind)
         if (roasted !== "") parts.push(roasted)
         return parts.join(sep)
