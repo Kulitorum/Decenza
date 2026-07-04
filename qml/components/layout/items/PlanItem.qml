@@ -8,8 +8,7 @@ import "../.."
 // pages, and the steam plan on the steam page. Drop one in the persistent status bar
 // and it reads correctly for whatever page you're on. Page detection uses
 // Window.window.currentPageObjectName (a root property on the ApplicationWindow)
-// rather than the pageStack id, which a separately-loaded widget cannot see by scope —
-// that scoping is why reading pageStack.currentItem from a status-bar widget failed.
+// rather than the pageStack id, which a separately-loaded widget cannot see by scope.
 Item {
     id: root
     property bool isCompact: false
@@ -22,10 +21,9 @@ Item {
     readonly property bool showRoastDate: modelData.shotPlanShowRoastDate === true
     readonly property bool showDoseYield: modelData.shotPlanShowDoseYield !== false
 
-    // Page detection. Reading a sub-property through a var-typed intermediate
-    // (winRoot.currentPageObjectName) does not register a reactive binding dependency in
-    // QML, so mirror it imperatively: seed on completion / when the window resolves, and
-    // refresh on the window's currentPageObjectNameChanged / currentOperationModeChanged.
+    // Page detection, mirrored imperatively from the window root: seed on completion / when the
+    // window resolves, and refresh on the window's currentPageObjectNameChanged /
+    // currentOperationModeChanged signals so it stays live across page changes.
     readonly property var winRoot: root.Window.window
     property string _pageName: ""
     property string _opMode: ""

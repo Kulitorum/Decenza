@@ -3,9 +3,9 @@ import QtQuick.Layouts
 import Decenza
 
 // Read-only adaptive one-line bean summary ("show less when more is known"):
-//   canonical-linked  ->  "{coffee} • {origin} • {process} • Roasted <date> [· Def Md]"
+//   canonical-linked  ->  "{coffee} · {origin} · {process} · Roasted <date> [· Def Md]"
 //                         with a small verified badge
-//   history only      ->  "{roaster} {coffee} • Roasted <date>" + "Link to Bean Base" nudge
+//   history only      ->  "{roaster} {coffee} · Roasted <date>" + "Link to Bean Base" nudge
 //   no roast date     ->  roast-date portion silently omitted (no placeholder)
 //   no bag selected   ->  "No beans selected"
 //
@@ -110,7 +110,7 @@ Item {
         var _ = TranslationManager.translationVersion
         if (!hasBeans)
             return TranslationManager.translate("beans.summary.noBeans", "No beans selected")
-        return _parts.join("  •  ")
+        return _parts.join("  ·  ")
     }
 
     // Display text — separators rendered as a slightly bigger/bolder bullet so the

@@ -350,23 +350,20 @@ Page {
         }
     }
 
-    // Toggle-independent scale-load detector for the "place the pitcher" prompt below.
-    // Unlike idleMilkCapture it does NOT require milkAutoCaptureEnabled, so the nudge
-    // shows whenever steam is selected and a scale is connected — even before the user
-    // turns on weight-timed steaming. It never captures; we only read loadPresent.
+    // Scale-load detector for the "place the pitcher" prompt below. Gated on
+    // milkAutoCaptureEnabled (same as idleMilkCapture): with weight-timed steaming OFF, placing the
+    // pitcher captures nothing and no beep follows, so the prompt must not tell the user to do it.
+    // It never captures; we only read loadPresent.
     StableWeightCapture {
         id: idlePitcherDetect
         rawWeight: (ScaleDevice.connected && !ScaleDevice.isFlowScale) ? MachineState.scaleWeight : 0
-        active: idlePage.activePresetFunction === "steam"
+        active: Settings.brew.milkAutoCaptureEnabled
+                && idlePage.activePresetFunction === "steam"
                 && idlePage.StackView.status === StackView.Active
                 && ScaleDevice.connected && !ScaleDevice.isFlowScale
         minNet: 999999   // never auto-captures; only provides loadPresent
         loadThreshold: 50  // an empty pitcher already weighs well above this
     }
-
-    // (The "Place the milk pitcher on the scale" prompt now lives in the steam preset
-    // Column below the pitcher pills — same position as the bean prompt — driven by
-    // idlePitcherDetect above.)
 
     // Publish the selected operation (espresso/steam/…) to the window root so the
     // persistent status-bar widgets (e.g. the page-aware Plan widget) can tell what the
@@ -628,9 +625,9 @@ Page {
                         }
                     }
 
-                    // "Place the milk pitcher on the scale" — same position as the bean
-                    // prompt (below the pills). Toggle-independent (idlePitcherDetect), one
-                    // consistent message regardless of which pitcher is selected. Gently blinks.
+                    // "Place the milk pitcher on the scale" — same position as the bean prompt (below
+                    // the pills). Shown only while idlePitcherDetect is active (weight-timed steaming on,
+                    // steam selected, scale connected) and nothing is on the scale yet. Gently blinks.
                     Text {
                         id: steamPlacePrompt
                         anchors.horizontalCenter: parent.horizontalCenter

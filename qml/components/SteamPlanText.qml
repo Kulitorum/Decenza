@@ -6,18 +6,24 @@ import "../"
 // The steam analogue of ShotPlanText: a one-line sentence summarising what the
 // next steam will do — "Steam 300g of milk, using Large for 30s" — with the live
 // values bolded and a leading steam icon. Display-only (no tap target). Renders
-// milk weight / pitcher / duration only (no temperature).
+// milk weight / pitcher / duration only (no temperature — the app steams by weight
+// + duration; the only steam temperature is the boiler setpoint, not a milk target).
 Item {
     id: root
 
-    // The currently selected steam pitcher preset (re-reads when the selection changes).
-    readonly property var _preset: Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+    // The currently selected steam pitcher preset. getSteamPitcherPreset() is Q_INVOKABLE, so the
+    // binding must ALSO read steamPitcherPresets to re-run when the selected pitcher is renamed,
+    // disabled, or recalibrated without the selection index itself changing.
+    readonly property var _preset: {
+        void(Settings.brew.steamPitcherPresets)
+        return Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+    }
     readonly property bool _presetOff: !!(_preset && _preset.disabled)
     readonly property string _pitcherName: (_preset && _preset.name) ? String(_preset.name) : ""
 
     // The milk weight measured this session (set on capture / the bell, reset on pitcher
-    // change and session end). Mirrored imperatively from the window root — reading a
-    // sub-property through a var-typed intermediate doesn't register a binding dependency.
+    // change and session end). Mirrored imperatively from the window root via the Connections
+    // below so it stays live even though winRoot is a var-typed intermediate.
     readonly property var winRoot: root.Window.window
     property real _sessionMilk: 0
     function _refreshMilk() { root._sessionMilk = winRoot ? (winRoot.sessionMeasuredMilkG || 0) : 0 }
@@ -54,7 +60,7 @@ Item {
         if (_pitcherName !== "") parts.push(_pitcherName)
         if (_durStr !== "") parts.push(_durStr)
         if (parts.length === 0) return ""
-        return TranslationManager.translate("steamplan.prefix", "Steam") + " " + parts.join("  •  ")
+        return TranslationManager.translate("steamplan.prefix", "Steam") + " " + parts.join("  ·  ")
     }
 
     // Rich version with the live values bolded (parts HTML-escaped).
@@ -76,10 +82,9 @@ Item {
     implicitWidth: row.implicitWidth
     implicitHeight: row.implicitHeight
 
-    // Always wrapped by SteamPlanItem / PlanItem, which already expose a StaticText
-    // a11y node — so ignore this root to avoid a duplicate nested announcement.
-    // (ShotPlanText achieves the same effect by being a role-less Item; here the
-    // root is an Item with content, so we mark it ignored explicitly.)
+    // Always wrapped by SteamPlanItem / PlanItem, which already expose a StaticText a11y
+    // node — so ignore this role-less root to avoid a duplicate nested announcement
+    // (ShotPlanText does the same).
     Accessible.ignored: true
 
     Row {

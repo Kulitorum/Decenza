@@ -57,7 +57,7 @@ Page {
                 tickInterval: 2
                 subTickCount: 0
                 labelFormat: "%.1f"
-                titleText: "mL/s  •  g/s"
+                titleText: "mL/s  ·  g/s"
             }
 
             LineSeries {

@@ -15,8 +15,9 @@ Item {
 
     signal clicked()
 
-    // Visibility flags (passed through by ShotPlanItem). Roaster/grind/roast-date are
-    // kept for source compatibility but are not part of the sentence by default.
+    // Visibility flags (passed through by ShotPlanItem) — one per Shot Plan display option:
+    // Profile & temperature, Roaster, Coffee (grind), Roast date, Dose & yield. Each toggles its
+    // segment both in the sentence/tail and in the fallback fragment list.
     property bool showProfile: true
     property bool showRoaster: true
     property bool showGrind: true
@@ -42,54 +43,83 @@ Item {
         Settings.brew.hasTemperatureOverride && Math.abs(overrideTemp - profileTemp) > 0.1
     readonly property bool _overrideActive: _tempOverride
 
-    // Single target output weight for THIS shot — dose × selected ratio when a yield
-    // is dialed (ProfileManager.targetWeight returns the override), else the profile
-    // default. We intentionally show only this one number, not the profile default it
-    // came from.
-    readonly property string _yieldStr: {
-        if (!(showDoseYield && targetWeight > 0)) return ""
-        return targetWeight.toFixed(1) + "g"
-    }
-    // Use the shared adaptive formatter (single / mid-dot list / ellipsis + delta tag),
-    // so multi-temperature profiles render honestly and an override shows as "+N°"
-    // applied to every step. The formatter follows the C/F display unit.
+    // --- Per-toggle segments (empty string = hidden). ---
+    // Dose & yield: the shot's target output, plus dose-in (restores the old "18.0g in").
+    readonly property string _yieldStr: (showDoseYield && targetWeight > 0) ? (targetWeight.toFixed(1) + "g") : ""
+    readonly property string _doseStr: (showDoseYield && dose > 0) ? (dose.toFixed(1) + "g") : ""
+    // Profile & temperature (one option → both). temperatureDisplay() follows the C/F display unit;
+    // its Settings.app.temperatureUnit read is in C++, invisible to QML bindings, so read it here.
+    readonly property string _profileStr: (showProfile && profileName) ? profileName : ""
     readonly property string _tempStr: {
-        // temperatureDisplay() reads the C/F unit in C++, which QML can't capture as a
-        // binding dependency — read it here so this re-evaluates when the unit switches.
         void(Settings.app.temperatureUnit)
-        if (!(profileTemp > 0)) return ""
+        if (!(showProfile && profileTemp > 0)) return ""
         return ProfileManager.temperatureDisplay(profileTemp, Settings.brew.hasTemperatureOverride, overrideTemp)
     }
-    readonly property string _profileStr: (showProfile && profileName) ? profileName : ""
+    readonly property string _roasterStr: showRoaster ? ((roasterBrand + " " + coffeeName).trim()) : ""
+    readonly property string _grindStr: (showGrind && grindSize.length > 0) ? grindSize : ""
+    readonly property string _roastDateStr: (showRoastDate && roastDate.length > 0) ? roastDate : ""
     readonly property string _beverage: TranslationManager.translate("idle.button.espresso", "Espresso")
 
-    // Plain sentence — exposed as `text` for the wrapper's accessibility label and
-    // its `visible: text !== ""` check.
+    // Styled separator (relative-sized bold safe-dot ·) for the rich (StyledText) version.
+    readonly property string _richSep: " <font size=\"+1\"><b>·</b></font> "
+
+    // Plain sentence — exposed as `text` for the wrapper's accessibility label and its
+    // `visible: text !== ""` check. Core is the sentence (yield + profile + temp); any enabled extras
+    // (dose, roaster, grind, roast date) trail after it, and if the core can't render we fall back to a
+    // plain fragment list of everything enabled.
     readonly property string text: {
         var _ = TranslationManager.translationVersion
-        if (_profileStr !== "" && _tempStr !== "" && _yieldStr !== "")
-            return TranslationManager.translate("shotplan.sentence", "Brew %1 of %2, using %3 at %4")
+        var SEP = "  ·  "
+        var dose = (_doseStr !== "") ? TranslationManager.translate("shotplan.doseIn", "%1 in").arg(_doseStr) : ""
+        var grind = (_grindStr !== "") ? TranslationManager.translate("shotplan.grind", "grind %1").arg(_grindStr) : ""
+        var roasted = (_roastDateStr !== "") ? TranslationManager.translate("shotplan.roasted", "roasted %1").arg(_roastDateStr) : ""
+        if (_yieldStr !== "" && _profileStr !== "" && _tempStr !== "") {
+            var s = TranslationManager.translate("shotplan.sentence", "Brew %1 of %2, using %3 at %4")
                 .arg(_yieldStr).arg(_beverage).arg(_profileStr).arg(_tempStr)
-        // Degrade gracefully when a piece is missing (no scale target, no profile…).
+            var tail = []
+            if (dose !== "") tail.push(dose)
+            if (_roasterStr !== "") tail.push(_roasterStr)
+            if (grind !== "") tail.push(grind)
+            if (roasted !== "") tail.push(roasted)
+            return tail.length > 0 ? (s + SEP + tail.join(SEP)) : s
+        }
         var parts = []
+        if (dose !== "") parts.push(dose)
         if (_yieldStr !== "") parts.push(_yieldStr)
         if (_profileStr !== "") parts.push(_profileStr)
         if (_tempStr !== "") parts.push(_tempStr)
-        return parts.join("  •  ")
+        if (_roasterStr !== "") parts.push(_roasterStr)
+        if (grind !== "") parts.push(grind)
+        if (roasted !== "") parts.push(roasted)
+        return parts.join(SEP)
     }
 
-    // Rich version with the live values bolded (and parts HTML-escaped).
+    // Rich version with the live values bolded (all parts HTML-escaped).
     readonly property string _rich: {
         var _ = TranslationManager.translationVersion
         function b(s) { return "<b>" + Theme.escapeHtml(s) + "</b>" }
-        if (_profileStr !== "" && _tempStr !== "" && _yieldStr !== "")
-            return TranslationManager.translate("shotplan.sentence", "Brew %1 of %2, using %3 at %4")
+        var dose = (_doseStr !== "") ? TranslationManager.translate("shotplan.doseIn", "%1 in").arg(b(_doseStr)) : ""
+        var grind = (_grindStr !== "") ? TranslationManager.translate("shotplan.grind", "grind %1").arg(b(_grindStr)) : ""
+        var roasted = (_roastDateStr !== "") ? TranslationManager.translate("shotplan.roasted", "roasted %1").arg(b(_roastDateStr)) : ""
+        if (_yieldStr !== "" && _profileStr !== "" && _tempStr !== "") {
+            var s = TranslationManager.translate("shotplan.sentence", "Brew %1 of %2, using %3 at %4")
                 .arg(b(_yieldStr)).arg(Theme.escapeHtml(_beverage)).arg(b(_profileStr)).arg(b(_tempStr))
+            var tail = []
+            if (dose !== "") tail.push(dose)
+            if (_roasterStr !== "") tail.push(b(_roasterStr))
+            if (grind !== "") tail.push(grind)
+            if (roasted !== "") tail.push(roasted)
+            return tail.length > 0 ? (s + _richSep + tail.join(_richSep)) : s
+        }
         var parts = []
-        if (_yieldStr !== "") parts.push(_yieldStr)
-        if (_profileStr !== "") parts.push(_profileStr)
-        if (_tempStr !== "") parts.push(_tempStr)
-        return Theme.joinWithBullet(parts)
+        if (dose !== "") parts.push(dose)
+        if (_yieldStr !== "") parts.push(b(_yieldStr))
+        if (_profileStr !== "") parts.push(b(_profileStr))
+        if (_tempStr !== "") parts.push(b(_tempStr))
+        if (_roasterStr !== "") parts.push(b(_roasterStr))
+        if (grind !== "") parts.push(grind)
+        if (roasted !== "") parts.push(roasted)
+        return parts.join(_richSep)
     }
 
     readonly property color _color: mouseArea.pressed ? Theme.accentColor

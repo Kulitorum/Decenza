@@ -752,7 +752,7 @@ KeyboardAwareContainer {
                         if (typeof McpServer !== "undefined" && McpServer) {
                             var sessions = McpServer.activeSessionCount
                             if (sessions > 0)
-                                status += " • " + TranslationManager.translate("settings.ai.mcp.status.sessions", "%1 active session(s)").arg(sessions)
+                                status += " · " + TranslationManager.translate("settings.ai.mcp.status.sessions", "%1 active session(s)").arg(sessions)
                         }
                         return status
                     }

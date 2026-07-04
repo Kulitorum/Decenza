@@ -37,7 +37,7 @@ ColumnLayout {
         return grinderName.length > 0 ? grinderName : combined
     }
 
-    // Puck-prep set flags as a "WDT • Shaker" summary, parsed from the canonical
+    // Puck-prep set flags as a "WDT · Shaker" summary, parsed from the canonical
     // string. MIRRORS PuckPrep::flagKeys() display order (src/core/puckprep.h).
     readonly property var _puckFlags: puckPrepCanonical.split(",")
     function _hasPuck(key) { return _puckFlags.indexOf(key) >= 0 }
@@ -58,7 +58,7 @@ ColumnLayout {
         if (_hasPuck("paperFilter")) labels.push(TranslationManager.translate("equipment.dialog.puckPaper", "Bottom paper filter"))
         if (_hasPuck("rdt")) labels.push(TranslationManager.translate("equipment.dialog.puckRdt", "RDT (spritz)"))
         return labels.length > 0
-            ? TranslationManager.translate("equipment.card.puckPrep", "Prep: %1").arg(labels.join(" • ")) : ""
+            ? TranslationManager.translate("equipment.card.puckPrep", "Prep: %1").arg(labels.join(" · ")) : ""
     }
 
     readonly property string lastDialLine: {
@@ -68,7 +68,7 @@ ColumnLayout {
             parts.push(TranslationManager.translate("equipment.card.lastGrind", "Grind %1").arg(grindSetting))
         if (rpmCapable && rpm > 0)
             parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(rpm))
-        return parts.join(" • ")
+        return parts.join(" · ")
     }
 
     // Lineage qualifier text — only meaningful when equipmentState is set.

@@ -233,7 +233,7 @@ Page {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(4)
 
-                        // Bean • Profile • Grinder — wraps to 2 rows on small screens
+                        // Bean · Profile · Grinder — wraps to 2 rows on small screens
                         Flow {
                             Layout.fillWidth: true
                             spacing: 0
@@ -250,7 +250,7 @@ Page {
                             }
 
                             Text {
-                                text: "  •  "
+                                text: "  ·  "
                                 font.family: Theme.subtitleFont.family
                                 font.pixelSize: Theme.subtitleFont.pixelSize
                                 color: Theme.textSecondaryColor
@@ -270,7 +270,7 @@ Page {
                             }
 
                             Text {
-                                text: "  •  "
+                                text: "  ·  "
                                 font.family: Theme.subtitleFont.family
                                 font.pixelSize: Theme.subtitleFont.pixelSize
                                 color: Theme.textSecondaryColor

@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Decenza
 
-// Compact Bean Base summary: bag thumbnail + "origin • variety • process"
+// Compact Bean Base summary: bag thumbnail + "origin · variety · process"
 // one-liner + tap-to-open-details. Zero footprint when the blob is empty —
 // unlinked beans and legacy shots render nothing. Mounted on BeanInfoPage,
 // PostShotReviewPage, and ShotDetailPage, each feeding its own blob source.
@@ -21,7 +21,7 @@ Item {
         if (bean.origin) parts.push(bean.origin)
         if (bean.variety) parts.push(bean.variety)
         if (bean.process) parts.push(bean.process)
-        return parts.join("  •  ")
+        return parts.join("  ·  ")
     }
 
     visible: hasData

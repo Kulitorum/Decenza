@@ -168,7 +168,7 @@ QtObject {
     // larger and bolder than the surrounding text. Returns StyledText HTML (relative
     // sizing — no hardcoded sizes); the host Text must set textFormat: Text.StyledText.
     function joinWithBullet(parts) {
-        var sep = " <font size=\"+1\"><b>•</b></font> "
+        var sep = " <font size=\"+1\"><b>·</b></font> "
         var out = []
         for (var i = 0; i < parts.length; i++) {
             var p = String(parts[i])
