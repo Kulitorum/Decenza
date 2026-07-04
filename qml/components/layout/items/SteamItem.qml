@@ -23,15 +23,13 @@ Item {
         return null
     }
 
-    // Highlight this button while its mode is the one currently selected on the
-    // home screen (its presets are expanded), so you can see which screen you're in.
-    // Mirror idlePage.activePresetFunction into a local reactive property. Reading
-    // it directly through the `var idlePage` does NOT register a QML binding
-    // dependency, so isActive never re-evaluated on tap. Track it explicitly.
+    // Highlight this button while its mode is the one currently selected on the home
+    // screen (its presets are expanded), so you can see which mode is selected. isActive
+    // didn't update reactively when read directly off idlePage.activePresetFunction, so we
+    // mirror it into a local property via the Connections below and drive isActive from that.
     property string _activeFn: root.idlePage ? root.idlePage.activePresetFunction : ""
     Connections {
         target: root.idlePage
-        ignoreUnknownSignals: true
         function onActivePresetFunctionChanged() {
             root._activeFn = root.idlePage ? root.idlePage.activePresetFunction : ""
         }
@@ -98,6 +96,7 @@ Item {
             supportLongPress: true
             supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.steam", "Steam")
+                            + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.steam.hint", "Tap to toggle presets. Double-tap or long-press to configure steam.")
             onAccessibleClicked: root.togglePresets()
             onAccessibleDoubleClicked: root.goToSteam()
@@ -119,8 +118,6 @@ Item {
             translationFallback: "Steam"
             iconSource: "qrc:/icons/steam.svg"
             enabled: DE1Device.guiEnabled
-            active: root.isActive
-            backgroundColor: Theme.primaryColor
             supportDoubleClick: true
             onClicked: root.togglePresets()
             onPressAndHold: root.goToSteam()

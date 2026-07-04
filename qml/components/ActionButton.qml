@@ -11,12 +11,6 @@ Button {
     property color backgroundColor: Theme.primaryColor
     property int iconSize: Theme.scaled(48)
 
-    // When true, draw a ring to mark this button as the currently-active
-    // mode/screen. A darker shade of the button (not accent) — matches the
-    // CustomItem / PresetPillRow selection outline.
-    property bool active: false
-    property color activeColor: Qt.darker(control._effectiveBackground, 1.5)
-
     // Translation support
     property string translationKey: ""
     property string translationFallback: ""
@@ -48,12 +42,8 @@ Button {
     activeFocusOnTab: true
 
     // Accessibility on the Button itself (not delegated to a child).
-    // Append "selected" when this button is the active mode, so a screen-reader
-    // user re-navigating to it hears the state (the visual ring alone isn't spoken).
-    // Only appended when active, so non-mode ActionButtons are unaffected.
     Accessible.role: Accessible.Button
     Accessible.name: control.text + ". " + control._computedAccessibleDescription
-                     + (control.active ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
     Accessible.focusable: true
     Accessible.onPressAction: {
         if (control.enabled) {
@@ -115,16 +105,6 @@ Button {
             if (control._isPressed) return Qt.darker(control._effectiveBackground, 1.2)
             if (control.hovered || control.activeFocus) return Qt.lighter(control._effectiveBackground, 1.1)
             return control._effectiveBackground
-        }
-
-        // Active-mode indicator: a thick darker-shade ring around the button.
-        Rectangle {
-            anchors.fill: parent
-            visible: control.active
-            color: "transparent"
-            border.width: Theme.scaled(3)
-            border.color: control.activeColor
-            radius: parent.radius
         }
 
         // Focus indicator
