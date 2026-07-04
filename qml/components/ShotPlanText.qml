@@ -81,8 +81,9 @@ Item {
     // profiles ("tea"/"tea_portafilter"). Cleaning/descale profiles get their own
     // sentence in _build() — no bean/dose tail, plus the do-not-load-coffee warning.
     readonly property string _bevType: ProfileManager.currentProfileBeverageType
-    // The cleaning/descale/calibrate no-coffee tier lives in C++ (single source shared
-    // with maincontroller/visualizeruploader/mcptools_write) so it can't drift from them.
+    // The cleaning/descale/calibrate no-coffee tier is Profile::isMaintenanceBeverageType
+    // in C++ — the same call the shot-history, Visualizer and MCP gates make — so this
+    // warning genuinely can't drift from them.
     readonly property bool _isCleaning: ProfileManager.currentProfileIsMaintenance
     readonly property string _beverage: {
         var _ = TranslationManager.translationVersion   // re-evaluate on a live language switch

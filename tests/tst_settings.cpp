@@ -551,6 +551,20 @@ private slots:
 
         // Unclamped: 30 * (600/100) = 180 → clamped to 120.
         QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 600.0), 120);
+        // Floor: 30 * (10/100) = 3 → clamped to 5, not a blink-and-miss 3s steam.
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 10.0), 5);
+    }
+
+    void effectiveSteamDurationSecWarnsOnCorruptZeroDuration() {
+        // An enabled preset with no positive duration is corrupt (hand-edited or a
+        // failed import). The helper must warn — loud and greppable — and still
+        // return 0 rather than inventing a time.
+        m_settings.brew()->addSteamPitcherPreset("Corrupt", 0, 150, 135.0);
+        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("no positive duration")));
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 0.0), 0);
     }
 
     void effectiveSteamDurationSecUsesScaledTimeWhenAvailable() {

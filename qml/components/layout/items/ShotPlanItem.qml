@@ -32,10 +32,11 @@ Item {
         || Theme.currentPageObjectName === "steamPage"
         || (typeof MachineState !== "undefined" && MachineState.phase === MachineStateType.Phase.Steaming))
     // Only actually swap when the steam plan has something to say — with the "Off"
-    // pitcher (or a stale preset index) its text is empty, and swapping then would blank
-    // the whole widget while leaving a phantom focusable a11y node. Fall back to the
-    // shot plan instead. (Both SteamPlanText instances bind identically, so either
-    // text suffices; check both for safety.)
+    // pitcher its text is empty, and swapping then would blank the whole widget while
+    // leaving a phantom focusable a11y node. Fall back to the shot plan instead.
+    // (A stale preset index is NOT guaranteed empty: a remembered lastSteamMilkG still
+    // renders a milk-only fragment. Both SteamPlanText instances bind identically, so
+    // either text suffices; check both for safety.)
     readonly property bool _steamMode: _steamContext
         && (compactSteamPlan.text !== "" || fullSteamPlan.text !== "")
 

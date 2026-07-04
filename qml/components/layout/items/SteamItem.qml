@@ -228,7 +228,15 @@ Item {
                         return
                     }
                     if (preset) {
-                        Settings.brew.steamTimeout = preset.duration
+                        // Scaled-or-base resolved by the shared SettingsBrew helper (same
+                        // as the idle pill tap and the steam-plan display) so this popup
+                        // can't program an unscaled duration while the plan shows a scaled
+                        // one. Net milk on the scale now, else this session's captured milk.
+                        var milk = (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale)
+                                   ? Settings.brew.netMilkForPitcher(index, MachineState.scaleWeight) : 0
+                        if (milk <= 0 && root.Window.window)
+                            milk = root.Window.window.sessionMeasuredMilkG || 0
+                        Settings.brew.steamTimeout = Settings.brew.effectiveSteamDurationSec(index, milk)
                         Settings.brew.steamFlow = preset.flow !== undefined ? preset.flow : 150
                         Settings.brew.steamTemperature = (preset.temperature !== undefined) ? preset.temperature : Settings.brew.steamTemperature
                     }

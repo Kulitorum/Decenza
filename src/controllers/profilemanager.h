@@ -110,14 +110,10 @@ public:
         const QString t = m_currentProfile.beverageType().trimmed().toLower();
         return t.isEmpty() ? QStringLiteral("espresso") : t;
     }
-    // The no-coffee maintenance tier: cleaning/descale/calibrate. Same grouping as
-    // maincontroller.cpp / visualizeruploader.cpp / mcptools_write.cpp — kept here as the
-    // one QML-visible source so the Shot Plan's no-coffee warning can't drift from the
-    // C++ consumers when a new maintenance beverage_type is added.
+    // QML-visible view of Profile::isMaintenanceBeverageType (the shared tier used
+    // by maincontroller / visualizeruploader / mcptools_write) for the current profile.
     bool currentProfileIsMaintenance() const {
-        const QString t = currentProfileBeverageType();
-        return t == QLatin1String("cleaning") || t == QLatin1String("descale")
-            || t == QLatin1String("calibrate");
+        return Profile::isMaintenanceBeverageType(m_currentProfile.beverageType());
     }
     bool profileHasRecommendedDose() const { return m_currentProfile.hasRecommendedDose(); }
     double profileRecommendedDose() const { return m_currentProfile.recommendedDose(); }

@@ -368,7 +368,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                             if (!profileDoc.isNull())
                                 beverageType = profileDoc.object()["beverage_type"].toString();
                         }
-                        if (beverageType == "cleaning" || beverageType == "calibrate" || beverageType == "descale") {
+                        if (Profile::isMaintenanceBeverageType(beverageType)) {
                             respond(QJsonObject{
                                 {"error", QString("Shot %1 uses a maintenance profile (%2); not uploaded").arg(shotId).arg(beverageType)}
                             });

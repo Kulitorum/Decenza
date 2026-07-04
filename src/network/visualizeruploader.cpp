@@ -1209,8 +1209,8 @@ QString VisualizerUploader::authHeader() const
 
 bool VisualizerUploader::validateUpload(const QString& beverageType, double duration)
 {
-    // Skip maintenance profiles
-    if (beverageType == "cleaning" || beverageType == "calibrate" || beverageType == "descale") {
+    // Skip maintenance profiles (shared tier — see Profile::isMaintenanceBeverageType)
+    if (Profile::isMaintenanceBeverageType(beverageType)) {
         const QString reason = QString("maintenance profile (%1)").arg(beverageType);
         m_lastUploadStatus = QString("Skipped: %1").arg(reason);
         emit lastUploadStatusChanged();

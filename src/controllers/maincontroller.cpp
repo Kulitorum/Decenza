@@ -1918,10 +1918,10 @@ void MainController::onShotEnded() {
     }
 
     // Machine maintenance cycles must not pollute shot history or post-shot review.
-    // Same three types are excluded in visualizeruploader.cpp and mcptools_write.cpp — keep in sync.
+    // Shared tier (also gates the Visualizer and MCP uploads and the Shot Plan warning).
     if (m_profileManager) {
         const QString beverageType = m_profileManager->currentProfile().beverageType();
-        if (beverageType == QLatin1String("cleaning") || beverageType == QLatin1String("descale") || beverageType == QLatin1String("calibrate")) {
+        if (Profile::isMaintenanceBeverageType(beverageType)) {
             if (m_shotDebugLogger)
                 m_shotDebugLogger->stopCapture();
             m_extractionStarted = false;

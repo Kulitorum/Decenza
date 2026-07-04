@@ -235,6 +235,7 @@ private slots:
         f.profileManager.loadProfileFromJson(QJsonDocument(obj).toJson(QJsonDocument::Compact));
 
         QCOMPARE(f.profileManager.currentProfileBeverageType(), QStringLiteral("espresso"));
+        QVERIFY(!f.profileManager.currentProfileIsMaintenance());
     }
 
     void currentProfileBeverageTypeNormalizesCaseAndWhitespace() {

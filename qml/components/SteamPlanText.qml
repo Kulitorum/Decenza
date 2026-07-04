@@ -29,9 +29,12 @@ Item {
     // its last value — hence the one-time warn below to make that failure greppable.)
     readonly property var winRoot: root.Window.window
     property real _sessionMilk: 0
+    property bool _warnedMissingMilkProp: false
     function _refreshMilk() {
-        if (winRoot && winRoot.sessionMeasuredMilkG === undefined)
+        if (winRoot && winRoot.sessionMeasuredMilkG === undefined && !_warnedMissingMilkProp) {
+            _warnedMissingMilkProp = true
             console.warn("SteamPlanText: window root has no sessionMeasuredMilkG — steam plan milk will not update")
+        }
         root._sessionMilk = winRoot ? (winRoot.sessionMeasuredMilkG || 0) : 0
     }
     onWinRootChanged: _refreshMilk()
