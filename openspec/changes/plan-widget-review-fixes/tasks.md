@@ -50,3 +50,13 @@
 - [x] 8.1 Build via Qt Creator MCP (quick compile check); run `tst_settings`
 - [ ] 8.2 Manual pass in the app: all six toggles change the sentence as labeled; saved `showGrind: false` config keeps grind hidden; yield arrow appears only on a dialed override; "Large Pitcher" preset renders without duplication; prompt wording matches the sound setting; no `ScaleDevice` TypeErrors in the launch log (clear-warnings rule)
 - [x] 8.3 Update the PR with a comment summarizing the fixes against the review's numbered findings
+
+## 9. Consolidate: fold steam plan into the Shot Plan widget (remove `plan`/`steamPlan` types)
+
+- [x] 9.1 `ShotPlanItem.qml`: absorb PlanItem's page-aware logic behind new `showSteamPlan` (`shotPlanShowSteamPlan !== false`): steam context via `Theme.currentOperationMode`/`currentPageObjectName`/`MachineState.phase`, SteamPlanText instances in both modes, role/name switching (Button ↔ StaticText), press action gated off in steam mode
+- [x] 9.2 Delete `PlanItem.qml` and `SteamPlanItem.qml`; remove both from `CMakeLists.txt`
+- [x] 9.3 De-register `plan`/`steamPlan`: `LayoutItemDelegate.qml` cases, `LayoutEditorZone.qml` palette + chip map, `LayoutCenterZone.qml` isAutoSized (keep `shotPlan`), `shotserver_layout.cpp` widget list + chip labels + configurable list + plan-specific load/save/title/note branches
+- [x] 9.4 `settings_network.cpp`: drop `"plan"` from `typeHasOptions`; `tst_settings.cpp`: update allowlist test (both removed types assert non-configurable)
+- [x] 9.5 Editors: add the "Steam plan" toggle (`shotPlanShowSteamPlan`, default ON) to the Shot Plan settings in `ScreensaverEditorPopup.qml` and the web editor; remove the plan-only title/note special-casing
+- [x] 9.6 Update specs (`plan-widgets`, `layout-widget-instance-config`) for the consolidated single-widget model
+- [x] 9.7 Rebuild + rerun `tst_settings`; push and note the consolidation on the PR

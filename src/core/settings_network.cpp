@@ -601,7 +601,6 @@ bool SettingsNetwork::typeHasOptions(const QString& type) {
         QStringLiteral("custom"),
         QStringLiteral("scaleWeight"),
         QStringLiteral("shotPlan"),
-        QStringLiteral("plan"),        // page-aware Plan widget — same shot-plan display toggles as shotPlan
         QStringLiteral("sleep"),
         QStringLiteral("machineStatus"),
         QStringLiteral("temperature"),

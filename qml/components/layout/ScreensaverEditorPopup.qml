@@ -22,8 +22,9 @@ Dialog {
     property bool shotPlanShowGrind: true
     property bool shotPlanShowRoastDate: false
     property bool shotPlanShowDoseYield: true
+    property bool shotPlanShowSteamPlan: true
 
-    readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap" || itemType === "lastShot" || itemType === "shotPlan" || itemType === "plan"
+    readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap" || itemType === "lastShot" || itemType === "shotPlan"
 
     signal saved()
 
@@ -50,6 +51,7 @@ Dialog {
         shotPlanShowGrind = typeof props.shotPlanShowGrind === "boolean" ? props.shotPlanShowGrind : true
         shotPlanShowRoastDate = typeof props.shotPlanShowRoastDate === "boolean" ? props.shotPlanShowRoastDate : false
         shotPlanShowDoseYield = typeof props.shotPlanShowDoseYield === "boolean" ? props.shotPlanShowDoseYield : true
+        shotPlanShowSteamPlan = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true
         open()
     }
 
@@ -82,13 +84,14 @@ Dialog {
             Settings.network.setItemProperty(itemId, "shotShowLabels", shotShowLabels)
             Settings.network.setItemProperty(itemId, "shotShowPhaseLabels", shotShowPhaseLabels)
         }
-        if (itemType === "shotPlan" || itemType === "plan") {
+        if (itemType === "shotPlan") {
             Settings.network.setItemProperty(itemId, "shotPlanShowProfile", shotPlanShowProfile)
             Settings.network.setItemProperty(itemId, "shotPlanShowRoaster", shotPlanShowRoaster)
             Settings.network.setItemProperty(itemId, "shotPlanShowCoffee", shotPlanShowCoffee)
             Settings.network.setItemProperty(itemId, "shotPlanShowGrind", shotPlanShowGrind)
             Settings.network.setItemProperty(itemId, "shotPlanShowRoastDate", shotPlanShowRoastDate)
             Settings.network.setItemProperty(itemId, "shotPlanShowDoseYield", shotPlanShowDoseYield)
+            Settings.network.setItemProperty(itemId, "shotPlanShowSteamPlan", shotPlanShowSteamPlan)
         }
         saved()
         close()
@@ -109,7 +112,6 @@ Dialog {
                     case "screensaverShotMap": return TranslationManager.translate("screensaverEditor.title.shotMap", "Shot Map Settings")
                     case "lastShot": return TranslationManager.translate("screensaverEditor.title.lastShot", "Last Shot Settings")
                     case "shotPlan": return TranslationManager.translate("screensaverEditor.title.shotPlan", "Shot Plan Settings")
-                    case "plan": return TranslationManager.translate("screensaverEditor.title.plan", "Plan Settings")
                     default: return TranslationManager.translate("screensaverEditor.title.default", "Screensaver Settings")
                 }
             }
@@ -329,18 +331,8 @@ Dialog {
         ColumnLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingSmall
-            visible: popup.itemType === "shotPlan" || popup.itemType === "plan"
+            visible: popup.itemType === "shotPlan"
 
-            // The page-aware Plan widget flips to the steam plan (no options) in steam
-            // context — tell the user which side these toggles configure.
-            Text {
-                visible: popup.itemType === "plan"
-                text: TranslationManager.translate("shotPlanEditor.planNote", "These options apply to the shot plan; the steam plan has no options.")
-                font: Theme.labelFont
-                color: Theme.textSecondaryColor
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
             StyledSwitch {
                 text: TranslationManager.translate("shotPlanEditor.showProfile", "Profile & temperature")
                 checked: popup.shotPlanShowProfile
@@ -372,6 +364,13 @@ Dialog {
                 text: TranslationManager.translate("shotPlanEditor.showDoseYield", "Dose & yield")
                 checked: popup.shotPlanShowDoseYield
                 onToggled: popup.shotPlanShowDoseYield = checked
+            }
+            StyledSwitch {
+                // Page-aware mode: while steaming (or steam selected) the widget swaps to the
+                // steam sentence. The steam side has no further options.
+                text: TranslationManager.translate("shotPlanEditor.showSteamPlan", "Steam plan (while steaming)")
+                checked: popup.shotPlanShowSteamPlan
+                onToggled: popup.shotPlanShowSteamPlan = checked
             }
         }
 

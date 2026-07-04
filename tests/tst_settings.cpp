@@ -556,14 +556,16 @@ private slots:
     // match is a visible, deliberate change.
     void typeHasOptionsAllowlist() {
         const QStringList configurable = {
-            "custom", "scaleWeight", "shotPlan", "plan", "sleep", "machineStatus",
+            "custom", "scaleWeight", "shotPlan", "sleep", "machineStatus",
             "temperature", "steamTemperature", "waterLevel", "clock", "lastShot"
         };
         for (const QString& t : configurable)
             QVERIFY2(SettingsNetwork::typeHasOptions(t), qPrintable("expected configurable: " + t));
 
-        // steamPlan is display-only (SteamPlanItem exposes no toggles) — must stay non-configurable.
+        // The plan/steamPlan widget types were consolidated into shotPlan before release —
+        // pin that the removed type names stay out of the allowlist.
         QVERIFY(!SettingsNetwork::typeHasOptions("steamPlan"));
+        QVERIFY(!SettingsNetwork::typeHasOptions("plan"));
 
         // Any screensaver* type is configurable (prefix match).
         QVERIFY(SettingsNetwork::typeHasOptions("screensaver"));

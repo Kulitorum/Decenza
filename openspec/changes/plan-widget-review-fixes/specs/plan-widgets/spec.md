@@ -4,7 +4,7 @@
 
 ### Requirement: Shot plan sentence content follows the display toggles
 
-The Shot Plan text (used by the `shotPlan` widget and the shot side of the page-aware `plan` widget) SHALL render as a sentence — "Brew {yield} of {beverage}, using {profile} at {temperature}" — when yield, profile, and temperature are all available, degrading to a separator-joined fragment list when any core piece is missing. Each display toggle SHALL gate exactly its named content, in both the plain (accessibility) text and the rich (displayed) text:
+The Shot Plan text (used by the `shotPlan` widget) SHALL render as a sentence — "Brew {yield} of {beverage}, using {profile} at {temperature}" — when yield, profile, and temperature are all available, degrading to a separator-joined fragment list when any core piece is missing. Each display toggle SHALL gate exactly its named content, in both the plain (accessibility) text and the rich (displayed) text:
 
 - **Profile & temperature** (`shotPlanShowProfile`): profile name and temperature.
 - **Roaster** (`shotPlanShowRoaster`): roaster brand only.
@@ -51,7 +51,7 @@ The Shot Plan text SHALL highlight (accent color) only when a deliberate tempera
 
 ### Requirement: Steam plan sentence
 
-The Steam Plan text SHALL summarise the next steam as "Steam {milk} of milk, using the {pitcher} pitcher for {duration}", degrading to a separator-joined list when a piece is missing, and SHALL render nothing when the selected pitcher preset is the disabled ("Off") preset. When the selected preset's name already contains the word "pitcher" (case-insensitive), the sentence SHALL NOT append another "pitcher", so a preset named "Large Pitcher" never renders "Large Pitcher pitcher". The displayed duration SHALL be derived from the currently selected preset (its scaled time when weight-timed steaming has a measured/reference milk, else its base duration) rather than the last value another code path happened to write to `steamTimeout`.
+The Steam Plan text (the steam-context rendering of the `shotPlan` widget) SHALL summarise the next steam as "Steam {milk} of milk, using the {pitcher} pitcher for {duration}", degrading to a separator-joined list when a piece is missing, and SHALL render nothing when the selected pitcher preset is the disabled ("Off") preset. When the selected preset's name already contains the word "pitcher" (case-insensitive), the sentence SHALL NOT append another "pitcher", so a preset named "Large Pitcher" never renders "Large Pitcher pitcher". The displayed duration SHALL be the selected preset's effective steam time (scaled when weight-timed steaming has a measured/reference milk, else the preset's base duration), resolved by the single shared `SettingsBrew` helper — never the residue another code path wrote to `steamTimeout`.
 
 #### Scenario: Pitcher name containing "Pitcher"
 
@@ -63,14 +63,19 @@ The Steam Plan text SHALL summarise the next steam as "Steam {milk} of milk, usi
 - **WHEN** the user selects a pitcher preset without tapping it to start
 - **THEN** the displayed duration matches that preset's effective steam time, not a stale value from a previous session
 
-### Requirement: Page-aware plan widget
+### Requirement: Page-aware steam mode of the Shot Plan widget
 
-The `plan` widget SHALL display the Shot Plan text except in steam context — steam selected on the idle screen, the steam page active, or the machine actively steaming — where it SHALL display the Steam Plan text. Page/mode state SHALL be read from the app's single existing page-state source (the `Theme` singleton), not from a duplicate copy. Outside steam context the widget SHALL be an activatable control that opens Brew Settings; in steam context it SHALL be a read-only summary, and its accessibility role and name SHALL match the mode.
+The `shotPlan` widget SHALL display the Shot Plan text except in steam context — steam selected on the idle screen, the steam page active, or the machine actively steaming — where it SHALL display the Steam Plan text, unless the instance's Steam plan option (`shotPlanShowSteamPlan`, default ON) is off. Page/mode state SHALL be read from the app's single existing page-state source (the `Theme` singleton), not from a duplicate copy. Outside steam mode the widget SHALL be an activatable control that opens Brew Settings; in steam mode it SHALL be a read-only summary, and its accessibility role and name SHALL match the mode.
 
 #### Scenario: Switches to steam plan
 
-- **WHEN** the user selects steam on the idle screen
-- **THEN** the plan widget shows the steam plan and is announced as a read-only "Steam plan"
+- **WHEN** the user selects steam on the idle screen and the instance's Steam plan option is on
+- **THEN** the widget shows the steam plan and is announced as a read-only "Steam plan"
+
+#### Scenario: Steam plan option off
+
+- **WHEN** the instance's Steam plan option is off and the machine is steaming
+- **THEN** the widget keeps showing the shot plan
 
 #### Scenario: Shot side opens Brew Settings
 

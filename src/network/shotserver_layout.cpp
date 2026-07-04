@@ -1954,7 +1954,6 @@ QString ShotServer::generateLayoutPage() const
 
             <div id="ssShotPlanSettings" style="display:none">
                 <div class="section-label">Visible elements</div>
-                <div id="spPlanNote" style="display:none;color:var(--text-secondary);font-size:0.85rem;margin:0.25rem 0 0.5rem">These options apply to the shot plan; the steam plan has no options.</div>
                 <div class="ss-slider-row">
                     <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
                         <input type="checkbox" id="spShowProfile" checked onchange="spToggleChanged()">
@@ -1989,6 +1988,12 @@ QString ShotServer::generateLayoutPage() const
                     <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
                         <input type="checkbox" id="spShowDoseYield" checked onchange="spToggleChanged()">
                         <span style="color:var(--text-secondary)">Dose &amp; yield</span>
+                    </label>
+                </div>
+                <div class="ss-slider-row">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="spShowSteamPlan" checked onchange="spToggleChanged()">
+                        <span style="color:var(--text-secondary)">Steam plan (while steaming)</span>
                     </label>
                 </div>
             </div>
@@ -2423,10 +2428,8 @@ QString ShotServer::generateLayoutPage() const
         {type:"profileName",cat:1,label:"Profile Name"},
         {type:"doseWeight",cat:1,label:"Dose Weight"},
         {type:"milkWeight",cat:1,label:"Milk Weight"},
-        {type:"steamPlan",cat:1,label:"Steam Plan"},
         {type:"ratioQuickSelect",cat:1,label:"Ratio Quick-Select"},
         {type:"shotPlan",cat:1,label:"Shot Plan"},
-        {type:"plan",cat:1,label:"Plan (page-aware)"},
         {type:"clock",cat:1,label:"Time"},
         // Utility (2)
         {type:"custom",cat:2,label:"Custom",special:true},
@@ -2448,7 +2451,7 @@ QString ShotServer::generateLayoutPage() const
         settings:"Settings",temperature:"Temp",steamTemperature:"Steam",
         batteryLevel:"Battery",scaleBattery:"Scale Bat",waterLevel:"Water",connectionStatus:"Machine",scaleWeight:"Scale",
         profileName:"Profile",doseWeight:"Dose",milkWeight:"Milk",ratioQuickSelect:"Ratio",
-        shotPlan:"Shot Plan",steamPlan:"Steam Plan",plan:"Plan",pageTitle:"Title",spacer:"Spacer",separator:"Sep",
+        shotPlan:"Shot Plan",pageTitle:"Title",spacer:"Spacer",separator:"Sep",
         custom:"Custom",weather:"Weather",quit:"Quit",
         screensaverFlipClock:"Flip Clock",screensaverPipes:"3D Pipes",
         screensaverAttractor:"Attractor",screensaverShotMap:"Shot Map",
@@ -2556,7 +2559,7 @@ QString ShotServer::generateLayoutPage() const
     // single source of truth so the indicator and the open behaviour agree.
     function typeHasOptions(type) {
         if (type.indexOf("screensaver") === 0) return true;
-        return ["custom","scaleWeight","shotPlan","plan","sleep","machineStatus",
+        return ["custom","scaleWeight","shotPlan","sleep","machineStatus",
                 "temperature","steamTemperature","waterLevel","clock","lastShot"].indexOf(type) >= 0;
     }
 
@@ -2825,7 +2828,7 @@ QString ShotServer::generateLayoutPage() const
             selectedChip = {id: itemId, zone: zone};
             if (type === "custom") {
                 openEditor(itemId, zone);
-            } else if (type.indexOf("screensaver") === 0 || type === "lastShot" || type === "shotPlan" || type === "plan") {
+            } else if (type.indexOf("screensaver") === 0 || type === "lastShot" || type === "shotPlan") {
                 openScreensaverEditor(itemId, zone, type);
             }
         }
@@ -3035,14 +3038,14 @@ QString ShotServer::generateLayoutPage() const
                     document.getElementById("ssShotShowLabels").checked = typeof props.shotShowLabels === "boolean" ? props.shotShowLabels : false;
                     document.getElementById("ssShotShowPhaseLabels").checked = typeof props.shotShowPhaseLabels === "boolean" ? props.shotShowPhaseLabels : true;
                     document.getElementById("ssLastShotSettings").style.display = "";
-                } else if (type === "shotPlan" || type === "plan") {
+                } else if (type === "shotPlan") {
                     document.getElementById("spShowProfile").checked = typeof props.shotPlanShowProfile === "boolean" ? props.shotPlanShowProfile : true;
                     document.getElementById("spShowRoaster").checked = typeof props.shotPlanShowRoaster === "boolean" ? props.shotPlanShowRoaster : true;
                     document.getElementById("spShowCoffee").checked = typeof props.shotPlanShowCoffee === "boolean" ? props.shotPlanShowCoffee : true;
                     document.getElementById("spShowGrind").checked = typeof props.shotPlanShowGrind === "boolean" ? props.shotPlanShowGrind : true;
                     document.getElementById("spShowRoastDate").checked = typeof props.shotPlanShowRoastDate === "boolean" ? props.shotPlanShowRoastDate : false;
                     document.getElementById("spShowDoseYield").checked = typeof props.shotPlanShowDoseYield === "boolean" ? props.shotPlanShowDoseYield : true;
-                    document.getElementById("spPlanNote").style.display = (type === "plan") ? "" : "none";
+                    document.getElementById("spShowSteamPlan").checked = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true;
                     document.getElementById("ssShotPlanSettings").style.display = "";
                 } else {
                     document.getElementById("ssNoSettings").style.display = "";
@@ -3084,13 +3087,14 @@ QString ShotServer::generateLayoutPage() const
             apiPost("/api/layout/item", {itemId: id, key: "shotScale", value: shotScale}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotShowLabels", value: showLabels}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotShowPhaseLabels", value: showPhaseLabels}, function() {});
-        } else if (ssEditingType === "shotPlan" || ssEditingType === "plan") {
+        } else if (ssEditingType === "shotPlan") {
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowProfile", value: document.getElementById("spShowProfile").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowRoaster", value: document.getElementById("spShowRoaster").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowCoffee", value: document.getElementById("spShowCoffee").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowGrind", value: document.getElementById("spShowGrind").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowRoastDate", value: document.getElementById("spShowRoastDate").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowDoseYield", value: document.getElementById("spShowDoseYield").checked}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowSteamPlan", value: document.getElementById("spShowSteamPlan").checked}, function() {});
         }
     }
 

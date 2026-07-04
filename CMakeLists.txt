@@ -839,8 +839,6 @@ set(QML_FILES
     qml/components/layout/items/MilkWeightItem.qml
     qml/components/layout/items/RatioQuickSelectItem.qml
     qml/components/layout/items/ShotPlanItem.qml
-    qml/components/layout/items/SteamPlanItem.qml
-    qml/components/layout/items/PlanItem.qml
     qml/components/layout/items/SpacerItem.qml
     qml/components/layout/items/CustomItem.qml
     qml/components/layout/items/WeatherItem.qml
