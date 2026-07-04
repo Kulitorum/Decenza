@@ -177,7 +177,11 @@ Item {
         : (_isCleaning ? Theme.errorColor
                        : (_tempOverride ? Theme.highlightColor : Theme.textColor))
 
-    implicitWidth: row.implicitWidth
+    // Report the NATURAL width (icon + spacing + text's own implicitWidth), NOT row.implicitWidth —
+    // which would track planText's CAPPED width and ratchet the tile ever-smaller (it feeds back through
+    // availableWidth: root.width and can never re-expand). The visual cap on planText.width still fixes the
+    // bleed-off; decoupling the implicit here is what lets the tile grow back.
+    implicitWidth: Theme.scaled(20) + Theme.spacingSmall + planText.implicitWidth
     implicitHeight: row.implicitHeight
 
     Row {

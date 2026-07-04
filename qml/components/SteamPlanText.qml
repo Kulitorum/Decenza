@@ -107,7 +107,9 @@ Item {
         return live ? ("<b>" + e + "</b>") : e
     }, Theme.bulletSep)
 
-    implicitWidth: row.implicitWidth
+    // Report the NATURAL width, not row.implicitWidth (which would track the capped text width and
+    // ratchet the tile smaller each layout, never re-expanding). See ShotPlanText for the full rationale.
+    implicitWidth: Theme.scaled(20) + Theme.spacingSmall + planText.implicitWidth
     implicitHeight: row.implicitHeight
 
     // Always wrapped by ShotPlanItem, which already exposes the a11y node for the plan.
@@ -131,6 +133,7 @@ Item {
         }
 
         Text {
+            id: planText
             anchors.verticalCenter: parent.verticalCenter
             // Cap to the available width only when the text would overflow; shorter text keeps its
             // natural width so the centred Row is unaffected.
