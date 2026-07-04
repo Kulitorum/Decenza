@@ -2549,7 +2549,7 @@ QString ShotServer::generateLayoutPage() const
     // single source of truth so the indicator and the open behaviour agree.
     function typeHasOptions(type) {
         if (type.indexOf("screensaver") === 0) return true;
-        return ["custom","scaleWeight","shotPlan","sleep","machineStatus",
+        return ["custom","scaleWeight","shotPlan","plan","sleep","machineStatus",
                 "temperature","steamTemperature","waterLevel","clock","lastShot"].indexOf(type) >= 0;
     }
 
@@ -2818,7 +2818,7 @@ QString ShotServer::generateLayoutPage() const
             selectedChip = {id: itemId, zone: zone};
             if (type === "custom") {
                 openEditor(itemId, zone);
-            } else if (type.indexOf("screensaver") === 0 || type === "lastShot" || type === "shotPlan") {
+            } else if (type.indexOf("screensaver") === 0 || type === "lastShot" || type === "shotPlan" || type === "plan") {
                 openScreensaverEditor(itemId, zone, type);
             }
         }
@@ -3028,7 +3028,7 @@ QString ShotServer::generateLayoutPage() const
                     document.getElementById("ssShotShowLabels").checked = typeof props.shotShowLabels === "boolean" ? props.shotShowLabels : false;
                     document.getElementById("ssShotShowPhaseLabels").checked = typeof props.shotShowPhaseLabels === "boolean" ? props.shotShowPhaseLabels : true;
                     document.getElementById("ssLastShotSettings").style.display = "";
-                } else if (type === "shotPlan") {
+                } else if (type === "shotPlan" || type === "plan") {
                     document.getElementById("spShowProfile").checked = typeof props.shotPlanShowProfile === "boolean" ? props.shotPlanShowProfile : true;
                     document.getElementById("spShowRoaster").checked = typeof props.shotPlanShowRoaster === "boolean" ? props.shotPlanShowRoaster : true;
                     document.getElementById("spShowGrind").checked = typeof props.shotPlanShowGrind === "boolean" ? props.shotPlanShowGrind : true;
@@ -3075,7 +3075,7 @@ QString ShotServer::generateLayoutPage() const
             apiPost("/api/layout/item", {itemId: id, key: "shotScale", value: shotScale}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotShowLabels", value: showLabels}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotShowPhaseLabels", value: showPhaseLabels}, function() {});
-        } else if (ssEditingType === "shotPlan") {
+        } else if (ssEditingType === "shotPlan" || ssEditingType === "plan") {
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowProfile", value: document.getElementById("spShowProfile").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowRoaster", value: document.getElementById("spShowRoaster").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowGrind", value: document.getElementById("spShowGrind").checked}, function() {});

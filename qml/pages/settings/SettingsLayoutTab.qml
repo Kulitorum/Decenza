@@ -122,7 +122,7 @@ Item {
         if (!Settings.network.typeHasOptions(type))
             return
         closeOptionEditors()
-        if (type.startsWith("screensaver") || type === "lastShot" || type === "shotPlan") {
+        if (type.startsWith("screensaver") || type === "lastShot" || type === "shotPlan" || type === "plan") {
             screensaverEditorPopup.openForItem(itemId, zoneName, props)
         } else if (type === "scaleWeight") {
             scaleWeightEditorPopup.openForItem(itemId, props.dataMode || "", props.displayMode || "", props.color || "",

@@ -16,6 +16,8 @@ Item {
             case "spacer":
             case "custom":
             case "shotPlan":
+            case "plan":
+            case "steamPlan":
             case "temperature":
             case "waterLevel":
             case "connectionStatus":

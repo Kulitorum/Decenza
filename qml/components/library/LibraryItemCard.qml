@@ -632,7 +632,7 @@ Rectangle {
             "autofavorites": "Favs", "sleep": "Sleep", "settings": "Settings",
             "temperature": "Temp", "steamTemperature": "Steam",
             "batteryLevel": "Batt", "waterLevel": "Water", "connectionStatus": "Conn",
-            "scaleWeight": "Scale", "shotPlan": "Plan", "pageTitle": "Title",
+            "scaleWeight": "Scale", "shotPlan": "Plan", "plan": "Plan", "steamPlan": "Steam Plan", "pageTitle": "Title",
             "spacer": "---", "separator": "|", "weather": "Weather", "quit": "Quit"
         }
         return names[type] || type

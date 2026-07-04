@@ -22,7 +22,7 @@ Dialog {
     property bool shotPlanShowRoastDate: false
     property bool shotPlanShowDoseYield: true
 
-    readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap" || itemType === "lastShot" || itemType === "shotPlan"
+    readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap" || itemType === "lastShot" || itemType === "shotPlan" || itemType === "plan"
 
     signal saved()
 
@@ -80,7 +80,7 @@ Dialog {
             Settings.network.setItemProperty(itemId, "shotShowLabels", shotShowLabels)
             Settings.network.setItemProperty(itemId, "shotShowPhaseLabels", shotShowPhaseLabels)
         }
-        if (itemType === "shotPlan") {
+        if (itemType === "shotPlan" || itemType === "plan") {
             Settings.network.setItemProperty(itemId, "shotPlanShowProfile", shotPlanShowProfile)
             Settings.network.setItemProperty(itemId, "shotPlanShowRoaster", shotPlanShowRoaster)
             Settings.network.setItemProperty(itemId, "shotPlanShowGrind", shotPlanShowGrind)
@@ -105,7 +105,8 @@ Dialog {
                     case "screensaverAttractor": return TranslationManager.translate("screensaverEditor.title.attractor", "Attractors Settings")
                     case "screensaverShotMap": return TranslationManager.translate("screensaverEditor.title.shotMap", "Shot Map Settings")
                     case "lastShot": return TranslationManager.translate("screensaverEditor.title.lastShot", "Last Shot Settings")
-                    case "shotPlan": return TranslationManager.translate("screensaverEditor.title.shotPlan", "Shot Plan Settings")
+                    case "shotPlan":
+                    case "plan": return TranslationManager.translate("screensaverEditor.title.shotPlan", "Shot Plan Settings")
                     default: return TranslationManager.translate("screensaverEditor.title.default", "Screensaver Settings")
                 }
             }
@@ -325,7 +326,7 @@ Dialog {
         ColumnLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingSmall
-            visible: popup.itemType === "shotPlan"
+            visible: popup.itemType === "shotPlan" || popup.itemType === "plan"
 
             StyledSwitch {
                 text: TranslationManager.translate("shotPlanEditor.showProfile", "Profile & temperature")

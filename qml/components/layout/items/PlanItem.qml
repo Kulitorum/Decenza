@@ -39,9 +39,10 @@ Item {
         function onCurrentPageObjectNameChanged() { root._refreshPage() }
         function onCurrentOperationModeChanged() { root._refreshPage() }
     }
-    // Steam context = steam selected on the idle screen, OR the full steam page, OR the
-    // machine actively steaming. MachineState.phase is a singleton property so it's read
-    // directly (reactive); the window-root strings are mirrored above to stay reactive.
+    // Steam context = steam selected on the idle screen, OR the full steam page, OR the machine actively
+    // steaming. MachineState.phase is a singleton property so it's read directly; the window-root strings
+    // are mirrored above (seeded on resolve, refreshed on their change signals — rename-fragile: a rename
+    // of the mirrored main.qml root properties silently freezes this on its last value).
     readonly property bool _onSteamPage: _opMode === "steam"
         || _pageName === "steamPage"
         || (typeof MachineState !== "undefined" && MachineState.phase === MachineStateType.Phase.Steaming)
