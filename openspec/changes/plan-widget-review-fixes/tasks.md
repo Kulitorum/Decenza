@@ -66,3 +66,7 @@
 - [x] 10.1 Expose `ProfileManager.currentProfileBeverageType` (Q_PROPERTY, NOTIFY currentProfileChanged, "espresso" fallback for empty)
 - [x] 10.2 `ShotPlanText`: beverage word by type — "Espresso" (espresso), "tea" (tea*), "coffee" (any other coffee type); cleaning/descale get a dedicated sentence "Cleaning run with {profile} — no coffee in the portafilter!" (no bean/dose tail, warning color)
 - [x] 10.3 Spec scenario updates (plan-widgets); rebuild + tst_settings; push + PR note
+
+## 11. Bean prompt beep honesty (same rule as the pitcher prompt)
+
+- [x] 11.1 IdlePage bean prompt: "(wait for the beep)" only when doseCaptureSoundEnabled; otherwise the shared "(hold still until the weight registers)" hint (key generalized to idle.label.placeHintNoSound, used by both prompts). Prompt visibility already correctly opt-in via saved dose cup.

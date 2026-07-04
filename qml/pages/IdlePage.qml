@@ -636,7 +636,7 @@ Page {
                         text: TranslationManager.translate("idle.label.placePitcherOnScale", "Place the milk pitcher on the scale") + "\n"
                             + (Settings.brew.doseCaptureSoundEnabled
                                 ? TranslationManager.translate("idle.label.placePitcherHint", "(and wait for the beep before removing)")
-                                : TranslationManager.translate("idle.label.placePitcherHintNoSound", "(hold still until the weight registers)"))
+                                : TranslationManager.translate("idle.label.placeHintNoSound", "(hold still until the weight registers)"))
                         color: Theme.textSecondaryColor
                         font: Theme.labelFont
                         Accessible.role: Accessible.StaticText
@@ -791,8 +791,12 @@ Page {
                                     return idlePage.beanCaptureText
                                 if (beanCapture.loadPresent)
                                     return beanCapture.netWeight.toFixed(1) + " g " + TranslationManager.translate("idle.label.onScale", "on scale")
+                                // The beep hint only when the capture sound will actually play
+                                // (doseCaptureSoundEnabled, default off) — same rule as the pitcher prompt.
                                 return TranslationManager.translate("idle.label.placeBeansOnScale", "Place Beans on Scale") + "\n"
-                                     + TranslationManager.translate("idle.label.placeBeansHint", "(and wait for the beep before removing)")
+                                     + (Settings.brew.doseCaptureSoundEnabled
+                                         ? TranslationManager.translate("idle.label.placeBeansHint", "(and wait for the beep before removing)")
+                                         : TranslationManager.translate("idle.label.placeHintNoSound", "(hold still until the weight registers)"))
                             }
                             color: idlePage.beanCaptureShown ? Theme.primaryColor : Theme.textSecondaryColor
                             font: Theme.labelFont
