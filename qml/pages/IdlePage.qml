@@ -109,6 +109,7 @@ Page {
         root.currentPageTitle = TranslationManager.translate("idle.pageTitle", "Idle")
         MainController.bagStorage.requestInventory()
         MainController.equipmentStorage.requestInventory()
+        _publishOperationMode()
     }
 
     // Inventory bags for the beans pill row (bean-bag-inventory: pills are
@@ -220,6 +221,14 @@ Page {
     property string milkCaptureText: ""
     // Last milk weight measured this session (for the bottom status row). 0 = none yet.
     property real measuredMilkG: 0
+    // The captured milk is net of the SELECTED pitcher's saved weight, so it's wrong
+    // for any other pitcher — drop it on selection change, mirroring main.qml's reset
+    // of sessionMeasuredMilkG. Without this the pill tap's fallback could scale the
+    // new pitcher's steam by the previous pitcher's milk.
+    Connections {
+        target: Settings.brew
+        function onSelectedSteamPitcherChanged() { idlePage.measuredMilkG = 0 }
+    }
     Timer { id: idleMilkCaptureTimer; interval: 3500; onTriggered: idlePage.milkCaptureShown = false }
     StableWeightCapture {
         id: idleMilkCapture
@@ -349,8 +358,34 @@ Page {
         }
     }
 
+    // Scale-load detector for the "place the pitcher" prompt below. Gated on
+    // milkAutoCaptureEnabled (same as idleMilkCapture): with weight-timed steaming OFF, placing the
+    // pitcher captures nothing and no beep follows, so the prompt must not tell the user to do it.
+    // It never captures; we only read loadPresent.
+    StableWeightCapture {
+        id: idlePitcherDetect
+        rawWeight: (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale) ? MachineState.scaleWeight : 0
+        active: Settings.brew.milkAutoCaptureEnabled
+                && idlePage.activePresetFunction === "steam"
+                && idlePage.StackView.status === StackView.Active
+                && ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
+        minNet: 999999   // never auto-captures; only provides loadPresent
+        loadThreshold: 50  // an empty pitcher already weighs well above this
+    }
+
+    // Publish the selected operation (espresso/steam/…) to the Theme singleton so the
+    // persistent status-bar widgets (e.g. the page-aware Plan widget) can tell what the
+    // user has selected on the idle screen — they load as separate components and can't
+    // read this property by scope. Cleared when this page isn't the active one.
+    function _publishOperationMode() {
+        Theme.currentOperationMode =
+            (StackView.status === StackView.Active) ? activePresetFunction : ""
+    }
+    StackView.onStatusChanged: _publishOperationMode()
+
     // Auto-tare scale and announce presets when activePresetFunction changes
     onActivePresetFunctionChanged: {
+        _publishOperationMode()
         // Auto-tare when steam pills appear so the scale starts at 0
         // before the user places the pitcher
         if (activePresetFunction === "steam" && typeof MachineState !== "undefined") {
@@ -527,79 +562,102 @@ Page {
                 active: activePresetFunction === "steam"
                 visible: active
 
-                // Track scale weight changes and bump version to refresh pill suffix text
-                property int steamPillSuffixVersion: 0
-                Connections {
-                    target: MachineState
-                    function onScaleWeightChanged() {
-                        if (steamPresetLoader.active) steamPresetLoader.steamPillSuffixVersion++
-                    }
-                }
+                sourceComponent: Column {
+                    width: parent ? parent.width : 0
+                    spacing: Theme.scaled(8)
 
-                sourceComponent: PresetPillRow {
-                    maxWidth: steamPresetLoader.width
-                    presets: Settings.brew.steamPitcherPresets
-                    selectedIndex: Settings.brew.selectedSteamPitcher
-                    pillSuffixMaxWidth: Theme.scaled(60)  // Reserve ~"(1234g)" worth of width
-                    pillSuffixVersion: steamPresetLoader.steamPillSuffixVersion
-                    supportLongPress: true
+                    PresetPillRow {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        maxWidth: steamPresetLoader.width
+                        presets: Settings.brew.steamPitcherPresets
+                        selectedIndex: Settings.brew.selectedSteamPitcher
+                        supportLongPress: true
 
-                    pillSuffixFn: function(index) {
-                        if (!ScaleDevice || !ScaleDevice.connected || ScaleDevice.isFlowScale) return ""
-                        var preset = Settings.brew.steamPitcherPresets[index]
-                        if (!preset) return ""
-                        var pitcherWeight = preset.pitcherWeightG ?? 0
-                        if (pitcherWeight <= 0) return ""
-                        var milkWeight = Math.max(0, MachineState.scaleWeight - pitcherWeight)
-                        return " (" + Math.round(milkWeight) + "g)"
-                    }
-
-                    onPresetSelected: function(index) {
-                        var wasAlreadySelected = (index === Settings.brew.selectedSteamPitcher)
-                        Settings.brew.selectedSteamPitcher = index
-                        var preset = Settings.brew.getSteamPitcherPreset(index)
-                        if (preset && preset.disabled) {
-                            // "Off" preset — disable the steam heater; don't touch
-                            // steamTimeout/steamFlow (preset.duration/flow are undefined
-                            // for disabled presets and writing undefined to these int
-                            // properties errors), and don't start steam on re-tap.
-                            MainController.turnOffSteamHeater()
-                            return
+                        // Show pitcher presets as "<name> Pitcher" (e.g. "Small Pitcher"),
+                        // skipping the disabled "Off" preset and any name that already
+                        // mentions a pitcher.
+                        pillLabelFn: function(index, name) {
+                            var preset = Settings.brew.steamPitcherPresets[index]
+                            if (preset && preset.disabled) return name
+                            if (!name || name.toLowerCase().indexOf("pitcher") >= 0) return name
+                            return name + " " + TranslationManager.translate("idle.label.pitcherSuffix", "Pitcher")
                         }
-                        if (preset) {
-                            // Weight-scaled steaming (DSx2-style), via the single source of
-                            // truth in SettingsBrew. Net milk on the scale now, or the last
-                            // measured weight if the pitcher was lifted to the wand.
-                            var idx = Settings.brew.selectedSteamPitcher
-                            var milk = (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale)
-                                       ? Settings.brew.netMilkForPitcher(idx, MachineState.scaleWeight) : 0
-                            if (milk <= 0)
-                                milk = idlePage.measuredMilkG
-                            var t = Settings.brew.scaledSteamTime(idx, milk)
-                            Settings.brew.steamTimeout = t > 0 ? t : preset.duration  // 0 → fixed duration
-                            Settings.brew.steamFlow = preset.flow !== undefined ? preset.flow : 150
-                            Settings.brew.steamTemperature = (preset.temperature !== undefined) ? preset.temperature : Settings.brew.steamTemperature
-                        }
-                        MainController.applySteamSettings()
 
-                        if (wasAlreadySelected) {
-                            if (MachineState.isReady && idlePage.canStartOperations) {
-                                DE1Device.startSteam()
-                            } else {
-                                console.log("Cannot start steam - machine not ready, phase:", MachineState.phase)
-                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
-                                    AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
+                        onPresetSelected: function(index) {
+                            var wasAlreadySelected = (index === Settings.brew.selectedSteamPitcher)
+                            Settings.brew.selectedSteamPitcher = index
+                            var preset = Settings.brew.getSteamPitcherPreset(index)
+                            if (preset && preset.disabled) {
+                                // "Off" preset — disable the steam heater; don't touch
+                                // steamTimeout/steamFlow (preset.duration/flow are undefined
+                                // for disabled presets and writing undefined to these int
+                                // properties errors), and don't start steam on re-tap.
+                                MainController.turnOffSteamHeater()
+                                return
+                            }
+                            if (preset) {
+                                // Weight-scaled steaming (DSx2-style), via the single source of
+                                // truth in SettingsBrew. Net milk on the scale now, or the last
+                                // measured weight if the pitcher was lifted to the wand.
+                                var idx = Settings.brew.selectedSteamPitcher
+                                var milk = (ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale)
+                                           ? Settings.brew.netMilkForPitcher(idx, MachineState.scaleWeight) : 0
+                                if (milk <= 0)
+                                    milk = idlePage.measuredMilkG
+                                Settings.brew.steamTimeout = Settings.brew.effectiveSteamDurationSec(idx, milk)
+                                Settings.brew.steamFlow = preset.flow !== undefined ? preset.flow : 150
+                                Settings.brew.steamTemperature = (preset.temperature !== undefined) ? preset.temperature : Settings.brew.steamTemperature
+                            }
+                            MainController.applySteamSettings()
+
+                            if (wasAlreadySelected) {
+                                if (MachineState.isReady && idlePage.canStartOperations) {
+                                    DE1Device.startSteam()
+                                } else {
+                                    console.log("Cannot start steam - machine not ready, phase:", MachineState.phase)
+                                    if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                        AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
+                                }
                             }
                         }
+
+                        // Long-press a pitcher to open the steam page settings, where you set
+                        // the duration and either tap "Weigh" next to Reference milk (with milk
+                        // on the scale) or "Use as baseline" to teach this pitcher its
+                        // milk-weight -> steam-time reference.
+                        onPresetLongPressed: function(index) {
+                            Settings.brew.selectedSteamPitcher = index
+                            pageStack.push(Qt.resolvedUrl("SteamPage.qml"))
+                        }
                     }
 
-                    // Long-press a pitcher to open the steam page settings, where you set
-                    // the duration and either tap "Weigh" next to Reference milk (with milk
-                    // on the scale) or "Use as baseline" to teach this pitcher its
-                    // milk-weight -> steam-time reference.
-                    onPresetLongPressed: function(index) {
-                        Settings.brew.selectedSteamPitcher = index
-                        pageStack.push(Qt.resolvedUrl("SteamPage.qml"))
+                    // "Place the milk pitcher on the scale" — same position as the bean prompt (below
+                    // the pills). Shown only while idlePitcherDetect is active (weight-timed steaming on,
+                    // steam selected, scale connected) and nothing is on the scale yet. Gently blinks.
+                    // "or lift and replace": selecting steam auto-tares the scale, so a pitcher that was
+                    // ALREADY sitting there reads as 0 and won't register until it's lifted and set back
+                    // — without the hedge the prompt would assert something false.
+                    // The hint promises a beep ONLY when the capture sound will actually play — the
+                    // ding is separately gated on doseCaptureSoundEnabled (default off).
+                    Text {
+                        id: steamPlacePrompt
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        horizontalAlignment: Text.AlignHCenter
+                        visible: idlePitcherDetect.active && !idlePitcherDetect.loadPresent
+                        text: TranslationManager.translate("idle.label.placeOrReplacePitcher", "Place (or lift and replace) the milk pitcher on the scale") + "\n"
+                            + (Settings.brew.doseCaptureSoundEnabled
+                                ? TranslationManager.translate("idle.label.placePitcherHint", "(and wait for the beep before removing)")
+                                : TranslationManager.translate("idle.label.placeHintNoSound", "(hold still until the weight registers)"))
+                        color: Theme.textSecondaryColor
+                        font: Theme.labelFont
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: text
+                        SequentialAnimation on opacity {
+                            running: steamPlacePrompt.visible
+                            loops: Animation.Infinite
+                            NumberAnimation { to: 0.45; duration: 800 }
+                            NumberAnimation { to: 1.0; duration: 800 }
+                        }
                     }
                 }
             }
@@ -744,8 +802,12 @@ Page {
                                     return idlePage.beanCaptureText
                                 if (beanCapture.loadPresent)
                                     return beanCapture.netWeight.toFixed(1) + " g " + TranslationManager.translate("idle.label.onScale", "on scale")
+                                // The beep hint only when the capture sound will actually play
+                                // (doseCaptureSoundEnabled, default off) — same rule as the pitcher prompt.
                                 return TranslationManager.translate("idle.label.placeBeansOnScale", "Place Beans on Scale") + "\n"
-                                     + TranslationManager.translate("idle.label.placeBeansHint", "(and wait for the beep before removing)")
+                                     + (Settings.brew.doseCaptureSoundEnabled
+                                         ? TranslationManager.translate("idle.label.placeBeansHint", "(and wait for the beep before removing)")
+                                         : TranslationManager.translate("idle.label.placeHintNoSound", "(hold still until the weight registers)"))
                             }
                             color: idlePage.beanCaptureShown ? Theme.primaryColor : Theme.textSecondaryColor
                             font: Theme.labelFont

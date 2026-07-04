@@ -1968,8 +1968,14 @@ QString ShotServer::generateLayoutPage() const
                 </div>
                 <div class="ss-slider-row">
                     <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="spShowCoffee" checked onchange="spToggleChanged()">
+                        <span style="color:var(--text-secondary)">Coffee</span>
+                    </label>
+                </div>
+                <div class="ss-slider-row">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
                         <input type="checkbox" id="spShowGrind" checked onchange="spToggleChanged()">
-                        <span style="color:var(--text-secondary)">Coffee (grind)</span>
+                        <span style="color:var(--text-secondary)">Grind</span>
                     </label>
                 </div>
                 <div class="ss-slider-row">
@@ -1982,6 +1988,12 @@ QString ShotServer::generateLayoutPage() const
                     <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
                         <input type="checkbox" id="spShowDoseYield" checked onchange="spToggleChanged()">
                         <span style="color:var(--text-secondary)">Dose &amp; yield</span>
+                    </label>
+                </div>
+                <div class="ss-slider-row">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="spShowSteamPlan" checked onchange="spToggleChanged()">
+                        <span style="color:var(--text-secondary)">Steam plan (while steaming)</span>
                     </label>
                 </div>
             </div>
@@ -3029,9 +3041,11 @@ QString ShotServer::generateLayoutPage() const
                 } else if (type === "shotPlan") {
                     document.getElementById("spShowProfile").checked = typeof props.shotPlanShowProfile === "boolean" ? props.shotPlanShowProfile : true;
                     document.getElementById("spShowRoaster").checked = typeof props.shotPlanShowRoaster === "boolean" ? props.shotPlanShowRoaster : true;
+                    document.getElementById("spShowCoffee").checked = typeof props.shotPlanShowCoffee === "boolean" ? props.shotPlanShowCoffee : true;
                     document.getElementById("spShowGrind").checked = typeof props.shotPlanShowGrind === "boolean" ? props.shotPlanShowGrind : true;
                     document.getElementById("spShowRoastDate").checked = typeof props.shotPlanShowRoastDate === "boolean" ? props.shotPlanShowRoastDate : false;
                     document.getElementById("spShowDoseYield").checked = typeof props.shotPlanShowDoseYield === "boolean" ? props.shotPlanShowDoseYield : true;
+                    document.getElementById("spShowSteamPlan").checked = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true;
                     document.getElementById("ssShotPlanSettings").style.display = "";
                 } else {
                     document.getElementById("ssNoSettings").style.display = "";
@@ -3076,9 +3090,11 @@ QString ShotServer::generateLayoutPage() const
         } else if (ssEditingType === "shotPlan") {
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowProfile", value: document.getElementById("spShowProfile").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowRoaster", value: document.getElementById("spShowRoaster").checked}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowCoffee", value: document.getElementById("spShowCoffee").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowGrind", value: document.getElementById("spShowGrind").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowRoastDate", value: document.getElementById("spShowRoastDate").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowDoseYield", value: document.getElementById("spShowDoseYield").checked}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowSteamPlan", value: document.getElementById("spShowSteamPlan").checked}, function() {});
         }
     }
 

@@ -18,7 +18,9 @@ void MainController::applyHotWaterSettings() {}
 void MainController::turnOffSteamHeater() {}
 
 // Implemented in src/mcp/mcptools_presets.cpp.
-void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainController* mainController);
+class MachineState;
+void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainController* mainController,
+                          MachineState* machineState);
 
 // Exercises the steam-pitcher and hot-water-vessel MCP tools: unit conversions
 // (steam flow ×100, water flow ×10), partial-update merge (editing one field must
@@ -46,7 +48,9 @@ class tst_McpToolsPresets : public QObject {
 
 private slots:
     void initTestCase() {
-        registerPresetsTools(&m_registry, &m_settings, nullptr);
+        // No MachineState in the harness: applySteamPitcher's milk read is
+        // nullptr-guarded, so selects resolve to the preset's base duration.
+        registerPresetsTools(&m_registry, &m_settings, nullptr, nullptr);
     }
 
     void init() {

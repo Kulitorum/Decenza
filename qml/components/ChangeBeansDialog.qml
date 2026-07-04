@@ -82,13 +82,17 @@ Dialog {
         if (!fBeanBaseData || fBeanBaseData.length === 0) return ({})
         try { return JSON.parse(fBeanBaseData) } catch (e) { return ({}) }
     }
-    readonly property string formAttrLine: {
+    readonly property var _formAttrParts: {
         var parts = []
         if (formBeanBase.origin) parts.push(String(formBeanBase.origin))
         if (formBeanBase.variety) parts.push(String(formBeanBase.variety))
         if (formBeanBase.process) parts.push(String(formBeanBase.process))
-        return parts.join(" · ")
+        return parts
     }
+    // Plain join for the accessibility string; joinWithBullet (styled bold dot,
+    // HTML-escaped) for the displayed line.
+    readonly property string formAttrLine: _formAttrParts.join("  ·  ")
+    readonly property string formAttrLineRich: Theme.joinWithBullet(_formAttrParts)
 
     // --- Manual-entry autosuggest (history + Bean Base canonical) ---
     // Canonical entries for the current form query; refreshed as the user
@@ -182,7 +186,7 @@ Dialog {
             return TranslationManager.translate("changebeans.source.history", "History")
         case "beanbase+history":
             return TranslationManager.translate("changebeans.source.beanbase", "Bean Base")
-                + " · " + TranslationManager.translate("changebeans.source.history", "History")
+                + "  ·  " + TranslationManager.translate("changebeans.source.history", "History")
         }
         return ""
     }
@@ -802,7 +806,8 @@ Dialog {
                         Text {
                             Layout.fillWidth: true
                             visible: root.formAttrLine.length > 0
-                            text: root.formAttrLine
+                            text: root.formAttrLineRich
+                            textFormat: Text.StyledText
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor
                             elide: Text.ElideRight

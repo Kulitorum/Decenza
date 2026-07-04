@@ -22,6 +22,12 @@ QtObject {
     // Per-page scale configuration mode (set by main.qml)
     property bool configurePageScaleEnabled: false
     property string currentPageObjectName: ""
+    // The operation selected on the idle screen ("espresso"/"steam"/…; "" when the idle
+    // page isn't active OR it is active but nothing is selected — don't read "" as
+    // "not on the idle page"). Published by IdlePage._publishOperationMode(); read by the
+    // page-aware Plan widget. Lives here beside currentPageObjectName so page/mode state
+    // has ONE reactive home — don't add a second copy on the window root.
+    property string currentOperationMode: ""
 
     // Convert emoji character to pre-rendered SVG image path.
     // Passes through qrc:/icons/... paths unchanged.
@@ -153,6 +159,32 @@ QtObject {
     function toAccessibleText(html) {
         if (!html) return ""
         return stripEmoji(html.replace(/<[^>]*>/g, "")).trim()
+    }
+
+    // Escape user-supplied text so it can be safely embedded in a StyledText/RichText
+    // string (a bean or roaster name containing & < > would otherwise be mis-parsed).
+    function escapeHtml(s) {
+        return String(s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+    }
+
+    // The styled separator dot used between joined text fragments — slightly larger and
+    // bolder than the surrounding text. StyledText HTML (relative sizing — no hardcoded
+    // sizes); hosts must set textFormat: Text.StyledText. Shared by joinWithBullet and
+    // the plan components (which can't use joinWithBullet — they bold per-value).
+    readonly property string bulletSep: " <font size=\"+1\"><b>·</b></font> "
+
+    // Join already-computed text parts with bulletSep, HTML-escaping each part.
+    function joinWithBullet(parts) {
+        var sep = bulletSep
+        var out = []
+        for (var i = 0; i < parts.length; i++) {
+            var p = String(parts[i])
+            if (p.length > 0) out.push(escapeHtml(p))
+        }
+        return out.join(sep)
     }
 
     // Truncate a UTF-16 string at `cap` code units and append an ellipsis,

@@ -33,14 +33,18 @@ Rectangle {
         try { return JSON.parse(bag.beanBaseData) } catch (e) { return ({}) }
     }
 
-    // Canonical attribute line: origin · variety · process (only what exists)
-    readonly property string attrLine: {
+    // Canonical attribute line: origin · variety · process (only what exists).
+    // Plain join for accessibility; joinWithBullet (styled bold dot, HTML-escaped)
+    // for display.
+    readonly property var _attrParts: {
         var parts = []
         if (beanBase.origin) parts.push(String(beanBase.origin))
         if (beanBase.variety) parts.push(String(beanBase.variety))
         if (beanBase.process) parts.push(String(beanBase.process))
-        return parts.join(" · ")
+        return parts
     }
+    readonly property string attrLine: _attrParts.join("  ·  ")
+    readonly property string attrLineRich: Theme.joinWithBullet(_attrParts)
 
     function daysSince(isoDate) {
         if (!isoDate || isoDate.length < 8) return -1
@@ -65,7 +69,7 @@ Rectangle {
     // Roast date · freeze state line (omits anything unknown — no
     // placeholders). The user freezes beans, so the actual roast date is more
     // meaningful than days-since-roast.
-    readonly property string metaLine: {
+    readonly property var _metaParts: {
         var _ = TranslationManager.translationVersion
         var parts = []
         var roast = formatRoastDate(bag && bag.roastDate ? String(bag.roastDate) : "")
@@ -78,8 +82,10 @@ Rectangle {
         } else if (isFrozen) {
             parts.push(TranslationManager.translate("beans.summary.frozen", "Frozen"))
         }
-        return parts.join(" · ")
+        return parts
     }
+    readonly property string metaLine: _metaParts.join("  ·  ")
+    readonly property string metaLineRich: Theme.joinWithBullet(_metaParts)
 
     readonly property string accessibleSummary: {
         var bits = [(bag && bag.coffeeName) || "", (bag && bag.roasterName) || ""]
@@ -189,7 +195,8 @@ Rectangle {
                 Text {
                     Layout.fillWidth: true
                     visible: card.attrLine.length > 0
-                    text: card.attrLine
+                    text: card.attrLineRich
+                    textFormat: Text.StyledText
                     font: Theme.captionFont
                     color: Theme.textSecondaryColor
                     elide: Text.ElideRight
@@ -214,7 +221,8 @@ Rectangle {
                 Text {
                     Layout.fillWidth: true
                     visible: card.metaLine.length > 0
-                    text: card.metaLine
+                    text: card.metaLineRich
+                    textFormat: Text.StyledText
                     font: Theme.captionFont
                     color: Theme.textColor
                     elide: Text.ElideRight

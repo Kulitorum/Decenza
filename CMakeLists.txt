@@ -744,6 +744,7 @@ set(QML_FILES
     qml/components/RatioPresetDialog.qml
     qml/components/StableWeightCapture.qml
     qml/components/ShotPlanText.qml
+    qml/components/SteamPlanText.qml
     qml/components/ProfileGraph.qml
     qml/components/ProfilePreviewPopup.qml
     qml/components/ProfileInfoButton.qml

@@ -550,7 +550,7 @@ Page {
                         if (initialFilter.targetWeight !== undefined && initialFilter.targetWeight >= 0) {
                             parts.push(TranslationManager.translate("shothistory.filter.yieldGrams", "%1g yield").arg(initialFilter.targetWeight.toFixed(1)))
                         }
-                        return TranslationManager.translate("shothistory.filteredBy", "Filtered:") + " " + parts.join(" \u00b7 ")
+                        return TranslationManager.translate("shothistory.filteredBy", "Filtered:") + " " + parts.join(" \u00B7 ")
                     }
                     font.family: Theme.labelFont.family
                     font.pixelSize: Theme.labelFont.pixelSize

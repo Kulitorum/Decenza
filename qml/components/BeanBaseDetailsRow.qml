@@ -16,13 +16,16 @@ Item {
     }
     readonly property bool hasData: bean.id !== undefined && bean.id !== ""
 
-    readonly property string summaryLine: {
+    readonly property var _summaryParts: {
         var parts = []
         if (bean.origin) parts.push(bean.origin)
         if (bean.variety) parts.push(bean.variety)
         if (bean.process) parts.push(bean.process)
-        return parts.join(" · ")
+        return parts
     }
+    readonly property string summaryLine: _summaryParts.join("  ·  ")
+    // Display form: styled bold-dot separator, user data HTML-escaped by the helper.
+    readonly property string summaryLineRich: Theme.joinWithBullet(_summaryParts)
 
     visible: hasData
     implicitHeight: hasData ? Math.max(thumb.height, summaryColumn.implicitHeight) : 0
@@ -53,8 +56,9 @@ Item {
             Text {
                 Layout.fillWidth: true
                 text: root.summaryLine.length > 0
-                    ? root.summaryLine
+                    ? root.summaryLineRich
                     : TranslationManager.translate("beanbase.row.linked", "Linked to Bean Base")
+                textFormat: Text.StyledText
                 color: Theme.textColor
                 font.pixelSize: Theme.scaled(12)
                 elide: Text.ElideRight

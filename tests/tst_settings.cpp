@@ -78,6 +78,7 @@ private:
     QString m_origTemperatureUnit;
     QByteArray m_origVesselPresets;
     QByteArray m_origPitcherPresets;
+    bool m_origMilkAutoCapture;
 
 private slots:
 
@@ -99,6 +100,9 @@ private slots:
         m_origDyeBeanBaseData = m_settings.dye()->dyeBeanBaseData();
         m_origWaterTemperature = m_settings.brew()->waterTemperature();
         m_origTemperatureUnit = m_settings.app()->temperatureUnit();
+        // Mutated directly by the effectiveSteamDurationSec tests AND as a side effect of
+        // setSteamPitcherCalibration (calibrating re-enables weight-timed steaming).
+        m_origMilkAutoCapture = m_settings.brew()->milkAutoCaptureEnabled();
         { QSettings raw("DecentEspresso", "DE1Qt");
           m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();
           m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray(); }
@@ -122,6 +126,7 @@ private slots:
         m_settings.dye()->setDyeBeanBaseData(m_origDyeBeanBaseData);
         m_settings.brew()->setWaterTemperature(m_origWaterTemperature);
         m_settings.app()->setTemperatureUnit(m_origTemperatureUnit);
+        m_settings.brew()->setMilkAutoCaptureEnabled(m_origMilkAutoCapture);
         { QSettings raw("DecentEspresso", "DE1Qt");
           raw.setValue("water/vesselPresets", m_origVesselPresets);
           raw.setValue("steam/pitcherPresets", m_origPitcherPresets);
@@ -522,6 +527,96 @@ private slots:
         QCOMPARE(m_settings.brew()->getSteamPitcherPreset(idx)["temperature"].toDouble(), 135.0);
     }
 
+    void effectiveSteamDurationSecFallsBackToBaseDuration() {
+        // Weight-timed steaming OFF: scaledSteamTime() always yields 0, so the
+        // effective duration must be the preset's fixed duration, not 0.
+        m_settings.brew()->addSteamPitcherPreset("Latte", 45, 150, 135.0);
+        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        m_settings.brew()->setSteamPitcherCalibration(idx, 300.0);
+        // Disable AFTER calibrating — setSteamPitcherCalibration re-enables the toggle
+        // as its explicit opt-in side effect, which would put this test back on the
+        // scaled path. Milk (600) ≠ calibration (300) so scaled (90) and base (45)
+        // are distinguishable: only the toggle-off gate can produce 45 here.
+        m_settings.brew()->setMilkAutoCaptureEnabled(false);
+
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 600.0), 45);
+    }
+
+    void effectiveSteamDurationSecClampsScaledTime() {
+        // The scaled path is clamped to [5,120]s; a huge milk-to-calibration ratio
+        // must cap at 120, not program a multi-minute steam.
+        m_settings.brew()->addSteamPitcherPreset("Jug", 30, 150, 135.0);
+        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        m_settings.brew()->setSteamPitcherCalibration(idx, 100.0);  // also enables the toggle
+
+        // Unclamped: 30 * (600/100) = 180 → clamped to 120.
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 600.0), 120);
+        // Floor: 30 * (10/100) = 3 → clamped to 5, not a blink-and-miss 3s steam.
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 10.0), 5);
+    }
+
+    void effectiveSteamDurationSecWarnsOnCorruptZeroDuration() {
+        // An enabled preset with no positive duration is corrupt (hand-edited or a
+        // failed import). The helper must warn — loud and greppable — and still
+        // return 0 rather than inventing a time.
+        m_settings.brew()->addSteamPitcherPreset("Corrupt", 0, 150, 135.0);
+        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("no positive duration")));
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 0.0), 0);
+    }
+
+    void effectiveSteamDurationSecUsesScaledTimeWhenAvailable() {
+        // Weight-timed steaming ON + calibrated preset + positive milk: the scaled
+        // value wins over the base duration (the PR's core new behavior).
+        m_settings.brew()->setMilkAutoCaptureEnabled(true);
+        m_settings.brew()->addSteamPitcherPreset("Latte", 30, 150, 135.0);
+        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        m_settings.brew()->setSteamPitcherCalibration(idx, 200.0);
+
+        // duration * (milk / calibMilk) = 30 * (400/200) = 60
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 400.0), 60);
+    }
+
+    void effectiveSteamDurationSecZeroForDisabledPreset() {
+        m_settings.brew()->setMilkAutoCaptureEnabled(true);
+        m_settings.brew()->addSteamPitcherPresetDisabled("Off");
+        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 300.0), 0);
+    }
+
+    void effectiveSteamDurationSecZeroForMissingIndex() {
+        // A stale index (e.g. every preset deleted) must return 0 AND warn — unlike a
+        // disabled preset it's never deliberate, and QML guards can't detect it (an
+        // empty QVariantMap is a truthy {} in JS).
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("no steam pitcher preset at index")));
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(999, 300.0), 0);
+    }
+
+    void effectiveSteamDurationSecBaseWhenNoMilk() {
+        // Calibrated preset, weight-timing ON, but no milk available (no scale, nothing
+        // captured): must yield the base duration — not 0, and not the 5s clamp floor.
+        // The SteamItem popup tap relies on exactly this cell when tapped scale-less.
+        m_settings.brew()->addSteamPitcherPreset("Latte", 45, 150, 135.0);
+        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        m_settings.brew()->setSteamPitcherCalibration(idx, 300.0);  // also enables the toggle
+
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 0.0), 45);
+    }
+
+    void effectiveSteamDurationSecFallsBackWhenUncalibrated() {
+        // Weight-timing on but no calibration recorded: scaledSteamTime() yields 0
+        // (calibMilkG <= 0), so the base duration must be used, not 0.
+        m_settings.brew()->setMilkAutoCaptureEnabled(true);
+        m_settings.brew()->addSteamPitcherPreset("Cortado", 20, 150, 135.0);
+        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 300.0), 20);
+    }
+
     void steamPitcherLegacyTemperatureFallsBackToGlobal() {
         // A pitcher preset that predates the per-pitcher temperature field (no
         // "temperature" key) must export with the device's current global steam
@@ -561,6 +656,11 @@ private slots:
         };
         for (const QString& t : configurable)
             QVERIFY2(SettingsNetwork::typeHasOptions(t), qPrintable("expected configurable: " + t));
+
+        // "shotPlan" is the only plan widget type; "plan"/"steamPlan" were development
+        // working names, appear in no saved layout, and must never enter the allowlist.
+        QVERIFY(!SettingsNetwork::typeHasOptions("steamPlan"));
+        QVERIFY(!SettingsNetwork::typeHasOptions("plan"));
 
         // Any screensaver* type is configurable (prefix match).
         QVERIFY(SettingsNetwork::typeHasOptions("screensaver"));

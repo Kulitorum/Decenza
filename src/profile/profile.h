@@ -45,6 +45,19 @@ public:
     QString beverageType() const { return m_beverageType; }
     void setBeverageType(const QString& type) { m_beverageType = type; }
 
+    // The no-coffee maintenance tier: cleaning/descale/calibrate. Normalizes
+    // internally (trim + lowercase) so odd-cased community-authored values match.
+    // Single source for the QML Shot Plan warning (via ProfileManager), the
+    // shot-history exclusion (maincontroller), the Visualizer upload gate, and the
+    // MCP upload gate. Add any new maintenance beverage_type HERE — plus the
+    // selector category in profilemanager.cpp and the beverage-type list in
+    // PostShotReviewPage.qml if it should be user-visible.
+    static bool isMaintenanceBeverageType(const QString& beverageType) {
+        const QString t = beverageType.trimmed().toLower();
+        return t == QLatin1String("cleaning") || t == QLatin1String("descale")
+            || t == QLatin1String("calibrate");
+    }
+
     // Profile type for compatibility with de1app settings
     // "settings_2a" = simple pressure, "settings_2b" = simple flow,
     // "settings_2c" = advanced (our default), "settings_2c2" = advanced with limiter

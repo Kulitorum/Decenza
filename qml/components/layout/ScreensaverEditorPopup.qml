@@ -18,9 +18,11 @@ Dialog {
     property bool shotShowPhaseLabels: true  // Show frame transition labels
     property bool shotPlanShowProfile: true
     property bool shotPlanShowRoaster: true
+    property bool shotPlanShowCoffee: true
     property bool shotPlanShowGrind: true
     property bool shotPlanShowRoastDate: false
     property bool shotPlanShowDoseYield: true
+    property bool shotPlanShowSteamPlan: true
 
     readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap" || itemType === "lastShot" || itemType === "shotPlan"
 
@@ -45,9 +47,11 @@ Dialog {
         shotShowPhaseLabels = typeof props.shotShowPhaseLabels === "boolean" ? props.shotShowPhaseLabels : true
         shotPlanShowProfile = typeof props.shotPlanShowProfile === "boolean" ? props.shotPlanShowProfile : true
         shotPlanShowRoaster = typeof props.shotPlanShowRoaster === "boolean" ? props.shotPlanShowRoaster : true
+        shotPlanShowCoffee = typeof props.shotPlanShowCoffee === "boolean" ? props.shotPlanShowCoffee : true
         shotPlanShowGrind = typeof props.shotPlanShowGrind === "boolean" ? props.shotPlanShowGrind : true
         shotPlanShowRoastDate = typeof props.shotPlanShowRoastDate === "boolean" ? props.shotPlanShowRoastDate : false
         shotPlanShowDoseYield = typeof props.shotPlanShowDoseYield === "boolean" ? props.shotPlanShowDoseYield : true
+        shotPlanShowSteamPlan = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true
         open()
     }
 
@@ -83,9 +87,11 @@ Dialog {
         if (itemType === "shotPlan") {
             Settings.network.setItemProperty(itemId, "shotPlanShowProfile", shotPlanShowProfile)
             Settings.network.setItemProperty(itemId, "shotPlanShowRoaster", shotPlanShowRoaster)
+            Settings.network.setItemProperty(itemId, "shotPlanShowCoffee", shotPlanShowCoffee)
             Settings.network.setItemProperty(itemId, "shotPlanShowGrind", shotPlanShowGrind)
             Settings.network.setItemProperty(itemId, "shotPlanShowRoastDate", shotPlanShowRoastDate)
             Settings.network.setItemProperty(itemId, "shotPlanShowDoseYield", shotPlanShowDoseYield)
+            Settings.network.setItemProperty(itemId, "shotPlanShowSteamPlan", shotPlanShowSteamPlan)
         }
         saved()
         close()
@@ -338,7 +344,14 @@ Dialog {
                 onToggled: popup.shotPlanShowRoaster = checked
             }
             StyledSwitch {
-                text: TranslationManager.translate("shotPlanEditor.showGrind", "Coffee (grind)")
+                text: TranslationManager.translate("shotPlanEditor.showCoffee", "Coffee")
+                checked: popup.shotPlanShowCoffee
+                onToggled: popup.shotPlanShowCoffee = checked
+            }
+            StyledSwitch {
+                // New key (not the old shotPlanEditor.showGrind "Coffee (grind)") so stale
+                // translations of the old combined label can't mislabel the narrowed toggle.
+                text: TranslationManager.translate("shotPlanEditor.showGrindRpm", "Grind")
                 checked: popup.shotPlanShowGrind
                 onToggled: popup.shotPlanShowGrind = checked
             }
@@ -351,6 +364,13 @@ Dialog {
                 text: TranslationManager.translate("shotPlanEditor.showDoseYield", "Dose & yield")
                 checked: popup.shotPlanShowDoseYield
                 onToggled: popup.shotPlanShowDoseYield = checked
+            }
+            StyledSwitch {
+                // Page-aware mode: while steaming (or steam selected) the widget swaps to the
+                // steam sentence. The steam side has no further options.
+                text: TranslationManager.translate("shotPlanEditor.showSteamPlan", "Steam plan (while steaming)")
+                checked: popup.shotPlanShowSteamPlan
+                onToggled: popup.shotPlanShowSteamPlan = checked
             }
         }
 

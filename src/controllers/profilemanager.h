@@ -59,6 +59,8 @@ class ProfileManager : public QObject {
     Q_PROPERTY(QString currentEditorType READ currentEditorType NOTIFY currentProfileChanged)
     Q_PROPERTY(double profileTargetTemperature READ profileTargetTemperature NOTIFY currentProfileChanged)
     Q_PROPERTY(double profileTargetWeight READ profileTargetWeight NOTIFY currentProfileChanged)
+    Q_PROPERTY(QString currentProfileBeverageType READ currentProfileBeverageType NOTIFY currentProfileChanged)
+    Q_PROPERTY(bool currentProfileIsMaintenance READ currentProfileIsMaintenance NOTIFY currentProfileChanged)
     // Set to true after kMaxUploadRetryAttempts consecutive profile uploads
     // have failed with retryable reasons. qml/main.qml watches this property
     // via a Connections handler (onDe1CommunicationFailureChanged) and calls
@@ -99,6 +101,20 @@ public:
     Profile* currentProfilePtr() { return &m_currentProfile; }
     double profileTargetTemperature() const { return m_currentProfile.espressoTemperature(); }
     double profileTargetWeight() const { return m_currentProfile.targetWeight(); }
+    // Profile JSON beverage_type: "espresso" (default), "filter", "pourover",
+    // "tea_portafilter"…, "cleaning"/"descale"/"calibrate". Trimmed + lowercased so an
+    // odd-cased or whitespace-padded value (community-authored/imported profiles) still
+    // matches the QML sentence's comparisons instead of silently falling through to the
+    // generic "coffee" wording. Empty never escapes (default applies).
+    QString currentProfileBeverageType() const {
+        const QString t = m_currentProfile.beverageType().trimmed().toLower();
+        return t.isEmpty() ? QStringLiteral("espresso") : t;
+    }
+    // QML-visible view of Profile::isMaintenanceBeverageType (the shared tier used
+    // by maincontroller / visualizeruploader / mcptools_write) for the current profile.
+    bool currentProfileIsMaintenance() const {
+        return Profile::isMaintenanceBeverageType(m_currentProfile.beverageType());
+    }
     bool profileHasRecommendedDose() const { return m_currentProfile.hasRecommendedDose(); }
     double profileRecommendedDose() const { return m_currentProfile.recommendedDose(); }
 

@@ -3,9 +3,10 @@ import QtQuick.Layouts
 import Decenza
 
 // Read-only adaptive one-line bean summary ("show less when more is known"):
-//   canonical-linked  ->  "{coffee} · {origin} · {process} · Roasted <date> [· Def Md]"
+//   canonical-linked  ->  "{coffee} · {origin} · {process} · Roasted <date> [· Def Md | Frozen]"
 //                         with a small verified badge
-//   history only      ->  "{roaster} {coffee} · Roasted <date>" + "Link to Bean Base" nudge
+//   history only      ->  "{roaster} {coffee} · Roasted <date> [· Def Md | Frozen]"
+//                         + "Link to Bean Base" nudge
 //   no roast date     ->  roast-date portion silently omitted (no placeholder)
 //   no bag selected   ->  "No beans selected"
 //
@@ -78,10 +79,9 @@ Item {
         return Qt.formatDate(d, Qt.locale().dateFormat(Locale.ShortFormat))
     }
 
-    readonly property string summaryText: {
+    readonly property var _parts: {
         var _ = TranslationManager.translationVersion  // re-evaluate on language change
-        if (!hasBeans)
-            return TranslationManager.translate("beans.summary.noBeans", "No beans selected")
+        if (!hasBeans) return []
         var parts = []
         if (canonical) {
             // Dense canonical line: coffee name carries identity, roaster is implied
@@ -103,8 +103,21 @@ Item {
         } else if (effFrozenDate.length > 0) {
             parts.push(TranslationManager.translate("beans.summary.frozen", "Frozen"))
         }
-        return parts.join(" · ")
+        return parts
     }
+
+    // Plain text — used for the accessibility label (no markup).
+    readonly property string summaryText: {
+        var _ = TranslationManager.translationVersion
+        if (!hasBeans)
+            return TranslationManager.translate("beans.summary.noBeans", "No beans selected")
+        return _parts.join("  ·  ")
+    }
+
+    // Display text — separators rendered as a slightly bigger/bolder bullet so the
+    // info sections read as distinct. StyledText; user data is HTML-escaped.
+    readonly property string summaryRich:
+        hasBeans ? Theme.joinWithBullet(_parts) : Theme.escapeHtml(summaryText)
 
     implicitHeight: contentColumn.implicitHeight
     implicitWidth: contentColumn.implicitWidth
@@ -137,7 +150,8 @@ Item {
 
             Text {
                 Layout.fillWidth: true
-                text: root.summaryText
+                text: root.summaryRich
+                textFormat: Text.StyledText
                 font: Theme.bodyFont
                 color: root.hasBeans ? Theme.textColor : Theme.textSecondaryColor
                 elide: Text.ElideRight

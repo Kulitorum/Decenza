@@ -13,6 +13,7 @@ FocusScope {
     property var pillSuffixFn: null  // Optional: function(index) => string suffix appended to pill text (e.g. " (125g)")
     property int pillSuffixVersion: 0  // Increment from outside to force pill text refresh without full layout recalc
     property real pillSuffixMaxWidth: 0  // Reserve extra horizontal space per pill for the suffix
+    property var pillLabelFn: null  // Optional: function(index, name) => transformed base label (e.g. append " Pitcher")
     // When true AND a pill is selected, append an "unsaved" marker to that pill.
     // Callers opt in by binding this to their own dirty state — e.g.
     // ProfileManager.profileModified for the espresso row. Rows that have no
@@ -61,7 +62,9 @@ FocusScope {
 
     function announceCurrentPill() {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled && presets.length > 0) {
-            var name = presets[focusedIndex].name || ""
+            // Route through pillLayoutName so keyboard/switch-access announcements match what
+            // touch/screen-reader-tap users hear (e.g. pillLabelFn's "Small Pitcher" transform).
+            var name = pillLayoutName(focusedIndex)
             var modifiedText = (root.modified && focusedIndex === selectedIndex) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
             var status = focusedIndex === selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
             AccessibilityManager.announce(name + modifiedText + status)
@@ -71,6 +74,7 @@ FocusScope {
     // Base name for layout calculation (no live suffix — avoids layout recalc on every scale tick)
     function pillLayoutName(index) {
         var name = presets[index] ? (presets[index].name || "") : ""
+        if (pillLabelFn) name = pillLabelFn(index, name)
         if (modified && index === selectedIndex) {
             name = modifiedIsReadOnly
                 ? name + " " + TranslationManager.translate("presets.modified", "(modified)")
@@ -115,6 +119,7 @@ FocusScope {
     onPresetsChanged: recalcTimer.restart()
     onEffectiveMaxWidthChanged: recalcTimer.restart()
     onPillSuffixFnChanged: recalcTimer.restart()
+    onPillLabelFnChanged: recalcTimer.restart()
     // Dirty-state changes alter pill widths ("*Name" / " (modified)") so they trigger a
     // layout recalc. Because `modified` is a bindable property, we get changes from any
     // upstream source (ProfileManager, Settings, etc.) via the QML binding system without
@@ -303,9 +308,16 @@ FocusScope {
 
                             onAccessibleClicked: {
                                 if (!modelData || !modelData.preset) return
-                                // Announce selection for accessibility feedback
+                                // Announce selection for accessibility feedback. Route through
+                                // pillDisplayName so the tap announcement matches what focus
+                                // announces (e.g. pillLabelFn's "Small Pitcher" transform).
+                                // pillDisplayName reads the LIVE presets list with this row's
+                                // index, which the 1ms rowsModel rebuild can leave stale after
+                                // a deletion/reorder — fall back to the row's snapshot name
+                                // rather than announcing nothing.
                                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                                    AccessibilityManager.announce(modelData.preset.name + " " + TranslationManager.translate("presetPill.selected", "selected"))
+                                    var announceName = pillDisplayName(modelData.index) || modelData.preset.name
+                                    AccessibilityManager.announce(announceName + " " + TranslationManager.translate("presetPill.selected", "selected"))
                                 }
                                 root.presetSelected(modelData.index)
                             }
