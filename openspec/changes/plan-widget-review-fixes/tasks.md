@@ -47,6 +47,6 @@
 
 ## 8. Verify
 
-- [ ] 8.1 Build via Qt Creator MCP (quick compile check); run `tst_settings`
+- [x] 8.1 Build via Qt Creator MCP (quick compile check); run `tst_settings`
 - [ ] 8.2 Manual pass in the app: all six toggles change the sentence as labeled; saved `showGrind: false` config keeps grind hidden; yield arrow appears only on a dialed override; "Large Pitcher" preset renders without duplication; prompt wording matches the sound setting; no `ScaleDevice` TypeErrors in the launch log (clear-warnings rule)
-- [ ] 8.3 Update the PR with a comment summarizing the fixes against the review's numbered findings
+- [x] 8.3 Update the PR with a comment summarizing the fixes against the review's numbered findings
