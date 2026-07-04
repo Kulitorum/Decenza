@@ -159,45 +159,33 @@ Item {
         return parts.join(sep)
     }
 
-    // "plain" format: a fixed, dot-free two-line recipe template — IGNORES the per-field toggles.
-    //   Line 1: "Brew <yield> of <beverage> from <dose> grams of <roaster> <coffee> coffee beans"
-    //   Line 2: "(Use <profile> at <temp>)"
-    // Single output weight (no "36.0 → 41.8" arrow), no · separators. blockSep joins the two lines
-    // (a line break for display, ". " for the spoken/a11y string so it reads as two sentences).
+    // "plain" format: a single, dot-free recipe sentence — IGNORES the per-field toggles.
+    //   "Pull a <yield> espresso shot using <dose> grams of <roaster> <coffee> coffee beans"
+    // Single output weight (no "36.0 → 41.8" arrow), no · separators, no profile/temp line — the user
+    // keeps profile & temperature on the brew bar below. blockSep is unused (single line).
     function _buildPlain(fmt, blockSep) {
         var _ = TranslationManager.translationVersion
-        void(Settings.app.temperatureUnit)
         // A cleaning/descale run still takes precedence — no recipe, just the warning.
         if (_isCleaning) {
             return (profileName.length > 0)
                 ? TranslationManager.translate("shotplan.sentenceCleaning", "Cleaning run with %1 — no coffee in the portafilter!").arg(fmt(profileName, true))
                 : TranslationManager.translate("shotplan.cleaningNoProfile", "Cleaning run — no coffee in the portafilter!")
         }
-        // Line 1 — brew + (optional) bean clause.
         var yieldTxt = (targetWeight > 0) ? (targetWeight.toFixed(1) + "g") : ""
-        var line1 = (yieldTxt !== "")
-            ? TranslationManager.translate("shotplan.plain.brew", "Brew %1 of %2").arg(fmt(yieldTxt, true)).arg(fmt(_beverage, false))
-            : TranslationManager.translate("shotplan.plain.brewNoYield", "Brew %1").arg(fmt(_beverage, false))
+        var line = (yieldTxt !== "")
+            ? TranslationManager.translate("shotplan.plain.pull", "Pull a %1 espresso shot").arg(fmt(yieldTxt, true))
+            : TranslationManager.translate("shotplan.plain.pullNoYield", "Pull an espresso shot")
         if (dose > 0) {
             var beans = []
             if (roasterBrand.length > 0) beans.push(roasterBrand)
             if (coffeeName.length > 0) beans.push(coffeeName)
             var beanName = beans.join(" ")
             var doseTxt = dose.toFixed(1)
-            line1 += " " + (beanName !== ""
-                ? TranslationManager.translate("shotplan.plain.fromBeans", "from %1 grams of %2 coffee beans").arg(fmt(doseTxt, true)).arg(fmt(beanName, true))
-                : TranslationManager.translate("shotplan.plain.fromBeansNoName", "from %1 grams of coffee beans").arg(fmt(doseTxt, true)))
+            line += " " + (beanName !== ""
+                ? TranslationManager.translate("shotplan.plain.usingBeans", "using %1 grams of %2 coffee beans").arg(fmt(doseTxt, true)).arg(fmt(beanName, true))
+                : TranslationManager.translate("shotplan.plain.usingBeansNoName", "using %1 grams of coffee beans").arg(fmt(doseTxt, true)))
         }
-        // Line 2 — profile + (optional) override-aware temperature.
-        var tempTxt = (profileTemp > 0)
-            ? ProfileManager.temperatureDisplay(profileTemp, Settings.brew.hasTemperatureOverride, overrideTemp) : ""
-        var line2 = ""
-        if (profileName.length > 0) {
-            line2 = (tempTxt !== "")
-                ? TranslationManager.translate("shotplan.plain.useAt", "(Use %1 at %2)").arg(fmt(profileName, true)).arg(fmt(tempTxt, true))
-                : TranslationManager.translate("shotplan.plain.use", "(Use %1)").arg(fmt(profileName, true))
-        }
-        return (line2 !== "") ? (line1 + blockSep + line2) : line1
+        return line
     }
 
     // Plain: for the accessibility label + `visible: text !== ""`. Always joined with dots so a screen
@@ -260,8 +248,12 @@ Item {
             textFormat: Text.StyledText
             font: Theme.bodyFont
             color: root._color
+            // Centre every (wrapped) line so a multi-line plan reads as a tidy centred block, not left-ragged.
+            horizontalAlignment: Text.AlignHCenter
             wrapMode: (root.format === "stacked" || root.format === "plain") ? Text.Wrap : Text.NoWrap
-            maximumLineCount: root.format === "plain" ? 4 : (root.format === "stacked" ? 3 : 1)
+            maximumLineCount: root.format === "plain" ? 3 : (root.format === "stacked" ? 3 : 1)
+            // A touch of line spacing so wrapped plans (plain/stacked) don't feel cramped.
+            lineHeight: (root.format === "plain" || root.format === "stacked") ? 1.2 : 1.0
             elide: Text.ElideRight
             Accessible.ignored: true
         }
