@@ -522,6 +522,51 @@ private slots:
         QCOMPARE(m_settings.brew()->getSteamPitcherPreset(idx)["temperature"].toDouble(), 135.0);
     }
 
+    void effectiveSteamDurationSecFallsBackToBaseDuration() {
+        // Weight-timed steaming OFF: scaledSteamTime() always yields 0, so the
+        // effective duration must be the preset's fixed duration, not 0.
+        m_settings.brew()->setMilkAutoCaptureEnabled(false);
+        m_settings.brew()->addSteamPitcherPreset("Latte", 45, 150, 135.0);
+        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        m_settings.brew()->setSteamPitcherCalibration(idx, 300.0);
+
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 300.0), 45);
+    }
+
+    void effectiveSteamDurationSecUsesScaledTimeWhenAvailable() {
+        // Weight-timed steaming ON + calibrated preset + positive milk: the scaled
+        // value wins over the base duration (the PR's core new behavior).
+        m_settings.brew()->setMilkAutoCaptureEnabled(true);
+        m_settings.brew()->addSteamPitcherPreset("Latte", 30, 150, 135.0);
+        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+        m_settings.brew()->setSteamPitcherCalibration(idx, 200.0);
+
+        // duration * (milk / calibMilk) = 30 * (400/200) = 60
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 400.0), 60);
+    }
+
+    void effectiveSteamDurationSecZeroForDisabledPreset() {
+        m_settings.brew()->setMilkAutoCaptureEnabled(true);
+        m_settings.brew()->addSteamPitcherPresetDisabled("Off");
+        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 300.0), 0);
+    }
+
+    void effectiveSteamDurationSecZeroForMissingIndex() {
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(999, 300.0), 0);
+    }
+
+    void effectiveSteamDurationSecFallsBackWhenUncalibrated() {
+        // Weight-timing on but no calibration recorded: scaledSteamTime() yields 0
+        // (calibMilkG <= 0), so the base duration must be used, not 0.
+        m_settings.brew()->setMilkAutoCaptureEnabled(true);
+        m_settings.brew()->addSteamPitcherPreset("Cortado", 20, 150, 135.0);
+        const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
+
+        QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 300.0), 20);
+    }
+
     void steamPitcherLegacyTemperatureFallsBackToGlobal() {
         // A pitcher preset that predates the per-pitcher temperature field (no
         // "temperature" key) must export with the device's current global steam

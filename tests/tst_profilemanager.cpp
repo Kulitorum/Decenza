@@ -196,6 +196,50 @@ private slots:
     // re-uploading. Otherwise uploadCurrentProfile() re-applies the now-stale
     // override as a second delta, making the uploaded shot disagree with the saved
     // profile (the bug class this whole change fixes).
+    // currentProfileBeverageType() feeds the Shot Plan's beverage word (Espresso/
+    // coffee/tea) and its cleaning-run warning — must reflect whatever beverage_type
+    // the loaded profile carries, and normalize a missing one to "espresso" rather
+    // than surfacing an empty string that would render no beverage word at all.
+    void currentProfileBeverageTypeReflectsLoadedProfile() {
+        McpTestFixture f;
+        QJsonObject obj;
+        obj["title"] = "Filter Test";
+        obj["legacy_profile_type"] = "settings_2c";
+        obj["beverage_type"] = "filter";
+        QJsonArray steps;
+        QJsonObject fr;
+        fr["name"] = "f";
+        fr["temperature"] = 92.0;
+        fr["pump"] = "flow";
+        fr["flow"] = 2.0;
+        fr["seconds"] = 10.0;
+        steps.append(fr);
+        obj["steps"] = steps;
+        f.profileManager.loadProfileFromJson(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+
+        QCOMPARE(f.profileManager.currentProfileBeverageType(), QStringLiteral("filter"));
+    }
+
+    void currentProfileBeverageTypeDefaultsToEspresso() {
+        McpTestFixture f;
+        QJsonObject obj;
+        obj["title"] = "No Beverage Type Test";
+        obj["legacy_profile_type"] = "settings_2c";
+        // No "beverage_type" key at all.
+        QJsonArray steps;
+        QJsonObject fr;
+        fr["name"] = "f";
+        fr["temperature"] = 92.0;
+        fr["pump"] = "flow";
+        fr["flow"] = 2.0;
+        fr["seconds"] = 10.0;
+        steps.append(fr);
+        obj["steps"] = steps;
+        f.profileManager.loadProfileFromJson(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+
+        QCOMPARE(f.profileManager.currentProfileBeverageType(), QStringLiteral("espresso"));
+    }
+
     void applyTemperatureClearsActiveOverride() {
         McpTestFixture f;
         QJsonObject obj;

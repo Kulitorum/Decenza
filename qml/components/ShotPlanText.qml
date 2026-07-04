@@ -15,7 +15,7 @@ Item {
 
     signal clicked()
 
-    // Visibility flags (passed through by ShotPlanItem/PlanItem) — one per Shot Plan display option:
+    // Visibility flags (passed through by ShotPlanItem) — one per Shot Plan display option:
     // Profile & temperature, Roaster, Coffee, Grind (+ RPM), Roast date, Dose & yield. Each toggles
     // its segment both in the sentence/tail and in the fallback fragment list.
     property bool showProfile: true
@@ -81,7 +81,10 @@ Item {
     // profiles ("tea"/"tea_portafilter"). Cleaning/descale profiles get their own
     // sentence in _build() — no bean/dose tail, plus the do-not-load-coffee warning.
     readonly property string _bevType: ProfileManager.currentProfileBeverageType
-    readonly property bool _isCleaning: _bevType === "cleaning" || _bevType === "descale"
+    // "calibrate" profiles (e.g. temperature calibration) belong in the same no-coffee
+    // tier as cleaning/descale — matches maincontroller.cpp/visualizeruploader.cpp/
+    // mcptools_write.cpp, which all group these three beverage_types together.
+    readonly property bool _isCleaning: _bevType === "cleaning" || _bevType === "descale" || _bevType === "calibrate"
     readonly property string _beverage: {
         var _ = TranslationManager.translationVersion   // re-evaluate on a live language switch
         if (_bevType === "espresso") return TranslationManager.translate("idle.button.espresso", "Espresso")

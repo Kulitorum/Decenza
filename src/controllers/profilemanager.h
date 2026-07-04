@@ -101,9 +101,12 @@ public:
     double profileTargetTemperature() const { return m_currentProfile.espressoTemperature(); }
     double profileTargetWeight() const { return m_currentProfile.targetWeight(); }
     // Profile JSON beverage_type: "espresso" (default), "filter", "pourover",
-    // "tea_portafilter"…, or "cleaning"/"descale". Empty never escapes (default applies).
+    // "tea_portafilter"…, "cleaning"/"descale"/"calibrate". Trimmed + lowercased so an
+    // odd-cased or whitespace-padded value (community-authored/imported profiles) still
+    // matches the QML sentence's comparisons instead of silently falling through to the
+    // generic "coffee" wording. Empty never escapes (default applies).
     QString currentProfileBeverageType() const {
-        const QString t = m_currentProfile.beverageType();
+        const QString t = m_currentProfile.beverageType().trimmed().toLower();
         return t.isEmpty() ? QStringLiteral("espresso") : t;
     }
     bool profileHasRecommendedDose() const { return m_currentProfile.hasRecommendedDose(); }

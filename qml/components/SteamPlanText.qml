@@ -96,9 +96,9 @@ Item {
     implicitWidth: row.implicitWidth
     implicitHeight: row.implicitHeight
 
-    // Always wrapped by SteamPlanItem / PlanItem, which already expose a StaticText a11y node — so ignore
-    // this role-less root to avoid a duplicate nested announcement (ShotPlanText gets the same effect from
-    // its role-less root, which needs no explicit flag).
+    // Always wrapped by ShotPlanItem (steam mode), which already exposes a StaticText a11y node — so
+    // ignore this role-less root to avoid a duplicate nested announcement (ShotPlanText gets the same
+    // effect from its role-less root, which needs no explicit flag).
     Accessible.ignored: true
 
     Row {

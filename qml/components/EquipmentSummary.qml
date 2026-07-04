@@ -64,8 +64,7 @@ ColumnLayout {
     readonly property string puckPrepLine: _puckLabels.length > 0
         ? TranslationManager.translate("equipment.card.puckPrep", "Prep: %1").arg(_puckLabels.join(" · ")) : ""
     readonly property string puckPrepLineRich: _puckLabels.length > 0
-        ? Theme.escapeHtml(TranslationManager.translate("equipment.card.puckPrep", "Prep: %1"))
-              .arg(Theme.joinWithBullet(_puckLabels)) : ""
+        ? TranslationManager.translate("equipment.card.puckPrep", "Prep: %1").arg(Theme.joinWithBullet(_puckLabels)) : ""
 
     readonly property var _dialParts: {
         var _ = TranslationManager.translationVersion

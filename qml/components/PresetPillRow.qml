@@ -62,7 +62,9 @@ FocusScope {
 
     function announceCurrentPill() {
         if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled && presets.length > 0) {
-            var name = presets[focusedIndex].name || ""
+            // Route through pillLayoutName so keyboard/switch-access announcements match what
+            // touch/screen-reader-tap users hear (e.g. pillLabelFn's "Small Pitcher" transform).
+            var name = pillLayoutName(focusedIndex)
             var modifiedText = (root.modified && focusedIndex === selectedIndex) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
             var status = focusedIndex === selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
             AccessibilityManager.announce(name + modifiedText + status)
