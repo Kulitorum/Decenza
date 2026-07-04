@@ -55,4 +55,4 @@
 
 - [x] 10.1 Build app + tests (via Qt Creator) and run `tst_livesteamcoach` green.
 - [ ] 10.2 On-device smoke: both toggles off by default (no banner, no voice); with weight-timed steaming + captured milk: voice-only (a11y master switch off) → spoken cues incl. "Steam done" at actual steam end; banner-only → silent banner, cues persist until replaced, no overlap with pills; without captured milk → only the "No coaching" pill, nothing spoken; early manual stop → no completion announcement.
-- [ ] 10.3 Update the PR #1412 description to reflect the split settings, off-by-default, service-level audio, event-based completion cue, and the milk-derived coaching gate.
+- [x] 10.3 Update the PR #1412 description to reflect the split settings, off-by-default, service-level audio, event-based completion cue, and the milk-derived coaching gate.
