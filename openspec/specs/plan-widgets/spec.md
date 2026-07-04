@@ -5,7 +5,7 @@ TBD - created by archiving change plan-widget-review-fixes. Update Purpose after
 ## Requirements
 ### Requirement: Shot plan sentence content follows the display toggles
 
-The Shot Plan text (used by the `shotPlan` widget) SHALL render as a sentence — "Brew {yield} of {beverage}, using {profile} at {temperature}" — when yield, profile, and temperature are all available, degrading to a separator-joined fragment list when any core piece is missing. The beverage word SHALL follow the current profile's `beverage_type`: "Espresso" for espresso (and unset), "tea" for tea types, and "coffee" for any other coffee beverage (filter, pourover, …). A cleaning or descale profile SHALL replace the sentence entirely with a cleaning notice carrying a do-not-load-coffee warning, rendered bold in the error (red) color with the bean/dose tail suppressed. Each display toggle SHALL gate exactly its named content, in both the plain (accessibility) text and the rich (displayed) text:
+The Shot Plan text (used by the `shotPlan` widget) SHALL render as a sentence — "Brew {yield} of {beverage}, using {profile} at {temperature}" — when yield, profile, and temperature are all available. When the profile has no target weight (yield absent) but profile and temperature are available, it SHALL render the yield-less sentence "Brew {beverage}, using {profile} at {temperature}" so the beverage word is preserved. Only when profile or temperature is missing SHALL it degrade to a separator-joined fragment list. The beverage word SHALL follow the current profile's `beverage_type`: "Espresso" for espresso (and unset), "tea" for tea types, and "coffee" for any other coffee beverage (filter, pourover, …). A cleaning or descale profile SHALL replace the sentence entirely with a cleaning notice carrying a do-not-load-coffee warning, rendered bold in the error (red) color with the bean/dose tail suppressed. Each display toggle SHALL gate exactly its named content, in both the plain (accessibility) text and the rich (displayed) text:
 
 - **Profile & temperature** (`shotPlanShowProfile`): profile name and temperature.
 - **Roaster** (`shotPlanShowRoaster`): roaster brand only.
@@ -20,6 +20,11 @@ Enabled optional segments SHALL appear as a separator-joined tail after the sent
 
 - **WHEN** the current profile's beverage_type is "filter" (or "pourover")
 - **THEN** the sentence reads "Brew {yield} of coffee, using {profile} at {temperature}"
+
+#### Scenario: Profile without a target weight keeps the beverage word
+
+- **WHEN** the current profile has no target weight (e.g. a filter or tea profile with no stop-at-weight) but a profile name and temperature are available
+- **THEN** the plan reads "Brew {beverage}, using {profile} at {temperature}" (e.g. "Brew tea, using Tea portafilter/black tea at 105 · 40°C"), not a fragment list without the beverage word
 
 #### Scenario: Cleaning profile warns instead of planning
 

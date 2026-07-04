@@ -97,8 +97,9 @@ Item {
 
     // ONE renderer for both the plain `text` (a11y label + `visible: text !== ""` check) and the bolded
     // `_rich` (display), so they can NEVER drift. fmt(value, live) formats one value: plain %-escapes,
-    // rich HTML-escapes and bolds live values. Core sentence is yield + profile + temp; enabled extras
-    // (dose, roaster, coffee, grind, roast date) trail after it, else it degrades to a fragment list.
+    // rich HTML-escapes and bolds live values. Core sentence is profile + temp (plus yield when the
+    // profile has a target weight); enabled extras (dose, roaster, coffee, grind, roast date) trail
+    // after it, else it degrades to a fragment list.
     function _build(fmt, sep) {
         var _ = TranslationManager.translationVersion
         // Cleaning/descale run — beans are the enemy here. Short sentence, no
@@ -116,9 +117,16 @@ Item {
             : (grindSize.length > 0 ? TranslationManager.translate("shotplan.grind", "grind %1").arg(fmt(_grindStr, true))
                                     : fmt(_grindStr, true))
         var roasted = (_roastDateStr !== "") ? TranslationManager.translate("shotplan.roasted", "roasted %1").arg(fmt(_roastDateStr, true)) : ""
-        if (_yieldStr !== "" && _profileStr !== "" && _tempStr !== "") {
-            var s = TranslationManager.translate("shotplan.sentence", "Brew %1 of %2, using %3 at %4")
-                .arg(fmt(_yieldStr, true)).arg(fmt(_beverage, false)).arg(fmt(_profileStr, true)).arg(fmt(_tempStr, true))
+        if (_profileStr !== "" && _tempStr !== "") {
+            // Yield is legitimately absent for profiles with no target weight (filter,
+            // tea, …) — keep the sentence form so the beverage word survives, instead of
+            // dropping to the beverage-less fragment list. Separate full template (not
+            // string surgery) so translators control word order in both forms.
+            var s = (_yieldStr !== "")
+                ? TranslationManager.translate("shotplan.sentence", "Brew %1 of %2, using %3 at %4")
+                    .arg(fmt(_yieldStr, true)).arg(fmt(_beverage, false)).arg(fmt(_profileStr, true)).arg(fmt(_tempStr, true))
+                : TranslationManager.translate("shotplan.sentenceNoYield", "Brew %1, using %2 at %3")
+                    .arg(fmt(_beverage, false)).arg(fmt(_profileStr, true)).arg(fmt(_tempStr, true))
             var tail = []
             if (dose !== "") tail.push(dose)
             if (_roasterStr !== "") tail.push(fmt(_roasterStr, true))
