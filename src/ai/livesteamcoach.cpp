@@ -64,10 +64,13 @@ void LiveSteamCoach::onPhaseChanged() {
 
     if (nowSteaming && !m_steaming) {
         // Steam just started: clear any stale state from a previous steam.
+        // Deliberately NO evaluate() here: SteamPage applies the weight-scaled
+        // duration (and sets durationMilkDerived) in its OWN phaseChanged
+        // handler, which runs after this C++ slot. The first shot-time tick
+        // (~100ms) drives the opening cue instead, by which time the page
+        // state has settled — event-ordering, not a timer.
         resetState();
         m_steaming = true;
-        if (coachingActive())
-            evaluate();  // fire the opening "stretch" cue right away
     } else if (!nowSteaming && m_steaming) {
         // Steam ended: silence and reset.
         m_steaming = false;
@@ -110,6 +113,12 @@ void LiveSteamCoach::onSteamFlowStopped() {
     if (timeout <= 0)
         return;
 
+    // No coaching without a milk-derived duration (see evaluate()) — a "done"
+    // for a fixed preset timer would bless a duration that may have ruined
+    // the milk long before it fired.
+    if (!m_durationMilkDerived)
+        return;
+
     // Early manual abort (flow stopped well before the target): deliberate,
     // needs no announcement. Within the window = natural completion — this also
     // absorbs firmware/local clock drift (firmware stopping slightly "early").
@@ -142,6 +151,23 @@ void LiveSteamCoach::evaluate() {
     // the pour is over even while the phase lingers in Steaming (Puffing/Ending).
     if (m_flowStopped)
         return;
+
+    // No coaching without a milk-derived duration. A fixed preset duration
+    // says nothing about the milk actually in the pitcher — pacing cues off
+    // it would confidently endorse ruining it (200 mL against a 60 s preset
+    // is destroyed long before "Almost there"). Show one informational pill
+    // (visual only — never spoken) so the silence is explained and actionable:
+    // rest the pitcher on the scale next time.
+    if (!m_durationMilkDerived) {
+        if (!m_firedNoCoaching) {
+            m_firedNoCoaching = true;
+            emitCue(QStringLiteral("no-coaching"),
+                    tr_("steamCoach.cue.noCoaching",
+                        "No coaching — milk weight not captured"),
+                    QStringLiteral("info"), /*speak=*/false);
+        }
+        return;
+    }
 
     const double elapsed = m_machineState->shotTime();
 
@@ -238,6 +264,8 @@ void LiveSteamCoach::resetState() {
     m_firedCompletion = false;
     m_flowStopped = false;
     m_sawShotTick = false;
+    m_firedNoCoaching = false;
     m_loggedUntimed = false;
+    // m_durationMilkDerived is NOT reset here — SteamPage's binding owns it.
     clearCue();
 }

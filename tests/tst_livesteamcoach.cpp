@@ -39,6 +39,7 @@ private:
     static constexpr const char* ROLL    = "Submerge the tip — roll and texture";
     static constexpr const char* ALMOST  = "Almost there — get ready";
     static constexpr const char* DONE    = "Steam done";
+    static constexpr const char* NO_COACHING = "No coaching — milk weight not captured";
 
     struct Fixture {
         DE1Device device;
@@ -49,16 +50,20 @@ private:
         QSignalSpy speakSpy{&coach, &LiveSteamCoach::speakRequested};
 
         // QSettings persists across runs — always set the toggles and timeout
-        // explicitly so every test starts from a known state.
-        Fixture(bool visual, bool audio, int timeoutS) {
+        // explicitly so every test starts from a known state. milkDerived
+        // mirrors SteamPage's steamTimeoutScaled binding: coaching only
+        // happens when the duration was derived from the actual milk weight.
+        Fixture(bool visual, bool audio, int timeoutS, bool milkDerived = true) {
             state.setSettings(&settings);
             settings.app()->setSteamCoachVisualEnabled(visual);
             settings.app()->setSteamCoachAudioEnabled(audio);
             settings.brew()->setSteamTimeout(timeoutS);
+            coach.setDurationMilkDerived(milkDerived);
         }
 
-        // Enter the Steaming phase at elapsed 0 (fires the stretch cue when the
-        // coach is enabled).
+        // Enter the Steaming phase at elapsed 0. NOTE: cues begin on the FIRST
+        // shot-time tick, not at phase entry — the coach defers to let the
+        // page apply weight-scaling in its own phaseChanged handler first.
         void startSteam() {
             state.m_shotTime = 0.0;
             state.m_phase = MachineState::Phase::Steaming;
@@ -123,7 +128,8 @@ private slots:
 
     void visualOnly_cueSurfaceUpdatesButNothingSpoken() {
         Fixture fx(true, false, 20);
-        fx.startSteam();  // stretch
+        fx.startSteam();
+        fx.tick(0.1);     // stretch fires on the first tick
         QCOMPARE(fx.cueSpy.count(), 1);
         QCOMPARE(fx.coach.cueText(), QString::fromUtf8(STRETCH));
         fx.tick(7.0);     // roll (0.35 * 20)
@@ -138,6 +144,7 @@ private slots:
     void audioOnly_speaksAndSurfaceStillUpdates() {
         Fixture fx(false, true, 20);
         fx.startSteam();
+        fx.tick(0.1);     // stretch
         fx.tick(7.0);
         fx.tick(16.0);
         fx.tick(19.5);
@@ -155,6 +162,7 @@ private slots:
     void speakInterrupt_onlyForCompletion() {
         Fixture fx(true, true, 20);
         fx.startSteam();
+        fx.tick(0.1);     // stretch
         fx.tick(7.0);
         fx.tick(16.0);
         fx.tick(19.5);
@@ -177,6 +185,7 @@ private slots:
         // mid-steam — leaving the steam page stops steam).
         fx.settings.app()->setSteamCoachVisualEnabled(true);
         fx.startSteam();
+        fx.tick(0.1);
         QCOMPARE(fx.cueSpy.count(), 1);
         QCOMPARE(fx.coach.cueText(), QString::fromUtf8(STRETCH));
     }
@@ -187,7 +196,8 @@ private slots:
 
     void untimedSteam_stretchOnly_noCompletion() {
         Fixture fx(true, true, 0);
-        fx.startSteam();  // stretch (not gated on a target duration)
+        fx.startSteam();
+        // stretch fires on the first tick (not gated on a target duration)
         for (double t = 1; t <= 60; t += 1)
             fx.tick(t);
         fx.flowStopped(); // untimed: end is user-decided — no done cue
@@ -198,8 +208,8 @@ private slots:
 
     void shortSteam_skipsRoll_keepsAlmostAndDone() {
         Fixture fx(true, true, 6);  // < MIN_DURATION_FOR_ROLL_SEC (8)
-        fx.startSteam();            // stretch
-        fx.tick(2.0);
+        fx.startSteam();
+        fx.tick(2.0);               // stretch fires here (first tick)
         fx.tick(3.0);               // almost via seconds-remaining (6 - 3 <= 3)
         QCOMPARE(fx.coach.cueText(), QString::fromUtf8(ALMOST));
         fx.tick(5.8);
@@ -217,10 +227,10 @@ private slots:
         fx.startSteam();
         // Fine-grained sweep — each milestone must fire exactly once, in order,
         // with no re-fires on later ticks (one-shot latches are the only rate
-        // control; there is no spacing governor to swallow anything).
+        // control; there is no spacing governor to swallow anything). Stretch
+        // is captured by the first loop iteration (cues begin on the first tick).
         QStringList texts;
-        texts << fx.coach.cueText();  // stretch fired at start
-        int lastCount = fx.cueSpy.count();
+        int lastCount = 0;
         for (double t = 0.1; t <= 19.9; t += 0.1) {
             fx.tick(t);
             if (fx.cueSpy.count() > lastCount) {
@@ -259,12 +269,13 @@ private slots:
     void completionFiresExactlyOnce() {
         Fixture fx(true, true, 20);
         fx.startSteam();
-        // Jump straight to 19s: the ROLL latch is deliberately left unfired
-        // (never ticked through 7s). That's what makes the frozen-clock
-        // re-tick below a real probe — without the m_flowStopped guard in
-        // evaluate(), it would fire roll and fail the count compare. Adding
-        // an earlier tick(7.0) here would silently defuse this test's pin on
-        // the never-coach-a-stopped-flow invariant.
+        // Jump straight to 19s: the roll/almost latches are deliberately left
+        // partially unfired (only stretch+almost fire here; roll never ticks
+        // through 7s). That's what makes the frozen-clock re-tick below a real
+        // probe — without the m_flowStopped guard in evaluate(), it would fire
+        // the unlatched milestone and fail the count compare. Adding an
+        // earlier tick(7.0) here would silently defuse this test's pin on the
+        // never-coach-a-stopped-flow invariant.
         fx.tick(19.0);
         fx.flowStopped();
         const int cuesAfterDone = fx.cueSpy.count();
@@ -277,8 +288,8 @@ private slots:
 
     void earlyManualAbort_isSilent() {
         Fixture fx(true, true, 60);
-        fx.startSteam();  // stretch
-        fx.tick(10.0);
+        fx.startSteam();
+        fx.tick(10.0);    // stretch fires here (first tick)
         const int cuesBefore = fx.cueSpy.count();
         const int speaksBefore = fx.speakSpy.count();
         fx.flowStopped(); // 50s remaining — deliberate abort, no announcement
@@ -302,11 +313,41 @@ private slots:
         QVERIFY(!fx.coach.cueActive());  // lingering cue cleared
 
         fx.cueSpy.clear();
-        fx.startSteam();  // latches cleared — stretch fires again
+        fx.startSteam();  // latches cleared — the second steam coaches fresh
+        fx.tick(0.1);     // stretch fires again
         QCOMPARE(fx.cueSpy.count(), 1);
         QCOMPARE(fx.coach.cueText(), QString::fromUtf8(STRETCH));
         fx.tick(7.0);     // and the mid-steam milestones re-arm too
         QCOMPARE(fx.coach.cueText(), QString::fromUtf8(ROLL));
+    }
+
+    // ==========================================
+    // Milk-derived duration gate
+    // ==========================================
+
+    // Without a milk-derived duration (weight-timed steaming didn't capture
+    // the pitcher this session), the coach must not coach AT ALL — a fixed
+    // preset duration says nothing about the milk, and pacing cues off it
+    // would endorse ruining it (e.g. 200 mL against a 60 s preset). The only
+    // output is one informational pill, visual only — never spoken.
+    void notMilkDerived_showsPillOnly_nothingSpoken() {
+        Fixture fx(true, true, 60, /*milkDerived=*/false);
+        fx.startSteam();
+        fx.tick(0.1);
+        QCOMPARE(fx.cueSpy.count(), 1);
+        QCOMPARE(fx.coach.cueText(), QString::fromUtf8(NO_COACHING));
+        QCOMPARE(fx.coach.cueSeverity(), QStringLiteral("info"));
+        QCOMPARE(fx.speakSpy.count(), 0);
+
+        // No milestones ever fire, and the pill persists (no re-emits).
+        fx.tick(21.0);   // would be roll
+        fx.tick(48.0);   // would be almost
+        fx.tick(59.5);
+        fx.flowStopped(); // would be done — must stay silent too
+        QCOMPARE(fx.cueSpy.count(), 1);
+        QCOMPARE(fx.speakSpy.count(), 0);
+        QVERIFY(fx.coach.cueActive());
+        QCOMPARE(fx.coach.cueText(), QString::fromUtf8(NO_COACHING));
     }
 };
 

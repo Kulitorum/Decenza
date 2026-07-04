@@ -51,6 +51,15 @@ Page {
     property bool steamSoftStopped: false  // For two-stage stop on headless machines
     property bool wasSteaming: false  // Track if we were steaming (to turn off heater after)
 
+    // A real (weighing) scale is present. ScaleDevice is a context property
+    // re-pointed at the live scale object; at app shutdown the underlying
+    // QObject is destroyed and the property reads as null, so direct
+    // ScaleDevice.connected bindings throw TypeErrors during teardown. Route
+    // every "real scale present" check through this null-safe property —
+    // never read ScaleDevice members directly in a binding without a null
+    // guard.
+    readonly property bool realScaleConnected: !!ScaleDevice && ScaleDevice.connected === true && ScaleDevice.isFlowScale === false
+
     // Check if steam heater needs heating
     readonly property real currentSteamTemp: DE1Device.steamTemperature
     readonly property real targetSteamTemp: Settings.brew.steamTemperature
@@ -703,6 +712,31 @@ Page {
                 }
             }
 
+            // Live during-steam coaching cues (stretch -> roll -> almost -> done).
+            // In-layout right below the warning banner slot — between the preset
+            // pills and the countdown — so it never overlaps other content. It
+            // self-hides when no cue is active (visible tracks its fade), so it
+            // takes no space most of the time. Purely visual, gated on its own
+            // opt-in; voice is the coach service's job (separate
+            // steamCoachAudioEnabled setting).
+            LiveCoachingBanner {
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                coach: MainController.liveSteamCoach
+                coachEnabled: Settings.app.steamCoachVisualEnabled
+            }
+
+            // The coach only coaches when the session's duration was derived
+            // from the actual milk weight (weight-timed steaming captured the
+            // pitcher) — a fixed preset duration says nothing about the milk,
+            // and pacing cues off it would endorse ruining it. steamTimeoutScaled
+            // is this page's authoritative "duration is milk-derived" state.
+            Binding {
+                target: MainController.liveSteamCoach
+                property: "durationMilkDerived"
+                value: steamPage.steamTimeoutScaled
+            }
+
             // === TIMER VIEW (default) ===
             ColumnLayout {
                 visible: steamViewMode === "timer"
@@ -1238,7 +1272,7 @@ Page {
                                     Keys.onBacktabPressed: {
                                         if (index > 0)
                                             pitcherRepeater.itemAt(index - 1).focusTarget.forceActiveFocus()
-                                        else if (ScaleDevice.connected && !ScaleDevice.isFlowScale)
+                                        else if (steamPage.realScaleConnected)
                                             savePitcherWeightBtn.forceActiveFocus()
                                         else
                                             steamTempSlider.forceActiveFocus()
@@ -1655,7 +1689,7 @@ Page {
                             // tareBtn lives in the scale-gated sub-row; skip straight to
                             // the reference-milk field when no scale is connected so Tab
                             // never lands on a hidden element.
-                            KeyNavigation.tab: (ScaleDevice.connected && !ScaleDevice.isFlowScale) ? tareBtn : refMilkInput
+                            KeyNavigation.tab: (steamPage.realScaleConnected) ? tareBtn : refMilkInput
                             KeyNavigation.backtab: steamTempSlider
                             onValueModified: function(newValue) {
                                 Settings.brew.setSteamPitcherWeight(Settings.brew.selectedSteamPitcher, newValue)
@@ -1665,7 +1699,7 @@ Page {
                         // Scale controls: live reading + Tare + Weigh/Clear (only with a scale).
                         RowLayout {
                             spacing: Theme.scaled(8)
-                            visible: ScaleDevice.connected && !ScaleDevice.isFlowScale
+                            visible: steamPage.realScaleConnected
 
                             Text {
                                 text: MachineState.scaleWeight.toFixed(0) + "g"
@@ -1839,7 +1873,7 @@ Page {
                             KeyNavigation.tab: pitcherRepeater.count > 0 ? pitcherRepeater.itemAt(0).focusTarget : addPitcherButton
                             // savePitcherWeightBtn is in the scale-gated sub-row; fall back
                             // to the always-visible field when no scale is connected.
-                            KeyNavigation.backtab: (ScaleDevice.connected && !ScaleDevice.isFlowScale) ? savePitcherWeightBtn : pitcherWeightInput
+                            KeyNavigation.backtab: (steamPage.realScaleConnected) ? savePitcherWeightBtn : pitcherWeightInput
                             onValueModified: function(newValue) {
                                 // Don't reassign value here — it would break the declarative
                                 // binding to getCurrentPitcherCalibMilk(), so a later "Use as
@@ -1853,7 +1887,7 @@ Page {
                         // Requires a saved empty-pitcher weight (net milk = scale - pitcher).
                         Rectangle {
                             id: refMilkWeighBtn
-                            visible: ScaleDevice.connected && !ScaleDevice.isFlowScale
+                            visible: steamPage.realScaleConnected
                             readonly property bool btnEnabled: steamPage.currentMeasuredMilk() > 0
                             opacity: btnEnabled ? 1.0 : 0.4
                             width: Theme.scaled(84); height: Theme.scaled(44)
@@ -1933,7 +1967,7 @@ Page {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(16)
                         visible: !steamPage.currentPitcherDisabled
-                                 && ScaleDevice.connected && !ScaleDevice.isFlowScale
+                                 && steamPage.realScaleConnected
                                  && steamPage.scaledSteamTimeout() > 0
 
                         Column {
@@ -1960,7 +1994,7 @@ Page {
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled && ScaleDevice.connected && !ScaleDevice.isFlowScale && steamPage.scaledSteamTimeout() > 0 }
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled && steamPage.realScaleConnected && steamPage.scaledSteamTimeout() > 0 }
 
                     // ── Coaching (GLOBAL — not per-pitcher): live cues while steaming.
                     // Every row above changes with the selected pitcher preset; these two
@@ -1984,7 +2018,7 @@ Page {
                         Tr {
                             Layout.fillWidth: true
                             key: "steam.coaching.summary"
-                            fallback: "Short cues while steaming — stretch, roll, almost there, done. Applies to every pitcher. The banner and the voice are separate switches; the voice speaks even when accessibility is off."
+                            fallback: "Short cues while steaming — stretch, roll, almost there, done. Coaching needs the milk weight: enable weight-timed steaming and rest the pitcher on the scale before steaming, or no cues are given. Applies to every pitcher. The banner and the voice are separate switches; the voice speaks even when accessibility is off."
                             wrapMode: Text.WordWrap
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.labelFont.pixelSize
@@ -2028,7 +2062,7 @@ Page {
         // Virtual-zero model: raw scale reading minus the saved empty-pitcher weight
         // (cupWeight) = net milk, robust to an un-zeroed scale. Auto-capture requires
         // a saved pitcher weight (cupWeight > 0).
-        rawWeight: (ScaleDevice.connected && !ScaleDevice.isFlowScale) ? MachineState.scaleWeight : 0
+        rawWeight: (steamPage.realScaleConnected) ? MachineState.scaleWeight : 0
         cupWeight: {
             var p = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
             return (p && !p.disabled) ? (p.pitcherWeightG ?? 0) : 0
@@ -2038,7 +2072,7 @@ Page {
         // steam stop time.
         active: Settings.brew.milkAutoCaptureEnabled
                 && !isSteaming && !steamSoftStopped
-                && ScaleDevice.connected && !ScaleDevice.isFlowScale
+                && steamPage.realScaleConnected
         minNet: 50   // nobody steams < 50 g milk; floor also keeps a bean cup from tripping milk capture
         maxNet: 1500
         tolerance: 1.5
@@ -2112,23 +2146,6 @@ Page {
         }
     }
 
-    // Live during-steam coaching cues (stretch -> roll -> almost -> done), driven
-    // by LiveSteamCoach off the elapsed steam time (the "done" cue is event-based).
-    // Purely visual and gated on its own opt-in; voice is the coach service's job
-    // (separate steamCoachAudioEnabled setting). Self-gates on an active cue, so
-    // it only shows while steaming.
-    LiveCoachingBanner {
-        z: 1000
-        anchors.top: parent.top
-        anchors.topMargin: Theme.scaled(110)
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.leftMargin: Theme.spacingMedium
-        anchors.rightMargin: Theme.spacingMedium
-        coach: MainController.liveSteamCoach
-        coachEnabled: Settings.app.steamCoachVisualEnabled
-    }
-
     // Small flashing reminder while the milk pitcher is settling on the scale
     // (something is on the scale but the capture hasn't fired yet). Disappears
     // the instant it captures (the bell rings).
@@ -2161,7 +2178,7 @@ Page {
     Connections {
         target: MachineState
         enabled: !isSteaming && !steamSoftStopped
-                 && ScaleDevice.connected && !ScaleDevice.isFlowScale
+                 && steamPage.realScaleConnected
                  && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
                  && AccessibilityManager.extractionAnnouncementsEnabled
         function onScaleWeightChanged() {
@@ -2184,7 +2201,7 @@ Page {
         interval: AccessibilityManager.extractionAnnouncementInterval * 1000
         repeat: true
         running: !isSteaming && !steamSoftStopped
-                 && ScaleDevice.connected && !ScaleDevice.isFlowScale
+                 && steamPage.realScaleConnected
                  && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
                  && AccessibilityManager.extractionAnnouncementsEnabled
                  && (AccessibilityManager.extractionAnnouncementMode === "timed" ||

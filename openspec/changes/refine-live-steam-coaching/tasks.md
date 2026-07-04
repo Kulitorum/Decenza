@@ -43,8 +43,16 @@
 - [x] 8.4 Cover completion semantics: `steamFlowStopped()` while elapsed is below the old prediction window → completion cue delivered exactly once with `speakRequested` when audio on; `steamFlowStopped()` well before target (manual abort) → no completion cue; second `steamFlowStopped()` → no duplicate.
 - [x] 8.5 Assert no WARN/stderr output on any covered path (per TESTING.md).
 
-## 9. Verify
+## 9. Smoke-feedback refinements (added during 10.2 on-device testing)
 
-- [x] 9.1 Build app + tests (via Qt Creator) and run `tst_livesteamcoach` green.
-- [ ] 9.2 On-device smoke: both toggles off by default (no banner, no voice); voice-only with the accessibility master switch off → spoken cues, including "Steam done" at actual steam end; banner-only → silent banner; early manual stop → no completion announcement.
-- [ ] 9.3 Update the PR #1412 description to reflect the split settings, off-by-default, service-level audio, and event-based completion cue.
+- [x] 9.1 Mount the banner in the steaming view's layout (warning-banner slot, between preset pills and countdown) instead of a floating overlay that overlapped the pills; remove the overlay mount.
+- [x] 9.2 Cues persist until replaced or steam ends — remove the 5s auto-dismiss (timer, dismissed state, Connections) from `LiveCoachingBanner.qml`.
+- [x] 9.3 Gate ALL cues on a milk-derived duration: `durationMilkDerived` Q_PROPERTY on `LiveSteamCoach`, bound from `SteamPage.steamTimeoutScaled`; without it show one visual-only pill ("No coaching — milk weight not captured") and stay otherwise silent (including "done"). Defer the opening cue to the first tick to avoid the page-handler ordering race.
+- [x] 9.4 Update the Coaching group description to state the milk-weight requirement; tests for the gate (`notMilkDerived_showsPillOnly_nothingSpoken`) and first-tick cue start; spec updated (new requirement + persistence).
+- [x] 9.5 Fix `tst_livesteamcoach` polluting the developer's real QSettings store (snapshot/restore in init/cleanup — the polluted store was what made the toggle show ON during smoke testing).
+
+## 10. Verify
+
+- [x] 10.1 Build app + tests (via Qt Creator) and run `tst_livesteamcoach` green.
+- [ ] 10.2 On-device smoke: both toggles off by default (no banner, no voice); with weight-timed steaming + captured milk: voice-only (a11y master switch off) → spoken cues incl. "Steam done" at actual steam end; banner-only → silent banner, cues persist until replaced, no overlap with pills; without captured milk → only the "No coaching" pill, nothing spoken; early manual stop → no completion announcement.
+- [ ] 10.3 Update the PR #1412 description to reflect the split settings, off-by-default, service-level audio, event-based completion cue, and the milk-derived coaching gate.

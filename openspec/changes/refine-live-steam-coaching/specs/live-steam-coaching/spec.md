@@ -63,9 +63,9 @@ The end-of-steam cue SHALL be triggered from the machine event that ends steam f
 - **WHEN** the user stops steam well before the target duration (outside the final anticipation window)
 - **THEN** no completion cue is delivered — a deliberate abort needs no announcement
 
-### Requirement: Milestone cues are never rate-limited away
+### Requirement: Milestone cues are never rate-limited away and persist until superseded
 
-Each milestone cue (stretch, roll, almost, completion) SHALL fire at most once per steam operation via one-shot latching, and that latching SHALL be the only rate control — no additional spacing governor SHALL suppress a distinct milestone cue. On short steams every applicable milestone SHALL still be delivered.
+Each milestone cue (stretch, roll, almost, completion) SHALL fire at most once per steam operation via one-shot latching, and that latching SHALL be the only rate control — no additional spacing governor SHALL suppress a distinct milestone cue. On short steams every applicable milestone SHALL still be delivered. On the visual banner each cue SHALL remain visible until the next cue replaces it or the steam operation ends — cues SHALL NOT self-dismiss on a timer (easy to miss).
 
 #### Scenario: Short steam still warns before stopping
 
@@ -73,14 +73,31 @@ Each milestone cue (stretch, roll, almost, completion) SHALL fire at most once p
 - **THEN** the "almost" cue is still delivered
 - **AND** the completion cue is still delivered
 
+### Requirement: Coaching requires a milk-derived duration
+
+Coaching cues SHALL be emitted only when the session's steam duration was derived from the actual milk weight (weight-timed steaming enabled, calibrated, and the milk captured on the scale this session). A fixed preset duration says nothing about the milk in the pitcher, and pacing cues off it would endorse ruining the milk (e.g. 200 mL against a 60 s preset is destroyed long before "almost"). When coaching is enabled but the duration is not milk-derived, the coach SHALL emit a single informational pill explaining why ("no coaching — milk weight not captured"), on the visual banner only — it SHALL NOT be spoken — and SHALL otherwise behave as if the feature were off. Untimed/manual steams are never milk-derived.
+
+#### Scenario: Captured milk enables full coaching
+
+- **WHEN** weight-timed steaming scaled this session's duration from captured milk
+- **AND** a coaching setting is on
+- **THEN** the milestone cues are delivered normally
+
+#### Scenario: No captured milk yields only the explanatory pill
+
+- **WHEN** coaching is enabled but the session's duration was not derived from a captured milk weight (weight-timed off, calibrated-but-not-captured, manual duration override, or untimed steam)
+- **THEN** a single informational pill explains that coaching is off because the milk weight was not captured
+- **AND** no milestone or completion cue is emitted
+- **AND** nothing is spoken
+
+#### Scenario: Feature off shows no pill
+
+- **WHEN** both coaching settings are off
+- **THEN** no pill and no cue of any kind is shown
+
 ### Requirement: Milestone pacing and manual-steam behavior
 
-During steaming the coach SHALL emit at most one cue at a time in the order stretch → roll → almost → completion, each at most once per operation. When the steam operation has no known target duration (manual/untimed steam), only the opening stretch cue SHALL be emitted. When the target duration is too short for a distinct texturing phase, the "roll" cue SHALL be skipped while the stretch, almost, and completion cues are retained. When both coaching settings are off, the coach SHALL perform no per-sample evaluation work.
-
-#### Scenario: Untimed steam emits only the opening cue
-
-- **WHEN** a steam operation runs with no configured target duration
-- **THEN** only the stretch cue is emitted and no duration-paced or completion cue fires
+During steaming (with a milk-derived duration) the coach SHALL emit at most one cue at a time in the order stretch → roll → almost → completion, each at most once per operation. When the target duration is too short for a distinct texturing phase, the "roll" cue SHALL be skipped while the stretch, almost, and completion cues are retained. When both coaching settings are off, the coach SHALL perform no per-sample evaluation work.
 
 #### Scenario: Very short steam skips the roll cue
 

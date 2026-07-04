@@ -34,6 +34,16 @@ class TranslationManager;
 // When both are off the coach does no per-tick evaluation work (the tick slot
 // still runs, returning after two cached-bool checks).
 //
+// Milk-derived duration requirement: coaching only happens when the session's
+// steam duration was derived from the ACTUAL milk weight (weight-timed steaming
+// captured the pitcher on the scale — SteamPage binds `durationMilkDerived`
+// from its steamTimeoutScaled state). A fixed preset duration says nothing
+// about the milk in the pitcher, so pacing cues off it would confidently
+// endorse ruining the milk (200 mL against a 60 s preset is destroyed long
+// before "Almost there"). Without a milk-derived duration the coach emits a
+// single informational pill ("No coaching — milk weight not captured", visual
+// only) and otherwise behaves as if the feature were off.
+//
 // Rate control is one-shot latching only — each milestone fires at most once per
 // steam operation (at most four cues total), so no spacing governor is needed and
 // no distinct milestone can ever be rate-limited away.
@@ -49,6 +59,11 @@ class LiveSteamCoach : public QObject {
     Q_PROPERTY(QString cueText READ cueText NOTIFY cueChanged)
     Q_PROPERTY(QString cueSeverity READ cueSeverity NOTIFY cueChanged)
     Q_PROPERTY(bool cueActive READ cueActive NOTIFY cueChanged)
+    // Whether the session's steam duration is derived from the actual milk
+    // weight (weight-timed steaming captured this session). Written by
+    // SteamPage (bound to its steamTimeoutScaled state); steam is page-bound,
+    // so the page-fed property is authoritative. Gates ALL coaching cues.
+    Q_PROPERTY(bool durationMilkDerived READ durationMilkDerived WRITE setDurationMilkDerived NOTIFY durationMilkDerivedChanged)
 
 public:
     explicit LiveSteamCoach(MachineState* machineState, Settings* settings,
@@ -63,6 +78,13 @@ public:
     QString cueText() const { return m_cueText; }
     QString cueSeverity() const { return m_cueSeverity; }
     bool cueActive() const { return m_cueActive; }
+    bool durationMilkDerived() const { return m_durationMilkDerived; }
+    void setDurationMilkDerived(bool derived) {
+        if (m_durationMilkDerived == derived)
+            return;
+        m_durationMilkDerived = derived;
+        emit durationMilkDerivedChanged();
+    }
 
     // --- Milestone thresholds (fractions of the target steam duration) ---
     // Switch the barista from stretching (folding in air) to rolling (texturing).
@@ -85,6 +107,7 @@ signals:
     // Single change signal for the whole cue surface — cueText / cueSeverity /
     // cueActive always change together (one emitCue / clearCue call).
     void cueChanged();
+    void durationMilkDerivedChanged();
     // Emitted when a cue should be spoken (steamCoachAudioEnabled is on).
     // Wired once (main.cpp) to AccessibilityManager::announceCoaching, which
     // bypasses the accessibility master switch — the coach's audio toggle is
@@ -135,6 +158,10 @@ private:
     bool m_visualEnabled = false;
     bool m_audioEnabled = false;
 
+    // See the Q_PROPERTY: page-fed, gates all coaching. Deliberately NOT reset
+    // in resetState() — its lifecycle is owned by SteamPage's binding.
+    bool m_durationMilkDerived = false;
+
     // True while the machine is in the Steaming phase.
     bool m_steaming = false;
 
@@ -154,6 +181,10 @@ private:
     // → shot timer never restarted), so duration-paced cues and the completion
     // classifier refuse to trust it.
     bool m_sawShotTick = false;
+
+    // Once-per-steam latch for the "No coaching — milk weight not captured"
+    // informational pill (visual only, never spoken).
+    bool m_firedNoCoaching = false;
 
     // Once-per-steam breadcrumb for the untimed-steam degradation path.
     bool m_loggedUntimed = false;
