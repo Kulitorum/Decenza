@@ -412,8 +412,8 @@ private slots:
     }
 
     // A steam whose flow was never observed (entered mid-sequence at Puffing —
-    // e.g. the flowing-substate BLE notification was dropped) must stay silent:
-    // the pending flag never armed, so the phase exit is not a flow-stop event.
+    // both flowing-substate notifications dropped) must stay silent: the
+    // pending flag never armed, so the phase exit is not a flow-stop event.
     // Guards LiveSteamCoach against a ghost "Steam done" computed off a stale
     // shot clock.
     void steamFlowStopped_notWhenFlowNeverSeen() {
@@ -422,6 +422,47 @@ private slots:
 
         f.setDE1State(DE1::State::Steam, DE1::SubState::Puffing);
         QCOMPARE(f.state.phase(), MachineState::Phase::Steaming);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(spy.count(), 0);
+    }
+
+    // "Flow observed" is the isFlowing() whitelist, which includes Pouring:
+    // a steam whose FIRST observed substate is Pouring (only the initial
+    // Steaming notification missed) still arms and still gets its stop event.
+    // Pins the arming condition's real boundary — only Puffing/Ending-first
+    // entries stay silent (test above).
+    void steamFlowStopped_armsWhenFirstSeenAtPouring() {
+        TestFixture f;
+        QSignalSpy spy(&f.state, &MachineState::steamFlowStopped);
+
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Pouring);
+        QCOMPARE(f.state.phase(), MachineState::Phase::Steaming);
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Puffing);
+        QCOMPARE(spy.count(), 1);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(spy.count(), 1);
+    }
+
+    // A BLE disconnect mid-steam must disarm WITHOUT emitting (a dropped
+    // connection is not a completion), and the stale arm must not leak across
+    // the disconnect into a later never-flowed steam's phase exit.
+    void steamFlowStopped_disconnectDisarmsWithoutEmitting() {
+        TestFixture f;
+        QSignalSpy spy(&f.state, &MachineState::steamFlowStopped);
+
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Steaming);  // arms
+        // BLE drops mid-steam: updatePhase's disconnect early-return runs.
+        f.device.m_simulationMode = false;  // isConnected() -> false
+        f.state.onDE1StateChanged();
+        QCOMPARE(f.state.phase(), MachineState::Phase::Disconnected);
+        QCOMPARE(spy.count(), 0);  // disconnect is not a flow-stop event
+
+        // Reconnect idle, then a steam observed only mid-sequence (never
+        // flowing): the stale arm from before the disconnect must not
+        // ghost-emit on its phase exit.
+        f.device.m_simulationMode = true;
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Puffing);
         f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
         QCOMPARE(spy.count(), 0);
     }

@@ -110,12 +110,15 @@ signals:
     void sawBypassed();           // Emitted when SAW is skipped due to untared cup
     // Steam flow just ended (auto-stop at the timeout OR a manual stop).
     // Exactly-once per steam (m_steamFlowStopPending arms at steam flow start
-    // and is consumed by whichever stop site fires first), and only for a
-    // steam whose flow was actually observed — a steam entered mid-sequence
-    // (missed BLE notification) never arms, so no stale-clock ghost event.
-    // Emitted synchronously from updatePhase() so consumers (LiveSteamCoach)
-    // see it BEFORE the deferred phaseChanged when the stop also leaves the
-    // Steaming phase.
+    // and is consumed by whichever stop site fires first; a mid-steam BLE
+    // disconnect disarms without emitting), and only for a steam whose flow
+    // was actually observed. "Observed" means a flowing substate was seen:
+    // isFlowing() whitelists Steaming AND Pouring, so a steam first seen at
+    // Pouring still arms; only a steam first seen on a non-flowing substate
+    // (Puffing/Ending/FinalHeating — both flowing notifications missed) never
+    // arms, so no stale-clock ghost event. Emitted synchronously from
+    // updatePhase() so consumers (LiveSteamCoach) see it BEFORE the deferred
+    // phaseChanged when the stop also leaves the Steaming phase.
     void steamFlowStopped();
 
 private slots:

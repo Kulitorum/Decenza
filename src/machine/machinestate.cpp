@@ -188,6 +188,13 @@ void MachineState::onDE1SubStateChanged() {
 
 void MachineState::updatePhase() {
     if (!m_device || !m_device->isConnected()) {
+        // A BLE drop mid-steam must disarm the steam flow-stop event WITHOUT
+        // emitting it: a dropped connection is not a completion (no "Steam
+        // done"), and a stale armed flag would otherwise leak across the
+        // disconnect and ghost-fire on a later steam whose flow was never
+        // observed — violating the steamFlowStopped exactly-once/observed-flow
+        // contract (see the signal doc).
+        m_steamFlowStopPending = false;
         if (m_phase != Phase::Disconnected) {
             m_phase = Phase::Disconnected;
             emit phaseChanged();
@@ -326,8 +333,11 @@ void MachineState::updatePhase() {
 
             // Arm the steam flow-stop event: steamFlowStopped fires exactly
             // once per steam, and only for a steam whose flow was actually
-            // observed here (a steam entered mid-sequence via a missed BLE
-            // notification never arms, so its phase exit stays silent).
+            // observed here. isFlowing() treats Steaming AND Pouring as
+            // flowing, so a steam first seen at Pouring still arms; only a
+            // steam first seen on a non-flowing substate (Puffing/Ending —
+            // both flowing notifications missed) never arms, keeping its
+            // phase exit silent.
             if (m_phase == Phase::Steaming)
                 m_steamFlowStopPending = true;
 

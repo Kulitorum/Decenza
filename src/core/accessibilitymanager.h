@@ -118,8 +118,12 @@ protected:
     virtual void dispatchPlatformAnnouncement(const QString& text, bool assertive);
     virtual void dispatchTtsAnnouncement(const QString& text, bool interrupt);
 
-    // The single routing entry point. Decides between platform / TTS / silent
-    // based on isScreenReaderActive() and m_ttsEnabled. Internally guards
+    // The routing entry point for ACCESSIBILITY announcements (announce(),
+    // announceLabel(), setEnabledImpl()). Decides between platform / TTS /
+    // silent based on isScreenReaderActive() and m_ttsEnabled. NOTE:
+    // announceCoaching() implements the same screen-reader-preference rule
+    // directly (it must skip the m_ttsEnabled gate) — if the routing rule
+    // changes here, update it there too. Internally guards
     // m_shuttingDown but does NOT check m_enabled — that's the caller's
     // responsibility. announce() and announceLabel() check m_enabled;
     // setEnabledImpl() (called by both setEnabled() and toggleEnabled())

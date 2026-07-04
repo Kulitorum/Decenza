@@ -122,6 +122,13 @@ void LiveSteamCoach::onSteamFlowStopped() {
     m_firedCompletion = true;
     // Notification wording (not an instruction — the machine has already
     // stopped). Spoken assertively so it lands promptly, eyes on the pitcher.
+    // Known tradeoff: if the stop arrived via a direct Steaming->Idle phase
+    // change (intermediate Puffing/Ending notifications dropped), the queued
+    // phaseChanged delivers right after this and resetState() clears the cue
+    // before QML paints — the VISUAL pill is lost on that rare path. The
+    // spoken cue below is emitted synchronously and always survives. On the
+    // normal auto-stop path the phase stays Steaming through the purge, so
+    // the pill shows for its full auto-dismiss window.
     emitCue(QStringLiteral("steam-done"),
             tr_("steamCoach.cue.done", "Steam done"),
             QStringLiteral("positive"), /*speak=*/true, /*interrupt=*/true);
