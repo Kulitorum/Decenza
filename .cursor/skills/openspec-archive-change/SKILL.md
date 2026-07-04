@@ -6,12 +6,12 @@ compatibility: Requires openspec CLI.
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.3.1"
+  generatedBy: "1.5.0"
 ---
 
 Archive a completed change in the experimental workflow.
 
-**Input**: Optionally specify a change name. If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
+**Input**: Optionally specify a change name after `/opsx:archive` (e.g., `/opsx:archive add-auth`). If omitted, check if it can be inferred from conversation context. If vague or ambiguous you MUST prompt for available changes.
 
 **Steps**
 
@@ -24,91 +24,45 @@ Archive a completed change in the experimental workflow.
 
    **IMPORTANT**: Do NOT guess or auto-select a change. Always let the user choose.
 
-2. **Check artifact completion status**
+2. **Check readiness**
 
-   Run `openspec status --change "<name>" --json` to check artifact completion.
+   Run `openspec status --change "<name>" --json` to check artifact completion, and read the tasks file to count incomplete tasks (`- [ ]` vs `- [x]`).
 
-   Parse the JSON to understand:
-   - `schemaName`: The workflow being used
-   - `artifacts`: List of artifacts with their status (`done` or other)
+   **If any artifacts are not `done`, or incomplete tasks exist:**
+   - Display a warning listing what's incomplete
+   - Use **AskUserQuestion tool** to confirm the user wants to proceed
+   - Stop if the user declines
 
-   **If any artifacts are not `done`:**
-   - Display warning listing incomplete artifacts
-   - Use **AskUserQuestion tool** to confirm user wants to proceed
-   - Proceed if user confirms
+3. **Archive via the openspec CLI**
 
-3. **Check task completion status**
-
-   Read the tasks file (typically `tasks.md`) to check for incomplete tasks.
-
-   Count tasks marked with `- [ ]` (incomplete) vs `- [x]` (complete).
-
-   **If incomplete tasks found:**
-   - Display warning showing count of incomplete tasks
-   - Use **AskUserQuestion tool** to confirm user wants to proceed
-   - Proceed if user confirms
-
-   **If no tasks file exists:** Proceed without task-related warning.
-
-4. **Assess delta spec sync state**
-
-   Check for delta specs at `openspec/changes/<name>/specs/`. If none exist, proceed without sync prompt.
-
-   **If delta specs exist:**
-   - Compare each delta spec with its corresponding main spec at `openspec/specs/<capability>/spec.md`
-   - Determine what changes would be applied (adds, modifications, removals, renames)
-   - Show a combined summary before prompting
-
-   **Prompt options:**
-   - If changes needed: "Sync now (recommended)", "Archive without syncing"
-   - If already synced: "Archive now", "Sync anyway", "Cancel"
-
-   If user chooses sync, use Task tool (subagent_type: "general-purpose", prompt: "Use Skill tool to invoke openspec-sync-specs for change '<name>'. Delta spec analysis: <include the analyzed delta spec summary>"). Proceed to archive regardless of choice.
-
-5. **Perform the archive**
-
-   Create the archive directory if it doesn't exist:
-   ```bash
-   mkdir -p openspec/changes/archive
-   ```
-
-   Generate target name using current date: `YYYY-MM-DD-<change-name>`
-
-   **Check if target already exists:**
-   - If yes: Fail with error, suggest renaming existing archive or using different date
-   - If no: Move the change directory to archive
+   Run the standard tool — do NOT reimplement archiving by hand (no manual `mkdir`/`mv`, no manually diffing delta specs against main specs, no spawning an agent to "sync specs"). `openspec archive` does all of that natively in one step: it validates, applies delta specs to `openspec/specs/`, and moves the change directory to `openspec/changes/archive/YYYY-MM-DD-<name>/`.
 
    ```bash
-   mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
+   openspec archive "<name>" --yes
    ```
 
-6. **Display summary**
+   - Add `--skip-specs` only if the change has no delta specs (infra/tooling/doc-only changes).
+   - `--yes` skips the CLI's own interactive confirmation — safe here because step 2 already secured the user's confirmation for anything incomplete.
+   - If the command reports the target archive directory already exists, stop and surface the conflict to the user (rename the existing archive, delete it if it's a duplicate, or wait for a different date) — do not resolve this by hand.
 
-   Show archive completion summary including:
-   - Change name
-   - Schema that was used
-   - Archive location
-   - Whether specs were synced (if applicable)
-   - Note about any warnings (incomplete artifacts/tasks)
+4. **Report the result**
 
-**Output On Success**
+   Relay the CLI's own output (which specs it created/updated and the totals, plus the final archived-to path) as the summary. Don't restate or re-derive it manually.
+
+**Output**
 
 ```
 ## Archive Complete
 
 **Change:** <change-name>
-**Schema:** <schema-name>
 **Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
-**Specs:** ✓ Synced to main specs (or "No delta specs" or "Sync skipped")
+**Specs:** <relay whatever `openspec archive` reported — updated/created capabilities, or "no specs to update">
 
-All artifacts complete. All tasks complete.
+<Note any warnings surfaced in step 2, e.g. "Archived with N incomplete tasks (user confirmed)".>
 ```
 
 **Guardrails**
 - Always prompt for change selection if not provided
-- Use artifact graph (openspec status --json) for completion checking
-- Don't block archive on warnings - just inform and confirm
-- Preserve .openspec.yaml when moving to archive (it moves with the directory)
-- Show clear summary of what happened
-- If sync is requested, use openspec-sync-specs approach (agent-driven)
-- If delta specs exist, always run the sync assessment and show the combined summary before prompting
+- Use `openspec status --change --json` for the readiness check — don't hand-parse or diff delta specs yourself
+- Don't block archive on warnings once the user has confirmed — just inform and proceed
+- `openspec archive` is the only thing that touches `openspec/changes/` or `openspec/specs/` — never `mkdir`, `mv`, or hand-edit those paths, and never invoke a "sync specs" skill or agent (no such skill exists in this project)
