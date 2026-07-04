@@ -45,6 +45,6 @@
 
 ## 9. Verify
 
-- [ ] 9.1 Build app + tests (via Qt Creator) and run `tst_livesteamcoach` green.
+- [x] 9.1 Build app + tests (via Qt Creator) and run `tst_livesteamcoach` green.
 - [ ] 9.2 On-device smoke: both toggles off by default (no banner, no voice); voice-only with the accessibility master switch off → spoken cues, including "Steam done" at actual steam end; banner-only → silent banner; early manual stop → no completion announcement.
 - [ ] 9.3 Update the PR #1412 description to reflect the split settings, off-by-default, service-level audio, and event-based completion cue.

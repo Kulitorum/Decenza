@@ -19,9 +19,10 @@ class TranslationManager;
 // stretch at the start, roll/texture through the middle, and an "almost" heads-up
 // near the end. The end-of-steam "done" cue is NOT time-predicted: it fires from
 // MachineState::steamFlowStopped() — the actual machine event that ends steam
-// flow — so it can never be missed when the local clock and the firmware's own
-// countdown drift. An early manual stop (well before the target) is a deliberate
-// abort and stays silent.
+// flow — so clock/firmware drift within the completion window can't cause a
+// missed cue (drift beyond it classifies as an abort; see COMPLETION_WINDOW_SEC).
+// An early manual stop (well before the target) is a deliberate abort and stays
+// silent.
 //
 // Gating: two independent user settings, both off by default.
 //   - Settings.app.steamCoachVisualEnabled — the on-screen banner (QML binds the
@@ -30,7 +31,8 @@ class TranslationManager;
 //     speakRequested() (wired to AccessibilityManager::announceCoaching in
 //     main.cpp), so audio works with the banner disabled and is independent of
 //     the accessibility master switch.
-// When both are off the coach does no per-tick work.
+// When both are off the coach does no per-tick evaluation work (the tick slot
+// still runs, returning after two cached-bool checks).
 //
 // Rate control is one-shot latching only — each milestone fires at most once per
 // steam operation (at most four cues total), so no spacing governor is needed and
@@ -146,6 +148,12 @@ private:
     // linger in Steaming (Puffing/Ending). Blocks all further milestone
     // evaluation — never coach a stopped flow.
     bool m_flowStopped = false;
+
+    // The elapsed clock ticked during THIS operation. Until then shotTime()
+    // may still hold the previous operation's final value (missed BLE substate
+    // → shot timer never restarted), so duration-paced cues and the completion
+    // classifier refuse to trust it.
+    bool m_sawShotTick = false;
 
     // Once-per-steam breadcrumb for the untimed-steam degradation path.
     bool m_loggedUntimed = false;

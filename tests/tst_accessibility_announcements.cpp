@@ -202,6 +202,46 @@ private slots:
         QCOMPARE(mgr.ttsCalls.size(), 0);
     }
 
+    // Steam-coach voice must bypass BOTH accessibility voice gates — the
+    // master switch (m_enabled) AND the Voice Announcements toggle
+    // (m_ttsEnabled): its own opt-in (Settings.app.steamCoachAudioEnabled,
+    // gated at the emitter) is the only gate. Everything that silences
+    // announce() is engaged here — announceCoaching() must still speak. This
+    // pins the exact regression the coaching-voice fix addressed: spoken cues
+    // silently dead behind accessibility prefs the user never connected to
+    // steam coaching (and can't even reach — the Voice Announcements switch
+    // is greyed out while the master switch is off).
+    void coachingAnnouncementBypassesAccessibilityGates() {
+        FakeAccessibilityManager mgr;
+        // m_enabled stays at its default false; ttsEnabled off too — the
+        // deepest silent-for-announce() configuration.
+        mgr.fakeScreenReaderActive = false;
+        mgr.setTtsEnabled(false);
+        mgr.resetCalls();
+
+        mgr.announceCoaching("Steam done", /*interrupt=*/true);
+
+        QCOMPARE(mgr.ttsCalls.size(), 1);
+        QCOMPARE(mgr.ttsCalls[0].text, QStringLiteral("Steam done"));
+        QCOMPARE(mgr.ttsCalls[0].interrupt, true);
+        QCOMPARE(mgr.platformCalls.size(), 0);  // no screen reader -> TTS route
+    }
+
+    // With a screen reader active, coaching follows the same no-TTS-overlap
+    // rule as routeAnnouncement: platform dispatch only.
+    void coachingAnnouncementPrefersScreenReader() {
+        FakeAccessibilityManager mgr;
+        mgr.fakeScreenReaderActive = true;
+        mgr.setTtsEnabled(true);
+        mgr.resetCalls();
+
+        mgr.announceCoaching("Steam done", /*interrupt=*/false);
+
+        QCOMPARE(mgr.platformCalls.size(), 1);
+        QCOMPARE(mgr.platformCalls[0].text, QStringLiteral("Steam done"));
+        QCOMPARE(mgr.ttsCalls.size(), 0);
+    }
+
     void politeAndAssertiveHelpersRouteCorrectly() {
         FakeAccessibilityManager mgr;
         setup(mgr, /*enabled=*/true, /*tts=*/true, /*sr=*/true);

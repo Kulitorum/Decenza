@@ -227,11 +227,17 @@ private slots:
     void completionFiresExactlyOnce() {
         Fixture fx(true, true, 20);
         fx.startSteam();
+        // Jump straight to 19s: the ROLL latch is deliberately left unfired
+        // (never ticked through 7s). That's what makes the frozen-clock
+        // re-tick below a real probe — without the m_flowStopped guard in
+        // evaluate(), it would fire roll and fail the count compare. Adding
+        // an earlier tick(7.0) here would silently defuse this test's pin on
+        // the never-coach-a-stopped-flow invariant.
         fx.tick(19.0);
         fx.flowStopped();
         const int cuesAfterDone = fx.cueSpy.count();
         const int speaksAfterDone = fx.speakSpy.count();
-        fx.flowStopped();  // duplicate event
+        fx.flowStopped();  // duplicate event (emitter is once-latched too — belt and suspenders)
         fx.tick(19.0);     // frozen-clock re-tick
         QCOMPARE(fx.cueSpy.count(), cuesAfterDone);
         QCOMPARE(fx.speakSpy.count(), speaksAfterDone);

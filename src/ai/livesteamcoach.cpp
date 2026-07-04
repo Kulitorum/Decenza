@@ -78,7 +78,12 @@ void LiveSteamCoach::onPhaseChanged() {
 void LiveSteamCoach::onShotTimeChanged() {
     // During steaming, shotTime is the elapsed steam time. Re-check milestones
     // as it advances. A fully disabled coach does no per-tick work.
-    if (!m_steaming || !coachingActive())
+    if (!m_steaming)
+        return;
+    // The clock ticked during THIS operation — duration-paced cues may trust
+    // it now (see the m_sawShotTick guard in evaluate()).
+    m_sawShotTick = true;
+    if (!coachingActive())
         return;
     evaluate();
 }
@@ -108,8 +113,10 @@ void LiveSteamCoach::onSteamFlowStopped() {
     // Early manual abort (flow stopped well before the target): deliberate,
     // needs no announcement. Within the window = natural completion — this also
     // absorbs firmware/local clock drift (firmware stopping slightly "early").
+    // The m_sawShotTick guard is belt-and-suspenders against classifying off a
+    // stale clock (the emitter already only fires for observed flow).
     const double remaining = static_cast<double>(timeout) - m_machineState->shotTime();
-    if (remaining > COMPLETION_WINDOW_SEC)
+    if (remaining > COMPLETION_WINDOW_SEC || !m_sawShotTick)
         return;
 
     m_firedCompletion = true;
@@ -154,6 +161,13 @@ void LiveSteamCoach::evaluate() {
         }
         return;
     }
+    // Trust the elapsed clock only after it has ticked during this operation:
+    // if steam entered mid-sequence (missed BLE substate notification) the
+    // shot timer never restarted and shotTime() still holds the PREVIOUS
+    // operation's final value — pacing "almost"/"roll" off it would misfire
+    // at steam entry. (The stretch cue above is not time-paced, so it's fine.)
+    if (!m_sawShotTick)
+        return;
     const double remaining = static_cast<double>(timeout) - elapsed;
 
     // Almost: a heads-up before the end, by fraction or by seconds-remaining
@@ -216,6 +230,7 @@ void LiveSteamCoach::resetState() {
     m_firedAlmost = false;
     m_firedCompletion = false;
     m_flowStopped = false;
+    m_sawShotTick = false;
     m_loggedUntimed = false;
     clearCue();
 }

@@ -324,6 +324,13 @@ void MachineState::updatePhase() {
             // the entire subsequent espresso shot (issue #529).
             m_hotWaterFrozenWeight = -1.0;
 
+            // Arm the steam flow-stop event: steamFlowStopped fires exactly
+            // once per steam, and only for a steam whose flow was actually
+            // observed here (a steam entered mid-sequence via a missed BLE
+            // notification never arms, so its phase exit stays silent).
+            if (m_phase == Phase::Steaming)
+                m_steamFlowStopPending = true;
+
             // Don't restart timer mid-espresso cycle (BLE phase glitch protection)
             // For espresso, the timer starts at preinfusion and should not reset
             // if there's a brief glitch to a non-flowing state and back
@@ -425,11 +432,17 @@ void MachineState::updatePhase() {
                     m_scale->stopTimer();
                     qDebug() << "=== SCALE TIMER: Stopped (flow ended) ===";
                 }
-                // Steam flow ended via a phase change (e.g. manual stop -> Idle).
-                // The substate-change block below won't fire (timer already
-                // stopped), so this is the only emit for this path.
-                if (oldPhase == Phase::Steaming)
+                // Steam left the Steaming phase. Two cases reach this: a manual
+                // stop straight out of flowing steam (the pending flag emits
+                // here), or the Steaming->Idle exit AFTER an auto-stop —
+                // wasFlowing derives from oldPhase alone, so this branch also
+                // runs seconds after flow actually stopped. The pending flag
+                // (consumed by whichever site fires first) keeps the signal
+                // exactly-once per steam across both calls.
+                if (oldPhase == Phase::Steaming && m_steamFlowStopPending) {
+                    m_steamFlowStopPending = false;
                     emit steamFlowStopped();
+                }
             }
 
             // Hot water SAW learning
@@ -569,10 +582,14 @@ void MachineState::updatePhase() {
             qDebug() << "=== SCALE TIMER: Stopped (substate change) ===";
         }
         // Steam auto-stop path: substate left Steaming (Puffing/Ending) while
-        // the phase stays Steaming. Mutually exclusive with the phase-change
-        // emit above — that path already stopped the timer, so we can't get here.
-        if (m_phase == Phase::Steaming)
+        // the phase stays Steaming. This emission marks the actual end of flow;
+        // consuming the pending flag here keeps the later Steaming->Idle
+        // phase-change path (which would otherwise re-fire — wasFlowing derives
+        // from oldPhase alone) silent, so the signal is exactly-once per steam.
+        if (m_phase == Phase::Steaming && m_steamFlowStopPending) {
+            m_steamFlowStopPending = false;
             emit steamFlowStopped();
+        }
     }
 }
 
