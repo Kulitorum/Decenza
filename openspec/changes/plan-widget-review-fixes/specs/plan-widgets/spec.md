@@ -4,7 +4,7 @@
 
 ### Requirement: Shot plan sentence content follows the display toggles
 
-The Shot Plan text (used by the `shotPlan` widget) SHALL render as a sentence — "Brew {yield} of {beverage}, using {profile} at {temperature}" — when yield, profile, and temperature are all available, degrading to a separator-joined fragment list when any core piece is missing. Each display toggle SHALL gate exactly its named content, in both the plain (accessibility) text and the rich (displayed) text:
+The Shot Plan text (used by the `shotPlan` widget) SHALL render as a sentence — "Brew {yield} of {beverage}, using {profile} at {temperature}" — when yield, profile, and temperature are all available, degrading to a separator-joined fragment list when any core piece is missing. The beverage word SHALL follow the current profile's `beverage_type`: "Espresso" for espresso (and unset), "tea" for tea types, and "coffee" for any other coffee beverage (filter, pourover, …). A cleaning or descale profile SHALL replace the sentence entirely with a cleaning notice carrying a do-not-load-coffee warning, rendered in the warning color with the bean/dose tail suppressed. Each display toggle SHALL gate exactly its named content, in both the plain (accessibility) text and the rich (displayed) text:
 
 - **Profile & temperature** (`shotPlanShowProfile`): profile name and temperature.
 - **Roaster** (`shotPlanShowRoaster`): roaster brand only.
@@ -14,6 +14,16 @@ The Shot Plan text (used by the `shotPlan` widget) SHALL render as a sentence �
 - **Dose & yield** (`shotPlanShowDoseYield`): the dose ("{dose} in") and the target output weight.
 
 Enabled optional segments SHALL appear as a separator-joined tail after the sentence. The plain and rich renderings SHALL be produced by one shared builder so their content cannot drift.
+
+#### Scenario: Filter profile says coffee, not espresso
+
+- **WHEN** the current profile's beverage_type is "filter" (or "pourover")
+- **THEN** the sentence reads "Brew {yield} of coffee, using {profile} at {temperature}"
+
+#### Scenario: Cleaning profile warns instead of planning
+
+- **WHEN** the current profile's beverage_type is "cleaning" or "descale"
+- **THEN** the widget shows a cleaning notice including a warning not to put coffee in the portafilter, with no dose/bean segments
 
 #### Scenario: Coffee toggle controls the coffee name
 

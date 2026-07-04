@@ -59,6 +59,7 @@ class ProfileManager : public QObject {
     Q_PROPERTY(QString currentEditorType READ currentEditorType NOTIFY currentProfileChanged)
     Q_PROPERTY(double profileTargetTemperature READ profileTargetTemperature NOTIFY currentProfileChanged)
     Q_PROPERTY(double profileTargetWeight READ profileTargetWeight NOTIFY currentProfileChanged)
+    Q_PROPERTY(QString currentProfileBeverageType READ currentProfileBeverageType NOTIFY currentProfileChanged)
     // Set to true after kMaxUploadRetryAttempts consecutive profile uploads
     // have failed with retryable reasons. qml/main.qml watches this property
     // via a Connections handler (onDe1CommunicationFailureChanged) and calls
@@ -99,6 +100,12 @@ public:
     Profile* currentProfilePtr() { return &m_currentProfile; }
     double profileTargetTemperature() const { return m_currentProfile.espressoTemperature(); }
     double profileTargetWeight() const { return m_currentProfile.targetWeight(); }
+    // Profile JSON beverage_type: "espresso" (default), "filter", "pourover",
+    // "tea_portafilter"…, or "cleaning"/"descale". Empty never escapes (default applies).
+    QString currentProfileBeverageType() const {
+        const QString t = m_currentProfile.beverageType();
+        return t.isEmpty() ? QStringLiteral("espresso") : t;
+    }
     bool profileHasRecommendedDose() const { return m_currentProfile.hasRecommendedDose(); }
     double profileRecommendedDose() const { return m_currentProfile.recommendedDose(); }
 

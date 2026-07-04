@@ -76,9 +76,17 @@ Item {
         return parts.join(" · ")
     }
     readonly property string _roastDateStr: (showRoastDate && roastDate.length > 0) ? roastDate : ""
+    // Beverage word from the profile's beverage_type: "Espresso" (the default type),
+    // generic "coffee" for filter/pourover/any other coffee type, "tea" for tea
+    // profiles ("tea"/"tea_portafilter"). Cleaning/descale profiles get their own
+    // sentence in _build() — no bean/dose tail, plus the do-not-load-coffee warning.
+    readonly property string _bevType: ProfileManager.currentProfileBeverageType
+    readonly property bool _isCleaning: _bevType === "cleaning" || _bevType === "descale"
     readonly property string _beverage: {
         var _ = TranslationManager.translationVersion   // re-evaluate on a live language switch
-        return TranslationManager.translate("idle.button.espresso", "Espresso")
+        if (_bevType === "espresso") return TranslationManager.translate("idle.button.espresso", "Espresso")
+        if (_bevType.indexOf("tea") === 0) return TranslationManager.translate("shotplan.beverage.tea", "tea")
+        return TranslationManager.translate("shotplan.beverage.coffee", "coffee")
     }
 
     // Break a "%N" token in a user-supplied value so QString.arg can't substitute a later arg into it
@@ -91,6 +99,14 @@ Item {
     // (dose, roaster, grind, roast date) trail after it, else it degrades to a fragment list.
     function _build(fmt, sep) {
         var _ = TranslationManager.translationVersion
+        // Cleaning/descale run — beans are the enemy here. Short sentence, no
+        // dose/bean tail, and the warning rides along into the a11y label too.
+        if (_isCleaning) {
+            return (_profileStr !== "")
+                ? TranslationManager.translate("shotplan.sentenceCleaning", "Cleaning run with %1 — no coffee in the portafilter!")
+                    .arg(fmt(_profileStr, true))
+                : TranslationManager.translate("shotplan.cleaningNoProfile", "Cleaning run — no coffee in the portafilter!")
+        }
         var dose = (_doseStr !== "") ? TranslationManager.translate("shotplan.doseIn", "%1 in").arg(fmt(_doseStr, true)) : ""
         // "grind" prefix only when there is a grinder setting; a recorded-RPM-only segment
         // already reads as "90 rpm" and "grind 90 rpm" would be wrong.
@@ -130,7 +146,8 @@ Item {
     }, " <font size=\"+1\"><b>·</b></font> ")
 
     readonly property color _color: mouseArea.pressed ? Theme.accentColor
-        : (_tempOverride ? Theme.highlightColor : Theme.textColor)
+        : (_isCleaning ? Theme.warningColor
+                       : (_tempOverride ? Theme.highlightColor : Theme.textColor))
 
     implicitWidth: row.implicitWidth
     implicitHeight: row.implicitHeight

@@ -60,3 +60,9 @@
 - [x] 9.5 Editors: add the "Steam plan" toggle (`shotPlanShowSteamPlan`, default ON) to the Shot Plan settings in `ScreensaverEditorPopup.qml` and the web editor; remove the plan-only title/note special-casing
 - [x] 9.6 Update specs (`plan-widgets`, `layout-widget-instance-config`) for the consolidated single-widget model
 - [x] 9.7 Rebuild + rerun `tst_settings`; push and note the consolidation on the PR
+
+## 10. Beverage-aware sentence (maintainer request)
+
+- [x] 10.1 Expose `ProfileManager.currentProfileBeverageType` (Q_PROPERTY, NOTIFY currentProfileChanged, "espresso" fallback for empty)
+- [x] 10.2 `ShotPlanText`: beverage word by type — "Espresso" (espresso), "tea" (tea*), "coffee" (any other coffee type); cleaning/descale get a dedicated sentence "Cleaning run with {profile} — no coffee in the portafilter!" (no bean/dose tail, warning color)
+- [x] 10.3 Spec scenario updates (plan-widgets); rebuild + tst_settings; push + PR note
