@@ -308,9 +308,11 @@ FocusScope {
 
                             onAccessibleClicked: {
                                 if (!modelData || !modelData.preset) return
-                                // Announce selection for accessibility feedback
+                                // Announce selection for accessibility feedback. Route through
+                                // pillDisplayName so the tap announcement matches what focus
+                                // announces (e.g. pillLabelFn's "Small Pitcher" transform).
                                 if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
-                                    AccessibilityManager.announce(modelData.preset.name + " " + TranslationManager.translate("presetPill.selected", "selected"))
+                                    AccessibilityManager.announce(pillDisplayName(modelData.index) + " " + TranslationManager.translate("presetPill.selected", "selected"))
                                 }
                                 root.presetSelected(modelData.index)
                             }

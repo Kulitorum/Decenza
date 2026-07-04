@@ -626,6 +626,9 @@ Page {
                     // "Place the milk pitcher on the scale" — same position as the bean prompt (below
                     // the pills). Shown only while idlePitcherDetect is active (weight-timed steaming on,
                     // steam selected, scale connected) and nothing is on the scale yet. Gently blinks.
+                    // "or lift and replace": selecting steam auto-tares the scale, so a pitcher that was
+                    // ALREADY sitting there reads as 0 and won't register until it's lifted and set back
+                    // — without the hedge the prompt would assert something false.
                     // The hint promises a beep ONLY when the capture sound will actually play — the
                     // ding is separately gated on doseCaptureSoundEnabled (default off).
                     Text {
@@ -633,7 +636,7 @@ Page {
                         anchors.horizontalCenter: parent.horizontalCenter
                         horizontalAlignment: Text.AlignHCenter
                         visible: idlePitcherDetect.active && !idlePitcherDetect.loadPresent
-                        text: TranslationManager.translate("idle.label.placePitcherOnScale", "Place the milk pitcher on the scale") + "\n"
+                        text: TranslationManager.translate("idle.label.placeOrReplacePitcher", "Place (or lift and replace) the milk pitcher on the scale") + "\n"
                             + (Settings.brew.doseCaptureSoundEnabled
                                 ? TranslationManager.translate("idle.label.placePitcherHint", "(and wait for the beep before removing)")
                                 : TranslationManager.translate("idle.label.placeHintNoSound", "(hold still until the weight registers)"))

@@ -21,13 +21,19 @@ Item {
     readonly property bool _presetOff: !!(_preset && _preset.disabled)
     readonly property string _pitcherName: (_preset && _preset.name) ? String(_preset.name) : ""
 
-    // The milk weight measured this session (set on capture / the bell, reset on pitcher change and
-    // session end). Mirrored from the window root: seeded on completion / when the window resolves, and
-    // refreshed on its sessionMeasuredMilkGChanged signal. (Rename-fragile: if that root property is ever
-    // renamed, the ignoreUnknownSignals Connections silently no-ops and this freezes on its last value.)
+    // The milk weight measured this session. Owned by main.qml's sessionMeasuredMilkG —
+    // see that property for the full write/reset lifecycle. Mirrored from the window
+    // root: seeded on completion / when the window resolves, and refreshed on its
+    // sessionMeasuredMilkGChanged signal. (Rename-fragile: if that root property is ever
+    // renamed, the ignoreUnknownSignals Connections silently no-ops and this freezes on
+    // its last value — hence the one-time warn below to make that failure greppable.)
     readonly property var winRoot: root.Window.window
     property real _sessionMilk: 0
-    function _refreshMilk() { root._sessionMilk = winRoot ? (winRoot.sessionMeasuredMilkG || 0) : 0 }
+    function _refreshMilk() {
+        if (winRoot && winRoot.sessionMeasuredMilkG === undefined)
+            console.warn("SteamPlanText: window root has no sessionMeasuredMilkG — steam plan milk will not update")
+        root._sessionMilk = winRoot ? (winRoot.sessionMeasuredMilkG || 0) : 0
+    }
     onWinRootChanged: _refreshMilk()
     Component.onCompleted: _refreshMilk()
     Connections {
@@ -91,14 +97,15 @@ Item {
     readonly property string _rich: _build(function(v, live) {
         var e = Theme.escapeHtml(_argSafe(v))
         return live ? ("<b>" + e + "</b>") : e
-    }, " <font size=\"+1\"><b>·</b></font> ")
+    }, Theme.bulletSep)
 
     implicitWidth: row.implicitWidth
     implicitHeight: row.implicitHeight
 
-    // Always wrapped by ShotPlanItem (steam mode), which already exposes a StaticText a11y node — so
-    // ignore this role-less root to avoid a duplicate nested announcement (ShotPlanText gets the same
-    // effect from its role-less root, which needs no explicit flag).
+    // Always wrapped by ShotPlanItem, which already exposes the a11y node for the plan.
+    // Role-less Items are skipped by the a11y tree anyway (which is why ShotPlanText's
+    // root needs no flag); this is deliberate belt-and-braces so adding a role here
+    // later can't silently create a duplicate nested announcement.
     Accessible.ignored: true
 
     Row {

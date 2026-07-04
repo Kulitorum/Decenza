@@ -60,6 +60,7 @@ class ProfileManager : public QObject {
     Q_PROPERTY(double profileTargetTemperature READ profileTargetTemperature NOTIFY currentProfileChanged)
     Q_PROPERTY(double profileTargetWeight READ profileTargetWeight NOTIFY currentProfileChanged)
     Q_PROPERTY(QString currentProfileBeverageType READ currentProfileBeverageType NOTIFY currentProfileChanged)
+    Q_PROPERTY(bool currentProfileIsMaintenance READ currentProfileIsMaintenance NOTIFY currentProfileChanged)
     // Set to true after kMaxUploadRetryAttempts consecutive profile uploads
     // have failed with retryable reasons. qml/main.qml watches this property
     // via a Connections handler (onDe1CommunicationFailureChanged) and calls
@@ -108,6 +109,15 @@ public:
     QString currentProfileBeverageType() const {
         const QString t = m_currentProfile.beverageType().trimmed().toLower();
         return t.isEmpty() ? QStringLiteral("espresso") : t;
+    }
+    // The no-coffee maintenance tier: cleaning/descale/calibrate. Same grouping as
+    // maincontroller.cpp / visualizeruploader.cpp / mcptools_write.cpp — kept here as the
+    // one QML-visible source so the Shot Plan's no-coffee warning can't drift from the
+    // C++ consumers when a new maintenance beverage_type is added.
+    bool currentProfileIsMaintenance() const {
+        const QString t = currentProfileBeverageType();
+        return t == QLatin1String("cleaning") || t == QLatin1String("descale")
+            || t == QLatin1String("calibrate");
     }
     bool profileHasRecommendedDose() const { return m_currentProfile.hasRecommendedDose(); }
     double profileRecommendedDose() const { return m_currentProfile.recommendedDose(); }

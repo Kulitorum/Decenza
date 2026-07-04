@@ -192,10 +192,6 @@ private slots:
         QVERIFY(changedSpy.count() >= 1);  // QML bindings depend on this signal
     }
 
-    // "Update Profile" must clear any active temperature override before
-    // re-uploading. Otherwise uploadCurrentProfile() re-applies the now-stale
-    // override as a second delta, making the uploaded shot disagree with the saved
-    // profile (the bug class this whole change fixes).
     // currentProfileBeverageType() feeds the Shot Plan's beverage word (Espresso/
     // coffee/tea) and its cleaning-run warning — must reflect whatever beverage_type
     // the loaded profile carries, and normalize a missing one to "espresso" rather
@@ -218,6 +214,7 @@ private slots:
         f.profileManager.loadProfileFromJson(QJsonDocument(obj).toJson(QJsonDocument::Compact));
 
         QCOMPARE(f.profileManager.currentProfileBeverageType(), QStringLiteral("filter"));
+        QVERIFY(!f.profileManager.currentProfileIsMaintenance());
     }
 
     void currentProfileBeverageTypeDefaultsToEspresso() {
@@ -240,6 +237,58 @@ private slots:
         QCOMPARE(f.profileManager.currentProfileBeverageType(), QStringLiteral("espresso"));
     }
 
+    void currentProfileBeverageTypeNormalizesCaseAndWhitespace() {
+        // The trim+lowercase is the accessor's whole reason to exist: a community-
+        // authored " Cleaning " must still match the lowercase comparisons (and trip
+        // the maintenance tier's no-coffee warning), not fall through to "coffee".
+        McpTestFixture f;
+        QJsonObject obj;
+        obj["title"] = "Odd-cased Cleaning Test";
+        obj["legacy_profile_type"] = "settings_2c";
+        obj["beverage_type"] = " Cleaning ";
+        QJsonArray steps;
+        QJsonObject fr;
+        fr["name"] = "f";
+        fr["temperature"] = 92.0;
+        fr["pump"] = "flow";
+        fr["flow"] = 2.0;
+        fr["seconds"] = 10.0;
+        steps.append(fr);
+        obj["steps"] = steps;
+        f.profileManager.loadProfileFromJson(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+
+        QCOMPARE(f.profileManager.currentProfileBeverageType(), QStringLiteral("cleaning"));
+        QVERIFY(f.profileManager.currentProfileIsMaintenance());
+    }
+
+    void currentProfileIsMaintenanceCoversWholeTier() {
+        // descale and calibrate belong to the same no-coffee tier as cleaning —
+        // the grouping shared with maincontroller/visualizeruploader/mcptools_write.
+        for (const char* bev : {"descale", "calibrate"}) {
+            McpTestFixture f;
+            QJsonObject obj;
+            obj["title"] = "Maintenance Tier Test";
+            obj["legacy_profile_type"] = "settings_2c";
+            obj["beverage_type"] = bev;
+            QJsonArray steps;
+            QJsonObject fr;
+            fr["name"] = "f";
+            fr["temperature"] = 92.0;
+            fr["pump"] = "flow";
+            fr["flow"] = 2.0;
+            fr["seconds"] = 10.0;
+            steps.append(fr);
+            obj["steps"] = steps;
+            f.profileManager.loadProfileFromJson(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+
+            QVERIFY2(f.profileManager.currentProfileIsMaintenance(), bev);
+        }
+    }
+
+    // "Update Profile" must clear any active temperature override before
+    // re-uploading. Otherwise uploadCurrentProfile() re-applies the now-stale
+    // override as a second delta, making the uploaded shot disagree with the saved
+    // profile (the bug class the applyTemperatureToProfile change fixed).
     void applyTemperatureClearsActiveOverride() {
         McpTestFixture f;
         QJsonObject obj;

@@ -158,7 +158,8 @@ public:
     Q_INVOKABLE int scaledSteamTime(int index, double milkG) const;
     // Scaled-or-base resolution in one place: scaledSteamTime() when it yields a scaled
     // value, else the preset's fixed duration (0 for a missing/disabled preset). Used by
-    // the pill-tap timeout write and the steam-plan display so the two always agree.
+    // every steam-timeout write (idle pill tap, SteamPage start) and the steam-plan
+    // display so they always agree.
     Q_INVOKABLE int effectiveSteamDurationSec(int index, double milkG) const;
 
     // Hot water

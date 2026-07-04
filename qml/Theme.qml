@@ -22,8 +22,9 @@ QtObject {
     // Per-page scale configuration mode (set by main.qml)
     property bool configurePageScaleEnabled: false
     property string currentPageObjectName: ""
-    // The operation selected on the idle screen ("espresso"/"steam"/…, "" when the idle
-    // page isn't active). Published by IdlePage._publishOperationMode(); read by the
+    // The operation selected on the idle screen ("espresso"/"steam"/…; "" when the idle
+    // page isn't active OR it is active but nothing is selected — don't read "" as
+    // "not on the idle page"). Published by IdlePage._publishOperationMode(); read by the
     // page-aware Plan widget. Lives here beside currentPageObjectName so page/mode state
     // has ONE reactive home — don't add a second copy on the window root.
     property string currentOperationMode: ""
@@ -169,11 +170,15 @@ QtObject {
             .replace(/>/g, "&gt;")
     }
 
-    // Join already-computed text parts with a separator dot that renders slightly
-    // larger and bolder than the surrounding text. Returns StyledText HTML (relative
-    // sizing — no hardcoded sizes); the host Text must set textFormat: Text.StyledText.
+    // The styled separator dot used between joined text fragments — slightly larger and
+    // bolder than the surrounding text. StyledText HTML (relative sizing — no hardcoded
+    // sizes); hosts must set textFormat: Text.StyledText. Shared by joinWithBullet and
+    // the plan components (which can't use joinWithBullet — they bold per-value).
+    readonly property string bulletSep: " <font size=\"+1\"><b>·</b></font> "
+
+    // Join already-computed text parts with bulletSep, HTML-escaping each part.
     function joinWithBullet(parts) {
-        var sep = " <font size=\"+1\"><b>·</b></font> "
+        var sep = bulletSep
         var out = []
         for (var i = 0; i < parts.length; i++) {
             var p = String(parts[i])

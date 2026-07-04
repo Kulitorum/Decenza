@@ -537,7 +537,9 @@ ApplicationWindow {
     // Latched by the milk auto-capture (IdlePage/SteamPage) to the milk weight
     // measured for the upcoming steam session. Committed atomically with the actual
     // duration when the session ends, so "use as baseline" never adopts a mismatched
-    // (milk, time) pair. 0 = no milk measured this session.
+    // (milk, time) pair. 0 = no milk measured this session. Reset points: pitcher
+    // change and session end (both below), plus IdlePage's fresh-steam-attempt zero
+    // when steam is re-selected. Mirrored read-only by SteamPlanText.
     property real sessionMeasuredMilkG: 0
     // The captured milk is specific to the selected pitcher's tare + calibration, so
     // drop it when the pitcher changes — otherwise a new pitcher's steam could scale to

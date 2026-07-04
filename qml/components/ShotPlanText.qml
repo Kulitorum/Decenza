@@ -81,10 +81,9 @@ Item {
     // profiles ("tea"/"tea_portafilter"). Cleaning/descale profiles get their own
     // sentence in _build() — no bean/dose tail, plus the do-not-load-coffee warning.
     readonly property string _bevType: ProfileManager.currentProfileBeverageType
-    // "calibrate" profiles (e.g. temperature calibration) belong in the same no-coffee
-    // tier as cleaning/descale — matches maincontroller.cpp/visualizeruploader.cpp/
-    // mcptools_write.cpp, which all group these three beverage_types together.
-    readonly property bool _isCleaning: _bevType === "cleaning" || _bevType === "descale" || _bevType === "calibrate"
+    // The cleaning/descale/calibrate no-coffee tier lives in C++ (single source shared
+    // with maincontroller/visualizeruploader/mcptools_write) so it can't drift from them.
+    readonly property bool _isCleaning: ProfileManager.currentProfileIsMaintenance
     readonly property string _beverage: {
         var _ = TranslationManager.translationVersion   // re-evaluate on a live language switch
         if (_bevType === "espresso") return TranslationManager.translate("idle.button.espresso", "Espresso")
@@ -99,7 +98,7 @@ Item {
     // ONE renderer for both the plain `text` (a11y label + `visible: text !== ""` check) and the bolded
     // `_rich` (display), so they can NEVER drift. fmt(value, live) formats one value: plain %-escapes,
     // rich HTML-escapes and bolds live values. Core sentence is yield + profile + temp; enabled extras
-    // (dose, roaster, grind, roast date) trail after it, else it degrades to a fragment list.
+    // (dose, roaster, coffee, grind, roast date) trail after it, else it degrades to a fragment list.
     function _build(fmt, sep) {
         var _ = TranslationManager.translationVersion
         // Cleaning/descale run — beans are the enemy here. Short sentence, no
@@ -148,7 +147,7 @@ Item {
         var r = _build(function(v, live) {
             var e = Theme.escapeHtml(_argSafe(v))
             return live ? ("<b>" + e + "</b>") : e
-        }, " <font size=\"+1\"><b>·</b></font> ")
+        }, Theme.bulletSep)
         return (_isCleaning && r !== "") ? ("<b>" + r + "</b>") : r
     }
 
