@@ -140,13 +140,17 @@ Item {
     // Plain: for the accessibility label + `visible: text !== ""`.
     readonly property string text: _build(function(v, live) { return _argSafe(v) }, "  ·  ")
     // Rich: same content, live values bolded, all HTML-escaped; the styled bold safe-dot · separator.
-    readonly property string _rich: _build(function(v, live) {
-        var e = Theme.escapeHtml(_argSafe(v))
-        return live ? ("<b>" + e + "</b>") : e
-    }, " <font size=\"+1\"><b>·</b></font> ")
+    // A cleaning/descale notice is bolded WHOLE — it's a warning, not a plan.
+    readonly property string _rich: {
+        var r = _build(function(v, live) {
+            var e = Theme.escapeHtml(_argSafe(v))
+            return live ? ("<b>" + e + "</b>") : e
+        }, " <font size=\"+1\"><b>·</b></font> ")
+        return (_isCleaning && r !== "") ? ("<b>" + r + "</b>") : r
+    }
 
     readonly property color _color: mouseArea.pressed ? Theme.accentColor
-        : (_isCleaning ? Theme.warningColor
+        : (_isCleaning ? Theme.errorColor
                        : (_tempOverride ? Theme.highlightColor : Theme.textColor))
 
     implicitWidth: row.implicitWidth
