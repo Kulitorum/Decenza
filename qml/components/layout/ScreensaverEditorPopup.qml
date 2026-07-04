@@ -23,7 +23,7 @@ Dialog {
     property bool shotPlanShowRoastDate: false
     property bool shotPlanShowDoseYield: true
     property bool shotPlanShowSteamPlan: true
-    property string shotPlanFormat: "sentence"   // "sentence" | "compact" | "stacked"
+    property string shotPlanFormat: "sentence"   // "sentence" | "compact" | "stacked" | "plain"
 
     readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap" || itemType === "lastShot" || itemType === "shotPlan"
 
@@ -53,7 +53,7 @@ Dialog {
         shotPlanShowRoastDate = typeof props.shotPlanShowRoastDate === "boolean" ? props.shotPlanShowRoastDate : false
         shotPlanShowDoseYield = typeof props.shotPlanShowDoseYield === "boolean" ? props.shotPlanShowDoseYield : true
         shotPlanShowSteamPlan = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true
-        shotPlanFormat = (props.shotPlanFormat === "compact" || props.shotPlanFormat === "stacked") ? props.shotPlanFormat : "sentence"
+        shotPlanFormat = (props.shotPlanFormat === "compact" || props.shotPlanFormat === "stacked" || props.shotPlanFormat === "plain") ? props.shotPlanFormat : "sentence"
         open()
     }
 
@@ -351,7 +351,8 @@ Dialog {
                     model: [
                         { value: "sentence", label: TranslationManager.translate("shotPlanEditor.formatSentence", "Sentence") },
                         { value: "compact",  label: TranslationManager.translate("shotPlanEditor.formatCompact", "Compact") },
-                        { value: "stacked",  label: TranslationManager.translate("shotPlanEditor.formatStacked", "Stacked") }
+                        { value: "stacked",  label: TranslationManager.translate("shotPlanEditor.formatStacked", "Stacked") },
+                        { value: "plain",    label: TranslationManager.translate("shotPlanEditor.formatPlain", "Plain") }
                     ]
 
                     Rectangle {

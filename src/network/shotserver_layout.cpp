@@ -1959,6 +1959,7 @@ QString ShotServer::generateLayoutPage() const
                         <option value="sentence">Sentence</option>
                         <option value="compact">Compact</option>
                         <option value="stacked">Stacked</option>
+                        <option value="plain">Plain</option>
                     </select>
                 </div>
                 <div class="section-label">Visible elements</div>
@@ -3054,7 +3055,7 @@ QString ShotServer::generateLayoutPage() const
                     document.getElementById("spShowRoastDate").checked = typeof props.shotPlanShowRoastDate === "boolean" ? props.shotPlanShowRoastDate : false;
                     document.getElementById("spShowDoseYield").checked = typeof props.shotPlanShowDoseYield === "boolean" ? props.shotPlanShowDoseYield : true;
                     document.getElementById("spShowSteamPlan").checked = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true;
-                    document.getElementById("spFormat").value = (props.shotPlanFormat === "compact" || props.shotPlanFormat === "stacked") ? props.shotPlanFormat : "sentence";
+                    document.getElementById("spFormat").value = (props.shotPlanFormat === "compact" || props.shotPlanFormat === "stacked" || props.shotPlanFormat === "plain") ? props.shotPlanFormat : "sentence";
                     document.getElementById("ssShotPlanSettings").style.display = "";
                 } else {
                     document.getElementById("ssNoSettings").style.display = "";

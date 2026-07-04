@@ -159,13 +159,63 @@ Item {
         return parts.join(sep)
     }
 
+    // "plain" format: a fixed, dot-free two-line recipe template — IGNORES the per-field toggles.
+    //   Line 1: "Brew <yield> of <beverage> from <dose> grams of <roaster> <coffee> coffee beans"
+    //   Line 2: "(Use <profile> at <temp>)"
+    // Single output weight (no "36.0 → 41.8" arrow), no · separators. blockSep joins the two lines
+    // (a line break for display, ". " for the spoken/a11y string so it reads as two sentences).
+    function _buildPlain(fmt, blockSep) {
+        var _ = TranslationManager.translationVersion
+        void(Settings.app.temperatureUnit)
+        // A cleaning/descale run still takes precedence — no recipe, just the warning.
+        if (_isCleaning) {
+            return (profileName.length > 0)
+                ? TranslationManager.translate("shotplan.sentenceCleaning", "Cleaning run with %1 — no coffee in the portafilter!").arg(fmt(profileName, true))
+                : TranslationManager.translate("shotplan.cleaningNoProfile", "Cleaning run — no coffee in the portafilter!")
+        }
+        // Line 1 — brew + (optional) bean clause.
+        var yieldTxt = (targetWeight > 0) ? (targetWeight.toFixed(1) + "g") : ""
+        var line1 = (yieldTxt !== "")
+            ? TranslationManager.translate("shotplan.plain.brew", "Brew %1 of %2").arg(fmt(yieldTxt, true)).arg(fmt(_beverage, false))
+            : TranslationManager.translate("shotplan.plain.brewNoYield", "Brew %1").arg(fmt(_beverage, false))
+        if (dose > 0) {
+            var beans = []
+            if (roasterBrand.length > 0) beans.push(roasterBrand)
+            if (coffeeName.length > 0) beans.push(coffeeName)
+            var beanName = beans.join(" ")
+            var doseTxt = dose.toFixed(1)
+            line1 += " " + (beanName !== ""
+                ? TranslationManager.translate("shotplan.plain.fromBeans", "from %1 grams of %2 coffee beans").arg(fmt(doseTxt, true)).arg(fmt(beanName, true))
+                : TranslationManager.translate("shotplan.plain.fromBeansNoName", "from %1 grams of coffee beans").arg(fmt(doseTxt, true)))
+        }
+        // Line 2 — profile + (optional) override-aware temperature.
+        var tempTxt = (profileTemp > 0)
+            ? ProfileManager.temperatureDisplay(profileTemp, Settings.brew.hasTemperatureOverride, overrideTemp) : ""
+        var line2 = ""
+        if (profileName.length > 0) {
+            line2 = (tempTxt !== "")
+                ? TranslationManager.translate("shotplan.plain.useAt", "(Use %1 at %2)").arg(fmt(profileName, true)).arg(fmt(tempTxt, true))
+                : TranslationManager.translate("shotplan.plain.use", "(Use %1)").arg(fmt(profileName, true))
+        }
+        return (line2 !== "") ? (line1 + blockSep + line2) : line1
+    }
+
     // Plain: for the accessibility label + `visible: text !== ""`. Always joined with dots so a screen
     // reader hears one clean sentence regardless of the visual format.
-    readonly property string text: _build(function(v, live) { return _argSafe(v) }, "  ·  ", "  ·  ")
+    readonly property string text: root.format === "plain"
+        ? _buildPlain(function(v, live) { return _argSafe(v) }, ". ")
+        : _build(function(v, live) { return _argSafe(v) }, "  ·  ", "  ·  ")
     // Rich: same content, live values bolded, all HTML-escaped; joined with Theme.bulletSep.
-    // "stacked" breaks the sentence and its details onto separate lines. A cleaning/descale notice is
-    // bolded WHOLE — it's a warning, not a plan.
+    // "stacked" breaks the sentence and its details onto separate lines; "plain" is its own template.
+    // A cleaning/descale notice is bolded WHOLE — it's a warning, not a plan.
     readonly property string _rich: {
+        if (root.format === "plain") {
+            var p = _buildPlain(function(v, live) {
+                var e = Theme.escapeHtml(_argSafe(v))
+                return live ? ("<b>" + e + "</b>") : e
+            }, "<br>")
+            return (_isCleaning && p !== "") ? ("<b>" + p + "</b>") : p
+        }
         var r = _build(function(v, live) {
             var e = Theme.escapeHtml(_argSafe(v))
             return live ? ("<b>" + e + "</b>") : e
@@ -210,8 +260,8 @@ Item {
             textFormat: Text.StyledText
             font: Theme.bodyFont
             color: root._color
-            wrapMode: root.format === "stacked" ? Text.Wrap : Text.NoWrap
-            maximumLineCount: root.format === "stacked" ? 3 : 1
+            wrapMode: (root.format === "stacked" || root.format === "plain") ? Text.Wrap : Text.NoWrap
+            maximumLineCount: root.format === "plain" ? 4 : (root.format === "stacked" ? 3 : 1)
             elide: Text.ElideRight
             Accessible.ignored: true
         }
