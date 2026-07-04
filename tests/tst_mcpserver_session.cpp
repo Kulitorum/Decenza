@@ -30,7 +30,7 @@ class AIManager;
 void registerMachineTools(McpToolRegistry*, DE1Device*, MachineState*, MainController*, ProfileManager*) {}
 void registerShotTools(McpToolRegistry*, ShotHistoryStorage*) {}
 void registerProfileTools(McpToolRegistry*, ProfileManager*, Settings*) {}
-void registerPresetsTools(McpToolRegistry*, Settings*, MainController*) {}
+void registerPresetsTools(McpToolRegistry*, Settings*, MainController*, MachineState*) {}
 void registerSettingsReadTools(McpToolRegistry*, Settings*, AccessibilityManager*, ScreensaverVideoManager*, TranslationManager*, BatteryManager*, AIManager*) {}
 void registerDialingTools(McpToolRegistry*, MainController*, ProfileManager*, ShotHistoryStorage*, Settings*) {}
 void registerControlTools(McpToolRegistry*, DE1Device*, MachineState*, ProfileManager*, MainController*, Settings*) {}
