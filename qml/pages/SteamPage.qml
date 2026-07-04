@@ -1962,6 +1962,53 @@ Page {
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled && ScaleDevice.connected && !ScaleDevice.isFlowScale && steamPage.scaledSteamTimeout() > 0 }
 
+                    // ── Coaching (GLOBAL — not per-pitcher): live cues while steaming.
+                    // Every row above changes with the selected pitcher preset; these two
+                    // toggles bind to Settings.app and stay put when presets switch, so
+                    // they are rendered as their own headed group, not more preset rows.
+                    // Banner and voice are independent opt-ins, both off by default. ──
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(4)
+                        visible: !steamPage.currentPitcherDisabled
+
+                        Tr {
+                            Layout.fillWidth: true
+                            key: "steam.coaching.title"
+                            fallback: "Coaching"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(26)
+                            font.bold: true
+                            Accessible.ignored: true
+                        }
+                        Tr {
+                            Layout.fillWidth: true
+                            key: "steam.coaching.summary"
+                            fallback: "Short cues while steaming — stretch, roll, almost there, done. Applies to every pitcher. The banner and the voice are separate switches; the voice speaks even when accessibility is off."
+                            wrapMode: Text.WordWrap
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.labelFont.pixelSize
+                        }
+                    }
+
+                    StyledSwitch {
+                        Layout.fillWidth: true
+                        visible: !steamPage.currentPitcherDisabled
+                        text: TranslationManager.translate("steam.coaching.banner", "Show coaching banner")
+                        accessibleName: text
+                        checked: Settings.app.steamCoachVisualEnabled
+                        onToggled: Settings.app.steamCoachVisualEnabled = checked
+                    }
+
+                    StyledSwitch {
+                        Layout.fillWidth: true
+                        visible: !steamPage.currentPitcherDisabled
+                        text: TranslationManager.translate("steam.coaching.voice", "Speak coaching cues")
+                        accessibleName: text
+                        checked: Settings.app.steamCoachAudioEnabled
+                        onToggled: Settings.app.steamCoachAudioEnabled = checked
+                    }
+
                 }
                 }
             }
@@ -2065,9 +2112,11 @@ Page {
         }
     }
 
-    // Live during-steam coaching cues (stretch -> roll -> almost -> stop), driven
-    // by LiveSteamCoach off the elapsed steam time. Self-gates on an active cue and
-    // speaks via AccessibilityManager; only shows while steaming.
+    // Live during-steam coaching cues (stretch -> roll -> almost -> done), driven
+    // by LiveSteamCoach off the elapsed steam time (the "done" cue is event-based).
+    // Purely visual and gated on its own opt-in; voice is the coach service's job
+    // (separate steamCoachAudioEnabled setting). Self-gates on an active cue, so
+    // it only shows while steaming.
     LiveCoachingBanner {
         z: 1000
         anchors.top: parent.top
@@ -2077,7 +2126,7 @@ Page {
         anchors.leftMargin: Theme.spacingMedium
         anchors.rightMargin: Theme.spacingMedium
         coach: MainController.liveSteamCoach
-        coachEnabled: Settings.app.liveSteamCoachingEnabled
+        coachEnabled: Settings.app.steamCoachVisualEnabled
     }
 
     // Small flashing reminder while the milk pitcher is settling on the scale

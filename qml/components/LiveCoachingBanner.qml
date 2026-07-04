@@ -2,19 +2,20 @@ import QtQuick
 import QtQuick.Layouts
 import Decenza
 
-// Live coaching banner. Binds to a live-coach service passed in via `coach`
-// (LiveShotCoach on the espresso page, LiveSteamCoach on the steam page) and
-// shows one short calm cue at a time while an operation runs. Fades in when a
-// cue is active, auto-dismisses after a few seconds (UI auto-dismiss timer is
-// allowed), and tints by severity using Theme tokens. Voice is gated on the
-// user's existing extractionAnnouncements preference so we don't double-announce.
+// Live coaching banner — purely VISUAL. Binds to a live-coach service passed in
+// via `coach` (LiveSteamCoach, mounted on the steam page) and shows one short
+// calm cue at a time while an operation runs. Fades in when a cue is active,
+// auto-dismisses after a few seconds (UI auto-dismiss timer is allowed), and
+// tints by severity using Theme tokens. Voice is NOT this component's job: the
+// coach service itself emits speakRequested (gated on its own audio setting and
+// wired to AccessibilityManager::announceCoaching in main.cpp), so audio works
+// with this banner disabled.
 Item {
     id: banner
 
     // The live coach service to bind to (QML-marshalable Q_PROPERTYs: cueText /
-    // cueSeverity / cueActive / cueSpeak). Passed in by each mount so this banner
-    // is reusable across the espresso and steam pages without referencing any
-    // page-specific service directly.
+    // cueSeverity / cueActive). Passed in by the mount so this banner doesn't
+    // reference any page-specific service directly.
     property var coach: null
 
     // Feature gate, passed in by each mount (each page has its own on/off pref).
@@ -46,25 +47,16 @@ Item {
     Accessible.role: Accessible.StaticText
     Accessible.name: coach ? coach.cueText : ""
 
-    // React to cue changes: re-arm the auto-dismiss timer, and speak if asked.
+    // React to cue changes: re-arm the auto-dismiss timer. (Speaking happens in
+    // the coach service, not here.)
     Connections {
         target: banner.coach
         function onCueChanged() {
             if (!banner.coach.cueActive)
                 return
             banner.dismissed = false
-            if (banner.coachEnabled) {
+            if (banner.coachEnabled)
                 dismissTimer.restart()
-                // Speak only when the service flagged this cue AND the user has
-                // extraction announcements enabled (reuse that pref so we respect
-                // their choice and don't double-announce).
-                if (banner.coach.cueSpeak
-                        && AccessibilityManager.extractionAnnouncementsEnabled) {
-                    // Assertive (interrupt) only for urgent cautions.
-                    var urgent = banner.coach.cueSeverity === "caution"
-                    AccessibilityManager.announce(banner.coach.cueText, urgent)
-                }
-            }
         }
     }
 

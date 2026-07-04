@@ -75,6 +75,12 @@ public:
     Q_INVOKABLE void announce(const QString& text, bool interrupt = false);
     Q_INVOKABLE void announcePolite(const QString& text) { announce(text, false); }
     Q_INVOKABLE void announceAssertive(const QString& text) { announce(text, true); }
+    // Coaching announcements (steam-coach voice): the user opted into these via
+    // their own dedicated setting, so they bypass the accessibility master
+    // switch (m_enabled) — like playCaptureDing(), they are a general product
+    // feature, not an accessibility cue. Routes through the same platform/TTS
+    // path (routeAnnouncement) with its existing drop-logging.
+    void announceCoaching(const QString& text, bool interrupt = false);
     Q_INVOKABLE void announceLabel(const QString& text);  // Lower pitch + faster rate for non-interactive text
     Q_INVOKABLE void playTick();
     // Pleasant confirmation "ding" for weight auto-capture (milk/beans). Plays

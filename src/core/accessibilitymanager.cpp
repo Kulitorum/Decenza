@@ -432,6 +432,15 @@ void AccessibilityManager::announce(const QString& text, bool interrupt)
     routeAnnouncement(text, interrupt);
 }
 
+void AccessibilityManager::announceCoaching(const QString& text, bool interrupt)
+{
+    // Deliberately no m_enabled check: coaching voice has its own opt-in
+    // (Settings.app.steamCoachAudioEnabled, gated at the emitter) and must work
+    // with the accessibility master switch off. routeAnnouncement still guards
+    // m_shuttingDown and logs when it cannot produce speech.
+    routeAnnouncement(text, interrupt);
+}
+
 bool AccessibilityManager::isScreenReaderActive() const
 {
 #ifndef QT_NO_ACCESSIBILITY

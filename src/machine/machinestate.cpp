@@ -425,6 +425,11 @@ void MachineState::updatePhase() {
                     m_scale->stopTimer();
                     qDebug() << "=== SCALE TIMER: Stopped (flow ended) ===";
                 }
+                // Steam flow ended via a phase change (e.g. manual stop -> Idle).
+                // The substate-change block below won't fire (timer already
+                // stopped), so this is the only emit for this path.
+                if (oldPhase == Phase::Steaming)
+                    emit steamFlowStopped();
             }
 
             // Hot water SAW learning
@@ -563,6 +568,11 @@ void MachineState::updatePhase() {
             m_scale->stopTimer();
             qDebug() << "=== SCALE TIMER: Stopped (substate change) ===";
         }
+        // Steam auto-stop path: substate left Steaming (Puffing/Ending) while
+        // the phase stays Steaming. Mutually exclusive with the phase-change
+        // emit above — that path already stopped the timer, so we can't get here.
+        if (m_phase == Phase::Steaming)
+            emit steamFlowStopped();
     }
 }
 

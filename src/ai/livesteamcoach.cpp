@@ -1,6 +1,9 @@
 #include "livesteamcoach.h"
 
+#include <QDebug>
+
 #include "../core/settings.h"
+#include "../core/settings_app.h"
 #include "../core/settings_brew.h"
 #include "../core/translationmanager.h"
 #include "../machine/machinestate.h"
@@ -26,7 +29,32 @@ LiveSteamCoach::LiveSteamCoach(MachineState* machineState, Settings* settings,
                 this, &LiveSteamCoach::onPhaseChanged);
         connect(m_machineState, &MachineState::shotTimeChanged,
                 this, &LiveSteamCoach::onShotTimeChanged);
+        // The authoritative end-of-steam event (never time-predicted).
+        connect(m_machineState, &MachineState::steamFlowStopped,
+                this, &LiveSteamCoach::onSteamFlowStopped);
+    } else {
+        // Breadcrumb: without a MachineState the coach is permanently inert.
+        qDebug() << "[SteamCoach] no MachineState — coach inert";
     }
+
+    // Cache the two toggle values and keep them fresh via NOTIFY signals
+    // (event-based flags — no per-tick QSettings reads).
+    if (m_settings && m_settings->app()) {
+        connect(m_settings->app(), &SettingsApp::steamCoachVisualEnabledChanged,
+                this, &LiveSteamCoach::refreshEnabledFlags);
+        connect(m_settings->app(), &SettingsApp::steamCoachAudioEnabledChanged,
+                this, &LiveSteamCoach::refreshEnabledFlags);
+        refreshEnabledFlags();
+    } else {
+        qDebug() << "[SteamCoach] no Settings — coach disabled";
+    }
+}
+
+void LiveSteamCoach::refreshEnabledFlags() {
+    if (!m_settings || !m_settings->app())
+        return;
+    m_visualEnabled = m_settings->app()->steamCoachVisualEnabled();
+    m_audioEnabled = m_settings->app()->steamCoachAudioEnabled();
 }
 
 void LiveSteamCoach::onPhaseChanged() {
@@ -38,7 +66,8 @@ void LiveSteamCoach::onPhaseChanged() {
         // Steam just started: clear any stale state from a previous steam.
         resetState();
         m_steaming = true;
-        evaluate();  // fire the opening "stretch" cue right away
+        if (coachingActive())
+            evaluate();  // fire the opening "stretch" cue right away
     } else if (!nowSteaming && m_steaming) {
         // Steam ended: silence and reset.
         m_steaming = false;
@@ -48,14 +77,56 @@ void LiveSteamCoach::onPhaseChanged() {
 
 void LiveSteamCoach::onShotTimeChanged() {
     // During steaming, shotTime is the elapsed steam time. Re-check milestones
-    // as it advances.
-    if (!m_steaming)
+    // as it advances. A fully disabled coach does no per-tick work.
+    if (!m_steaming || !coachingActive())
         return;
     evaluate();
 }
 
+void LiveSteamCoach::onSteamFlowStopped() {
+    // The machine event that actually ends steam flow (auto-stop at the target,
+    // or a manual stop). This — not a predicted time window — drives the "done"
+    // cue, so it cannot be missed when the local 100ms clock lags the firmware's
+    // own countdown (the shot timer freezes the instant flow stops).
+    if (!m_steaming || !m_machineState)
+        return;
+    // Latch even when no cue results (early abort / untimed / disabled):
+    // whatever happens after this, the flow has stopped and there is nothing
+    // left to coach — evaluate() keys off this.
+    const bool alreadyStopped = m_flowStopped;
+    m_flowStopped = true;
+    if (alreadyStopped || m_firedCompletion || !coachingActive())
+        return;
+
+    // Untimed/manual steam: there is no target to complete against, and the user
+    // stopped it themselves — no announcement.
+    const int timeout = (m_settings && m_settings->brew())
+                            ? m_settings->brew()->steamTimeout() : 0;
+    if (timeout <= 0)
+        return;
+
+    // Early manual abort (flow stopped well before the target): deliberate,
+    // needs no announcement. Within the window = natural completion — this also
+    // absorbs firmware/local clock drift (firmware stopping slightly "early").
+    const double remaining = static_cast<double>(timeout) - m_machineState->shotTime();
+    if (remaining > COMPLETION_WINDOW_SEC)
+        return;
+
+    m_firedCompletion = true;
+    // Notification wording (not an instruction — the machine has already
+    // stopped). Spoken assertively so it lands promptly, eyes on the pitcher.
+    emitCue(QStringLiteral("steam-done"),
+            tr_("steamCoach.cue.done", "Steam done"),
+            QStringLiteral("positive"), /*speak=*/true, /*interrupt=*/true);
+}
+
 void LiveSteamCoach::evaluate() {
     if (!m_steaming || !m_machineState || !m_settings)
+        return;
+    // Never coach a stopped flow: once steamFlowStopped has fired, technique
+    // milestones (roll/almost) must not surface on a late/frozen-clock tick —
+    // the pour is over even while the phase lingers in Steaming (Puffing/Ending).
+    if (m_flowStopped)
         return;
 
     const double elapsed = m_machineState->shotTime();
@@ -68,36 +139,33 @@ void LiveSteamCoach::evaluate() {
         emitCue(QStringLiteral("steam-stretch"),
                 tr_("steamCoach.cue.stretch",
                     "Steaming — keep the tip near the surface to stretch"),
-                QStringLiteral("info"), /*speak=*/true, elapsed);
+                QStringLiteral("info"), /*speak=*/true);
         return;
     }
 
     // The remaining milestones need a known target duration to pace against.
-    // A manual/untimed steam (steamTimeout <= 0) gets only the stretch cue.
+    // A manual/untimed steam (steamTimeout <= 0) gets only the stretch cue
+    // (its end is user-decided, so no completion cue either).
     const int timeout = m_settings->brew() ? m_settings->brew()->steamTimeout() : 0;
-    if (timeout <= 0)
-        return;
-    const double remaining = static_cast<double>(timeout) - elapsed;
-
-    // Stop (highest priority near the end): the machine is about to auto-stop.
-    // Spoken and assertive — this is the cue you steam by, eyes off the screen.
-    if (!m_firedStop && remaining <= STOP_REMAINING_SEC) {
-        m_firedStop = true;
-        emitCue(QStringLiteral("steam-stop"),
-                tr_("steamCoach.cue.stop", "Stop — steam finishing"),
-                QStringLiteral("caution"), /*speak=*/true, elapsed);
+    if (timeout <= 0) {
+        if (!m_loggedUntimed) {
+            m_loggedUntimed = true;
+            qDebug() << "[SteamCoach] no target duration (manual steam) — stretch cue only";
+        }
         return;
     }
+    const double remaining = static_cast<double>(timeout) - elapsed;
 
-    // Almost: a heads-up before the stop, by fraction or by seconds-remaining
-    // (whichever comes first, so short steams still get a warning).
+    // Almost: a heads-up before the end, by fraction or by seconds-remaining
+    // (whichever comes first, so short steams still get a warning). The "done"
+    // cue itself is event-driven (onSteamFlowStopped), never predicted.
     if (!m_firedAlmost
         && (remaining <= ALMOST_REMAINING_SEC
             || elapsed >= ALMOST_FRACTION * timeout)) {
         m_firedAlmost = true;
         emitCue(QStringLiteral("steam-almost"),
                 tr_("steamCoach.cue.almost", "Almost there — get ready"),
-                QStringLiteral("info"), /*speak=*/true, elapsed);
+                QStringLiteral("info"), /*speak=*/true);
         return;
     }
 
@@ -108,41 +176,34 @@ void LiveSteamCoach::evaluate() {
         m_firedRoll = true;
         emitCue(QStringLiteral("steam-roll"),
                 tr_("steamCoach.cue.roll", "Submerge the tip — roll and texture"),
-                QStringLiteral("info"), /*speak=*/true, elapsed);
+                QStringLiteral("info"), /*speak=*/true);
         return;
     }
 }
 
 void LiveSteamCoach::emitCue(const QString& id, const QString& text,
-                             const QString& severity, bool speak, double clock) {
-    // Dedupe: don't re-publish a cue that is already the active one.
+                             const QString& severity, bool speak, bool interrupt) {
+    // Dedupe: don't re-publish a cue that is already the active one. (Belt and
+    // suspenders — every caller is also one-shot latched.)
     if (m_cueActive && id == m_activeCueId)
         return;
-
-    // Spoken-cue spacing: gate voice on steam-time elapsed since the last spoken
-    // cue (clock-based, not a guard Timer). Visual cue still shows. The "stop"
-    // caution is the safety cue you steam by, so it is exempt — the spacing gate
-    // must never silence it on a very short steam.
-    bool willSpeak = speak;
-    if (willSpeak && severity != QStringLiteral("caution")
-        && (clock - m_lastSpokenClock) < MIN_SPOKEN_SPACING_SEC)
-        willSpeak = false;
-    if (willSpeak)
-        m_lastSpokenClock = clock;
 
     m_activeCueId = id;
     m_cueText = text;
     m_cueSeverity = severity;
-    m_cueSpeak = willSpeak;
     m_cueActive = true;
     emit cueChanged();
+
+    // Voice is a service concern, gated only on the dedicated audio setting —
+    // not on the banner, the page, or the accessibility master switch.
+    if (speak && m_audioEnabled)
+        emit speakRequested(text, interrupt);
 }
 
 void LiveSteamCoach::clearCue() {
     if (!m_cueActive && m_cueText.isEmpty())
         return;
     m_cueActive = false;
-    m_cueSpeak = false;
     m_cueText.clear();
     m_cueSeverity.clear();
     m_activeCueId.clear();
@@ -153,7 +214,8 @@ void LiveSteamCoach::resetState() {
     m_firedStretch = false;
     m_firedRoll = false;
     m_firedAlmost = false;
-    m_firedStop = false;
-    m_lastSpokenClock = -1000.0;
+    m_firedCompletion = false;
+    m_flowStopped = false;
+    m_loggedUntimed = false;
     clearCue();
 }

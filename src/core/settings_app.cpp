@@ -583,14 +583,25 @@ void SettingsApp::setScreenCaptureEnabled(bool enabled) {
     }
 }
 
-bool SettingsApp::liveSteamCoachingEnabled() const {
-    return m_settings.value("steam/liveSteamCoachingEnabled", true).toBool();
+bool SettingsApp::steamCoachVisualEnabled() const {
+    return m_settings.value("steam/steamCoachVisualEnabled", false).toBool();
 }
 
-void SettingsApp::setLiveSteamCoachingEnabled(bool enabled) {
-    if (liveSteamCoachingEnabled() != enabled) {
-        m_settings.setValue("steam/liveSteamCoachingEnabled", enabled);
-        emit liveSteamCoachingEnabledChanged();
+void SettingsApp::setSteamCoachVisualEnabled(bool enabled) {
+    if (steamCoachVisualEnabled() != enabled) {
+        m_settings.setValue("steam/steamCoachVisualEnabled", enabled);
+        emit steamCoachVisualEnabledChanged();
+    }
+}
+
+bool SettingsApp::steamCoachAudioEnabled() const {
+    return m_settings.value("steam/steamCoachAudioEnabled", false).toBool();
+}
+
+void SettingsApp::setSteamCoachAudioEnabled(bool enabled) {
+    if (steamCoachAudioEnabled() != enabled) {
+        m_settings.setValue("steam/steamCoachAudioEnabled", enabled);
+        emit steamCoachAudioEnabledChanged();
     }
 }
 

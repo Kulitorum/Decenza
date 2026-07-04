@@ -108,6 +108,11 @@ signals:
     void tareCompleted();         // Emitted when scale reports ~0g after tare command
     void flowBeforeAutoTare();    // Emitted when auto-tare fires during preheat (tells WeightProcessor to reset)
     void sawBypassed();           // Emitted when SAW is skipped due to untared cup
+    // Steam flow just ended (auto-stop at the timeout OR a manual stop) — the
+    // exact event where the steam shot timer stops. Emitted synchronously from
+    // updatePhase() so consumers (LiveSteamCoach) see it BEFORE the deferred
+    // phaseChanged when the stop also leaves the Steaming phase.
+    void steamFlowStopped();
 
 private slots:
     void onDE1StateChanged();
@@ -182,5 +187,6 @@ private:
     friend class tst_MachineState;
     friend class tst_ProfileManager;
     friend class tst_MachineStatusSnapshot;
+    friend class tst_LiveSteamCoach;
 #endif
 };

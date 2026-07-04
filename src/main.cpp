@@ -1200,6 +1200,12 @@ int main(int argc, char *argv[])
     AccessibilityManager accessibilityManager;
     accessibilityManager.setTranslationManager(&translationManager);
 
+    // Steam-coach voice: the coach emits speakRequested only when its own audio
+    // setting is on; route it via announceCoaching, which bypasses the
+    // accessibility master switch (the coach's toggle is its own opt-in).
+    QObject::connect(mainController.liveSteamCoach(), &LiveSteamCoach::speakRequested,
+                     &accessibilityManager, &AccessibilityManager::announceCoaching);
+
     // Now that all managers exist, finish MCP server setup
     mcpServer.setAccessibilityManager(&accessibilityManager);
     mcpServer.registerAllTools();
