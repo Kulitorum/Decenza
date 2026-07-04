@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QSignalSpy>
+#include <QSettings>
 
 #include "ai/livesteamcoach.h"
 #include "machine/machinestate.h"
@@ -22,6 +23,18 @@ class tst_LiveSteamCoach : public QObject {
     Q_OBJECT
 
 private:
+    // SettingsApp/SettingsBrew write to the PRIMARY store
+    // QSettings("DecentEspresso", "DE1Qt") — the developer's real preferences,
+    // NOT a test-scoped store. Snapshot every key the fixtures write in init()
+    // and restore in cleanup() (same pattern as tst_accessibility_announcements
+    // / tst_settings), otherwise a test run permanently flips the developer's
+    // steam-coaching toggles (they must stay off-by-default for new users) and
+    // steam duration.
+    QSettings m_realSettings{"DecentEspresso", "DE1Qt"};
+    QVariant m_origCoachVisual;
+    QVariant m_origCoachAudio;
+    QVariant m_origSteamTimeout;
+
     static constexpr const char* STRETCH = "Steaming — keep the tip near the surface to stretch";
     static constexpr const char* ROLL    = "Submerge the tip — roll and texture";
     static constexpr const char* ALMOST  = "Almost there — get ready";
@@ -73,6 +86,25 @@ private:
     };
 
 private slots:
+
+    void init() {
+        m_origCoachVisual  = m_realSettings.value("steam/steamCoachVisualEnabled");
+        m_origCoachAudio   = m_realSettings.value("steam/steamCoachAudioEnabled");
+        m_origSteamTimeout = m_realSettings.value("steam/timeout");
+    }
+
+    void cleanup() {
+        auto restore = [&](const char* key, const QVariant& original) {
+            if (original.isValid())
+                m_realSettings.setValue(key, original);
+            else
+                m_realSettings.remove(key);
+        };
+        restore("steam/steamCoachVisualEnabled", m_origCoachVisual);
+        restore("steam/steamCoachAudioEnabled", m_origCoachAudio);
+        restore("steam/timeout", m_origSteamTimeout);
+        m_realSettings.sync();
+    }
 
     // ==========================================
     // Gating: two independent, explicit opt-ins
