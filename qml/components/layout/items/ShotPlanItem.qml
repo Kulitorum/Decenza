@@ -22,6 +22,9 @@ Item {
     readonly property bool showRoastDate: modelData.shotPlanShowRoastDate === true
     readonly property bool showDoseYield: modelData.shotPlanShowDoseYield !== false
     readonly property bool showSteamPlan: modelData.shotPlanShowSteamPlan !== false
+    // Display format: "sentence" (default) | "compact" | "stacked". Fixes the run-on/truncation
+    // by letting the user pick a shape that fits their tile.
+    readonly property string format: modelData.shotPlanFormat || "sentence"
 
     // Steam context = steam selected on the idle screen, OR the full steam page, OR the
     // machine actively steaming. Theme.currentPageObjectName (set by main.qml's
@@ -79,6 +82,8 @@ Item {
             id: compactShotPlan
             anchors.centerIn: parent
             visible: !root._steamMode && text !== ""
+            format: root.format
+            availableWidth: root.width
             showProfile: root.showProfile
             showRoaster: root.showRoaster
             showCoffee: root.showCoffee
@@ -91,6 +96,8 @@ Item {
             id: compactSteamPlan
             anchors.centerIn: parent
             visible: root._steamMode && text !== ""
+            format: root.format
+            availableWidth: root.width
         }
     }
 
@@ -106,6 +113,8 @@ Item {
             id: fullShotPlan
             anchors.centerIn: parent
             visible: !root._steamMode && text !== ""
+            format: root.format
+            availableWidth: root.width
             showProfile: root.showProfile
             showRoaster: root.showRoaster
             showCoffee: root.showCoffee
@@ -118,6 +127,8 @@ Item {
             id: fullSteamPlan
             anchors.centerIn: parent
             visible: root._steamMode && text !== ""
+            format: root.format
+            availableWidth: root.width
         }
     }
 }

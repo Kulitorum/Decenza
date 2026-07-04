@@ -11,6 +11,11 @@ import "../"
 Item {
     id: root
 
+    // Mirrors ShotPlanText: "sentence"/"compact" render the same short line; "stacked" lets it wrap.
+    // availableWidth (the tile width from ShotPlanItem) caps the text so it never overflows the tile.
+    property string format: "sentence"
+    property real availableWidth: 0
+
     // The currently selected steam pitcher preset. getSteamPitcherPreset() is Q_INVOKABLE, so the
     // binding must ALSO read steamPitcherPresets to re-run when the selected pitcher is renamed,
     // disabled, or recalibrated without the selection index itself changing.
@@ -127,10 +132,17 @@ Item {
 
         Text {
             anchors.verticalCenter: parent.verticalCenter
+            // Cap to the available width only when the text would overflow; shorter text keeps its
+            // natural width so the centred Row is unaffected.
+            width: root.availableWidth > 0
+                   ? Math.min(implicitWidth, Math.max(0, root.availableWidth - Theme.scaled(20) - Theme.spacingSmall))
+                   : implicitWidth
             text: root._rich
             textFormat: Text.StyledText
             font: Theme.bodyFont
             color: Theme.textColor
+            wrapMode: root.format === "stacked" ? Text.Wrap : Text.NoWrap
+            maximumLineCount: root.format === "stacked" ? 3 : 1
             elide: Text.ElideRight
             Accessible.ignored: true
         }

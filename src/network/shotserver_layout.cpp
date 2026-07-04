@@ -1953,6 +1953,14 @@ QString ShotServer::generateLayoutPage() const
             </div>
 
             <div id="ssShotPlanSettings" style="display:none">
+                <div class="section-label">Layout</div>
+                <div class="ss-slider-row">
+                    <select id="spFormat" onchange="spToggleChanged()" style="width:100%;padding:0.4rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px">
+                        <option value="sentence">Sentence</option>
+                        <option value="compact">Compact</option>
+                        <option value="stacked">Stacked</option>
+                    </select>
+                </div>
                 <div class="section-label">Visible elements</div>
                 <div class="ss-slider-row">
                     <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
@@ -3046,6 +3054,7 @@ QString ShotServer::generateLayoutPage() const
                     document.getElementById("spShowRoastDate").checked = typeof props.shotPlanShowRoastDate === "boolean" ? props.shotPlanShowRoastDate : false;
                     document.getElementById("spShowDoseYield").checked = typeof props.shotPlanShowDoseYield === "boolean" ? props.shotPlanShowDoseYield : true;
                     document.getElementById("spShowSteamPlan").checked = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true;
+                    document.getElementById("spFormat").value = (props.shotPlanFormat === "compact" || props.shotPlanFormat === "stacked") ? props.shotPlanFormat : "sentence";
                     document.getElementById("ssShotPlanSettings").style.display = "";
                 } else {
                     document.getElementById("ssNoSettings").style.display = "";
@@ -3095,6 +3104,7 @@ QString ShotServer::generateLayoutPage() const
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowRoastDate", value: document.getElementById("spShowRoastDate").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowDoseYield", value: document.getElementById("spShowDoseYield").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowSteamPlan", value: document.getElementById("spShowSteamPlan").checked}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotPlanFormat", value: document.getElementById("spFormat").value}, function() {});
         }
     }
 

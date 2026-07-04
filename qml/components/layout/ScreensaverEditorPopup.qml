@@ -23,6 +23,7 @@ Dialog {
     property bool shotPlanShowRoastDate: false
     property bool shotPlanShowDoseYield: true
     property bool shotPlanShowSteamPlan: true
+    property string shotPlanFormat: "sentence"   // "sentence" | "compact" | "stacked"
 
     readonly property bool hasSettings: itemType === "screensaverFlipClock" || itemType === "screensaverShotMap" || itemType === "lastShot" || itemType === "shotPlan"
 
@@ -52,6 +53,7 @@ Dialog {
         shotPlanShowRoastDate = typeof props.shotPlanShowRoastDate === "boolean" ? props.shotPlanShowRoastDate : false
         shotPlanShowDoseYield = typeof props.shotPlanShowDoseYield === "boolean" ? props.shotPlanShowDoseYield : true
         shotPlanShowSteamPlan = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true
+        shotPlanFormat = (props.shotPlanFormat === "compact" || props.shotPlanFormat === "stacked") ? props.shotPlanFormat : "sentence"
         open()
     }
 
@@ -92,6 +94,7 @@ Dialog {
             Settings.network.setItemProperty(itemId, "shotPlanShowRoastDate", shotPlanShowRoastDate)
             Settings.network.setItemProperty(itemId, "shotPlanShowDoseYield", shotPlanShowDoseYield)
             Settings.network.setItemProperty(itemId, "shotPlanShowSteamPlan", shotPlanShowSteamPlan)
+            Settings.network.setItemProperty(itemId, "shotPlanFormat", shotPlanFormat)
         }
         saved()
         close()
@@ -332,6 +335,54 @@ Dialog {
             Layout.fillWidth: true
             spacing: Theme.spacingSmall
             visible: popup.itemType === "shotPlan"
+
+            // Layout format: how the plan is arranged — a full sentence, short chips, or a
+            // sentence with the details stacked below (so long plans never get truncated).
+            Text {
+                text: TranslationManager.translate("shotPlanEditor.layout", "Layout")
+                font: Theme.labelFont
+                color: Theme.textSecondaryColor
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+
+                Repeater {
+                    model: [
+                        { value: "sentence", label: TranslationManager.translate("shotPlanEditor.formatSentence", "Sentence") },
+                        { value: "compact",  label: TranslationManager.translate("shotPlanEditor.formatCompact", "Compact") },
+                        { value: "stacked",  label: TranslationManager.translate("shotPlanEditor.formatStacked", "Stacked") }
+                    ]
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: Theme.scaled(32)
+                        radius: Theme.scaled(6)
+                        color: popup.shotPlanFormat === modelData.value ? Theme.primaryColor : "transparent"
+                        border.color: popup.shotPlanFormat === modelData.value ? Theme.primaryColor : Theme.borderColor
+                        border.width: 1
+
+                        Accessible.role: Accessible.Button
+                        Accessible.name: modelData.label + (popup.shotPlanFormat === modelData.value ? ", selected" : "")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: shotPlanFormatArea.clicked(null)
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: modelData.label
+                            font: Theme.captionFont
+                            color: popup.shotPlanFormat === modelData.value ? Theme.primaryContrastColor : Theme.textColor
+                            Accessible.ignored: true
+                        }
+
+                        MouseArea {
+                            id: shotPlanFormatArea
+                            anchors.fill: parent
+                            onClicked: popup.shotPlanFormat = modelData.value
+                        }
+                    }
+                }
+            }
 
             StyledSwitch {
                 text: TranslationManager.translate("shotPlanEditor.showProfile", "Profile & temperature")

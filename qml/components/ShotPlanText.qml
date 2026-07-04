@@ -15,6 +15,15 @@ Item {
 
     signal clicked()
 
+    // Display format (per-instance, chosen in the layout editor): "sentence" (default — the full
+    // "Brew … using … at …" line), "compact" (short ·-separated fragments, no sentence), or "stacked"
+    // (sentence on the first line, the details wrapping onto following lines — never truncated).
+    property string format: "sentence"
+    // The width the widget has to render in (ShotPlanItem passes the tile width). 0 = unconstrained
+    // (natural size, legacy behaviour). When >0 the text is capped to it so it wraps/elides instead of
+    // silently overflowing the tile.
+    property real availableWidth: 0
+
     // Visibility flags (passed through by ShotPlanItem) — one per Shot Plan display option:
     // Profile & temperature, Roaster, Coffee, Grind (+ RPM), Roast date, Dose & yield. Each toggles
     // its segment both in the sentence/tail and in the fallback fragment list.
@@ -100,8 +109,10 @@ Item {
     // `_rich` (display), so they can NEVER drift. fmt(value, live) formats one value: plain %-escapes,
     // rich HTML-escapes and bolds live values. Core sentence is profile + temp (plus yield when the
     // profile has a target weight); enabled extras (dose, roaster, coffee, grind, roast date) trail
-    // after it, else it degrades to a fragment list.
-    function _build(fmt, sep) {
+    // after it, else it degrades to a fragment list. blockSep separates the core sentence from its
+    // trailing details — the same `sep` for one-line formats, a line break for "stacked"; "compact"
+    // skips the sentence entirely (fragment list).
+    function _build(fmt, sep, blockSep) {
         var _ = TranslationManager.translationVersion
         // Cleaning/descale run — beans are the enemy here. Short sentence, no
         // dose/bean tail, and the warning rides along into the a11y label too.
@@ -118,7 +129,7 @@ Item {
             : (grindSize.length > 0 ? TranslationManager.translate("shotplan.grind", "grind %1").arg(fmt(_grindStr, true))
                                     : fmt(_grindStr, true))
         var roasted = (_roastDateStr !== "") ? TranslationManager.translate("shotplan.roasted", "roasted %1").arg(fmt(_roastDateStr, true)) : ""
-        if (_profileStr !== "" && _tempStr !== "") {
+        if (root.format !== "compact" && _profileStr !== "" && _tempStr !== "") {
             // Yield is legitimately absent for profiles with no target weight (filter,
             // tea, …) — keep the sentence form so the beverage word survives, instead of
             // dropping to the beverage-less fragment list. Separate full template (not
@@ -134,7 +145,7 @@ Item {
             if (_coffeeStr !== "") tail.push(fmt(_coffeeStr, true))
             if (grind !== "") tail.push(grind)
             if (roasted !== "") tail.push(roasted)
-            return tail.length > 0 ? (s + sep + tail.join(sep)) : s
+            return tail.length > 0 ? (s + blockSep + tail.join(sep)) : s
         }
         var parts = []
         if (dose !== "") parts.push(dose)
@@ -148,15 +159,17 @@ Item {
         return parts.join(sep)
     }
 
-    // Plain: for the accessibility label + `visible: text !== ""`.
-    readonly property string text: _build(function(v, live) { return _argSafe(v) }, "  ·  ")
-    // Rich: same content, live values bolded, all HTML-escaped; the styled bold safe-dot · separator.
-    // A cleaning/descale notice is bolded WHOLE — it's a warning, not a plan.
+    // Plain: for the accessibility label + `visible: text !== ""`. Always joined with dots so a screen
+    // reader hears one clean sentence regardless of the visual format.
+    readonly property string text: _build(function(v, live) { return _argSafe(v) }, "  ·  ", "  ·  ")
+    // Rich: same content, live values bolded, all HTML-escaped; joined with Theme.bulletSep.
+    // "stacked" breaks the sentence and its details onto separate lines. A cleaning/descale notice is
+    // bolded WHOLE — it's a warning, not a plan.
     readonly property string _rich: {
         var r = _build(function(v, live) {
             var e = Theme.escapeHtml(_argSafe(v))
             return live ? ("<b>" + e + "</b>") : e
-        }, Theme.bulletSep)
+        }, Theme.bulletSep, root.format === "stacked" ? "<br>" : Theme.bulletSep)
         return (_isCleaning && r !== "") ? ("<b>" + r + "</b>") : r
     }
 
@@ -184,10 +197,17 @@ Item {
         Text {
             id: planText
             anchors.verticalCenter: parent.verticalCenter
+            // Cap to the available width (tile width minus the icon + spacing) only when it would
+            // otherwise overflow; shorter text keeps its natural width so the Row stays centred.
+            width: root.availableWidth > 0
+                   ? Math.min(implicitWidth, Math.max(0, root.availableWidth - Theme.scaled(20) - Theme.spacingSmall))
+                   : implicitWidth
             text: root._rich
             textFormat: Text.StyledText
             font: Theme.bodyFont
             color: root._color
+            wrapMode: root.format === "stacked" ? Text.Wrap : Text.NoWrap
+            maximumLineCount: root.format === "stacked" ? 3 : 1
             elide: Text.ElideRight
             Accessible.ignored: true
         }
