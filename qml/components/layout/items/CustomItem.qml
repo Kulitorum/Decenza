@@ -187,7 +187,9 @@ Item {
         // Escape a text VALUE for the RichText render, and use a function replacer so the value's own
         // $-patterns ($&, $$, $1) aren't interpreted by String.replace. Mirrors ShotPlanText's safe
         // substitution. Numeric/arrow tokens can share it harmlessly; NOT for markup-emitting tokens.
-        function _subText(res, re, value) { var safe = Theme.escapeHtml(value); return res.replace(re, function() { return safe }) }
+        // Also neutralize % (→ &#37;, still renders as "%") so a value literally containing a later
+        // token — e.g. a bean named "%MACHINE_CONNECTED%" — can't be re-expanded by a later replace.
+        function _subText(res, re, value) { var safe = Theme.escapeHtml(value).replace(/%/g, "&#37;"); return res.replace(re, function() { return safe }) }
         // Machine
         result = result.replace(/%TEMP%/g, typeof DE1Device !== "undefined" ? Theme.cToDisplay(DE1Device.temperature).toFixed(1) : "—")
         result = result.replace(/%STEAM_TEMP%/g, typeof DE1Device !== "undefined" ? Theme.cToDisplay(DE1Device.steamTemperature).toFixed(0) + "\u00B0" : "—")
