@@ -677,6 +677,20 @@ bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
             continue;
         }
 
+        // A first frame that exited on its OWN exit condition (a pressure/flow/
+        // weight target) executed as designed — it was not skipped. DE1
+        // preinfusion/fill frames routinely exit early, long before their
+        // configured max duration, which is exactly what they are meant to do.
+        // The marker for the first non-zero frame records WHY frame 0 exited;
+        // only a time-based or unknown early-out can indicate a genuinely
+        // skipped or too-short first step. (Same transitionReason signal the
+        // grind detector already relies on.) Old data has an empty reason and
+        // falls through to the duration checks below, preserving prior behaviour.
+        if (phase.transitionReason == QStringLiteral("pressure")
+                || phase.transitionReason == QStringLiteral("flow")
+                || phase.transitionReason == QStringLiteral("weight"))
+            return false;
+
         // FW-bug branch: frame 0 was never observed before a non-zero frame.
         // Mirror the de1app Tcl plugin's hard 2 s window — that plugin polls
         // during extraction and can only catch it before t=2 s, so for parity
