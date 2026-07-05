@@ -16,8 +16,9 @@ Item {
     signal clicked()
 
     // Display format (per-instance, chosen in the layout editor): "sentence" (default — the full
-    // "Brew … using … at …" line), "compact" (short ·-separated fragments, no sentence), or "stacked"
-    // (sentence on the first line, the details wrapping onto following lines — never truncated).
+    // "Brew … using … at …" line), "compact" (short ·-separated fragments, no sentence), "stacked"
+    // (sentence on line 1, details wrapping onto following lines), or "plain" (a dot-free recipe
+    // sentence that IGNORES the per-field toggles). Long plans wrap up to 3 lines, then truncate.
     property string format: "sentence"
     // The width the widget has to render in (ShotPlanItem passes the tile width). 0 = unconstrained
     // (natural size, legacy behaviour). When >0 the text is capped to it so it wraps/elides instead of
@@ -110,7 +111,8 @@ Item {
     // rich HTML-escapes and bolds live values. Core sentence is profile + temp (plus yield when the
     // profile has a target weight); enabled extras (dose, roaster, coffee, grind, roast date) trail
     // after it, else it degrades to a fragment list. blockSep separates the core sentence from its
-    // trailing details — the same `sep` for one-line formats, a line break for "stacked"; "compact"
+    // trailing details — the same `sep` for one-line formats, a line break for "stacked" on the DISPLAY
+    // path only (the a11y `text` always passes dots, so the spoken string stays one sentence); "compact"
     // skips the sentence entirely (fragment list).
     function _build(fmt, sep, blockSep) {
         var _ = TranslationManager.translationVersion
@@ -160,9 +162,10 @@ Item {
     }
 
     // "plain" format: a single, dot-free recipe sentence — IGNORES the per-field toggles.
-    //   "Pull a <yield> espresso shot using <dose> grams of <roaster> <coffee> coffee beans"
-    // Single output weight (no "36.0 → 41.8" arrow), no · separators, no profile/temp line — the user
-    // keeps profile & temperature on the brew bar below. blockSep is unused (single line).
+    //   "Pull a <yield> coffee shot using <dose> grams of <roaster> <coffee> coffee beans"
+    // "coffee" (not a beverage-specific word) so it reads sensibly for any coffee profile. Single output
+    // weight (no "36.0 → 41.8" arrow), no · separators, no profile/temp line — the user keeps profile &
+    // temperature on the brew bar below. blockSep is unused (single line).
     function _buildPlain(fmt, blockSep) {
         var _ = TranslationManager.translationVersion
         // A cleaning/descale run still takes precedence — no recipe, just the warning.
@@ -173,8 +176,8 @@ Item {
         }
         var yieldTxt = (targetWeight > 0) ? (targetWeight.toFixed(1) + "g") : ""
         var line = (yieldTxt !== "")
-            ? TranslationManager.translate("shotplan.plain.pull", "Pull a %1 espresso shot").arg(fmt(yieldTxt, true))
-            : TranslationManager.translate("shotplan.plain.pullNoYield", "Pull an espresso shot")
+            ? TranslationManager.translate("shotplan.plain.pull", "Pull a %1 coffee shot").arg(fmt(yieldTxt, true))
+            : TranslationManager.translate("shotplan.plain.pullNoYield", "Pull a coffee shot")
         if (dose > 0) {
             var beans = []
             if (roasterBrand.length > 0) beans.push(roasterBrand)

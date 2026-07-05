@@ -22,8 +22,8 @@ Item {
     readonly property bool showRoastDate: modelData.shotPlanShowRoastDate === true
     readonly property bool showDoseYield: modelData.shotPlanShowDoseYield !== false
     readonly property bool showSteamPlan: modelData.shotPlanShowSteamPlan !== false
-    // Display format: "sentence" (default) | "compact" | "stacked". Fixes the run-on/truncation
-    // by letting the user pick a shape that fits their tile.
+    // Display format: "sentence" (default) | "compact" | "stacked" | "plain". Picked in the layout
+    // editor; a wider/taller shape lets long plans wrap instead of truncating.
     readonly property string format: modelData.shotPlanFormat || "sentence"
 
     // Steam context = steam selected on the idle screen, OR the full steam page, OR the

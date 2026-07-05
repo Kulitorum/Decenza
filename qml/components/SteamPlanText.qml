@@ -11,8 +11,9 @@ import "../"
 Item {
     id: root
 
-    // Mirrors ShotPlanText: "sentence"/"compact" render the same short line; "stacked" lets it wrap.
-    // availableWidth (the tile width from ShotPlanItem) caps the text so it never overflows the tile.
+    // Mirrors ShotPlanText's `format`, but steam has no per-format template: sentence/compact/plain
+    // all render the same short line; only "stacked" lets it wrap. availableWidth (the tile width
+    // from ShotPlanItem) caps the text so it never overflows the tile.
     property string format: "sentence"
     property real availableWidth: 0
 
@@ -144,6 +145,8 @@ Item {
             textFormat: Text.StyledText
             font: Theme.bodyFont
             color: Theme.textColor
+            // Centre wrapped ("stacked") lines to match ShotPlanText, so steam wraps as a centred block.
+            horizontalAlignment: Text.AlignHCenter
             wrapMode: root.format === "stacked" ? Text.Wrap : Text.NoWrap
             maximumLineCount: root.format === "stacked" ? 3 : 1
             elide: Text.ElideRight

@@ -336,8 +336,9 @@ Dialog {
             spacing: Theme.spacingSmall
             visible: popup.itemType === "shotPlan"
 
-            // Layout format: how the plan is arranged — a full sentence, short chips, or a
-            // sentence with the details stacked below (so long plans never get truncated).
+            // Layout format: how the plan is arranged — a full sentence, short chips, a sentence with
+            // the details stacked below, or a plain toggle-free recipe sentence. Long plans wrap (up
+            // to 3 lines). The per-field toggles below are disabled for "plain" (it ignores them).
             Text {
                 text: TranslationManager.translate("shotPlanEditor.layout", "Layout")
                 font: Theme.labelFont
@@ -385,17 +386,22 @@ Dialog {
                 }
             }
 
+            // Per-field visibility toggles — disabled (greyed) for "plain", which uses a fixed
+            // template and ignores them, so toggling here would silently have no effect.
             StyledSwitch {
+                enabled: popup.shotPlanFormat !== "plain"
                 text: TranslationManager.translate("shotPlanEditor.showProfile", "Profile & temperature")
                 checked: popup.shotPlanShowProfile
                 onToggled: popup.shotPlanShowProfile = checked
             }
             StyledSwitch {
+                enabled: popup.shotPlanFormat !== "plain"
                 text: TranslationManager.translate("shotPlanEditor.showRoaster", "Roaster")
                 checked: popup.shotPlanShowRoaster
                 onToggled: popup.shotPlanShowRoaster = checked
             }
             StyledSwitch {
+                enabled: popup.shotPlanFormat !== "plain"
                 text: TranslationManager.translate("shotPlanEditor.showCoffee", "Coffee")
                 checked: popup.shotPlanShowCoffee
                 onToggled: popup.shotPlanShowCoffee = checked
@@ -403,16 +409,19 @@ Dialog {
             StyledSwitch {
                 // New key (not the old shotPlanEditor.showGrind "Coffee (grind)") so stale
                 // translations of the old combined label can't mislabel the narrowed toggle.
+                enabled: popup.shotPlanFormat !== "plain"
                 text: TranslationManager.translate("shotPlanEditor.showGrindRpm", "Grind")
                 checked: popup.shotPlanShowGrind
                 onToggled: popup.shotPlanShowGrind = checked
             }
             StyledSwitch {
+                enabled: popup.shotPlanFormat !== "plain"
                 text: TranslationManager.translate("shotPlanEditor.showRoastDate", "Roast date")
                 checked: popup.shotPlanShowRoastDate
                 onToggled: popup.shotPlanShowRoastDate = checked
             }
             StyledSwitch {
+                enabled: popup.shotPlanFormat !== "plain"
                 text: TranslationManager.translate("shotPlanEditor.showDoseYield", "Dose & yield")
                 checked: popup.shotPlanShowDoseYield
                 onToggled: popup.shotPlanShowDoseYield = checked
