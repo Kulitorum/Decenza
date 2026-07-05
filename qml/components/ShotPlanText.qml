@@ -18,7 +18,9 @@ Item {
     // Display format (per-instance, chosen in the layout editor): "sentence" (default — the full
     // "Brew … using … at …" line), "compact" (short ·-separated fragments, no sentence), "stacked"
     // (sentence on line 1, details wrapping onto following lines), or "plain" (a dot-free recipe
-    // sentence that IGNORES the per-field toggles). Long plans wrap up to 3 lines, then truncate.
+    // sentence that IGNORES the per-field toggles). Only "stacked"/"plain" wrap (up to 3 lines, then
+    // truncate); "sentence"/"compact" stay one line and elide. Multi-line formats suit center/growable
+    // zones — in a fixed-height bar (status/lower-mid) a 3-line plan overflows, so pick them there advisedly.
     property string format: "sentence"
     // The width the widget has to render in (ShotPlanItem passes the tile width). 0 = unconstrained
     // (natural size, legacy behaviour). When >0 the text is capped to it so it wraps/elides instead of

@@ -337,8 +337,9 @@ Dialog {
             visible: popup.itemType === "shotPlan"
 
             // Layout format: how the plan is arranged — a full sentence, short chips, a sentence with
-            // the details stacked below, or a plain toggle-free recipe sentence. Long plans wrap (up
-            // to 3 lines). The per-field toggles below are disabled for "plain" (it ignores them).
+            // the details stacked below, or a plain toggle-free recipe sentence. Only "stacked"/"plain"
+            // wrap (up to 3 lines); the others stay one line and elide. The per-field toggles below are
+            // disabled for "plain" (it ignores them).
             Text {
                 text: TranslationManager.translate("shotPlanEditor.layout", "Layout")
                 font: Theme.labelFont
