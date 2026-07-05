@@ -1586,8 +1586,8 @@ Page {
                 // changed by re-pointing the shot to a different package via the
                 // picker — not edited as free text (those edits were silently
                 // discarded).
-                // (Equipment identity card moved to the END of this grid — editable
-                // per-shot fields first, hardware context last.)
+                // (Equipment identity card moved to the END of this grid — per-shot
+                // dial-in and shot metadata first, hardware context last.)
 
                 SuggestionField {
                     id: settingField

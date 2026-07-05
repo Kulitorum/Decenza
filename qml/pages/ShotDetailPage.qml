@@ -631,7 +631,8 @@ Page {
                             color: Theme.textColor
                             // Settings are free text ("2.5 turns + 3") — cap so a long
                             // value elides instead of crowding the other metric cells.
-                            // The Equipment card below carries the un-elided value.
+                            // The Equipment card below repeats it at full card width,
+                            // and the cell's Accessible.name carries the full text.
                             width: Math.min(implicitWidth, Theme.scaled(160))
                             elide: Text.ElideRight
                         }
