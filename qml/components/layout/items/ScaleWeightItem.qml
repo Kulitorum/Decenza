@@ -14,8 +14,9 @@ Item {
     // default), "netBeans" (minus dose-cup tare), "netMilk" (minus pitcher
     // weight), "contextAware" (net milk while steaming, else net beans),
     // "beansHold" (live net beans, then hold the captured dose after the beep),
-    // "expectedYield" (the target output, dose × ratio = ProfileManager.targetWeight;
-    //   a computed value, but currently shown only when a scale is configured).
+    // "expectedYield" (the active stop-at-weight target = ProfileManager.targetWeight: the
+    //   brew-yield override when set — which equals dose × ratio in brew-by-ratio mode — else
+    //   the profile's fixed target weight. Purely computed, so shown even without a scale).
     readonly property string dataMode: (modelData && modelData.dataMode) ? modelData.dataMode : ""
 
     // Per-instance display mode (composable-status-bar): "text" (default, a
@@ -87,16 +88,18 @@ Item {
         if (root.dataMode === "beansHold") {
             // Mirrors DoseWeightItem's live→hold→recorded chain: the frozen captured
             // dose if we have one this cycle; else the live net beans while actually
-            // dosing; else (mid/post-operation, or cup off) the last recorded dose —
-            // never the phantom live scale reading (a brew/milk cup on the scale).
+            // dosing; else (mid/post-operation, cup off, no saved tare, or an implausible
+            // net) the last recorded dose — never the phantom/gross live reading.
             if (root._heldDose > 0) return root._heldDose
-            var net = (root._operating || root._postExtraction)
-                      ? 0 : Math.max(0, w - Settings.brew.doseCupTareWeight)
-            return net > 0.3 ? net : Settings.dye.dyeBeanWeight
+            var live = (root._operating || root._postExtraction || Settings.brew.doseCupTareWeight <= 0)
+                       ? 0 : Math.max(0, w - Settings.brew.doseCupTareWeight)
+            // net > 55 g is a brew cup, not beans; fall through to the recorded dose.
+            return (live > 0.3 && live <= 55) ? live : Settings.dye.dyeBeanWeight
         }
         if (root.dataMode === "expectedYield") {
-            // Target espresso output = dose x ratio (ProfileManager keeps this as
-            // the active stop-at-weight target when brewing by ratio).
+            // The active stop-at-weight target (ProfileManager.targetWeight): the brew-yield
+            // override when one is set — which equals dose × ratio in brew-by-ratio mode —
+            // else the profile's fixed target weight. Purely computed; needs no scale.
             return ProfileManager.targetWeight
         }
         return w
@@ -116,7 +119,9 @@ Item {
 
     // Scale warning: saved BLE scale not connected or connection failed, or app fell back to simulated scale
     // Don't warn if a USB scale is connected — it satisfies the "have a real scale" requirement (not available on iOS)
-    property bool showScaleWarning: (!root.scaleConnected || root.isFlowScale)
+    // "expectedYield" is a purely computed target — it never needs a scale, so never warn for it.
+    property bool showScaleWarning: root.dataMode !== "expectedYield"
+        && (!root.scaleConnected || root.isFlowScale)
         && (BLEManager.scaleConnectionFailed || Settings.primaryScaleAddress !== "")
         && (Qt.platform.os === "ios" || !UsbScaleManager.scaleConnected)
 
@@ -231,7 +236,7 @@ Item {
             id: compactScaleRow
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
-            visible: root.scaleConnected && !root.showScaleWarning
+            visible: (root.scaleConnected || root.dataMode === "expectedYield") && !root.showScaleWarning
 
             ThemedIcon {
                 anchors.verticalCenter: parent.verticalCenter
@@ -273,7 +278,7 @@ Item {
             id: scaleMouseArea
             anchors.fill: parent
             anchors.margins: -Theme.spacingSmall
-            visible: root.scaleConnected && !root.showScaleWarning
+            visible: (root.scaleConnected || root.dataMode === "expectedYield") && !root.showScaleWarning
             cursorShape: Qt.PointingHandCursor
 
             property int tapCount: 0
@@ -372,7 +377,7 @@ Item {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                visible: root.scaleConnected && !root.showScaleWarning
+                visible: (root.scaleConnected || root.dataMode === "expectedYield") && !root.showScaleWarning
                 text: root.weightText()
                 color: root.scaleColor(fullTapArea.pressed)
                 font: Theme.valueFont

@@ -27,8 +27,13 @@ Item {
     // (the _operating phase gate alone doesn't cover the return-to-Idle window).
     property bool _postExtraction: false
     function _liveNet() { return Math.max(0, MachineState.scaleWeight - Settings.brew.doseCupTareWeight) }
+    // Live net-bean display is valid only with a saved dose-cup tare (else scale − 0 = gross, mislabelled
+    // "beans") AND when the net sits in a plausible dose range — a brew cup's net (≫ any real dose) must not
+    // read as beans. When either fails, valueText falls through to the recorded dyeBeanWeight.
     readonly property bool _loaded: root.scaleConnected
+        && Settings.brew.doseCupTareWeight > 0
         && MachineState.scaleWeight > (Settings.brew.doseCupTareWeight + 0.3)
+        && _liveNet() <= 55
 
     // Live net-bean display only makes sense while dosing. During espresso preheat or
     // an active operation (preinfusion/pour/ending/steam/water/flush) the scale is
