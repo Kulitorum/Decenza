@@ -266,7 +266,9 @@ Item {
         // Disconnected (no saved scale)
         Text {
             anchors.centerIn: parent
+            // expectedYield is a computed target that renders without a scale, so don't also show "--".
             visible: !root.scaleConnected && !root.showScaleWarning && !root.isFlowScale
+                     && root.dataMode !== "expectedYield"
             text: "--"
             color: Theme.textSecondaryColor
             font: Theme.bodyFont
@@ -387,6 +389,7 @@ Item {
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 visible: !root.scaleConnected && !root.showScaleWarning
+                         && root.dataMode !== "expectedYield"
                 text: "--"
                 color: Theme.textSecondaryColor
                 font: Theme.valueFont
