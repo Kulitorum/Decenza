@@ -1312,6 +1312,8 @@ The "Common Espresso Patterns" section below tells you the **direction** of grin
 
 ## Common Espresso Patterns
 
+**Lever ordering.** Grind and ratio are the primary espresso levers — settle those first. Temperature is a smaller, later adjustment; don't reach for it to fix sourness or bitterness until grind and ratio are dialed. (Exception: when the profile's description calls out temperature as central to its design, respect the author's intent — see the "Profile Intent is the Reference Frame" note.)
+
 ### The Gusher
 - **Symptoms**: Very fast shot (<20s), flow way above target, thin/watery taste
 - **Cause**: Grind too coarse or severe channeling
@@ -1329,13 +1331,14 @@ The "Common Espresso Patterns" section below tells you the **direction** of grin
 
 ### The Sour Shot
 - **Symptoms**: Bright acidity, thin body, tea-like, possibly underextracted
-- **Possible causes**: Temperature too low, ratio too short, shot too fast
-- **Fix**: Increase temp 2°C, or pull longer, or grind finer (one at a time!)
+- **Possible causes**: Ratio too short, shot too fast, grind too coarse (temperature too low is a secondary cause)
+- **Fix**: One change at a time! Grind finer, or pull longer (lengthen the ratio) — settle those first; raise temp 2°C only after.
+- **Caveat**: If channeling appears *after* going finer, re-check puck prep first (see The Channeler); if it persists, step back to the previous grind setting — past that point, finer extracts *less*.
 
 ### The Bitter Shot
 - **Symptoms**: Harsh, astringent, dry finish, overextracted
-- **Possible causes**: Temperature too high, ratio too long, shot too slow
-- **Fix**: Decrease temp 2°C, or cut shot earlier, or grind coarser
+- **Possible causes**: Ratio too long, shot too slow, grind too fine (temperature too high is a secondary cause)
+- **Fix**: One change at a time! Grind coarser, or cut the shot earlier — settle those first; drop temp 2°C only after.
 
 ### The Hollow Shot
 - **Symptoms**: Lacks body, feels empty in the middle, thin mouthfeel
@@ -1434,21 +1437,23 @@ The data shows the same format as espresso shots — phase breakdown with pressu
 
 ## Common Filter Issues
 
+**Lever ordering.** Grind and brew time are the primary levers here too — settle those first; temperature 2-3°C adjustments come after. (Exceptions: when the profile's design pins the grind — see the grind-advice rule above — or its description calls out temperature as central, follow the profile's intent per the "Profile Intent is the Reference Frame" note.)
+
 ### Astringent / Dry Finish
 - **Cause**: Over-extraction, often from too fine a grind or too high a temperature
-- **Fix**: Grind coarser or reduce temperature 2-3°C
+- **Fix**: Grind coarser; reduce temperature 2-3°C only after
 
 ### Thin / Watery / Hollow
 - **Cause**: Under-extraction from too coarse a grind, too low temperature, or insufficient contact time
-- **Fix**: Grind finer or increase temperature 2-3°C
+- **Fix**: Grind finer, or extend contact time; increase temperature 2-3°C only after
 
 ### Bitter / Harsh
 - **Cause**: Over-extraction or water too hot
-- **Fix**: Reduce temperature, grind slightly coarser, or reduce brew time
+- **Fix**: Grind slightly coarser, or reduce brew time; reduce temperature 2-3°C only after
 
 ### Sour / Sharp Acidity
 - **Cause**: Under-extraction
-- **Fix**: Increase temperature, grind finer, or extend brew time
+- **Fix**: Grind finer, or extend brew time; increase temperature 2-3°C only after
 
 ### Muddy / Lacking Clarity
 - **Cause**: Too many fines (grinder-dependent) or channeling through the puck
@@ -1541,6 +1546,8 @@ double ShotSummarizer::calculateMin(const QVector<QPointF>& data, double startTi
 
 QString ShotSummarizer::sharedCorePhilosophy()
 {
+    // The bolded title "Profile Intent is the Reference Frame" is referenced verbatim
+    // by the "Lever ordering" notes in espressoSystemPrompt() and filterSystemPrompt().
     return QStringLiteral(R"(## Core Philosophy
 
 **Taste is King.** Numbers are tools to understand taste, not goals in themselves. A shot that tastes great with "wrong" numbers is a great shot. A shot with "perfect" numbers that tastes bad needs fixing.
