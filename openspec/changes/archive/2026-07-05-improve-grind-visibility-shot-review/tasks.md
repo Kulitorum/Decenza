@@ -27,4 +27,4 @@
 ## 4. Documentation & wrap-up
 
 - [x] 4.1 Update Decenza.wiki `Manual.md` (local clone at `~/Development/GitHub/Decenza.wiki`) wherever it describes the shot detail metrics row or post-shot review field order; commit separately in the wiki repo
-- [ ] 4.2 Open a PR referencing issue #1413 (requests 1 & 2; note request 1 shipped in #1396 and request 3 is deferred), then run `/opsx:archive` as the last commit on the branch before merge
+- [x] 4.2 Open a PR referencing issue #1413 (requests 1 & 2; note request 1 shipped in #1396 and request 3 is deferred), then run `/opsx:archive` as the last commit on the branch before merge
