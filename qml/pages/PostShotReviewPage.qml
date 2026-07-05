@@ -1586,74 +1586,8 @@ Page {
                 // changed by re-pointing the shot to a different package via the
                 // picker — not edited as free text (those edits were silently
                 // discarded).
-                // Equipment identity card (grinder + basket + puck prep), styled
-                // like the inventory EquipmentCard and sharing its EquipmentSummary
-                // renderer. The grind setting + RPM are omitted here — they are the
-                // per-shot dial-in edited in the fields just below, so echoing them
-                // read-only would only duplicate. Re-point via the Change Equipment
-                // button (occupying the same action-button row the inventory card
-                // uses); all details live on the card, so there is no separate info
-                // button.
-                Rectangle {
-                    id: equipmentCard
-                    Layout.columnSpan: 3
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: equipmentCardColumn.implicitHeight + Theme.scaled(24)
-                    readonly property bool hasEquipment: editEquipmentName.length > 0
-                                                         || editGrinderBrand.length > 0 || editGrinderModel.length > 0
-                    color: Theme.surfaceColor
-                    radius: Theme.cardRadius
-                    border.width: 1
-                    border.color: Theme.borderColor
-                    Accessible.role: Accessible.Grouping
-                    Accessible.name: TranslationManager.translate("postshotreview.label.equipment", "Equipment:")
-                        + " " + (hasEquipment ? equipmentSummary.accessibleSummary
-                                              : TranslationManager.translate("postshotreview.equipmentNotSet", "Not set"))
-
-                    ColumnLayout {
-                        id: equipmentCardColumn
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(12)
-                        spacing: Theme.scaled(6)
-
-                        EquipmentSummary {
-                            id: equipmentSummary
-                            Layout.fillWidth: true
-                            visible: equipmentCard.hasEquipment
-                            grinderName: editEquipmentName || ""
-                            grinderBrand: editGrinderBrand
-                            grinderModel: editGrinderModel
-                            grinderBurrs: editGrinderBurrs
-                            basketBrand: editBasketBrand
-                            basketModel: editBasketModel
-                            puckPrepCanonical: editPuckPrep
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            visible: !equipmentCard.hasEquipment
-                            elide: Text.ElideRight
-                            text: TranslationManager.translate("postshotreview.equipmentNotSet", "Not set")
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.subtitleFont.pixelSize
-                            font.bold: true
-                            color: Theme.textSecondaryColor
-                            Accessible.ignored: true
-                        }
-                        AccessibleButton {
-                            Layout.preferredHeight: Theme.scaled(36)
-                            _customFontSize: Theme.captionFont.pixelSize
-                            leftPadding: Theme.scaled(10)
-                            rightPadding: Theme.scaled(10)
-                            text: equipmentCard.hasEquipment
-                                  ? TranslationManager.translate("postshotreview.changeEquipment", "Change Equipment")
-                                  : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
-                            accessibleName: text
-                            onClicked: shotEquipmentDialog.openPicker()
-                        }
-                    }
-                }
+                // (Equipment identity card moved to the END of this grid — per-shot
+                // dial-in and shot metadata first, hardware context last.)
 
                 SuggestionField {
                     id: settingField
@@ -1793,6 +1727,77 @@ Page {
                     }
                 }
 
+                // Equipment identity card (grinder + basket + puck prep), styled
+                // like the inventory EquipmentCard and sharing its EquipmentSummary
+                // renderer. Deliberately LAST in the grid: the editable per-shot
+                // dial-in and shot metadata above come first; the card is trailing
+                // hardware context. Grind setting + RPM are omitted here — they are
+                // the per-shot dial-in edited in the fields above, so echoing them
+                // read-only would only duplicate. Re-point via the Change Equipment
+                // button (occupying the same action-button row the inventory card
+                // uses); all details live on the card, so there is no separate info
+                // button.
+                Rectangle {
+                    id: equipmentCard
+                    Layout.columnSpan: 3
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: equipmentCardColumn.implicitHeight + Theme.scaled(24)
+                    readonly property bool hasEquipment: editEquipmentName.length > 0
+                                                         || editGrinderBrand.length > 0 || editGrinderModel.length > 0
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+                    border.width: 1
+                    border.color: Theme.borderColor
+                    Accessible.role: Accessible.Grouping
+                    Accessible.name: TranslationManager.translate("postshotreview.label.equipment", "Equipment:")
+                        + " " + (hasEquipment ? equipmentSummary.accessibleSummary
+                                              : TranslationManager.translate("postshotreview.equipmentNotSet", "Not set"))
+
+                    ColumnLayout {
+                        id: equipmentCardColumn
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(12)
+                        spacing: Theme.scaled(6)
+
+                        EquipmentSummary {
+                            id: equipmentSummary
+                            Layout.fillWidth: true
+                            visible: equipmentCard.hasEquipment
+                            grinderName: editEquipmentName || ""
+                            grinderBrand: editGrinderBrand
+                            grinderModel: editGrinderModel
+                            grinderBurrs: editGrinderBurrs
+                            basketBrand: editBasketBrand
+                            basketModel: editBasketModel
+                            puckPrepCanonical: editPuckPrep
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: !equipmentCard.hasEquipment
+                            elide: Text.ElideRight
+                            text: TranslationManager.translate("postshotreview.equipmentNotSet", "Not set")
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.subtitleFont.pixelSize
+                            font.bold: true
+                            color: Theme.textSecondaryColor
+                            Accessible.ignored: true
+                        }
+                        AccessibleButton {
+                            Layout.preferredHeight: Theme.scaled(36)
+                            _customFontSize: Theme.captionFont.pixelSize
+                            leftPadding: Theme.scaled(10)
+                            rightPadding: Theme.scaled(10)
+                            text: equipmentCard.hasEquipment
+                                  ? TranslationManager.translate("postshotreview.changeEquipment", "Change Equipment")
+                                  : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
+                            accessibleName: text
+                            onClicked: shotEquipmentDialog.openPicker()
+                        }
+                    }
+                }
+
             }
 
             Item { Layout.preferredHeight: 10 }
@@ -1803,6 +1808,7 @@ Page {
 
     // Bottom bar (stays visible under keyboard)
     BottomBar {
+        title: TranslationManager.translate("postshotreview.title", "Shot Review")
         onBackClicked: handleBack()
 
         // Profile name + date remain visible while the user scrolls,

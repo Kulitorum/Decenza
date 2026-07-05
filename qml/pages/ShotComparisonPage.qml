@@ -40,8 +40,14 @@ Page {
         return result
     }
 
+    // Re-assert on every activation, not just creation — returning here after a
+    // page was pushed on top would otherwise keep that page's header title.
+    StackView.onActivated: {
+        root.currentPageTitle = TranslationManager.translate("shotcomparison.title", "Compare Shots")
+    }
+
     Component.onCompleted: {
-        root.currentPageTitle = "Compare Shots"
+        root.currentPageTitle = TranslationManager.translate("shotcomparison.title", "Compare Shots")
     }
 
     // Scrollable content area (vertical only)

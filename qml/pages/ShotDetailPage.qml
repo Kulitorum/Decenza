@@ -31,6 +31,12 @@ Page {
         }
     }
 
+    // Re-assert on every activation, not just creation — returning here after a
+    // page was pushed on top would otherwise keep that page's header title.
+    StackView.onActivated: {
+        root.currentPageTitle = TranslationManager.translate("shotdetail.title", "Shot Detail")
+    }
+
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("shotdetail.title", "Shot Detail")
         // Initialize currentIndex if shotIds provided
@@ -595,6 +601,49 @@ Page {
                         font: Theme.subtitleFont
                         color: Theme.dyeDoseColor
                         Accessible.ignored: true
+                    }
+                }
+
+                // Grind (with optional rpm suffix) — hidden entirely when the shot
+                // has no recorded setting so grind-less shots keep a five-metric row.
+                ColumnLayout {
+                    spacing: Theme.scaled(2)
+                    visible: !!shotData.grinderSetting
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: TranslationManager.translate("shotdetail.grind", "Grind") + ": " +
+                        (shotData.grinderSetting || "") +
+                        ((shotData.rpm || 0) > 0
+                            ? ", " + TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(shotData.rpm)
+                            : "")
+                    Tr {
+                        key: "shotdetail.grind"
+                        fallback: "Grind"
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                        Accessible.ignored: true
+                    }
+                    Row {
+                        spacing: Theme.scaled(4)
+                        Accessible.ignored: true
+                        Text {
+                            text: shotData.grinderSetting || ""
+                            font: Theme.subtitleFont
+                            color: Theme.textColor
+                            // Settings are free text ("2.5 turns + 3") — cap so a long
+                            // value elides instead of crowding the other metric cells.
+                            // The Equipment card below repeats it at full card width,
+                            // and the cell's Accessible.name carries the full text.
+                            width: Math.min(implicitWidth, Theme.scaled(160))
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            visible: (shotData.rpm || 0) > 0
+                            text: "· " + TranslationManager.translate("equipment.card.lastRpm", "%1 rpm")
+                                .arg(shotData.rpm || 0)
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            anchors.baseline: parent.children[0].baseline
+                        }
                     }
                 }
 
