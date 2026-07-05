@@ -432,6 +432,32 @@ void AccessibilityManager::announce(const QString& text, bool interrupt)
     routeAnnouncement(text, interrupt);
 }
 
+void AccessibilityManager::announceCoaching(const QString& text, bool interrupt)
+{
+    // Deliberately bypasses BOTH accessibility voice gates — m_enabled (the
+    // master switch) AND m_ttsEnabled (the "Voice Announcements" toggle).
+    // Coaching voice has its own opt-in (Settings.app.steamCoachAudioEnabled,
+    // gated at the emitter) and must speak with all accessibility settings
+    // off — like playCaptureDing(), it is a product feature, not an
+    // accessibility cue. Going through routeAnnouncement() would silently
+    // re-gate on m_ttsEnabled (the exact silent-dead-voice defect class this
+    // entry point exists to fix), so route directly: prefer the screen reader
+    // when active (no TTS overlap — same rule as routeAnnouncement), else TTS.
+    if (m_shuttingDown) return;
+    const QString preview = a11yLogPreview(text);
+    if (isScreenReaderActive()) {
+        dispatchPlatformAnnouncement(text, interrupt);
+        qInfo().noquote() << "[a11y] route path=platform coaching=true len=" << text.size()
+                          << " preview=" << preview;
+        return;
+    }
+    // dispatchTtsAnnouncement() handles the m_tts null check internally (and
+    // tests override the virtual with m_tts intentionally absent).
+    dispatchTtsAnnouncement(text, interrupt);
+    qInfo().noquote() << "[a11y] route path=tts coaching=true len=" << text.size()
+                      << " preview=" << preview;
+}
+
 bool AccessibilityManager::isScreenReaderActive() const
 {
 #ifndef QT_NO_ACCESSIBILITY

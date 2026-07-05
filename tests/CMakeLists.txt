@@ -161,6 +161,20 @@ add_decenza_test(tst_machinestate
     ${SIMULATOR_SOURCES}
 )
 
+# --- tst_livesteamcoach: during-steam coaching milestones, gating, completion ---
+add_decenza_test(tst_livesteamcoach
+    tst_livesteamcoach.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/livesteamcoach.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
+    ${MACHINE_SOURCES}
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+)
+
 # --- tst_machinestatussnapshot: widget snapshot schema + temp coalescing ---
 add_decenza_test(tst_machinestatussnapshot
     tst_machinestatussnapshot.cpp

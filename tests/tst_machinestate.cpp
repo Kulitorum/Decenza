@@ -359,6 +359,113 @@ private slots:
         f.setDE1State(DE1::State::Steam, DE1::SubState::Ending);
         QCOMPARE(f.state.phase(), MachineState::Phase::Steaming);
     }
+
+    // ==========================================
+    // steamFlowStopped emission (LiveSteamCoach contract)
+    // ==========================================
+
+    // Auto-stop cycle: flow ends via the substate change (phase stays Steaming)
+    // and the machine later returns to Idle. Exactly ONE emission — at the
+    // actual end of flow. The later phase-exit transition also runs the
+    // flow-stopped branch (wasFlowing derives from oldPhase alone) but the
+    // consumed m_steamFlowStopPending flag keeps it silent.
+    void steamFlowStopped_autoStopThenIdle() {
+        TestFixture f;
+        QSignalSpy spy(&f.state, &MachineState::steamFlowStopped);
+
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Steaming);
+        QCOMPARE(f.state.phase(), MachineState::Phase::Steaming);
+        QCOMPARE(spy.count(), 0);
+
+        // Firmware auto-stop: substate leaves Steaming, phase stays Steaming.
+        // The shot timer is still active from flow start, so the substate-change
+        // block stops it and emits.
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Puffing);
+        QCOMPARE(f.state.phase(), MachineState::Phase::Steaming);
+        QCOMPARE(spy.count(), 1);
+
+        // Machine returns to idle: no duplicate — the pending flag was consumed.
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(spy.count(), 1);
+    }
+
+    // Manual stop straight out of flowing steam (e.g. GHC stop -> Idle): the
+    // phase-change path is the only emitter, exactly once.
+    void steamFlowStopped_manualStopToIdle() {
+        TestFixture f;
+        QSignalSpy spy(&f.state, &MachineState::steamFlowStopped);
+
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Steaming);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(spy.count(), 1);
+    }
+
+    // Other flow types ending must not emit — the signal is steam-only
+    // (pins the oldPhase == Steaming guard).
+    void steamFlowStopped_notForOtherFlows() {
+        TestFixture f;
+        QSignalSpy spy(&f.state, &MachineState::steamFlowStopped);
+
+        f.setDE1State(DE1::State::HotWater, DE1::SubState::Pouring);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(spy.count(), 0);
+    }
+
+    // A steam whose flow was never observed (entered mid-sequence at Puffing —
+    // both flowing-substate notifications dropped) must stay silent: the
+    // pending flag never armed, so the phase exit is not a flow-stop event.
+    // Guards LiveSteamCoach against a ghost "Steam done" computed off a stale
+    // shot clock.
+    void steamFlowStopped_notWhenFlowNeverSeen() {
+        TestFixture f;
+        QSignalSpy spy(&f.state, &MachineState::steamFlowStopped);
+
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Puffing);
+        QCOMPARE(f.state.phase(), MachineState::Phase::Steaming);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(spy.count(), 0);
+    }
+
+    // "Flow observed" is the isFlowing() whitelist, which includes Pouring:
+    // a steam whose FIRST observed substate is Pouring (only the initial
+    // Steaming notification missed) still arms and still gets its stop event.
+    // Pins the arming condition's real boundary — only Puffing/Ending-first
+    // entries stay silent (test above).
+    void steamFlowStopped_armsWhenFirstSeenAtPouring() {
+        TestFixture f;
+        QSignalSpy spy(&f.state, &MachineState::steamFlowStopped);
+
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Pouring);
+        QCOMPARE(f.state.phase(), MachineState::Phase::Steaming);
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Puffing);
+        QCOMPARE(spy.count(), 1);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(spy.count(), 1);
+    }
+
+    // A BLE disconnect mid-steam must disarm WITHOUT emitting (a dropped
+    // connection is not a completion), and the stale arm must not leak across
+    // the disconnect into a later never-flowed steam's phase exit.
+    void steamFlowStopped_disconnectDisarmsWithoutEmitting() {
+        TestFixture f;
+        QSignalSpy spy(&f.state, &MachineState::steamFlowStopped);
+
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Steaming);  // arms
+        // BLE drops mid-steam: updatePhase's disconnect early-return runs.
+        f.device.m_simulationMode = false;  // isConnected() -> false
+        f.state.onDE1StateChanged();
+        QCOMPARE(f.state.phase(), MachineState::Phase::Disconnected);
+        QCOMPARE(spy.count(), 0);  // disconnect is not a flow-stop event
+
+        // Reconnect idle, then a steam observed only mid-sequence (never
+        // flowing): the stale arm from before the disconnect must not
+        // ghost-emit on its phase exit.
+        f.device.m_simulationMode = true;
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        f.setDE1State(DE1::State::Steam, DE1::SubState::Puffing);
+        f.setDE1State(DE1::State::Idle, DE1::SubState::Ready);
+        QCOMPARE(spy.count(), 0);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_MachineState)

@@ -72,6 +72,14 @@ class SettingsApp : public QObject {
     Q_PROPERTY(bool simulatedScaleEnabled READ simulatedScaleEnabled WRITE setSimulatedScaleEnabled NOTIFY simulatedScaleEnabledChanged)
     Q_PROPERTY(bool screenCaptureEnabled READ screenCaptureEnabled WRITE setScreenCaptureEnabled NOTIFY screenCaptureEnabledChanged)
 
+    // During-steam live coaching cues (LiveSteamCoach). Two independent opt-ins,
+    // both OFF by default: `steamCoachVisualEnabled` shows the on-screen banner on
+    // the steam page, `steamCoachAudioEnabled` speaks the cues. Neither implies the
+    // other, and the audio path is routed independently of the accessibility
+    // master switch (AccessibilityManager::announceCoaching).
+    Q_PROPERTY(bool steamCoachVisualEnabled READ steamCoachVisualEnabled WRITE setSteamCoachVisualEnabled NOTIFY steamCoachVisualEnabledChanged)
+    Q_PROPERTY(bool steamCoachAudioEnabled READ steamCoachAudioEnabled WRITE setSteamCoachAudioEnabled NOTIFY steamCoachAudioEnabledChanged)
+
 public:
     explicit SettingsApp(QObject* parent = nullptr);
 
@@ -163,6 +171,12 @@ public:
     bool screenCaptureEnabled() const;
     void setScreenCaptureEnabled(bool enabled);
 
+    // During-steam live coaching cues (independent visual + audio opt-ins)
+    bool steamCoachVisualEnabled() const;
+    void setSteamCoachVisualEnabled(bool enabled);
+    bool steamCoachAudioEnabled() const;
+    void setSteamCoachAudioEnabled(bool enabled);
+
     // Device identity (stable UUID for server communication)
     Q_INVOKABLE QString deviceId() const;
 
@@ -194,6 +208,8 @@ signals:
     void hideGhcSimulatorChanged();
     void simulatedScaleEnabledChanged();
     void screenCaptureEnabledChanged();
+    void steamCoachVisualEnabledChanged();
+    void steamCoachAudioEnabledChanged();
 
 private:
     mutable QSettings m_settings;

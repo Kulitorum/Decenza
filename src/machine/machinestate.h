@@ -108,6 +108,20 @@ signals:
     void tareCompleted();         // Emitted when scale reports ~0g after tare command
     void flowBeforeAutoTare();    // Emitted when auto-tare fires during preheat (tells WeightProcessor to reset)
     void sawBypassed();           // Emitted when SAW is skipped due to untared cup
+    // Steam flow just ended (auto-stop at the timeout OR a manual stop).
+    // Exactly-once per steam (m_steamFlowStopPending arms at steam flow start
+    // and is consumed by whichever stop site fires first; a mid-steam BLE
+    // disconnect disarms without emitting), and only for a steam whose flow
+    // was actually observed. "Observed" means a flowing substate was seen:
+    // isFlowing() whitelists Steaming AND Pouring, so a steam first seen at
+    // Pouring still arms; only a steam first seen at Puffing/Ending (both
+    // flowing notifications missed — those substates map straight into
+    // Phase::Steaming without flow) never arms, so no stale-clock ghost
+    // event. (FinalHeating maps to Phase::Heating — normal pre-flow warmup;
+    // that steam arms later at the flowing transition.) Emitted synchronously from
+    // updatePhase() so consumers (LiveSteamCoach) see it BEFORE the deferred
+    // phaseChanged when the stop also leaves the Steaming phase.
+    void steamFlowStopped();
 
 private slots:
     void onDE1StateChanged();
@@ -145,6 +159,10 @@ private:
 
     QTimer* m_shotTimer = nullptr;
     qint64 m_shotStartTime = 0;
+    // steamFlowStopped arming: set when steam flow is observed starting,
+    // consumed (exactly once) by the first flow-stop site that fires. See the
+    // signal doc.
+    bool m_steamFlowStopPending = false;
     bool m_stopAtWeightTriggered = false;
     bool m_stopAtVolumeTriggered = false;
     bool m_stopAtTimeTriggered = false;
@@ -182,5 +200,6 @@ private:
     friend class tst_MachineState;
     friend class tst_ProfileManager;
     friend class tst_MachineStatusSnapshot;
+    friend class tst_LiveSteamCoach;
 #endif
 };

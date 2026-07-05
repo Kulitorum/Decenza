@@ -609,6 +609,7 @@ int main(int argc, char *argv[])
     MainController mainController(&sharedNetworkManager, &settings, &de1Device, &machineState, &shotDataModel, &profileStorage);
     mainController.setSteamDataModel(&steamDataModel);
     mainController.setSteamHealthTracker(&steamHealthTracker);
+    mainController.setTranslationManager(&translationManager);  // for LiveSteamCoach cue i18n
     checkpoint("MainController");
 
     // Publishes machine phase/temp/last-shot to platform-shared storage for
@@ -1198,6 +1199,15 @@ int main(int argc, char *argv[])
 
     AccessibilityManager accessibilityManager;
     accessibilityManager.setTranslationManager(&translationManager);
+
+    // Steam-coach voice: the coach emits speakRequested only when its own audio
+    // setting is on; route it via announceCoaching, which bypasses BOTH
+    // accessibility voice gates — the master switch AND the Voice Announcements
+    // (ttsEnabled) toggle; that second bypass is load-bearing (see
+    // AccessibilityManager::announceCoaching). Do not reroute this through
+    // announce()/routeAnnouncement — either re-gates the voice.
+    QObject::connect(mainController.liveSteamCoach(), &LiveSteamCoach::speakRequested,
+                     &accessibilityManager, &AccessibilityManager::announceCoaching);
 
     // Now that all managers exist, finish MCP server setup
     mcpServer.setAccessibilityManager(&accessibilityManager);

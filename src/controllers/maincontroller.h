@@ -10,6 +10,7 @@
 #include "../network/visualizerimporter.h"
 #include "../network/beanbaseclient.h"
 #include "../ai/aimanager.h"
+#include "../ai/livesteamcoach.h"
 #include "../models/shotdatamodel.h"
 #include "../models/steamdatamodel.h"
 #include "../machine/steamhealthtracker.h"
@@ -41,6 +42,7 @@ class ProfileStorage;
 class ShotDebugLogger;
 class LocationProvider;
 class ShotTimingController;
+class TranslationManager;
 struct ShotSample;
 
 class MainController : public QObject {
@@ -51,6 +53,7 @@ class MainController : public QObject {
     Q_PROPERTY(VisualizerImporter* visualizerImporter READ visualizerImporter CONSTANT)
     Q_PROPERTY(BeanBaseClient* beanbase READ beanbase CONSTANT)
     Q_PROPERTY(AIManager* aiManager READ aiManager CONSTANT)
+    Q_PROPERTY(LiveSteamCoach* liveSteamCoach READ liveSteamCoach CONSTANT)
     Q_PROPERTY(ShotDataModel* shotDataModel READ shotDataModel CONSTANT)
     Q_PROPERTY(SteamDataModel* steamDataModel READ steamDataModel CONSTANT)
     Q_PROPERTY(SteamHealthTracker* steamHealthTracker READ steamHealthTracker CONSTANT)
@@ -93,6 +96,11 @@ public:
     BeanBaseClient* beanbase() const { return m_beanbase; }
     ProfileStorage* profileStorage() const { return m_profileStorage; }
     AIManager* aiManager() const { return m_aiManager; }
+    LiveSteamCoach* liveSteamCoach() const { return m_liveSteamCoach; }
+    // Injects the TranslationManager into the live steam coach for cue i18n.
+    void setTranslationManager(TranslationManager* tm) {
+        if (m_liveSteamCoach) m_liveSteamCoach->setTranslationManager(tm);
+    }
     void setAiManager(AIManager* aiManager) {
         m_aiManager = aiManager;
         if (m_aiManager && m_shotHistory)
@@ -301,6 +309,7 @@ private:
     VisualizerImporter* m_visualizerImporter = nullptr;
     BeanBaseClient* m_beanbase = nullptr;
     AIManager* m_aiManager = nullptr;
+    LiveSteamCoach* m_liveSteamCoach = nullptr;
     ShotTimingController* m_timingController = nullptr;
     BLEManager* m_bleManager = nullptr;
     FlowScale* m_flowScale = nullptr;  // Shadow FlowScale for comparison logging

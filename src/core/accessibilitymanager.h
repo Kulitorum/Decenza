@@ -75,6 +75,13 @@ public:
     Q_INVOKABLE void announce(const QString& text, bool interrupt = false);
     Q_INVOKABLE void announcePolite(const QString& text) { announce(text, false); }
     Q_INVOKABLE void announceAssertive(const QString& text) { announce(text, true); }
+    // Coaching announcements (steam-coach voice): the user opted into these via
+    // their own dedicated setting, so they bypass BOTH accessibility voice
+    // gates — the master switch (m_enabled) and the Voice Announcements toggle
+    // (m_ttsEnabled). Like playCaptureDing(), they are a general product
+    // feature, not an accessibility cue. Prefers the screen reader when one is
+    // active (no TTS overlap), otherwise speaks via TTS; logs each dispatch.
+    void announceCoaching(const QString& text, bool interrupt = false);
     Q_INVOKABLE void announceLabel(const QString& text);  // Lower pitch + faster rate for non-interactive text
     Q_INVOKABLE void playTick();
     // Pleasant confirmation "ding" for weight auto-capture (milk/beans). Plays
@@ -111,8 +118,12 @@ protected:
     virtual void dispatchPlatformAnnouncement(const QString& text, bool assertive);
     virtual void dispatchTtsAnnouncement(const QString& text, bool interrupt);
 
-    // The single routing entry point. Decides between platform / TTS / silent
-    // based on isScreenReaderActive() and m_ttsEnabled. Internally guards
+    // The routing entry point for ACCESSIBILITY announcements (announce(),
+    // announceLabel(), setEnabledImpl()). Decides between platform / TTS /
+    // silent based on isScreenReaderActive() and m_ttsEnabled. NOTE:
+    // announceCoaching() implements the same screen-reader-preference rule
+    // directly (it must skip the m_ttsEnabled gate) — if the routing rule
+    // changes here, update it there too. Internally guards
     // m_shuttingDown but does NOT check m_enabled — that's the caller's
     // responsibility. announce() and announceLabel() check m_enabled;
     // setEnabledImpl() (called by both setEnabled() and toggleEnabled())
