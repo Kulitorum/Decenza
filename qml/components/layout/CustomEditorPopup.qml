@@ -155,6 +155,11 @@ Dialog {
         result = result.replace(/%SCALE%/g, "Lunar")
         result = result.replace(/%GRIND%/g, "1.8.0")
         result = result.replace(/%GRINDER%/g, "Niche Zero")
+        result = result.replace(/%ROASTER%/g, "Olympia Coffee")
+        result = result.replace(/%COFFEE%/g, "Big Truck")
+        result = result.replace(/%ROAST_DATE%/g, "2026-06-20")
+        result = result.replace(/%BREW_TEMP%/g, "93.0")
+        result = result.replace(/%YIELD%/g, "36.0 → 40.0g")
         result = result.replace(/%MACHINE_READY%/g, "Ready")
         result = result.replace(/%MACHINE_READY_COLOR%/g, Theme.successColor)
         result = result.replace(/%CONNECTED%/g, "Online")
@@ -1216,6 +1221,11 @@ Dialog {
         { token: "%DOSE%", label: TranslationManager.translate("customeditor.var.dose", "Dose (g)") },
         { token: "%GRIND%", label: TranslationManager.translate("customeditor.var.grind", "Grind Setting") },
         { token: "%GRINDER%", label: TranslationManager.translate("customeditor.var.grinder", "Grinder Model") },
+        { token: "%ROASTER%", label: TranslationManager.translate("customeditor.var.roaster", "Roaster") },
+        { token: "%COFFEE%", label: TranslationManager.translate("customeditor.var.coffee", "Coffee") },
+        { token: "%ROAST_DATE%", label: TranslationManager.translate("customeditor.var.roastDate", "Roast Date") },
+        { token: "%BREW_TEMP%", label: TranslationManager.translate("customeditor.var.brewTemp", "Brew Temp") },
+        { token: "%YIELD%", label: TranslationManager.translate("customeditor.var.yield", "Yield (g)") },
         { token: "%MACHINE_READY%", label: TranslationManager.translate("customeditor.var.machineReady", "Ready/Not ready") },
         { token: "%MACHINE_READY_COLOR%", label: TranslationManager.translate("customeditor.var.readyColor", "Ready Color") },
         { token: "%CONNECTED%", label: TranslationManager.translate("customeditor.var.connected", "Online/Offline") },

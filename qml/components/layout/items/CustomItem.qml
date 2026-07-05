@@ -94,6 +94,8 @@ Item {
         || content.indexOf("%TARGET_TEMP%") >= 0
         || content.indexOf("%RATIO%") >= 0
         || content.indexOf("%DOSE%") >= 0
+        || content.indexOf("%BREW_TEMP%") >= 0
+        || content.indexOf("%YIELD%") >= 0
 
     readonly property bool _needsScaleDevice: content.indexOf("%SCALE%") >= 0
         || content.indexOf("%SCALE_CONNECTED%") >= 0
@@ -101,6 +103,9 @@ Item {
 
     readonly property bool _needsSettingsData: content.indexOf("%GRIND%") >= 0
         || content.indexOf("%GRINDER%") >= 0
+        || content.indexOf("%ROASTER%") >= 0
+        || content.indexOf("%COFFEE%") >= 0
+        || content.indexOf("%ROAST_DATE%") >= 0
 
     // Variable substitution - only tracks the live properties this item actually uses.
     // Items showing static values (e.g. %PROFILE%) no longer re-evaluate at 5 Hz.
@@ -123,14 +128,22 @@ Item {
         }
         if (_needsControllerData && typeof ProfileManager !== "undefined") {
             void(ProfileManager.targetWeight); void(ProfileManager.currentProfileName)
-            void(ProfileManager.profileTargetTemperature)
+            void(ProfileManager.profileTargetTemperature); void(ProfileManager.profileTargetWeight)
             void(ProfileManager.brewByRatio); void(ProfileManager.brewByRatioDose)
+            // Override-aware %BREW_TEMP%/%YIELD%: the override flags live on Settings.brew, and the
+            // C/F unit read inside temperatureDisplay() is C++-side (invisible to bindings).
+            if (typeof Settings !== "undefined") {
+                void(Settings.app.temperatureUnit)
+                void(Settings.brew.hasTemperatureOverride); void(Settings.brew.temperatureOverride)
+                void(Settings.brew.hasBrewYieldOverride)
+            }
         }
         if (_needsScaleDevice && typeof ScaleDevice !== "undefined" && ScaleDevice) {
             void(ScaleDevice.name); void(ScaleDevice.connected)
         }
         if (_needsSettingsData && typeof Settings !== "undefined") {
             void(Settings.dye.dyeGrinderSetting); void(Settings.dye.dyeGrinderModel)
+            void(Settings.dye.dyeBeanBrand); void(Settings.dye.dyeBeanType); void(Settings.dye.dyeRoastDate)
         }
         return substituteVariables(_c)
     }
@@ -196,6 +209,28 @@ Item {
         // Grinder
         result = result.replace(/%GRIND%/g, typeof Settings !== "undefined" && Settings.dye.dyeGrinderSetting ? Settings.dye.dyeGrinderSetting : "—")
         result = result.replace(/%GRINDER%/g, typeof Settings !== "undefined" && Settings.dye.dyeGrinderModel ? Settings.dye.dyeGrinderModel : "—")
+        // Beans (DYE metadata)
+        result = result.replace(/%ROASTER%/g, typeof Settings !== "undefined" && Settings.dye.dyeBeanBrand ? Settings.dye.dyeBeanBrand : "—")
+        result = result.replace(/%COFFEE%/g, typeof Settings !== "undefined" && Settings.dye.dyeBeanType ? Settings.dye.dyeBeanType : "—")
+        result = result.replace(/%ROAST_DATE%/g, typeof Settings !== "undefined" && Settings.dye.dyeRoastDate ? Settings.dye.dyeRoastDate : "—")
+        // Override-aware brew temp + yield (mirror the Shot Plan: temperatureDisplay follows C/F and the
+        // override; yield shows "profile → override" with an arrow when a deliberate yield override is set).
+        if (result.indexOf("%BREW_TEMP%") >= 0) {
+            var _pTemp = typeof ProfileManager !== "undefined" ? ProfileManager.profileTargetTemperature : 0
+            var _hasTO = typeof Settings !== "undefined" && Settings.brew.hasTemperatureOverride
+            var _oTemp = _hasTO ? Settings.brew.temperatureOverride : _pTemp
+            result = result.replace(/%BREW_TEMP%/g, (typeof ProfileManager !== "undefined" && _pTemp > 0)
+                ? ProfileManager.temperatureDisplay(_pTemp, _hasTO, _oTemp) : "—")
+        }
+        if (result.indexOf("%YIELD%") >= 0) {
+            var _pYield = typeof ProfileManager !== "undefined" ? ProfileManager.profileTargetWeight : 0
+            var _tWeight = typeof ProfileManager !== "undefined" ? ProfileManager.targetWeight : 0
+            var _hasYO = typeof Settings !== "undefined" && Settings.brew.hasBrewYieldOverride
+            var _yieldStr = (_hasYO && _pYield > 0 && Math.abs(_tWeight - _pYield) > 0.1)
+                ? (_pYield.toFixed(1) + " → " + _tWeight.toFixed(1) + "g")
+                : (_tWeight > 0 ? (_tWeight.toFixed(1) + "g") : "—")
+            result = result.replace(/%YIELD%/g, _yieldStr)
+        }
         // Machine ready status
         var machineReady = typeof MachineState !== "undefined" && MachineState.isReady
         result = result.replace(/%MACHINE_READY%/g, machineReady ? TranslationManager.translate("customitem.status.ready", "Ready") : TranslationManager.translate("customitem.status.notReady", "Not ready"))

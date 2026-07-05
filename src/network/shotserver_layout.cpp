@@ -1861,6 +1861,11 @@ QString ShotServer::generateLayoutPage() const
                             <div class="var-item" onclick="insertVar('%DATE%')">Date</div>
                             <div class="var-item" onclick="insertVar('%RATIO%')">Ratio</div>
                             <div class="var-item" onclick="insertVar('%DOSE%')">Dose</div>
+                            <div class="var-item" onclick="insertVar('%ROASTER%')">Roaster</div>
+                            <div class="var-item" onclick="insertVar('%COFFEE%')">Coffee</div>
+                            <div class="var-item" onclick="insertVar('%ROAST_DATE%')">Roast Date</div>
+                            <div class="var-item" onclick="insertVar('%BREW_TEMP%')">Brew Temp</div>
+                            <div class="var-item" onclick="insertVar('%YIELD%')">Yield</div>
                             <div class="var-item" onclick="insertVar('%MACHINE_READY%')">Ready</div>
                             <div class="var-item" onclick="insertVar('%MACHINE_READY_COLOR%')">Ready Clr</div>
                             <div class="var-item" onclick="insertVar('%CONNECTED%')">Online</div>
