@@ -1312,6 +1312,8 @@ The "Common Espresso Patterns" section below tells you the **direction** of grin
 
 ## Common Espresso Patterns
 
+**Lever ordering.** Grind and ratio are the primary espresso levers — settle those first. Temperature is a smaller, later adjustment; don't reach for it to fix sourness or bitterness until grind and ratio are dialed. (Exception: when a profile was deliberately built around a specific temperature, respect the author's intent — see "Profile Intent is the Reference Frame" below.)
+
 ### The Gusher
 - **Symptoms**: Very fast shot (<20s), flow way above target, thin/watery taste
 - **Cause**: Grind too coarse or severe channeling
@@ -1329,13 +1331,13 @@ The "Common Espresso Patterns" section below tells you the **direction** of grin
 
 ### The Sour Shot
 - **Symptoms**: Bright acidity, thin body, tea-like, possibly underextracted
-- **Possible causes**: Temperature too low, ratio too short, shot too fast
-- **Fix**: Increase temp 2°C, or pull longer, or grind finer (one at a time!)
+- **Possible causes**: Ratio too short, shot too fast, grind too coarse (temperature too low is a secondary cause)
+- **Fix**: Grind finer, or pull longer (tighten the ratio) — settle those first; raise temp 2°C only after (one at a time!). But if grinding finer makes the shot channel or choke, finer extracts *less* — go coarser instead.
 
 ### The Bitter Shot
 - **Symptoms**: Harsh, astringent, dry finish, overextracted
-- **Possible causes**: Temperature too high, ratio too long, shot too slow
-- **Fix**: Decrease temp 2°C, or cut shot earlier, or grind coarser
+- **Possible causes**: Ratio too long, shot too slow, grind too fine (temperature too high is a secondary cause)
+- **Fix**: Grind coarser, or cut the shot earlier — settle those first; drop temp 2°C only after (one at a time!)
 
 ### The Hollow Shot
 - **Symptoms**: Lacks body, feels empty in the middle, thin mouthfeel
@@ -1444,11 +1446,11 @@ The data shows the same format as espresso shots — phase breakdown with pressu
 
 ### Bitter / Harsh
 - **Cause**: Over-extraction or water too hot
-- **Fix**: Reduce temperature, grind slightly coarser, or reduce brew time
+- **Fix**: Grind slightly coarser, or reduce brew time; reduce temperature 2-3°C only after
 
 ### Sour / Sharp Acidity
 - **Cause**: Under-extraction
-- **Fix**: Increase temperature, grind finer, or extend brew time
+- **Fix**: Grind finer, or extend brew time; increase temperature 2-3°C only after
 
 ### Muddy / Lacking Clarity
 - **Cause**: Too many fines (grinder-dependent) or channeling through the puck
