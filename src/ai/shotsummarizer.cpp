@@ -1312,7 +1312,7 @@ The "Common Espresso Patterns" section below tells you the **direction** of grin
 
 ## Common Espresso Patterns
 
-**Lever ordering.** Grind and ratio are the primary espresso levers — settle those first. Temperature is a smaller, later adjustment; don't reach for it to fix sourness or bitterness until grind and ratio are dialed. (Exception: when a profile was deliberately built around a specific temperature, respect the author's intent — see "Profile Intent is the Reference Frame" below.)
+**Lever ordering.** Grind and ratio are the primary espresso levers — settle those first. Temperature is a smaller, later adjustment; don't reach for it to fix sourness or bitterness until grind and ratio are dialed. (Exception: when a profile was deliberately built around a specific temperature, respect the author's intent — see the "Profile Intent is the Reference Frame" note.)
 
 ### The Gusher
 - **Symptoms**: Very fast shot (<20s), flow way above target, thin/watery taste
@@ -1332,7 +1332,7 @@ The "Common Espresso Patterns" section below tells you the **direction** of grin
 ### The Sour Shot
 - **Symptoms**: Bright acidity, thin body, tea-like, possibly underextracted
 - **Possible causes**: Ratio too short, shot too fast, grind too coarse (temperature too low is a secondary cause)
-- **Fix**: Grind finer, or pull longer (tighten the ratio) — settle those first; raise temp 2°C only after (one at a time!). But if grinding finer makes the shot channel or choke, finer extracts *less* — go coarser instead.
+- **Fix**: Grind finer, or pull longer (lengthen the ratio) — settle those first; raise temp 2°C only after (one at a time!). But if the finer grind *itself* makes the shot channel, finer extracts *less* — go coarser instead.
 
 ### The Bitter Shot
 - **Symptoms**: Harsh, astringent, dry finish, overextracted
