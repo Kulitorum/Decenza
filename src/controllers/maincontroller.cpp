@@ -2700,13 +2700,17 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
                     // Exit condition configured but time ran out first
                     transitionReason = QStringLiteral("time");
                 } else {
-                    // Condition was configured, values near threshold - machine likely triggered it
-                    transitionReason = prevFrame.exitType.contains(QStringLiteral("pressure"))
-                        ? QStringLiteral("pressure") : QStringLiteral("flow");
+                    // Exit condition was configured, but the sensor threshold was NOT
+                    // confirmed above and time did not expire — so we cannot attribute the
+                    // exit to a real pressure/flow trigger. Record "time" (the frame advanced
+                    // without a confirmed sensor reason) rather than GUESS a sensor exit that
+                    // consumers trust as ground truth (the skip-first-frame guard and the
+                    // grind detector both suppress/trim on a confirmed pressure/flow reason).
+                    transitionReason = QStringLiteral("time");
                     qDebug() << "MainController: Frame" << prevFrameIndex
-                             << "exit reason ambiguous - exitType:" << prevFrame.exitType
+                             << "exit reason unconfirmed - exitType:" << prevFrame.exitType
                              << "pressure:" << m_lastPressure << "flow:" << m_lastFlow
-                             << "inferred:" << transitionReason;
+                             << "recorded as time";
                 }
             } else {
                 // No exit condition configured - frame ended by time

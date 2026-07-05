@@ -175,6 +175,34 @@ private slots:
         expectSkipDetection({
             phase(0.0, "Pour", 1),
         }, 3, /*firstFrameConfiguredSeconds=*/2.0, true);
+
+        // Exit-condition guard: a first frame that exited on its OWN confirmed
+        // pressure/flow/weight target executed as designed even if very short —
+        // it must NOT flag. Without the guard the short-first-step branch
+        // (0.3 < cutoff) false-positives on every early-exiting preinfusion frame.
+        expectSkipDetection({
+            phase(0.0, "Start", 0),
+            phase(0.0, "Fill", 0),
+            phase(0.3, "Pour", 1, /*isFlowMode=*/false, /*transitionReason=*/"pressure"),
+        }, 3, false);
+        expectSkipDetection({
+            phase(0.0, "Start", 0),
+            phase(0.0, "Fill", 0),
+            phase(0.3, "Pour", 1, false, "flow"),
+        }, 3, false);
+        expectSkipDetection({
+            phase(0.0, "Start", 0),
+            phase(0.0, "Fill", 0),
+            phase(0.3, "Pour", 1, false, "weight"),
+        }, 3, false);
+
+        // Guard is reason-SPECIFIC, not a blanket suppress: a genuinely-too-short
+        // first frame that advanced on "time" (no confirmed sensor exit) still flags.
+        expectSkipDetection({
+            phase(0.0, "Start", 0),
+            phase(0.0, "Fill", 0),
+            phase(0.3, "Pour", 1, false, "time"),
+        }, 3, true);
     }
 
     // buildChannelingWindows ---------------------------------------------
