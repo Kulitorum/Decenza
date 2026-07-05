@@ -343,7 +343,20 @@ other reason). Consumers wanting "verified clean" specifically must read
 ### 2.3 Skip first frame
 
 `detectSkipFirstFrame` operates on phase markers only — no curves needed. Two
-distinct branches inside one function, picked from the marker stream:
+distinct branches inside one function, picked from the marker stream.
+
+**Exit-condition guard (checked first).** Before either branch, if the first
+non-zero frame's marker `transitionReason` is `"pressure"`, `"flow"`, or
+`"weight"` (case-insensitive), the detector returns `false` — the preceding
+frame exited on its own confirmed exit condition, so it executed as designed and
+was not skipped. DE1 preinfusion/fill frames routinely exit far earlier than
+their configured max duration (that is their purpose), and without this guard the
+duration checks below flag them as "skipped." These reasons are recorded only for
+a *confirmed* sensor exit — `MainController` records an unconfirmed exit as
+`"time"` rather than guessing — so a match here is a genuine target-met exit.
+Only a `"time"` or empty (old-data) reason falls through to the branches. This
+uses the same `transitionReason` signal `analyzeFlowVsGoal` (the grind detector,
+`detectGrindIssue`) already reads.
 
 **FW-bug branch** — frame 0 was never observed before a non-zero frame:
 returns `phase.time < 2.0`. The 2-second window matches the de1app Tcl
