@@ -370,6 +370,40 @@ private slots:
         QCOMPARE(fx.speakSpy.count(), 0);
         QVERIFY(!fx.coach.cueActive());
     }
+
+    // The gate can flip false MID-steam: the preset pills are tappable while
+    // steaming, and switching pitchers re-bases the duration on the fixed
+    // preset (SteamPage clears steamTimeoutScaled -> the Binding writes
+    // durationMilkDerived=false). Coaching must stop — the duration is no
+    // longer milk-anchored — but silently and truthfully: the active cue is
+    // cleared, NO "not captured" pill appears (milk WAS captured; the user
+    // changed the plan deliberately), nothing further is spoken, and the
+    // done cue is suppressed.
+    void midSteamGateFlip_stopsCoachingSilently_noFalsePill() {
+        Fixture fx(true, true, 60, /*milkDerived=*/true);
+        fx.startSteam();
+        fx.tick(0.1);     // stretch
+        fx.tick(21.0);    // roll
+        QCOMPARE(fx.coach.cueText(), QString::fromUtf8(ROLL));
+        const int cuesBefore = fx.cueSpy.count();   // 2
+        const int speaksBefore = fx.speakSpy.count();
+
+        fx.coach.setDurationMilkDerived(false);     // mid-steam preset switch
+        fx.tick(22.0);
+        // Active cue cleared (one cueChanged from clearCue), no pill text,
+        // nothing spoken.
+        QVERIFY(!fx.coach.cueActive());
+        QVERIFY(fx.coach.cueText().isEmpty());
+        QCOMPARE(fx.cueSpy.count(), cuesBefore + 1);
+        QCOMPARE(fx.speakSpy.count(), speaksBefore);
+
+        // No further milestones, and no done cue at flow stop.
+        fx.tick(48.0);
+        fx.tick(59.5);
+        fx.flowStopped();
+        QCOMPARE(fx.cueSpy.count(), cuesBefore + 1);
+        QCOMPARE(fx.speakSpy.count(), speaksBefore);
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_LiveSteamCoach)

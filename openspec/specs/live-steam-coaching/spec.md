@@ -101,6 +101,12 @@ Coaching cues SHALL be emitted only when the session's steam duration was derive
 - **WHEN** both coaching settings are off
 - **THEN** no pill and no cue of any kind is shown
 
+#### Scenario: Duration stops being milk-derived mid-steam
+
+- **WHEN** coaching is active and the user switches pitcher presets during the pour (re-basing the duration on the fixed preset)
+- **THEN** coaching stops for the remainder of the operation — the active cue is cleared and no further cue (including completion) is emitted or spoken
+- **AND** the "milk weight not captured" pill is NOT shown (the milk was captured; the user changed the plan deliberately)
+
 ### Requirement: Milestone pacing and manual-steam behavior
 
 During steaming (with a milk-derived duration) the coach SHALL emit at most one cue at a time in the order stretch → roll → almost → completion, each at most once per operation. When the target duration is too short for a distinct texturing phase, the "roll" cue SHALL be skipped while the stretch, almost, and completion cues are retained. When both coaching settings are off, the coach SHALL perform no per-sample evaluation work.

@@ -157,17 +157,34 @@ void LiveSteamCoach::evaluate() {
     // No coaching without a milk-derived duration. A fixed preset duration
     // says nothing about the milk actually in the pitcher — pacing cues off
     // it would confidently endorse ruining it (200 mL against a 60 s preset
-    // is destroyed long before "Almost there"). Show one informational pill
-    // so the silence is explained and actionable (rest the pitcher on the
-    // scale next time). Spoken politely too (when the audio setting is on) —
-    // an audio-only user would otherwise get unexplained dead air.
+    // is destroyed long before "Almost there").
     if (!m_durationMilkDerived) {
         if (!m_firedNoCoaching) {
             m_firedNoCoaching = true;
-            emitCue(QStringLiteral("no-coaching"),
-                    tr_("steamCoach.cue.noCoaching",
-                        "No coaching — milk weight not captured"),
-                    QStringLiteral("info"), /*speak=*/true);
+            if (!m_firedStretch) {
+                // Not derived from the start of the session: the user never
+                // captured the milk. Show one informational pill so the
+                // silence is explained and actionable (rest the pitcher on
+                // the scale next time). Spoken politely too (when the audio
+                // setting is on) — an audio-only user would otherwise get
+                // unexplained dead air.
+                qDebug() << "[SteamCoach] duration not milk-derived — no coaching (pill shown)";
+                emitCue(QStringLiteral("no-coaching"),
+                        tr_("steamCoach.cue.noCoaching",
+                            "No coaching — milk weight not captured"),
+                        QStringLiteral("info"), /*speak=*/true);
+            } else {
+                // The gate flipped false MID-steam after coaching had started
+                // — e.g. the user tapped a different pitcher preset during the
+                // pour (pills are tappable mid-steam), which re-bases the
+                // duration on the fixed preset. Coaching must stop (the
+                // duration is no longer milk-anchored), but the "not captured"
+                // pill would be a lie here (milk WAS captured) and the user
+                // made this change deliberately — clear the active cue and go
+                // quiet instead.
+                qDebug() << "[SteamCoach] duration stopped being milk-derived mid-steam — coaching off (no pill)";
+                clearCue();
+            }
         }
         return;
     }

@@ -161,7 +161,11 @@ private:
     bool m_audioEnabled = false;
 
     // See the Q_PROPERTY: page-fed, gates all coaching. Deliberately NOT reset
-    // in resetState() — its lifecycle is owned by SteamPage's binding.
+    // in resetState() — its lifecycle is owned by SteamPage's binding. Note
+    // the QML Binding's destroy semantics (RestoreBindingOrValue): if the
+    // page is torn down, the property is restored to its page-creation-time
+    // value (false in practice) — fail-safe, coaching just stops; a stale
+    // `true` cannot survive page destruction.
     bool m_durationMilkDerived = false;
 
     // True while the machine is in the Steaming phase.
@@ -184,8 +188,10 @@ private:
     // classifier refuse to trust it.
     bool m_sawShotTick = false;
 
-    // Once-per-steam latch for the "No coaching — milk weight not captured"
-    // informational pill (visual only, never spoken).
+    // Once-per-steam latch for the not-milk-derived reaction: the
+    // "No coaching — milk weight not captured" pill (shown + announced once)
+    // when the session was never derived, or the silent cue-clear when the
+    // gate flips false mid-steam (deliberate preset switch — no pill).
     bool m_firedNoCoaching = false;
 
     // Once-per-steam breadcrumb for the untimed-steam degradation path.
