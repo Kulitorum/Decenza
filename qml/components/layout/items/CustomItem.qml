@@ -184,6 +184,10 @@ Item {
     function substituteVariables(text) {
         if (!text) return ""
         var result = sanitizeHtml(text)
+        // Escape a text VALUE for the RichText render, and use a function replacer so the value's own
+        // $-patterns ($&, $$, $1) aren't interpreted by String.replace. Mirrors ShotPlanText's safe
+        // substitution. Numeric/arrow tokens can share it harmlessly; NOT for markup-emitting tokens.
+        function _subText(res, re, value) { var safe = Theme.escapeHtml(value); return res.replace(re, function() { return safe }) }
         // Machine
         result = result.replace(/%TEMP%/g, typeof DE1Device !== "undefined" ? Theme.cToDisplay(DE1Device.temperature).toFixed(1) : "—")
         result = result.replace(/%STEAM_TEMP%/g, typeof DE1Device !== "undefined" ? Theme.cToDisplay(DE1Device.steamTemperature).toFixed(0) + "\u00B0" : "—")
@@ -200,26 +204,27 @@ Item {
         result = result.replace(/%PREINFUSION_VOLUME%/g, typeof MachineState !== "undefined" ? MachineState.preinfusionVolume.toFixed(0) : "—")
         // Profile (ProfileManager)
         result = result.replace(/%TARGET_WEIGHT%/g, typeof ProfileManager !== "undefined" ? ProfileManager.targetWeight.toFixed(1) : "—")
-        result = result.replace(/%PROFILE%/g, typeof ProfileManager !== "undefined" ? ProfileManager.currentProfileName : "—")
+        result = _subText(result, /%PROFILE%/g, typeof ProfileManager !== "undefined" ? ProfileManager.currentProfileName : "—")
         result = result.replace(/%TARGET_TEMP%/g, typeof ProfileManager !== "undefined" ? Theme.cToDisplay(ProfileManager.profileTargetTemperature).toFixed(1) : "—")
         result = result.replace(/%RATIO%/g, typeof ProfileManager !== "undefined" ? ProfileManager.brewByRatio.toFixed(1) : "—")
         result = result.replace(/%DOSE%/g, typeof ProfileManager !== "undefined" ? ProfileManager.brewByRatioDose.toFixed(1) : "—")
         // Scale device
-        result = result.replace(/%SCALE%/g, typeof ScaleDevice !== "undefined" && ScaleDevice ? ScaleDevice.name : "—")
+        result = _subText(result, /%SCALE%/g, typeof ScaleDevice !== "undefined" && ScaleDevice ? ScaleDevice.name : "—")
         // Grinder
-        result = result.replace(/%GRIND%/g, typeof Settings !== "undefined" && Settings.dye.dyeGrinderSetting ? Settings.dye.dyeGrinderSetting : "—")
-        result = result.replace(/%GRINDER%/g, typeof Settings !== "undefined" && Settings.dye.dyeGrinderModel ? Settings.dye.dyeGrinderModel : "—")
+        result = _subText(result, /%GRIND%/g, typeof Settings !== "undefined" && Settings.dye.dyeGrinderSetting ? Settings.dye.dyeGrinderSetting : "—")
+        result = _subText(result, /%GRINDER%/g, typeof Settings !== "undefined" && Settings.dye.dyeGrinderModel ? Settings.dye.dyeGrinderModel : "—")
         // Beans (DYE metadata)
-        result = result.replace(/%ROASTER%/g, typeof Settings !== "undefined" && Settings.dye.dyeBeanBrand ? Settings.dye.dyeBeanBrand : "—")
-        result = result.replace(/%COFFEE%/g, typeof Settings !== "undefined" && Settings.dye.dyeBeanType ? Settings.dye.dyeBeanType : "—")
-        result = result.replace(/%ROAST_DATE%/g, typeof Settings !== "undefined" && Settings.dye.dyeRoastDate ? Settings.dye.dyeRoastDate : "—")
+        result = _subText(result, /%ROASTER%/g, typeof Settings !== "undefined" && Settings.dye.dyeBeanBrand ? Settings.dye.dyeBeanBrand : "—")
+        result = _subText(result, /%COFFEE%/g, typeof Settings !== "undefined" && Settings.dye.dyeBeanType ? Settings.dye.dyeBeanType : "—")
+        result = _subText(result, /%ROAST_DATE%/g, typeof Settings !== "undefined" && Settings.dye.dyeRoastDate ? Settings.dye.dyeRoastDate : "—")
         // Override-aware brew temp + yield (mirror the Shot Plan: temperatureDisplay follows C/F and the
-        // override; yield shows "profile → override" with an arrow when a deliberate yield override is set).
+        // override; yield shows "profile → override" with an arrow only when a deliberate yield override is
+        // set AND differs from the profile yield by more than 0.1 g).
         if (result.indexOf("%BREW_TEMP%") >= 0) {
             var _pTemp = typeof ProfileManager !== "undefined" ? ProfileManager.profileTargetTemperature : 0
             var _hasTO = typeof Settings !== "undefined" && Settings.brew.hasTemperatureOverride
             var _oTemp = _hasTO ? Settings.brew.temperatureOverride : _pTemp
-            result = result.replace(/%BREW_TEMP%/g, (typeof ProfileManager !== "undefined" && _pTemp > 0)
+            result = _subText(result, /%BREW_TEMP%/g, (typeof ProfileManager !== "undefined" && _pTemp > 0)
                 ? ProfileManager.temperatureDisplay(_pTemp, _hasTO, _oTemp) : "—")
         }
         if (result.indexOf("%YIELD%") >= 0) {
@@ -229,7 +234,7 @@ Item {
             var _yieldStr = (_hasYO && _pYield > 0 && Math.abs(_tWeight - _pYield) > 0.1)
                 ? (_pYield.toFixed(1) + " → " + _tWeight.toFixed(1) + "g")
                 : (_tWeight > 0 ? (_tWeight.toFixed(1) + "g") : "—")
-            result = result.replace(/%YIELD%/g, _yieldStr)
+            result = _subText(result, /%YIELD%/g, _yieldStr)
         }
         // Machine ready status
         var machineReady = typeof MachineState !== "undefined" && MachineState.isReady

@@ -158,7 +158,7 @@ Dialog {
         result = result.replace(/%ROASTER%/g, "Olympia Coffee")
         result = result.replace(/%COFFEE%/g, "Big Truck")
         result = result.replace(/%ROAST_DATE%/g, "2026-06-20")
-        result = result.replace(/%BREW_TEMP%/g, "93.0")
+        result = result.replace(/%BREW_TEMP%/g, "93.0°C")
         result = result.replace(/%YIELD%/g, "36.0 → 40.0g")
         result = result.replace(/%MACHINE_READY%/g, "Ready")
         result = result.replace(/%MACHINE_READY_COLOR%/g, Theme.successColor)

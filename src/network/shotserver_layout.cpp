@@ -3829,6 +3829,8 @@ QString ShotServer::generateLayoutPage() const
             .replace(/%TARGET_WEIGHT%/g,"36.0").replace(/%PROFILE%/g,"Adaptive v2")
             .replace(/%TARGET_TEMP%/g,"93.0").replace(/%RATIO%/g,"2.0")
             .replace(/%DOSE%/g,"18.0").replace(/%SCALE%/g,"Lunar")
+            .replace(/%ROASTER%/g,"Olympia Coffee").replace(/%COFFEE%/g,"Big Truck")
+            .replace(/%ROAST_DATE%/g,"2026-06-20").replace(/%BREW_TEMP%/g,"93.0°C").replace(/%YIELD%/g,"36.0 → 40.0g")
             .replace(/%MACHINE_READY%/g,"Ready").replace(/%MACHINE_READY_COLOR%/g,"#18c37e")
             .replace(/%CONNECTED%/g,"Online").replace(/%CONNECTED_COLOR%/g,"#18c37e")
             .replace(/%DEVICES%/g,"Machine + Scale")
@@ -3938,6 +3940,8 @@ QString ShotServer::generateLayoutPage() const
         "%WATER%":"78","%WATER_ML%":"850","%WEIGHT%":"36.2","%SHOT_TIME%":"28.5",
         "%TARGET_WEIGHT%":"36.0","%VOLUME%":"42","%PROFILE%":"Profile","%STATE%":"Idle",
         "%TARGET_TEMP%":"93.0","%SCALE%":"Scale","%RATIO%":"2.0","%DOSE%":"18.0",
+        "%ROASTER%":"Olympia Coffee","%COFFEE%":"Big Truck","%ROAST_DATE%":"2026-06-20",
+        "%BREW_TEMP%":"93.0°C","%YIELD%":"36.0 → 40.0g",
         "%TIME%":"12:30","%DATE%":"2025-01-15",
         "%MACHINE_READY%":"Ready","%MACHINE_READY_COLOR%":"#00cc6d",
         "%CONNECTED%":"Online","%CONNECTED_COLOR%":"#00cc6d","%DEVICES%":"Machine",
