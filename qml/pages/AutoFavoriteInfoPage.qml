@@ -30,6 +30,12 @@ Page {
     // Persisted graph height
     property real graphHeight: Settings.value("autoFavoriteInfo/graphHeight", Theme.scaled(250))
 
+    // Re-assert on every activation, not just creation — returning here after a
+    // page was pushed on top would otherwise keep that page's header title.
+    StackView.onActivated: {
+        root.currentPageTitle = TranslationManager.translate("autofavoriteinfo.title", "Favorite Details")
+    }
+
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("autofavoriteinfo.title", "Favorite Details")
         loadData()

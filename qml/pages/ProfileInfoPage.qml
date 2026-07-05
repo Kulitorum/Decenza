@@ -16,6 +16,12 @@ Page {
     // Loaded profile data
     property var profileData: null
 
+    // Re-assert on every activation, not just creation — returning here after a
+    // page was pushed on top would otherwise keep that page's header title.
+    StackView.onActivated: {
+        root.currentPageTitle = TranslationManager.translate("profileinfo.title", "Profile Info")
+    }
+
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("profileinfo.title", "Profile Info")
         loadProfile()

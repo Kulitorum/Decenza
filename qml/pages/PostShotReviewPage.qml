@@ -1808,6 +1808,7 @@ Page {
 
     // Bottom bar (stays visible under keyboard)
     BottomBar {
+        title: TranslationManager.translate("postshotreview.title", "Shot Review")
         onBackClicked: handleBack()
 
         // Profile name + date remain visible while the user scrolls,

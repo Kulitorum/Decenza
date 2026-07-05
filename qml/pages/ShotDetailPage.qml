@@ -31,6 +31,12 @@ Page {
         }
     }
 
+    // Re-assert on every activation, not just creation — returning here after a
+    // page was pushed on top would otherwise keep that page's header title.
+    StackView.onActivated: {
+        root.currentPageTitle = TranslationManager.translate("shotdetail.title", "Shot Detail")
+    }
+
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("shotdetail.title", "Shot Detail")
         // Initialize currentIndex if shotIds provided
