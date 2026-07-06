@@ -151,6 +151,23 @@ public:
     // an empty array). Injected into the web layout editor page so it consumes
     // the same table instead of a hand-maintained mirror.
     static QJsonObject readoutCapabilitiesJson();
+    // What an absent stored displayMode means for a type ("icon" for the
+    // battery readouts, "text" otherwise). Declared once in the schema tables;
+    // the unified editor, the item components, and the web editor all consume
+    // it (the web via displayModeDefaultsJson → WIDGET_DISPLAY_DEFAULTS).
+    Q_INVOKABLE static QString defaultDisplayModeForType(const QString& type);
+    static QJsonObject displayModeDefaultsJson();
+
+    // Widget catalog (single source of truth for the palette): ordered palette
+    // entries {type, cat, labelKey, label, flag} for the add-widget picker,
+    // chip names {type: {key, fallback}} for chip/display labels (includes
+    // legacy aliases like connectionStatus), and the category names. QML
+    // resolves labels via TranslationManager.translate(key, fallback); the web
+    // editor receives the same table as JSON (widgetCatalogJson).
+    Q_INVOKABLE static QVariantList widgetCatalog();
+    Q_INVOKABLE static QVariantMap widgetChipNames();
+    Q_INVOKABLE static QVariantList widgetCategoryNames();
+    static QJsonObject widgetCatalogJson();
     // Whether a placed item instance is "configured" — its type has options, or
     // it carries any per-instance property beyond the bare type/id. Used to gate
     // remove-confirmation so an accidental tap can't discard a set-up widget.

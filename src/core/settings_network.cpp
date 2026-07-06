@@ -6,6 +6,7 @@
 #include <QHash>
 #include <QSet>
 #include <QUrl>
+#include <QVector>
 
 #ifdef Q_OS_IOS
 #include "../screensaver/iosbrightness.h"
@@ -639,6 +640,102 @@ bool typeHasBespokeEditor(const QString& type) {
         return true;
     return bespokeEditorTypes().contains(type);
 }
+
+// Per-type default display mode for readouts whose "today's rendering" is not
+// value-only. An absent stored displayMode always means this default. Consumed
+// by ReadoutOptionsPopup, the item components, and the web editor (injected as
+// WIDGET_DISPLAY_DEFAULTS) — declare it here only.
+const QHash<QString, QString>& displayModeDefaults() {
+    static const QHash<QString, QString> kDefaults = {
+        { QStringLiteral("batteryLevel"), QStringLiteral("icon") },
+        { QStringLiteral("scaleBattery"), QStringLiteral("icon") },
+    };
+    return kDefaults;
+}
+
+// Widget catalog: the single declaration of every placeable widget type — its
+// palette category, palette label, and short chip label (both as translation
+// key + English fallback), plus the special/screensaver chip-coloring flag the
+// web editor uses. Consumed by the in-app palette + chip names
+// (LayoutEditorZone.qml), the library card (LibraryItemCard.qml), and the web
+// editor (injected as WIDGET_CATALOG). `inPalette=false` marks legacy aliases
+// that need a display name but are not offered in the add-widget picker.
+struct WidgetCatalogEntry {
+    const char* type;
+    int cat;              // indexes the category-name list below
+    const char* labelKey; // palette label translation key
+    const char* label;    // palette label English fallback
+    const char* chipKey;  // chip/short name translation key
+    const char* chip;     // chip/short name English fallback
+    const char* flag;     // "" | "special" | "screensaver" (web chip coloring)
+    bool inPalette;
+};
+
+const QVector<WidgetCatalogEntry>& widgetCatalogTable() {
+    static const QVector<WidgetCatalogEntry> kCatalog = {
+        // Actions (0)
+        { "espresso",      0, "layoutEditor.widgetEspresso",  "Espresso",  "layoutEditor.chipEspresso",  "Espresso",  "", true },
+        { "steam",         0, "layoutEditor.widgetSteam",     "Steam",     "layoutEditor.chipSteam",     "Steam",     "", true },
+        { "hotwater",      0, "layoutEditor.widgetHotWater",  "Hot Water", "layoutEditor.chipHotWater",  "Hot Water", "", true },
+        { "flush",         0, "layoutEditor.widgetFlush",     "Flush",     "layoutEditor.chipFlush",     "Flush",     "", true },
+        { "sleep",         0, "layoutEditor.widgetSleep",     "Sleep",     "layoutEditor.chipSleep",     "Sleep",     "", true },
+        { "settings",      0, "layoutEditor.widgetSettings",  "Settings",  "layoutEditor.chipSettings",  "Settings",  "", true },
+        { "quit",          0, "layoutEditor.widgetQuit",      "Quit",      "layoutEditor.chipQuit",      "Quit",      "special", true },
+        { "history",       0, "layoutEditor.widgetHistory",   "History",   "layoutEditor.chipHistory",   "History",   "", true },
+        { "beans",         0, "layoutEditor.widgetBeans",     "Beans",     "layoutEditor.chipBeans",     "Beans",     "", true },
+        { "equipment",     0, "layoutEditor.widgetEquipment", "Equipment", "layoutEditor.chipEquipment", "Equipment", "", true },
+        { "autofavorites", 0, "layoutEditor.widgetFavorites", "Favorites", "layoutEditor.chipFavorites", "Favorites", "", true },
+        { "discuss",       0, "layoutEditor.widgetDiscuss",   "Discuss",   "layoutEditor.chipDiscuss",   "Discuss",   "", true },
+        { "ghcSimulator",  0, "layoutEditor.widgetGHCSimulator", "Mini GHC", "layoutEditor.chipGHCSim",  "Mini GHC",  "", true },
+        // Readouts (1)
+        { "machineStatus",    1, "layoutEditor.widgetMachineStatus", "Machine Status", "layoutEditor.chipMachine",    "Machine",    "", true },
+        { "scaleWeight",      1, "layoutEditor.widgetScaleWeight",   "Scale Weight",   "layoutEditor.chipScale",      "Scale",      "", true },
+        { "temperature",      1, "layoutEditor.widgetTemperature",   "Temperature",    "layoutEditor.chipTemp",       "Temp",       "", true },
+        { "steamTemperature", 1, "layoutEditor.widgetSteamTemp",     "Steam Temp",     "layoutEditor.chipSteamTemp",  "Steam Temp", "", true },
+        { "batteryLevel",     1, "layoutEditor.widgetBatteryLevel",  "Battery Level",  "layoutEditor.chipBattery",    "Battery",    "", true },
+        { "scaleBattery",     1, "layoutEditor.widgetScaleBattery",  "Scale Battery",  "layoutEditor.chipScaleBat",   "Scale Bat",  "", true },
+        { "waterLevel",       1, "layoutEditor.widgetWaterLevel",    "Water Level",    "layoutEditor.chipWater",      "Water",      "", true },
+        { "profileName",      1, "layoutEditor.widgetProfileName",   "Profile Name",   "layoutEditor.chipProfileName","Profile",    "", true },
+        { "doseWeight",       1, "layoutEditor.widgetDoseWeight",    "Dose Weight",    "layoutEditor.chipDoseWeight", "Dose",       "", true },
+        { "milkWeight",       1, "layoutEditor.widgetMilkWeight",    "Milk Weight",    "layoutEditor.chipMilkWeight", "Milk",       "", true },
+        { "ratioQuickSelect", 1, "layoutEditor.widgetRatioQuickSelect", "Ratio Quick-Select", "layoutEditor.chipRatioQuick", "Ratio", "", true },
+        { "shotPlan",         1, "layoutEditor.widgetShotPlan",      "Shot Plan",      "layoutEditor.chipShotPlan",   "Shot Plan",  "", true },
+        // The clock palette label reuses the chip key — pre-existing (the widget
+        // was renamed to "Time" and the chip key kept for translations).
+        { "clock",            1, "layoutEditor.chipTime",            "Time",           "layoutEditor.chipTime",       "Time",       "", true },
+        // Legacy alias: merged into machineStatus, still present in old saved
+        // layouts, so it keeps a chip name but is not offered in the palette.
+        { "connectionStatus", 1, "layoutEditor.chipMachine",         "Machine",        "layoutEditor.chipMachine",    "Machine",    "", false },
+        // Utility (2)
+        { "custom",    2, "layoutEditor.widgetCustom",    "Custom",     "layoutEditor.chipCustom",    "Custom",     "special", true },
+        { "pageTitle", 2, "layoutEditor.widgetPageTitle", "Page Title", "layoutEditor.chipPageTitle", "Page Title", "special", true },
+        { "separator", 2, "layoutEditor.widgetSeparator", "Separator",  "layoutEditor.chipSep",       "Sep",        "special", true },
+        { "spacer",    2, "layoutEditor.widgetSpacer",    "Spacer",     "layoutEditor.chipSpacer",    "Spacer",     "special", true },
+        { "weather",   2, "layoutEditor.widgetWeather",   "Weather",    "layoutEditor.chipWeather",   "Weather",    "special", true },
+        // Screensavers (3)
+        { "screensaverPipes",     3, "layoutEditor.widget3DPipes",    "3D Pipes",   "layoutEditor.chipPipes",     "Pipes",     "screensaver", true },
+        { "screensaverAttractor", 3, "layoutEditor.widgetAttractors", "Attractors", "layoutEditor.chipAttractor", "Attractor", "screensaver", true },
+        { "screensaverFlipClock", 3, "layoutEditor.widgetFlipClock",  "Flip Clock", "layoutEditor.chipClock",     "Clock",     "screensaver", true },
+        { "lastShot",             3, "layoutEditor.widgetLastShot",   "Last Shot",  "layoutEditor.chipLastShot",  "Last Shot", "screensaver", true },
+        { "screensaverShotMap",   3, "layoutEditor.widgetShotMap",    "Shot Map",   "layoutEditor.chipMap",       "Map",       "screensaver", true },
+    };
+    return kCatalog;
+}
+
+struct WidgetCategoryName {
+    const char* key;
+    const char* fallback;
+};
+
+const QVector<WidgetCategoryName>& widgetCategoryTable() {
+    static const QVector<WidgetCategoryName> kCategories = {
+        { "layoutEditor.catActions",      "Actions" },
+        { "layoutEditor.catReadouts",     "Readouts" },
+        { "layoutEditor.catUtility",      "Utility" },
+        { "layoutEditor.catScreensavers", "Screensavers" },
+    };
+    return kCategories;
+}
 } // namespace
 
 bool SettingsNetwork::typeHasOptions(const QString& type) {
@@ -660,6 +757,87 @@ QJsonObject SettingsNetwork::readoutCapabilitiesJson() {
     for (const QString& type : bespokeEditorTypes())
         caps[type] = QJsonArray();
     return caps;
+}
+
+QString SettingsNetwork::defaultDisplayModeForType(const QString& type) {
+    return displayModeDefaults().value(type, QStringLiteral("text"));
+}
+
+QJsonObject SettingsNetwork::displayModeDefaultsJson() {
+    QJsonObject defaults;
+    const auto& map = displayModeDefaults();
+    for (auto it = map.constBegin(); it != map.constEnd(); ++it)
+        defaults[it.key()] = it.value();
+    return defaults;
+}
+
+QVariantList SettingsNetwork::widgetCatalog() {
+    QVariantList list;
+    for (const auto& e : widgetCatalogTable()) {
+        if (!e.inPalette)
+            continue;
+        list.append(QVariantMap{
+            { QStringLiteral("type"), QString::fromLatin1(e.type) },
+            { QStringLiteral("cat"), e.cat },
+            { QStringLiteral("labelKey"), QString::fromLatin1(e.labelKey) },
+            { QStringLiteral("label"), QString::fromLatin1(e.label) },
+            { QStringLiteral("flag"), QString::fromLatin1(e.flag) },
+        });
+    }
+    return list;
+}
+
+QVariantMap SettingsNetwork::widgetChipNames() {
+    QVariantMap map;
+    for (const auto& e : widgetCatalogTable()) {
+        map.insert(QString::fromLatin1(e.type), QVariantMap{
+            { QStringLiteral("key"), QString::fromLatin1(e.chipKey) },
+            { QStringLiteral("fallback"), QString::fromLatin1(e.chip) },
+        });
+    }
+    return map;
+}
+
+QVariantList SettingsNetwork::widgetCategoryNames() {
+    QVariantList list;
+    for (const auto& c : widgetCategoryTable()) {
+        list.append(QVariantMap{
+            { QStringLiteral("key"), QString::fromLatin1(c.key) },
+            { QStringLiteral("fallback"), QString::fromLatin1(c.fallback) },
+        });
+    }
+    return list;
+}
+
+QJsonObject SettingsNetwork::widgetCatalogJson() {
+    // Shape consumed by the web layout editor: `types` mirrors the old
+    // WIDGET_TYPES entries (English labels, special/screensaver flags),
+    // `chipNames` the old DISPLAY_NAMES, `catNames` the old CAT_NAMES.
+    QJsonArray types;
+    QJsonObject chipNames;
+    for (const auto& e : widgetCatalogTable()) {
+        chipNames[QString::fromLatin1(e.type)] = QString::fromLatin1(e.chip);
+        if (!e.inPalette)
+            continue;
+        QJsonObject t{
+            { QStringLiteral("type"), QString::fromLatin1(e.type) },
+            { QStringLiteral("cat"), e.cat },
+            { QStringLiteral("label"), QString::fromLatin1(e.label) },
+        };
+        if (qstrcmp(e.flag, "special") == 0)
+            t[QStringLiteral("special")] = true;
+        else if (qstrcmp(e.flag, "screensaver") == 0)
+            t[QStringLiteral("screensaver")] = true;
+        types.append(t);
+    }
+    QJsonArray catNames;
+    for (const auto& c : widgetCategoryTable())
+        catNames.append(QString::fromLatin1(c.fallback));
+    return QJsonObject{
+        { QStringLiteral("types"), types },
+        { QStringLiteral("chipNames"), chipNames },
+        { QStringLiteral("catNames"), catNames },
+    };
 }
 
 bool SettingsNetwork::itemIsConfigured(const QString& itemId) const {

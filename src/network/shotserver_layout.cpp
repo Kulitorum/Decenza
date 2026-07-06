@@ -2436,69 +2436,9 @@ QString ShotServer::generateLayoutPage() const
         {key: "bottomRight", label: "Bottom Bar (Right)", hasOffset: false}
     ];
 
-    // Widget catalog. `cat` indexes CAT_NAMES (0 Actions, 1 Readouts, 2 Utility,
-    // 3 Screensavers); the picker groups by cat and sorts by label within each.
-    // `special`/`screensaver` drive chip/menu-item colour. Mirrors the in-app
-    // catalog in LayoutEditorZone.qml — keep the two in sync.
-    var WIDGET_TYPES = [
-        // Actions (0)
-        {type:"espresso",cat:0,label:"Espresso"},
-        {type:"steam",cat:0,label:"Steam"},
-        {type:"hotwater",cat:0,label:"Hot Water"},
-        {type:"flush",cat:0,label:"Flush"},
-        {type:"sleep",cat:0,label:"Sleep"},
-        {type:"settings",cat:0,label:"Settings"},
-        {type:"quit",cat:0,label:"Quit",special:true},
-        {type:"history",cat:0,label:"History"},
-        {type:"beans",cat:0,label:"Beans"},
-        {type:"equipment",cat:0,label:"Equipment"},
-        {type:"autofavorites",cat:0,label:"Favorites"},
-        {type:"discuss",cat:0,label:"Discuss"},
-        {type:"ghcSimulator",cat:0,label:"Mini GHC"},
-        // Readouts (1)
-        {type:"machineStatus",cat:1,label:"Machine Status"},
-        {type:"scaleWeight",cat:1,label:"Scale Weight"},
-        {type:"temperature",cat:1,label:"Temperature"},
-        {type:"steamTemperature",cat:1,label:"Steam Temp"},
-        {type:"batteryLevel",cat:1,label:"Battery Level"},
-        {type:"scaleBattery",cat:1,label:"Scale Battery"},
-        {type:"waterLevel",cat:1,label:"Water Level"},
-        {type:"profileName",cat:1,label:"Profile Name"},
-        {type:"doseWeight",cat:1,label:"Dose Weight"},
-        {type:"milkWeight",cat:1,label:"Milk Weight"},
-        {type:"ratioQuickSelect",cat:1,label:"Ratio Quick-Select"},
-        {type:"shotPlan",cat:1,label:"Shot Plan"},
-        {type:"clock",cat:1,label:"Time"},
-        // Utility (2)
-        {type:"custom",cat:2,label:"Custom",special:true},
-        {type:"pageTitle",cat:2,label:"Page Title",special:true},
-        {type:"separator",cat:2,label:"Separator",special:true},
-        {type:"spacer",cat:2,label:"Spacer",special:true},
-        {type:"weather",cat:2,label:"Weather",special:true},
-        // Screensavers (3)
-        {type:"screensaverPipes",cat:3,label:"3D Pipes",screensaver:true},
-        {type:"screensaverAttractor",cat:3,label:"Attractors",screensaver:true},
-        {type:"screensaverFlipClock",cat:3,label:"Flip Clock",screensaver:true},
-        {type:"lastShot",cat:3,label:"Last Shot",screensaver:true},
-        {type:"screensaverShotMap",cat:3,label:"Shot Map",screensaver:true}
-    ];
-
-    var DISPLAY_NAMES = {
-        espresso:"Espresso",steam:"Steam",hotwater:"Hot Water",flush:"Flush",
-        beans:"Beans",equipment:"Equipment",history:"History",autofavorites:"Favorites",sleep:"Sleep",
-        settings:"Settings",temperature:"Temp",steamTemperature:"Steam",
-        batteryLevel:"Battery",scaleBattery:"Scale Bat",waterLevel:"Water",connectionStatus:"Machine",scaleWeight:"Scale",
-        profileName:"Profile",doseWeight:"Dose",milkWeight:"Milk",ratioQuickSelect:"Ratio",
-        shotPlan:"Shot Plan",pageTitle:"Title",spacer:"Spacer",separator:"Sep",
-        custom:"Custom",weather:"Weather",quit:"Quit",
-        screensaverFlipClock:"Flip Clock",screensaverPipes:"3D Pipes",
-        screensaverAttractor:"Attractor",screensaverShotMap:"Shot Map",
-        lastShot:"Last Shot",
-        discuss:"Discuss",
-        ghcSimulator:"Mini GHC",
-        machineStatus:"Machine",
-        clock:"Time"
-    };
+    // The widget catalog (WIDGET_TYPES / DISPLAY_NAMES / CAT_NAMES) is injected
+    // below from the single C++ table (SettingsNetwork::widgetCatalogJson) —
+    // no hand-maintained copy here.
 
     // Readout-widget color overrides — mirrors the theme defaults used by
     // WidgetColor.resolve (see qml/Theme.qml: text/pressure/temperature/flow/warning).
@@ -2516,7 +2456,20 @@ QString ShotServer::generateLayoutPage() const
     html += QStringLiteral("    var WIDGET_CAPABILITIES = %1;\n")
         .arg(QString::fromUtf8(QJsonDocument(SettingsNetwork::readoutCapabilitiesJson())
             .toJson(QJsonDocument::Compact)));
+    // Widget catalog (palette types with categories/labels/flags, chip display
+    // names incl. legacy aliases, category names) and per-type display-mode
+    // defaults, both from the same C++ tables as the QML editor.
+    html += QStringLiteral("    var WIDGET_CATALOG = %1;\n")
+        .arg(QString::fromUtf8(QJsonDocument(SettingsNetwork::widgetCatalogJson())
+            .toJson(QJsonDocument::Compact)));
+    html += QStringLiteral("    var WIDGET_DISPLAY_DEFAULTS = %1;\n")
+        .arg(QString::fromUtf8(QJsonDocument(SettingsNetwork::displayModeDefaultsJson())
+            .toJson(QJsonDocument::Compact)));
     html += R"HTML(
+    var WIDGET_TYPES = WIDGET_CATALOG.types;
+    var DISPLAY_NAMES = WIDGET_CATALOG.chipNames;
+    var CAT_NAMES = WIDGET_CATALOG.catNames;
+
     // Option keys a widget type supports (see WIDGET_CAPABILITIES above).
     function typeOptionKeys(type) {
         return WIDGET_CAPABILITIES[type] || [];
@@ -2660,8 +2613,6 @@ QString ShotServer::generateLayoutPage() const
             h.style.display = anyInCat[h.getAttribute("data-cat")] ? "" : "none";
         });
     }
-
-    var CAT_NAMES = ["Actions", "Readouts", "Utility", "Screensavers"];
 )HTML";
     html += R"HTML(
     function renderZones() {
@@ -2791,12 +2742,9 @@ QString ShotServer::generateLayoutPage() const
                     html += '</select>';
                 }
                 if (isSel && typeHasOptionKey(item.type, "displayMode")) {
-                    // Battery readouts render icon+value by default; an absent
-                    // stored mode always means "today's rendering". Keep in sync
-                    // with defaultDisplayMode in ReadoutOptionsPopup.qml and the
-                    // item components' displayMode defaults.
-                    var dispDefault = (item.type === "batteryLevel" || item.type === "scaleBattery") ? "icon" : "text";
-                    var disp = item.displayMode || dispDefault;
+                    // An absent stored mode always means "today's rendering";
+                    // the per-type default is injected from the schema.
+                    var disp = item.displayMode || WIDGET_DISPLAY_DEFAULTS[item.type] || "text";
                     var dispModes = [["text","Value only"],["icon","Icon + value"]];
                     html += '<select class="chip-mode" onchange="setDisplayMode(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
                     for (var dd = 0; dd < dispModes.length; dd++) {

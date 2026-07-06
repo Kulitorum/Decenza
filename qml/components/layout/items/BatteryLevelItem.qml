@@ -10,10 +10,12 @@ Item {
     property string itemId: ""
     property var modelData: ({})
 
-    // Per-instance display mode: unset/"icon" keeps today's icon+value form,
-    // "text" renders the value only. A named color override replaces the
-    // charge-level tinting in all states (see WidgetColor).
-    readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "icon"
+    // Per-instance display mode: unset keeps today's icon+value form ("icon",
+    // the schema-declared default for this type), "text" renders the value
+    // only. A named color override replaces the charge-level tinting in all
+    // states (see WidgetColor).
+    readonly property string displayMode: (modelData && modelData.displayMode)
+        ? modelData.displayMode : Settings.network.defaultDisplayModeForType("batteryLevel")
     readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
     readonly property bool hasColorOverride: WidgetColor.isOverride(colorChoice)
 
