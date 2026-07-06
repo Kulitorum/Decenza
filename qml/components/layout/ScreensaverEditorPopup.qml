@@ -24,6 +24,7 @@ Dialog {
     // to seed it for configs saved before the chip editor.
     property var shotPlanItems: []
     property bool shotPlanSentence: true
+    property bool shotPlanStacked: false
     property bool shotPlanShowSteamPlan: true
     // Screen-reader-only reorder fallback (drag has no assistive-tech equivalent).
     readonly property bool _a11yEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
@@ -98,6 +99,7 @@ Dialog {
         shotShowPhaseLabels = typeof props.shotShowPhaseLabels === "boolean" ? props.shotShowPhaseLabels : true
         shotPlanItems = ShotPlanConfig.itemsFor(props)
         shotPlanSentence = typeof props.shotPlanSentence === "boolean" ? props.shotPlanSentence : true
+        shotPlanStacked = props.shotPlanStacked === true
         shotPlanShowSteamPlan = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true
         open()
     }
@@ -140,6 +142,7 @@ Dialog {
             // as a QJSValue and would be stored as null (see settings_network.h).
             var ok = Settings.network.setItemPropertyList(itemId, "shotPlanItems", shotPlanItems)
             ok = Settings.network.setItemProperty(itemId, "shotPlanSentence", shotPlanSentence) && ok
+            ok = Settings.network.setItemProperty(itemId, "shotPlanStacked", shotPlanStacked) && ok
             ok = Settings.network.setItemProperty(itemId, "shotPlanShowSteamPlan", shotPlanShowSteamPlan) && ok
             if (!ok)
                 console.warn("ScreensaverEditorPopup: shot plan save failed (item deleted?)", itemId)
@@ -641,6 +644,16 @@ Dialog {
                 onToggled: popup.shotPlanSentence = checked
             }
             StyledSwitch {
+                // Sentence mode only: the detail tail moves to its own line(s)
+                // below the sentence. Meaningless for fragments (there is no
+                // sentence/tail split), hence disabled when Sentence is off.
+                // Compact bar placements ignore it at render time.
+                text: TranslationManager.translate("shotPlanEditor.stackedDetails", "Stacked details")
+                enabled: popup.shotPlanSentence
+                checked: popup.shotPlanStacked
+                onToggled: popup.shotPlanStacked = checked
+            }
+            StyledSwitch {
                 // Page-aware mode: while steaming (or steam selected) the widget swaps to the
                 // steam sentence. The steam side has no further options.
                 text: TranslationManager.translate("shotPlanEditor.showSteamPlan", "Steam plan (while steaming)")
@@ -674,7 +687,8 @@ Dialog {
                     width: Math.min(implicitWidth, parent.width - Theme.spacingSmall * 2)
                     itemOrder: popup.shotPlanItems
                     sentence: popup.shotPlanSentence
-                    maxLines: 2
+                    stacked: popup.shotPlanStacked
+                    maxLines: popup.shotPlanStacked ? 3 : 2
                     Accessible.ignored: true
                 }
             }

@@ -11,6 +11,10 @@ Switch {
     implicitWidth: Theme.scaled(48)
     implicitHeight: Theme.scaled(28)
 
+    // A disabled switch must LOOK disabled (the ActionButton convention) —
+    // without this an `enabled:` gate is functionally dead but visually live.
+    opacity: enabled ? 1.0 : 0.4
+
     indicator: Rectangle {
         x: control.leftPadding
         y: parent.height / 2 - height / 2

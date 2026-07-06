@@ -2018,8 +2018,14 @@ QString ShotServer::generateLayoutPage() const
                 <div id="spAvailableList"></div>
                 <div class="ss-slider-row">
                     <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
-                        <input type="checkbox" id="spSentence" checked onchange="spConfigChanged()">
+                        <input type="checkbox" id="spSentence" checked onchange="spSentenceChanged()">
                         <span style="color:var(--text-secondary)">Sentence style ("Brew 36g of Espresso, using …")</span>
+                    </label>
+                </div>
+                <div class="ss-slider-row">
+                    <label id="spStackedLabel" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="spStacked" onchange="spConfigChanged()">
+                        <span style="color:var(--text-secondary)">Stacked details (tail on its own line)</span>
                     </label>
                 </div>
                 <div class="ss-slider-row">
@@ -3075,7 +3081,9 @@ QString ShotServer::generateLayoutPage() const
                     spItems = spItemsFromProps(props);
                     spRender();
                     document.getElementById("spSentence").checked = typeof props.shotPlanSentence === "boolean" ? props.shotPlanSentence : true;
+                    document.getElementById("spStacked").checked = props.shotPlanStacked === true;
                     document.getElementById("spShowSteamPlan").checked = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true;
+                    spSyncStacked();
                     document.getElementById("ssShotPlanSettings").style.display = "";
                 } else {
                     document.getElementById("ssNoSettings").style.display = "";
@@ -3123,6 +3131,7 @@ QString ShotServer::generateLayoutPage() const
             // (shotPlanShowSteamPlan is a live key, not one of them).
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanItems", value: spItems}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanSentence", value: document.getElementById("spSentence").checked}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotPlanStacked", value: document.getElementById("spStacked").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowSteamPlan", value: document.getElementById("spShowSteamPlan").checked}, function() {});
         }
     }
@@ -3221,6 +3230,22 @@ QString ShotServer::generateLayoutPage() const
 
     function spConfigChanged() {
         ssAutoSave();
+    }
+
+    // Stacked only means anything in sentence mode (there is no sentence/tail
+    // split for fragments) — disable and dim it while Sentence style is off,
+    // mirroring the in-app editor.
+    function spSyncStacked() {
+        var on = document.getElementById("spSentence").checked;
+        document.getElementById("spStacked").disabled = !on;
+        var label = document.getElementById("spStackedLabel");
+        label.style.opacity = on ? "" : "0.4";
+        label.style.cursor = on ? "pointer" : "default";
+    }
+
+    function spSentenceChanged() {
+        spSyncStacked();
+        spConfigChanged();
     }
 
     function ssSelectMapTexture(value) {
