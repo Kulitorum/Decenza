@@ -18,10 +18,10 @@
 
 - [x] 3.1 Inject the catalog JSON into the served layout page; delete `WIDGET_TYPES`, `DISPLAY_NAMES`, `CAT_NAMES` duplication where applicable, and the "keep the two in sync" comment; adapt `renderZones()`/add-menu/library pages (`shotserver_layout.cpp:4135/4163`) to the injected data
 - [x] 3.2 Replace the JS `dispDefault` battery check with a `WIDGET_DISPLAY_DEFAULTS` lookup
-- [ ] 3.3 Verify the web palette renders identically (categories, order, labels, special/screensaver coloring) and chip names match
+- [x] 3.3 Verify the web palette renders identically (categories, order, labels, special/screensaver coloring) and chip names match
 
 ## 4. Docs, verification, wrap-up
 
 - [x] 4.1 Update CLAUDE.md's widget-registration note: catalog entry replaces the `LayoutEditorZone.qml` and `shotserver_layout.cpp` list edits (registration becomes: CMakeLists + `LayoutItemDelegate.qml` switch + catalog entry, plus schema entry if it has options)
 - [x] 4.2 Full build + test suite green
-- [ ] 4.3 Jeff verifies in-app: add-widget picker (grouping, labels, filter), chip names, library card names, battery widgets' default rendering and options popup; plus the web editor palette round-trip
+- [x] 4.3 Jeff verifies in-app: add-widget picker (grouping, labels, filter), chip names, library card names, battery widgets' default rendering and options popup; plus the web editor palette round-trip
