@@ -49,3 +49,11 @@
 - [x] 7.3 Comment accuracy pass: doseYield consumed-vs-trailing nuance and profile-anchor fallback in the ShotPlanText header + editor toggle comment; `_planDragging` purpose; "six legacy item booleans" phrasing vs the live steam key; sync-note implementation count; provenance and temporal wording in ShotPlanConfig.js
 - [x] 7.4 Round-2 review fixes: `setItemProperty`/`setItemPropertyList` return bool + warn on stale itemId or unstorable/invalid value (JS undefined); web endpoint 404s failed writes + unknown-id GET, 400s missing value; popup save() logs failure; `itemsFor` rejects malformed (string/object) stored lists with a warning and takes the same legacy branch as the web side; web unknown-key labels render the escaped raw key; regression test hardened (non-canonical order, stale-id false, invalid-value refusal with prior value intact); null-recovery comment nuance both sides
 - [x] 7.5 Round-2 cleared without change: CustomEditorPopup `segments` verified safe (QVariantList from C++ surfaces as a Sequence and round-trips typed — only JS-constructed arrays wrap as QJSValue, confirmed against Qt 6.11 qv4engine.cpp); web partial-save already toasts via the shared apiPost error handler and self-heals on the next autosave
+
+## 8. Stacked details (follow-up PR, idea credited to community PR #1415)
+
+- [x] 8.1 `ShotPlanText`: `stacked` property — the sentence/tail separator becomes a line break on the rich (display) path only; the a11y `text` stays one dot-joined sentence (verified `<br>` + wrap + maximumLineCount + elide in a qml harness)
+- [x] 8.2 `ShotPlanItem`: derive `shotPlanStacked === true`, pass to the full instance with `maxLines: stacked ? 3 : 2`; compact (bar) instances ignore it
+- [x] 8.3 In-app editor: "Stacked details" toggle (disabled while Sentence style is off — StyledSwitch gained the missing dim-when-disabled styling, which also fixes the two invisible-disabled switches in SettingsLanguageTab), working-copy save of `shotPlanStacked`, live preview honors it
+- [x] 8.4 Web editor: `spStacked` checkbox, load/save of the same key; disabled + dimmed while Sentence style is unchecked (spSyncStacked), mirroring the in-app gating
+- [x] 8.5 Spec deltas updated (plan-widgets stacked rendering + instance-config option set)

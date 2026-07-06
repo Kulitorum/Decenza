@@ -23,6 +23,10 @@ Item {
     // independent items) is shared with the editor via ShotPlanConfig.js.
     readonly property var itemOrder: ShotPlanConfig.itemsFor(modelData)
     readonly property bool sentence: modelData.shotPlanSentence !== false
+    // Stacked details (sentence mode only): the tail renders on its own
+    // line(s) below the sentence. Compact bar placements ignore it — a bar is
+    // a single-line context.
+    readonly property bool stacked: modelData.shotPlanStacked === true
     readonly property bool showSteamPlan: modelData.shotPlanShowSteamPlan !== false
 
     // Steam context = steam selected on the idle screen, OR the full steam page, OR the
@@ -114,7 +118,13 @@ Item {
             visible: !root._steamMode && text !== ""
             itemOrder: root.itemOrder
             sentence: root.sentence
-            maxLines: 2
+            stacked: root.stacked
+            // Stacked spends a line on the detail tail — give the sentence +
+            // wrapped tail room before eliding. Gated on sentence so a stale
+            // stacked flag (saved on, Sentence later turned off) doesn't widen
+            // fragment mode's budget. (The profile-anchor fragment fallback
+            // still gets the extra line — harmless, just a wider wrap budget.)
+            maxLines: root.stacked && root.sentence ? 3 : 2
             onClicked: root.openBrewSettings()
         }
         SteamPlanText {

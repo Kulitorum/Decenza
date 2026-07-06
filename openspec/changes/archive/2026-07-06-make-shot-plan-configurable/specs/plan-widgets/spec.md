@@ -18,7 +18,7 @@ The seven display items are: Profile (`profile`), Temperature (`temperature`), R
 
 **Fragment format** (Sentence style OFF): every present item's segment SHALL be joined with the standard separator in item-list order.
 
-**Sentence format** (Sentence style ON): when the Profile item is present with a profile name available, the sentence scaffold SHALL consume the Dose & yield, Profile, and Temperature items (wherever they sit in the list) together with the beverage word, and all other present items SHALL trail after the sentence as a separator-joined tail in item-list order. The scaffold SHALL degrade by what is present/available:
+**Sentence format** (Sentence style ON): when the Profile item is present with a profile name available, the sentence scaffold SHALL consume the Dose & yield, Profile, and Temperature items (wherever they sit in the list) together with the beverage word, and all other present items SHALL trail after the sentence as a separator-joined tail in item-list order. With the Stacked details option (`shotPlanStacked`, default OFF) enabled, the tail SHALL render on its own line(s) below the sentence instead of trailing after a separator — on the display path only: the accessibility string SHALL remain one separator-joined sentence, and compact (bar) placements SHALL ignore the option. The scaffold SHALL degrade by what is present/available:
 
 - yield + profile + temperature → "Brew {yield} of {beverage}, using {profile} at {temperature}"
 - profile + temperature, no yield → "Brew {beverage}, using {profile} at {temperature}"
@@ -34,6 +34,11 @@ The plain (accessibility) text and the rich (displayed) text SHALL be produced b
 
 - **WHEN** Sentence style is OFF and the item list is `["grind", "coffee", "doseYield"]`
 - **THEN** the plan renders "grind {setting} · {coffee} · {dose}g in · {yield}g" — the grind segment first, in exactly the configured order
+
+#### Scenario: Stacked details move the tail to its own line
+
+- **WHEN** Sentence style and Stacked details are both ON and the item list includes trailing items
+- **THEN** the widget displays the sentence on the first line and the separator-joined tail on the line(s) below it, while a screen reader still hears one joined sentence
 
 #### Scenario: Sentence consumes its core items and the tail keeps user order
 

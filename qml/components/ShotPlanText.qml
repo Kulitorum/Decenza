@@ -12,6 +12,10 @@ import "../"
 //    name) the sentence has no anchor and rendering falls back to fragments.
 //  - sentence OFF: every item renders as a separator-joined fragment, in list
 //    order.
+//  - stacked ON (sentence mode only, display path only): the detail tail
+//    renders on its own line(s) below the sentence instead of trailing after a
+//    separator. The accessibility string stays one dot-joined sentence.
+//    (Idea from PR #1415's "stacked" format.)
 // Tapping it opens Brew Settings.
 //
 // Root is an Item (icon + text) but it preserves the old ShotPlanText API the
@@ -30,6 +34,9 @@ Item {
     property var itemOrder: ["doseYield", "profile", "temperature", "roaster", "coffee", "grind"]
     // Sentence scaffold vs plain fragment list.
     property bool sentence: true
+    // Sentence mode only: render the detail tail on its own line(s) below the
+    // sentence (display path — the a11y text stays one joined sentence).
+    property bool stacked: false
     // Wrap budget before eliding: 2 in the full-size widget, 1 in compact bars.
     property int maxLines: 2
 
@@ -108,8 +115,10 @@ Item {
 
     // ONE renderer for both the plain `text` (a11y label + `visible: text !== ""` check) and the bolded
     // `_rich` (display), so they can NEVER drift. fmt(value, live) formats one value: plain %-escapes,
-    // rich HTML-escapes and bolds live values.
-    function _build(fmt, sep) {
+    // rich HTML-escapes and bolds live values. blockSep separates the sentence from its detail tail —
+    // the same `sep` normally, a line break when stacked on the DISPLAY path only (the a11y `text`
+    // always passes the dot separator so the spoken string stays one sentence).
+    function _build(fmt, sep, blockSep) {
         var _ = TranslationManager.translationVersion
         // Cleaning/descale run — beans are the enemy here. Short sentence, no
         // dose/bean tail, and the warning rides along into the a11y label too.
@@ -157,7 +166,7 @@ Item {
                 case "roastDate": if (roasted !== "") tail.push(roasted); break
                 }
             }
-            return tail.length > 0 ? (s + sep + tail.join(sep)) : s
+            return tail.length > 0 ? (s + blockSep + tail.join(sep)) : s
         }
 
         // Fragment format: every present item, in list order.
@@ -179,15 +188,17 @@ Item {
         return parts.join(sep)
     }
 
-    // Plain: for the accessibility label + `visible: text !== ""`.
-    readonly property string text: _build(function(v, live) { return _argSafe(v) }, "  ·  ")
+    // Plain: for the accessibility label + `visible: text !== ""`. Always dot-joined —
+    // a screen reader hears one clean sentence regardless of the visual format.
+    readonly property string text: _build(function(v, live) { return _argSafe(v) }, "  ·  ", "  ·  ")
     // Rich: same content, live values bolded, all HTML-escaped; the styled bold safe-dot · separator.
+    // Stacked breaks the sentence and its detail tail onto separate lines (display only).
     // A cleaning/descale notice is bolded WHOLE — it's a warning, not a plan.
     readonly property string _rich: {
         var r = _build(function(v, live) {
             var e = Theme.escapeHtml(_argSafe(v))
             return live ? ("<b>" + e + "</b>") : e
-        }, Theme.bulletSep)
+        }, Theme.bulletSep, root.stacked ? "<br>" : Theme.bulletSep)
         return (_isCleaning && r !== "") ? ("<b>" + r + "</b>") : r
     }
 

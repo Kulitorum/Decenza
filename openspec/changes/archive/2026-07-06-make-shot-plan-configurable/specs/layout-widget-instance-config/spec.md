@@ -8,6 +8,7 @@ The `shotPlan` widget type SHALL expose, in both editors (in-app popup and web l
 
 - An **ordered display-item list** (`shotPlanItems`): a JSON array of item keys drawn from `doseYield`, `profile`, `temperature`, `roaster`, `coffee`, `grind`, `roastDate`. The list defines both which items are shown and their order. Profile and Temperature SHALL be independent items.
 - A **Sentence style** boolean (`shotPlanSentence`, default ON) selecting sentence vs fragment rendering.
+- A **Stacked details** boolean (`shotPlanStacked`, default OFF) that, in sentence mode, moves the detail tail onto its own line(s); the in-app toggle SHALL be disabled while Sentence style is OFF (the option has no meaning for fragments).
 - A **Steam plan** boolean (`shotPlanShowSteamPlan`, default ON) gating the page-aware steam swap, unchanged.
 
 The default item list SHALL be `["doseYield", "profile", "temperature", "roaster", "coffee", "grind"]` (Roast date not shown by default, matching the only legacy toggle that defaulted OFF), which — together with Sentence style ON — SHALL reproduce the widget's previous default rendering.
@@ -50,6 +51,13 @@ The default item list SHALL be `["doseYield", "profile", "temperature", "roaster
 
 - **WHEN** a user removes every chip from the Shown row and saves
 - **THEN** the instance stores an empty `shotPlanItems` list, the widget renders nothing, and reopening either editor shows an empty Shown row — the legacy booleans do not resurrect the default items
+
+#### Scenario: Stacked details round-trips and gates on Sentence style
+
+- **WHEN** a user enables Stacked details with Sentence style ON and saves
+- **THEN** the instance stores `shotPlanStacked: true`, the widget renders the tail below the sentence, and the other editor shows the option enabled
+- **WHEN** Sentence style is toggled OFF in the in-app editor
+- **THEN** the Stacked details toggle is disabled
 
 #### Scenario: Cancel discards chip edits
 
