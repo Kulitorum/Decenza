@@ -94,7 +94,7 @@ Item {
                 sourceSize.width: Theme.bodyFont.pixelSize
                 sourceSize.height: Theme.bodyFont.pixelSize
                 Accessible.ignored: true
-                layer.enabled: root.hasColorOverride || !Theme.isDarkMode
+                layer.enabled: root.hasColorOverride || !Settings.theme.isDarkMode
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     colorization: 1.0
@@ -148,7 +148,7 @@ Item {
                     sourceSize.width: Theme.valueFont.pixelSize
                     sourceSize.height: Theme.valueFont.pixelSize
                     Accessible.ignored: true
-                    layer.enabled: root.hasColorOverride || !Theme.isDarkMode
+                    layer.enabled: root.hasColorOverride || !Settings.theme.isDarkMode
                     layer.smooth: true
                     layer.effect: MultiEffect {
                         colorization: 1.0
