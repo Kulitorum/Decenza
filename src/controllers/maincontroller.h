@@ -276,8 +276,10 @@ private:
     // shot's rating to Visualizer so the cloud copy matches the local
     // corrected value. Serial: pops one entry, dispatches the PATCH,
     // resumes from the VisualizerUploader::updateSuccess signal. On
-    // failure (no creds, network error) the entry remains in the list
-    // and retries on next app boot.
+    // transient failure (no creds, network error, 5xx) the entry remains
+    // in the list and retries on next app boot; on permanent failure
+    // (404 — shot gone from Visualizer) the entry is evicted and the
+    // local row's dead visualizer_id cleared (#1431).
     void processPendingVisualizerRatingSync();
     void dispatchNextPendingVisualizerSync();
 
@@ -291,7 +293,7 @@ private:
     void processVisualizerReconciliation();
     // Tracks the visualizerId of the migration16 PATCH currently in
     // flight. Empty string when no migration16 sync is active. Compared
-    // against the visualizerId argument on updateSuccess / uploadFailed
+    // against the visualizerId argument on updateSuccess / updateFailed
     // so other concurrent PATCHes (e.g., from PostShotReviewPage's
     // metadata save) don't pop migration16 entries off the queue or
     // stall the drain. See PR #1155 review note 2.

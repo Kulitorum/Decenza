@@ -289,6 +289,7 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
 {
     if (visualizerId.isEmpty()) {
         emit uploadFailed("No visualizer ID for update");
+        emit updateFailed(visualizerId, false, "No visualizer ID for update");
         return;
     }
 
@@ -300,6 +301,7 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
         m_lastUploadStatus = "No credentials configured";
         emit lastUploadStatusChanged();
         emit uploadFailed("Visualizer credentials not configured");
+        emit updateFailed(visualizerId, false, "Visualizer credentials not configured");
         return;
     }
 
@@ -442,6 +444,11 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
         m_lastUploadStatus = "Failed: " + errorMsg;
         emit lastUploadStatusChanged();
         emit uploadFailed(errorMsg);
+        // 404 is the one terminal outcome: the shot is gone from (or was
+        // never on) Visualizer, so no retry can ever succeed. Everything
+        // else — offline, 5xx, 401 (fixable credentials), 422 — is worth
+        // retrying on a later boot.
+        emit updateFailed(visualizerId, statusCode == 404, errorMsg);
         qWarning() << "Visualizer: Update failed -" << errorMsg << "Response:" << response;
     }
 
