@@ -267,7 +267,10 @@ Item {
     function executeActionString(actionStr) {
         if (!actionStr) return
         var parts = actionStr.split(":")
-        if (parts.length < 2) return
+        if (parts.length < 2) {
+            console.warn("CustomItem: malformed action '" + actionStr + "' (expected 'category:target')")
+            return
+        }
         var category = parts[0]
         var target = parts.slice(1).join(":")
 
@@ -313,6 +316,8 @@ Item {
                     pageStack.replace(null, Qt.resolvedUrl("../../../pages/" + page))
                 else
                     pageStack.push(Qt.resolvedUrl("../../../pages/" + page))
+            } else if (!page) {
+                console.warn("CustomItem: unknown navigate target '" + target + "'")
             }
         } else if (category === "command") {
             // The hardware Group Head Controller (GHC), when present and active, takes
@@ -389,6 +394,8 @@ Item {
                         }
                         MainController.shotHistory.shotReady.connect(handler)
                         MainController.shotHistory.requestShot(lastId)
+                    } else {
+                        console.warn("CustomItem: uploadVisualizer — no saved shot this session, nothing to upload")
                     }
                     break
                 case "disconnectDE1":
@@ -409,9 +416,15 @@ Item {
                         var profileName = target.substring("loadProfile:".length)
                         if (profileName)
                             ProfileManager.loadProfile(profileName)
+                        else
+                            console.warn("CustomItem: loadProfile command with empty profile name")
+                    } else {
+                        console.warn("CustomItem: unknown command '" + target + "'")
                     }
                     break
             }
+        } else {
+            console.warn("CustomItem: unknown action category '" + category + "' in '" + actionStr + "'")
         }
     }
 
