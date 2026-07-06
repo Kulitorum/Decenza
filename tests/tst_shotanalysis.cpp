@@ -954,7 +954,8 @@ private slots:
                  true);
     }
 
-    // The limiter-tail trim is gated on transitionReason == "pressure".
+    // The limiter-tail trim is gated on transitionReason == "pressure" (or
+    // "pressure_unconfirmed" — see the tests below).
     // Same flow shape as the lever test but with the next phase exiting on
     // "time" — the trailing undershoot must remain in the average and the
     // badge must still fire. Without this gate, a copy-paste regression

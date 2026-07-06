@@ -31,7 +31,7 @@ The two decision-making consumers need opposite defaults for the ambiguous case 
 - `src/ai/shotanalysis.cpp` — `analyzeFlowVsGoal` tail-trim match; comment update in `detectSkipFirstFrame` (no logic change).
 - `qml/components/ShotGraph.qml`, `qml/components/HistoryShotGraph.qml` — marker suffix switch.
 - `qml/pages/EspressoPage.qml` — `_transitionText`/`_transitionColor` cases (with translation keys).
-- `src/network/shotserver_layout.cpp` (or wherever the web graph maps `reason`) — same mapping for the web editor/graph.
+- `src/network/shotserver_shots.cpp` — the two embedded-JS marker-suffix switches for the web graphs.
 - `src/history/shothistory_types.h` — field comment.
 - `tests/tst_shotanalysis.cpp` — new rows: skip detector still flags on `pressure_unconfirmed`; grind tail-trim fires on it.
 - `docs/SHOT_REVIEW.md` — §2.2 and §2.3.
