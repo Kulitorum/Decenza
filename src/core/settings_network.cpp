@@ -3,6 +3,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QDesktopServices>
+#include <QHash>
 #include <QSet>
 #include <QUrl>
 
@@ -591,25 +592,74 @@ void SettingsNetwork::resetLayoutToDefault() {
     emit layoutConfigurationChanged();
 }
 
-bool SettingsNetwork::typeHasOptions(const QString& type) {
+// Capability schema: the single source of truth for which per-instance option
+// keys each widget type supports. Readout types list the sections the unified
+// readout options editor shows; types with a dedicated editor (custom, sleep,
+// shot plan, last shot, screensavers) are configurable but carry no readout
+// keys. The web editor receives this same table as JSON (see
+// readoutCapabilitiesJson), so adding a type or key here is the only
+// editor-side registration step — the widget's QML item must still read and
+// render the keys it declares (modelData.displayMode / modelData.color).
+namespace {
+const QHash<QString, QStringList>& readoutOptionSchema() {
+    static const QHash<QString, QStringList> schema = {
+        { QStringLiteral("machineStatus"),    { QStringLiteral("displayMode"), QStringLiteral("color") } },
+        { QStringLiteral("temperature"),      { QStringLiteral("displayMode"), QStringLiteral("color") } },
+        { QStringLiteral("steamTemperature"), { QStringLiteral("displayMode"), QStringLiteral("color") } },
+        { QStringLiteral("waterLevel"),       { QStringLiteral("displayMode"), QStringLiteral("color") } },
+        { QStringLiteral("clock"),            { QStringLiteral("displayMode"), QStringLiteral("color") } },
+        { QStringLiteral("scaleWeight"),      { QStringLiteral("dataMode"), QStringLiteral("displayMode"),
+                                                QStringLiteral("showRatio"), QStringLiteral("color") } },
+        { QStringLiteral("batteryLevel"),     { QStringLiteral("displayMode"), QStringLiteral("color") } },
+        { QStringLiteral("scaleBattery"),     { QStringLiteral("displayMode"), QStringLiteral("color") } },
+        { QStringLiteral("doseWeight"),       { QStringLiteral("displayMode"), QStringLiteral("color") } },
+        { QStringLiteral("milkWeight"),       { QStringLiteral("displayMode"), QStringLiteral("color") } },
+        { QStringLiteral("profileName"),      { QStringLiteral("color") } },
+    };
+    return schema;
+}
+
+// Types with a dedicated editor popup (no readout option keys). Screensavers
+// are covered by prefix in typeHasBespokeEditor, not listed here.
+const QSet<QString>& bespokeEditorTypes() {
+    static const QSet<QString> kBespoke = {
+        QStringLiteral("custom"),
+        QStringLiteral("sleep"),
+        QStringLiteral("shotPlan"),
+        QStringLiteral("lastShot"),
+    };
+    return kBespoke;
+}
+
+bool typeHasBespokeEditor(const QString& type) {
     // Every screensaver opens the screensaver editor (some show only "no
     // settings", but they still route to an editor — keep parity with the
     // open behaviour so the indicator and the gesture agree).
     if (type.startsWith(QLatin1String("screensaver")))
         return true;
-    static const QSet<QString> kConfigurable = {
-        QStringLiteral("custom"),
-        QStringLiteral("scaleWeight"),
-        QStringLiteral("shotPlan"),
-        QStringLiteral("sleep"),
-        QStringLiteral("machineStatus"),
-        QStringLiteral("temperature"),
-        QStringLiteral("steamTemperature"),
-        QStringLiteral("waterLevel"),
-        QStringLiteral("clock"),
-        QStringLiteral("lastShot"),
-    };
-    return kConfigurable.contains(type);
+    return bespokeEditorTypes().contains(type);
+}
+} // namespace
+
+bool SettingsNetwork::typeHasOptions(const QString& type) {
+    return typeHasBespokeEditor(type) || readoutOptionSchema().contains(type);
+}
+
+QStringList SettingsNetwork::optionKeysForType(const QString& type) {
+    return readoutOptionSchema().value(type);
+}
+
+QJsonObject SettingsNetwork::readoutCapabilitiesJson() {
+    QJsonObject caps;
+    const auto& schema = readoutOptionSchema();
+    for (auto it = schema.constBegin(); it != schema.constEnd(); ++it)
+        caps[it.key()] = QJsonArray::fromStringList(it.value());
+    // Bespoke-editor types are configurable but carry no readout keys; the web
+    // editor only needs their presence for its has-options behaviour.
+    // (Screensavers stay a prefix rule on both sides.)
+    for (const QString& type : bespokeEditorTypes())
+        caps[type] = QJsonArray();
+    return caps;
 }
 
 bool SettingsNetwork::itemIsConfigured(const QString& itemId) const {

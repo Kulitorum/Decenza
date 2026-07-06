@@ -1,8 +1,7 @@
-# layout-readout-widget-colors Specification
+# layout-readout-widget-colors Delta
 
-## Purpose
-TBD - created by archiving change rename-clock-widget-add-colors. Update Purpose after archive.
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: Per-instance color override for readout widgets
 
 Each readout layout widget — Clock, Temperature, Steam Temp, Water Level, Machine Status, Scale Weight, Battery Level, Scale Battery, Dose Weight, Milk Weight, and Profile Name — SHALL support a per-instance `color` property selectable from a fixed set: `default` (the default), `white`, `green`, `red`, `blue`, and `orange`, as declared in the layout readout capability schema. The named non-default values SHALL map to existing semantic theme colors used elsewhere on the page (so the widget matches its surroundings and honours custom themes): `white` → theme text color, `green` → pressure color, `red` → temperature color, `blue` → flow color, `orange` → warning color. A non-default choice SHALL tint both the widget's value text and its optional icon. The value SHALL be read from the item's stored properties (`modelData`), persist per instance, and apply in any zone the widget is placed in.
@@ -45,13 +44,3 @@ The unified readout options editor SHALL expose the `color` choice alongside the
 
 - **WHEN** the user selects a color for a readout chip in the web layout editor
 - **THEN** the color SHALL be persisted to that instance and reflected in the chip preview (named colors tint the label; `default` leaves it untinted)
-
-### Requirement: Single source of truth for the readout color palette
-
-The color names, their theme-color mapping, and the picker UI SHALL be defined once and reused by every readout widget and editor, so the palette cannot drift between widgets. An unknown or unrecognised stored `color` value SHALL degrade gracefully to the widget's default (natural) color rather than failing.
-
-#### Scenario: Unknown stored value degrades gracefully
-
-- **WHEN** a readout widget is loaded with a `color` value outside the known palette
-- **THEN** it SHALL render in its default (natural) color with no error
-

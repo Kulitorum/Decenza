@@ -8,11 +8,20 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+    property var modelData: ({})
+
+    // Per-instance display mode: unset/"icon" keeps today's icon+value form,
+    // "text" renders the value only. A named color override replaces the
+    // charge-level tinting in all states (see WidgetColor).
+    readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "icon"
+    readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
+    readonly property bool hasColorOverride: WidgetColor.isOverride(colorChoice)
 
     readonly property int level: BatteryManager.batteryPercent
 
-    readonly property color levelColor: level > 50 ? Theme.successColor :
-                                        level > 20 ? Theme.warningColor : Theme.errorColor
+    readonly property color levelColor: WidgetColor.resolve(colorChoice,
+                                        level > 50 ? Theme.successColor :
+                                        level > 20 ? Theme.warningColor : Theme.errorColor)
 
     readonly property string iconSource: {
         if (level <= 10)      return "qrc:/icons/battery-0.svg"
@@ -50,6 +59,7 @@ Item {
             spacing: Theme.spacingSmall
 
             Image {
+                visible: root.displayMode !== "text"
                 anchors.verticalCenter: parent.verticalCenter
                 source: root.iconSource
                 sourceSize.width: Theme.bodyFont.pixelSize
@@ -59,7 +69,7 @@ Item {
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     colorization: 1.0
-                    colorizationColor: Theme.textColor
+                    colorizationColor: root.hasColorOverride ? root.levelColor : Theme.textColor
                 }
             }
 
@@ -102,11 +112,18 @@ Item {
                 spacing: Theme.spacingSmall
 
                 Image {
+                    visible: root.displayMode !== "text"
                     anchors.verticalCenter: parent.verticalCenter
                     source: root.iconSource
                     sourceSize.width: Theme.valueFont.pixelSize
                     sourceSize.height: Theme.valueFont.pixelSize
                     Accessible.ignored: true
+                    layer.enabled: root.hasColorOverride
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: root.levelColor
+                    }
                 }
 
                 Text {

@@ -858,8 +858,7 @@ set(QML_FILES
     qml/components/layout/items/ClockItem.qml
     qml/components/layout/CustomEditorPopup.qml
     qml/components/layout/ZoneOptionsPopup.qml
-    qml/components/layout/ScaleWeightEditorPopup.qml
-    qml/components/layout/DisplayModeEditorPopup.qml
+    qml/components/layout/ReadoutOptionsPopup.qml
     qml/components/layout/WidgetColor.qml
     qml/components/layout/WidgetColorPicker.qml
     qml/components/layout/SleepEditorPopup.qml

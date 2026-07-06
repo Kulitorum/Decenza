@@ -2507,8 +2507,23 @@ QString ShotServer::generateLayoutPage() const
     var WIDGET_COLORS = {
         white:"#ffffff", green:"#18c37e", red:"#e73249", blue:"#4e85f4", orange:"#ffaa00"
     };
-    // Readout widgets that support the per-instance color + display options.
-    var READOUT_TYPES = ["machineStatus","temperature","steamTemperature","scaleWeight","waterLevel","clock"];
+)HTML";
+    // Readout capability schema (type → option keys), serialized from the same
+    // C++ table that drives the QML editor (SettingsNetwork), so the web editor
+    // has no hand-maintained mirror of the capability table. (The per-key choice
+    // lists below still mirror ReadoutOptionsPopup.qml / WidgetColor.qml.)
+    // Bespoke-editor types map to an empty array.
+    html += QStringLiteral("    var WIDGET_CAPABILITIES = %1;\n")
+        .arg(QString::fromUtf8(QJsonDocument(SettingsNetwork::readoutCapabilitiesJson())
+            .toJson(QJsonDocument::Compact)));
+    html += R"HTML(
+    // Option keys a widget type supports (see WIDGET_CAPABILITIES above).
+    function typeOptionKeys(type) {
+        return WIDGET_CAPABILITIES[type] || [];
+    }
+    function typeHasOptionKey(type, key) {
+        return typeOptionKeys(type).indexOf(key) >= 0;
+    }
 
     var ACTIONS = [
         {id:"",label:"None",contexts:["idle","espresso","steam","hotwater","flush","all"]},
@@ -2593,12 +2608,11 @@ QString ShotServer::generateLayoutPage() const
         return tmp.textContent || tmp.innerText || "";
     }
 
-    // Mirror of SettingsNetwork::typeHasOptions — keep in sync with the C++/QML
-    // single source of truth so the indicator and the open behaviour agree.
+    // Driven by the injected WIDGET_CAPABILITIES schema (same C++ table as the
+    // in-app editor); screensavers stay a prefix rule on both sides.
     function typeHasOptions(type) {
         if (type.indexOf("screensaver") === 0) return true;
-        return ["custom","scaleWeight","shotPlan","sleep","machineStatus",
-                "temperature","steamTemperature","waterLevel","clock","lastShot"].indexOf(type) >= 0;
+        return WIDGET_CAPABILITIES.hasOwnProperty(type);
     }
 
     // Persistent "has options" indicator drawn on configurable chips.
@@ -2756,8 +2770,9 @@ QString ShotServer::generateLayoutPage() const
                 if (typeHasOptions(item.type)) {
                     html += '<span class="chip-opts" title="Has options">' + GEAR_SVG + '</span>';
                 }
-                // Inline data-mode selector for a selected Scale Weight chip.
-                if (isSel && item.type === "scaleWeight") {
+                // Inline option selectors for selected readout chips: each is
+                // gated by the type's capability keys (WIDGET_CAPABILITIES).
+                if (isSel && typeHasOptionKey(item.type, "dataMode")) {
                     var dm = item.dataMode || "gross";
                     var modes = [["gross","Gross"],["netBeans","Net beans"],["netMilk","Net milk"],["contextAware","Context"],["expectedYield","Expected output"]];
                     html += '<select class="chip-mode" onchange="setScaleMode(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
@@ -2766,6 +2781,8 @@ QString ShotServer::generateLayoutPage() const
                         html += '<option value="' + modes[mm][0] + '"' + msel + '>' + modes[mm][1] + '</option>';
                     }
                     html += '</select>';
+                }
+                if (isSel && typeHasOptionKey(item.type, "showRatio")) {
                     // Show-ratio toggle: suppress the redundant 1:X.X suffix.
                     var sr = (item.showRatio === undefined) ? true : item.showRatio;
                     html += '<select class="chip-mode" onchange="setShowRatio(\'' + item.id + '\',this.value===\'1\')" onclick="event.stopPropagation()">';
@@ -2773,10 +2790,14 @@ QString ShotServer::generateLayoutPage() const
                     html += '<option value="0"' + (!sr ? ' selected' : '') + '>Ratio off</option>';
                     html += '</select>';
                 }
-                // Inline display-mode selector for selected readout chips.
-                if (isSel && READOUT_TYPES.indexOf(item.type) !== -1) {
-                    var disp = item.displayMode || "text";
-                    var dispModes = [["text","Text"],["icon","Icon"]];
+                if (isSel && typeHasOptionKey(item.type, "displayMode")) {
+                    // Battery readouts render icon+value by default; an absent
+                    // stored mode always means "today's rendering". Keep in sync
+                    // with defaultDisplayMode in ReadoutOptionsPopup.qml and the
+                    // item components' displayMode defaults.
+                    var dispDefault = (item.type === "batteryLevel" || item.type === "scaleBattery") ? "icon" : "text";
+                    var disp = item.displayMode || dispDefault;
+                    var dispModes = [["text","Value only"],["icon","Icon + value"]];
                     html += '<select class="chip-mode" onchange="setDisplayMode(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
                     for (var dd = 0; dd < dispModes.length; dd++) {
                         var dsel = (disp === dispModes[dd][0]) ? ' selected' : '';
@@ -2784,8 +2805,7 @@ QString ShotServer::generateLayoutPage() const
                     }
                     html += '</select>';
                 }
-                // Inline color selector for a selected readout chip.
-                if (isSel && READOUT_TYPES.indexOf(item.type) !== -1) {
+                if (isSel && typeHasOptionKey(item.type, "color")) {
                     var clr = item.color || "default";
                     var clrs = [["default","Default"],["white","White"],["green","Green"],["red","Red"],["blue","Blue"],["orange","Orange"]];
                     html += '<select class="chip-mode" onchange="setColor(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';

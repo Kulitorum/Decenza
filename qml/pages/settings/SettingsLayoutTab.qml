@@ -110,8 +110,7 @@ Item {
     function closeOptionEditors() {
         customEditorPopup.close()
         screensaverEditorPopup.close()
-        scaleWeightEditorPopup.close()
-        displayModeEditorPopup.close()
+        readoutOptionsPopup.close()
         sleepEditorPopup.close()
     }
 
@@ -124,17 +123,16 @@ Item {
         closeOptionEditors()
         if (type.startsWith("screensaver") || type === "lastShot" || type === "shotPlan") {
             screensaverEditorPopup.openForItem(itemId, zoneName, props)
-        } else if (type === "scaleWeight") {
-            scaleWeightEditorPopup.openForItem(itemId, props.dataMode || "", props.displayMode || "", props.color || "",
-                props.showRatio !== undefined ? props.showRatio : true)
-        } else if (type === "machineStatus" || type === "temperature" || type === "steamTemperature" || type === "waterLevel" || type === "clock") {
-            displayModeEditorPopup.openForItem(itemId, props.displayMode || "", props.color || "")
         } else if (type === "sleep") {
             sleepEditorPopup.openForItem(itemId,
                 props.allowQuit !== undefined ? props.allowQuit : true,
                 props.showIcon !== undefined ? props.showIcon : true)
-        } else {
+        } else if (type === "custom") {
             customEditorPopup.openForItem(itemId, zoneName, props)
+        } else {
+            // Every other configurable type is a readout: the unified editor
+            // shows exactly the sections its capability schema declares.
+            readoutOptionsPopup.openForItem(itemId, props)
         }
     }
 
@@ -179,12 +177,8 @@ Item {
         id: zoneOptionsPopup
     }
 
-    ScaleWeightEditorPopup {
-        id: scaleWeightEditorPopup
-    }
-
-    DisplayModeEditorPopup {
-        id: displayModeEditorPopup
+    ReadoutOptionsPopup {
+        id: readoutOptionsPopup
     }
 
     SleepEditorPopup {
