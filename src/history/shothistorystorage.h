@@ -56,6 +56,15 @@ public:
                                                   const QString& visualizerId,
                                                   const QString& visualizerUrl);
 
+    // Async: clear visualizer_id/visualizer_url on a shot row, but ONLY if the
+    // row still holds `staleVisualizerId` — a guarded clear so a link that was
+    // replaced meanwhile (e.g. the user re-uploaded the shot and the row now
+    // carries a fresh id) is never wiped. Used by MainController's migration16
+    // drain when a PATCH 404s permanently (#1431). Logs the outcome (cleared /
+    // already replaced / failed); fire-and-forget, no completion signal.
+    void requestClearStaleVisualizerLink(qint64 shotId,
+                                         const QString& staleVisualizerId);
+
     // One-time reconciliation backfill (OpenSpec persist-visualizer-id-in-controller).
     // `cloudShots` is the user's Visualizer shot list (each map:
     // {visualizerId, url, clockEpoch}). On a background thread, links

@@ -160,19 +160,20 @@ signals:
     void uploadSucceededForShot(qint64 dbShotId, const QString& visualizerId, const QString& url);
     void updateSuccess(const QString& visualizerId);
     void uploadFailed(const QString& error);
-    // Correlated failure for the PATCH path (updateShotOnVisualizer):
-    // carries the target visualizerId plus whether the failure is
-    // permanent (HTTP 404 — the shot does not exist on Visualizer and
-    // never will), so queue-drain listeners (MainController's migration16
-    // sync, #1431) can evict poison entries instead of retrying them on
-    // every boot. Emitted alongside uploadFailed, which stays
-    // uncorrelated for the UI status listeners.
+    // Correlated failure for the PATCH path (updateShotOnVisualizer and
+    // its WithOverrides wrapper): carries the target visualizerId (empty
+    // only on the no-id guard path) plus whether the failure is permanent
+    // (HTTP 404 — the shot does not exist on Visualizer and never will),
+    // so queue-drain listeners (MainController's migration16 sync, #1431)
+    // can evict poison entries instead of retrying them on every boot.
+    // Emitted alongside uploadFailed, which remains uncorrelated by
+    // design for the UI status listeners.
     void updateFailed(const QString& visualizerId, bool permanent, const QString& error);
     // Emitted when an upload attempt is rejected by policy rather than
-    // an actual failure (maintenance profile, too-short shot). Listeners that
-    // track real failure conditions should NOT react to this — in particular
-    // MainController's updateFailed-based migration-16 drain logic deliberately
-    // ignores skips so a routine policy rejection cannot kill the drain.
+    // an actual failure (maintenance profile, too-short shot). Listeners
+    // that track real failure conditions should NOT react to this. The
+    // migration-16 drain is safe by construction: it listens only to the
+    // PATCH-correlated updateFailed, which upload-policy skips never emit.
     void uploadSkipped(const QString& reason);
     void connectionTestResult(bool success, const QString& message);
     // Reconciliation list fetch results.

@@ -333,9 +333,12 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         m_migration16InFlightVisualizerId.clear();
 
         if (!permanent) {
-            // Transient (offline, 5xx, credentials): leave the entry in
+            // Transient (anything but 404 — see the classification in
+            // VisualizerUploader::onUpdateFinished): leave the entry in
             // the pending list and abort the drain — the queue picks up
             // on the next boot.
+            qDebug() << "MainController: migration16 sync — transient failure ("
+                     << error << "); drain paused until next boot";
             return;
         }
 
@@ -344,7 +347,9 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         // migration 16 queued in good faith. Retrying forever wastes a
         // network round-trip and logs an error on every launch (#1431):
         // evict the entry, clear the dead link on the local shot row so
-        // nothing else trusts it, and continue draining.
+        // nothing else trusts it, and continue draining. The clear is
+        // guarded on the row still holding this exact id, so a link the
+        // user replaced meanwhile (re-upload) is never wiped.
         QSettings s(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
         QJsonArray pending = QJsonDocument::fromJson(
             s.value(QStringLiteral("migration16/pendingVisualizerSync")).toByteArray()).array();
@@ -353,8 +358,8 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             if (entry.value("visualizerId").toString() != visualizerId)
                 continue;
             const qint64 shotId = entry.value("shotId").toVariant().toLongLong();
-            if (shotId > 0 && m_shotHistory && m_shotHistory->isReady())
-                m_shotHistory->requestUpdateVisualizerInfo(shotId, QString(), QString());
+            if (m_shotHistory)
+                m_shotHistory->requestClearStaleVisualizerLink(shotId, visualizerId);
             pending.removeAt(i);
             break;
         }

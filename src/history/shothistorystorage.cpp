@@ -1853,6 +1853,48 @@ void ShotHistoryStorage::requestUpdateVisualizerInfo(qint64 shotId, const QStrin
     });
 }
 
+void ShotHistoryStorage::requestClearStaleVisualizerLink(qint64 shotId, const QString& staleVisualizerId)
+{
+    if (!m_ready || shotId <= 0 || staleVisualizerId.isEmpty()) {
+        qWarning() << "ShotHistoryStorage: stale visualizer link NOT cleared for shot" << shotId
+                   << "(not ready or bad args) — dead link may remain on the row";
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    runOnDbThread([dbPath, shotId, staleVisualizerId]() {
+        bool success = false;
+        int rowsChanged = 0;
+        bool opened = withTempDb(dbPath, "shs_vizclear", [&](QSqlDatabase& db) {
+            QSqlQuery query(db);
+            // The visualizer_id predicate is the guard: no-op if the row's
+            // link was replaced since the stale id was queued.
+            if (!query.prepare("UPDATE shots SET visualizer_id = '', visualizer_url = '', "
+                               "updated_at = strftime('%s', 'now') "
+                               "WHERE id = :id AND visualizer_id = :stale_id")) {
+                qWarning() << "ShotHistoryStorage: Failed to prepare stale link clear:" << query.lastError().text();
+                return;
+            }
+            query.bindValue(":id", shotId);
+            query.bindValue(":stale_id", staleVisualizerId);
+            success = query.exec();
+            if (success)
+                rowsChanged = query.numRowsAffected();
+            else
+                qWarning() << "ShotHistoryStorage: Failed to clear stale visualizer link:" << query.lastError().text();
+        });
+        if (!opened || !success)
+            qWarning() << "ShotHistoryStorage: stale visualizer link clear FAILED for shot" << shotId
+                       << "— dead link" << staleVisualizerId << "remains on the row";
+        else if (rowsChanged > 0)
+            qDebug() << "ShotHistoryStorage: cleared stale visualizer link" << staleVisualizerId
+                     << "on shot" << shotId;
+        else
+            qDebug() << "ShotHistoryStorage: shot" << shotId << "no longer holds visualizer link"
+                     << staleVisualizerId << "— nothing to clear (replaced meanwhile)";
+    });
+}
+
 bool ShotHistoryStorage::reconcileVisualizerLinksStatic(
     QSqlDatabase& db, const QVariantList& cloudShots, qint64 windowStartEpoch,
     QVariantList& outLinked)
