@@ -728,6 +728,15 @@ ApplicationWindow {
             case "update": updateDialog.open(); break
             case "chargingMismatch": chargingMismatchDialog.open(); break
             case "bleError":
+                // Skip a stale generic connection error if the DE1 has since
+                // reconnected (e.g. an overnight link drop that self-healed while
+                // the popup sat behind the screensaver queue, #1423). Permission
+                // errors still need the user to act, so they always show.
+                if (!next.params.isLocationError && !next.params.isBluetoothError
+                        && DE1Device && DE1Device.connected) {
+                    showNextPendingPopup()  // Skip stale connection error, show next
+                    break
+                }
                 bleErrorDialog.errorMessage = next.params.errorMessage || ""
                 bleErrorDialog.isLocationError = next.params.isLocationError || false
                 bleErrorDialog.isBluetoothError = next.params.isBluetoothError || false
