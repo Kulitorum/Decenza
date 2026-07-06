@@ -25,7 +25,7 @@
 
 - [x] 4.1 Serialize the capability table into the served layout page (or `/api/layout/capabilities`); delete the JS `typeHasOptions` mirror and its keep-in-sync comment in `src/network/shotserver_layout.cpp`
 - [x] 4.2 Drive the web editor's per-type option forms from the capability keys; add forms for the five newly-optioned readouts
-- [ ] 4.3 Manually exercise every readout type in the web editor (open, edit, save, reload) and confirm round-trip with the in-app editor
+- [x] 4.3 Manually exercise every readout type in the web editor (open, edit, save, reload) and confirm round-trip with the in-app editor
 
 ## 5. Accessibility & i18n
 
@@ -36,4 +36,4 @@
 
 - [x] 6.1 Update CLAUDE.md widget-registration note (schema entry is the options registration point) and any layout docs in `docs/CLAUDE_MD/` that name the deleted popups
 - [x] 6.2 Add/extend unit coverage: schema↔typeHasOptions agreement, optionKeysForType for known + unknown types
-- [ ] 6.3 Run the full test suite; ask Jeff to launch the app and verify the layout editor (per no-local-launch rule)
+- [x] 6.3 Run the full test suite; ask Jeff to launch the app and verify the layout editor (per no-local-launch rule)
