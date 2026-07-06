@@ -67,6 +67,13 @@ Item {
             if (p.objectName === "idlePage") return p
             p = p.parent
         }
+        // Hosts outside IdlePage (the persistent status bar lives beside the page
+        // stack in main.qml): fall back to the stack's current page. togglePreset
+        // and the active ring then work exactly while the home screen is showing —
+        // the only time the preset row exists — and stay inert elsewhere.
+        if (typeof pageStack !== "undefined" && pageStack.currentItem
+                && pageStack.currentItem.objectName === "idlePage")
+            return pageStack.currentItem
         return null
     }
     readonly property bool isActive: _toggleMode !== ""
