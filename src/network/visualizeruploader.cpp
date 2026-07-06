@@ -249,6 +249,7 @@ void VisualizerUploader::updateShotOnVisualizerWithOverrides(
     // durationSec=0 / empty curves.
     if (!shot.isValid()) {
         emit uploadFailed("No shot data available");
+        emit updateFailed(visualizerId, false, "No shot data available");
         return;
     }
     auto applyStr    = [&](QString       ShotProjection::*f, const char* k) {
@@ -289,6 +290,7 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
 {
     if (visualizerId.isEmpty()) {
         emit uploadFailed("No visualizer ID for update");
+        emit updateFailed(visualizerId, false, "No visualizer ID for update");
         return;
     }
 
@@ -300,6 +302,7 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
         m_lastUploadStatus = "No credentials configured";
         emit lastUploadStatusChanged();
         emit uploadFailed("Visualizer credentials not configured");
+        emit updateFailed(visualizerId, false, "Visualizer credentials not configured");
         return;
     }
 
@@ -442,6 +445,11 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
         m_lastUploadStatus = "Failed: " + errorMsg;
         emit lastUploadStatusChanged();
         emit uploadFailed(errorMsg);
+        // 404 is the one terminal outcome: the shot is gone from (or was
+        // never on) Visualizer, so no retry can ever succeed. Everything
+        // else — offline, 5xx, 401 (fixable credentials), 422 — is worth
+        // retrying on a later boot.
+        emit updateFailed(visualizerId, statusCode == 404, errorMsg);
         qWarning() << "Visualizer: Update failed -" << errorMsg << "Response:" << response;
     }
 
@@ -1215,10 +1223,10 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
         m_lastUploadStatus = QString("Skipped: %1").arg(reason);
         emit lastUploadStatusChanged();
         // Policy skip, not an error — uploadSkipped lets the page clear its
-        // in-flight flags without surfacing a red error or aborting unrelated
-        // listeners (e.g. MainController's migration-16 drain). The page
-        // wraps the reason with a translated "Upload skipped:" prefix; emit
-        // just the reason payload so the C++ "Skipped:" prefix doesn't double up.
+        // in-flight flags without surfacing a red error to UI listeners that
+        // treat uploadFailed as a real failure. The page wraps the reason
+        // with a translated "Upload skipped:" prefix; emit just the reason
+        // payload so the C++ "Skipped:" prefix doesn't double up.
         emit uploadSkipped(reason);
         qDebug() << "Visualizer: Skipping upload for maintenance profile:" << beverageType;
         return false;
