@@ -275,6 +275,13 @@ QtObject {
         return value
     }
 
+    // Dark-vs-light mode of the active theme. Mirror of Settings.theme.isDarkMode:
+    // the canonical spelling is Settings.theme.isDarkMode (CLAUDE.md settings rule),
+    // but a bare `Theme.isDarkMode` read otherwise resolves to undefined — falsy —
+    // and fails silently, which has already caused real bugs. The mirror makes
+    // either spelling correct.
+    readonly property bool isDarkMode: Settings.theme.isDarkMode
+
     // Dynamic colors - bind to Settings with fallback defaults
     // Wrapped in _c() for flash-to-identify from web theme editor
     property color backgroundColor: _c("backgroundColor", Settings.theme.customThemeColors.backgroundColor || "#1a1a2e")
