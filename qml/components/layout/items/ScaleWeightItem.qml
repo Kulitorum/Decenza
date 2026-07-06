@@ -18,8 +18,9 @@ Item {
     // the profile's fixed target).
     readonly property string dataMode: (modelData && modelData.dataMode) ? modelData.dataMode : ""
 
-    // expectedYield is computed, not measured: it renders without a scale, never
-    // shows the scale warning, and never gets the flow-scale "~" suffix.
+    // A computed mode (currently only expectedYield) shows a derived value, not a
+    // measurement: it renders without a scale, never shows the scale warning, and
+    // never gets the flow-scale "~" suffix.
     readonly property bool isComputedMode: dataMode === "expectedYield"
 
     // Per-instance display mode (composable-status-bar): "text" (default, a
@@ -48,7 +49,7 @@ Item {
             var steaming = MachineState.phase === MachineStateType.Phase.Steaming
             return Math.max(0, w - (steaming ? root._pitcherWeight() : Settings.brew.doseCupTareWeight))
         }
-        if (root.isComputedMode)
+        if (root.dataMode === "expectedYield")
             return ProfileManager.targetWeight
         return w
     }
@@ -72,10 +73,15 @@ Item {
         && (BLEManager.scaleConnectionFailed || Settings.primaryScaleAddress !== "")
         && (Qt.platform.os === "ios" || !UsbScaleManager.scaleConnected)
 
-    // The value renders whenever a scale is connected — or always, for a computed
-    // mode. Drives the value rows, the "--" placeholders (its inverse), and the
-    // tare/settings tap overlay.
-    readonly property bool showValue: (root.scaleConnected || root.isComputedMode) && !root.showScaleWarning
+    // The value renders whenever a scale is connected — or, for a computed mode,
+    // whenever there is a real target: targetWeight == 0 is the profile's
+    // "stop-at-weight off" sentinel (same > 0 convention as ShotGraph /
+    // ShotPlanText), so show the "--" placeholder then, not a fake "0.0 g".
+    // Drives the value rows, the compact tare/settings tap overlay, and the "--"
+    // placeholders (shown when neither the value nor the warning shows; compact
+    // also hides them for flow scales).
+    readonly property bool showValue: !root.showScaleWarning
+        && (root.isComputedMode ? ProfileManager.targetWeight > 0 : root.scaleConnected)
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
@@ -87,10 +93,11 @@ Item {
             return BLEManager.scaleConnectionFailed
                 ? TranslationManager.translate("statusbar.scale_not_found_tap", "Scale not found. Tap to scan")
                 : TranslationManager.translate("statusbar.scale_connecting", "Scale connecting")
+        if (root.isComputedMode)  // a computed target, not a scale reading ("--" when the profile has none); tap edits it
+            return TranslationManager.translate("idle.label.expectedOutput", "Expected output") + ": "
+                   + (root.showValue ? root.weightText() : "--")
         if (root.scaleConnected)
             return TranslationManager.translate("idle.accessible.scale.weight", "Scale weight:") + " " + root.weightText() + ". " + TranslationManager.translate("idle.accessible.scale.tare", "Tap to tare")
-        if (root.isComputedMode)  // value shows without a scale; nothing to tare
-            return TranslationManager.translate("idle.accessible.scale.weight", "Scale weight:") + " " + root.weightText()
         return TranslationManager.translate("idle.accessible.scale.none", "No scale connected")
     }
 
@@ -105,6 +112,8 @@ Item {
     Accessible.onPressAction: {
         if (root.showScaleWarning)
             BLEManager.scanForDevices()
+        else if (root.isComputedMode)  // tare is meaningless for a computed target — edit it instead
+            root.openBrewSettings()
         else if (root.scaleConnected)
             MachineState.tareScale()
     }
@@ -220,8 +229,7 @@ Item {
         // Disconnected (no saved scale)
         Text {
             anchors.centerIn: parent
-            visible: !root.scaleConnected && !root.showScaleWarning && !root.isFlowScale
-                     && !root.isComputedMode
+            visible: !root.showValue && !root.showScaleWarning && !root.isFlowScale
             text: "--"
             color: Theme.textSecondaryColor
             font: Theme.bodyFont
@@ -262,6 +270,13 @@ Item {
 
             onClicked: {
                 if (longPressTriggered) return
+
+                // A computed target has nothing to tare (a tap would silently
+                // no-op or mark a phantom tare complete) — tap edits it instead.
+                if (root.isComputedMode) {
+                    root.openBrewSettings()
+                    return
+                }
 
                 if (MachineState.isFlowing) {
                     MachineState.tareScale()
@@ -341,7 +356,7 @@ Item {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                visible: !root.scaleConnected && !root.showScaleWarning && !root.isComputedMode
+                visible: !root.showValue && !root.showScaleWarning
                 text: "--"
                 color: Theme.textSecondaryColor
                 font: Theme.valueFont
@@ -368,10 +383,13 @@ Item {
                 Accessible.ignored: true
             }
 
-            Tr {
+            Text {
                 Layout.alignment: Qt.AlignHCenter
-                key: "idle.label.scaleweight"
-                fallback: "Scale Weight"
+                // A computed target labelled "Scale Weight" would misrepresent
+                // what the number is — caption it as what it shows.
+                text: root.isComputedMode
+                      ? TranslationManager.translate("idle.label.expectedOutput", "Expected output")
+                      : TranslationManager.translate("idle.label.scaleweight", "Scale Weight")
                 color: Theme.textSecondaryColor
                 font: Theme.labelFont
                 Accessible.ignored: true
@@ -381,10 +399,12 @@ Item {
         MouseArea {
             id: fullTapArea
             anchors.fill: parent
-            cursorShape: root.showScaleWarning ? Qt.PointingHandCursor : Qt.ArrowCursor
+            cursorShape: (root.showScaleWarning || root.isComputedMode) ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: {
                 if (root.showScaleWarning)
                     BLEManager.scanForDevices()
+                else if (root.isComputedMode)  // computed target: tap edits it, never tares
+                    root.openBrewSettings()
                 else if (root.scaleConnected)
                     MachineState.tareScale()
             }
