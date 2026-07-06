@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Window
 import Decenza
 import "../.."
+import "../ShotPlanConfig.js" as ShotPlanConfig
 
 // The Shot Plan widget — page-aware: shows the brew/shot plan normally and, unless the
 // per-instance "Steam plan" option is off, the steam plan while in steam context (steam
@@ -15,12 +16,13 @@ Item {
     property string itemId: ""
     property var modelData: ({})
 
-    readonly property bool showProfile: modelData.shotPlanShowProfile !== false
-    readonly property bool showRoaster: modelData.shotPlanShowRoaster !== false
-    readonly property bool showCoffee: modelData.shotPlanShowCoffee !== false
-    readonly property bool showGrind: modelData.shotPlanShowGrind !== false
-    readonly property bool showRoastDate: modelData.shotPlanShowRoastDate === true
-    readonly property bool showDoseYield: modelData.shotPlanShowDoseYield !== false
+    // Ordered display items. New configs store `shotPlanItems` (a JSON array of
+    // item keys — order is display order); configs saved before the chip editor
+    // only have the legacy shotPlanShow* booleans. The resolution rule (incl.
+    // the legacy compound Profile & temperature boolean expanding to the two
+    // independent items) is shared with the editor via ShotPlanConfig.js.
+    readonly property var itemOrder: ShotPlanConfig.itemsFor(modelData)
+    readonly property bool sentence: modelData.shotPlanSentence !== false
     readonly property bool showSteamPlan: modelData.shotPlanShowSteamPlan !== false
 
     // Steam context = steam selected on the idle screen, OR the full steam page, OR the
@@ -78,13 +80,13 @@ Item {
         ShotPlanText {
             id: compactShotPlan
             anchors.centerIn: parent
+            // Never wider than the zone grants — the text inside wraps/elides
+            // instead of painting past the widget bounds. Bars are single-line.
+            width: Math.min(implicitWidth, parent.width)
             visible: !root._steamMode && text !== ""
-            showProfile: root.showProfile
-            showRoaster: root.showRoaster
-            showCoffee: root.showCoffee
-            showGrind: root.showGrind
-            showRoastDate: root.showRoastDate
-            showDoseYield: root.showDoseYield
+            itemOrder: root.itemOrder
+            sentence: root.sentence
+            maxLines: 1
             onClicked: root.openBrewSettings()
         }
         SteamPlanText {
@@ -105,13 +107,14 @@ Item {
         ShotPlanText {
             id: fullShotPlan
             anchors.centerIn: parent
+            // Never wider than the zone grants; the full widget has vertical
+            // room in its normal (center-zone) position, so allow a second line
+            // before eliding.
+            width: Math.min(implicitWidth, parent.width)
             visible: !root._steamMode && text !== ""
-            showProfile: root.showProfile
-            showRoaster: root.showRoaster
-            showCoffee: root.showCoffee
-            showGrind: root.showGrind
-            showRoastDate: root.showRoastDate
-            showDoseYield: root.showDoseYield
+            itemOrder: root.itemOrder
+            sentence: root.sentence
+            maxLines: 2
             onClicked: root.openBrewSettings()
         }
         SteamPlanText {

@@ -948,6 +948,45 @@ QString ShotServer::generateLayoutPage() const
             text-align: center;
             padding: 1rem 0;
         }
+        .sp-item-row {
+            display: flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0.25rem 0.5rem;
+            margin-bottom: 0.25rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+        .sp-item-label {
+            flex: 1;
+            color: var(--text);
+            font-size: 0.875rem;
+        }
+        .sp-item-btn {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: none;
+            color: var(--text);
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+        .sp-item-btn:hover:not(:disabled) { border-color: var(--accent); }
+        .sp-item-btn:disabled { opacity: 0.3; cursor: default; }
+        .sp-item-remove { color: #e57373; }
+        .sp-avail-chip {
+            display: inline-block;
+            padding: 0.25rem 0.625rem;
+            margin: 0 0.25rem 0.375rem 0;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: none;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+        .sp-avail-chip:hover { border-color: var(--accent); color: var(--text); }
         .toolbar {
             display: flex;
             flex-wrap: wrap;
@@ -1952,47 +1991,23 @@ QString ShotServer::generateLayoutPage() const
                 </div>
             </div>
 
+            <!-- Shot Plan: ordered display-item list + format toggles.
+                 Order = display order; up/down reorders, ✕ hides (moves the item
+                 to Available), + shows it again. Mirrors the in-app chip editor. -->
             <div id="ssShotPlanSettings" style="display:none">
-                <div class="section-label">Visible elements</div>
+                <div class="section-label">Shown (order = display order)</div>
+                <div id="spShownList"></div>
+                <div class="section-label" id="spAvailableLabel">Available</div>
+                <div id="spAvailableList"></div>
                 <div class="ss-slider-row">
                     <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
-                        <input type="checkbox" id="spShowProfile" checked onchange="spToggleChanged()">
-                        <span style="color:var(--text-secondary)">Profile &amp; temperature</span>
+                        <input type="checkbox" id="spSentence" checked onchange="spConfigChanged()">
+                        <span style="color:var(--text-secondary)">Sentence style ("Brew 36g of Espresso, using …")</span>
                     </label>
                 </div>
                 <div class="ss-slider-row">
                     <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
-                        <input type="checkbox" id="spShowRoaster" checked onchange="spToggleChanged()">
-                        <span style="color:var(--text-secondary)">Roaster</span>
-                    </label>
-                </div>
-                <div class="ss-slider-row">
-                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
-                        <input type="checkbox" id="spShowCoffee" checked onchange="spToggleChanged()">
-                        <span style="color:var(--text-secondary)">Coffee</span>
-                    </label>
-                </div>
-                <div class="ss-slider-row">
-                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
-                        <input type="checkbox" id="spShowGrind" checked onchange="spToggleChanged()">
-                        <span style="color:var(--text-secondary)">Grind</span>
-                    </label>
-                </div>
-                <div class="ss-slider-row">
-                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
-                        <input type="checkbox" id="spShowRoastDate" onchange="spToggleChanged()">
-                        <span style="color:var(--text-secondary)">Roast date</span>
-                    </label>
-                </div>
-                <div class="ss-slider-row">
-                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
-                        <input type="checkbox" id="spShowDoseYield" checked onchange="spToggleChanged()">
-                        <span style="color:var(--text-secondary)">Dose &amp; yield</span>
-                    </label>
-                </div>
-                <div class="ss-slider-row">
-                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
-                        <input type="checkbox" id="spShowSteamPlan" checked onchange="spToggleChanged()">
+                        <input type="checkbox" id="spShowSteamPlan" checked onchange="spConfigChanged()">
                         <span style="color:var(--text-secondary)">Steam plan (while steaming)</span>
                     </label>
                 </div>
@@ -2996,7 +3011,8 @@ QString ShotServer::generateLayoutPage() const
         screensaverPipes: "3D Pipes Settings",
         screensaverAttractor: "Attractor Settings",
         screensaverShotMap: "Shot Map Settings",
-        lastShot: "Last Shot Settings"
+        lastShot: "Last Shot Settings",
+        shotPlan: "Shot Plan Settings"
     };
 
     function openScreensaverEditor(itemId, zone, type) {
@@ -3039,12 +3055,9 @@ QString ShotServer::generateLayoutPage() const
                     document.getElementById("ssShotShowPhaseLabels").checked = typeof props.shotShowPhaseLabels === "boolean" ? props.shotShowPhaseLabels : true;
                     document.getElementById("ssLastShotSettings").style.display = "";
                 } else if (type === "shotPlan") {
-                    document.getElementById("spShowProfile").checked = typeof props.shotPlanShowProfile === "boolean" ? props.shotPlanShowProfile : true;
-                    document.getElementById("spShowRoaster").checked = typeof props.shotPlanShowRoaster === "boolean" ? props.shotPlanShowRoaster : true;
-                    document.getElementById("spShowCoffee").checked = typeof props.shotPlanShowCoffee === "boolean" ? props.shotPlanShowCoffee : true;
-                    document.getElementById("spShowGrind").checked = typeof props.shotPlanShowGrind === "boolean" ? props.shotPlanShowGrind : true;
-                    document.getElementById("spShowRoastDate").checked = typeof props.shotPlanShowRoastDate === "boolean" ? props.shotPlanShowRoastDate : false;
-                    document.getElementById("spShowDoseYield").checked = typeof props.shotPlanShowDoseYield === "boolean" ? props.shotPlanShowDoseYield : true;
+                    spItems = spItemsFromProps(props);
+                    spRender();
+                    document.getElementById("spSentence").checked = typeof props.shotPlanSentence === "boolean" ? props.shotPlanSentence : true;
                     document.getElementById("spShowSteamPlan").checked = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true;
                     document.getElementById("ssShotPlanSettings").style.display = "";
                 } else {
@@ -3088,12 +3101,10 @@ QString ShotServer::generateLayoutPage() const
             apiPost("/api/layout/item", {itemId: id, key: "shotShowLabels", value: showLabels}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotShowPhaseLabels", value: showPhaseLabels}, function() {});
         } else if (ssEditingType === "shotPlan") {
-            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowProfile", value: document.getElementById("spShowProfile").checked}, function() {});
-            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowRoaster", value: document.getElementById("spShowRoaster").checked}, function() {});
-            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowCoffee", value: document.getElementById("spShowCoffee").checked}, function() {});
-            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowGrind", value: document.getElementById("spShowGrind").checked}, function() {});
-            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowRoastDate", value: document.getElementById("spShowRoastDate").checked}, function() {});
-            apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowDoseYield", value: document.getElementById("spShowDoseYield").checked}, function() {});
+            // New keys only — the legacy shotPlanShow* display booleans are
+            // read-time migration input and are never written back.
+            apiPost("/api/layout/item", {itemId: id, key: "shotPlanItems", value: spItems}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotPlanSentence", value: document.getElementById("spSentence").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowSteamPlan", value: document.getElementById("spShowSteamPlan").checked}, function() {});
         }
     }
@@ -3113,7 +3124,80 @@ QString ShotServer::generateLayoutPage() const
         ssAutoSave();
     }
 
-    function spToggleChanged() {
+    // ---- Shot Plan display-item list ----
+    // Mirrors qml/components/layout/ShotPlanConfig.js — keep the key set and
+    // legacy-derivation rule in sync with it.
+
+    var SP_ALL_KEYS = ["doseYield", "profile", "temperature", "roaster", "coffee", "grind", "roastDate"];
+    var SP_ITEM_LABELS = {
+        doseYield: "Dose & yield",
+        profile: "Profile",
+        temperature: "Temperature",
+        roaster: "Roaster",
+        coffee: "Coffee",
+        grind: "Grind",
+        roastDate: "Roast date"
+    };
+    var spItems = [];
+
+    // Prefer the stored shotPlanItems array; otherwise derive from the legacy
+    // shotPlanShow* booleans in canonical order (the legacy compound Profile &
+    // temperature boolean expands to the independent profile + temperature items).
+    function spItemsFromProps(props) {
+        if (Array.isArray(props.shotPlanItems) && props.shotPlanItems.length > 0)
+            return props.shotPlanItems.map(String);
+        var order = [];
+        if (props.shotPlanShowDoseYield !== false) order.push("doseYield");
+        if (props.shotPlanShowProfile !== false) { order.push("profile"); order.push("temperature"); }
+        if (props.shotPlanShowRoaster !== false) order.push("roaster");
+        if (props.shotPlanShowCoffee !== false) order.push("coffee");
+        if (props.shotPlanShowGrind !== false) order.push("grind");
+        if (props.shotPlanShowRoastDate === true) order.push("roastDate");
+        return order;
+    }
+
+    function spRender() {
+        var html = "";
+        for (var i = 0; i < spItems.length; i++) {
+            html += '<div class="sp-item-row">'
+                + '<span class="sp-item-label">' + SP_ITEM_LABELS[spItems[i]] + '</span>'
+                + '<button class="sp-item-btn"' + (i === 0 ? ' disabled' : '') + ' onclick="spMove(' + i + ',-1)" title="Move up" aria-label="Move ' + SP_ITEM_LABELS[spItems[i]] + ' up">&#9650;</button>'
+                + '<button class="sp-item-btn"' + (i === spItems.length - 1 ? ' disabled' : '') + ' onclick="spMove(' + i + ',1)" title="Move down" aria-label="Move ' + SP_ITEM_LABELS[spItems[i]] + ' down">&#9660;</button>'
+                + '<button class="sp-item-btn sp-item-remove" onclick="spRemove(' + i + ')" title="Hide" aria-label="Hide ' + SP_ITEM_LABELS[spItems[i]] + '">&#10005;</button>'
+                + '</div>';
+        }
+        document.getElementById("spShownList").innerHTML = html || '<div class="ss-no-settings">No items shown</div>';
+        var avail = SP_ALL_KEYS.filter(function(k) { return spItems.indexOf(k) === -1; });
+        var availHtml = "";
+        for (var j = 0; j < avail.length; j++) {
+            availHtml += '<button class="sp-avail-chip" onclick="spAdd(\'' + avail[j] + '\')" aria-label="Show ' + SP_ITEM_LABELS[avail[j]] + '">+ ' + SP_ITEM_LABELS[avail[j]] + '</button>';
+        }
+        document.getElementById("spAvailableList").innerHTML = availHtml;
+        document.getElementById("spAvailableLabel").style.display = avail.length ? "" : "none";
+        document.getElementById("spAvailableList").style.display = avail.length ? "" : "none";
+    }
+
+    function spMove(i, delta) {
+        var j = i + delta;
+        if (j < 0 || j >= spItems.length) return;
+        var t = spItems[i]; spItems[i] = spItems[j]; spItems[j] = t;
+        spRender();
+        spConfigChanged();
+    }
+
+    function spRemove(i) {
+        spItems.splice(i, 1);
+        spRender();
+        spConfigChanged();
+    }
+
+    function spAdd(key) {
+        if (spItems.indexOf(key) === -1) spItems.push(key);
+        spRender();
+        spConfigChanged();
+    }
+
+    function spConfigChanged() {
         ssAutoSave();
     }
 
