@@ -12,7 +12,7 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Build via Qt Creator and run the full test suite; check whether any test asserts the removed errorOccurred emission (tests around BleTransport/BLE retry) and update expectations if so.
+- [x] 3.1 Build via Qt Creator and run the full test suite; check whether any test asserts the removed errorOccurred emission (tests around BleTransport/BLE retry) and update expectations if so.
 - [ ] 3.2 Ask Jeff to run the app for a normal session (no popup regressions; DE1 connect/disconnect UX unchanged).
 
 ## 4. Wrap-up
