@@ -274,11 +274,16 @@ Page {
         }
     }
 
+    // Unconfirmed sensor exits render like their confirmed counterpart — the
+    // confirmed/unconfirmed distinction matters to the shot-analysis detectors,
+    // not to the user mid-shot (and the hint is usually correct).
     function _transitionText(reason) {
         switch (reason) {
             case "weight": return TranslationManager.translate("espresso.transition.weight", "Weight exit")
-            case "pressure": return TranslationManager.translate("espresso.transition.pressure", "Pressure exit")
-            case "flow": return TranslationManager.translate("espresso.transition.flow", "Flow exit")
+            case "pressure":
+            case "pressure_unconfirmed": return TranslationManager.translate("espresso.transition.pressure", "Pressure exit")
+            case "flow":
+            case "flow_unconfirmed": return TranslationManager.translate("espresso.transition.flow", "Flow exit")
             case "time": return TranslationManager.translate("espresso.transition.time", "Time exit")
             default: return TranslationManager.translate("espresso.transition.next", "Next frame")
         }
@@ -287,8 +292,10 @@ Page {
     function _transitionColor(reason) {
         switch (reason) {
             case "weight": return Theme.weightColor
-            case "pressure": return Theme.pressureColor
-            case "flow": return Theme.flowColor
+            case "pressure":
+            case "pressure_unconfirmed": return Theme.pressureColor
+            case "flow":
+            case "flow_unconfirmed": return Theme.flowColor
             case "time": return Theme.textSecondaryColor
             default: return Theme.textSecondaryColor
         }
