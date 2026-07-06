@@ -112,7 +112,11 @@ BleTransport::BleTransport(QObject* parent)
             } else {
                 warn(QString("Write FAILED after %1 retries (uuid=%2, %3 bytes)")
                     .arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid).arg(m_lastWriteData.size()));
-                emit errorOccurred(QString("BLE write failed after %1 retries").arg(MAX_WRITE_RETRIES));
+                // Deliberately no errorOccurred (user-facing): retry exhaustion means
+                // the link is dead and the reconnect ladder takes over — typically
+                // self-healing in seconds. Surfacing it queued stale "Connection
+                // Error" modals behind the screensaver (#1423). Persistent failures
+                // still reach the user via the reconnect path's own errors.
                 emit de1LinkFault(QStringLiteral("write-failed"));
                 m_lastCommand = nullptr;
                 m_writeRetryCount = 0;
@@ -579,7 +583,8 @@ void BleTransport::onServiceDiscovered(const QBluetoothUuid& uuid) {
                         } else {
                             warn(QString("CharacteristicWriteError FAILED after %1 retries (uuid=%2)")
                                 .arg(MAX_WRITE_RETRIES).arg(m_lastWriteUuid));
-                            emit errorOccurred(QString("BLE write failed after %1 retries").arg(MAX_WRITE_RETRIES));
+                            // No user-facing errorOccurred here — same rationale as the
+                            // write-timeout exhaustion path above (#1423).
                             emit de1LinkFault(QStringLiteral("write-failed"));
                             m_lastCommand = nullptr;
                             m_writeRetryCount = 0;

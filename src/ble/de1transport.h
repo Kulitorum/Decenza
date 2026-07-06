@@ -115,7 +115,11 @@ signals:
     void writeComplete(const QBluetoothUuid& uuid, const QByteArray& data);
 
     /**
-     * Emitted when a transport error occurs.
+     * Emitted when a transport error occurs. Surfaced to the user as a modal
+     * (via BLEManager), so only for errors that need user awareness or action.
+     * Write-retry exhaustion is deliberately NOT routed here — it marks a dead
+     * link that the reconnect ladder handles, and is reported via de1LinkFault
+     * instead (#1423).
      * @param message Human-readable error description.
      */
     void errorOccurred(const QString& message);
