@@ -29,8 +29,11 @@ Item {
     readonly property bool isActive:
         (idlePage ? idlePage.activePresetFunction : "") === "steam" || presetPopup.visible
 
-    implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
-    implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
+    // Compact (bar) rendering only: full-size placements of this type compile to
+    // CustomItem in LayoutItemDelegate (isCompiled), so this item never loads
+    // non-compact and carries no full-mode rendering.
+    implicitWidth: compactContent.implicitWidth
+    implicitHeight: compactContent.implicitHeight
 
     function togglePresets() {
         if (root.isCompact) {
@@ -94,29 +97,6 @@ Item {
             onAccessibleClicked: root.togglePresets()
             onAccessibleDoubleClicked: root.goToSteam()
             onAccessibleLongPressed: root.goToSteam()
-        }
-    }
-
-    // --- FULL MODE ---
-    Item {
-        id: fullContent
-        visible: !root.isCompact
-        anchors.fill: parent
-        implicitWidth: Theme.scaled(150)
-        implicitHeight: Theme.scaled(120)
-
-        ActionButton {
-            anchors.fill: parent
-            translationKey: "idle.button.steam"
-            translationFallback: "Steam"
-            iconSource: "qrc:/icons/steam.svg"
-            enabled: DE1Device.guiEnabled
-            supportDoubleClick: true
-            onClicked: root.togglePresets()
-            onPressAndHold: root.goToSteam()
-            onDoubleClicked: root.goToSteam()
-
-            Accessible.description: TranslationManager.translate("idle.accessible.steam.description", "Start steaming milk. Double-tap or long-press to configure.")
         }
     }
 

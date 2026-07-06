@@ -29,8 +29,11 @@ Item {
     readonly property bool isActive:
         (idlePage ? idlePage.activePresetFunction : "") === "hotwater" || presetPopup.visible
 
-    implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
-    implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
+    // Compact (bar) rendering only: full-size placements of this type compile to
+    // CustomItem in LayoutItemDelegate (isCompiled), so this item never loads
+    // non-compact and carries no full-mode rendering.
+    implicitWidth: compactContent.implicitWidth
+    implicitHeight: compactContent.implicitHeight
 
     function togglePresets() {
         if (root.isCompact) {
@@ -94,29 +97,6 @@ Item {
             onAccessibleClicked: root.togglePresets()
             onAccessibleDoubleClicked: root.goToHotWater()
             onAccessibleLongPressed: root.goToHotWater()
-        }
-    }
-
-    // --- FULL MODE ---
-    Item {
-        id: fullContent
-        visible: !root.isCompact
-        anchors.fill: parent
-        implicitWidth: Theme.scaled(150)
-        implicitHeight: Theme.scaled(120)
-
-        ActionButton {
-            anchors.fill: parent
-            translationKey: "idle.button.hotwater"
-            translationFallback: "Hot Water"
-            iconSource: "qrc:/icons/water.svg"
-            enabled: DE1Device.guiEnabled
-            supportDoubleClick: true
-            onClicked: root.togglePresets()
-            onPressAndHold: root.goToHotWater()
-            onDoubleClicked: root.goToHotWater()
-
-            Accessible.description: TranslationManager.translate("idle.accessible.hotwater.description", "Dispense hot water. Double-tap or long-press to configure.")
         }
     }
 
