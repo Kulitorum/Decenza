@@ -205,10 +205,12 @@ Item {
                 pillSuffixMaxWidth: Theme.scaled(60)
                 pillSuffixVersion: parent.popupSuffixVersion
 
+                // Live net-milk suffix — twin of the idle steam pill row's pillSuffixFn
+                // in IdlePage.qml (rationale documented there); keep in sync.
                 pillSuffixFn: function(index) {
                     if (!ScaleDevice.connected || ScaleDevice.isFlowScale) return ""
                     var preset = Settings.brew.steamPitcherPresets[index]
-                    if (!preset) return ""
+                    if (!preset || preset.disabled) return ""
                     var pitcherWeight = preset.pitcherWeightG ?? 0
                     if (pitcherWeight <= 0) return ""
                     var milkWeight = Math.max(0, MachineState.scaleWeight - pitcherWeight)
