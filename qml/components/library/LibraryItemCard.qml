@@ -625,16 +625,10 @@ Rectangle {
     signal clicked()
     signal doubleClicked()
 
+    // Chip/short names from the single C++ catalog (shared with the layout
+    // editor); unknown types fall back to the raw type string.
     function getItemDisplayName(type) {
-        var names = {
-            "espresso": "Espresso", "steam": "Steam", "hotwater": "Hot Water",
-            "flush": "Flush", "beans": "Beans", "history": "History",
-            "autofavorites": "Favs", "sleep": "Sleep", "settings": "Settings",
-            "temperature": "Temp", "steamTemperature": "Steam",
-            "batteryLevel": "Batt", "waterLevel": "Water", "connectionStatus": "Conn",
-            "scaleWeight": "Scale", "shotPlan": "Plan", "pageTitle": "Title",
-            "spacer": "---", "separator": "|", "weather": "Weather", "quit": "Quit"
-        }
-        return names[type] || type
+        var e = Settings.network.widgetChipNames()[type]
+        return e ? TranslationManager.translate(e.key, e.fallback) : type
     }
 }

@@ -748,6 +748,80 @@ private slots:
         QCOMPARE(caps.size(), 15);
     }
 
+    // The widget catalog drives the in-app palette, chip names, the library
+    // card, and the web editor's injected WIDGET_CATALOG. Pin invariants, not
+    // the full list, so adding a widget stays a one-table edit.
+    void widgetCatalogInvariants() {
+        const QVariantList catalog = SettingsNetwork::widgetCatalog();
+        const QVariantMap chips = SettingsNetwork::widgetChipNames();
+        const QVariantList cats = SettingsNetwork::widgetCategoryNames();
+        // The `cat` integers in the catalog are positional — pin the category
+        // names in order so a reorder without renumbering is caught.
+        QCOMPARE(cats.size(), 4);
+        const QStringList kCatOrder = {"Actions", "Readouts", "Utility", "Screensavers"};
+        for (int i = 0; i < cats.size(); ++i)
+            QCOMPARE(cats[i].toMap().value("fallback").toString(), kCatOrder[i]);
+        QVERIFY(catalog.size() >= 36);
+
+        QSet<QString> seen;
+        for (const QVariant& v : catalog) {
+            const QVariantMap e = v.toMap();
+            const QString type = e.value("type").toString();
+            QVERIFY2(!seen.contains(type), qPrintable("duplicate catalog type: " + type));
+            seen.insert(type);
+            const int cat = e.value("cat").toInt();
+            QVERIFY2(cat >= 0 && cat < cats.size(), qPrintable("bad category: " + type));
+            QVERIFY2(!e.value("label").toString().isEmpty(), qPrintable("empty label: " + type));
+            QVERIFY2(!e.value("labelKey").toString().isEmpty(), qPrintable("empty labelKey: " + type));
+            QVERIFY2(chips.contains(type), qPrintable("missing chip name: " + type));
+            // A typo'd flag would silently lose the web chip/menu coloring.
+            const QString flag = e.value("flag").toString();
+            QVERIFY2(flag.isEmpty() || flag == "special" || flag == "screensaver",
+                     qPrintable(type + " has unknown flag: " + flag));
+        }
+        // Every chip entry (incl. aliases) carries a usable key + fallback —
+        // an aggregate-initialized row with missing trailing fields would
+        // otherwise render blank chip labels.
+        for (auto it = chips.constBegin(); it != chips.constEnd(); ++it) {
+            const QVariantMap c = it.value().toMap();
+            QVERIFY2(!c.value("key").toString().isEmpty(), qPrintable("empty chip key: " + it.key()));
+            QVERIFY2(!c.value("fallback").toString().isEmpty(), qPrintable("empty chip fallback: " + it.key()));
+        }
+        // Legacy alias keeps a chip name without appearing in the palette.
+        QVERIFY(chips.contains("connectionStatus"));
+        QVERIFY(!seen.contains("connectionStatus"));
+
+        // Every configurable type is a real, placeable catalog type — the
+        // capability schema and the catalog cannot drift apart.
+        const QJsonObject caps = SettingsNetwork::readoutCapabilitiesJson();
+        for (const QString& t : caps.keys())
+            QVERIFY2(seen.contains(t), qPrintable("configurable type missing from catalog: " + t));
+
+        // Web JSON parity: types/chipNames/catNames mirror the same table.
+        const QJsonObject webCatalog = SettingsNetwork::widgetCatalogJson();
+        QCOMPARE(webCatalog.value("types").toArray().size(), catalog.size());
+        QCOMPARE(webCatalog.value("chipNames").toObject().size(), chips.size());
+        QCOMPARE(webCatalog.value("catNames").toArray().size(), cats.size());
+    }
+
+    // An absent stored displayMode always means "today's rendering" — icon for
+    // the battery readouts, text everywhere else. Declared once; pin it.
+    void displayModeDefaultsPinned() {
+        QCOMPARE(SettingsNetwork::defaultDisplayModeForType("batteryLevel"), QStringLiteral("icon"));
+        QCOMPARE(SettingsNetwork::defaultDisplayModeForType("scaleBattery"), QStringLiteral("icon"));
+        QCOMPARE(SettingsNetwork::defaultDisplayModeForType("temperature"), QStringLiteral("text"));
+        QCOMPARE(SettingsNetwork::defaultDisplayModeForType("scaleWeight"), QStringLiteral("text"));
+        QCOMPARE(SettingsNetwork::defaultDisplayModeForType(""), QStringLiteral("text"));
+        // Web parity: only non-text defaults are injected.
+        const QJsonObject d = SettingsNetwork::displayModeDefaultsJson();
+        QCOMPARE(d.size(), 2);
+        QCOMPARE(d.value("batteryLevel").toString(), QStringLiteral("icon"));
+        QCOMPARE(d.value("scaleBattery").toString(), QStringLiteral("icon"));
+        // Every defaulted type must support displayMode in the schema.
+        for (const QString& t : d.keys())
+            QVERIFY(SettingsNetwork::optionKeysForType(t).contains("displayMode"));
+    }
+
     // itemIsConfigured gates the remove-confirmation that protects a set-up
     // widget from an accidental tap. Cover its two true-branches (configurable
     // type; or a plain type carrying an extra property) and the false cases.

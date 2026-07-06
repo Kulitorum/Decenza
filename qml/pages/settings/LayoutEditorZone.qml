@@ -453,58 +453,26 @@ Rectangle {
                             boundsBehavior: Flickable.StopAtBounds
                             clip: true
 
-                            // Category labels indexed by the `cat` field below.
-                            readonly property var catNames: [
-                                TranslationManager.translate("layoutEditor.catActions", "Actions"),
-                                TranslationManager.translate("layoutEditor.catReadouts", "Readouts"),
-                                TranslationManager.translate("layoutEditor.catUtility", "Utility"),
-                                TranslationManager.translate("layoutEditor.catScreensavers", "Screensavers")
-                            ]
+                            // Category labels and widget catalog from the single
+                            // C++ table (SettingsNetwork::widgetCatalog /
+                            // widgetCategoryNames). Reading translationVersion
+                            // re-resolves labels on a live language switch (the
+                            // old inline arrays lacked this dependency and stayed
+                            // stale until the page was recreated).
+                            readonly property var catNames: {
+                                var _v = TranslationManager.translationVersion
+                                return Settings.network.widgetCategoryNames().map(function(c) {
+                                    return TranslationManager.translate(c.key, c.fallback)
+                                })
+                            }
 
-                            // Full widget catalog: type, category index, label.
-                            // Same grouping/order the web picker uses.
-                            readonly property var catalog: [
-                                // Actions (0)
-                                { type: "espresso", cat: 0, label: TranslationManager.translate("layoutEditor.widgetEspresso", "Espresso") },
-                                { type: "steam", cat: 0, label: TranslationManager.translate("layoutEditor.widgetSteam", "Steam") },
-                                { type: "hotwater", cat: 0, label: TranslationManager.translate("layoutEditor.widgetHotWater", "Hot Water") },
-                                { type: "flush", cat: 0, label: TranslationManager.translate("layoutEditor.widgetFlush", "Flush") },
-                                { type: "sleep", cat: 0, label: TranslationManager.translate("layoutEditor.widgetSleep", "Sleep") },
-                                { type: "settings", cat: 0, label: TranslationManager.translate("layoutEditor.widgetSettings", "Settings") },
-                                { type: "quit", cat: 0, label: TranslationManager.translate("layoutEditor.widgetQuit", "Quit") },
-                                { type: "history", cat: 0, label: TranslationManager.translate("layoutEditor.widgetHistory", "History") },
-                                { type: "beans", cat: 0, label: TranslationManager.translate("layoutEditor.widgetBeans", "Beans") },
-                                { type: "equipment", cat: 0, label: TranslationManager.translate("layoutEditor.widgetEquipment", "Equipment") },
-                                { type: "autofavorites", cat: 0, label: TranslationManager.translate("layoutEditor.widgetFavorites", "Favorites") },
-                                { type: "discuss", cat: 0, label: TranslationManager.translate("layoutEditor.widgetDiscuss", "Discuss") },
-                                { type: "ghcSimulator", cat: 0, label: TranslationManager.translate("layoutEditor.widgetGHCSimulator", "Mini GHC") },
-                                // Readouts (1)
-                                { type: "machineStatus", cat: 1, label: TranslationManager.translate("layoutEditor.widgetMachineStatus", "Machine Status") },
-                                { type: "scaleWeight", cat: 1, label: TranslationManager.translate("layoutEditor.widgetScaleWeight", "Scale Weight") },
-                                { type: "temperature", cat: 1, label: TranslationManager.translate("layoutEditor.widgetTemperature", "Temperature") },
-                                { type: "steamTemperature", cat: 1, label: TranslationManager.translate("layoutEditor.widgetSteamTemp", "Steam Temp") },
-                                { type: "batteryLevel", cat: 1, label: TranslationManager.translate("layoutEditor.widgetBatteryLevel", "Battery Level") },
-                                { type: "scaleBattery", cat: 1, label: TranslationManager.translate("layoutEditor.widgetScaleBattery", "Scale Battery") },
-                                { type: "waterLevel", cat: 1, label: TranslationManager.translate("layoutEditor.widgetWaterLevel", "Water Level") },
-                                { type: "profileName", cat: 1, label: TranslationManager.translate("layoutEditor.widgetProfileName", "Profile Name") },
-                                { type: "doseWeight", cat: 1, label: TranslationManager.translate("layoutEditor.widgetDoseWeight", "Dose Weight") },
-                                { type: "milkWeight", cat: 1, label: TranslationManager.translate("layoutEditor.widgetMilkWeight", "Milk Weight") },
-                                { type: "ratioQuickSelect", cat: 1, label: TranslationManager.translate("layoutEditor.widgetRatioQuickSelect", "Ratio Quick-Select") },
-                                { type: "shotPlan", cat: 1, label: TranslationManager.translate("layoutEditor.widgetShotPlan", "Shot Plan") },
-                                { type: "clock", cat: 1, label: TranslationManager.translate("layoutEditor.chipTime", "Time") },
-                                // Utility (2)
-                                { type: "custom", cat: 2, label: TranslationManager.translate("layoutEditor.widgetCustom", "Custom") },
-                                { type: "pageTitle", cat: 2, label: TranslationManager.translate("layoutEditor.widgetPageTitle", "Page Title") },
-                                { type: "separator", cat: 2, label: TranslationManager.translate("layoutEditor.widgetSeparator", "Separator") },
-                                { type: "spacer", cat: 2, label: TranslationManager.translate("layoutEditor.widgetSpacer", "Spacer") },
-                                { type: "weather", cat: 2, label: TranslationManager.translate("layoutEditor.widgetWeather", "Weather") },
-                                // Screensavers (3)
-                                { type: "screensaverPipes", cat: 3, label: TranslationManager.translate("layoutEditor.widget3DPipes", "3D Pipes") },
-                                { type: "screensaverAttractor", cat: 3, label: TranslationManager.translate("layoutEditor.widgetAttractors", "Attractors") },
-                                { type: "screensaverFlipClock", cat: 3, label: TranslationManager.translate("layoutEditor.widgetFlipClock", "Flip Clock") },
-                                { type: "lastShot", cat: 3, label: TranslationManager.translate("layoutEditor.widgetLastShot", "Last Shot") },
-                                { type: "screensaverShotMap", cat: 3, label: TranslationManager.translate("layoutEditor.widgetShotMap", "Shot Map") }
-                            ]
+                            readonly property var catalog: {
+                                var _v = TranslationManager.translationVersion
+                                return Settings.network.widgetCatalog().map(function(e) {
+                                    return { type: e.type, cat: e.cat,
+                                             label: TranslationManager.translate(e.labelKey, e.label) }
+                                })
+                            }
 
                             // Filtered + sorted (by category, then label) model,
                             // with explicit header rows so grouping works with a
@@ -653,47 +621,14 @@ Rectangle {
         return "Custom"
     }
 
+    // Chip/short names from the single C++ catalog (type → {key, fallback},
+    // includes legacy aliases like connectionStatus). Unknown types fall back
+    // to the raw type string.
+    readonly property var _chipNames: Settings.network.widgetChipNames()
+
     function getItemDisplayName(type) {
-        var names = {
-            "espresso": TranslationManager.translate("layoutEditor.chipEspresso", "Espresso"),
-            "steam": TranslationManager.translate("layoutEditor.chipSteam", "Steam"),
-            "hotwater": TranslationManager.translate("layoutEditor.chipHotWater", "Hot Water"),
-            "flush": TranslationManager.translate("layoutEditor.chipFlush", "Flush"),
-            "beans": TranslationManager.translate("layoutEditor.chipBeans", "Beans"),
-            "equipment": TranslationManager.translate("layoutEditor.chipEquipment", "Equipment"),
-            "history": TranslationManager.translate("layoutEditor.chipHistory", "History"),
-            "autofavorites": TranslationManager.translate("layoutEditor.chipFavorites", "Favorites"),
-            "sleep": TranslationManager.translate("layoutEditor.chipSleep", "Sleep"),
-            "settings": TranslationManager.translate("layoutEditor.chipSettings", "Settings"),
-            "temperature": TranslationManager.translate("layoutEditor.chipTemp", "Temp"),
-            "steamTemperature": TranslationManager.translate("layoutEditor.chipSteamTemp", "Steam Temp"),
-            "batteryLevel": TranslationManager.translate("layoutEditor.chipBattery", "Battery"),
-            "waterLevel": TranslationManager.translate("layoutEditor.chipWater", "Water"),
-            "connectionStatus": TranslationManager.translate("layoutEditor.chipMachine", "Machine"),
-            "machineStatus": TranslationManager.translate("layoutEditor.chipMachine", "Machine"),
-            "scaleWeight": TranslationManager.translate("layoutEditor.chipScale", "Scale"),
-            "profileName": TranslationManager.translate("layoutEditor.chipProfileName", "Profile"),
-            "doseWeight": TranslationManager.translate("layoutEditor.chipDoseWeight", "Dose"),
-            "milkWeight": TranslationManager.translate("layoutEditor.chipMilkWeight", "Milk"),
-            "ratioQuickSelect": TranslationManager.translate("layoutEditor.chipRatioQuick", "Ratio"),
-            "scaleBattery": TranslationManager.translate("layoutEditor.chipScaleBat", "Scale Bat"),
-            "ghcSimulator": TranslationManager.translate("layoutEditor.chipGHCSim", "Mini GHC"),
-            "shotPlan": TranslationManager.translate("layoutEditor.chipShotPlan", "Shot Plan"),
-            "pageTitle": TranslationManager.translate("layoutEditor.chipPageTitle", "Page Title"),
-            "spacer": TranslationManager.translate("layoutEditor.chipSpacer", "Spacer"),
-            "separator": TranslationManager.translate("layoutEditor.chipSep", "Sep"),
-            "custom": TranslationManager.translate("layoutEditor.chipCustom", "Custom"),
-            "weather": TranslationManager.translate("layoutEditor.chipWeather", "Weather"),
-            "lastShot": TranslationManager.translate("layoutEditor.chipLastShot", "Last Shot"),
-            "screensaverFlipClock": TranslationManager.translate("layoutEditor.chipClock", "Clock"),
-            "screensaverPipes": TranslationManager.translate("layoutEditor.chipPipes", "Pipes"),
-            "screensaverAttractor": TranslationManager.translate("layoutEditor.chipAttractor", "Attractor"),
-            "screensaverShotMap": TranslationManager.translate("layoutEditor.chipMap", "Map"),
-            "quit": TranslationManager.translate("layoutEditor.chipQuit", "Quit"),
-            "discuss": TranslationManager.translate("layoutEditor.chipDiscuss", "Discuss"),
-            "clock": TranslationManager.translate("layoutEditor.chipTime", "Time")
-        }
-        return names[type] || type
+        var e = _chipNames[type]
+        return e ? TranslationManager.translate(e.key, e.fallback) : type
     }
 
 }
