@@ -16,8 +16,8 @@ Item {
     property color zoneTextColor: Theme.textColor
     property bool zoneValueBold: false
 
-    // Per-instance display mode ("text" default | "icon": pitcher icon in place
-    // of the label) and color override. See WidgetColor for the shared palette.
+    // Per-instance display mode ("text" default | "icon": the shared steam icon
+    // in place of the label) and color override. See WidgetColor for the palette.
     readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
     readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
 

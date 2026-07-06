@@ -718,6 +718,34 @@ private slots:
             QVERIFY(caps.value(t).toArray().isEmpty());
         }
         QVERIFY(!caps.contains("espresso"));
+
+        // Generic invariants over EVERY entry, so future types are covered
+        // without extending the hand-pinned lists above:
+        const QSet<QString> knownKeys = {
+            QStringLiteral("dataMode"), QStringLiteral("displayMode"),
+            QStringLiteral("showRatio"), QStringLiteral("color")
+        };
+        for (const QString& t : caps.keys()) {
+            // Web JSON and the QML-facing keys must agree for every type. A
+            // type placed in both the schema and the bespoke set would break
+            // this (JSON's empty array vs the schema's keys) — exactly the
+            // app/web divergence this table exists to prevent.
+            QCOMPARE(caps.value(t).toArray(),
+                     QJsonArray::fromStringList(SettingsNetwork::optionKeysForType(t)));
+            // Screensavers stay a prefix rule on both sides — a screensaver
+            // schema entry would give the web editor selectors the QML
+            // screensaver popup doesn't have.
+            QVERIFY2(!t.startsWith("screensaver"), qPrintable("screensaver leaked into schema: " + t));
+            // Editors dispatch on exactly these key strings; a typo'd key
+            // ("colour", "display") would silently render nothing anywhere.
+            const QJsonArray keys = caps.value(t).toArray();
+            for (const auto& k : keys)
+                QVERIFY2(knownKeys.contains(k.toString()), qPrintable(t + " has unknown key: " + k.toString()));
+        }
+        QVERIFY(SettingsNetwork::optionKeysForType("screensaverFlipClock").isEmpty());
+        // Pin the entry count so adding a configurable type is as deliberate a
+        // change as removing one (every entry changes web-editor behavior).
+        QCOMPARE(caps.size(), 15);
     }
 
     // itemIsConfigured gates the remove-confirmation that protects a set-up

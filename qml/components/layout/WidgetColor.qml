@@ -2,10 +2,11 @@ pragma Singleton
 import QtQuick
 import Decenza // for the Theme singleton — without this, Theme is undefined here
 
-// Per-instance color override for readout layout widgets (clock, temperature,
-// steam temp, water level, machine status, scale weight). "default" (or unset)
-// keeps the widget's own natural color — which may be dynamic, e.g. machine
-// status colored by phase or scale weight by tap/ratio state. The named values
+// Per-instance color override for readout layout widgets (any type whose
+// capability schema in settings_network.cpp includes "color"). "default" (or
+// unset) keeps the widget's own natural color — which may be dynamic, e.g.
+// machine status colored by phase or scale weight by tap/ratio state, battery
+// widgets by charge level. The named values
 // force a static tint mapped to the same semantic chart colors the rest of the
 // page uses, so the widget matches its surroundings and honours custom themes.
 QtObject {

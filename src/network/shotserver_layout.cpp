@@ -2510,7 +2510,9 @@ QString ShotServer::generateLayoutPage() const
 )HTML";
     // Readout capability schema (type → option keys), serialized from the same
     // C++ table that drives the QML editor (SettingsNetwork), so the web editor
-    // has no hand-maintained mirror. Bespoke-editor types map to an empty array.
+    // has no hand-maintained mirror of the capability table. (The per-key choice
+    // lists below still mirror ReadoutOptionsPopup.qml / WidgetColor.qml.)
+    // Bespoke-editor types map to an empty array.
     html += QStringLiteral("    var WIDGET_CAPABILITIES = %1;\n")
         .arg(QString::fromUtf8(QJsonDocument(SettingsNetwork::readoutCapabilitiesJson())
             .toJson(QJsonDocument::Compact)));
@@ -2790,7 +2792,9 @@ QString ShotServer::generateLayoutPage() const
                 }
                 if (isSel && typeHasOptionKey(item.type, "displayMode")) {
                     // Battery readouts render icon+value by default; an absent
-                    // stored mode always means "today's rendering".
+                    // stored mode always means "today's rendering". Keep in sync
+                    // with defaultDisplayMode in ReadoutOptionsPopup.qml and the
+                    // item components' displayMode defaults.
                     var dispDefault = (item.type === "batteryLevel" || item.type === "scaleBattery") ? "icon" : "text";
                     var disp = item.displayMode || dispDefault;
                     var dispModes = [["text","Value only"],["icon","Icon + value"]];

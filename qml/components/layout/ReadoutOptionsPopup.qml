@@ -17,8 +17,10 @@ Dialog {
     property string displayMode: "text"
     property bool showRatio: true
 
-    // Battery readouts render icon+value by default, everything else value-only;
-    // an absent stored displayMode always means "today's rendering".
+    // An absent stored displayMode always means "today's rendering": "icon" for
+    // the battery readouts, "text" for the rest. Keep in sync with the web
+    // editor's dispDefault (shotserver_layout.cpp) and the item components'
+    // displayMode defaults.
     function defaultDisplayMode(type) {
         return (type === "batteryLevel" || type === "scaleBattery") ? "icon" : "text"
     }

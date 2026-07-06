@@ -595,9 +595,11 @@ void SettingsNetwork::resetLayoutToDefault() {
 // Capability schema: the single source of truth for which per-instance option
 // keys each widget type supports. Readout types list the sections the unified
 // readout options editor shows; types with a dedicated editor (custom, sleep,
-// shot plan, screensavers) are configurable but carry no readout keys. The
-// web editor receives this same table as JSON (see widgetCapabilitiesJson),
-// so adding a type or key here is the only registration step.
+// shot plan, last shot, screensavers) are configurable but carry no readout
+// keys. The web editor receives this same table as JSON (see
+// readoutCapabilitiesJson), so adding a type or key here is the only
+// editor-side registration step — the widget's QML item must still read and
+// render the keys it declares (modelData.displayMode / modelData.color).
 namespace {
 const QHash<QString, QStringList>& readoutOptionSchema() {
     static const QHash<QString, QStringList> schema = {
