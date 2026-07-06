@@ -562,6 +562,16 @@ Page {
                 active: activePresetFunction === "steam"
                 visible: active
 
+                // Track scale weight changes and bump version to refresh the live
+                // net-milk pill suffix (see pillSuffixFn below)
+                property int steamPillSuffixVersion: 0
+                Connections {
+                    target: MachineState
+                    function onScaleWeightChanged() {
+                        if (steamPresetLoader.active) steamPresetLoader.steamPillSuffixVersion++
+                    }
+                }
+
                 sourceComponent: Column {
                     width: parent ? parent.width : 0
                     spacing: Theme.scaled(8)
@@ -572,6 +582,26 @@ Page {
                         presets: Settings.brew.steamPitcherPresets
                         selectedIndex: Settings.brew.selectedSteamPitcher
                         supportLongPress: true
+                        pillSuffixMaxWidth: Theme.scaled(60)  // Reserve ~"(1234g)" worth of width
+                        pillSuffixVersion: steamPresetLoader.steamPillSuffixVersion
+
+                        // Live milk weigh: scale reading minus the saved empty-pitcher
+                        // weight, updating as milk is poured. Assumes an un-tared gross
+                        // reading — a pitcher zeroed by the steam auto-tare reads (0g)
+                        // until lifted and replaced (see steamPlacePrompt). Display only —
+                        // the capture path (idleMilkCapture) and steam-time scaling never
+                        // read this. Deliberately NOT netMilkForPitcher(): its 50–1500 g
+                        // window is sized for time scaling and would zero small amounts
+                        // here. Twin of the SteamItem popup's pillSuffixFn — keep in sync.
+                        pillSuffixFn: function(index) {
+                            if (!ScaleDevice.connected || ScaleDevice.isFlowScale) return ""
+                            var preset = Settings.brew.steamPitcherPresets[index]
+                            if (!preset || preset.disabled) return ""
+                            var pitcherWeight = preset.pitcherWeightG ?? 0
+                            if (pitcherWeight <= 0) return ""
+                            var milkWeight = Math.max(0, MachineState.scaleWeight - pitcherWeight)
+                            return " (" + Math.round(milkWeight) + "g)"
+                        }
 
                         // Show pitcher presets as "<name> Pitcher" (e.g. "Small Pitcher"),
                         // skipping the disabled "Off" preset and any name that already
