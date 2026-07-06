@@ -94,6 +94,12 @@ Item {
                     if (root.isAutoSized(modelData.type)) return -1
                     return root.buttonWidth
                 }
+                // The shot plan sizes to its content, which can exceed the zone
+                // (long bean names, many items). RowLayout does NOT shrink items
+                // below their implicit width, so without a cap the plan paints
+                // past the screen edge; capped, the text wraps and elides inside.
+                Layout.maximumWidth: modelData.type === "shotPlan"
+                    ? root.availableWidth : Number.POSITIVE_INFINITY
                 Layout.preferredHeight: modelData.type === "spacer" ? -1 : root.buttonHeight
                 Layout.fillWidth: modelData.type === "spacer"
             }

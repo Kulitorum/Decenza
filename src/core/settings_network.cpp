@@ -718,7 +718,24 @@ void SettingsNetwork::resetZoneToDefault(const QString& zoneName) {
     saveLayoutObject(layout);
 }
 
-void SettingsNetwork::setItemProperty(const QString& itemId, const QString& key, const QVariant& value) {
+bool SettingsNetwork::setItemProperty(const QString& itemId, const QString& key, const QVariant& value) {
+    // A JS array/object passed from QML reaches a QVariant parameter as a
+    // wrapped QJSValue, and a JS `undefined` as an invalid QVariant — both of
+    // which QJsonValue::fromVariant silently turns into null, so the property
+    // would be SAVED as null and read back as absent. Refuse the write instead
+    // of corrupting the stored value; arrays must come through the typed
+    // setItemPropertyList (typed parameters are converted by the engine — the
+    // setZoneItems pattern), and JS objects have no storable mapping here.
+    if (qstrcmp(value.typeName(), "QJSValue") == 0) {
+        qWarning() << "setItemProperty: refusing JS array/object for" << key
+                   << "- pass arrays via setItemPropertyList";
+        return false;
+    }
+    if (!value.isValid()) {
+        qWarning() << "setItemProperty: refusing invalid value (JS undefined?) for" << key;
+        return false;
+    }
+
     QJsonObject layout = getLayoutObject();
     QJsonObject zones = layout["zones"].toObject();
 
@@ -732,10 +749,21 @@ void SettingsNetwork::setItemProperty(const QString& itemId, const QString& key,
                 zones[zoneName] = items;
                 layout["zones"] = zones;
                 saveLayoutObject(layout);
-                return;
+                return true;
             }
         }
     }
+    // Stale id (widget deleted since the editor was opened, possibly from
+    // another device). Without this warning the edit vanishes with success
+    // reported at every layer.
+    qWarning() << "setItemProperty: no layout item with id" << itemId << "- write for" << key << "dropped";
+    return false;
+}
+
+bool SettingsNetwork::setItemPropertyList(const QString& itemId, const QString& key, const QVariantList& value) {
+    // The typed parameter makes the QML engine convert a JS array to a real
+    // QVariantList; from here the generic path stores it as a JSON array.
+    return setItemProperty(itemId, key, QVariant(value));
 }
 
 QVariantMap SettingsNetwork::getItemProperties(const QString& itemId) const {

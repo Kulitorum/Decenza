@@ -72,6 +72,11 @@ Item {
                 // independent of content width. packed: only spacers grow.
                 Layout.fillWidth: modelData.type === "spacer" || root.fillWidthMode
                 Layout.preferredWidth: root.fillWidthMode ? 1 : -1
+                // Cap the shot plan at the bar width — RowLayout does not shrink
+                // items below implicit width, and the plan's text elides once its
+                // delegate is width-bound (single line in bars).
+                Layout.maximumWidth: modelData.type === "shotPlan"
+                    ? root.width : Number.POSITIVE_INFINITY
             }
         }
 
