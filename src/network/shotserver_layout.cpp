@@ -67,6 +67,12 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             return;
         }
         QVariantMap props = m_settings->network()->getItemProperties(itemId);
+        if (props.isEmpty()) {
+            // Unknown/stale id: an empty 200 would let the editor open seeded
+            // with defaults and autosave into the void.
+            sendResponse(socket, 404, "application/json", R"({"error":"No such item"})");
+            return;
+        }
         sendJson(socket, QJsonDocument(QJsonObject::fromVariantMap(props)).toJson(QJsonDocument::Compact));
         return;
     }
@@ -297,8 +303,19 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendResponse(socket, 400, "application/json", R"({"error":"Missing itemId or key"})");
             return;
         }
+        if (!obj.contains("value")) {
+            // An absent value would arrive as an invalid QVariant and be
+            // stored as JSON null (read back as "property missing").
+            sendResponse(socket, 400, "application/json", R"({"error":"Missing value"})");
+            return;
+        }
         QVariant value = obj["value"].toVariant();
-        m_settings->network()->setItemProperty(itemId, key, value);
+        if (!m_settings->network()->setItemProperty(itemId, key, value)) {
+            // Stale/unknown itemId (deleted since the editor loaded) or an
+            // unstorable value — a 200 here would let the edit vanish silently.
+            sendResponse(socket, 404, "application/json", R"({"error":"No such item or unstorable value"})");
+            return;
+        }
         sendJson(socket, R"({"success":true})");
     }
     else if (path == "/api/layout/zone-offset") {
@@ -3143,9 +3160,11 @@ QString ShotServer::generateLayoutPage() const
 
     // Prefer the stored shotPlanItems array — presence wins, an empty array is
     // a valid "show nothing" config and must not fall through to legacy
-    // derivation (which would resurrect the defaults). Otherwise derive from
-    // the legacy shotPlanShow* booleans in canonical order (the legacy compound
-    // Profile & temperature boolean expands to profile + temperature).
+    // derivation (which would resurrect the defaults). A null (what the
+    // pre-fix bug stored) or malformed value takes the legacy branch, same as
+    // ShotPlanConfig.itemsFor. Otherwise derive from the legacy shotPlanShow*
+    // booleans in canonical order (the legacy compound Profile & temperature
+    // boolean expands to profile + temperature).
     function spItemsFromProps(props) {
         if (Array.isArray(props.shotPlanItems))
             return props.shotPlanItems.map(String);
@@ -3163,17 +3182,17 @@ QString ShotServer::generateLayoutPage() const
         var html = "";
         for (var i = 0; i < spItems.length; i++) {
             html += '<div class="sp-item-row">'
-                + '<span class="sp-item-label">' + SP_ITEM_LABELS[spItems[i]] + '</span>'
-                + '<button class="sp-item-btn"' + (i === 0 ? ' disabled' : '') + ' onclick="spMove(' + i + ',-1)" title="Move up" aria-label="Move ' + SP_ITEM_LABELS[spItems[i]] + ' up">&#9650;</button>'
-                + '<button class="sp-item-btn"' + (i === spItems.length - 1 ? ' disabled' : '') + ' onclick="spMove(' + i + ',1)" title="Move down" aria-label="Move ' + SP_ITEM_LABELS[spItems[i]] + ' down">&#9660;</button>'
-                + '<button class="sp-item-btn sp-item-remove" onclick="spRemove(' + i + ')" title="Hide" aria-label="Hide ' + SP_ITEM_LABELS[spItems[i]] + '">&#10005;</button>'
+                + '<span class="sp-item-label">' + (SP_ITEM_LABELS[spItems[i]] || escapeHtml(spItems[i])) + '</span>'
+                + '<button class="sp-item-btn"' + (i === 0 ? ' disabled' : '') + ' onclick="spMove(' + i + ',-1)" title="Move up" aria-label="Move ' + (SP_ITEM_LABELS[spItems[i]] || escapeHtml(spItems[i])) + ' up">&#9650;</button>'
+                + '<button class="sp-item-btn"' + (i === spItems.length - 1 ? ' disabled' : '') + ' onclick="spMove(' + i + ',1)" title="Move down" aria-label="Move ' + (SP_ITEM_LABELS[spItems[i]] || escapeHtml(spItems[i])) + ' down">&#9660;</button>'
+                + '<button class="sp-item-btn sp-item-remove" onclick="spRemove(' + i + ')" title="Hide" aria-label="Hide ' + (SP_ITEM_LABELS[spItems[i]] || escapeHtml(spItems[i])) + '">&#10005;</button>'
                 + '</div>';
         }
         document.getElementById("spShownList").innerHTML = html || '<div class="ss-no-settings">No items shown</div>';
         var avail = SP_ALL_KEYS.filter(function(k) { return spItems.indexOf(k) === -1; });
         var availHtml = "";
         for (var j = 0; j < avail.length; j++) {
-            availHtml += '<button class="sp-avail-chip" onclick="spAdd(\'' + avail[j] + '\')" aria-label="Show ' + SP_ITEM_LABELS[avail[j]] + '">+ ' + SP_ITEM_LABELS[avail[j]] + '</button>';
+            availHtml += '<button class="sp-avail-chip" onclick="spAdd(\'' + avail[j] + '\')" aria-label="Show ' + (SP_ITEM_LABELS[avail[j]] || escapeHtml(avail[j])) + '">+ ' + (SP_ITEM_LABELS[avail[j]] || escapeHtml(avail[j])) + '</button>';
         }
         document.getElementById("spAvailableList").innerHTML = availHtml;
         document.getElementById("spAvailableLabel").style.display = avail.length ? "" : "none";

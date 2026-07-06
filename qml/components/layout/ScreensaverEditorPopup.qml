@@ -138,9 +138,11 @@ Dialog {
             // (shotPlanShowSteamPlan is a live key, not one of them).
             // Typed call: a JS array through the generic QVariant setter arrives
             // as a QJSValue and would be stored as null (see settings_network.h).
-            Settings.network.setItemPropertyList(itemId, "shotPlanItems", shotPlanItems)
-            Settings.network.setItemProperty(itemId, "shotPlanSentence", shotPlanSentence)
-            Settings.network.setItemProperty(itemId, "shotPlanShowSteamPlan", shotPlanShowSteamPlan)
+            var ok = Settings.network.setItemPropertyList(itemId, "shotPlanItems", shotPlanItems)
+            ok = Settings.network.setItemProperty(itemId, "shotPlanSentence", shotPlanSentence) && ok
+            ok = Settings.network.setItemProperty(itemId, "shotPlanShowSteamPlan", shotPlanShowSteamPlan) && ok
+            if (!ok)
+                console.warn("ScreensaverEditorPopup: shot plan save failed (item deleted?)", itemId)
         }
         saved()
         close()

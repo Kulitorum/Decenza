@@ -14,20 +14,32 @@ var allKeys = ["doseYield", "profile", "temperature", "roaster", "coffee", "grin
 // Resolve an instance's ordered display-item list: prefer the stored
 // `shotPlanItems` array — its PRESENCE is what matters, an empty array is a
 // valid "show nothing" configuration and must not fall through to legacy
-// derivation (which would resurrect the defaults). Only when the key is
-// absent entirely, derive from the legacy shotPlanShow* booleans in canonical
-// order, honoring each legacy default. The compound legacy "Profile &
+// derivation (which would resurrect the defaults). Derive from the legacy
+// shotPlanShow* booleans in canonical order, honoring each legacy default,
+// only when the key is absent, null (what the pre-fix bug stored — this is
+// its recovery path), or malformed. The compound legacy "Profile &
 // temperature" boolean expands to the now-independent `profile` +
 // `temperature` items. The six legacy item booleans are read here, never
 // written (shotPlanShowSteamPlan is a live key, not one of them).
 function itemsFor(props) {
     if (!props) props = {}
     var items = props.shotPlanItems
+    // Accept only real array-likes. Array.isArray is deliberately NOT used —
+    // a QVariantList surfaced from C++ can be a sequence, not a JS Array —
+    // but a stored string must not char-split into bogus one-letter keys and
+    // a stored object must not read as an empty list: both would blank the
+    // widget silently, and the web editor (Array.isArray) would disagree by
+    // showing the legacy derivation instead. Malformed → warn + same
+    // legacy-derivation branch as the web side.
     if (items !== undefined && items !== null) {
-        // Arrives from C++ as a QVariantList, not a JS array; normalize to strings.
-        var out = []
-        for (var i = 0; i < items.length; i++) out.push(String(items[i]))
-        return out
+        if (typeof items !== "string" && typeof items.length === "number") {
+            // May be a C++-backed list rather than a plain JS array; normalize
+            // elements to strings.
+            var out = []
+            for (var i = 0; i < items.length; i++) out.push(String(items[i]))
+            return out
+        }
+        console.warn("ShotPlanConfig: malformed shotPlanItems (" + typeof items + "), using legacy derivation")
     }
     var order = []
     if (props.shotPlanShowDoseYield !== false) order.push("doseYield")
