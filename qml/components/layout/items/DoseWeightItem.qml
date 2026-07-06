@@ -8,7 +8,9 @@ import Decenza
 // page's bean auto-capture is weighing a dose it shows the engine's live
 // virtual-zero net instead (doseLiveNetG on the window root, -1 when not
 // weighing) in the secondary color, and flashes the accent color at capture —
-// the same numbers and timing as the espresso panel's readout.
+// driven by the same capture engine and flash timing as the espresso panel's
+// readout (clamped at 0; reverts to the recorded dose once captured, where the
+// panel keeps ticking live).
 Item {
     id: root
     property bool isCompact: false
@@ -19,9 +21,16 @@ Item {
     readonly property string labelText: TranslationManager.translate("idle.status.beans", "Beans")
     // Live dose state published on the window root by IdlePage (see main.qml).
     // Guarded so the widget degrades to the recorded dose when the window or
-    // property is unavailable.
+    // property is unavailable — but a window WITHOUT the property is a one-sided
+    // rename (a wiring bug, not a legitimate state), so warn once to keep that
+    // failure greppable (same pattern as SteamPlanText).
+    property bool _warnedMissingProp: false
     readonly property real liveNetG: {
         var win = root.Window.window
+        if (win && win.doseLiveNetG === undefined && !root._warnedMissingProp) {
+            root._warnedMissingProp = true
+            console.warn("DoseWeightItem: window root has no doseLiveNetG — live dose readout disabled")
+        }
         return (win && win.doseLiveNetG !== undefined) ? win.doseLiveNetG : -1
     }
     readonly property bool captureFlash: {

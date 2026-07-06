@@ -208,9 +208,10 @@ Page {
     // widget (DoseWeightItem) — the widget can live outside IdlePage (persistent
     // status bar), so it can't reach beanCapture directly. Live only while this
     // page is showing and an uncaptured dose sits on the scale with a saved cup
-    // tare (the same gate as the panel readout below); -1 = not weighing. The
-    // engine's re-arm (net change > rearmDelta after capture) drops isCaptured, so
-    // adding more beans after the beep goes live again automatically.
+    // tare — stricter than the panel readout below, which keeps ticking for an
+    // already-captured load; -1 = not weighing. The engine's re-arm (net change
+    // > rearmDelta after capture) drops isCaptured, so adding more beans after
+    // capture goes live again automatically.
     Binding {
         target: idlePage.Window.window
         property: "doseLiveNetG"
