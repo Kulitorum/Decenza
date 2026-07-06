@@ -55,10 +55,12 @@ Item {
     // Content color for text and icon tinting on the button background
     readonly property color _contentColor: Theme.primaryContrastColor
 
-    // Active-mode highlight: any togglePreset:<mode> button (the compiled action
-    // buttons — Espresso/Steam/Hot Water/Flush/Beans/Equipment — or a custom widget)
-    // shows a contrasting ring while its preset row is expanded, so you can see which
-    // mode is selected. CustomItem is the renderer for these compiled buttons.
+    // Active-mode highlight: a togglePreset:<mode> button shows a contrasting ring
+    // while its preset row is expanded, so you can see which mode is selected. In
+    // practice these are the compiled action buttons (Espresso/Steam/Hot Water/
+    // Flush/Beans/Equipment) — neither the in-app nor the web widget editor exposes
+    // togglePreset for hand-made custom widgets, though a raw action string in a
+    // layout config is honored the same way.
     readonly property string _toggleMode:
         action.indexOf("togglePreset:") === 0 ? action.substring("togglePreset:".length) : ""
     property var idlePage: {
