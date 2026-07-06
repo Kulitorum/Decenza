@@ -139,11 +139,18 @@ public:
     Q_INVOKABLE QVariantMap getItemProperties(const QString& itemId) const;
 
     // Source of truth for "does this widget type expose per-instance options?"
-    // The in-app QML editor calls this directly (indicator + open gesture). The
-    // web editor cannot call C++ from client JS, so it keeps a hand-maintained
-    // mirror (`typeHasOptions` in shotserver_layout.cpp) that must be kept in
-    // sync with this list. See docs: layout-widget-instance-config.
+    // Derived from the readout capability schema plus the bespoke-editor set
+    // (settings_network.cpp). The web editor receives the same schema as JSON,
+    // so there is no hand-maintained mirror. See: layout-readout-capability-schema.
     Q_INVOKABLE static bool typeHasOptions(const QString& type);
+    // The readout option keys a widget type supports ("displayMode", "color",
+    // "dataMode", "showRatio"). Empty for non-configurable types and for types
+    // with a dedicated editor. Drives the unified readout options editor.
+    Q_INVOKABLE static QStringList optionKeysForType(const QString& type);
+    // The full schema as JSON (type → option keys; bespoke-editor types map to
+    // an empty array). Injected into the web layout editor page so it consumes
+    // the same table instead of a hand-maintained mirror.
+    static QJsonObject readoutCapabilitiesJson();
     // Whether a placed item instance is "configured" — its type has options, or
     // it carries any per-instance property beyond the bare type/id. Used to gate
     // remove-confirmation so an accidental tap can't discard a set-up widget.

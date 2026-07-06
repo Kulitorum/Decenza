@@ -645,14 +645,15 @@ private slots:
     // Layout: configurable-type allowlist + per-instance "configured" gate
     // ==========================================
 
-    // typeHasOptions is the single source of truth for which widget types expose
-    // per-instance options (drives the editor's gear indicator + open routing).
-    // Pin the allowlist so dropping a type or breaking the screensaver prefix
-    // match is a visible, deliberate change.
+    // typeHasOptions is derived from the readout capability schema plus the
+    // bespoke-editor set (single source of truth for the editor's gear
+    // indicator + open routing). Pin the configurable set so dropping a type
+    // or breaking the screensaver prefix match is a visible, deliberate change.
     void typeHasOptionsAllowlist() {
         const QStringList configurable = {
             "custom", "scaleWeight", "shotPlan", "sleep", "machineStatus",
-            "temperature", "steamTemperature", "waterLevel", "clock", "lastShot"
+            "temperature", "steamTemperature", "waterLevel", "clock", "lastShot",
+            "batteryLevel", "scaleBattery", "doseWeight", "milkWeight", "profileName"
         };
         for (const QString& t : configurable)
             QVERIFY2(SettingsNetwork::typeHasOptions(t), qPrintable("expected configurable: " + t));
@@ -672,6 +673,51 @@ private slots:
         QVERIFY(!SettingsNetwork::typeHasOptions("pageTitle"));
         QVERIFY(!SettingsNetwork::typeHasOptions("espresso"));
         QVERIFY(!SettingsNetwork::typeHasOptions(""));
+    }
+
+    // The capability schema drives the unified readout options editor (which
+    // sections it shows) and the web editor's injected WIDGET_CAPABILITIES.
+    // Pin the per-type keys and the schema↔typeHasOptions agreement.
+    void optionKeysForTypeSchema() {
+        QCOMPARE(SettingsNetwork::optionKeysForType("scaleWeight"),
+                 (QStringList{"dataMode", "displayMode", "showRatio", "color"}));
+        QCOMPARE(SettingsNetwork::optionKeysForType("temperature"),
+                 (QStringList{"displayMode", "color"}));
+        QCOMPARE(SettingsNetwork::optionKeysForType("batteryLevel"),
+                 (QStringList{"displayMode", "color"}));
+        // profileName has no meaningful icon form — color only.
+        QCOMPARE(SettingsNetwork::optionKeysForType("profileName"), (QStringList{"color"}));
+        // Bespoke-editor and unknown types carry no readout keys.
+        QVERIFY(SettingsNetwork::optionKeysForType("custom").isEmpty());
+        QVERIFY(SettingsNetwork::optionKeysForType("shotPlan").isEmpty());
+        QVERIFY(SettingsNetwork::optionKeysForType("espresso").isEmpty());
+        QVERIFY(SettingsNetwork::optionKeysForType("").isEmpty());
+
+        // Every type with readout keys must be configurable.
+        const QStringList readouts = {
+            "machineStatus", "temperature", "steamTemperature", "waterLevel", "clock",
+            "scaleWeight", "batteryLevel", "scaleBattery", "doseWeight", "milkWeight",
+            "profileName"
+        };
+        for (const QString& t : readouts) {
+            QVERIFY2(!SettingsNetwork::optionKeysForType(t).isEmpty(), qPrintable("expected keys: " + t));
+            QVERIFY2(SettingsNetwork::typeHasOptions(t), qPrintable("schema/gate disagree: " + t));
+        }
+
+        // The web editor's JSON carries the same table: readouts map to their
+        // keys, bespoke types to an empty array (present = has options).
+        const QJsonObject caps = SettingsNetwork::readoutCapabilitiesJson();
+        for (const QString& t : readouts) {
+            QVERIFY2(caps.contains(t), qPrintable("missing from web JSON: " + t));
+            QCOMPARE(caps.value(t).toArray(),
+                     QJsonArray::fromStringList(SettingsNetwork::optionKeysForType(t)));
+        }
+        for (const QString& t : {QStringLiteral("custom"), QStringLiteral("sleep"),
+                                 QStringLiteral("shotPlan"), QStringLiteral("lastShot")}) {
+            QVERIFY2(caps.contains(t), qPrintable("bespoke missing from web JSON: " + t));
+            QVERIFY(caps.value(t).toArray().isEmpty());
+        }
+        QVERIFY(!caps.contains("espresso"));
     }
 
     // itemIsConfigured gates the remove-confirmation that protects a set-up

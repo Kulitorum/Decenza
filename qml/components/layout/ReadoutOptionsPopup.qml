@@ -3,26 +3,42 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-// Per-instance editor for a Scale Weight widget (composable-brew-bar): picks the
-// data mode for this instance only. Persists via Settings.network.setItemProperty.
+// Unified per-instance editor for readout widgets. The sections shown are
+// exactly the option keys the widget type declares in the readout capability
+// schema (Settings.network.optionKeysForType): dataMode, displayMode,
+// showRatio, color. Persists via Settings.network.setItemProperty.
 Dialog {
     id: popup
 
     property string itemId: ""
-    property string dataMode: ""
+    property string widgetType: ""
+    property var optionKeys: []
+    property string dataMode: "gross"
     property string displayMode: "text"
     property bool showRatio: true
 
-    function openForItem(id, mode, display, color, ratio) {
+    // Battery readouts render icon+value by default, everything else value-only;
+    // an absent stored displayMode always means "today's rendering".
+    function defaultDisplayMode(type) {
+        return (type === "batteryLevel" || type === "scaleBattery") ? "icon" : "text"
+    }
+
+    function openForItem(id, props) {
         popup.itemId = id
-        popup.dataMode = (mode && mode.length > 0) ? mode : "gross"
-        popup.displayMode = (display && display.length > 0) ? display : "text"
-        popup.showRatio = (ratio === undefined) ? true : ratio
-        colorPicker.colorChoice = (color && color.length > 0) ? color : "default"
+        popup.widgetType = props.type || ""
+        popup.optionKeys = Settings.network.optionKeysForType(popup.widgetType)
+        popup.dataMode = props.dataMode || "gross"
+        popup.displayMode = props.displayMode || defaultDisplayMode(popup.widgetType)
+        popup.showRatio = props.showRatio !== undefined ? props.showRatio : true
+        colorPicker.colorChoice = props.color || "default"
         popup.open()
     }
 
-    function pick(mode) {
+    function hasOption(key) {
+        return popup.optionKeys.indexOf(key) >= 0
+    }
+
+    function pickDataMode(mode) {
         popup.dataMode = mode
         Settings.network.setItemProperty(popup.itemId, "dataMode", mode)
     }
@@ -38,11 +54,11 @@ Dialog {
     }
 
     readonly property var displayChoices: [
-        { value: "text", label: TranslationManager.translate("layoutEditor.displayText", "Text") },
+        { value: "text", label: TranslationManager.translate("layoutEditor.displayValueOnly", "Value only") },
         { value: "icon", label: TranslationManager.translate("layoutEditor.displayIcon", "Icon + value") }
     ]
 
-    readonly property var choices: [
+    readonly property var dataModeChoices: [
         { value: "gross",        label: TranslationManager.translate("layoutEditor.scaleGross", "Gross weight") },
         { value: "netBeans",     label: TranslationManager.translate("layoutEditor.scaleNetBeans", "Net beans (minus dose tare)") },
         { value: "netMilk",      label: TranslationManager.translate("layoutEditor.scaleNetMilk", "Net milk (minus pitcher)") },
@@ -69,6 +85,7 @@ Dialog {
         spacing: Theme.spacingMedium
 
         Text {
+            visible: popup.hasOption("dataMode")
             text: TranslationManager.translate("layoutEditor.scaleDataMode", "Scale data mode")
             color: Theme.textColor
             font.pixelSize: Theme.scaled(20)
@@ -76,7 +93,7 @@ Dialog {
         }
 
         Repeater {
-            model: popup.choices
+            model: popup.hasOption("dataMode") ? popup.dataModeChoices : []
             delegate: Rectangle {
                 required property var modelData
                 readonly property bool sel: popup.dataMode === modelData.value
@@ -89,7 +106,7 @@ Dialog {
                 Accessible.role: Accessible.Button
                 Accessible.name: modelData.label
                 Accessible.focusable: true
-                Accessible.onPressAction: choiceMa.clicked(null)
+                Accessible.onPressAction: dataMa.clicked(null)
                 Text {
                     anchors.left: parent.left
                     anchors.leftMargin: Theme.spacingMedium
@@ -101,11 +118,12 @@ Dialog {
                     font: Theme.labelFont
                     elide: Text.ElideRight
                 }
-                MouseArea { id: choiceMa; anchors.fill: parent; onClicked: popup.pick(modelData.value) }
+                MouseArea { id: dataMa; anchors.fill: parent; onClicked: popup.pickDataMode(modelData.value) }
             }
         }
 
         Text {
+            visible: popup.hasOption("displayMode")
             text: TranslationManager.translate("layoutEditor.displayMode", "Display")
             color: Theme.textColor
             font.pixelSize: Theme.scaled(20)
@@ -113,6 +131,7 @@ Dialog {
         }
 
         RowLayout {
+            visible: popup.hasOption("displayMode")
             Layout.fillWidth: true
             spacing: Theme.spacingSmall
             Repeater {
@@ -142,6 +161,7 @@ Dialog {
         }
 
         RowLayout {
+            visible: popup.hasOption("showRatio")
             Layout.fillWidth: true
             spacing: Theme.spacingMedium
             ColumnLayout {
@@ -167,6 +187,7 @@ Dialog {
 
         WidgetColorPicker {
             id: colorPicker
+            visible: popup.hasOption("color")
             Layout.fillWidth: true
             itemId: popup.itemId
         }

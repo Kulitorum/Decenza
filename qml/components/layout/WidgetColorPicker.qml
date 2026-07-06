@@ -4,8 +4,7 @@ import Decenza
 
 // Reusable "Color" section for the readout-widget option editors. Renders the
 // WidgetColor palette as labelled swatches and persists the choice per instance
-// via Settings.network.setItemProperty. Used by DisplayModeEditorPopup and
-// ScaleWeightEditorPopup.
+// via Settings.network.setItemProperty. Used by ReadoutOptionsPopup.
 ColumnLayout {
     id: picker
 

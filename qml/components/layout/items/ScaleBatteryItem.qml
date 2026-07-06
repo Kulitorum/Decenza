@@ -8,6 +8,14 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+    property var modelData: ({})
+
+    // Per-instance display mode: unset/"icon" keeps today's icon+value form,
+    // "text" renders the value only. A named color override replaces the
+    // charge-level tinting in all states (see WidgetColor).
+    readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "icon"
+    readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
+    readonly property bool hasColorOverride: WidgetColor.isOverride(colorChoice)
 
     readonly property bool scaleConnected: ScaleDevice && ScaleDevice.connected && !ScaleDevice.isFlowScale
     readonly property int level: scaleConnected ? ScaleDevice.batteryLevel : -1
@@ -20,6 +28,7 @@ Item {
     readonly property bool charging: scaleConnected && ScaleDevice.charging
 
     readonly property color levelColor: {
+        if (root.hasColorOverride) return WidgetColor.resolve(root.colorChoice, Theme.textColor)
         if (charging)        return Theme.successColor
         if (!hasLevel) return Theme.textSecondaryColor
         if (level > 50) return Theme.successColor
@@ -79,16 +88,17 @@ Item {
             spacing: Theme.spacingSmall
 
             Image {
+                visible: root.displayMode !== "text"
                 anchors.verticalCenter: parent.verticalCenter
                 source: root.iconSource
                 sourceSize.width: Theme.bodyFont.pixelSize
                 sourceSize.height: Theme.bodyFont.pixelSize
                 Accessible.ignored: true
-                layer.enabled: !Theme.isDarkMode
+                layer.enabled: root.hasColorOverride || !Theme.isDarkMode
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     colorization: 1.0
-                    colorizationColor: Theme.textColor
+                    colorizationColor: root.hasColorOverride ? root.levelColor : Theme.textColor
                 }
             }
 
@@ -132,16 +142,17 @@ Item {
                 spacing: Theme.spacingSmall
 
                 Image {
+                    visible: root.displayMode !== "text"
                     anchors.verticalCenter: parent.verticalCenter
                     source: root.iconSource
                     sourceSize.width: Theme.valueFont.pixelSize
                     sourceSize.height: Theme.valueFont.pixelSize
                     Accessible.ignored: true
-                    layer.enabled: !Theme.isDarkMode
+                    layer.enabled: root.hasColorOverride || !Theme.isDarkMode
                     layer.smooth: true
                     layer.effect: MultiEffect {
                         colorization: 1.0
-                        colorizationColor: Theme.textColor
+                        colorizationColor: root.hasColorOverride ? root.levelColor : Theme.textColor
                     }
                 }
 

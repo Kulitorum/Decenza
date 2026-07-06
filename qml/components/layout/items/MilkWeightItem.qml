@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Window
 import Decenza
+import "../.."
 
 // Layout widget: measured milk weight (composable-brew-bar).
 // Shows the live in-session milk while steaming (sessionMeasuredMilkG on the
@@ -11,8 +12,14 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+    property var modelData: ({})
     property color zoneTextColor: Theme.textColor
     property bool zoneValueBold: false
+
+    // Per-instance display mode ("text" default | "icon": pitcher icon in place
+    // of the label) and color override. See WidgetColor for the shared palette.
+    readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
+    readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
 
     readonly property string labelText: TranslationManager.translate("idle.status.milk", "Milk")
     // Live in-session milk (set during steaming, reset to 0 at session end /
@@ -38,6 +45,7 @@ Item {
         width: parent.width
         spacing: 0
         Text {
+            visible: root.displayMode !== "icon"
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
@@ -45,12 +53,19 @@ Item {
             color: root.zoneTextColor
             font: Theme.labelFont
         }
+        ThemedIcon {
+            visible: root.displayMode === "icon"
+            Layout.alignment: Qt.AlignHCenter
+            source: "qrc:/icons/steam.svg"
+            iconSize: Theme.scaled(20)
+            color: WidgetColor.resolve(root.colorChoice, root.zoneTextColor)
+        }
         Text {
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
             text: root.valueText
-            color: root.zoneTextColor
+            color: WidgetColor.resolve(root.colorChoice, root.zoneTextColor)
             font.pixelSize: Theme.scaled(21)
             font.bold: root.zoneValueBold
         }

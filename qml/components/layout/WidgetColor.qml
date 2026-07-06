@@ -39,6 +39,15 @@ QtObject {
         }
     }
 
+    // True when `name` is a recognised non-default override (unknown values
+    // degrade to the widget's natural color, same as resolve()).
+    function isOverride(name) {
+        switch (name) {
+        case "white": case "green": case "red": case "blue": case "orange": return true
+        default: return false
+        }
+    }
+
     // Swatch color for the picker preview. "default" has no fixed color, so it
     // shows a neutral dot (the label communicates the meaning).
     function swatch(name) {

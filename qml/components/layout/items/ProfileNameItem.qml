@@ -9,8 +9,13 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+    property var modelData: ({})
     property color zoneTextColor: Theme.textColor
     property bool zoneValueBold: false
+
+    // Per-instance color override; "default"/unset keeps the zone's color.
+    // See WidgetColor for the shared palette used by all readout widgets.
+    readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
 
     readonly property string labelText: TranslationManager.translate("idle.status.profile", "Profile")
     readonly property string valueText: ProfileManager.currentProfileName || "—"
@@ -40,7 +45,7 @@ Item {
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
             text: root.valueText
-            color: root.zoneTextColor
+            color: WidgetColor.resolve(root.colorChoice, root.zoneTextColor)
             font.pixelSize: Theme.scaled(21)
             font.bold: root.zoneValueBold
         }

@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Window
 import Decenza
+import "../.."
 
 // Layout widget: measured dose weight (composable-brew-bar).
 // Shows Settings.dye.dyeBeanWeight; "—" when no dose recorded. While the idle
@@ -15,8 +16,14 @@ Item {
     id: root
     property bool isCompact: false
     property string itemId: ""
+    property var modelData: ({})
     property color zoneTextColor: Theme.textColor
     property bool zoneValueBold: false
+
+    // Per-instance display mode ("text" default | "icon": beans icon in place
+    // of the label) and color override. See WidgetColor for the shared palette.
+    readonly property string displayMode: (modelData && modelData.displayMode) ? modelData.displayMode : "text"
+    readonly property string colorChoice: (modelData && modelData.color) ? modelData.color : "default"
 
     readonly property string labelText: TranslationManager.translate("idle.status.beans", "Beans")
     // Live dose state published on the window root by IdlePage (see main.qml).
@@ -57,6 +64,7 @@ Item {
         width: parent.width
         spacing: 0
         Text {
+            visible: root.displayMode !== "icon"
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
@@ -64,16 +72,25 @@ Item {
             color: root.zoneTextColor
             font: Theme.labelFont
         }
+        ThemedIcon {
+            visible: root.displayMode === "icon"
+            Layout.alignment: Qt.AlignHCenter
+            source: "qrc:/icons/coffeebeans.svg"
+            iconSize: Theme.scaled(20)
+            color: WidgetColor.resolve(root.colorChoice, root.zoneTextColor)
+        }
         Text {
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
             text: root.valueText
-            // Secondary while a live (unsettled) weight is showing, accent flash
-            // at capture, else the zone's configured color.
-            color: root.captureFlash ? Theme.primaryColor
-                 : root.isLive ? Theme.textSecondaryColor
-                 : root.zoneTextColor
+            // A named color override is static in all states; otherwise secondary
+            // while a live (unsettled) weight is showing, accent flash at capture,
+            // else the zone's configured color.
+            color: WidgetColor.resolve(root.colorChoice,
+                       root.captureFlash ? Theme.primaryColor
+                     : root.isLive ? Theme.textSecondaryColor
+                     : root.zoneTextColor)
             font.pixelSize: Theme.scaled(21)
             font.bold: root.zoneValueBold
         }
