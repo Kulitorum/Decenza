@@ -64,7 +64,7 @@ Item {
                 action: "togglePreset:espresso",
                 longPressAction: "navigate:profiles",
                 doubleclickAction: "navigate:profiles",
-                backgroundColor: Theme.primaryColor
+                backgroundColor: Settings.app.selectedFavoriteProfile === -1 ? Theme.highlightColor : Theme.primaryColor
             }
             case "steam": return {
                 emoji: "qrc:/icons/steam.svg",
