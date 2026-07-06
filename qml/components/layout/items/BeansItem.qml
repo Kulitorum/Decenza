@@ -45,8 +45,17 @@ Item {
         }
     }
 
-    implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
-    implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
+    // Highlight this button while its mode is selected on the home screen (the
+    // centre preset row is expanded), or — in compact mode, where tapping opens
+    // presetPopup instead of setting activePresetFunction — while its popup is open.
+    readonly property bool isActive:
+        (idlePage ? idlePage.activePresetFunction : "") === "beans" || presetPopup.visible
+
+    // Compact (bar) rendering only: full-size placements of this type compile to
+    // CustomItem in LayoutItemDelegate (isCompiled), so this item never loads
+    // non-compact and carries no full-mode rendering.
+    implicitWidth: compactContent.implicitWidth
+    implicitHeight: compactContent.implicitHeight
 
     function togglePresets() {
         if (root.isCompact) {
@@ -91,14 +100,14 @@ Item {
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     colorization: 1.0
-                    colorizationColor: Theme.textColor
+                    colorizationColor: root.isActive ? Theme.accentColor : Theme.textColor
                 }
             }
             Tr {
                 key: "idle.button.beaninfo"
                 fallback: "Beans"
                 font: Theme.bodyFont
-                color: Theme.textColor
+                color: root.isActive ? Theme.accentColor : Theme.textColor
                 Accessible.ignored: true
             }
         }
@@ -108,34 +117,11 @@ Item {
             supportLongPress: true
             supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.beaninfo", "Beans")
+                            + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.beaninfo.hint", "Tap to toggle bag pills. Double-tap or long-press for the bag inventory.")
             onAccessibleClicked: root.togglePresets()
             onAccessibleDoubleClicked: root.goToBeanInfo()
             onAccessibleLongPressed: root.goToBeanInfo()
-        }
-    }
-
-    // --- FULL MODE ---
-    Item {
-        id: fullContent
-        visible: !root.isCompact
-        anchors.fill: parent
-        implicitWidth: Theme.scaled(150)
-        implicitHeight: Theme.scaled(120)
-
-        ActionButton {
-            anchors.fill: parent
-            translationKey: "idle.button.beaninfo"
-            translationFallback: "Beans"
-            iconSource: "qrc:/icons/coffeebeans.svg"
-            iconSize: Theme.scaled(43)
-            backgroundColor: Settings.dye.activeBagId <= 0 ? Theme.highlightColor : Theme.primaryColor
-            supportDoubleClick: true
-            onClicked: root.togglePresets()
-            onPressAndHold: root.goToBeanInfo()
-            onDoubleClicked: root.goToBeanInfo()
-
-            Accessible.description: TranslationManager.translate("idle.accessible.beaninfo.description", "Select the bag of beans for your next shot. Double-tap or long-press for the bag inventory.")
         }
     }
 
