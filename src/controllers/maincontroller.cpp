@@ -2701,16 +2701,20 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
                     transitionReason = QStringLiteral("time");
                 } else {
                     // Exit condition was configured, but the sensor threshold was NOT
-                    // confirmed above and time did not expire — so we cannot attribute the
-                    // exit to a real pressure/flow trigger. Record "time" (the frame advanced
-                    // without a confirmed sensor reason) rather than GUESS a sensor exit that
-                    // consumers trust as ground truth (the skip-first-frame guard and the
-                    // grind detector both suppress/trim on a confirmed pressure/flow reason).
-                    transitionReason = QStringLiteral("time");
+                    // confirmed above and time did not expire — usually a real sensor
+                    // exit whose crossing fell between BLE samples. Record it as an
+                    // UNCONFIRMED sensor exit (hint from exitType): displays render it
+                    // like the sensor exit it probably was, the grind detector's
+                    // limiter-tail trim treats pressure_unconfirmed as limiter
+                    // engagement, but the skip-first-frame guard only trusts confirmed
+                    // "pressure"/"flow"/"weight" — so a genuinely skipped frame (which
+                    // lands in this branch) still flags.
+                    transitionReason = prevFrame.exitType.contains(QStringLiteral("pressure"))
+                        ? QStringLiteral("pressure_unconfirmed") : QStringLiteral("flow_unconfirmed");
                     qDebug() << "MainController: Frame" << prevFrameIndex
                              << "exit reason unconfirmed - exitType:" << prevFrame.exitType
                              << "pressure:" << m_lastPressure << "flow:" << m_lastFlow
-                             << "recorded as time";
+                             << "recorded as" << transitionReason;
                 }
             } else {
                 // No exit condition configured - frame ended by time

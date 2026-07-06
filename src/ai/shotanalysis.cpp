@@ -410,9 +410,16 @@ ShotAnalysis::GrindCheck ShotAnalysis::analyzeFlowVsGoal(
                 }
                 firstFlowModeAtPourStartSeen = true;
             }
+            // Trim on both confirmed "pressure" and "pressure_unconfirmed" — an
+            // unconfirmed pressure exit is usually a real limiter engagement whose
+            // threshold crossing fell between BLE samples, and trimming a
+            // maybe-clean tail is harmless (kMinPostTrimRangeSec guards below)
+            // while including a limiter-suppressed tail biases toward "too fine".
             if (i + 1 < phases.size()
-                && phases[i + 1].transitionReason.compare(
-                       QStringLiteral("pressure"), Qt::CaseInsensitive) == 0) {
+                && (phases[i + 1].transitionReason.compare(
+                        QStringLiteral("pressure"), Qt::CaseInsensitive) == 0
+                    || phases[i + 1].transitionReason.compare(
+                        QStringLiteral("pressure_unconfirmed"), Qt::CaseInsensitive) == 0)) {
                 if ((end - start) - GRIND_LIMITER_TAIL_SKIP_SEC >= kMinPostTrimRangeSec) {
                     end -= GRIND_LIMITER_TAIL_SKIP_SEC;
                 }
@@ -682,13 +689,15 @@ bool ShotAnalysis::detectSkipFirstFrame(const QList<HistoryPhaseMarker>& phases,
         // DE1 preinfusion/fill frames routinely exit early, long before their
         // configured max duration, which is exactly what they are meant to do.
         // The first non-zero frame's marker records why the PRECEDING frame
-        // exited; only a time-based or empty/unknown reason can indicate a
-        // genuinely skipped or too-short first step. (Same transitionReason
-        // signal analyzeFlowVsGoal — called by detectGrindIssue — reads.) These
-        // reasons are only recorded when the sensor exit is CONFIRMED (see
-        // MainController: an unconfirmed exit is recorded as "time", not guessed),
-        // so a match here means a real target-met exit. Old data has an empty
-        // reason and falls through to the duration checks below, unchanged.
+        // exited. (Same transitionReason signal analyzeFlowVsGoal — called by
+        // detectGrindIssue — reads.) Only CONFIRMED reasons suppress here —
+        // MainController records "pressure"/"flow"/"weight" solely when the
+        // sensor exit was verified against the transition sample. The
+        // unconfirmed variants ("pressure_unconfirmed"/"flow_unconfirmed"),
+        // "time", and empty (old data) all fall through to the duration checks
+        // below: a genuinely skipped frame lands in MainController's
+        // unconfirmed branch, so trusting those hints would mask the very bug
+        // this detector exists to catch. Intentionally exact-match.
         if (phase.transitionReason.compare(QStringLiteral("pressure"), Qt::CaseInsensitive) == 0
                 || phase.transitionReason.compare(QStringLiteral("flow"), Qt::CaseInsensitive) == 0
                 || phase.transitionReason.compare(QStringLiteral("weight"), Qt::CaseInsensitive) == 0)

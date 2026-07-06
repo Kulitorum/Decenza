@@ -201,9 +201,20 @@ For each flow-mode phase, builds an inclusive time range:
 
 - Skip the first `GRIND_PUMP_RAMP_SKIP_SEC` (0.5 s) of the first flow-mode
   phase that coincides with `pourStart` — pump-ramp lag, not a grind signal.
-- If the phase exits via `transitionReason == "pressure"`, skip the trailing
-  `GRIND_LIMITER_TAIL_SKIP_SEC` (1.5 s) — the firmware's pressure ceiling has
-  engaged and the controller is no longer tracking flow goal.
+- If the phase exits via `transitionReason == "pressure"` **or**
+  `"pressure_unconfirmed"`, skip the trailing `GRIND_LIMITER_TAIL_SKIP_SEC`
+  (1.5 s) — the firmware's pressure ceiling has engaged and the controller is
+  no longer tracking flow goal. The unconfirmed variant (recorded by
+  `MainController` when the exit was configured but the threshold crossing
+  fell between BLE samples — see §2.3's guard for the full vocabulary) is
+  usually a real limiter engagement, and the safe polarity here is to trim:
+  dropping 1.5 s of maybe-clean data is harmless under the ≥ 1 s guard below,
+  while including a limiter-suppressed tail biases the delta toward "too
+  fine". Note this is the opposite polarity from the skip-first-frame guard,
+  which must NOT trust unconfirmed reasons — the two consumers deliberately
+  read the confirmed/unconfirmed split differently.
+- `"flow_unconfirmed"` does **not** trigger this trim — it exists specifically
+  for pressure-limiter engagement.
 - Both trims are gated on the resulting range remaining ≥ 1 s long. Extreme
   puck-failure shots with sub-second flow-mode phases would otherwise have
   their entire data trimmed away.
@@ -352,11 +363,17 @@ frame exited on its own confirmed exit condition, so it executed as designed and
 was not skipped. DE1 preinfusion/fill frames routinely exit far earlier than
 their configured max duration (that is their purpose), and without this guard the
 duration checks below flag them as "skipped." These reasons are recorded only for
-a *confirmed* sensor exit — `MainController` records an unconfirmed exit as
-`"time"` rather than guessing — so a match here is a genuine target-met exit.
-Only a `"time"` or empty (old-data) reason falls through to the branches. This
-uses the same `transitionReason` signal `analyzeFlowVsGoal` (the grind detector,
-`detectGrindIssue`) already reads.
+a *confirmed* sensor exit. When the exit was configured but the threshold
+crossing fell between BLE samples (and time had not expired), `MainController`
+records `"pressure_unconfirmed"`/`"flow_unconfirmed"` instead — a hint, not
+ground truth. The guard intentionally does **not** match the unconfirmed
+variants: a genuinely skipped frame lands in that same unconfirmed branch, so
+trusting the hint would mask the very bug this detector exists to catch.
+Unconfirmed, `"time"`, and empty (old-data) reasons all fall through to the
+branches. This uses the same `transitionReason` signal `analyzeFlowVsGoal`
+(the grind detector, `detectGrindIssue`) reads — but with the opposite
+polarity for unconfirmed values (see §2.2's limiter-tail trim), which is
+deliberate: each consumer defaults to its own safe side.
 
 **FW-bug branch** — frame 0 was never observed before a non-zero frame:
 returns `phase.time < 2.0`. The 2-second window matches the de1app Tcl

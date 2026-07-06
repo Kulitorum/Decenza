@@ -2010,8 +2010,8 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
                     // Draw label
                     var suffix = '';
                     if (marker.reason === 'weight') suffix = ' [W]';
-                    else if (marker.reason === 'pressure') suffix = ' [P]';
-                    else if (marker.reason === 'flow') suffix = ' [F]';
+                    else if (marker.reason === 'pressure' || marker.reason === 'pressure_unconfirmed') suffix = ' [P]';
+                    else if (marker.reason === 'flow' || marker.reason === 'flow_unconfirmed') suffix = ' [F]';
                     else if (marker.reason === 'time') suffix = ' [T]';
                     var text = marker.label + suffix;
 
@@ -2846,8 +2846,8 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
                         if (isFirst) {
                             var suffix = "";
                             if (mk.reason === "weight") suffix = " [W]";
-                            else if (mk.reason === "pressure") suffix = " [P]";
-                            else if (mk.reason === "flow") suffix = " [F]";
+                            else if (mk.reason === "pressure" || mk.reason === "pressure_unconfirmed") suffix = " [P]";
+                            else if (mk.reason === "flow" || mk.reason === "flow_unconfirmed") suffix = " [F]";
                             else if (mk.reason === "time") suffix = " [T]";
                             ctx.save();
                             ctx.translate(x + 4, top + 10);

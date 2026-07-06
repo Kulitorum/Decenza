@@ -573,7 +573,9 @@ Item {
                     switch (transitionReason) {
                         case "weight": suffix = " [W]"; break
                         case "pressure": suffix = " [P]"; break
+                        case "pressure_unconfirmed": suffix = " [P]"; break
                         case "flow": suffix = " [F]"; break
+                        case "flow_unconfirmed": suffix = " [F]"; break
                         case "time": suffix = " [T]"; break
                     }
                     return markerLabel + suffix

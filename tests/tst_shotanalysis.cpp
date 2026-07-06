@@ -203,6 +203,21 @@ private slots:
             phase(0.0, "Fill", 0),
             phase(0.3, "Pour", 1, false, "time"),
         }, 3, true);
+
+        // Unconfirmed sensor exits do NOT suppress either: a genuinely skipped
+        // frame lands in MainController's unconfirmed branch, so trusting the
+        // hint would mask the very bug this detector exists to catch. Only
+        // exact confirmed "pressure"/"flow"/"weight" suppress.
+        expectSkipDetection({
+            phase(0.0, "Start", 0),
+            phase(0.0, "Fill", 0),
+            phase(0.3, "Pour", 1, false, "pressure_unconfirmed"),
+        }, 3, true);
+        expectSkipDetection({
+            phase(0.0, "Start", 0),
+            phase(0.0, "Fill", 0),
+            phase(0.3, "Pour", 1, false, "flow_unconfirmed"),
+        }, 3, true);
     }
 
     // buildChannelingWindows ---------------------------------------------
@@ -958,6 +973,77 @@ private slots:
         // 5.5-7.0 s. Under "pressure" exit the dip is trimmed and the
         // average is clean; under "time" exit the dip stays in and pulls
         // the average ~0.9 ml/s under goal.
+        QVector<QPointF> flow;
+        QVector<QPointF> flowGoal;
+        for (double t = 0.0; t <= 11.0; t += 0.1) {
+            double f;
+            if (t < 0.5)        f = 4.0 + (7.5 - 4.0) * (t / 0.5);
+            else if (t < 5.5)   f = 7.5;
+            else if (t < 7.0)   f = 3.5;
+            else                f = 4.5;
+            flow.append(QPointF(t, f));
+            flowGoal.append(QPointF(t, 7.5));
+        }
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, /*pourStart=*/0.0, /*pourEnd=*/11.0);
+        QVERIFY(r.hasData);
+        QVERIFY2(r.delta < -ShotAnalysis::FLOW_DEVIATION_THRESHOLD,
+                 qPrintable(QString("expected delta < -%1, got %2")
+                                .arg(ShotAnalysis::FLOW_DEVIATION_THRESHOLD)
+                                .arg(r.delta)));
+        QCOMPARE(ShotAnalysis::detectGrindIssue(flow, flowGoal, phases, 0.0, 11.0),
+                 true);
+    }
+
+    // An UNCONFIRMED pressure exit trims the limiter tail exactly like a
+    // confirmed one — it is usually a real limiter engagement whose threshold
+    // crossing fell between BLE samples, and trimming a maybe-clean tail is
+    // harmless while including a limiter-suppressed tail biases toward
+    // "too fine". Same lever shape as the confirmed-pressure test above.
+    void flowVsGoal_flowModeExitingOnPressureUnconfirmed_trimsLimiterTail()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "Preinfusion", 0, /*isFlowMode=*/true),
+            phase(7.0, "Rise", 1, /*isFlowMode=*/false, /*tr=*/"pressure_unconfirmed"),
+            phase(11.0, "End", -1, /*isFlowMode=*/false),
+        };
+
+        QVector<QPointF> flow;
+        QVector<QPointF> flowGoal;
+        for (double t = 0.0; t <= 11.0; t += 0.1) {
+            double f;
+            if (t < 0.5)        f = 4.0 + (7.5 - 4.0) * (t / 0.5);  // pump ramp 4 → 7.5
+            else if (t < 5.5)   f = 7.5;                             // steady tracking
+            else if (t < 7.0)   f = 6.0;                             // pressure limiter engaging
+            else                f = 4.5;                             // pressure-mode pour (excluded by isFlowMode)
+            flow.append(QPointF(t, f));
+            flowGoal.append(QPointF(t, 7.5));
+        }
+
+        const auto r = ShotAnalysis::analyzeFlowVsGoal(
+            flow, flowGoal, phases, /*pourStart=*/0.0, /*pourEnd=*/11.0);
+        QVERIFY(r.hasData);
+        QVERIFY2(std::abs(r.delta) < ShotAnalysis::FLOW_DEVIATION_THRESHOLD,
+                 qPrintable(QString("expected |delta| < %1, got %2")
+                                .arg(ShotAnalysis::FLOW_DEVIATION_THRESHOLD)
+                                .arg(r.delta)));
+        QCOMPARE(ShotAnalysis::detectGrindIssue(flow, flowGoal, phases, 0.0, 11.0),
+                 false);
+    }
+
+    // "flow_unconfirmed" must NOT trigger the pressure-limiter tail trim —
+    // the trim exists specifically for pressure-limiter engagement. Same
+    // sustained-dip shape as the "time" test: the dip stays in the average
+    // and the badge fires.
+    void flowVsGoal_flowModeExitingOnFlowUnconfirmed_keepsTrailingWindow()
+    {
+        QList<HistoryPhaseMarker> phases{
+            phase(0.0, "Preinfusion", 0, /*isFlowMode=*/true),
+            phase(7.0, "Rise", 1, /*isFlowMode=*/false, /*tr=*/"flow_unconfirmed"),
+            phase(11.0, "End", -1, /*isFlowMode=*/false),
+        };
+
         QVector<QPointF> flow;
         QVector<QPointF> flowGoal;
         for (double t = 0.0; t <= 11.0; t += 0.1) {

@@ -33,7 +33,11 @@ struct HistoryPhaseMarker {
     QString label;
     int frameNumber = 0;
     bool isFlowMode = false;
-    QString transitionReason;  // "weight", "pressure", "flow", "time", or "" (unknown/old data)
+    // Why the PRECEDING frame exited. Confirmed ground truth: "weight",
+    // "pressure", "flow". Likely-but-unconfirmed sensor exit (threshold not
+    // seen in the BLE sample at transition): "pressure_unconfirmed",
+    // "flow_unconfirmed". Time-based: "time". "" = unknown/old data.
+    QString transitionReason;
 };
 
 // Full shot record for detail view / comparison
