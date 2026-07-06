@@ -16,7 +16,7 @@ The default item list SHALL be `["doseYield", "profile", "temperature", "roaster
 
 **Web editor**: the web layout editor SHALL present the same item list with add, remove, and reorder controls plus the two toggles, reading and writing the same keys.
 
-**Migration**: when an instance has no `shotPlanItems` property, both editors and the widget SHALL derive the list from the legacy booleans in canonical order — `shotPlanShowDoseYield` → `doseYield`; `shotPlanShowProfile` → `profile` **and** `temperature`; `shotPlanShowRoaster` → `roaster`; `shotPlanShowCoffee` → `coffee`; `shotPlanShowGrind` → `grind`; `shotPlanShowRoastDate` (default OFF) → `roastDate` — honoring each legacy default. The legacy display booleans SHALL be read but never written by the new editors. Both editors and the C++ configurable-type gate SHALL accept the same keys so a configuration set in one editor round-trips through the other.
+**Migration**: derivation from legacy booleans SHALL apply only when the `shotPlanItems` property is absent — a stored empty list is a valid "show nothing" configuration and SHALL be honored, not treated as unset. When an instance has no `shotPlanItems` property, both editors and the widget SHALL derive the list from the legacy booleans in canonical order — `shotPlanShowDoseYield` → `doseYield`; `shotPlanShowProfile` → `profile` **and** `temperature`; `shotPlanShowRoaster` → `roaster`; `shotPlanShowCoffee` → `coffee`; `shotPlanShowGrind` → `grind`; `shotPlanShowRoastDate` (default OFF) → `roastDate` — honoring each legacy default. The legacy display booleans SHALL be read but never written by the new editors. Both editors and the C++ configurable-type gate SHALL accept the same keys so a configuration set in one editor round-trips through the other.
 
 #### Scenario: Defaults reproduce the previous rendering
 
@@ -45,6 +45,11 @@ The default item list SHALL be `["doseYield", "profile", "temperature", "roaster
 - **THEN** Coffee appears in the Available row and the widget no longer shows the coffee name after Save
 - **WHEN** the user later activates Coffee in the Available row
 - **THEN** it is appended to the Shown row
+
+#### Scenario: An emptied item list stays empty
+
+- **WHEN** a user removes every chip from the Shown row and saves
+- **THEN** the instance stores an empty `shotPlanItems` list, the widget renders nothing, and reopening either editor shows an empty Shown row — the legacy booleans do not resurrect the default items
 
 #### Scenario: Cancel discards chip edits
 

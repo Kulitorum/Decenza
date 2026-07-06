@@ -41,3 +41,9 @@
 - [ ] 6.3 Legacy-layout check: a layout saved with old `shotPlanShow*` keys (incl. Roaster/Grind off) renders and opens in both editors correctly with no writes until Save
 - [x] 6.4 Run the test suite via Qt Creator MCP (build succeeded; 2561 passed, 0 failed, 0 warning-emitting); the plain-text builder lives in QML and has no existing unit coverage — nothing to adjust
 - [x] 6.5 Checked `docs/CLAUDE_MD/*` and the wiki Manual: no existing references to the shot-plan option keys or a Shot Plan page — nothing to update
+
+## 7. Review fixes (post-PR automated review)
+
+- [x] 7.1 Empty item list is now persistable: both derivation implementations (`ShotPlanConfig.js`, web `spItemsFromProps`) gate on array PRESENCE, not non-emptiness — saving "show nothing" no longer silently resurrects the defaults from legacy booleans
+- [x] 7.2 Shown chip container a11y role corrected to StaticText (its actions are the child move/remove buttons; it had Button role with no press action)
+- [x] 7.3 Comment accuracy pass: doseYield consumed-vs-trailing nuance and profile-anchor fallback in the ShotPlanText header + editor toggle comment; `_planDragging` purpose; "six legacy item booleans" phrasing vs the live steam key; sync-note implementation count; provenance and temporal wording in ShotPlanConfig.js

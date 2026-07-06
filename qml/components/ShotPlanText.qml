@@ -5,9 +5,11 @@ import "../"
 // The brew summary for the home screen. Content is driven by an ordered item
 // list (`itemOrder`) and a `sentence` toggle:
 //  - sentence ON: "Brew 36.0g of Espresso, using <profile> at 92°C" — the
-//    scaffold consumes the doseYield/profile/temperature items (wherever they
-//    sit in the order; sentence word order belongs to the translated template),
-//    and the remaining items trail after it in list order.
+//    scaffold consumes doseYield's yield, profile, and temperature (wherever
+//    they sit in the order; sentence word order belongs to the translated
+//    template), and everything else — including doseYield's dose-in fragment —
+//    trails after it in list order. Without the profile item (or a profile
+//    name) the sentence has no anchor and rendering falls back to fragments.
 //  - sentence OFF: every item renders as a separator-joined fragment, in list
 //    order.
 // Tapping it opens Brew Settings.

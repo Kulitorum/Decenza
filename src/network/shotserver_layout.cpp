@@ -3101,8 +3101,9 @@ QString ShotServer::generateLayoutPage() const
             apiPost("/api/layout/item", {itemId: id, key: "shotShowLabels", value: showLabels}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotShowPhaseLabels", value: showPhaseLabels}, function() {});
         } else if (ssEditingType === "shotPlan") {
-            // New keys only — the legacy shotPlanShow* display booleans are
-            // read-time migration input and are never written back.
+            // New keys only — the six legacy shotPlanShow* item booleans are
+            // read-time migration input and are never written back
+            // (shotPlanShowSteamPlan is a live key, not one of them).
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanItems", value: spItems}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanSentence", value: document.getElementById("spSentence").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowSteamPlan", value: document.getElementById("spShowSteamPlan").checked}, function() {});
@@ -3140,11 +3141,13 @@ QString ShotServer::generateLayoutPage() const
     };
     var spItems = [];
 
-    // Prefer the stored shotPlanItems array; otherwise derive from the legacy
-    // shotPlanShow* booleans in canonical order (the legacy compound Profile &
-    // temperature boolean expands to the independent profile + temperature items).
+    // Prefer the stored shotPlanItems array — presence wins, an empty array is
+    // a valid "show nothing" config and must not fall through to legacy
+    // derivation (which would resurrect the defaults). Otherwise derive from
+    // the legacy shotPlanShow* booleans in canonical order (the legacy compound
+    // Profile & temperature boolean expands to profile + temperature).
     function spItemsFromProps(props) {
-        if (Array.isArray(props.shotPlanItems) && props.shotPlanItems.length > 0)
+        if (Array.isArray(props.shotPlanItems))
             return props.shotPlanItems.map(String);
         var order = [];
         if (props.shotPlanShowDoseYield !== false) order.push("doseYield");

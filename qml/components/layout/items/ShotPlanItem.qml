@@ -18,7 +18,7 @@ Item {
 
     // Ordered display items. New configs store `shotPlanItems` (a JSON array of
     // item keys — order is display order); configs saved before the chip editor
-    // only have the legacy shotPlanShow* booleans. The resolution rule (incl.
+    // have at most the legacy shotPlanShow* booleans. The resolution rule (incl.
     // the legacy compound Profile & temperature boolean expanding to the two
     // independent items) is shared with the editor via ShotPlanConfig.js.
     readonly property var itemOrder: ShotPlanConfig.itemsFor(modelData)

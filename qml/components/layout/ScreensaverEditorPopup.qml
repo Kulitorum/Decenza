@@ -27,7 +27,9 @@ Dialog {
     property bool shotPlanShowSteamPlan: true
     // Screen-reader-only reorder fallback (drag has no assistive-tech equivalent).
     readonly property bool _a11yEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
-    // True while a chip is being dragged (drives chip styling).
+    // True while a chip drag is in progress — gates the reorder commit on
+    // release and the DelegateModel rollback on cancel (styling binds to the
+    // MouseArea's drag.active directly).
     property bool _planDragging: false
 
     readonly property var _planAvailable: {
@@ -131,8 +133,9 @@ Dialog {
             Settings.network.setItemProperty(itemId, "shotShowPhaseLabels", shotShowPhaseLabels)
         }
         if (itemType === "shotPlan") {
-            // New keys only — the legacy shotPlanShow* display booleans are
-            // read-time migration input and are never written back.
+            // New keys only — the six legacy shotPlanShow* item booleans are
+            // read-time migration input and are never written back
+            // (shotPlanShowSteamPlan is a live key, not one of them).
             Settings.network.setItemProperty(itemId, "shotPlanItems", shotPlanItems)
             Settings.network.setItemProperty(itemId, "shotPlanSentence", shotPlanSentence)
             Settings.network.setItemProperty(itemId, "shotPlanShowSteamPlan", shotPlanShowSteamPlan)
@@ -443,7 +446,10 @@ Dialog {
                                     ParentChange { target: planChipBody; parent: planDragLayer }
                                 }
 
-                                Accessible.role: Accessible.Button
+                                // The chip container itself has no tap action — its
+                                // actions are the child buttons (a11y move + remove) —
+                                // so it's a labeled static element, not a Button.
+                                Accessible.role: Accessible.StaticText
                                 Accessible.name: TranslationManager.translate("shotPlanEditor.shownChip", "%1, shown, position %2 of %3")
                                     .arg(popup.planItemLabel(planChip.itemKey))
                                     .arg(planChip.liveIndex + 1)
@@ -623,7 +629,9 @@ Dialog {
             StyledSwitch {
                 // ON: the "Brew … of Espresso, using … at …" scaffold (its own word
                 // order) with the remaining items trailing in chip order. OFF: all
-                // items as separator-joined fragments in chip order.
+                // items as separator-joined fragments in chip order. With the
+                // Profile chip removed the sentence has no anchor, so ON renders
+                // fragments too — the preview makes that visible.
                 text: TranslationManager.translate("shotPlanEditor.sentenceStyle", "Sentence style")
                 checked: popup.shotPlanSentence
                 onToggled: popup.shotPlanSentence = checked
