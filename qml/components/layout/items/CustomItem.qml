@@ -55,12 +55,10 @@ Item {
     // Content color for text and icon tinting on the button background
     readonly property color _contentColor: Theme.primaryContrastColor
 
-    // Active-mode highlight: a togglePreset button (Espresso/Steam/Flush/Hot Water
-    // in the centre zone) shows a darker ring while its preset row is expanded, so you
-    // can see which mode is selected. CustomItem is the full/centre-mode renderer for
-    // these buttons. isActive didn't update reactively when read directly off
-    // idlePage.activePresetFunction, so we mirror it into a local property via the
-    // Connections below and compare against the mode this button toggles.
+    // Active-mode highlight: any togglePreset:<mode> button (the compiled action
+    // buttons — Espresso/Steam/Hot Water/Flush/Beans/Equipment — or a custom widget)
+    // shows a contrasting ring while its preset row is expanded, so you can see which
+    // mode is selected. CustomItem is the renderer for these compiled buttons.
     readonly property string _toggleMode:
         action.indexOf("togglePreset:") === 0 ? action.substring("togglePreset:".length) : ""
     property var idlePage: {
@@ -71,14 +69,12 @@ Item {
         }
         return null
     }
-    property string _activeFn: idlePage ? idlePage.activePresetFunction : ""
-    Connections {
-        target: root.idlePage
-        function onActivePresetFunctionChanged() {
-            root._activeFn = root.idlePage ? root.idlePage.activePresetFunction : ""
-        }
-    }
-    readonly property bool isActive: _toggleMode !== "" && _activeFn === _toggleMode
+    readonly property bool isActive: _toggleMode !== ""
+        && idlePage !== null && idlePage.activePresetFunction === _toggleMode
+    // Ring must contrast with both the button fill and the page background: a darker
+    // shade vanishes against a dark background, a lighter one against a light background.
+    readonly property color _activeRingColor: Settings.theme.isDarkMode
+        ? Qt.lighter(_effectiveBackground, 1.6) : Qt.darker(_effectiveBackground, 1.5)
 
     readonly property int qtAlignment: {
         switch (textAlign) {
@@ -269,12 +265,7 @@ Item {
         var target = parts.slice(1).join(":")
 
         if (category === "togglePreset") {
-            // Walk parent chain to find IdlePage (same pattern as EspressoItem)
-            var p = root.parent
-            while (p) {
-                if (p.objectName === "idlePage") break
-                p = p.parent
-            }
+            var p = root.idlePage
             if (p && typeof p.activePresetFunction !== "undefined") {
                 p.activePresetFunction = (p.activePresetFunction === target) ? "" : target
             } else {
@@ -430,14 +421,11 @@ Item {
             anchors.fill: parent
             anchors.topMargin: Theme.spacingSmall
             anchors.bottomMargin: Theme.spacingSmall
-            color: {
-                var base = root.bgColor || "#555555"
-                return compactTap.isPressed ? Qt.darker(base, 1.2) : base
-            }
+            color: compactTap.isPressed ? Qt.darker(root._effectiveBackground, 1.2) : root._effectiveBackground
             radius: Theme.cardRadius
             opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
             border.width: root.isActive ? Theme.scaled(3) : 0
-            border.color: Qt.darker(root._effectiveBackground, 1.5)
+            border.color: root._activeRingColor
         }
 
         RowLayout {
@@ -495,7 +483,7 @@ Item {
             radius: Theme.cardRadius
             opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
             border.width: root.isActive ? Theme.scaled(3) : 0
-            border.color: Qt.darker(root._effectiveBackground, 1.5)
+            border.color: root._activeRingColor
         }
 
         // Layout with emoji: icon above text (like ActionButton)

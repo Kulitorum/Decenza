@@ -23,18 +23,11 @@ Item {
         return null
     }
 
-    // Highlight this button while its mode is the one currently selected on the home
-    // screen (its presets are expanded), so you can see which mode is selected. isActive
-    // didn't update reactively when read directly off idlePage.activePresetFunction, so we
-    // mirror it into a local property via the Connections below and drive isActive from that.
-    property string _activeFn: root.idlePage ? root.idlePage.activePresetFunction : ""
-    Connections {
-        target: root.idlePage
-        function onActivePresetFunctionChanged() {
-            root._activeFn = root.idlePage ? root.idlePage.activePresetFunction : ""
-        }
-    }
-    readonly property bool isActive: _activeFn === "hotwater" || presetPopup.visible
+    // Highlight this button while its mode is selected on the home screen (the
+    // centre preset row is expanded), or — in compact mode, where tapping opens
+    // presetPopup instead of setting activePresetFunction — while its popup is open.
+    readonly property bool isActive:
+        (idlePage ? idlePage.activePresetFunction : "") === "hotwater" || presetPopup.visible
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight

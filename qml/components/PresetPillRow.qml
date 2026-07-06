@@ -270,15 +270,16 @@ FocusScope {
 
                         Behavior on color { ColorAnimation { duration: 150 } }
 
-                        // Selected indicator: a darker ring (Qt.darker of the pill colour) so
-                        // the active preset reads clearly as selected — matching the active
-                        // action-button highlight — not just a fill that can blend into a light theme.
+                        // Selected indicator: a contrasting ring derived from the pill's own
+                        // colour — lighter in dark mode, darker in light mode — so the active
+                        // preset reads clearly as selected against both the fill and the page
+                        // background, matching the active action-button highlight.
                         Rectangle {
                             anchors.fill: parent
                             visible: pill.isSelected && !pill.isDisabled
                             color: "transparent"
                             border.width: Theme.scaled(3)
-                            border.color: Qt.darker(Theme.primaryColor, 1.5)
+                            border.color: Settings.theme.isDarkMode ? Qt.lighter(pill.color, 1.6) : Qt.darker(pill.color, 1.5)
                             radius: parent.radius
                         }
 

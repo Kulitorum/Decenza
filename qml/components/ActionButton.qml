@@ -41,7 +41,7 @@ Button {
     focusPolicy: Qt.StrongFocus
     activeFocusOnTab: true
 
-    // Accessibility on the Button itself (not delegated to a child).
+    // Accessibility on the Button itself (not delegated to a child)
     Accessible.role: Accessible.Button
     Accessible.name: control.text + ". " + control._computedAccessibleDescription
     Accessible.focusable: true

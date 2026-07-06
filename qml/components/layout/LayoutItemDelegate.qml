@@ -252,10 +252,9 @@ Item {
         }
 
         onStatusChanged: {
-            if (status === Loader.Error) {
-            } else if (status === Loader.Null) {
-            } else if (status === Loader.Loading) {
-            }
+            if (status === Loader.Error)
+                console.warn("LayoutItemDelegate: failed to load widget type '" + root.itemType
+                             + "' (id '" + root.itemId + "') from " + source)
         }
     }
 }
