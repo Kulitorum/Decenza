@@ -13,9 +13,9 @@
 ## 3. Verification
 
 - [x] 3.1 Build via Qt Creator and run the full test suite; check whether any test asserts the removed errorOccurred emission (tests around BleTransport/BLE retry) and update expectations if so.
-- [ ] 3.2 Ask Jeff to run the app for a normal session (no popup regressions; DE1 connect/disconnect UX unchanged).
+- [x] 3.2 Ask Jeff to run the app for a normal session (no popup regressions; DE1 connect/disconnect UX unchanged).
 
 ## 4. Wrap-up
 
-- [ ] 4.1 Comment on issue #1423 with the diagnosis (overnight silent link drop → keepalive write retry exhaustion → queued stale modal; self-heals in ~25 s) once the fix is merged or in the PR description.
-- [ ] 4.2 Archive this OpenSpec change on the feature branch before merge (`/opsx:archive`), PR linked to issue #1423.
+- [x] 4.1 Comment on issue #1423 with the diagnosis (overnight silent link drop → keepalive write retry exhaustion → queued stale modal; self-heals in ~25 s) once the fix is merged or in the PR description.
+- [x] 4.2 Archive this OpenSpec change on the feature branch before merge (`/opsx:archive`), PR linked to issue #1423.
