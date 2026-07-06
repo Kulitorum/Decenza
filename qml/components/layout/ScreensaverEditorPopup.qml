@@ -688,7 +688,9 @@ Dialog {
                     itemOrder: popup.shotPlanItems
                     sentence: popup.shotPlanSentence
                     stacked: popup.shotPlanStacked
-                    maxLines: popup.shotPlanStacked ? 3 : 2
+                    // Same sentence gating as ShotPlanItem: no 3-line budget
+                    // for fragment mode with a stale stacked flag.
+                    maxLines: popup.shotPlanStacked && popup.shotPlanSentence ? 3 : 2
                     Accessible.ignored: true
                 }
             }

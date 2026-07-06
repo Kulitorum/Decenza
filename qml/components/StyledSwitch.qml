@@ -11,8 +11,9 @@ Switch {
     implicitWidth: Theme.scaled(48)
     implicitHeight: Theme.scaled(28)
 
-    // A disabled switch must LOOK disabled (the ActionButton convention) —
-    // without this an `enabled:` gate is functionally dead but visually live.
+    // A disabled switch must LOOK disabled (same principle as ActionButton's
+    // disabled dimming, though that one dims per-part) — without this an
+    // `enabled:` gate is functionally dead but visually live.
     opacity: enabled ? 1.0 : 0.4
 
     indicator: Rectangle {

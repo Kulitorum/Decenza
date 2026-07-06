@@ -119,9 +119,12 @@ Item {
             itemOrder: root.itemOrder
             sentence: root.sentence
             stacked: root.stacked
-            // Stacked already spends a line on the detail tail; give the
-            // sentence + wrapped tail room before eliding.
-            maxLines: root.stacked ? 3 : 2
+            // Stacked spends a line on the detail tail — give the sentence +
+            // wrapped tail room before eliding. Gated on sentence so a stale
+            // stacked flag (saved on, Sentence later turned off) doesn't widen
+            // fragment mode's budget. (The profile-anchor fragment fallback
+            // still gets the extra line — harmless, just a wider wrap budget.)
+            maxLines: root.stacked && root.sentence ? 3 : 2
             onClicked: root.openBrewSettings()
         }
         SteamPlanText {
