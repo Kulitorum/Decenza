@@ -23,8 +23,17 @@ Item {
         return null
     }
 
-    implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
-    implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
+    // Highlight this button while its mode is selected on the home screen (the
+    // centre preset row is expanded), or — in compact mode, where tapping opens
+    // presetPopup instead of setting activePresetFunction — while its popup is open.
+    readonly property bool isActive:
+        (idlePage ? idlePage.activePresetFunction : "") === "steam" || presetPopup.visible
+
+    // Compact (bar) rendering only: full-size placements of this type compile to
+    // CustomItem in LayoutItemDelegate (isCompiled), so this item never loads
+    // non-compact and carries no full-mode rendering.
+    implicitWidth: compactContent.implicitWidth
+    implicitHeight: compactContent.implicitHeight
 
     function togglePresets() {
         if (root.isCompact) {
@@ -64,14 +73,15 @@ Item {
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     colorization: 1.0
-                    colorizationColor: Theme.textColor
+                    colorizationColor: root.isActive ? Theme.accentColor : Theme.textColor
                 }
             }
             Tr {
                 key: "idle.button.steam"
                 fallback: "Steam"
                 font: Theme.bodyFont
-                color: DE1Device.guiEnabled ? Theme.textColor : Theme.textSecondaryColor
+                color: !DE1Device.guiEnabled ? Theme.textSecondaryColor
+                       : (root.isActive ? Theme.accentColor : Theme.textColor)
                 Accessible.ignored: true
             }
         }
@@ -82,33 +92,11 @@ Item {
             supportLongPress: true
             supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.steam", "Steam")
+                            + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.steam.hint", "Tap to toggle presets. Double-tap or long-press to configure steam.")
             onAccessibleClicked: root.togglePresets()
             onAccessibleDoubleClicked: root.goToSteam()
             onAccessibleLongPressed: root.goToSteam()
-        }
-    }
-
-    // --- FULL MODE ---
-    Item {
-        id: fullContent
-        visible: !root.isCompact
-        anchors.fill: parent
-        implicitWidth: Theme.scaled(150)
-        implicitHeight: Theme.scaled(120)
-
-        ActionButton {
-            anchors.fill: parent
-            translationKey: "idle.button.steam"
-            translationFallback: "Steam"
-            iconSource: "qrc:/icons/steam.svg"
-            enabled: DE1Device.guiEnabled
-            supportDoubleClick: true
-            onClicked: root.togglePresets()
-            onPressAndHold: root.goToSteam()
-            onDoubleClicked: root.goToSteam()
-
-            Accessible.description: TranslationManager.translate("idle.accessible.steam.description", "Start steaming milk. Double-tap or long-press to configure.")
         }
     }
 

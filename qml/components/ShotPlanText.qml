@@ -206,13 +206,24 @@ Item {
         : (_isCleaning ? Theme.errorColor
                        : (_tempOverride ? Theme.highlightColor : Theme.textColor))
 
-    // Natural size = icon + spacing + the text's UNWRAPPED width. Must be computed
-    // from planText.implicitWidth (width-independent), not row.implicitWidth — a Row
-    // positioner reports children's ACTUAL widths, and planText.width is bound to
-    // root.width, which would collapse the binding chain to a zero-width fixed point.
+    // Natural size = icon + spacing + the text's UNWRAPPED width. Measured on a
+    // hidden, width-unconstrained twin (textMeasure): a wrapping/eliding StyledText
+    // recomputes its own implicitWidth whenever its width is set, so any binding of
+    // planText.width to planText.implicitWidth is a self-referential loop ("Binding
+    // loop detected for property width"). The measurer has no width, wrap or elide,
+    // so its implicitWidth is layout-independent and the chain stays acyclic.
     // Height follows the text's actual (possibly wrapped) height.
-    implicitWidth: planIcon.width + row.spacing + planText.implicitWidth
+    implicitWidth: planIcon.width + row.spacing + textMeasure.implicitWidth
     implicitHeight: Math.max(planIcon.height, planText.height)
+
+    Text {
+        id: textMeasure
+        visible: false
+        text: root._rich
+        textFormat: Text.StyledText
+        font: Theme.bodyFont
+        Accessible.ignored: true
+    }
 
     Row {
         id: row
@@ -233,8 +244,9 @@ Item {
             id: planText
             anchors.verticalCenter: parent.verticalCenter
             // Never wider than the granted width leaves room for; never clipped —
-            // wrap up to maxLines, then elide.
-            width: Math.max(0, Math.min(implicitWidth,
+            // wrap up to maxLines, then elide. Capped against the measurer's
+            // natural width, never this element's own implicitWidth (loop).
+            width: Math.max(0, Math.min(textMeasure.implicitWidth,
                 root.width - planIcon.width - row.spacing))
             text: root._rich
             textFormat: Text.StyledText

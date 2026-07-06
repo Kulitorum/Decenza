@@ -51,8 +51,16 @@ Item {
         }
     }
 
-    implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
-    implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
+    // Highlight this button while its mode is selected on the home screen (the
+    // centre preset row is expanded), or — in compact mode, where tapping opens
+    // presetPopup instead of setting activePresetFunction — while its popup is open.
+    readonly property bool isActive:
+        (idlePage ? idlePage.activePresetFunction : "") === "equipment" || presetPopup.visible
+
+    // Compact (bar) rendering only — see the header comment; the full-size type
+    // compiles to CustomItem in LayoutItemDelegate (isCompiled).
+    implicitWidth: compactContent.implicitWidth
+    implicitHeight: compactContent.implicitHeight
 
     function togglePresets() {
         if (root.inventoryEquipment.length === 0) {
@@ -92,14 +100,14 @@ Item {
                 layer.smooth: true
                 layer.effect: MultiEffect {
                     colorization: 1.0
-                    colorizationColor: Theme.textColor
+                    colorizationColor: root.isActive ? Theme.accentColor : Theme.textColor
                 }
             }
             Tr {
                 key: "idle.button.equipment"
                 fallback: "Equipment"
                 font: Theme.bodyFont
-                color: Theme.textColor
+                color: root.isActive ? Theme.accentColor : Theme.textColor
                 Accessible.ignored: true
             }
         }
@@ -109,34 +117,11 @@ Item {
             supportLongPress: true
             supportDoubleClick: true
             accessibleName: TranslationManager.translate("idle.button.equipment", "Equipment")
+                            + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.equipment.hint", "Tap to switch equipment. Double-tap or long-press for the equipment inventory.")
             onAccessibleClicked: root.togglePresets()
             onAccessibleDoubleClicked: root.goToEquipment()
             onAccessibleLongPressed: root.goToEquipment()
-        }
-    }
-
-    // --- FULL MODE ---
-    Item {
-        id: fullContent
-        visible: !root.isCompact
-        anchors.fill: parent
-        implicitWidth: Theme.scaled(150)
-        implicitHeight: Theme.scaled(120)
-
-        ActionButton {
-            anchors.fill: parent
-            translationKey: "idle.button.equipment"
-            translationFallback: "Equipment"
-            iconSource: "qrc:/icons/grind.svg"
-            iconSize: Theme.scaled(43)
-            backgroundColor: Theme.primaryColor
-            supportDoubleClick: true
-            onClicked: root.togglePresets()
-            onPressAndHold: root.goToEquipment()
-            onDoubleClicked: root.goToEquipment()
-
-            Accessible.description: TranslationManager.translate("idle.accessible.equipment.description", "Switch the equipment for your next shot. Double-tap or long-press for the equipment inventory.")
         }
     }
 

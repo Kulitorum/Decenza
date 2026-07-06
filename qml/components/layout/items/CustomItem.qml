@@ -38,11 +38,11 @@ Item {
         return ""
     }
 
-    readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? "#555555" : Theme.surfaceColor)
+    readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? Theme.primaryColor : Theme.surfaceColor)
 
-    // A brew-settings widget highlights (yellow, like the espresso button
-    // when no favorite is selected) whenever a brew override is in effect —
-    // i.e. temperature or yield differs from the active profile's default.
+    // A brew-settings widget highlights (Theme.highlightColor) whenever a brew
+    // override is in effect — i.e. temperature or target yield differs from the
+    // active profile's default.
     readonly property bool _isBrewSettingsWidget: action === "brewSettings"
         || longPressAction === "brewSettings" || doubleclickAction === "brewSettings"
     readonly property bool _brewOverrideActive: {
@@ -54,6 +54,36 @@ Item {
         (_isBrewSettingsWidget && _brewOverrideActive) ? Theme.highlightColor : _parsedBgColor
     // Content color for text and icon tinting on the button background
     readonly property color _contentColor: Theme.primaryContrastColor
+
+    // Active-mode highlight: a togglePreset:<mode> button shows a contrasting ring
+    // while its preset row is expanded, so you can see which mode is selected. In
+    // practice these are the compiled action buttons (Espresso/Steam/Hot Water/
+    // Flush/Beans/Equipment) — neither the in-app nor the web widget editor exposes
+    // togglePreset for hand-made custom widgets, though a raw action string in a
+    // layout config is honored the same way.
+    readonly property string _toggleMode:
+        action.indexOf("togglePreset:") === 0 ? action.substring("togglePreset:".length) : ""
+    property var idlePage: {
+        var p = root.parent
+        while (p) {
+            if (p.objectName === "idlePage") return p
+            p = p.parent
+        }
+        // Hosts outside IdlePage (the persistent status bar lives beside the page
+        // stack in main.qml): fall back to the stack's current page. togglePreset
+        // and the active ring then work exactly while the home screen is showing —
+        // the only time the preset row exists — and stay inert elsewhere.
+        if (typeof pageStack !== "undefined" && pageStack.currentItem
+                && pageStack.currentItem.objectName === "idlePage")
+            return pageStack.currentItem
+        return null
+    }
+    readonly property bool isActive: _toggleMode !== ""
+        && idlePage !== null && idlePage.activePresetFunction === _toggleMode
+    // Ring must contrast with both the button fill and the page background: a darker
+    // shade vanishes against a dark background, a lighter one against a light background.
+    readonly property color _activeRingColor: Settings.theme.isDarkMode
+        ? Qt.lighter(_effectiveBackground, 1.6) : Qt.darker(_effectiveBackground, 1.5)
 
     readonly property int qtAlignment: {
         switch (textAlign) {
@@ -239,19 +269,19 @@ Item {
     function executeActionString(actionStr) {
         if (!actionStr) return
         var parts = actionStr.split(":")
-        if (parts.length < 2) return
+        if (parts.length < 2) {
+            console.warn("CustomItem: malformed action '" + actionStr + "' (expected 'category:target')")
+            return
+        }
         var category = parts[0]
         var target = parts.slice(1).join(":")
 
         if (category === "togglePreset") {
-            // Walk parent chain to find IdlePage (same pattern as EspressoItem)
-            var p = root.parent
-            while (p) {
-                if (p.objectName === "idlePage") break
-                p = p.parent
-            }
+            var p = root.idlePage
             if (p && typeof p.activePresetFunction !== "undefined") {
                 p.activePresetFunction = (p.activePresetFunction === target) ? "" : target
+            } else {
+                console.warn("CustomItem: togglePreset couldn't find IdlePage ancestor; preset '" + target + "' not toggled")
             }
         } else if (category === "navigate") {
             var pageMap = {
@@ -288,6 +318,8 @@ Item {
                     pageStack.replace(null, Qt.resolvedUrl("../../../pages/" + page))
                 else
                     pageStack.push(Qt.resolvedUrl("../../../pages/" + page))
+            } else if (!page) {
+                console.warn("CustomItem: unknown navigate target '" + target + "'")
             }
         } else if (category === "command") {
             // The hardware Group Head Controller (GHC), when present and active, takes
@@ -364,6 +396,8 @@ Item {
                         }
                         MainController.shotHistory.shotReady.connect(handler)
                         MainController.shotHistory.requestShot(lastId)
+                    } else {
+                        console.warn("CustomItem: uploadVisualizer — no saved shot this session, nothing to upload")
                     }
                     break
                 case "disconnectDE1":
@@ -384,9 +418,15 @@ Item {
                         var profileName = target.substring("loadProfile:".length)
                         if (profileName)
                             ProfileManager.loadProfile(profileName)
+                        else
+                            console.warn("CustomItem: loadProfile command with empty profile name")
+                    } else {
+                        console.warn("CustomItem: unknown command '" + target + "'")
                     }
                     break
             }
+        } else {
+            console.warn("CustomItem: unknown action category '" + category + "' in '" + actionStr + "'")
         }
     }
 
@@ -403,12 +443,11 @@ Item {
             anchors.fill: parent
             anchors.topMargin: Theme.spacingSmall
             anchors.bottomMargin: Theme.spacingSmall
-            color: {
-                var base = root.bgColor || "#555555"
-                return compactTap.isPressed ? Qt.darker(base, 1.2) : base
-            }
+            color: compactTap.isPressed ? Qt.darker(root._effectiveBackground, 1.2) : root._effectiveBackground
             radius: Theme.cardRadius
             opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
+            border.width: root.isActive ? Theme.scaled(3) : 0
+            border.color: root._activeRingColor
         }
 
         RowLayout {
@@ -441,7 +480,7 @@ Item {
         AccessibleTapHandler {
             id: compactTap
             anchors.fill: parent
-            accessibleName: Theme.toAccessibleText(root.resolvedText)
+            accessibleName: Theme.toAccessibleText(root.resolvedText) + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: root._accessibleHint
             supportLongPress: root.longPressAction !== ""
             supportDoubleClick: root.doubleclickAction !== ""
@@ -465,6 +504,8 @@ Item {
             color: fullTap.isPressed ? Qt.darker(root._effectiveBackground, 1.2) : root._effectiveBackground
             radius: Theme.cardRadius
             opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
+            border.width: root.isActive ? Theme.scaled(3) : 0
+            border.color: root._activeRingColor
         }
 
         // Layout with emoji: icon above text (like ActionButton)
@@ -520,7 +561,7 @@ Item {
         AccessibleTapHandler {
             id: fullTap
             anchors.fill: parent
-            accessibleName: Theme.toAccessibleText(root.resolvedText)
+            accessibleName: Theme.toAccessibleText(root.resolvedText) + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: root._accessibleHint
             supportLongPress: root.longPressAction !== ""
             supportDoubleClick: root.doubleclickAction !== ""
