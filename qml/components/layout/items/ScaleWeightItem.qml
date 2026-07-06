@@ -12,8 +12,15 @@ Item {
 
     // Per-instance data mode (composable-brew-bar): "" / "gross" (raw weight,
     // default), "netBeans" (minus dose-cup tare), "netMilk" (minus pitcher
-    // weight), "contextAware" (net milk while steaming, else net beans).
+    // weight), "contextAware" (net milk while steaming, else net beans),
+    // "expectedYield" (the active stop-at-weight target, ProfileManager.targetWeight:
+    // the brew-yield override when set — dose × ratio in brew-by-ratio mode — else
+    // the profile's fixed target).
     readonly property string dataMode: (modelData && modelData.dataMode) ? modelData.dataMode : ""
+
+    // expectedYield is computed, not measured: it renders without a scale, never
+    // shows the scale warning, and never gets the flow-scale "~" suffix.
+    readonly property bool isComputedMode: dataMode === "expectedYield"
 
     // Per-instance display mode (composable-status-bar): "text" (default, a
     // connected-dot + value) or "icon" (a scale icon ahead of the value).
@@ -41,6 +48,8 @@ Item {
             var steaming = MachineState.phase === MachineStateType.Phase.Steaming
             return Math.max(0, w - (steaming ? root._pitcherWeight() : Settings.brew.doseCupTareWeight))
         }
+        if (root.isComputedMode)
+            return ProfileManager.targetWeight
         return w
     }
 
@@ -58,9 +67,15 @@ Item {
 
     // Scale warning: saved BLE scale not connected or connection failed, or app fell back to simulated scale
     // Don't warn if a USB scale is connected — it satisfies the "have a real scale" requirement (not available on iOS)
-    property bool showScaleWarning: (!root.scaleConnected || root.isFlowScale)
+    property bool showScaleWarning: !root.isComputedMode
+        && (!root.scaleConnected || root.isFlowScale)
         && (BLEManager.scaleConnectionFailed || Settings.primaryScaleAddress !== "")
         && (Qt.platform.os === "ios" || !UsbScaleManager.scaleConnected)
+
+    // The value renders whenever a scale is connected — or always, for a computed
+    // mode. Drives the value rows, the "--" placeholders (its inverse), and the
+    // tare/settings tap overlay.
+    readonly property bool showValue: (root.scaleConnected || root.isComputedMode) && !root.showScaleWarning
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
@@ -74,6 +89,8 @@ Item {
                 : TranslationManager.translate("statusbar.scale_connecting", "Scale connecting")
         if (root.scaleConnected)
             return TranslationManager.translate("idle.accessible.scale.weight", "Scale weight:") + " " + root.weightText() + ". " + TranslationManager.translate("idle.accessible.scale.tare", "Tap to tare")
+        if (root.isComputedMode)  // value shows without a scale; nothing to tare
+            return TranslationManager.translate("idle.accessible.scale.weight", "Scale weight:") + " " + root.weightText()
         return TranslationManager.translate("idle.accessible.scale.none", "No scale connected")
     }
 
@@ -109,7 +126,7 @@ Item {
 
     function weightText() {
         var weight = root.displayedWeight().toFixed(1)
-        var suffix = root.isFlowScale ? "g~" : "g"
+        var suffix = (root.isFlowScale && !root.isComputedMode) ? "g~" : "g"
         if (root.showRatio && ProfileManager.brewByRatioActive) {
             return weight + suffix + " 1:" + ProfileManager.brewByRatio.toFixed(1)
         }
@@ -173,7 +190,7 @@ Item {
             id: compactScaleRow
             anchors.centerIn: parent
             spacing: Theme.spacingSmall
-            visible: root.scaleConnected && !root.showScaleWarning
+            visible: root.showValue
 
             ThemedIcon {
                 anchors.verticalCenter: parent.verticalCenter
@@ -204,6 +221,7 @@ Item {
         Text {
             anchors.centerIn: parent
             visible: !root.scaleConnected && !root.showScaleWarning && !root.isFlowScale
+                     && !root.isComputedMode
             text: "--"
             color: Theme.textSecondaryColor
             font: Theme.bodyFont
@@ -215,7 +233,7 @@ Item {
             id: scaleMouseArea
             anchors.fill: parent
             anchors.margins: -Theme.spacingSmall
-            visible: root.scaleConnected && !root.showScaleWarning
+            visible: root.showValue
             cursorShape: Qt.PointingHandCursor
 
             property int tapCount: 0
@@ -314,7 +332,7 @@ Item {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                visible: root.scaleConnected && !root.showScaleWarning
+                visible: root.showValue
                 text: root.weightText()
                 color: root.scaleColor(fullTapArea.pressed)
                 font: Theme.valueFont
@@ -323,7 +341,7 @@ Item {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                visible: !root.scaleConnected && !root.showScaleWarning
+                visible: !root.scaleConnected && !root.showScaleWarning && !root.isComputedMode
                 text: "--"
                 color: Theme.textSecondaryColor
                 font: Theme.valueFont
