@@ -643,8 +643,11 @@ bool typeHasBespokeEditor(const QString& type) {
 
 // Per-type default display mode for readouts whose "today's rendering" is not
 // value-only. An absent stored displayMode always means this default. Consumed
-// by ReadoutOptionsPopup, the item components, and the web editor (injected as
-// WIDGET_DISPLAY_DEFAULTS) — declare it here only.
+// by ReadoutOptionsPopup, the battery item components, and the web editor
+// (injected as WIDGET_DISPLAY_DEFAULTS). NOTE: the other item components
+// hard-code the "text" default — giving a type a non-text default here also
+// requires its component to call defaultDisplayModeForType (as the battery
+// items do), or the editors and the widget will disagree.
 const QHash<QString, QString>& displayModeDefaults() {
     static const QHash<QString, QString> kDefaults = {
         { QStringLiteral("batteryLevel"), QStringLiteral("icon") },
@@ -655,11 +658,13 @@ const QHash<QString, QString>& displayModeDefaults() {
 
 // Widget catalog: the single declaration of every placeable widget type — its
 // palette category, palette label, and short chip label (both as translation
-// key + English fallback), plus the special/screensaver chip-coloring flag the
-// web editor uses. Consumed by the in-app palette + chip names
-// (LayoutEditorZone.qml), the library card (LibraryItemCard.qml), and the web
-// editor (injected as WIDGET_CATALOG). `inPalette=false` marks legacy aliases
-// that need a display name but are not offered in the add-widget picker.
+// key + English fallback), plus the special/screensaver flag the web editor
+// uses to color chips and add-menu items. Consumed by the in-app palette +
+// chip names (LayoutEditorZone.qml), the library card (LibraryItemCard.qml),
+// and the web editor (injected as WIDGET_CATALOG). Table order is not display
+// order — both pickers group by category and sort by label at runtime.
+// `inPalette=false` marks legacy aliases that need a display name but are not
+// offered in the add-widget picker.
 struct WidgetCatalogEntry {
     const char* type;
     int cat;              // indexes the category-name list below
@@ -667,7 +672,7 @@ struct WidgetCatalogEntry {
     const char* label;    // palette label English fallback
     const char* chipKey;  // chip/short name translation key
     const char* chip;     // chip/short name English fallback
-    const char* flag;     // "" | "special" | "screensaver" (web chip coloring)
+    const char* flag;     // "" | "special" | "screensaver" (web chip + add-menu coloring)
     bool inPalette;
 };
 
@@ -703,8 +708,9 @@ const QVector<WidgetCatalogEntry>& widgetCatalogTable() {
         // The clock palette label reuses the chip key — pre-existing (the widget
         // was renamed to "Time" and the chip key kept for translations).
         { "clock",            1, "layoutEditor.chipTime",            "Time",           "layoutEditor.chipTime",       "Time",       "", true },
-        // Legacy alias: merged into machineStatus, still present in old saved
-        // layouts, so it keeps a chip name but is not offered in the palette.
+        // Legacy alias: merged into machineStatus. The active-layout migration
+        // rewrites it on load, but saved library items/layouts keep the old
+        // type, so it needs a chip name while staying out of the palette.
         { "connectionStatus", 1, "layoutEditor.chipMachine",         "Machine",        "layoutEditor.chipMachine",    "Machine",    "", false },
         // Utility (2)
         { "custom",    2, "layoutEditor.widgetCustom",    "Custom",     "layoutEditor.chipCustom",    "Custom",     "special", true },
@@ -811,8 +817,10 @@ QVariantList SettingsNetwork::widgetCategoryNames() {
 
 QJsonObject SettingsNetwork::widgetCatalogJson() {
     // Shape consumed by the web layout editor: `types` mirrors the old
-    // WIDGET_TYPES entries (English labels, special/screensaver flags),
-    // `chipNames` the old DISPLAY_NAMES, `catNames` the old CAT_NAMES.
+    // WIDGET_TYPES entries verbatim (English labels, special/screensaver
+    // flags); `chipNames` replaces the old DISPLAY_NAMES with the in-app chip
+    // labels (which renamed a few drifted web short names); `catNames` the
+    // old CAT_NAMES verbatim.
     QJsonArray types;
     QJsonObject chipNames;
     for (const auto& e : widgetCatalogTable()) {

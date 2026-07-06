@@ -454,9 +454,11 @@ Rectangle {
                             clip: true
 
                             // Category labels and widget catalog from the single
-                            // C++ table (SettingsNetwork::widgetCatalog). Reading
-                            // translationVersion re-resolves labels on a language
-                            // switch, matching the old inline arrays.
+                            // C++ table (SettingsNetwork::widgetCatalog /
+                            // widgetCategoryNames). Reading translationVersion
+                            // re-resolves labels on a live language switch (the
+                            // old inline arrays lacked this dependency and stayed
+                            // stale until the page was recreated).
                             readonly property var catNames: {
                                 var _v = TranslationManager.translationVersion
                                 return Settings.network.widgetCategoryNames().map(function(c) {

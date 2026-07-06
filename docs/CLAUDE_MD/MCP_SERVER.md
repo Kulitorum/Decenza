@@ -681,12 +681,12 @@ A layout widget that opens the configured AI app to discuss the most recent shot
 - If no shots exist yet, shows disabled state
 - No secondary actions (no long-press or double-tap), so `Accessible.description` is not needed
 
-**Registration** (5 places):
+**Registration** (3 places + sizing; historical note — the old per-surface
+palette/chip lists this plan referenced were unified into one catalog table):
 1. `CMakeLists.txt` — add `qml/components/layout/items/DiscussItem.qml` to QML_FILES
 2. `LayoutItemDelegate.qml` — add case: `case "discuss": src = "items/DiscussItem.qml"; break`
-3. `LayoutEditorZone.qml` — add to widget palette (white/actions group) + `getItemDisplayName()` chip label
-4. `shotserver_layout.cpp` — add `{type:"discuss",label:"Discuss"}` to `WIDGET_TYPES` + `DISPLAY_NAMES`
-5. `LayoutCenterZone.qml` — ensure `"discuss"` is NOT in `isAutoSized()` so it receives fixed action-button sizing (same as `history`, `espresso`, etc.)
+3. `settings_network.cpp` — add a `widgetCatalogTable()` entry (palette label + chip name; drives the in-app palette, library card, and web editor)
+4. `LayoutCenterZone.qml` — ensure `"discuss"` is NOT in `isAutoSized()` so it receives fixed action-button sizing (same as `history`, `espresso`, etc.)
 
 ### Key Files to Modify (Discuss Feature)
 
@@ -854,9 +854,8 @@ After this proposal landed, additional phases added scale tools, device tools, M
 - `qml/pages/PostShotReviewPage.qml` — add Discuss button next to AI Advice button in bottom bar
 - `qml/pages/ShotDetailPage.qml` — add Discuss button next to AI Advice button
 - `qml/components/layout/LayoutItemDelegate.qml` — add "discuss" case to switch
-- `qml/components/layout/LayoutEditorZone.qml` — add to widget palette + chip label map
+- `src/core/settings_network.cpp` — add "discuss" to `widgetCatalogTable()` (palette + chip name for app, library card, and web editor)
 - `qml/components/layout/LayoutCenterZone.qml` — ensure "discuss" gets fixed action-button sizing
-- `src/network/shotserver_layout.cpp` — add to web editor WIDGET_TYPES + DISPLAY_NAMES
 - `src/network/shotserver.h` — add McpServer pointer + setter
 - `src/network/shotserver.cpp` — add `/mcp` route dispatch with enabled check
 - `src/main.cpp` — wire McpServer with dependencies + QML context property

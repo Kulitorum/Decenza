@@ -755,7 +755,12 @@ private slots:
         const QVariantList catalog = SettingsNetwork::widgetCatalog();
         const QVariantMap chips = SettingsNetwork::widgetChipNames();
         const QVariantList cats = SettingsNetwork::widgetCategoryNames();
+        // The `cat` integers in the catalog are positional — pin the category
+        // names in order so a reorder without renumbering is caught.
         QCOMPARE(cats.size(), 4);
+        const QStringList kCatOrder = {"Actions", "Readouts", "Utility", "Screensavers"};
+        for (int i = 0; i < cats.size(); ++i)
+            QCOMPARE(cats[i].toMap().value("fallback").toString(), kCatOrder[i]);
         QVERIFY(catalog.size() >= 36);
 
         QSet<QString> seen;
@@ -769,6 +774,18 @@ private slots:
             QVERIFY2(!e.value("label").toString().isEmpty(), qPrintable("empty label: " + type));
             QVERIFY2(!e.value("labelKey").toString().isEmpty(), qPrintable("empty labelKey: " + type));
             QVERIFY2(chips.contains(type), qPrintable("missing chip name: " + type));
+            // A typo'd flag would silently lose the web chip/menu coloring.
+            const QString flag = e.value("flag").toString();
+            QVERIFY2(flag.isEmpty() || flag == "special" || flag == "screensaver",
+                     qPrintable(type + " has unknown flag: " + flag));
+        }
+        // Every chip entry (incl. aliases) carries a usable key + fallback —
+        // an aggregate-initialized row with missing trailing fields would
+        // otherwise render blank chip labels.
+        for (auto it = chips.constBegin(); it != chips.constEnd(); ++it) {
+            const QVariantMap c = it.value().toMap();
+            QVERIFY2(!c.value("key").toString().isEmpty(), qPrintable("empty chip key: " + it.key()));
+            QVERIFY2(!c.value("fallback").toString().isEmpty(), qPrintable("empty chip fallback: " + it.key()));
         }
         // Legacy alias keeps a chip name without appearing in the palette.
         QVERIFY(chips.contains("connectionStatus"));
