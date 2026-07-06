@@ -128,6 +128,11 @@ public:
     // Reset a single zone to its default items + options (counterpart to clear).
     Q_INVOKABLE void resetZoneToDefault(const QString& zoneName);
     Q_INVOKABLE void setItemProperty(const QString& itemId, const QString& key, const QVariant& value);
+    // Array-valued properties set from QML must use this typed variant: the
+    // engine converts a JS array to QVariantList for a typed parameter, but
+    // hands the generic QVariant one a wrapped QJSValue, which would store as
+    // null (setItemProperty refuses that write instead of corrupting the value).
+    Q_INVOKABLE void setItemPropertyList(const QString& itemId, const QString& key, const QVariantList& value);
     Q_INVOKABLE QVariantMap getItemProperties(const QString& itemId) const;
 
     // Source of truth for "does this widget type expose per-instance options?"

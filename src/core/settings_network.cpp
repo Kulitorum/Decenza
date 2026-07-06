@@ -719,6 +719,18 @@ void SettingsNetwork::resetZoneToDefault(const QString& zoneName) {
 }
 
 void SettingsNetwork::setItemProperty(const QString& itemId, const QString& key, const QVariant& value) {
+    // A JS array/object passed from QML reaches a QVariant parameter as a
+    // wrapped QJSValue, which QJsonValue::fromVariant silently turns into
+    // null — the property would be SAVED as null and read back as absent.
+    // Refuse the write instead of corrupting the stored value; arrays must
+    // come through the typed setItemPropertyList (typed parameters are
+    // converted by the engine — the setZoneItems pattern).
+    if (qstrcmp(value.typeName(), "QJSValue") == 0) {
+        qWarning() << "setItemProperty: refusing QJSValue for" << key
+                   << "- pass arrays via setItemPropertyList";
+        return;
+    }
+
     QJsonObject layout = getLayoutObject();
     QJsonObject zones = layout["zones"].toObject();
 
@@ -736,6 +748,12 @@ void SettingsNetwork::setItemProperty(const QString& itemId, const QString& key,
             }
         }
     }
+}
+
+void SettingsNetwork::setItemPropertyList(const QString& itemId, const QString& key, const QVariantList& value) {
+    // The typed parameter makes the QML engine convert a JS array to a real
+    // QVariantList; from here the generic path stores it as a JSON array.
+    setItemProperty(itemId, key, QVariant(value));
 }
 
 QVariantMap SettingsNetwork::getItemProperties(const QString& itemId) const {

@@ -700,6 +700,46 @@ private slots:
         net->setLayoutConfiguration(orig);
     }
 
+    // Array-valued item properties: setItemPropertyList is the typed path QML
+    // must use (a JS array through the generic QVariant setter arrives as a
+    // wrapped QJSValue and would be stored as null). Regression for the Shot
+    // Plan chip editor saving "shotPlanItems": null, which read back as absent
+    // and silently reverted the user's edits (#1426).
+    void itemPropertyListPersistsArrays() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{\"centerMiddle\":["
+            "{\"type\":\"shotPlan\",\"id\":\"plan1\"}"
+            "]}}"));
+
+        net->setItemPropertyList("plan1", "shotPlanItems",
+                                 QVariantList{QStringLiteral("roaster"), QStringLiteral("coffee")});
+        QVariantMap props = net->getItemProperties("plan1");
+        QCOMPARE(props.value("shotPlanItems").toStringList(),
+                 QStringList({QStringLiteral("roaster"), QStringLiteral("coffee")}));
+
+        // An empty array is a valid "show nothing" config: it must survive as a
+        // present, empty list — not collapse to null (which reads as absent and
+        // re-triggers legacy derivation).
+        net->setItemPropertyList("plan1", "shotPlanItems", QVariantList{});
+        props = net->getItemProperties("plan1");
+        QVERIFY(props.contains("shotPlanItems"));
+        QVERIFY(!props.value("shotPlanItems").isNull());
+        QVERIFY(props.value("shotPlanItems").toList().isEmpty());
+
+        // The generic setter still takes a plain QVariantList (the web editor's
+        // path — JSON arrays arrive as QVariantList, not QJSValue).
+        net->setItemProperty("plan1", "shotPlanItems",
+                             QVariantList{QStringLiteral("grind")});
+        props = net->getItemProperties("plan1");
+        QCOMPARE(props.value("shotPlanItems").toStringList(),
+                 QStringList{QStringLiteral("grind")});
+
+        net->setLayoutConfiguration(orig);
+    }
+
     // ==========================================
     // Known scales: invariant + heal
     // ==========================================

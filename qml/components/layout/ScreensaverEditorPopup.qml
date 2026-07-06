@@ -136,7 +136,9 @@ Dialog {
             // New keys only — the six legacy shotPlanShow* item booleans are
             // read-time migration input and are never written back
             // (shotPlanShowSteamPlan is a live key, not one of them).
-            Settings.network.setItemProperty(itemId, "shotPlanItems", shotPlanItems)
+            // Typed call: a JS array through the generic QVariant setter arrives
+            // as a QJSValue and would be stored as null (see settings_network.h).
+            Settings.network.setItemPropertyList(itemId, "shotPlanItems", shotPlanItems)
             Settings.network.setItemProperty(itemId, "shotPlanSentence", shotPlanSentence)
             Settings.network.setItemProperty(itemId, "shotPlanShowSteamPlan", shotPlanShowSteamPlan)
         }
