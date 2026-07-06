@@ -81,6 +81,10 @@ Dialog {
     x: Math.round((parent.width - width) / 2)
     y: Math.round((parent.height - height) / 2)
     width: Math.min(Theme.scaled(480), parent.width - Theme.spacingLarge * 2)
+    // Cap to the window so every row stays reachable on short screens; the
+    // rows scroll inside zoneFlick when they don't fit. Same pattern as
+    // CustomEditorPopup / ReadoutOptionsPopup.
+    height: Math.min(implicitHeight, parent.height * 0.85)
     padding: Theme.spacingMedium
 
     background: Rectangle {
@@ -148,150 +152,173 @@ Dialog {
             font.bold: true
         }
 
-        OptionRow {
-            title: TranslationManager.translate("layoutEditor.zoneDistribution", "Distribution")
-            current: popup.distribution
-            choices: [
-                { value: "packed",     label: TranslationManager.translate("layoutEditor.distPacked", "Packed") },
-                { value: "equalWidth", label: TranslationManager.translate("layoutEditor.distEqual", "Equal width") },
-                { value: "spaced",     label: TranslationManager.translate("layoutEditor.distSpaced", "Spaced") }
-            ]
-            onPicked: function(v) { popup.distribution = v; popup.setOption("distribution", v) }
-        }
-
-        OptionRow {
-            title: TranslationManager.translate("layoutEditor.zoneAlignment", "Alignment")
-            current: popup.alignment
-            choices: [
-                { value: "left",   label: TranslationManager.translate("layoutEditor.alignLeft", "Left") },
-                { value: "center", label: TranslationManager.translate("layoutEditor.alignCenter", "Center") },
-                { value: "right",  label: TranslationManager.translate("layoutEditor.alignRight", "Right") }
-            ]
-            onPicked: function(v) { popup.alignment = v; popup.setOption("alignment", v) }
-        }
-
-        OptionRow {
-            title: TranslationManager.translate("layoutEditor.zoneStyle", "Style")
-            current: popup.zoneStyle
-            choices: [
-                { value: "standard",  label: TranslationManager.translate("layoutEditor.styleStandard", "Standard") },
-                { value: "surface",   label: TranslationManager.translate("layoutEditor.styleSurface", "Surface") },
-                { value: "accentBar", label: TranslationManager.translate("layoutEditor.styleAccent", "Accent bar") }
-            ]
-            onPicked: function(v) { popup.zoneStyle = v; popup.setOption("style", v) }
-        }
-
-        OptionRow {
-            visible: popup.canSizeItems
-            title: TranslationManager.translate("layoutEditor.zoneItemSize", "Item size")
-            current: popup.itemSize
-            choices: [
-                { value: "compact", label: TranslationManager.translate("layoutEditor.itemSizeCompact", "Compact") },
-                { value: "large",   label: TranslationManager.translate("layoutEditor.itemSizeLarge", "Large") }
-            ]
-            onPicked: function(v) { popup.itemSize = v; popup.setOption("itemSize", v) }
-        }
-
-        // Populate from a built-in preset.
-        ColumnLayout {
+        Flickable {
+            id: zoneFlick
             Layout.fillWidth: true
-            spacing: Theme.scaled(4)
-            Text {
-                text: TranslationManager.translate("layoutEditor.zonePopulate", "Populate")
-                color: Theme.textSecondaryColor
-                font: Theme.labelFont
-            }
-            Rectangle {
-                // Brew readouts (dose/milk/ratio) don't belong on the all-pages
-                // status bar, so the Brew bar preset is hidden there.
-                visible: popup.zoneName !== "statusBar"
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(44)
-                radius: Theme.buttonRadius
-                color: brewMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("layoutEditor.populateBrewBar", "Fill with Brew bar")
-                Accessible.focusable: true
-                Accessible.onPressAction: brewMa.clicked(null)
-                Text {
-                    anchors.centerIn: parent
-                    text: TranslationManager.translate("layoutEditor.populateBrewBar", "Fill with Brew bar")
-                    color: Theme.primaryContrastColor
-                    font: Theme.bodyFont
-                }
-                MouseArea { id: brewMa; anchors.fill: parent; onClicked: { popup.populateBrewBar(); popup.close() } }
+            Layout.fillHeight: true
+            implicitHeight: zoneCol.implicitHeight
+            contentWidth: width
+            contentHeight: zoneCol.implicitHeight
+            clip: true
+            flickableDirection: Flickable.VerticalFlick
+            boundsBehavior: Flickable.StopAtBounds
+
+            ScrollBar.vertical: ScrollBar {
+                policy: zoneFlick.contentHeight > zoneFlick.height
+                    ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
             }
 
-            // Compact status bar preset (icon-led readouts + centred Sleep).
-            // Offered only for the status bar — it injects status readouts, which
-            // don't belong in the brew-oriented zones.
-            Rectangle {
-                visible: popup.zoneName === "statusBar"
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(44)
-                radius: Theme.buttonRadius
-                color: csbMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("layoutEditor.populateCompactStatusBar", "Fill with Compact status bar")
-                Accessible.focusable: true
-                Accessible.onPressAction: csbMa.clicked(null)
-                Text {
-                    anchors.centerIn: parent
-                    text: TranslationManager.translate("layoutEditor.populateCompactStatusBar", "Fill with Compact status bar")
-                    color: Theme.primaryContrastColor
-                    font: Theme.bodyFont
-                }
-                MouseArea { id: csbMa; anchors.fill: parent; onClicked: { popup.populateCompactStatusBar(); popup.close() } }
-            }
+            ColumnLayout {
+                id: zoneCol
+                width: zoneFlick.width
+                spacing: Theme.spacingMedium
 
-            // Reset this zone to its default widgets + options.
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(44)
-                radius: Theme.buttonRadius
-                color: resetMa.pressed ? Qt.lighter(Theme.surfaceColor, 1.3) : "transparent"
-                border.color: Theme.borderColor
-                border.width: 1
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("layoutEditor.resetZone", "Reset to default")
-                Accessible.focusable: true
-                Accessible.onPressAction: resetMa.clicked(null)
-                Text {
-                    anchors.centerIn: parent
-                    text: TranslationManager.translate("layoutEditor.resetZone", "Reset to default")
-                    color: Theme.textColor
-                    font: Theme.bodyFont
+                OptionRow {
+                    title: TranslationManager.translate("layoutEditor.zoneDistribution", "Distribution")
+                    current: popup.distribution
+                    choices: [
+                        { value: "packed",     label: TranslationManager.translate("layoutEditor.distPacked", "Packed") },
+                        { value: "equalWidth", label: TranslationManager.translate("layoutEditor.distEqual", "Equal width") },
+                        { value: "spaced",     label: TranslationManager.translate("layoutEditor.distSpaced", "Spaced") }
+                    ]
+                    onPicked: function(v) { popup.distribution = v; popup.setOption("distribution", v) }
                 }
-                MouseArea {
-                    id: resetMa
-                    anchors.fill: parent
-                    onClicked: {
-                        Settings.network.resetZoneToDefault(popup.zoneName)
-                        popup.openForZone(popup.zoneName, popup.zoneLabel)  // refresh option mirrors
-                        popup.close()
+
+                OptionRow {
+                    title: TranslationManager.translate("layoutEditor.zoneAlignment", "Alignment")
+                    current: popup.alignment
+                    choices: [
+                        { value: "left",   label: TranslationManager.translate("layoutEditor.alignLeft", "Left") },
+                        { value: "center", label: TranslationManager.translate("layoutEditor.alignCenter", "Center") },
+                        { value: "right",  label: TranslationManager.translate("layoutEditor.alignRight", "Right") }
+                    ]
+                    onPicked: function(v) { popup.alignment = v; popup.setOption("alignment", v) }
+                }
+
+                OptionRow {
+                    title: TranslationManager.translate("layoutEditor.zoneStyle", "Style")
+                    current: popup.zoneStyle
+                    choices: [
+                        { value: "standard",  label: TranslationManager.translate("layoutEditor.styleStandard", "Standard") },
+                        { value: "surface",   label: TranslationManager.translate("layoutEditor.styleSurface", "Surface") },
+                        { value: "accentBar", label: TranslationManager.translate("layoutEditor.styleAccent", "Accent bar") }
+                    ]
+                    onPicked: function(v) { popup.zoneStyle = v; popup.setOption("style", v) }
+                }
+
+                OptionRow {
+                    visible: popup.canSizeItems
+                    title: TranslationManager.translate("layoutEditor.zoneItemSize", "Item size")
+                    current: popup.itemSize
+                    choices: [
+                        { value: "compact", label: TranslationManager.translate("layoutEditor.itemSizeCompact", "Compact") },
+                        { value: "large",   label: TranslationManager.translate("layoutEditor.itemSizeLarge", "Large") }
+                    ]
+                    onPicked: function(v) { popup.itemSize = v; popup.setOption("itemSize", v) }
+                }
+
+                // Populate from a built-in preset.
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(4)
+                    Text {
+                        text: TranslationManager.translate("layoutEditor.zonePopulate", "Populate")
+                        color: Theme.textSecondaryColor
+                        font: Theme.labelFont
+                    }
+                    Rectangle {
+                        // Brew readouts (dose/milk/ratio) don't belong on the all-pages
+                        // status bar, so the Brew bar preset is hidden there.
+                        visible: popup.zoneName !== "statusBar"
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(44)
+                        radius: Theme.buttonRadius
+                        color: brewMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("layoutEditor.populateBrewBar", "Fill with Brew bar")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: brewMa.clicked(null)
+                        Text {
+                            anchors.centerIn: parent
+                            text: TranslationManager.translate("layoutEditor.populateBrewBar", "Fill with Brew bar")
+                            color: Theme.primaryContrastColor
+                            font: Theme.bodyFont
+                        }
+                        MouseArea { id: brewMa; anchors.fill: parent; onClicked: { popup.populateBrewBar(); popup.close() } }
+                    }
+
+                    // Compact status bar preset (icon-led readouts + centred Sleep).
+                    // Offered only for the status bar — it injects status readouts, which
+                    // don't belong in the brew-oriented zones.
+                    Rectangle {
+                        visible: popup.zoneName === "statusBar"
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(44)
+                        radius: Theme.buttonRadius
+                        color: csbMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("layoutEditor.populateCompactStatusBar", "Fill with Compact status bar")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: csbMa.clicked(null)
+                        Text {
+                            anchors.centerIn: parent
+                            text: TranslationManager.translate("layoutEditor.populateCompactStatusBar", "Fill with Compact status bar")
+                            color: Theme.primaryContrastColor
+                            font: Theme.bodyFont
+                        }
+                        MouseArea { id: csbMa; anchors.fill: parent; onClicked: { popup.populateCompactStatusBar(); popup.close() } }
+                    }
+
+                    // Reset this zone to its default widgets + options.
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(44)
+                        radius: Theme.buttonRadius
+                        color: resetMa.pressed ? Qt.lighter(Theme.surfaceColor, 1.3) : "transparent"
+                        border.color: Theme.borderColor
+                        border.width: 1
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("layoutEditor.resetZone", "Reset to default")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: resetMa.clicked(null)
+                        Text {
+                            anchors.centerIn: parent
+                            text: TranslationManager.translate("layoutEditor.resetZone", "Reset to default")
+                            color: Theme.textColor
+                            font: Theme.bodyFont
+                        }
+                        MouseArea {
+                            id: resetMa
+                            anchors.fill: parent
+                            onClicked: {
+                                Settings.network.resetZoneToDefault(popup.zoneName)
+                                popup.openForZone(popup.zoneName, popup.zoneLabel)  // refresh option mirrors
+                                popup.close()
+                            }
+                        }
+                    }
+
+                    // Clear all widgets from this zone.
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(44)
+                        radius: Theme.buttonRadius
+                        color: clearMa.pressed ? Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.15) : "transparent"
+                        border.color: Theme.errorColor
+                        border.width: 1
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("layoutEditor.clearZone", "Clear zone")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: clearMa.clicked(null)
+                        Text {
+                            anchors.centerIn: parent
+                            text: TranslationManager.translate("layoutEditor.clearZone", "Clear zone")
+                            color: Theme.errorColor
+                            font: Theme.bodyFont
+                        }
+                        MouseArea { id: clearMa; anchors.fill: parent; onClicked: { Settings.network.setZoneItems(popup.zoneName, []); popup.close() } }
                     }
                 }
-            }
-
-            // Clear all widgets from this zone.
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(44)
-                radius: Theme.buttonRadius
-                color: clearMa.pressed ? Qt.rgba(Theme.errorColor.r, Theme.errorColor.g, Theme.errorColor.b, 0.15) : "transparent"
-                border.color: Theme.errorColor
-                border.width: 1
-                Accessible.role: Accessible.Button
-                Accessible.name: TranslationManager.translate("layoutEditor.clearZone", "Clear zone")
-                Accessible.focusable: true
-                Accessible.onPressAction: clearMa.clicked(null)
-                Text {
-                    anchors.centerIn: parent
-                    text: TranslationManager.translate("layoutEditor.clearZone", "Clear zone")
-                    color: Theme.errorColor
-                    font: Theme.bodyFont
-                }
-                MouseArea { id: clearMa; anchors.fill: parent; onClicked: { Settings.network.setZoneItems(popup.zoneName, []); popup.close() } }
             }
         }
     }

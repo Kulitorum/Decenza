@@ -74,6 +74,10 @@ Dialog {
     x: Math.round((parent.width - width) / 2)
     y: Math.round((parent.height - height) / 2)
     width: Math.min(Theme.scaled(520), parent.width - Theme.spacingLarge * 2)
+    // Cap to the window so the Done button stays reachable; the option
+    // sections scroll inside optionsFlick when they don't fit (the scale
+    // weight instance stacks four sections). Same pattern as CustomEditorPopup.
+    height: Math.min(implicitHeight, parent.height * 0.85)
     padding: Theme.spacingMedium
 
     background: Rectangle {
@@ -86,114 +90,138 @@ Dialog {
     contentItem: ColumnLayout {
         spacing: Theme.spacingMedium
 
-        Text {
-            visible: popup.hasOption("dataMode")
-            text: TranslationManager.translate("layoutEditor.scaleDataMode", "Scale data mode")
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(20)
-            font.bold: true
-        }
-
-        Repeater {
-            model: popup.hasOption("dataMode") ? popup.dataModeChoices : []
-            delegate: Rectangle {
-                required property var modelData
-                readonly property bool sel: popup.dataMode === modelData.value
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(44)
-                radius: Theme.buttonRadius
-                color: sel ? Theme.primaryColor : "transparent"
-                border.color: sel ? Theme.primaryColor : Theme.borderColor
-                border.width: 1
-                Accessible.role: Accessible.Button
-                Accessible.name: modelData.label
-                Accessible.focusable: true
-                Accessible.onPressAction: dataMa.clicked(null)
-                Text {
-                    anchors.left: parent.left
-                    anchors.leftMargin: Theme.spacingMedium
-                    anchors.right: parent.right
-                    anchors.rightMargin: Theme.spacingMedium
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: modelData.label
-                    color: parent.sel ? Theme.primaryContrastColor : Theme.textColor
-                    font: Theme.labelFont
-                    elide: Text.ElideRight
-                }
-                MouseArea { id: dataMa; anchors.fill: parent; onClicked: popup.pickDataMode(modelData.value) }
-            }
-        }
-
-        Text {
-            visible: popup.hasOption("displayMode")
-            text: TranslationManager.translate("layoutEditor.displayMode", "Display")
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(20)
-            font.bold: true
-        }
-
-        RowLayout {
-            visible: popup.hasOption("displayMode")
+        Flickable {
+            id: optionsFlick
             Layout.fillWidth: true
-            spacing: Theme.spacingSmall
-            Repeater {
-                model: popup.displayChoices
-                delegate: Rectangle {
-                    required property var modelData
-                    readonly property bool sel: popup.displayMode === modelData.value
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.scaled(44)
-                    radius: Theme.buttonRadius
-                    color: sel ? Theme.primaryColor : "transparent"
-                    border.color: sel ? Theme.primaryColor : Theme.borderColor
-                    border.width: 1
-                    Accessible.role: Accessible.Button
-                    Accessible.name: modelData.label
-                    Accessible.focusable: true
-                    Accessible.onPressAction: dispMa.clicked(null)
-                    Text {
-                        anchors.centerIn: parent
-                        text: modelData.label
-                        color: parent.sel ? Theme.primaryContrastColor : Theme.textColor
-                        font: Theme.labelFont
-                    }
-                    MouseArea { id: dispMa; anchors.fill: parent; onClicked: popup.pickDisplay(modelData.value) }
-                }
-            }
-        }
+            Layout.fillHeight: true
+            implicitHeight: optionsCol.implicitHeight
+            contentWidth: width
+            contentHeight: optionsCol.implicitHeight
+            clip: true
+            flickableDirection: Flickable.VerticalFlick
+            boundsBehavior: Flickable.StopAtBounds
 
-        RowLayout {
-            visible: popup.hasOption("showRatio")
-            Layout.fillWidth: true
-            spacing: Theme.spacingMedium
+            ScrollBar.vertical: ScrollBar {
+                policy: optionsFlick.contentHeight > optionsFlick.height
+                    ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+            }
+
             ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 0
+                id: optionsCol
+                width: optionsFlick.width
+                spacing: Theme.spacingMedium
+
                 Text {
-                    text: TranslationManager.translate("layoutEditor.scaleShowRatio", "Show ratio")
+                    visible: popup.hasOption("dataMode")
+                    text: TranslationManager.translate("layoutEditor.scaleDataMode", "Scale data mode")
                     color: Theme.textColor
-                    font: Theme.bodyFont
+                    font.pixelSize: Theme.scaled(20)
+                    font.bold: true
                 }
+
+                Repeater {
+                    model: popup.hasOption("dataMode") ? popup.dataModeChoices : []
+                    delegate: Rectangle {
+                        required property var modelData
+                        readonly property bool sel: popup.dataMode === modelData.value
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.scaled(44)
+                        radius: Theme.buttonRadius
+                        color: sel ? Theme.primaryColor : "transparent"
+                        border.color: sel ? Theme.primaryColor : Theme.borderColor
+                        border.width: 1
+                        Accessible.role: Accessible.Button
+                        Accessible.name: modelData.label
+                        Accessible.focusable: true
+                        Accessible.onPressAction: dataMa.clicked(null)
+                        Text {
+                            anchors.left: parent.left
+                            anchors.leftMargin: Theme.spacingMedium
+                            anchors.right: parent.right
+                            anchors.rightMargin: Theme.spacingMedium
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: modelData.label
+                            color: parent.sel ? Theme.primaryContrastColor : Theme.textColor
+                            font: Theme.labelFont
+                            elide: Text.ElideRight
+                        }
+                        MouseArea { id: dataMa; anchors.fill: parent; onClicked: popup.pickDataMode(modelData.value) }
+                    }
+                }
+
                 Text {
-                    text: TranslationManager.translate("layoutEditor.scaleShowRatioHint", "Off = weight only, no 1:X.X suffix")
-                    color: Theme.textSecondaryColor
-                    font: Theme.captionFont
+                    visible: popup.hasOption("displayMode")
+                    text: TranslationManager.translate("layoutEditor.displayMode", "Display")
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(20)
+                    font.bold: true
+                }
+
+                RowLayout {
+                    visible: popup.hasOption("displayMode")
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSmall
+                    Repeater {
+                        model: popup.displayChoices
+                        delegate: Rectangle {
+                            required property var modelData
+                            readonly property bool sel: popup.displayMode === modelData.value
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Theme.scaled(44)
+                            radius: Theme.buttonRadius
+                            color: sel ? Theme.primaryColor : "transparent"
+                            border.color: sel ? Theme.primaryColor : Theme.borderColor
+                            border.width: 1
+                            Accessible.role: Accessible.Button
+                            Accessible.name: modelData.label
+                            Accessible.focusable: true
+                            Accessible.onPressAction: dispMa.clicked(null)
+                            Text {
+                                anchors.centerIn: parent
+                                text: modelData.label
+                                color: parent.sel ? Theme.primaryContrastColor : Theme.textColor
+                                font: Theme.labelFont
+                            }
+                            MouseArea { id: dispMa; anchors.fill: parent; onClicked: popup.pickDisplay(modelData.value) }
+                        }
+                    }
+                }
+
+                RowLayout {
+                    visible: popup.hasOption("showRatio")
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+                        Text {
+                            text: TranslationManager.translate("layoutEditor.scaleShowRatio", "Show ratio")
+                            color: Theme.textColor
+                            font: Theme.bodyFont
+                        }
+                        Text {
+                            text: TranslationManager.translate("layoutEditor.scaleShowRatioHint", "Off = weight only, no 1:X.X suffix")
+                            color: Theme.textSecondaryColor
+                            font: Theme.captionFont
+                        }
+                    }
+                    StyledSwitch {
+                        accessibleName: TranslationManager.translate("layoutEditor.scaleShowRatio", "Show ratio")
+                        checked: popup.showRatio
+                        onToggled: popup.setShowRatio(checked)
+                    }
+                }
+
+                WidgetColorPicker {
+                    id: colorPicker
+                    visible: popup.hasOption("color")
+                    Layout.fillWidth: true
+                    itemId: popup.itemId
                 }
             }
-            StyledSwitch {
-                accessibleName: TranslationManager.translate("layoutEditor.scaleShowRatio", "Show ratio")
-                checked: popup.showRatio
-                onToggled: popup.setShowRatio(checked)
-            }
         }
 
-        WidgetColorPicker {
-            id: colorPicker
-            visible: popup.hasOption("color")
-            Layout.fillWidth: true
-            itemId: popup.itemId
-        }
-
+        // Done stays outside the scroll area so it is always visible.
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(44)
