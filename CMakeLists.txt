@@ -335,6 +335,7 @@ set(SOURCES
     src/mcp/mcptools_profiles.cpp
     src/mcp/mcptools_settings.cpp
     src/mcp/mcptools_presets.cpp
+    src/mcp/mcptools_recipes.cpp
     src/mcp/mcptools_beansearch.cpp
     src/mcp/mcptools_dialing.cpp
     src/ai/dialing_blocks.cpp

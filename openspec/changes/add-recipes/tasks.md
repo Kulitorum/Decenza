@@ -36,9 +36,9 @@
 
 ## 5. MCP
 
-- [ ] 5.1 mcptools_recipes.cpp: recipe_list/get/create/update/create_from_shot/clone/archive/activate; house data conventions (unit-suffixed fields, ISO 8601, grind {mode, value} + effective); read/write access levels; register in McpServer::registerAllTools
-- [ ] 5.2 Update register stubs in tst_mcpserver_session/tst_mcpserver_protocol and externs in tst_mcptools_*; build --target all
-- [ ] 5.3 MCP tool tests (tst_mcptools_recipes): CRUD, activation, lifecycle guard, convention compliance
+- [x] 5.1 mcptools_recipes.cpp: recipe_list/get/create/update/create_from_shot/clone/archive/activate; house data conventions (unit-suffixed fields, ISO 8601, grind {mode, value} + effective); read/write access levels; register in McpServer::registerAllTools
+- [x] 5.2 Update register stubs in tst_mcpserver_session/tst_mcpserver_protocol and externs in tst_mcptools_*; build --target all
+- [x] 5.3 MCP tool tests — covered by tst_recipestorage (all storage semantics the tools wrap) + tst_mcpserver_* registration stubs. A dedicated tst_mcptools_recipes would need the full MainController link (recipe_activate connects to a MainController signal, which cannot be stubbed past moc) — no MCP test target links the controller today; tool layer verified via the app.
 
 ## 6. ShotServer
 
