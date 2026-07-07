@@ -461,7 +461,7 @@ Page {
         anchors.fill: parent
         anchors.topMargin: Theme.pageTopMargin
         anchors.bottomMargin: Theme.bottomBarHeight
-        textFields: [nameField, doseField.input, yieldField.input, grindField, rpmField.input, milkField.input]
+        textFields: [nameField, doseField.input, yieldField.input, grindField, rpmField, milkField.input]
 
         Flickable {
             anchors.fill: parent
@@ -629,26 +629,28 @@ Page {
                                 wrapMode: Text.WordWrap
                             }
 
-                            // Grind: inherits from the bean by default (shown read-only);
-                            // the override switch reveals recipe-private grind + rpm.
+                            // Grind: one block. Bean linked + no override →
+                            // read-only "Follows the bean" text; override ON
+                            // (or no bean) → the grind/rpm fields sit exactly
+                            // where that text was.
                             RowLayout {
-                                visible: composerPage.hasBean
                                 Layout.fillWidth: true
                                 spacing: Theme.spacingMedium
                                 ColumnLayout {
                                     Layout.fillWidth: true
-                                    spacing: Theme.scaled(2)
+                                    spacing: Theme.scaled(4)
                                     Label {
                                         text: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
+                                            + (composerPage.hasBean ? ""
+                                               : " — " + TranslationManager.translate("recipes.composer.grindNoBean", "stored on the recipe (no bean linked)"))
                                         font: Theme.captionFont
                                         color: Theme.textSecondaryColor
                                         Accessible.ignored: true
                                     }
                                     Label {
+                                        visible: composerPage.hasBean && !composerPage.fGrindOverride
                                         Layout.fillWidth: true
                                         text: {
-                                            if (composerPage.fGrindOverride)
-                                                return TranslationManager.translate("recipes.composer.grindOverridden", "Overridden for this recipe")
                                             var inherited = trInherited.text
                                             if (composerPage.fInheritedGrind !== "") {
                                                 inherited += ": " + composerPage.fInheritedGrind
@@ -661,8 +663,29 @@ Page {
                                         color: Theme.textColor
                                         wrapMode: Text.WordWrap
                                     }
+                                    RowLayout {
+                                        visible: !composerPage.hasBean || composerPage.fGrindOverride
+                                        Layout.fillWidth: true
+                                        spacing: Theme.spacingMedium
+                                        StyledTextField {
+                                            id: grindField
+                                            Layout.fillWidth: true
+                                            placeholder: TranslationManager.translate("recipes.composer.grindPlaceholder", "e.g. 2.4")
+                                            Accessible.name: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
+                                        }
+                                        StyledTextField {
+                                            id: rpmField
+                                            visible: composerPage.fEquipmentRpmCapable
+                                            Layout.preferredWidth: Theme.scaled(110)
+                                            inputMethodHints: Qt.ImhFormattedNumbersOnly
+                                            placeholder: TranslationManager.translate("recipes.composer.rpmLabel", "RPM")
+                                            Accessible.name: TranslationManager.translate("recipes.composer.rpmLabel", "RPM")
+                                        }
+                                    }
                                 }
                                 ColumnLayout {
+                                    visible: composerPage.hasBean
+                                    Layout.alignment: Qt.AlignTop
                                     spacing: Theme.scaled(2)
                                     Label {
                                         text: TranslationManager.translate("recipes.composer.grindOverrideShort", "Override")
@@ -685,41 +708,6 @@ Page {
                                             }
                                         }
                                     }
-                                }
-                            }
-                            Label {
-                                visible: !composerPage.hasBean
-                                Layout.fillWidth: true
-                                text: TranslationManager.translate("recipes.composer.grindNoBean", "Grind is stored on the recipe (no bean linked)")
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                wrapMode: Text.WordWrap
-                            }
-                            RowLayout {
-                                visible: !composerPage.hasBean || composerPage.fGrindOverride
-                                Layout.fillWidth: true
-                                spacing: Theme.spacingMedium
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.scaled(4)
-                                    Label {
-                                        text: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
-                                        font: Theme.captionFont
-                                        color: Theme.textSecondaryColor
-                                        Accessible.ignored: true
-                                    }
-                                    StyledTextField {
-                                        id: grindField
-                                        Layout.fillWidth: true
-                                        placeholder: TranslationManager.translate("recipes.composer.grindPlaceholder", "e.g. 2.4")
-                                        Accessible.name: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
-                                    }
-                                }
-                                NumberField {
-                                    id: rpmField
-                                    visible: composerPage.fEquipmentRpmCapable
-                                    Layout.fillWidth: true
-                                    label: TranslationManager.translate("recipes.composer.rpmLabel", "RPM")
                                 }
                             }
                         }
