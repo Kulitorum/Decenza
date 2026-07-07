@@ -79,7 +79,29 @@ Page {
                 MainController.beanbase.ensureBagImage(imageKey, recipe.coffeeName || "", "")
         }
         onImageKeyChanged: refreshBeanImage()
-        Component.onCompleted: refreshBeanImage()
+        // The plan line needs the profile's base temperature and target
+        // weight (the recipe stores only its overrides). One synchronous
+        // profile read per card — the list is small.
+        property real profileTempC: 0
+        property real profileYieldG: 0
+        function refreshProfileNumbers() {
+            profileTempC = 0
+            profileYieldG = 0
+            var t = recipe && recipe.profileTitle ? String(recipe.profileTitle) : ""
+            if (t === "")
+                return
+            var fn = ProfileManager.findProfileByTitle(t)
+            if (fn && fn !== "") {
+                var d = ProfileManager.getProfileByFilename(fn)
+                profileTempC = d.espresso_temperature || 0
+                profileYieldG = d.target_weight || 0
+            }
+        }
+        onRecipeChanged: refreshProfileNumbers()
+        Component.onCompleted: {
+            refreshBeanImage()
+            refreshProfileNumbers()
+        }
         Connections {
             target: MainController.beanbase
             function onBagImageReady(key, path) {
@@ -101,8 +123,6 @@ Page {
             var bean = ((r.roasterName || "") + " " + (r.coffeeName || "")).trim()
             if (bean !== "") parts.push(bean)
             if (r.profileTitle) parts.push(r.profileTitle)
-            if (r.doseG > 0 && r.yieldG > 0)
-                parts.push(Number(r.doseG).toFixed(1) + "g → " + Number(r.yieldG).toFixed(1) + "g")
             if (card.steam.hasMilk)
                 parts.push(trMilk.text + (card.steam.milkWeightG ? " " + card.steam.milkWeightG + "g" : ""))
             if (r.shotCount > 0)
@@ -197,6 +217,34 @@ Page {
                         font: Theme.captionFont
                         color: Theme.textSecondaryColor
                         wrapMode: Text.WordWrap
+                    }
+
+                    // The shot plan, phrased exactly like the idle Plan widget
+                    // (fragment mode) but fed the RECIPE's values. Grind shows
+                    // only when pinned — an inherited value belongs to the bag.
+                    ShotPlanText {
+                        Layout.fillWidth: true
+                        sentence: false
+                        maxLines: 2
+                        itemOrder: ["doseYield", "temperature", "grind"]
+                        profileName: card.recipe.profileTitle || ""
+                        profileTemp: card.profileTempC
+                        overrideTemp: card.recipe.tempOverrideC > 0 ? card.recipe.tempOverrideC : card.profileTempC
+                        tempOverridden: card.recipe.tempOverrideC > 0
+                        dose: card.recipe.doseG || 0
+                        profileYield: card.profileYieldG
+                        targetWeight: card.recipe.yieldG > 0 ? card.recipe.yieldG : card.profileYieldG
+                        yieldOverridden: card.recipe.yieldG > 0 && card.profileYieldG > 0
+                                         && Math.abs(card.recipe.yieldG - card.profileYieldG) > 0.1
+                        grindSize: card.recipe.grindPinned || ""
+                        roasterBrand: ""
+                        coffeeName: ""
+                        // Its internal MouseArea sits above the card's tap
+                        // area — route the tap to the same activate action.
+                        onClicked: {
+                            if (!card.archivedCard && card.recipe.id !== Settings.dye.activeRecipeId)
+                                MainController.activateRecipe(card.recipe.id)
+                        }
                     }
                 }
             }
