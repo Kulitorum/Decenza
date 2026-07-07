@@ -69,8 +69,11 @@ QJsonObject recipeToJson(const Recipe& r, Settings* settings, QSqlDatabase* db,
     QJsonObject grind;
     grind["mode"] = r.grindPinned.isEmpty() ? QStringLiteral("inherited")
                                             : QStringLiteral("pinned");
-    if (!r.grindPinned.isEmpty())
+    if (!r.grindPinned.isEmpty()) {
         grind["value"] = r.grindPinned;
+        if (r.rpmPinned > 0)
+            grind["rpm"] = r.rpmPinned;
+    }
     if (db) {
         const qint64 openBagId = RecipeStorage::resolveOpenBagStatic(*db, r);
         if (openBagId > 0) {
@@ -79,6 +82,8 @@ QJsonObject recipeToJson(const Recipe& r, Settings* settings, QSqlDatabase* db,
                 const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(*db, openBagId);
                 if (!bag.grinderSetting.isEmpty())
                     grind["value"] = bag.grinderSetting;
+                if (bag.rpm > 0)
+                    grind["rpm"] = bag.rpm;
             }
         } else if (!r.beanBaseId.isEmpty() || !r.roasterName.isEmpty() || !r.coffeeName.isEmpty()) {
             o["noOpenBagOfBean"] = true;  // display state, never an error
@@ -120,6 +125,8 @@ QVariantMap recipeFieldsFromArgs(const QJsonObject& args)
     }
     if (args.contains("equipmentId"))
         fields.insert("equipmentId", args["equipmentId"].toInteger());
+    if (args.contains("rpmPinned"))
+        fields.insert("rpmPinned", args["rpmPinned"].toInteger());
     static const QStringList kNumberKeys = {"doseG", "yieldG"};
     for (const QString& key : kNumberKeys) {
         if (args.contains(key))
@@ -273,6 +280,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 {"temperatureOverrideC", QJsonObject{{"type", "number"}}},
                 {"grindPinned", QJsonObject{{"type", "string"},
                     {"description", "Pin a recipe-private grind; empty/omitted = inherit from the bean's bag"}}},
+                {"rpmPinned", QJsonObject{{"type", "integer"},
+                    {"description", "Grinder rpm for the pin (only meaningful with grindPinned; 0 = unset)"}}},
                 {"steam", steamBlockSchema()}
             }},
             {"required", QJsonArray{"name", "profileTitle"}}
@@ -322,6 +331,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 {"yieldG", QJsonObject{{"type", "number"}}},
                 {"temperatureOverrideC", QJsonObject{{"type", "number"}}},
                 {"grindPinned", QJsonObject{{"type", "string"}}},
+                {"rpmPinned", QJsonObject{{"type", "integer"}}},
                 {"steam", steamBlockSchema()}
             }},
             {"required", QJsonArray{"recipeId"}}

@@ -49,6 +49,7 @@ struct Recipe {
     double tempOverrideC = 0; // 0 = no override
 
     QString grindPinned;      // empty = inherit from bean's current bag
+    qint64 rpmPinned = 0;     // grinder rpm override; only meaningful with a pin (0 = unset)
     QString steamJson;        // steam block, empty = none saved
 
     bool archived = false;

@@ -40,8 +40,12 @@ Page {
     property string fCoffee: ""
     property real fEquipmentId: 0
     property string fEquipmentName: ""
-    property string fGrindPinned: ""     // "" = inherit from the bean's bag
+    // Grind override (add-recipes): OFF (default, bean linked) = the recipe
+    // follows the bean's bag — shown read-only. ON = grind + rpm are this
+    // recipe's own. Bean-less recipes always store grind locally (no switch).
+    property bool fGrindOverride: false
     property string fInheritedGrind: ""  // display-only: the linked bag's current grind
+    property real fInheritedRpm: 0       // display-only: the linked bag's current rpm
     property bool fHasMilk: false
     property real fMilkWeightG: 0
     property string fPitcherName: ""
@@ -82,7 +86,9 @@ Page {
         doseField.text = r.doseG > 0 ? Number(r.doseG).toFixed(1) : ""
         yieldField.text = r.yieldG > 0 ? Number(r.yieldG).toFixed(1) : ""
         tempField.text = r.tempOverrideC > 0 ? Number(r.tempOverrideC).toFixed(1) : ""
-        fGrindPinned = r.grindPinned || ""
+        fGrindOverride = (r.grindPinned || "") !== "" || (r.rpmPinned || 0) > 0
+        grindField.text = r.grindPinned || ""
+        rpmField.text = (r.rpmPinned || 0) > 0 ? String(r.rpmPinned) : ""
         applySteamJson(r.steamJson || "")
         if (fEquipmentId > 0)
             MainController.equipmentStorage.requestInventory()
@@ -157,8 +163,9 @@ Page {
             yieldG: shot.targetWeightG || 0,
             tempOverrideC: shot.temperatureOverrideC || 0,
             // Linked bean → inherit (the bag already carries the dial via
-            // write-through); no bean → the shot's grind lives on the recipe.
+            // write-through); no bean → the shot's grind/rpm live on the recipe.
             grindPinned: hasBeanData ? "" : (shot.grinderSetting || ""),
+            rpmPinned: hasBeanData ? 0 : (shot.rpm || 0),
             steamJson: shot.steamJson && shot.steamJson !== "" ? shot.steamJson
                                                                : currentSteamSnapshot(),
             createdFromShotId: promoteShotId
@@ -200,7 +207,10 @@ Page {
             doseG: parseFloat(doseField.text) || 0,
             yieldG: parseFloat(yieldField.text) || 0,
             tempOverrideC: parseFloat(tempField.text) || 0,
-            grindPinned: fGrindPinned.trim(),  // " " is only the form's "pin armed" marker
+            // Override OFF (with a bean) = inherit: store nothing. Bean-less
+            // recipes always keep their grind/rpm on the recipe.
+            grindPinned: (!hasBean || fGrindOverride) ? grindField.text.trim() : "",
+            rpmPinned: (!hasBean || fGrindOverride) ? (parseInt(rpmField.text) || 0) : 0,
             steamJson: buildSteamJson()
         }
         if (prefill && prefill.createdFromShotId)
@@ -266,10 +276,12 @@ Page {
                            && String(b.coffeeName).toLowerCase() === composerPage.fCoffee.toLowerCase())
                     if (match) {
                         composerPage.fInheritedGrind = b.grinderSetting || ""
+                        composerPage.fInheritedRpm = b.rpm || 0
                         return
                     }
                 }
                 composerPage.fInheritedGrind = ""
+                composerPage.fInheritedRpm = 0
             }
         }
     }
@@ -403,7 +415,7 @@ Page {
         anchors.fill: parent
         anchors.topMargin: Theme.pageTopMargin
         anchors.bottomMargin: Theme.bottomBarHeight
-        textFields: [nameField, doseField.input, yieldField.input, tempField.input, grindPinField, milkField.input]
+        textFields: [nameField, doseField.input, yieldField.input, tempField.input, grindField, rpmField.input, milkField.input]
 
         Flickable {
             anchors.fill: parent
@@ -487,7 +499,10 @@ Page {
                             wrapMode: Text.WordWrap
                         }
 
+                        // Grind: inherits from the bean by default (shown read-only);
+                        // the override switch reveals recipe-private grind + rpm.
                         RowLayout {
+                            visible: composerPage.hasBean
                             Layout.fillWidth: true
                             spacing: Theme.spacingMedium
                             ColumnLayout {
@@ -501,11 +516,17 @@ Page {
                                 }
                                 Label {
                                     Layout.fillWidth: true
-                                    text: composerPage.fGrindPinned === ""
-                                        ? (composerPage.hasBean
-                                            ? trInherited.text + (composerPage.fInheritedGrind !== "" ? ": " + composerPage.fInheritedGrind : "")
-                                            : TranslationManager.translate("recipes.composer.grindNoBean", "Stored on the recipe (no bean linked)"))
-                                        : TranslationManager.translate("recipes.composer.grindPinnedHint", "Pinned — this recipe keeps its own grind")
+                                    text: {
+                                        if (composerPage.fGrindOverride)
+                                            return TranslationManager.translate("recipes.composer.grindOverridden", "Overridden for this recipe")
+                                        var inherited = trInherited.text
+                                        if (composerPage.fInheritedGrind !== "") {
+                                            inherited += ": " + composerPage.fInheritedGrind
+                                            if (composerPage.fInheritedRpm > 0)
+                                                inherited += " · " + composerPage.fInheritedRpm + " rpm"
+                                        }
+                                        return inherited
+                                    }
                                     font: Theme.bodyFont
                                     color: Theme.textColor
                                     wrapMode: Text.WordWrap
@@ -514,35 +535,60 @@ Page {
                             ColumnLayout {
                                 spacing: Theme.scaled(2)
                                 Label {
-                                    text: TranslationManager.translate("recipes.composer.pinGrindShort", "Pin")
+                                    text: TranslationManager.translate("recipes.composer.grindOverrideShort", "Override")
                                     font: Theme.captionFont
                                     color: Theme.textSecondaryColor
                                     Layout.alignment: Qt.AlignHCenter
                                     Accessible.ignored: true
                                 }
                                 StyledSwitch {
-                                    id: pinSwitch
-                                    checked: composerPage.fGrindPinned !== "" || !composerPage.hasBean
-                                    enabled: composerPage.hasBean  // bean-less recipes always keep grind locally
-                                    Accessible.name: TranslationManager.translate("recipes.composer.pinGrind", "Pin grind to this recipe")
+                                    checked: composerPage.fGrindOverride
+                                    Accessible.name: TranslationManager.translate("recipes.composer.grindOverride", "Override grind for this recipe")
                                     onToggled: {
-                                        if (checked)
-                                            composerPage.fGrindPinned = grindPinField.text !== "" ? grindPinField.text
-                                                : (composerPage.fInheritedGrind !== "" ? composerPage.fInheritedGrind : " ")
-                                        else
-                                            composerPage.fGrindPinned = ""
+                                        composerPage.fGrindOverride = checked
+                                        if (checked && grindField.text === "") {
+                                            // Start the override from the inherited values.
+                                            grindField.text = composerPage.fInheritedGrind
+                                            rpmField.text = composerPage.fInheritedRpm > 0
+                                                ? String(composerPage.fInheritedRpm) : ""
+                                        }
                                     }
                                 }
                             }
                         }
-                        StyledTextField {
-                            id: grindPinField
+                        Label {
+                            visible: !composerPage.hasBean
                             Layout.fillWidth: true
-                            visible: composerPage.fGrindPinned !== "" || !composerPage.hasBean
-                            text: composerPage.fGrindPinned.trim()
-                            placeholderText: TranslationManager.translate("recipes.composer.grindPlaceholder", "Grind setting (e.g. 2.4)")
-                            Accessible.name: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
-                            onTextEdited: composerPage.fGrindPinned = text === "" ? " " : text
+                            text: TranslationManager.translate("recipes.composer.grindNoBean", "Grind is stored on the recipe (no bean linked)")
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            wrapMode: Text.WordWrap
+                        }
+                        RowLayout {
+                            visible: !composerPage.hasBean || composerPage.fGrindOverride
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingMedium
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.scaled(4)
+                                Label {
+                                    text: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
+                                    font: Theme.captionFont
+                                    color: Theme.textSecondaryColor
+                                    Accessible.ignored: true
+                                }
+                                StyledTextField {
+                                    id: grindField
+                                    Layout.fillWidth: true
+                                    placeholderText: TranslationManager.translate("recipes.composer.grindPlaceholder", "e.g. 2.4")
+                                    Accessible.name: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
+                                }
+                            }
+                            NumberField {
+                                id: rpmField
+                                Layout.fillWidth: true
+                                label: TranslationManager.translate("recipes.composer.rpmLabel", "RPM")
+                            }
                         }
                     }
 
@@ -720,19 +766,25 @@ Page {
                 onClicked: {
                     var hadBean = composerPage.hasBean
                     if (modelData.isNone) {
+                        // No bean to inherit from: carry the current dial onto
+                        // the recipe so nothing is silently lost.
+                        if (!composerPage.fGrindOverride && grindField.text === "") {
+                            grindField.text = composerPage.fInheritedGrind
+                            rpmField.text = composerPage.fInheritedRpm > 0
+                                ? String(composerPage.fInheritedRpm) : ""
+                        }
                         composerPage.fBeanBaseId = ""
                         composerPage.fRoaster = ""
                         composerPage.fCoffee = ""
                         composerPage.fInheritedGrind = ""
-                        // No bean to inherit from: grind moves onto the recipe.
-                        if (composerPage.fGrindPinned === "")
-                            composerPage.fGrindPinned = composerPage.fInheritedGrind || " "
+                        composerPage.fInheritedRpm = 0
                     } else {
                         composerPage.fBeanBaseId = modelData.beanBaseId || ""
                         composerPage.fRoaster = modelData.roasterName || ""
                         composerPage.fCoffee = modelData.coffeeName || ""
                         composerPage.fInheritedGrind = modelData.grinderSetting || ""
-                        if (hadBean && composerPage.fGrindPinned === "")
+                        composerPage.fInheritedRpm = modelData.rpm || 0
+                        if (hadBean && !composerPage.fGrindOverride)
                             composerPage.bagSwapHint = TranslationManager.translate(
                                 "recipes.composer.grindFollowsHint", "Grind now follows %1: %2")
                                 .arg(contentItem.text).arg(composerPage.fInheritedGrind || "—")

@@ -32,7 +32,7 @@ A recipe SHALL link to a bean (by Bean Base canonical id when available, otherwi
 - **THEN** the recipe can still be activated (profile, dose, steam apply) and the UI indicates the bean is not currently stocked
 
 ### Requirement: Grind inherit-or-pin
-Grind SHALL remain a bag property by default: a recipe with no pinned grind inherits the linked bean's current bag grind at all times. A recipe MAY pin a grind value (free-form text, stored opaquely). A recipe with no linked bean SHALL store its grind locally on the recipe.
+Grind SHALL remain a bag property by default: a recipe with no pinned grind inherits the linked bean's current bag grind (and rpm) at all times, and the composer SHALL display the inherited values read-only. A recipe MAY override with a pinned grind value (free-form text, stored opaquely) and an optional pinned rpm — the override covers grind and rpm together and SHALL be freely toggleable off (returning to inherit). A recipe with no linked bean SHALL store its grind/rpm locally on the recipe.
 
 #### Scenario: Re-dial updates sibling recipes
 - **WHEN** the bag's grind is changed (with or without a recipe active)

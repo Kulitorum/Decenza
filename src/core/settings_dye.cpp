@@ -310,7 +310,10 @@ void SettingsDye::setDyeGrinderRpm(int value) {
     if (dyeGrinderRpm() != value) {
         m_dyeGrinderRpmCache = value;
         m_settings.setValue("dye/grinderRpm", value);
-        writeThroughToBag("rpm", value > 0 ? QVariant(value) : QVariant());
+        // The grind override pins grind AND rpm together (add-recipes): while
+        // suspended, rpm edits belong to the recipe's pin, not the bean.
+        if (!m_grindBagWriteThroughSuspended)
+            writeThroughToBag("rpm", value > 0 ? QVariant(value) : QVariant());
         writeThroughToActivePackage("lastRpm", value > 0 ? QVariant(value) : QVariant());
         emit dyeGrinderRpmChanged();
     }

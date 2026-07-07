@@ -875,11 +875,15 @@ void MainController::setupRecipeConnections() {
     connect(m_settings->brew(), &SettingsBrew::temperatureOverrideChanged, this, [this]() {
         stampActiveRecipe(QStringLiteral("tempOverrideC"), m_settings->brew()->temperatureOverride());
     });
-    // Grind routes to the PIN only when the recipe pins it; inherited grind
-    // reaches the bag through SettingsDye's own write-through as always.
+    // Grind/rpm route to the PIN only when the recipe pins them; inherited
+    // values reach the bag through SettingsDye's own write-through as always.
     connect(m_settings->dye(), &SettingsDye::dyeGrinderSettingChanged, this, [this]() {
         if (!m_activeRecipe.value("grindPinned").toString().isEmpty())
             stampActiveRecipe(QStringLiteral("grindPinned"), m_settings->dye()->dyeGrinderSetting());
+    });
+    connect(m_settings->dye(), &SettingsDye::dyeGrinderRpmChanged, this, [this]() {
+        if (!m_activeRecipe.value("grindPinned").toString().isEmpty())
+            stampActiveRecipe(QStringLiteral("rpmPinned"), m_settings->dye()->dyeGrinderRpm());
     });
     // Steam tweaks (pitcher selection/edits, milk weight) refresh the block.
     connect(m_settings->brew(), &SettingsBrew::selectedSteamPitcherChanged, this,
@@ -955,16 +959,21 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         if (equipmentId > 0)
             dye->setActiveEquipmentId(equipmentId);
 
-        // Grind routing: a pin is the recipe's private dial (bag write-through
-        // suspended so sibling recipes don't follow it); inherited grind is
-        // the bag's current value. Suspension must be set BEFORE the setter.
+        // Grind routing: a pin is the recipe's private dial — grind AND rpm
+        // together (bag write-through suspended so sibling recipes don't
+        // follow it); inherited values come from the bag. Suspension must be
+        // set BEFORE the setters.
         const QString pin = recipe.value("grindPinned").toString();
+        const qint64 rpmPin = recipe.value("rpmPinned").toLongLong();
         dye->setGrindBagWriteThroughSuspended(!pin.isEmpty());
-        if (!pin.isEmpty())
+        if (!pin.isEmpty()) {
             dye->setDyeGrinderSetting(pin);
-        else if (openBagId > 0)
+            if (rpmPin > 0)
+                dye->setDyeGrinderRpm(static_cast<int>(rpmPin));
+        } else if (openBagId > 0) {
             dye->setDyeGrinderSetting(openBag.value("grinderSetting").toString());
-        if (openBagId > 0 && openBag.value("rpm").toLongLong() > 0)
+        }
+        if (pin.isEmpty() && openBagId > 0 && openBag.value("rpm").toLongLong() > 0)
             dye->setDyeGrinderRpm(static_cast<int>(openBag.value("rpm").toLongLong()));
 
         // Dose — queued so it wins over loadProfile's own deferred

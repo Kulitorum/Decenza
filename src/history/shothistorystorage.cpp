@@ -1376,6 +1376,26 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 26: recipes.rpm_pinned (add-recipes follow-up) — the grind
+    // override pins grind AND rpm together. Fresh DBs get the column from
+    // ensureTableStatic (the hasColumn guard makes both paths converge);
+    // this repairs branch-dev DBs that already ran migration 25 with the
+    // old table. One idempotent additive column, gated ">= 25 && < 26".
+    if (currentVersion >= 25 && currentVersion < 26) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 26 (recipes rpm_pinned)";
+
+        if (!hasColumn("recipes", "rpm_pinned"))
+            query.exec ("ALTER TABLE recipes ADD COLUMN rpm_pinned INTEGER");
+
+        if (hasColumn("recipes", "rpm_pinned")) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (26)");
+            currentVersion = 26;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 26 incomplete - will retry next launch";
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }

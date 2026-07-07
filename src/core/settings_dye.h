@@ -212,8 +212,8 @@ public:
     int activeRecipeId() const;
     void setActiveRecipeId(int recipeId);
 
-    // While the active recipe PINS its grind, grind edits belong to the pin,
-    // not the bean: setDyeGrinderSetting() must not write through to the bag
+    // While the active recipe PINS its grind, grind AND rpm edits belong to
+    // the pin, not the bean: the setters must not write through to the bag
     // (sibling recipes inherit the bag's value and would silently follow a
     // pinned recipe's private dial). MainController sets this while a
     // pin-carrying recipe is active and clears it on deactivation. Runtime

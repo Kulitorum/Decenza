@@ -51,6 +51,7 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
     o["yieldG"] = r.yieldG;
     o["temperatureOverrideC"] = r.tempOverrideC;
     o["grindPinned"] = r.grindPinned;
+    o["rpmPinned"] = r.rpmPinned;
     if (!r.steamJson.isEmpty())
         o["steam"] = QJsonDocument::fromJson(r.steamJson.toUtf8()).object();
     o["archived"] = r.archived;
@@ -92,6 +93,8 @@ QVariantMap recipeFieldsFromBody(const QJsonObject& body)
     }
     if (body.contains("equipmentId"))
         fields.insert("equipmentId", body["equipmentId"].toInteger());
+    if (body.contains("rpmPinned"))
+        fields.insert("rpmPinned", body["rpmPinned"].toInteger());
     if (body.contains("doseG"))
         fields.insert("doseG", body["doseG"].toDouble());
     if (body.contains("yieldG"))
