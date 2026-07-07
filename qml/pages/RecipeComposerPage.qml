@@ -436,13 +436,25 @@ Page {
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: Theme.spacingMedium
 
-                // Name — the one field every recipe needs; full width, prominent.
-                StyledTextField {
-                    id: nameField
+                // Name — the one field every recipe needs; full width, labeled
+                // (it opens focused, which hides the placeholder, so the label
+                // must carry the meaning).
+                ColumnLayout {
                     Layout.fillWidth: true
                     Layout.topMargin: Theme.spacingMedium
-                    placeholder: TranslationManager.translate("recipes.composer.namePlaceholder", "Recipe name (e.g. Morning cappuccino)")
-                    accessibleName: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name")
+                    spacing: Theme.scaled(4)
+                    Label {
+                        text: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name") + " *"
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                        Accessible.ignored: true
+                    }
+                    StyledTextField {
+                        id: nameField
+                        Layout.fillWidth: true
+                        placeholder: TranslationManager.translate("recipes.composer.namePlaceholder", "e.g. Morning cappuccino")
+                        accessibleName: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name")
+                    }
                 }
 
                 GridLayout {
