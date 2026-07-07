@@ -21,13 +21,14 @@ class SerialDbWorker;
 //
 // Grind: a recipe with an empty grindPinned INHERITS the linked bean's
 // current bag grind (resolution happens at activation, not here); a non-empty
-// grindPinned is this recipe's own opaque grind text. Bean-less recipes keep
-// grind in grindPinned by construction (there is nothing to inherit from).
+// grindPinned is this recipe's own opaque grind text. The pin covers rpm as
+// well (rpmPinned) — grind and rpm are pinned together. Bean-less recipes keep
+// grind/rpm on the recipe by construction (there is nothing to inherit from).
 //
-// Steam: steamJson holds the drink's steam block (hasMilk, milkWeightG,
-// pitcher snapshot name/volume, temperatureC/flow/timeoutSec). The pitcher is
-// snapshotted BY VALUE — never a preset-list reference — per the Bean Base
-// snapshot-not-reference rule.
+// Steam: steamJson holds the drink's steam block, serialized as
+// {hasMilk, milkWeightG, pitcherName, durationSec, flow, temperatureC}. The
+// pitcher is snapshotted BY VALUE (name + duration/flow/temperature) — never a
+// preset-list reference — per the Bean Base snapshot-not-reference rule.
 struct Recipe {
     qint64 id = 0;
 

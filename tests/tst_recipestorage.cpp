@@ -57,9 +57,12 @@ static Recipe sampleRecipe() {
     r.yieldG = 40.0;
     r.tempOverrideC = 92.5;
     r.grindPinned = "";  // inherits
+    r.rpmPinned = 90;    // migration-26 field; round-trips through COL_EPOCH
+    // Real steam-block key shape (see MainController::currentSteamSpecJson).
     r.steamJson = "{\"hasMilk\":true,\"milkWeightG\":150,\"pitcherName\":\"Small\","
-                  "\"pitcherVolumeMl\":350,\"temperatureC\":140,\"flow\":1.2,\"timeoutSec\":40}";
+                  "\"durationSec\":40,\"flow\":120,\"temperatureC\":140}";
     r.createdFromShotId = 42;
+    r.clonedFromRecipeId = 3;
     return r;
 }
 
@@ -89,9 +92,11 @@ private slots:
         QCOMPARE(back.yieldG, r.yieldG);
         QCOMPARE(back.tempOverrideC, r.tempOverrideC);
         QCOMPARE(back.grindPinned, r.grindPinned);
+        QCOMPARE(back.rpmPinned, r.rpmPinned);
         QCOMPARE(back.steamJson, r.steamJson);
         QCOMPARE(back.archived, r.archived);
         QCOMPARE(back.createdFromShotId, r.createdFromShotId);
+        QCOMPARE(back.clonedFromRecipeId, r.clonedFromRecipeId);
     }
 
     void variantMapAbsentKeysKeepDefaults() {
@@ -114,8 +119,14 @@ private slots:
             QVERIFY(loaded.isValid());
             QCOMPARE(loaded.name, QString("Morning capp"));
             QCOMPARE(loaded.doseG, 18.0);
+            QCOMPARE(loaded.rpmPinned, (qint64)90);
             QCOMPARE(loaded.steamJson, sampleRecipe().steamJson);
             QCOMPARE(loaded.createdFromShotId, (qint64)42);
+            // rpm_pinned is COL_EPOCH: updating to 0 clears it to NULL (the
+            // pin-clearing path MainController relies on when the override is
+            // turned off), and it reloads as 0.
+            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"rpmPinned", 0}}));
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).rpmPinned, (qint64)0);
             // Minimal recipe: only a name (profile optional at the storage
             // layer — required-ness is enforced by the composer/tools).
             Recipe minimal;
@@ -230,7 +241,88 @@ private slots:
             Recipe bare;
             bare.name = "Bare";
             QCOMPARE(RecipeStorage::resolveOpenBagStatic(db, bare), (qint64)-1);
+
+            // Canonical-miss fallthrough: a recipe whose beanBaseId matches NO
+            // bag but whose roaster+coffee identity matches an open bag must
+            // fall through to the identity pass (real case: bags created before
+            // Bean Base linking). If someone made a present-but-unmatched
+            // canonical id return -1, older bags would silently lose their bean.
+            Recipe canonMiss = sampleRecipe();
+            canonMiss.beanBaseId = "bb-uuid-nonexistent";  // matches no bag
+            QCOMPARE(RecipeStorage::resolveOpenBagStatic(db, canonMiss), openId);
         });
+    }
+
+    void resolveOpenBagMruTieBreak() {
+        withRawDb(freshDbPath(), "bag_mru", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            // Two OPEN bags of the same bean -> the most recently used wins.
+            CoffeeBag a; a.roasterName = "Roaster"; a.coffeeName = "Guji";
+            a.beanBaseId = "bb-uuid-1"; a.inInventory = true; a.lastUsedEpoch = 100;
+            CoffeeBag b = a; b.lastUsedEpoch = 500;
+            const qint64 olderId = CoffeeBagStorage::insertBagStatic(db, a);
+            const qint64 newerId = CoffeeBagStorage::insertBagStatic(db, b);
+            QVERIFY(olderId > 0 && newerId > 0);
+            QCOMPARE(RecipeStorage::resolveOpenBagStatic(db, sampleRecipe()), newerId);
+        });
+    }
+
+    // --- activation bundle ---
+
+    // requestRecipeForActivation loads recipe + resolved bag in ONE pass and is
+    // the terminus of every activation caller (idle pill, RecipesPage, MCP,
+    // web). Its three documented contracts — happy path, missing recipe emits
+    // an EMPTY map (activation must fail cleanly, NOT hang), and bean-less /
+    // no-open-bag emits openBagId == -1 — are each load-bearing.
+    void requestRecipeForActivation() {
+        const QString path = freshDbPath();
+        qint64 recipeId = 0, bareId = 0, openBagId = 0;
+        withRawDb(path, "act_setup", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            CoffeeBag bag; bag.roasterName = "Roaster"; bag.coffeeName = "Guji";
+            bag.beanBaseId = "bb-uuid-1"; bag.inInventory = true; bag.grinderSetting = "2.4";
+            openBagId = CoffeeBagStorage::insertBagStatic(db, bag);
+            recipeId = RecipeStorage::insertRecipeStatic(db, sampleRecipe());
+            Recipe bare; bare.name = "Bare";  // no bean link
+            bareId = RecipeStorage::insertRecipeStatic(db, bare);
+        });
+        QVERIFY(recipeId > 0 && bareId > 0 && openBagId > 0);
+
+        RecipeStorage storage;
+        storage.initialize(path);
+
+        // Happy path: recipe map + resolved open bag + full bag map, one pass.
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeActivationReady);
+            storage.requestRecipeForActivation(recipeId);
+            QTRY_COMPARE(spy.count(), 1);
+            const auto args = spy.at(0);
+            QCOMPARE(args.at(0).toLongLong(), recipeId);
+            QCOMPARE(args.at(1).toMap().value("name").toString(), QString("Morning capp"));
+            QCOMPARE(args.at(2).toLongLong(), openBagId);
+            QCOMPARE(args.at(3).toMap().value("grinderSetting").toString(), QString("2.4"));
+        }
+
+        // Missing recipe: emits with an EMPTY recipe map (caller fails cleanly).
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeActivationReady);
+            storage.requestRecipeForActivation(999999);
+            QTRY_COMPARE(spy.count(), 1);
+            QVERIFY(spy.at(0).at(1).toMap().isEmpty());
+            QCOMPARE(spy.at(0).at(2).toLongLong(), (qint64)-1);
+        }
+
+        // Bean-less recipe: valid recipe, openBagId == -1, empty bag map.
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeActivationReady);
+            storage.requestRecipeForActivation(bareId);
+            QTRY_COMPARE(spy.count(), 1);
+            QVERIFY(!spy.at(0).at(1).toMap().isEmpty());
+            QCOMPARE(spy.at(0).at(2).toLongLong(), (qint64)-1);
+            QVERIFY(spy.at(0).at(3).toMap().isEmpty());
+        }
     }
 
     // --- async lifecycle: delete guard + clone provenance ---

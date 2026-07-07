@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: One composer window for create, edit, promote, and clone
-The system SHALL provide a single recipe composer page used for all recipe creation and editing. It SHALL expose: name (required), profile picker (required, reusing the profile selector), bag picker (optional, reusing the change-beans dialog; selecting a bag links the recipe to that bag's bean), equipment picker (optional, reusing the switch-equipment dialog), dose, yield, temperature override, grind (showing "inherited from <bag>" by default with an explicit pin action), and the steam block (hasMilk, milk weight, pitcher, temperature/flow/timeout). Only name and profile SHALL be required to save.
+The system SHALL provide a single recipe composer page used for all recipe creation and editing. It SHALL expose: name (required), profile picker (required, with a search box), bag picker (optional; selecting a bag links the recipe to that bag's bean), equipment picker (optional), dose, yield, temperature offset, grind (showing "follows the bean" by default with an explicit override that covers grind + rpm), and the steam block (hasMilk, milk weight, pitcher, duration/flow/temperature). The pickers are lightweight in-page list dialogs. Only name and profile SHALL be required to save.
 
 #### Scenario: Blank creation
 - **WHEN** the user creates a recipe from the Recipes page

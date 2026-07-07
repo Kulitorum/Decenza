@@ -11,10 +11,11 @@ import "../components"
 // Only name + profile are required; bean and equipment offer "none" — the
 // optionality ladder applies inside the recipe too.
 //
-// Layout: everything on one page. A centered column with the name up top,
-// then section cards in a two-column grid on wide screens (drink+grind |
-// beans+equipment+steam), single column when narrow. Pickers render as
-// labeled field-style buttons; the profile picker has a search box.
+// Layout: everything on one page. A centered column with the name + Save/
+// Cancel up top, then four section cards in two INDEPENDENT columns on wide
+// screens (Profile+Equipment | Bean+Steam), single column when narrow. Grind
+// lives inside the Bean card behind an override switch. Pickers are
+// lightweight in-page list dialogs; the profile picker has a search box.
 Page {
     id: composerPage
     objectName: "recipeComposerPage"
@@ -40,6 +41,14 @@ Page {
     // in the recipe. Needs the profile's base temp to be meaningful.
     property real fProfileTempC: 0
     property real fTempDeltaC: 0
+    // The recipe's saved absolute temp override, preserved verbatim when the
+    // profile's base temp can't be resolved (profile not installed locally) —
+    // so editing such a recipe doesn't silently drop its override to 0.
+    property real fLoadedTempOverrideC: 0
+    // True while our own save() is in flight — so the composer only pops on
+    // OUR create, not on an unrelated recipe created by MCP/web/clone
+    // elsewhere (recipeCreated carries no request correlation).
+    property bool _submitting: false
     property string fBeanBaseId: ""
     property string fRoaster: ""
     property string fCoffee: ""
@@ -112,6 +121,7 @@ Page {
         fEquipmentId = r.equipmentId || 0
         doseField.text = r.doseG > 0 ? Number(r.doseG).toFixed(1) : ""
         yieldField.text = r.yieldG > 0 ? Number(r.yieldG).toFixed(1) : ""
+        fLoadedTempOverrideC = r.tempOverrideC || 0
         refreshProfileTemp()
         fTempDeltaC = (r.tempOverrideC > 0 && fProfileTempC > 0)
             ? r.tempOverrideC - fProfileTempC : 0
@@ -176,7 +186,11 @@ Page {
     function prefillFromShot(shot) {
         var beanBaseId = ""
         if (shot.beanBaseJson) {
-            try { beanBaseId = JSON.parse(shot.beanBaseJson).id || "" } catch (e) {}
+            try {
+                beanBaseId = JSON.parse(shot.beanBaseJson).id || ""
+            } catch (e) {
+                console.warn("RecipeComposer: bad beanBaseJson on promoted shot:", e)
+            }
         }
         var hasBeanData = beanBaseId !== "" || shot.beanBrand || shot.beanType
         // Route through `prefill` so save() picks up the provenance fields.
@@ -247,13 +261,22 @@ Page {
             equipmentId: fEquipmentId,
             doseG: parseFloat(doseField.text) || 0,
             yieldG: parseFloat(yieldField.text) || 0,
-            // Offset semantics (like the shot plan): 0° = no override.
-            tempOverrideC: (fProfileTempC > 0 && Math.abs(fTempDeltaC) > 0.05)
-                ? fProfileTempC + fTempDeltaC : 0,
+            // Offset semantics (like the shot plan): 0° = no override. When the
+            // profile's base temp is unknown (profile not installed) we can't
+            // recompute the absolute — preserve the loaded override verbatim
+            // rather than dropping it to 0.
+            tempOverrideC: fProfileTempC > 0
+                ? (Math.abs(fTempDeltaC) > 0.05 ? fProfileTempC + fTempDeltaC : 0)
+                : fLoadedTempOverrideC,
             // Override OFF (with a bean) = inherit: store nothing. Bean-less
             // recipes always keep their grind/rpm on the recipe.
             grindPinned: (!hasBean || fGrindOverride) ? grindField.text.trim() : "",
-            rpmPinned: ((!hasBean || fGrindOverride) && fEquipmentRpmCapable)
+            // Keep rpm when the grinder is rpm-capable OR a value is already
+            // present (loaded/typed) — the capability flag arrives async, so
+            // gating on it alone could drop a valid pin saved before the
+            // equipment inventory resolved.
+            rpmPinned: ((!hasBean || fGrindOverride)
+                        && (fEquipmentRpmCapable || (parseInt(rpmField.text) || 0) > 0))
                 ? (parseInt(rpmField.text) || 0) : 0,
             steamJson: buildSteamJson()
         }
@@ -261,6 +284,7 @@ Page {
             map.createdFromShotId = prefill.createdFromShotId
         if (prefill && prefill.clonedFromRecipeId)
             map.clonedFromRecipeId = prefill.clonedFromRecipeId
+        _submitting = true
         if (mode === "edit" && editRecipeId > 0)
             MainController.recipeStorage.requestUpdateRecipe(editRecipeId, map)
         else
@@ -284,7 +308,11 @@ Page {
                 composerPage.applyRecipeMap(recipe)
         }
         function onRecipeCreated(recipeId, recipe) {
-            if (composerPage.mode !== "edit") {
+            // Only react to OUR own submission — recipeCreated carries no
+            // request id, so an unrelated create (MCP/web/clone elsewhere)
+            // must not pop this page and discard the user's in-progress edit.
+            if (composerPage.mode !== "edit" && composerPage._submitting) {
+                composerPage._submitting = false
                 if (recipeId > 0)
                     pageStack.pop()
                 else
@@ -293,7 +321,9 @@ Page {
             }
         }
         function onRecipeUpdated(recipeId, success) {
-            if (composerPage.mode === "edit" && recipeId === composerPage.editRecipeId) {
+            if (composerPage.mode === "edit" && recipeId === composerPage.editRecipeId
+                && composerPage._submitting) {
+                composerPage._submitting = false
                 if (success)
                     pageStack.pop()
                 else

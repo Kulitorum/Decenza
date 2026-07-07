@@ -795,15 +795,21 @@ void MainController::setupRecipeConnections() {
     // our own stamps). recipeUpdated fires for every update, success or not.
     connect(m_recipeStorage, &RecipeStorage::recipeUpdated, this,
             [this](qint64 recipeId, bool success) {
-        if (!success || recipeId != m_settings->dye()->activeRecipeId())
+        if (recipeId != m_settings->dye()->activeRecipeId())
             return;
         // Skip the re-read for our own write-through stamps — the cache
         // already holds those values (mirrors SettingsDye's bag echo skip).
+        // Decrement even on a FAILED stamp: the counter must track every
+        // stamp we issued, or a failed self-write would leak the count and
+        // silently swallow the next external edit's refresh. (A leaked
+        // count across a recipe switch is separately cleared in
+        // applyActivatedRecipe / deactivateRecipe.)
         if (m_pendingRecipeSelfWrites > 0) {
             m_pendingRecipeSelfWrites--;
             return;
         }
-        m_recipeStorage->requestRecipe(recipeId);
+        if (success)
+            m_recipeStorage->requestRecipe(recipeId);
     });
 
     // Cache refresh + startup restore both land here.
@@ -917,21 +923,37 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         return;
     }
 
-    m_applyingRecipe = true;
-
     // Profile — installed by title, stored JSON as fallback (the same rule
     // as applyLoadedShotMetadata). loadProfile resets brew overrides to the
     // profile defaults; the recipe's own overrides re-apply below.
+    //
+    // The profile IS the drink — if neither the titled profile is installed
+    // nor a JSON fallback exists (e.g. an MCP/web recipe whose profileTitle
+    // was mistyped, or the profile was later deleted), activation must FAIL,
+    // not silently light up the pill while the machine keeps the previously
+    // loaded profile. Bail before any state changes so the caller can report
+    // the failure honestly.
     const QString profileTitle = recipe.value("profileTitle").toString();
     const QString profileJson = recipe.value("profileJson").toString();
-    QString filename = m_profileManager->findProfileByTitle(profileTitle);
+    const QString filename = m_profileManager->findProfileByTitle(profileTitle);
+    if (filename.isEmpty() && profileJson.isEmpty()) {
+        qWarning() << "applyActivatedRecipe: no profile data for recipe" << recipeId
+                   << "(title" << profileTitle << "not installed, no JSON) - activation failed";
+        emit recipeActivated(recipeId, false);
+        return;
+    }
+
+    m_applyingRecipe = true;
+    // Clear any leaked self-write count from a prior recipe (a stamp whose
+    // echo arrived after the recipe was deactivated/switched never got a
+    // chance to decrement) so it can't swallow this recipe's first edit.
+    m_pendingRecipeSelfWrites = 0;
+
     if (!filename.isEmpty()) {
         m_profileManager->loadProfile(filename);
-    } else if (!profileJson.isEmpty()) {
+    } else {
         m_profileManager->loadProfileFromJson(profileJson);
         m_profileManager->persistCurrentProfile();
-    } else {
-        qWarning() << "applyActivatedRecipe: no profile data for recipe" << recipeId;
     }
 
     if (m_settings) {
@@ -1075,6 +1097,9 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
 
 void MainController::deactivateRecipe() {
     const bool hadMilk = activeRecipeHasMilk();
+    // Drop any in-flight self-write count with the recipe it belonged to —
+    // its echo would otherwise land with no active recipe and leak the count.
+    m_pendingRecipeSelfWrites = 0;
     if (m_settings) {
         m_settings->dye()->setGrindBagWriteThroughSuspended(false);
         m_settings->dye()->setActiveRecipeId(-1);

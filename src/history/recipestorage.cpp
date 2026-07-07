@@ -29,9 +29,9 @@ QVariant nullIfZero(double v) {
 // pattern in coffeebagstorage.cpp: the SELECT list, positional row read,
 // INSERT list + binds, camelCase->column update map, and QVariantMap
 // round-trip are all derived from this one ordered table. The physical
-// schema (CREATE TABLE in ensureTableStatic + migration 25) is the only
-// thing not generated from it — adding a column is a row here PLUS a
-// schema/migration edit there.
+// schema (CREATE TABLE in ensureTableStatic + migration 25, plus migration 26
+// for rpm_pinned) is the only thing not generated from it — adding a column is
+// a row here PLUS a schema/migration edit there.
 //
 // `shotCount` is intentionally NOT here (see InventoryRecipe): it is a
 // per-query aggregate injected by requestInventory only.
@@ -271,6 +271,14 @@ void RecipeStorage::requestRecipeForActivation(qint64 recipeId)
 
 void RecipeStorage::requestCreateRecipe(const QVariantMap& recipeMap)
 {
+    // Guarantee a terminal recipeCreated even when uninitialized — runAsync
+    // silently drops the job on an empty dbPath, which would leave MCP/web
+    // one-shot listeners hanging forever (see requestUpdateRecipe).
+    if (m_dbPath.isEmpty()) {
+        qWarning() << "RecipeStorage: requestCreateRecipe on uninitialized storage";
+        emit recipeCreated(-1, QVariantMap());
+        return;
+    }
     auto newId = std::make_shared<qint64>(-1);
     auto created = std::make_shared<QVariantMap>();
     runAsync("recipes_create",
@@ -315,6 +323,11 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
 
 void RecipeStorage::requestCloneRecipe(qint64 sourceId, const QString& newName)
 {
+    if (m_dbPath.isEmpty()) {
+        qWarning() << "RecipeStorage: requestCloneRecipe on uninitialized storage";
+        emit recipeCreated(-1, QVariantMap());
+        return;
+    }
     auto newId = std::make_shared<qint64>(-1);
     auto created = std::make_shared<QVariantMap>();
     runAsync("recipes_clone",
@@ -371,6 +384,11 @@ void RecipeStorage::requestTouchLastUsed(qint64 recipeId)
 
 void RecipeStorage::requestDeleteRecipe(qint64 recipeId)
 {
+    if (m_dbPath.isEmpty()) {
+        qWarning() << "RecipeStorage: requestDeleteRecipe on uninitialized storage, recipe" << recipeId;
+        emit recipeDeleted(recipeId, false);
+        return;
+    }
     auto success = std::make_shared<bool>(false);
     runAsync("recipes_delete",
         [recipeId, success](QSqlDatabase& db) {
