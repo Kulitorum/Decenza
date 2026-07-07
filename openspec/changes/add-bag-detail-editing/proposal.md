@@ -13,8 +13,9 @@ We pull rich bean details (origin, region, producer, variety, process, harvest, 
 - Edited details are stored in the bag's existing `beanBaseData` blob; a blob **without** a canonical id becomes valid (manual bag with details), so the details popup, bag card attribute line, shot snapshots, AI advisor, and MCP surfaces all pick up user-entered data with no schema change. Three new blob keys: `farm`, `qualityScore`, `placeOfPurchase`.
 - **Auto-push to Visualizer**: saving edits to a bag that carries a `visualizerBagId` PATCHes the user's Visualizer bag with the full mapped field set (not just blank-filling). Failed pushes set a pending flag retried on the next upload cycle. Bags not yet on Visualizer are covered by the existing upload-time find-or-create, whose field set expands to include `url`, `farm`, `quality_score`, `place_of_purchase`.
 - MCP `bag_update` accepts the detail fields; `bag_list` emits them.
+- **Manual bags pull from their URL too** (scope added during verification): a manual bag with a product URL resolves its photo like a linked bag (image cache keyed `bag-<rowid>`), and a **"Get info from page"** button performs Visualizer-style extraction — fetch the page, reduce to plain text, have the user's configured AI model extract origin/region/farm/producer/variety/elevation/process/harvest/roast level/tasting notes — filling only fields still empty. Hidden without a URL or a configured AI provider.
 
-Out of scope: bag image upload (no API field), Visualizer per-user custom metadata fields, the "Get info" URL scraper, pulling server-side bag edits back into Decenza (push is one-way), writes to the canonical database (read-only by design), and BeanInfoPage DYE field locking (unchanged).
+Out of scope: bag image upload (no API field), Visualizer per-user custom metadata fields, pulling server-side bag edits back into Decenza (push is one-way), writes to the canonical database (read-only by design), and BeanInfoPage DYE field locking (unchanged).
 
 ## Capabilities
 

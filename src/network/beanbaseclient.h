@@ -95,6 +95,14 @@ public:
     Q_INVOKABLE static QString revertToCanonical(const QString& blob);
     Q_INVOKABLE static bool blobDiffersFromCanonical(const QString& blob);
 
+    // Fetch a roaster product page and reduce it to plain text for the
+    // "Get info" AI extraction — the same reduction Visualizer's scraper
+    // performs (drop script/style/svg/img, strip tags, squish). Follows
+    // redirects; emits pageTextReady/pageTextFailed.
+    Q_INVOKABLE void fetchPageText(const QString& url);
+    // The HTML -> squished-plain-text reduction. Static + public for tests.
+    static QString extractPageText(const QByteArray& html);
+
     // og:image URL extraction from product-page HTML (property= or name=,
     // og:image:secure_url variant, either attribute order; protocol-relative
     // URLs normalized to https). Empty when absent or not an absolute http(s)
@@ -129,6 +137,11 @@ signals:
 
     // A bag photo landed in (or already existed in) the file cache.
     void bagImageReady(const QString& canonicalId, const QString& filePath);
+    // "Get info" page fetch (add-bag-detail-editing): the product page's
+    // plain text (tags stripped, whitespace squished, length-capped), ready
+    // for AI extraction. url is echoed back so stale results are discardable.
+    void pageTextReady(const QString& url, const QString& text);
+    void pageTextFailed(const QString& url, const QString& error);
     // The image re-search recovered a product URL for a blob that lacked
     // `link` (linked before the url→link capture). BagCard backfills it into
     // the bag blob so the details popup can offer the reorder link.

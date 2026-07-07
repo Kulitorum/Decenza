@@ -96,6 +96,11 @@ Dialog {
     // old page). Clearing the URL keeps the cached image — there is nothing
     // to re-resolve from.
     property string _openedLink: ""
+    // "Get info from page": fetch the product page's text and have the
+    // configured AI extract bean details, filling only EMPTY fields. Gated on
+    // an AI provider being configured (the button hides otherwise).
+    property bool fetchingInfo: false
+    property string infoStatus: ""
 
     readonly property var formBeanBase: {
         if (!fBeanBaseData || fBeanBaseData.length === 0) return ({})
@@ -285,6 +290,8 @@ Dialog {
         syncDetailFieldsFromBlob()   // blob is empty: clears every detail field
         detailsExpanded = false
         _openedLink = ""
+        fetchingInfo = false
+        infoStatus = ""
         errorMessage = ""
     }
 
@@ -434,10 +441,13 @@ Dialog {
         // captured on the first edit of a linked bag; cleared fields removed).
         var mergedBlob = stagedBlob
         // A URL changed to a non-empty value re-resolves the bag image — the
-        // cached og:image pixels describe the old page (linked bags only:
-        // the image cache is keyed by canonical id).
-        if (fBeanBaseId.length > 0 && fLink.trim() !== _openedLink && fLink.trim().length > 0)
-            MainController.beanbase.refreshBagImage(fBeanBaseId, fCoffee.trim(), fLink.trim())
+        // cached og:image pixels describe the old page. Linked bags key the
+        // cache by canonical id; manual bags by their row id (create mode
+        // handles the manual case in onBagCreated, once the id exists).
+        var imageKey = fBeanBaseId.length > 0 ? fBeanBaseId
+                     : (formMode === "edit" && editBagId > 0 ? "bag-" + editBagId : "")
+        if (imageKey.length > 0 && fLink.trim() !== _openedLink && fLink.trim().length > 0)
+            MainController.beanbase.refreshBagImage(imageKey, fCoffee.trim(), fLink.trim())
         var fields = {
             "roasterName": fRoaster.trim(),
             "coffeeName": fCoffee.trim(),
@@ -541,6 +551,12 @@ Dialog {
                     "changebeans.form.createFailed", "Could not save the bag — please try again")
                 return
             }
+            // A manual bag created with a product URL: warm its image now
+            // that the row id (= its cache key) exists. Linked bags were
+            // warmed at entry pick under their canonical id.
+            if (root.fBeanBaseId.length === 0 && root.fLink.trim().length > 0)
+                MainController.beanbase.ensureBagImage(
+                    "bag-" + bagId, root.fCoffee.trim(), root.fLink.trim())
             root.applySelection(bagId, bag)
             root.close()
         }
@@ -1017,6 +1033,66 @@ Dialog {
 
                     Connections {
                         target: MainController.beanbase
+                        function onPageTextReady(url, text) {
+                            if (!root.fetchingInfo || url !== root.fLink.trim()) return
+                            root.infoStatus = TranslationManager.translate(
+                                "changebeans.form.getInfo.extracting", "Extracting details…")
+                            MainController.aiManager.extractCoffeeBagDetails(text)
+                        }
+                        function onPageTextFailed(url, error) {
+                            if (!root.fetchingInfo || url !== root.fLink.trim()) return
+                            root.fetchingInfo = false
+                            root.infoStatus = TranslationManager.translate(
+                                "changebeans.form.getInfo.pageFailed", "Couldn't read the page: %1").arg(error)
+                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                AccessibilityManager.announce(root.infoStatus)
+                        }
+                    }
+
+                    Connections {
+                        target: MainController.aiManager
+                        // Fill ONLY empty fields — the page never overrides
+                        // something the user (or the canonical entry) set.
+                        function onBagDetailsExtracted(fields) {
+                            if (!root.fetchingInfo) return
+                            root.fetchingInfo = false
+                            var applied = 0
+                            function take(key, current, apply) {
+                                if (fields[key] && String(current).trim().length === 0) {
+                                    apply(String(fields[key]))
+                                    applied++
+                                }
+                            }
+                            take("origin", root.fOrigin, function(v) { root.fOrigin = v })
+                            take("region", root.fRegion, function(v) { root.fRegion = v })
+                            take("farm", root.fFarm, function(v) { root.fFarm = v })
+                            take("producer", root.fProducer, function(v) { root.fProducer = v })
+                            take("variety", root.fVariety, function(v) { root.fVariety = v })
+                            take("elevation", root.fElevation, function(v) { root.fElevation = v })
+                            take("process", root.fProcess, function(v) { root.fProcess = v })
+                            take("harvest", root.fHarvest, function(v) { root.fHarvest = v })
+                            take("tastingNotes", root.fTastingNotes, function(v) { root.fTastingNotes = v })
+                            take("roastLevel", root.fRoastLevel, function(v) { root.fRoastLevel = v })
+                            root.detailsExpanded = true
+                            root.infoStatus = applied > 0
+                                ? TranslationManager.translate("changebeans.form.getInfo.applied",
+                                      "%1 field(s) filled from the page").arg(applied)
+                                : TranslationManager.translate("changebeans.form.getInfo.nothing",
+                                      "Nothing new found on the page")
+                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                AccessibilityManager.announce(root.infoStatus)
+                        }
+                        function onBagDetailsExtractionFailed(error) {
+                            if (!root.fetchingInfo) return
+                            root.fetchingInfo = false
+                            root.infoStatus = error
+                            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                AccessibilityManager.announce(root.infoStatus)
+                        }
+                    }
+
+                    Connections {
+                        target: MainController.beanbase
                         function onCanonicalDetails(canonicalId, attrs) {
                             if (root.mode !== "form" || root.fBeanBaseId !== canonicalId)
                                 return
@@ -1283,6 +1359,42 @@ Dialog {
                             accessibleText: TranslationManager.translate("changebeans.form.url.accessible", "Roaster product page URL")
                             value: root.fLink
                             onEdited: function(t) { root.fLink = t }
+                        }
+
+                        // "Get info from page": Visualizer-style extraction —
+                        // fetch the page text, let the configured AI pull out
+                        // the details, fill only fields still empty. Hidden
+                        // without a URL or a configured AI provider.
+                        RowLayout {
+                            Layout.leftMargin: Theme.scaled(20)
+                            Layout.rightMargin: Theme.scaled(20)
+                            spacing: Theme.scaled(10)
+                            visible: root.fLink.trim().length > 0
+                                && MainController.aiManager && MainController.aiManager.isConfigured
+
+                            AccessibleButton {
+                                enabled: !root.fetchingInfo
+                                text: TranslationManager.translate("changebeans.form.getInfo", "Get info from page")
+                                accessibleName: TranslationManager.translate("changebeans.form.getInfo.accessible",
+                                    "Fetch the product page and fill empty bean detail fields using AI")
+                                onClicked: {
+                                    root.fetchingInfo = true
+                                    root.infoStatus = TranslationManager.translate(
+                                        "changebeans.form.getInfo.fetching", "Reading page…")
+                                    MainController.beanbase.fetchPageText(root.fLink.trim())
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: root.infoStatus.length > 0
+                                text: root.infoStatus
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.Wrap
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: text
+                            }
                         }
 
                         // Revert to the pristine canonical values (shown only

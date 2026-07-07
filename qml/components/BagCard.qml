@@ -36,31 +36,37 @@ Rectangle {
     // Bag photo from the on-disk image cache (canonical entries carry no image
     // — the photo is resolved from the product page's og:image and cached as a
     // file, never stored in the DB). Legacy pre-removal blobs may still carry
-    // a CDN `image` URL, used as fallback.
+    // a CDN `image` URL, used as fallback. Manual bags with a user-entered
+    // product URL get the same treatment under a "bag-<rowid>" cache key
+    // (add-bag-detail-editing).
     readonly property string canonicalId: hasCanonical ? String(bag.beanBaseId) : ""
+    readonly property string imageKey: hasCanonical
+        ? canonicalId
+        : (bag && bag.id !== undefined && beanBase.link ? "bag-" + bag.id : "")
     property string cachedImagePath: ""
 
     function refreshBagImage() {
-        if (canonicalId.length === 0) {
+        if (imageKey.length === 0) {
             cachedImagePath = ""
             return
         }
-        cachedImagePath = MainController.beanbase.bagImagePath(canonicalId)
+        cachedImagePath = MainController.beanbase.bagImagePath(imageKey)
         if (cachedImagePath.length === 0)
-            MainController.beanbase.ensureBagImage(canonicalId,
+            MainController.beanbase.ensureBagImage(imageKey,
                 (bag && bag.coffeeName) || "", beanBase.link || "")
         // The reorder URL is wanted even when the image is already cached
         // (a legacy blob whose photo resolved before link backfill existed).
-        if (!beanBase.link)
+        // Canonical-linked bags only — a manual bag has nothing to recover from.
+        if (hasCanonical && !beanBase.link)
             MainController.beanbase.recoverBagLink(canonicalId, (bag && bag.coffeeName) || "")
     }
     Component.onCompleted: refreshBagImage()
-    onCanonicalIdChanged: refreshBagImage()
+    onImageKeyChanged: refreshBagImage()
 
     Connections {
         target: MainController.beanbase
         function onBagImageReady(id, path) {
-            if (id === card.canonicalId)
+            if (id === card.imageKey)
                 card.cachedImagePath = path
         }
         // One-time blob backfill: the image re-search recovered the product
@@ -155,6 +161,7 @@ Rectangle {
     BeanBaseDetailsPopup {
         id: beanDetailsPopup
         beanBaseJson: (card.bag && card.bag.beanBaseData) || ""
+        imageKey: card.imageKey
     }
 
     DatePickerDialog {

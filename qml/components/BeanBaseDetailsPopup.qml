@@ -24,22 +24,26 @@ Popup {
     // carry a CDN `image` URL, used as fallback. Resolution is requested when
     // the popup opens so the photo appears on the spot when it can be fetched.
     property string cachedImagePath: ""
+    // Image-cache key: the canonical id for linked blobs; a host showing a
+    // manual bag with a product URL passes its "bag-<rowid>" key instead
+    // (add-bag-detail-editing). Defaults to the blob's own id so per-shot
+    // snapshot hosts need no change.
+    property string imageKey: fieldOrEmpty("id")
 
     onAboutToShow: {
-        var id = fieldOrEmpty("id")
-        if (id.length === 0) {
+        if (imageKey.length === 0) {
             cachedImagePath = ""
             return
         }
-        cachedImagePath = MainController.beanbase.bagImagePath(id)
+        cachedImagePath = MainController.beanbase.bagImagePath(imageKey)
         if (cachedImagePath.length === 0)
-            MainController.beanbase.ensureBagImage(id, fieldOrEmpty("roastName"), fieldOrEmpty("link"))
+            MainController.beanbase.ensureBagImage(imageKey, fieldOrEmpty("roastName"), fieldOrEmpty("link"))
     }
 
     Connections {
         target: MainController.beanbase
         function onBagImageReady(id, path) {
-            if (root.visible && id === root.fieldOrEmpty("id"))
+            if (root.visible && id === root.imageKey)
                 root.cachedImagePath = path
         }
     }

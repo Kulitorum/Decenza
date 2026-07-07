@@ -148,6 +148,16 @@ public:
     // Generic analysis - sends system prompt and user prompt to current provider
     Q_INVOKABLE void analyze(const QString& systemPrompt, const QString& userPrompt);
 
+    // Extract structured coffee-bag details from a roaster product page's
+    // plain text (add-bag-detail-editing "Get info"). Same provider plumbing
+    // as analyze(), but completes via bagDetailsExtracted / -Failed so the
+    // advisor's recommendationReceived listeners never see extraction JSON.
+    Q_INVOKABLE void extractCoffeeBagDetails(const QString& pageText);
+    // Response JSON -> whitelisted blob-vocabulary fields (origin, region,
+    // farm, producer, variety, elevation, process, harvest, roastLevel,
+    // tastingNotes). Tolerates markdown fences. Static + public for tests.
+    static QVariantMap parseBagExtraction(const QString& response, bool* ok = nullptr);
+
     // Multi-turn conversation - sends system prompt and full message array to current provider
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages);
 
@@ -245,6 +255,9 @@ signals:
     void analyzingChanged();
     void recommendationReceived(const QString& recommendation);
     void errorOccurred(const QString& error);
+    // "Get info" extraction results (never routed to the advisor signals).
+    void bagDetailsExtracted(const QVariantMap& fields);
+    void bagDetailsExtractionFailed(const QString& error);
     void testResultChanged();
     void ollamaModelsChanged();
     void conversationIndexChanged();
@@ -327,6 +340,7 @@ private:
     AIConversation* m_conversation = nullptr;
     QList<ConversationEntry> m_conversationIndex;
     bool m_isConversationRequest = false;
+    bool m_isBagExtractionRequest = false;
 
 #ifdef DECENZA_TESTING
     friend class tst_AIManager;

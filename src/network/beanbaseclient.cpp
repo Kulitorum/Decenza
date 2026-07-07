@@ -251,6 +251,12 @@ void BeanBaseClient::ensureBagImage(const QString& canonicalId,
         return;
     }
 
+    // Manual bags (add-bag-detail-editing) use a "bag-<rowid>" cache key —
+    // there is no canonical entry to recover a URL from, so no URL means no
+    // image, full stop.
+    if (canonicalId.startsWith(QLatin1String("bag-")))
+        return;
+
     // Legacy blob without `link` (captured only since the url→link mapping):
     // recover the product URL first, then continue the image chain from it.
     m_imageAwaitingLink.insert(canonicalId);
@@ -420,6 +426,67 @@ QString BeanBaseClient::revertToCanonical(const QString& blob) {
 
 bool BeanBaseClient::blobDiffersFromCanonical(const QString& blob) {
     return BeanBaseBlob::differsFromCanonical(blob);
+}
+
+void BeanBaseClient::fetchPageText(const QString& url) {
+    const QUrl parsed(url);
+    if (!parsed.isValid() || !parsed.scheme().startsWith(QLatin1String("http"))) {
+        QPointer<BeanBaseClient> self(this);
+        QMetaObject::invokeMethod(this, [self, url]() {
+            if (self)
+                emit self->pageTextFailed(url, QStringLiteral("Not a valid web address"));
+        }, Qt::QueuedConnection);
+        return;
+    }
+    QNetworkRequest request(parsed);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    request.setTransferTimeout(kTransferTimeoutMs);
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, url]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit pageTextFailed(url, reply->errorString());
+            return;
+        }
+        const QString text = extractPageText(reply->readAll());
+        // Visualizer treats < 100 chars as "blocked or empty" and falls back
+        // to a scraping proxy; we have no proxy, so it is simply a failure.
+        if (text.size() < 100) {
+            emit pageTextFailed(url, QStringLiteral("The page returned no readable text"));
+            return;
+        }
+        emit pageTextReady(url, text);
+    });
+}
+
+// static
+QString BeanBaseClient::extractPageText(const QByteArray& html) {
+    QString text = QString::fromUtf8(html);
+    // Element bodies that are never prose, then every remaining tag — the
+    // same reduction Visualizer's scraper applies before AI extraction.
+    static const QRegularExpression kBlockRe(
+        QStringLiteral("<(script|style|svg)\\b[^>]*>.*?</\\1\\s*>"),
+        QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
+    static const QRegularExpression kTagRe(QStringLiteral("<[^>]+>"));
+    static const QRegularExpression kSpaceRe(QStringLiteral("\\s+"));
+    text.remove(kBlockRe);
+    text.replace(kTagRe, QStringLiteral(" "));
+    // The handful of entities that actually occur in shop prose.
+    text.replace(QLatin1String("&amp;"), QLatin1String("&"));
+    text.replace(QLatin1String("&lt;"), QLatin1String("<"));
+    text.replace(QLatin1String("&gt;"), QLatin1String(">"));
+    text.replace(QLatin1String("&quot;"), QLatin1String("\""));
+    text.replace(QLatin1String("&#39;"), QLatin1String("'"));
+    text.replace(QLatin1String("&nbsp;"), QLatin1String(" "));
+    text = text.replace(kSpaceRe, QStringLiteral(" ")).trimmed();
+    // Cap what we hand to the model: product prose sits well within this;
+    // the tail of a huge page is footer/locale noise (see the 19k-char
+    // Shopify example in the PR discussion).
+    constexpr qsizetype kMaxChars = 20000;
+    if (text.size() > kMaxChars)
+        text.truncate(kMaxChars);
+    return text;
 }
 
 QString BeanBaseClient::extractOgImage(const QByteArray& html) {

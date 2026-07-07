@@ -214,7 +214,7 @@ private slots:
         FakeBeanBaseServer server;
         const QByteArray base = server.baseUrl().toUtf8();
         server.respondForPath("/api/canonical_coffee_bags",
-            "{\"data\":[{\"id\":\"bag-1\",\"name\":\"Milk Blend\","
+            "{\"data\":[{\"id\":\"canon-img-1\",\"name\":\"Milk Blend\","
             "\"canonical_roaster_name\":\"Prodigal\",\"url\":\"" + base + "/product\"}]}");
         server.respondForPath("/product",
             "<html><head><meta property=\"og:image\" content=\"" + base + "/photo.jpg\"></head></html>");
@@ -225,26 +225,26 @@ private slots:
         client.setVisualizerBaseUrl(server.baseUrl());
         client.setImageCacheDir(cacheDir.path());
 
-        QCOMPARE(client.bagImagePath("bag-1"), QString());
+        QCOMPARE(client.bagImagePath("canon-img-1"), QString());
 
         QSignalSpy spy(&client, &BeanBaseClient::bagImageReady);
-        client.ensureBagImage("bag-1", "Milk Blend", "");
+        client.ensureBagImage("canon-img-1", "Milk Blend", "");
         QVERIFY(spy.wait(5000));
-        QCOMPARE(spy.first().at(0).toString(), QString("bag-1"));
+        QCOMPARE(spy.first().at(0).toString(), QString("canon-img-1"));
         const QString path = spy.first().at(1).toString();
         QVERIFY(QFile::exists(path));
         QFile f(path);
         QVERIFY(f.open(QIODevice::ReadOnly));
         QCOMPARE(f.readAll(), QByteArray("JPEGBYTES"));
-        QCOMPARE(client.bagImagePath("bag-1"), path);
+        QCOMPARE(client.bagImagePath("canon-img-1"), path);
 
         // Cached: a second ensure re-emits (deferred) with the same payload
         // and without any new request.
         const int requestsAfterResolve = server.requestCount();
         QSignalSpy spy2(&client, &BeanBaseClient::bagImageReady);
-        client.ensureBagImage("bag-1", "Milk Blend", "");
+        client.ensureBagImage("canon-img-1", "Milk Blend", "");
         QVERIFY(spy2.wait(1000));
-        QCOMPARE(spy2.first().at(0).toString(), QString("bag-1"));
+        QCOMPARE(spy2.first().at(0).toString(), QString("canon-img-1"));
         QCOMPARE(spy2.first().at(1).toString(), path);
         QCOMPARE(server.requestCount(), requestsAfterResolve);
     }
@@ -668,6 +668,27 @@ private slots:
         QVERIFY(BeanBaseBlob::differsFromCanonical(cleared));
         QCOMPARE(parsed(BeanBaseBlob::revertToCanonical(cleared)).value("region").toString(),
                  QString("Huila"));
+    }
+
+    void extractPageTextStripsAndSquishes() {
+        // The "Get info" HTML->text reduction (same as Visualizer's scraper):
+        // script/style/svg bodies removed, tags stripped, entities decoded,
+        // whitespace squished.
+        const QByteArray html =
+            "<html><head><style>.a{color:red}</style>"
+            "<script>var x = '<div>not text</div>';</script></head>"
+            "<body><h1>Saka  Caffe</h1><svg><path d=\"M0 0\"/></svg>"
+            "<p>Sweet &amp; creamy,\n\n low acidity &#39;espresso&#39;</p>"
+            "<img src=\"x.jpg\"></body></html>";
+        const QString text = BeanBaseClient::extractPageText(html);
+        QCOMPARE(text, QString("Saka Caffe Sweet & creamy, low acidity 'espresso'"));
+
+        // Length cap: a giant page is truncated, not passed through.
+        QByteArray big = "<body>";
+        for (int i = 0; i < 5000; i++)
+            big += "<p>lorem ipsum dolor sit amet</p>";
+        big += "</body>";
+        QVERIFY(BeanBaseClient::extractPageText(big).size() <= 20000);
     }
 
     void revertAndDiffAreNoopsWithoutLinkOrSnapshot() {

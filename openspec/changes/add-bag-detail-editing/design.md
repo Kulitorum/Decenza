@@ -20,7 +20,7 @@ Upload-time Coffee Management sync is already shipped (`visualizerBagId`/`visual
 **Non-Goals:**
 - No writes to the **canonical** database (its API is read-only search).
 - No pull of server-side bag edits back into Decenza (one-way push; the shot-upload cycle's blank-filling remains the only inbound path).
-- No bag image upload (the API exposes `image_url` read-only), no per-user custom metadata fields, no "Get info" AI scraper.
+- No bag image upload (the API exposes `image_url` read-only), no per-user custom metadata fields.
 - BeanInfoPage (live DYE) field locking is untouched — this change is scoped to the bag form.
 - No new user-facing settings; push is implied by having Visualizer credentials + a linked remote bag.
 
@@ -51,6 +51,14 @@ Because the canonical API is **search-only** (no GET-by-id), reverting edits can
 **Revert to Bean Base data** (shown in the editor when linked and the working copy differs from `canonical`) restores every canonical-supplied value over the working keys and removes working keys the canonical entry lacked (including a user-added URL — revert means *original data*, stated in the confirmation). Revert is a save: it runs the same blob merge and triggers the same Visualizer push.
 
 *Alternative considered*: per-field revert icons. Rejected as UI noise for a rare action; section-level revert covers the "roaster page said X, I trust the catalog again" case.
+
+### 2c. URL pull for manual bags: bag-keyed images + AI "Get info"
+
+Added at verification time on user request. Two parts:
+
+**Images**: the photo cache key generalizes from "canonical id" to "canonical id, or `bag-<rowid>` for unlinked bags with a `link`". `ensureBagImage` skips the canonical URL-recovery branch for `bag-` keys (nothing to re-search); BagCard/popup derive the key, the editor warms it on save (edit mode) or after creation (the row id is the key, so create mode hooks `bagCreated`).
+
+**"Get info from page"**: mirrors Visualizer's scraper pipeline (verified from `app/lib/coffee_bag_scraper.rb`): fetch the page following redirects → drop `script/style/svg/img` → strip tags, squish, cap 20k chars (`BeanBaseClient::fetchPageText`/`extractPageText`) → LLM extraction → JSON → fill **empty fields only**. Extraction runs on the user's configured AI provider via a dedicated `AIManager::extractCoffeeBagDetails()` path with its own `bagDetailsExtracted/-Failed` signals — deliberately NOT `analyze()`/`recommendationReceived`, which the advisor page and MCP listen to (extraction JSON must never surface as an advisor recommendation). The response parse (`parseBagExtraction`, fence-tolerant, key-whitelisted) is static and unit-tested. No Crawlbase-style proxy fallback: a blocked page is a visible failure. The og:description-only alternative was rejected with evidence — the example Shopify page's `og:description` is shipping boilerplate.
 
 ### 3. Blob merge, not blob replace
 

@@ -79,6 +79,34 @@ class tst_AIManager : public QObject {
     Q_OBJECT
 
 private slots:
+    // parseBagExtraction: the "Get info" response contract — JSON possibly
+    // wrapped in markdown fences, whitelisted to the blob vocabulary keys.
+    void parseBagExtractionHandlesFencesWhitelistAndGarbage()
+    {
+        bool ok = false;
+        // Plain object with an off-whitelist key and a numeric value.
+        QVariantMap fields = AIManager::parseBagExtraction(
+            "{\"origin\":\"Colombia\",\"tastingNotes\":\"cherry, cocoa\","
+            "\"price\":\"$13.25\",\"elevation\":1900}", &ok);
+        QVERIFY(ok);
+        QCOMPARE(fields.value("origin").toString(), QString("Colombia"));
+        QCOMPARE(fields.value("tastingNotes").toString(), QString("cherry, cocoa"));
+        QCOMPARE(fields.value("elevation").toString(), QString("1900"));  // numeric survives
+        QVERIFY(!fields.contains("price"));  // off-whitelist dropped
+
+        // Markdown-fenced response.
+        fields = AIManager::parseBagExtraction(
+            "```json\n{\"roastLevel\":\"Medium-Dark\",\"variety\":\"75% Arabica / 25% Robusta\"}\n```", &ok);
+        QVERIFY(ok);
+        QCOMPARE(fields.value("roastLevel").toString(), QString("Medium-Dark"));
+
+        // Garbage / no object.
+        QVERIFY(AIManager::parseBagExtraction("Sorry, I can't help with that.", &ok).isEmpty());
+        QVERIFY(!ok);
+        QVERIFY(AIManager::parseBagExtraction("{not json}", &ok).isEmpty());
+        QVERIFY(!ok);
+    }
+
     void initTestCase()
     {
         // Isolate the conversation index from the real user dir so loading /

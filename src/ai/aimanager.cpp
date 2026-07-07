@@ -1164,6 +1164,7 @@ void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt)
 
     m_analyzing = true;
     m_isConversationRequest = false;
+    m_isBagExtractionRequest = false;
     emit analyzingChanged();
 
     // Store for logging
@@ -1172,6 +1173,77 @@ void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt)
 
     logPrompt(selectedProvider(), systemPrompt, userPrompt);
     provider->analyze(systemPrompt, userPrompt);
+}
+
+void AIManager::extractCoffeeBagDetails(const QString& pageText)
+{
+    if (m_analyzing) {
+        emit bagDetailsExtractionFailed(QStringLiteral("AI is busy - try again in a moment"));
+        return;
+    }
+    AIProvider* provider = currentProvider();
+    if (!provider || !isConfigured()) {
+        emit bagDetailsExtractionFailed(QStringLiteral("No AI provider configured"));
+        return;
+    }
+
+    // Extraction contract mirrors Visualizer's "Get info": page text in, a
+    // flat JSON object of only-what-the-page-states out. Keys = the blob
+    // vocabulary so the caller can merge without remapping.
+    static const QString kSystemPrompt = QStringLiteral(
+        "You extract coffee bag details from the plain text of a roaster's product page. "
+        "Reply with ONLY a JSON object - no markdown, no commentary. Use exactly these keys, "
+        "omitting any the page does not clearly state: origin (country), region, farm, "
+        "producer (person or company that grew it), variety, elevation (display string, e.g. "
+        "\"1900-2100 m\"), process (e.g. \"Washed\", \"Natural\"), harvest (e.g. \"Late 2025\"), "
+        "roastLevel (one of: Light, Medium-Light, Medium, Medium-Dark, Dark - map the page's "
+        "wording), tastingNotes (comma-separated flavor descriptors from the page). "
+        "Never guess or infer a value the text does not state. For blends without a stated "
+        "origin, leave origin out and describe the blend in variety if stated.");
+
+    m_analyzing = true;
+    m_isConversationRequest = false;
+    m_isBagExtractionRequest = true;
+    emit analyzingChanged();
+
+    m_lastSystemPrompt = kSystemPrompt;
+    m_lastUserPrompt = QStringLiteral("[Bag page text, %1 chars]").arg(pageText.size());
+    logPrompt(selectedProvider(), kSystemPrompt, m_lastUserPrompt);
+    provider->analyze(kSystemPrompt, pageText);
+}
+
+// static
+QVariantMap AIManager::parseBagExtraction(const QString& response, bool* ok)
+{
+    if (ok)
+        *ok = false;
+    // Tolerate markdown fences / prose around the object: parse the first
+    // '{' .. last '}' span.
+    const qsizetype start = response.indexOf(QLatin1Char('{'));
+    const qsizetype end = response.lastIndexOf(QLatin1Char('}'));
+    if (start < 0 || end <= start)
+        return {};
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(
+        response.mid(start, end - start + 1).toUtf8(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject())
+        return {};
+
+    static const QStringList kKeys{
+        QStringLiteral("origin"), QStringLiteral("region"), QStringLiteral("farm"),
+        QStringLiteral("producer"), QStringLiteral("variety"), QStringLiteral("elevation"),
+        QStringLiteral("process"), QStringLiteral("harvest"), QStringLiteral("roastLevel"),
+        QStringLiteral("tastingNotes")};
+    const QJsonObject obj = doc.object();
+    QVariantMap fields;
+    for (const QString& key : kKeys) {
+        const QString value = obj.value(key).toVariant().toString().trimmed();
+        if (!value.isEmpty())
+            fields.insert(key, value);
+    }
+    if (ok)
+        *ok = true;
+    return fields;
 }
 
 void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
@@ -1196,6 +1268,7 @@ void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArra
 
     m_analyzing = true;
     m_isConversationRequest = true;
+    m_isBagExtractionRequest = false;
     emit analyzingChanged();
 
     // Store for logging — flatten for the log file
@@ -1226,7 +1299,15 @@ void AIManager::onAnalysisComplete(const QString& response)
     emit analyzingChanged();
 
     // Emit to the appropriate listener based on request type
-    if (m_isConversationRequest) {
+    if (m_isBagExtractionRequest) {
+        m_isBagExtractionRequest = false;
+        bool parsed = false;
+        const QVariantMap fields = parseBagExtraction(response, &parsed);
+        if (parsed)
+            emit bagDetailsExtracted(fields);
+        else
+            emit bagDetailsExtractionFailed(QStringLiteral("Could not read the AI's response"));
+    } else if (m_isConversationRequest) {
         emit conversationResponseReceived(response);
     } else {
         emit recommendationReceived(response);
@@ -1244,7 +1325,10 @@ void AIManager::onAnalysisFailed(const QString& error)
     emit analyzingChanged();
 
     // Emit to the appropriate listener based on request type
-    if (m_isConversationRequest) {
+    if (m_isBagExtractionRequest) {
+        m_isBagExtractionRequest = false;
+        emit bagDetailsExtractionFailed(error);
+    } else if (m_isConversationRequest) {
         emit conversationErrorOccurred(error);
     } else {
         emit errorOccurred(error);

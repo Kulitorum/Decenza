@@ -88,3 +88,31 @@ Saving the bag editor SHALL merge edited fields into the bag's existing `beanBas
 #### Scenario: Downstream consumers see edited data
 - **WHEN** a shot is saved after bag details were edited
 - **THEN** the shot's `beanbase_json` snapshot, the AI advisor bean context, and MCP `shots_get_detail` SHALL carry the edited values
+
+### Requirement: Manual bags resolve a photo from their product URL
+
+A bag without a canonical link but with a `link` SHALL resolve its photo through the same og:image pipeline as linked bags, under an image-cache key of `bag-<rowid>`. The canonical URL-recovery fallback SHALL NOT run for such keys (there is no canonical entry to re-search).
+
+#### Scenario: Manual bag with a URL shows a photo
+- **WHEN** a manual bag carries a product URL whose page has an og:image
+- **THEN** the bag card and details popup SHALL show the resolved photo
+
+#### Scenario: Manual bag without a URL
+- **WHEN** a manual bag has no `link`
+- **THEN** no image resolution SHALL be attempted and the placeholder remains
+
+### Requirement: Get info from page (AI extraction)
+
+When a bag has a product URL and an AI provider is configured, the bag editor SHALL offer a "Get info from page" action: fetch the page (following redirects), reduce it to plain text (scripts/styles/svg/img dropped, tags stripped, whitespace squished, length-capped), and have the configured AI extract `origin, region, farm, producer, variety, elevation, process, harvest, roastLevel, tastingNotes`. Extracted values SHALL fill ONLY fields that are currently empty — never overriding user- or canonical-supplied values. The extraction SHALL complete via dedicated signals, never via the advisor's `recommendationReceived`. Failures (unreachable page, unreadable response, AI busy/unconfigured) SHALL surface as an inline status message; the action is hidden without a URL or configured AI.
+
+#### Scenario: Extraction fills empty fields only
+- **WHEN** the user taps Get info with tasting notes already entered and origin empty, and the page states both
+- **THEN** origin SHALL be filled and the existing tasting notes SHALL be unchanged
+
+#### Scenario: Page states nothing extractable
+- **WHEN** the AI returns an object with no whitelisted fields
+- **THEN** the form SHALL be unchanged and the status SHALL say nothing new was found
+
+#### Scenario: No AI configured
+- **WHEN** no AI provider is configured
+- **THEN** the Get info action SHALL NOT be shown

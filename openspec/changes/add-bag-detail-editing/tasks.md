@@ -37,3 +37,10 @@
 - [x] 5.1 Full test suite green (61/61 via ctest); compile check via Qt Creator MCP
 - [x] 5.2 Update `docs/CLAUDE_MD/BEAN_BASE.md` (blob vocabulary table: new keys + "blob valid without id"; UI rules: details editable, lock scope narrowed to identity; edit-push section) and `docs/CLAUDE_MD/VISUALIZER.md` if touched
 - [ ] 5.3 Ask Jeff to launch the app and verify: edit linked bag details, add URL to a manual bag (image resolves), confirm the Visualizer bag updates on visualizer.coffee, offline edit syncs after next upload
+
+## 6. URL pull for manual bags (scope added during verification)
+
+- [x] 6.1 Bag-keyed image cache: `bag-<rowid>` key for unlinked bags in BagCard/BeanBaseDetailsPopup/ChangeBeansDialog (edit-save refresh + post-create warm); `ensureBagImage` skips canonical URL recovery for `bag-` keys; colliding test id renamed
+- [x] 6.2 `BeanBaseClient::fetchPageText`/`extractPageText` (Visualizer-scraper-equivalent HTML→text reduction, redirects, 20k cap) + unit test
+- [x] 6.3 `AIManager::extractCoffeeBagDetails` with dedicated `bagDetailsExtracted/-Failed` signals (no advisor cross-talk) + fence-tolerant whitelisted `parseBagExtraction` + unit test
+- [x] 6.4 "Get info from page" button + status line in the Bean details section; fills empty fields only; a11y announcements; hidden without URL/AI
