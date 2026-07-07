@@ -147,88 +147,133 @@ Rectangle {
         Item {
             id: infoArea
             Layout.fillWidth: true
-            implicitHeight: infoColumn.implicitHeight
+            implicitHeight: infoRow.implicitHeight
 
-            ColumnLayout {
-                id: infoColumn
+            RowLayout {
+                id: infoRow
                 anchors.left: parent.left
                 anchors.right: parent.right
-                spacing: Theme.scaled(2)
+                spacing: Theme.scaled(10)
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(6)
+                // Bag photo thumbnail (canonical CDN URL from the snapshot
+                // blob, same source as BeanBaseDetailsRow). A dimmed beans
+                // icon keeps the slot for imageless/offline bags so mixed
+                // inventories stay aligned.
+                Rectangle {
+                    Layout.preferredWidth: Theme.scaled(44)
+                    Layout.preferredHeight: Theme.scaled(44)
+                    Layout.alignment: Qt.AlignTop
+                    radius: Theme.scaled(6)
+                    color: Theme.backgroundColor
+                    border.color: Theme.borderColor
+                    border.width: 1
 
                     ColoredIcon {
-                        visible: card.hasCanonical
-                        Layout.alignment: Qt.AlignTop
-                        source: "qrc:/icons/tick.svg"
-                        iconWidth: Theme.scaled(14)
-                        iconHeight: Theme.scaled(14)
-                        iconColor: Theme.primaryColor
+                        anchors.centerIn: parent
+                        visible: bagThumb.status !== Image.Ready
+                        source: "qrc:/icons/coffeebeans.svg"
+                        iconWidth: Theme.scaled(22)
+                        iconHeight: Theme.scaled(22)
+                        iconColor: Theme.textSecondaryColor
+                        opacity: 0.5
+                        Accessible.ignored: true
+                    }
+
+                    Image {
+                        id: bagThumb
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        visible: status === Image.Ready
+                        source: card.beanBase.image || ""
+                        // Decode at thumbnail resolution — never the full photo.
+                        sourceSize.width: Theme.scaled(88)
+                        sourceSize.height: Theme.scaled(88)
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        Accessible.ignored: true
+                    }
+                }
+
+                ColumnLayout {
+                    id: infoColumn
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(2)
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(6)
+
+                        ColoredIcon {
+                            visible: card.hasCanonical
+                            Layout.alignment: Qt.AlignTop
+                            source: "qrc:/icons/tick.svg"
+                            iconWidth: Theme.scaled(14)
+                            iconHeight: Theme.scaled(14)
+                            iconColor: Theme.primaryColor
+                            Accessible.ignored: true
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: (card.bag && card.bag.coffeeName) || (card.bag && card.bag.roasterName) || ""
+                            font.family: Theme.bodyFont.family
+                            font.pixelSize: Theme.subtitleFont.pixelSize
+                            font.bold: true
+                            color: Theme.textColor
+                            elide: Text.ElideRight
+                            Accessible.ignored: true
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: !!(card.bag && card.bag.coffeeName && card.bag.roasterName)
+                        text: (card.bag && card.bag.roasterName) || ""
+                        font: Theme.labelFont
+                        color: Theme.textSecondaryColor
+                        elide: Text.ElideRight
+                        Accessible.ignored: true
+                    }
+
+                    // Canonical: one dense attribute line; partial: nothing (no placeholders)
+                    Text {
+                        Layout.fillWidth: true
+                        visible: card.attrLine.length > 0
+                        text: card.attrLineRich
+                        textFormat: Text.StyledText
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                        elide: Text.ElideRight
+                        Accessible.ignored: true
+                    }
+
+                    // Tasting notes earn a line of their own — the most
+                    // interesting canonical data. One elided line; the info
+                    // button opens the full record.
+                    Text {
+                        Layout.fillWidth: true
+                        visible: !!(card.beanBase.tastingNotes)
+                        text: card.beanBase.tastingNotes || ""
+                        font.family: Theme.captionFont.family
+                        font.pixelSize: Theme.captionFont.pixelSize
+                        font.italic: true
+                        color: Theme.textSecondaryColor
+                        elide: Text.ElideRight
                         Accessible.ignored: true
                     }
 
                     Text {
                         Layout.fillWidth: true
-                        text: (card.bag && card.bag.coffeeName) || (card.bag && card.bag.roasterName) || ""
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.subtitleFont.pixelSize
-                        font.bold: true
+                        visible: card.metaLine.length > 0
+                        text: card.metaLineRich
+                        textFormat: Text.StyledText
+                        font: Theme.captionFont
                         color: Theme.textColor
                         elide: Text.ElideRight
                         Accessible.ignored: true
                     }
-                }
 
-                Text {
-                    Layout.fillWidth: true
-                    visible: !!(card.bag && card.bag.coffeeName && card.bag.roasterName)
-                    text: (card.bag && card.bag.roasterName) || ""
-                    font: Theme.labelFont
-                    color: Theme.textSecondaryColor
-                    elide: Text.ElideRight
-                    Accessible.ignored: true
                 }
-
-                // Canonical: one dense attribute line; partial: nothing (no placeholders)
-                Text {
-                    Layout.fillWidth: true
-                    visible: card.attrLine.length > 0
-                    text: card.attrLineRich
-                    textFormat: Text.StyledText
-                    font: Theme.captionFont
-                    color: Theme.textSecondaryColor
-                    elide: Text.ElideRight
-                    Accessible.ignored: true
-                }
-
-                // Tasting notes earn a line of their own — the most
-                // interesting canonical data. One elided line; the info
-                // button opens the full record.
-                Text {
-                    Layout.fillWidth: true
-                    visible: !!(card.beanBase.tastingNotes)
-                    text: card.beanBase.tastingNotes || ""
-                    font.family: Theme.captionFont.family
-                    font.pixelSize: Theme.captionFont.pixelSize
-                    font.italic: true
-                    color: Theme.textSecondaryColor
-                    elide: Text.ElideRight
-                    Accessible.ignored: true
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    visible: card.metaLine.length > 0
-                    text: card.metaLineRich
-                    textFormat: Text.StyledText
-                    font: Theme.captionFont
-                    color: Theme.textColor
-                    elide: Text.ElideRight
-                    Accessible.ignored: true
-                }
-
             }
 
             AccessibleMouseArea {

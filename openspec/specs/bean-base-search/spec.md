@@ -1,8 +1,11 @@
-## ADDED Requirements
+# bean-base-search Specification
 
+## Purpose
+TBD - created by archiving change add-bean-base-integration. Update Purpose after archive.
+## Requirements
 ### Requirement: Search is keyless and always available (REVISED: canonical-search switch, June 2026)
 
-Search runs through Visualizer's open canonical autocomplete — substring + multi-word matching, no API key, no account. The BeanInfoPage SHALL always render the search bar; entries carry Visualizer's canonical UUID, which is stored locally AND sent on shot PATCH so the same bag id lands in both systems. The Bean Base API key remains an optional enrichment credential only.
+Search runs through Visualizer's official canonical search API — substring + multi-word matching, no API key, no account (the per-user Bean Base API key and its settings domain were removed June 2026; no key exists anywhere in the flow). The BeanInfoPage SHALL always render the search bar; entries carry Visualizer's canonical UUID, which is stored locally AND sent on shot PATCH so the same bag id lands in both systems.
 
 #### Scenario: User with nothing configured searches
 - **WHEN** the BeanInfoPage opens with no Bean Base key and no Visualizer account configured
@@ -16,7 +19,7 @@ Search runs through Visualizer's open canonical autocomplete — substring + mul
 
 #### Scenario: Attribute enrichment after a canonical pick
 - **WHEN** the user picks a canonical result (identity only: UUID + roaster + name)
-- **THEN** a best-effort two-stage fetch fills origin/region/producer/variety/process/harvest/roast level/tasting notes into the stored blob (and the visible Roast level, which then locks)
+- **THEN** the descriptive fields already carried by the search response (origin/region/producer/variety/process/harvest/roast level/tasting notes) fill the stored blob in a single call — no second network round-trip (and the visible Roast level then locks)
 - **AND** enrichment failure leaves the link intact with identity-only data
 
 ### Requirement: Selecting a search result populates DYE fields per a fixed mapping
@@ -118,3 +121,4 @@ The system SHALL render the search field label as the verbatim string "Search Lo
 #### Scenario: Label is unabbreviated
 - **WHEN** the search bar is visible in any state
 - **THEN** the label reads "Search Loffee Labs Bean Base"
+

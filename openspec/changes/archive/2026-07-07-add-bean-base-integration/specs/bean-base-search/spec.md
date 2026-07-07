@@ -1,0 +1,120 @@
+## ADDED Requirements
+
+### Requirement: Search is keyless and always available (REVISED: canonical-search switch, June 2026)
+
+Search runs through Visualizer's official canonical search API — substring + multi-word matching, no API key, no account (the per-user Bean Base API key and its settings domain were removed June 2026; no key exists anywhere in the flow). The BeanInfoPage SHALL always render the search bar; entries carry Visualizer's canonical UUID, which is stored locally AND sent on shot PATCH so the same bag id lands in both systems.
+
+#### Scenario: User with nothing configured searches
+- **WHEN** the BeanInfoPage opens with no Bean Base key and no Visualizer account configured
+- **THEN** the search bar is rendered and typing (including partial words) yields canonical results
+- **AND** picking one links the bean (canonical UUID stored) exactly as for any other user
+
+#### Scenario: Linked bean
+- **WHEN** the BeanInfoPage opens with `dyeBeanBaseId` set
+- **THEN** the search input shows the linked bean's display name, with "Linked", "Unlink", and open-URL affordances
+- **AND** typing into the search input transitions back to "search mode" (the link is cleared and the dropdown re-opens)
+
+#### Scenario: Attribute enrichment after a canonical pick
+- **WHEN** the user picks a canonical result (identity only: UUID + roaster + name)
+- **THEN** the descriptive fields already carried by the search response (origin/region/producer/variety/process/harvest/roast level/tasting notes) fill the stored blob in a single call — no second network round-trip (and the visible Roast level then locks)
+- **AND** enrichment failure leaves the link intact with identity-only data
+
+### Requirement: Selecting a search result populates DYE fields per a fixed mapping
+
+When the user picks a Bean Base entry from the dropdown, the system SHALL apply its fields to the active DYE record using the documented field-mapping table.
+
+#### Scenario: Roaster and Coffee become verified
+- **WHEN** the user picks a Bean Base entry with `roaster = "Prodigal Coffee"` and `roast-name = "Buenos Aires Caturra - Colombia, washed"`
+- **THEN** `dyeBeanBrand` is set to "Prodigal Coffee" and `dyeBeanType` is set to the roast name
+- **AND** the Roaster and Coffee `StyledTextField`s are rendered with `enabled: false` and a "verified" visual treatment
+- **AND** the `↑` distinct-values suggestion arrow is hidden on those two fields
+
+#### Scenario: Roast level is filled and locked like the other pulled fields
+- **WHEN** the picked entry has `degree = "Medium"`
+- **THEN** `dyeRoastLevel` is set to "Medium"
+- **AND** the Roast level control is disabled with the same "verified" treatment as Roaster and Coffee (fields Bean Base supplies are read-only while linked; unlink to edit)
+
+#### Scenario: A pulled field with no Bean Base value stays editable
+- **WHEN** the picked entry has an empty or missing `degree`
+- **THEN** `dyeRoastLevel` is left unchanged
+- **AND** the Roast level control remains enabled so the user can set it manually (the lock follows the data, not the link: a field is locked only when linked AND Bean Base supplied a non-empty value for it)
+
+#### Scenario: Roast date is not touched
+- **WHEN** the user picks a Bean Base entry that has a `date` field
+- **THEN** `dyeRoastDate` is NOT modified (Bean Base `date` is the bean release date, not the user's bag roast date)
+
+#### Scenario: Cached attributes flow to upload and advisor without on-page UI
+- **WHEN** a Bean Base entry is applied
+- **THEN** the entry's `origin`, `region`, `variety`, `process`, `producer`, `min-elev`, `max-elev`, `tasting-tag`, `tasting` (notes), `link`, `image`, `type`, `general-tag` are cached on the active preset
+- **AND** these cached values are sent on the next Visualizer upload (per `visualizer-bag-linkage`)
+- **AND** these cached values are injected into the next AI advisor prompt (per `ai-advisor` modifications)
+
+### Requirement: The link is always correctable — replace, clear, or fix historical shots
+
+Because users forget to update the bean when opening a new bag, the Bean Base link MUST never be a one-way door. The search input SHALL remain visible and usable while linked (not collapsed into a static badge), and editing a historical shot SHALL allow re-linking or unlinking with the shot's stored Bean Base snapshot updated to match.
+
+#### Scenario: Replacing a wrong link in place
+- **WHEN** a bean is linked and the user types a new query into the search input
+- **THEN** the existing link is cleared and the dropdown reopens with results for the new query
+- **AND** picking a new entry applies it exactly as a first-time link would
+
+#### Scenario: Fixing a historical shot that carried the wrong bean
+- **WHEN** the user opens a past shot in edit mode and uses the search bar to link a different Bean Base entry (or unlink)
+- **THEN** the edited shot's stored Bean Base snapshot (`beanbase_json`) is replaced (or cleared) along with the visible bean fields
+- **AND** the change affects only that shot — the current DYE session state and other shots are untouched
+- **AND** a subsequent Visualizer re-upload of that shot carries the corrected bean data
+
+### Requirement: Unlinking preserves field values
+
+When the user explicitly unlinks a previously-matched Bean Base entry, the system SHALL clear `beanBaseId`, `beanBaseRoasterId`, and the cached attribute fields, but SHALL preserve the user-visible `dyeBeanBrand`, `dyeBeanType`, and `dyeRoastLevel` values.
+
+#### Scenario: User taps Unlink
+- **WHEN** the user taps the Unlink action on a linked bean
+- **THEN** `dyeBeanBaseId` and `dyeBeanBaseRoasterId` are cleared
+- **AND** cached origin/variety/process/etc. fields are cleared
+- **AND** `dyeBeanBrand`, `dyeBeanType`, and `dyeRoastLevel` retain their current display values
+- **AND** the Roaster, Coffee, and Roast level fields become enabled and lose the "verified" treatment
+
+### Requirement: Cached bean attributes are user-visible on all bean surfaces
+
+The cached Bean Base attributes (image, origin, region, producer, variety, process, elevation, bean type, tasting tags, tasting notes, harvest, product link) SHALL be viewable by the user — not just consumed by upload and advisor plumbing — via a shared details component mounted on the Beans page, the post-shot review page, and the shot history/detail page.
+
+#### Scenario: Viewing details for the current bean
+- **WHEN** the active bean is linked and the user opens the Beans page
+- **THEN** a compact details row (bag image thumbnail + origin · variety · process summary) is shown in the Bean section
+- **AND** tapping it opens a details popup rendering all cached attributes plus a "View at roaster" link
+
+#### Scenario: Viewing details on a past shot
+- **WHEN** the user opens the post-shot review page or a shot from history whose record carries a non-empty `beanbase_json` snapshot
+- **THEN** the same details affordance is shown next to that shot's bean information
+- **AND** the popup is fed from the SHOT's stored snapshot, not the live DYE state — a historical shot shows the bean it was actually pulled with
+
+#### Scenario: Unlinked beans and legacy shots have zero footprint
+- **WHEN** the blob is empty (unlinked bean, or a shot saved before this feature)
+- **THEN** no details row, image, or popup affordance is rendered — the page looks exactly as it does today
+
+### Requirement: Search respects free-tier rate budget
+
+The Bean Base client SHALL debounce user typing and enforce a minimum 3-second gap between requests sent to `/beans`, regardless of typing speed.
+
+#### Scenario: User types rapidly
+- **WHEN** the user types "prodigal espresso" with no pause longer than 200 ms
+- **THEN** at most one request is sent for the in-progress query, fired no sooner than 800 ms after the last keystroke
+- **AND** subsequent requests for the same in-progress text are coalesced into the latest version
+
+#### Scenario: User changes the query within the cooldown window
+- **WHEN** a request has just been sent and the user changes the query within 3 seconds
+- **THEN** the new request is queued and fires when 3 seconds have elapsed since the prior send
+- **AND** if multiple new queries arrive during the cooldown, only the most recent one is fired
+
+#### Scenario: Repeated query hits the cache
+- **WHEN** the user types a query string that was already searched in this session
+- **THEN** results are rendered from the cache without sending a new request
+
+### Requirement: Loffee Labs branding in the search label
+
+The system SHALL render the search field label as the verbatim string "Search Loffee Labs Bean Base", matching Visualizer's UI. This label SHALL NOT be abbreviated to "Search Bean Base" or otherwise shortened.
+
+#### Scenario: Label is unabbreviated
+- **WHEN** the search bar is visible in any state
+- **THEN** the label reads "Search Loffee Labs Bean Base"
