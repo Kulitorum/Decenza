@@ -961,4 +961,9 @@ Page {
             }
         }
     }
+
+    BottomBar {
+        barColor: "transparent"
+        onBackClicked: root.goBack()
+    }
 }
