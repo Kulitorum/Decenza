@@ -78,7 +78,7 @@ jobs:
           modules: 'qtquick3d qtshadertools qtgraphs qtconnectivity qtmultimedia qtpositioning qtspeech qtwebsockets qtimageformats qtcanvaspainter'
           # Qt-for-iOS caching is intentionally disabled. The iOS Qt cache is too
           # large to coexist with the other platforms under GitHub's 10 GB per-repo
-          # cache cap: even after the "Prune stale ccache caches" step (macos-release.yml)
+          # cache cap: even after stale-ccache pruning (now prune-caches.yml)
           # trimmed the duplicate ccache piles to ~7.3 GB, re-enabling iOS Qt caching
           # was MEASURED at 3.96 GB for the single qt-ios cache entry (it barely
           # compresses), pushing the store to 10.53 GB — over the cap and back into
