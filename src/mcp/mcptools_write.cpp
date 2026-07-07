@@ -8,6 +8,7 @@
 #include "../core/basketaliases.h"
 #include "../core/puckprep.h"
 #include "../history/bagid.h"
+#include "../network/beanbase_blob.h"
 #include "../network/visualizeruploader.h"
 #include "../controllers/profilemanager.h"
 #include "../ai/aimanager.h"
@@ -1584,13 +1585,15 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         },
         "read");
 
-    // bag_update — edit a bag's metadata / lifecycle.
+    // bag_update — edit a bag's metadata / lifecycle / bean details.
     registry->registerAsyncTool(
         "bag_update",
-        "Update fields on a coffee bag (metadata and freeze lifecycle). Only provided fields "
-        "change. Pass an empty string to clear a text/date field. Setting inInventory=false marks "
-        "the bag empty (removes it from the inventory view; shots keep their snapshots). "
-        "Setting defrostDate records a thaw (the latest portion leaving the freezer).",
+        "Update fields on a coffee bag (metadata, freeze lifecycle, and bean details such as "
+        "origin/variety/process/tasting notes/product URL). Only provided fields change. Pass an "
+        "empty string to clear a text/date field. Setting inInventory=false marks the bag empty "
+        "(removes it from the inventory view; shots keep their snapshots). Setting defrostDate "
+        "records a thaw (the latest portion leaving the freezer). Bean-detail edits keep a "
+        "canonical Bean Base link intact and sync to the user's Visualizer bag when one is linked.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -1608,7 +1611,19 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"grinderSetting", QJsonObject{{"type", "string"}}},
                 {"doseWeightG", QJsonObject{{"type", "number"}}},
                 {"yieldOverrideG", QJsonObject{{"type", "number"}}},
-                {"inInventory", QJsonObject{{"type", "boolean"}, {"description", "false = mark the bag empty"}}}
+                {"inInventory", QJsonObject{{"type", "boolean"}, {"description", "false = mark the bag empty"}}},
+                {"origin", QJsonObject{{"type", "string"}, {"description", "Origin country, '' to clear"}}},
+                {"region", QJsonObject{{"type", "string"}}},
+                {"farm", QJsonObject{{"type", "string"}}},
+                {"producer", QJsonObject{{"type", "string"}, {"description", "Producer / farmer"}}},
+                {"variety", QJsonObject{{"type", "string"}}},
+                {"elevation", QJsonObject{{"type", "string"}, {"description", "Display string, e.g. '1900-2100 m'"}}},
+                {"process", QJsonObject{{"type", "string"}, {"description", "Processing method, e.g. 'Washed'"}}},
+                {"harvest", QJsonObject{{"type", "string"}, {"description", "Harvest time, e.g. 'Late 2025'"}}},
+                {"qualityScore", QJsonObject{{"type", "string"}}},
+                {"placeOfPurchase", QJsonObject{{"type", "string"}}},
+                {"tastingNotes", QJsonObject{{"type", "string"}}},
+                {"link", QJsonObject{{"type", "string"}, {"description", "Roaster product-page URL, '' to clear"}}}
             }},
             {"required", QJsonArray{"bagId"}}
         },
@@ -1632,7 +1647,20 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 if (args.contains(key))
                     fields.insert(key, args[key].toVariant());
             }
-            if (fields.isEmpty()) {
+            // Bean-detail edits live in the beanBaseData blob, not columns.
+            // Collected here; merged below via the same BeanBaseBlob helper the
+            // bag editor uses (empty value removes the key, link keys and the
+            // canonical snapshot preserved).
+            static const QStringList kBlobKeys = {
+                "origin", "region", "farm", "producer", "variety", "elevation",
+                "process", "harvest", "qualityScore", "placeOfPurchase",
+                "tastingNotes", "link"};
+            QVariantMap blobEdits;
+            for (const QString& key : kBlobKeys) {
+                if (args.contains(key))
+                    blobEdits.insert(key, args[key].toVariant());
+            }
+            if (fields.isEmpty() && blobEdits.isEmpty()) {
                 respond(QJsonObject{{"error", "No fields to update"}});
                 return;
             }
@@ -1661,51 +1689,118 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 t->start();
             };
 
-            if (bagStorage) {
-                // Route through the storage INSTANCE so the write fires
-                // bagsChanged (open inventory views refresh), bagVisualizer-
-                // FieldsChanged (push the edit to the synced Visualizer bag),
-                // and the active-bag dye refresh via SettingsDye's bagUpdated
-                // handler. That refresh is a no-op re-apply, so it does NOT
-                // reset the user's brew overrides — unlike the old
-                // setActiveBagId(-1) toggle, which fired clearBrewOverrides.
-                QMetaObject::invokeMethod(qApp, [bagStorage, bagId, fields, respondWithBag, respond]() {
-                    auto conn = std::make_shared<QMetaObject::Connection>();
-                    *conn = QObject::connect(bagStorage, &CoffeeBagStorage::bagUpdated, bagStorage,
-                        [conn, bagId, respondWithBag, respond](qint64 updatedId, bool success) {
-                            if (updatedId != bagId)
-                                return;  // a concurrent update of a different bag
-                            QObject::disconnect(*conn);
-                            if (!success) {
-                                respond(QJsonObject{{"error", "Bag not found or update failed: "
-                                                              + QString::number(bagId)}});
-                                return;
-                            }
-                            respondWithBag();
-                        });
-                    bagStorage->requestUpdateBag(bagId, fields);
-                }, Qt::QueuedConnection);
+            auto proceed = [dbPath, bagId, bagStorage, respondWithBag, respond](const QVariantMap& finalFields) {
+                if (bagStorage) {
+                    // Route through the storage INSTANCE so the write fires
+                    // bagsChanged (open inventory views refresh), bagVisualizer-
+                    // FieldsChanged (push the edit to the synced Visualizer bag),
+                    // and the active-bag dye refresh via SettingsDye's bagUpdated
+                    // handler. That refresh is a no-op re-apply, so it does NOT
+                    // reset the user's brew overrides — unlike the old
+                    // setActiveBagId(-1) toggle, which fired clearBrewOverrides.
+                    QMetaObject::invokeMethod(qApp, [bagStorage, bagId, finalFields, respondWithBag, respond]() {
+                        auto conn = std::make_shared<QMetaObject::Connection>();
+                        *conn = QObject::connect(bagStorage, &CoffeeBagStorage::bagUpdated, bagStorage,
+                            [conn, bagId, respondWithBag, respond](qint64 updatedId, bool success) {
+                                if (updatedId != bagId)
+                                    return;  // a concurrent update of a different bag
+                                QObject::disconnect(*conn);
+                                if (!success) {
+                                    respond(QJsonObject{{"error", "Bag not found or update failed: "
+                                                                  + QString::number(bagId)}});
+                                    return;
+                                }
+                                respondWithBag();
+                            });
+                        bagStorage->requestUpdateBag(bagId, finalFields);
+                    }, Qt::QueuedConnection);
+                    return;
+                }
+
+                // Fallback (no storage instance — e.g. headless tests): direct
+                // static write. Skips the in-app refresh/sync signals.
+                QThread* thread = QThread::create([dbPath, bagId, finalFields, respondWithBag, respond]() {
+                    bool success = false;
+                    withTempDb(dbPath, "mcp_bagupd", [&](QSqlDatabase& db) {
+                        success = CoffeeBagStorage::updateBagFieldsStatic(db, bagId, finalFields);
+                    });
+                    if (success) {
+                        respondWithBag();
+                    } else {
+                        QMetaObject::invokeMethod(qApp, [bagId, respond]() {
+                            respond(QJsonObject{{"error", "Bag not found or update failed: "
+                                                          + QString::number(bagId)}});
+                        }, Qt::QueuedConnection);
+                    }
+                });
+                QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+                thread->start();
+            };
+
+            // No blob work: column-only update goes straight through. Identity
+            // edits still mirror into the blob's working keys below so display
+            // surfaces reading the blob stay consistent — but only when the bag
+            // already carries a blob (a plain rename of a detail-less manual
+            // bag must not conjure one).
+            const bool identityEdit = fields.contains("roasterName")
+                || fields.contains("coffeeName") || fields.contains("roastLevel");
+            if (blobEdits.isEmpty() && !identityEdit) {
+                proceed(fields);
                 return;
             }
 
-            // Fallback (no storage instance — e.g. headless tests): direct
-            // static write. Skips the in-app refresh/sync signals.
-            QThread* thread = QThread::create([dbPath, bagId, fields, respondWithBag, respond]() {
-                bool success = false;
-                withTempDb(dbPath, "mcp_bagupd", [&](QSqlDatabase& db) {
-                    success = CoffeeBagStorage::updateBagFieldsStatic(db, bagId, fields);
+            // Read the current blob, merge, then run the normal update.
+            QThread* mergeThread = QThread::create([dbPath, bagId, fields, blobEdits, proceed, respondWithBag, respond]() {
+                bool found = false;
+                QString currentBlob, curRoaster, curCoffee, curLevel;
+                withTempDb(dbPath, "mcp_bagupd_blob", [&](QSqlDatabase& db) {
+                    const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
+                    found = bag.isValid();
+                    currentBlob = bag.beanBaseData;
+                    curRoaster = bag.roasterName;
+                    curCoffee = bag.coffeeName;
+                    curLevel = bag.roastLevel;
                 });
-                if (success) {
-                    respondWithBag();
-                } else {
-                    QMetaObject::invokeMethod(qApp, [bagId, respond]() {
-                        respond(QJsonObject{{"error", "Bag not found or update failed: "
-                                                      + QString::number(bagId)}});
-                    }, Qt::QueuedConnection);
-                }
+                QMetaObject::invokeMethod(qApp, [found, currentBlob, curRoaster, curCoffee, curLevel,
+                                                 bagId, fields, blobEdits, proceed, respondWithBag, respond]() {
+                    if (!found) {
+                        respond(QJsonObject{{"error", "Bag not found: " + QString::number(bagId)}});
+                        return;
+                    }
+                    // Identity mirrors into the blob's working keys when a
+                    // blob exists OR this update introduces one (a non-empty
+                    // detail edit) — the same rule as the bag editor's
+                    // detailEdits(), so both write paths produce the same
+                    // blob. The mirror value is the post-update state: the
+                    // arg when given, else the stored column (the editor's
+                    // always-populated form fields behave identically).
+                    bool anyDetail = false;
+                    for (auto it = blobEdits.constBegin(); it != blobEdits.constEnd(); ++it) {
+                        if (!it.value().toString().trimmed().isEmpty()) { anyDetail = true; break; }
+                    }
+                    QVariantMap edits = blobEdits;
+                    if (!currentBlob.isEmpty() || anyDetail) {
+                        edits.insert("roasterName", fields.value("roasterName", curRoaster));
+                        edits.insert("roastName", fields.value("coffeeName", curCoffee));
+                        edits.insert("degree", fields.value("roastLevel", curLevel));
+                    }
+                    QVariantMap finalFields = fields;
+                    const QString merged = BeanBaseBlob::mergeBeanDetails(currentBlob, edits);
+                    if (merged != currentBlob)
+                        finalFields.insert("beanBaseData", merged);
+                    if (finalFields.isEmpty()) {
+                        // Everything merged to its current value (idempotent
+                        // re-apply, or clearing an already-absent key): a
+                        // semantically successful request — echo the bag
+                        // rather than erroring at the caller.
+                        respondWithBag();
+                        return;
+                    }
+                    proceed(finalFields);
+                }, Qt::QueuedConnection);
             });
-            QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
-            thread->start();
+            QObject::connect(mergeThread, &QThread::finished, mergeThread, &QObject::deleteLater);
+            mergeThread->start();
         },
         "settings");
 

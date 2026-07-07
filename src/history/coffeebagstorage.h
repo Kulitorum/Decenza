@@ -60,6 +60,13 @@ struct CoffeeBag {
     // Visualizer Coffee Management sync state
     QString visualizerBagId;
     QString visualizerRoasterId;
+    // Set when a bag edit's Visualizer push must be deferred (park-first
+    // before each attempt; stays set on retryable failure or while CM is
+    // still Unknown); the upload read-back's retry drains it. Carried by
+    // backup import like any column — a restored pending flag just retries
+    // harmlessly. Not a Visualizer-synced field itself (visualizer=false in
+    // kCols, so writing it never triggers a push).
+    bool visualizerSyncPending = false;
 
     qint64 lastUsedEpoch = 0; // bumped on selection and shot save (MRU ordering)
 

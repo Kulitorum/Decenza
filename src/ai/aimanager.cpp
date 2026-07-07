@@ -20,6 +20,7 @@
 #include <QLocale>
 #include <QDebug>
 #include <QCryptographicHash>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QThread>
@@ -1164,6 +1165,7 @@ void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt)
 
     m_analyzing = true;
     m_isConversationRequest = false;
+    m_isBagExtractionRequest = false;
     emit analyzingChanged();
 
     // Store for logging
@@ -1172,6 +1174,102 @@ void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt)
 
     logPrompt(selectedProvider(), systemPrompt, userPrompt);
     provider->analyze(systemPrompt, userPrompt);
+}
+
+void AIManager::extractCoffeeBagDetails(const QString& requestToken, const QString& pageText)
+{
+    if (m_analyzing) {
+        emit bagDetailsExtractionFailed(requestToken, QStringLiteral("busy"));
+        return;
+    }
+    AIProvider* provider = currentProvider();
+    if (!provider || !isConfigured()) {
+        emit bagDetailsExtractionFailed(requestToken, QStringLiteral("notConfigured"));
+        return;
+    }
+
+    // Extraction contract mirrors Visualizer's "Get info": page text in, a
+    // flat JSON object of only-what-the-page-states out. Keys = the blob
+    // vocabulary so the caller can merge without remapping.
+    static const QString kSystemPrompt = QStringLiteral(
+        "You extract coffee bag details from the plain text of a roaster's product page. "
+        "Reply with ONLY a JSON object - no markdown, no commentary. Use exactly these keys, "
+        "omitting any the page does not clearly state: origin (country), region, farm, "
+        "producer (person or company that grew it), variety, elevation (display string, e.g. "
+        "\"1900-2100 m\"), process (e.g. \"Washed\", \"Natural\"), harvest (e.g. \"Late 2025\"), "
+        "roastLevel (one of: Light, Medium-Light, Medium, Medium-Dark, Dark - map the page's "
+        "wording), tastingNotes (comma-separated flavor descriptors from the page). "
+        "Never guess or infer a value the text does not state. For blends without a stated "
+        "origin, leave origin out and describe the blend in variety if stated.");
+
+    m_analyzing = true;
+    m_isConversationRequest = false;
+    m_isBagExtractionRequest = true;
+    m_bagExtractionToken = requestToken;
+    emit analyzingChanged();
+
+    m_lastSystemPrompt = kSystemPrompt;
+    m_lastUserPrompt = QStringLiteral("[Bag page text from %1, %2 chars]")
+                           .arg(requestToken).arg(pageText.size());
+    logPrompt(selectedProvider(), kSystemPrompt, m_lastUserPrompt);
+    provider->analyze(kSystemPrompt, pageText);
+}
+
+// static
+QVariantMap AIManager::parseBagExtraction(const QString& response, bool* ok)
+{
+    if (ok)
+        *ok = false;
+    // Tolerate markdown fences / prose around the object: parse the first
+    // '{' .. last '}' span.
+    const qsizetype start = response.indexOf(QLatin1Char('{'));
+    const qsizetype end = response.lastIndexOf(QLatin1Char('}'));
+    if (start < 0 || end <= start)
+        return {};
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(
+        response.mid(start, end - start + 1).toUtf8(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject())
+        return {};
+
+    static const QStringList kKeys{
+        QStringLiteral("origin"), QStringLiteral("region"), QStringLiteral("farm"),
+        QStringLiteral("producer"), QStringLiteral("variety"), QStringLiteral("elevation"),
+        QStringLiteral("process"), QStringLiteral("harvest"), QStringLiteral("roastLevel"),
+        QStringLiteral("tastingNotes")};
+    const QJsonObject obj = doc.object();
+    QVariantMap fields;
+    for (const QString& key : kKeys) {
+        const QJsonValue raw = obj.value(key);
+        QString value;
+        if (raw.isArray()) {
+            // Models frequently return tasting notes as an array despite the
+            // prompt — join the scalar elements rather than dropping them.
+            QStringList parts;
+            const QJsonArray arr = raw.toArray();
+            for (const QJsonValue& v : arr) {
+                const QString part = v.toVariant().toString().trimmed();
+                if (!part.isEmpty())
+                    parts << part;
+            }
+            value = parts.join(QStringLiteral(", "));
+        } else if (raw.isObject()) {
+            qWarning() << "AIManager: bag extraction returned an object for" << key << "- skipped";
+        } else {
+            value = raw.toVariant().toString().trimmed();
+        }
+        // Cap per value: a prompt-injected page must not push multi-KB text
+        // through a form field into the DB blob.
+        if (!value.isEmpty())
+            fields.insert(key, value.left(500));
+    }
+    // A non-empty object that yielded nothing usable is a response we could
+    // not read, NOT an honest "the page states nothing" ({} stays a success).
+    if (fields.isEmpty() && !obj.isEmpty())
+        return {};
+    if (ok)
+        *ok = true;
+    return fields;
 }
 
 void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
@@ -1196,6 +1294,7 @@ void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArra
 
     m_analyzing = true;
     m_isConversationRequest = true;
+    m_isBagExtractionRequest = false;
     emit analyzingChanged();
 
     // Store for logging — flatten for the log file
@@ -1226,7 +1325,17 @@ void AIManager::onAnalysisComplete(const QString& response)
     emit analyzingChanged();
 
     // Emit to the appropriate listener based on request type
-    if (m_isConversationRequest) {
+    if (m_isBagExtractionRequest) {
+        m_isBagExtractionRequest = false;
+        const QString token = m_bagExtractionToken;
+        m_bagExtractionToken.clear();
+        bool parsed = false;
+        const QVariantMap fields = parseBagExtraction(response, &parsed);
+        if (parsed)
+            emit bagDetailsExtracted(token, fields);
+        else
+            emit bagDetailsExtractionFailed(token, QStringLiteral("unreadable"));
+    } else if (m_isConversationRequest) {
         emit conversationResponseReceived(response);
     } else {
         emit recommendationReceived(response);
@@ -1244,7 +1353,12 @@ void AIManager::onAnalysisFailed(const QString& error)
     emit analyzingChanged();
 
     // Emit to the appropriate listener based on request type
-    if (m_isConversationRequest) {
+    if (m_isBagExtractionRequest) {
+        m_isBagExtractionRequest = false;
+        const QString token = m_bagExtractionToken;
+        m_bagExtractionToken.clear();
+        emit bagDetailsExtractionFailed(token, error);
+    } else if (m_isConversationRequest) {
         emit conversationErrorOccurred(error);
     } else {
         emit errorOccurred(error);

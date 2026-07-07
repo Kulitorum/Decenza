@@ -79,6 +79,111 @@ class tst_AIManager : public QObject {
     Q_OBJECT
 
 private slots:
+    // parseBagExtraction: the "Get info" response contract — JSON possibly
+    // wrapped in markdown fences, whitelisted to the blob vocabulary keys.
+    void parseBagExtractionHandlesFencesWhitelistAndGarbage()
+    {
+        bool ok = false;
+        // Plain object with an off-whitelist key and a numeric value.
+        QVariantMap fields = AIManager::parseBagExtraction(
+            "{\"origin\":\"Colombia\",\"tastingNotes\":\"cherry, cocoa\","
+            "\"price\":\"$13.25\",\"elevation\":1900}", &ok);
+        QVERIFY(ok);
+        QCOMPARE(fields.value("origin").toString(), QString("Colombia"));
+        QCOMPARE(fields.value("tastingNotes").toString(), QString("cherry, cocoa"));
+        QCOMPARE(fields.value("elevation").toString(), QString("1900"));  // numeric survives
+        QVERIFY(!fields.contains("price"));  // off-whitelist dropped
+
+        // Markdown-fenced response.
+        fields = AIManager::parseBagExtraction(
+            "```json\n{\"roastLevel\":\"Medium-Dark\",\"variety\":\"75% Arabica / 25% Robusta\"}\n```", &ok);
+        QVERIFY(ok);
+        QCOMPARE(fields.value("roastLevel").toString(), QString("Medium-Dark"));
+
+        // Garbage / no object.
+        QVERIFY(AIManager::parseBagExtraction("Sorry, I can't help with that.", &ok).isEmpty());
+        QVERIFY(!ok);
+        QVERIFY(AIManager::parseBagExtraction("{not json}", &ok).isEmpty());
+        QVERIFY(!ok);
+
+        // {} is a SUCCESS with an empty map — "the page states nothing" is a
+        // different user message than "couldn't read the response".
+        QVERIFY(AIManager::parseBagExtraction("{}", &ok).isEmpty());
+        QVERIFY(ok);
+
+        // Array values (a frequent model deviation for tasting notes) are
+        // joined; long values are capped at 500 chars.
+        fields = AIManager::parseBagExtraction(
+            "{\"tastingNotes\":[\"cherry\",\"cocoa\",\"plum\"],\"origin\":\"" + QString(600, 'x') + "\"}", &ok);
+        QVERIFY(ok);
+        QCOMPARE(fields.value("tastingNotes").toString(), QString("cherry, cocoa, plum"));
+        QCOMPARE(fields.value("origin").toString().size(), 500);
+
+        // A non-empty object yielding NO usable whitelisted values is a
+        // failure, not an empty success — the AI said something we can't use.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("returned an object"));
+        QVERIFY(AIManager::parseBagExtraction("{\"origin\":{\"country\":\"Ethiopia\"}}", &ok).isEmpty());
+        QVERIFY(!ok);
+    }
+
+    // The extraction request-type routing: ANY leak into recommendationReceived
+    // renders raw JSON in the advisor UI; a stuck flag misroutes the advisor's
+    // next response. Drives the private slots directly via the friend seam —
+    // providers are concrete network classes with no injection point.
+    void bagExtractionRoutingAndFlagReset()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        QSignalSpy extracted(&mgr, &AIManager::bagDetailsExtracted);
+        QSignalSpy extractFailed(&mgr, &AIManager::bagDetailsExtractionFailed);
+        QSignalSpy recommendation(&mgr, &AIManager::recommendationReceived);
+        QSignalSpy advisorError(&mgr, &AIManager::errorOccurred);
+
+        // Busy guard: synchronous failure with the "busy" code and the echoed
+        // token; does not clobber the in-flight request's state.
+        mgr.m_analyzing = true;
+        mgr.extractCoffeeBagDetails("https://x/bag", "some page text");
+        QCOMPARE(extractFailed.count(), 1);
+        QCOMPARE(extractFailed.last().at(0).toString(), QString("https://x/bag"));
+        QCOMPARE(extractFailed.last().at(1).toString(), QString("busy"));
+        QVERIFY(mgr.m_analyzing);
+
+        // Success routes to bagDetailsExtracted with the token — never to the
+        // advisor's recommendationReceived — and consumes the flag.
+        mgr.m_isBagExtractionRequest = true;
+        mgr.m_bagExtractionToken = "https://x/bag";
+        mgr.onAnalysisComplete("{\"origin\":\"Colombia\"}");
+        QCOMPARE(extracted.count(), 1);
+        QCOMPARE(extracted.last().at(0).toString(), QString("https://x/bag"));
+        QCOMPARE(recommendation.count(), 0);
+        QVERIFY(!mgr.m_isBagExtractionRequest);
+
+        // Unreadable response: extraction failure ("unreadable"), still not
+        // the advisor's signal.
+        mgr.m_isBagExtractionRequest = true;
+        mgr.m_bagExtractionToken = "https://x/bag";
+        mgr.m_analyzing = true;
+        mgr.onAnalysisComplete("Sorry, I cannot help with that.");
+        QCOMPARE(extractFailed.count(), 2);
+        QCOMPARE(extractFailed.last().at(1).toString(), QString("unreadable"));
+        QCOMPARE(recommendation.count(), 0);
+
+        // Provider error routes to bagDetailsExtractionFailed, not
+        // errorOccurred, and resets the flag so the NEXT completion routes to
+        // the advisor again.
+        mgr.m_isBagExtractionRequest = true;
+        mgr.m_bagExtractionToken = "https://x/bag";
+        mgr.m_analyzing = true;
+        mgr.onAnalysisFailed("timeout");
+        QCOMPARE(extractFailed.count(), 3);
+        QCOMPARE(advisorError.count(), 0);
+        mgr.m_analyzing = true;
+        mgr.onAnalysisComplete("plain advice");
+        QCOMPARE(recommendation.count(), 1);  // routing restored
+        QCOMPARE(extracted.count(), 1);
+    }
+
     void initTestCase()
     {
         // Isolate the conversation index from the real user dir so loading /

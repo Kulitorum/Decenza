@@ -73,12 +73,35 @@ public:
     Q_INVOKABLE void ensureBagImage(const QString& canonicalId,
                                     const QString& roastName,
                                     const QString& productUrl);
+    // The user edited the bag's product URL: evict the cached image + the
+    // once-per-session attempt guard for this id and re-resolve from the new
+    // URL (add-bag-detail-editing). ensureBagImage() alone would keep serving
+    // the stale pixels.
+    Q_INVOKABLE void refreshBagImage(const QString& canonicalId,
+                                     const QString& roastName,
+                                     const QString& productUrl);
     // Recover the product URL for a blob that lacks `link`, independent of the
     // image state (a bag whose image is already cached still needs its reorder
     // URL). Re-searches the canonical API by roastName, matches the id, and
     // emits bagLinkRecovered on success. One attempt per id per session;
     // silent on failure. ensureBagImage routes its legacy branch through this.
     Q_INVOKABLE void recoverBagLink(const QString& canonicalId, const QString& roastName);
+
+    // --- Blob edit helpers (add-bag-detail-editing) ---
+    // Thin QML bridges over the header-only BeanBaseBlob helpers so the bag
+    // editor and MCP bag_update share ONE merge/revert implementation. Pure
+    // string→string; no instance state.
+    Q_INVOKABLE static QString mergeBeanDetails(const QString& blob, const QVariantMap& edits);
+    Q_INVOKABLE static QString revertToCanonical(const QString& blob);
+    Q_INVOKABLE static bool blobDiffersFromCanonical(const QString& blob);
+
+    // Fetch a roaster product page and reduce it to plain text for the
+    // "Get info" AI extraction — the same reduction Visualizer's scraper
+    // performs (drop script/style/svg/img, strip tags, squish). Follows
+    // redirects; emits pageTextReady/pageTextFailed.
+    Q_INVOKABLE void fetchPageText(const QString& url);
+    // The HTML -> squished-plain-text reduction. Static + public for tests.
+    static QString extractPageText(const QByteArray& html);
 
     // og:image URL extraction from product-page HTML (property= or name=,
     // og:image:secure_url variant, either attribute order; protocol-relative
@@ -114,6 +137,11 @@ signals:
 
     // A bag photo landed in (or already existed in) the file cache.
     void bagImageReady(const QString& canonicalId, const QString& filePath);
+    // "Get info" page fetch (add-bag-detail-editing): the product page's
+    // plain text (tags stripped, whitespace squished, length-capped), ready
+    // for AI extraction. url is echoed back so stale results are discardable.
+    void pageTextReady(const QString& url, const QString& text);
+    void pageTextFailed(const QString& url, const QString& error);
     // The image re-search recovered a product URL for a blob that lacked
     // `link` (linked before the url→link capture). BagCard backfills it into
     // the bag blob so the details popup can offer the reorder link.

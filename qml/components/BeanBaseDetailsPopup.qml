@@ -24,27 +24,34 @@ Popup {
     // carry a CDN `image` URL, used as fallback. Resolution is requested when
     // the popup opens so the photo appears on the spot when it can be fetched.
     property string cachedImagePath: ""
+    // Image-cache key: the canonical id for linked blobs; a host showing a
+    // manual bag with a product URL passes its "bag-<rowid>" key instead
+    // (add-bag-detail-editing). Defaults to the blob's own id so per-shot
+    // snapshot hosts need no change.
+    property string imageKey: fieldOrEmpty("id")
 
     onAboutToShow: {
-        var id = fieldOrEmpty("id")
-        if (id.length === 0) {
+        if (imageKey.length === 0) {
             cachedImagePath = ""
             return
         }
-        cachedImagePath = MainController.beanbase.bagImagePath(id)
+        cachedImagePath = MainController.beanbase.bagImagePath(imageKey)
         if (cachedImagePath.length === 0)
-            MainController.beanbase.ensureBagImage(id, fieldOrEmpty("roastName"), fieldOrEmpty("link"))
+            MainController.beanbase.ensureBagImage(imageKey, fieldOrEmpty("roastName"), fieldOrEmpty("link"))
     }
 
     Connections {
         target: MainController.beanbase
         function onBagImageReady(id, path) {
-            if (root.visible && id === root.fieldOrEmpty("id"))
+            if (root.visible && id === root.imageKey)
                 root.cachedImagePath = path
         }
     }
 
     readonly property string elevationText: {
+        // Canonical/user-edited blobs carry a display string; legacy Bean Base
+        // blobs carry the numeric min/max pair instead.
+        if (bean.elevation) return String(bean.elevation)
         const lo = Number(bean.minElevationM || 0)
         const hi = Number(bean.maxElevationM || 0)
         if (lo > 0 && hi > 0 && hi !== lo) return lo + "–" + hi + " m"
@@ -172,6 +179,9 @@ Popup {
                 AttrLabel { text: TranslationManager.translate("beanbase.details.region", "Region"); visible: root.fieldOrEmpty("region").length > 0 }
                 AttrValue { text: root.fieldOrEmpty("region"); visible: root.fieldOrEmpty("region").length > 0 }
 
+                AttrLabel { text: TranslationManager.translate("beanbase.details.farm", "Farm"); visible: root.fieldOrEmpty("farm").length > 0 }
+                AttrValue { text: root.fieldOrEmpty("farm"); visible: root.fieldOrEmpty("farm").length > 0 }
+
                 AttrLabel { text: TranslationManager.translate("beanbase.details.producer", "Producer"); visible: root.fieldOrEmpty("producer").length > 0 }
                 AttrValue { text: root.fieldOrEmpty("producer"); visible: root.fieldOrEmpty("producer").length > 0 }
 
@@ -192,6 +202,12 @@ Popup {
 
                 AttrLabel { text: TranslationManager.translate("beanbase.details.harvest", "Harvest"); visible: root.fieldOrEmpty("harvest").length > 0 }
                 AttrValue { text: root.fieldOrEmpty("harvest"); visible: root.fieldOrEmpty("harvest").length > 0 }
+
+                AttrLabel { text: TranslationManager.translate("beanbase.details.qualityScore", "Quality score"); visible: root.fieldOrEmpty("qualityScore").length > 0 }
+                AttrValue { text: root.fieldOrEmpty("qualityScore"); visible: root.fieldOrEmpty("qualityScore").length > 0 }
+
+                AttrLabel { text: TranslationManager.translate("beanbase.details.placeOfPurchase", "Purchased at"); visible: root.fieldOrEmpty("placeOfPurchase").length > 0 }
+                AttrValue { text: root.fieldOrEmpty("placeOfPurchase"); visible: root.fieldOrEmpty("placeOfPurchase").length > 0 }
             }
 
             // Tasting tag chips
@@ -243,26 +259,35 @@ Popup {
 
             // Product link — the action line plus the visible URL itself, so
             // the destination is recognizable at a glance (reordering aid).
-            ColumnLayout {
-                id: productLink
+            // Wrapped in a plain Item so the AccessibleMouseArea can anchor-
+            // fill it: anchors on a direct child of a ColumnLayout are
+            // undefined behavior (the layout manages that child's geometry).
+            Item {
                 Layout.fillWidth: true
                 visible: root.fieldOrEmpty("link").length > 0
-                spacing: Theme.scaled(1)
+                implicitHeight: productLink.implicitHeight
 
-                Text {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("beanbase.details.viewAtRoaster", "View at roaster")
-                    color: Theme.primaryColor
-                    font.pixelSize: Theme.scaled(13)
-                    Accessible.ignored: true  // accessibleItem; node carried by AccessibleMouseArea
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: root.fieldOrEmpty("link")
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(11)
-                    elide: Text.ElideMiddle
-                    Accessible.ignored: true
+                ColumnLayout {
+                    id: productLink
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    spacing: Theme.scaled(1)
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("beanbase.details.viewAtRoaster", "View at roaster")
+                        color: Theme.primaryColor
+                        font.pixelSize: Theme.scaled(13)
+                        Accessible.ignored: true  // accessibleItem; node carried by AccessibleMouseArea
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.fieldOrEmpty("link")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(11)
+                        elide: Text.ElideMiddle
+                        Accessible.ignored: true
+                    }
                 }
 
                 AccessibleMouseArea {

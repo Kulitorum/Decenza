@@ -1,4 +1,5 @@
 #include "beanbaseclient.h"
+#include "beanbase_blob.h"
 
 #include <QDebug>
 #include <QDir>
@@ -250,10 +251,36 @@ void BeanBaseClient::ensureBagImage(const QString& canonicalId,
         return;
     }
 
+    // Manual bags (add-bag-detail-editing) use a "bag-<rowid>" cache key —
+    // there is no canonical entry to recover a URL from, so no URL means no
+    // image, full stop.
+    if (canonicalId.startsWith(QLatin1String("bag-")))
+        return;
+
     // Legacy blob without `link` (captured only since the url→link mapping):
     // recover the product URL first, then continue the image chain from it.
     m_imageAwaitingLink.insert(canonicalId);
     recoverBagLink(canonicalId, roastName);
+}
+
+void BeanBaseClient::refreshBagImage(const QString& canonicalId,
+                                     const QString& roastName,
+                                     const QString& productUrl) {
+    // The product URL was user-edited (add-bag-detail-editing): the cached
+    // pixels and the once-per-session attempt guard both describe the OLD
+    // page, so drop them and re-resolve from the new URL.
+    if (!isSafeCacheFilename(canonicalId))
+        return;
+    const QString existing = bagImagePath(canonicalId);
+    if (!existing.isEmpty() && !QFile::remove(existing)) {
+        // Bail rather than proceed: ensureBagImage would find the surviving
+        // file, take its cache-hit branch, and confirm the refresh with the
+        // OLD page's pixels — a silent no-op forever.
+        qWarning() << "BeanBaseClient: could not evict cached bag image" << existing;
+        return;
+    }
+    m_imageAttempted.remove(canonicalId);
+    ensureBagImage(canonicalId, roastName, productUrl);
 }
 
 void BeanBaseClient::recoverBagLink(const QString& canonicalId, const QString& roastName) {
@@ -387,6 +414,104 @@ void BeanBaseClient::downloadBagImage(const QString& canonicalId, const QString&
         });
         worker->start();
     });
+}
+
+QString BeanBaseClient::mergeBeanDetails(const QString& blob, const QVariantMap& edits) {
+    return BeanBaseBlob::mergeBeanDetails(blob, edits);
+}
+
+QString BeanBaseClient::revertToCanonical(const QString& blob) {
+    return BeanBaseBlob::revertToCanonical(blob);
+}
+
+bool BeanBaseClient::blobDiffersFromCanonical(const QString& blob) {
+    return BeanBaseBlob::differsFromCanonical(blob);
+}
+
+void BeanBaseClient::fetchPageText(const QString& url) {
+    // Failure reasons: stable codes ("invalidUrl", "notAWebPage", "emptyPage")
+    // the QML layer translates; transport failures pass Qt's errorString.
+    const QUrl parsed(url);
+    if (!parsed.isValid() || !parsed.scheme().startsWith(QLatin1String("http"))) {
+        // The http(s)-only gate matters: the URL is user-entered and the text
+        // goes to a third-party AI provider — a file:// URL must never be read.
+        qWarning() << "BeanBaseClient: fetchPageText rejected non-http url" << url;
+        QPointer<BeanBaseClient> self(this);
+        QMetaObject::invokeMethod(this, [self, url]() {
+            if (self)
+                emit self->pageTextFailed(url, QStringLiteral("invalidUrl"));
+        }, Qt::QueuedConnection);
+        return;
+    }
+    QNetworkRequest request(parsed);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    request.setTransferTimeout(kTransferTimeoutMs);
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, url]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "BeanBaseClient: fetchPageText failed for" << url << "-" << reply->errorString();
+            emit pageTextFailed(url, reply->errorString());
+            return;
+        }
+        // A PDF/image/zip URL would decode to replacement-character soup that
+        // passes the length gate and earns a confident "nothing found on the
+        // page" — reject non-text content as a FORMAT failure instead.
+        const QString contentType = reply->header(QNetworkRequest::ContentTypeHeader).toString();
+        if (!contentType.isEmpty()
+            && !contentType.startsWith(QLatin1String("text/"))
+            && !contentType.contains(QLatin1String("html"), Qt::CaseInsensitive)
+            && !contentType.contains(QLatin1String("xml"), Qt::CaseInsensitive)) {
+            qWarning() << "BeanBaseClient: fetchPageText got non-text content" << contentType << "for" << url;
+            emit pageTextFailed(url, QStringLiteral("notAWebPage"));
+            return;
+        }
+        // The 15 s transfer timeout bounds time, not bytes — cap the body so
+        // a huge asset can't stall the main thread in the regex passes.
+        QByteArray body = reply->readAll();
+        constexpr qsizetype kMaxBodyBytes = 512 * 1024;
+        if (body.size() > kMaxBodyBytes)
+            body.truncate(kMaxBodyBytes);
+        const QString text = extractPageText(body);
+        // Visualizer treats < 100 chars as "blocked or empty" and falls back
+        // to a scraping proxy; we have no proxy, so it is simply a failure.
+        if (text.size() < 100) {
+            qWarning() << "BeanBaseClient: fetchPageText got no readable text from" << url;
+            emit pageTextFailed(url, QStringLiteral("emptyPage"));
+            return;
+        }
+        emit pageTextReady(url, text);
+    });
+}
+
+// static
+QString BeanBaseClient::extractPageText(const QByteArray& html) {
+    QString text = QString::fromUtf8(html);
+    // Element bodies that are never prose, then every remaining tag — the
+    // same reduction Visualizer's scraper applies before AI extraction.
+    static const QRegularExpression kBlockRe(
+        QStringLiteral("<(script|style|svg)\\b[^>]*>.*?</\\1\\s*>"),
+        QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
+    static const QRegularExpression kTagRe(QStringLiteral("<[^>]+>"));
+    static const QRegularExpression kSpaceRe(QStringLiteral("\\s+"));
+    text.remove(kBlockRe);
+    text.replace(kTagRe, QStringLiteral(" "));
+    // The handful of entities that actually occur in shop prose.
+    text.replace(QLatin1String("&amp;"), QLatin1String("&"));
+    text.replace(QLatin1String("&lt;"), QLatin1String("<"));
+    text.replace(QLatin1String("&gt;"), QLatin1String(">"));
+    text.replace(QLatin1String("&quot;"), QLatin1String("\""));
+    text.replace(QLatin1String("&#39;"), QLatin1String("'"));
+    text.replace(QLatin1String("&nbsp;"), QLatin1String(" "));
+    text = text.replace(kSpaceRe, QStringLiteral(" ")).trimmed();
+    // Cap what we hand to the model: product prose sits well within this;
+    // the tail of a huge page is footer/locale noise (see the 19k-char
+    // Shopify example in the PR discussion).
+    constexpr qsizetype kMaxChars = 20000;
+    if (text.size() > kMaxChars)
+        text.truncate(kMaxChars);
+    return text;
 }
 
 QString BeanBaseClient::extractOgImage(const QByteArray& html) {
