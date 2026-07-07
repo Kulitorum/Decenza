@@ -7,16 +7,21 @@ import "../components"
 // Recipe composer (add-recipes): ONE window for all recipe creation and
 // editing. Three entry points land here — blank (RecipesPage "Add"),
 // prefilled from a shot (promote buttons in history/detail/auto-favorites,
-// via `prefill`), and clone (RecipesPage clone action, also via `prefill`).
-// Only name + profile are required; bag and equipment offer "none" — the
+// via `promoteShotId`), and clone (RecipesPage clone action, via `prefill`).
+// Only name + profile are required; bean and equipment offer "none" — the
 // optionality ladder applies inside the recipe too.
+//
+// Layout: everything on one page. A centered column with the name up top,
+// then section cards in a two-column grid on wide screens (drink+grind |
+// beans+equipment+steam), single column when narrow. Pickers render as
+// labeled field-style buttons; the profile picker has a search box.
 Page {
     id: composerPage
     objectName: "recipeComposerPage"
     background: Rectangle { color: Theme.backgroundColor }
 
     // "create" | "edit". Edit loads the row; create starts from `prefill`
-    // (possibly empty).
+    // (possibly empty) or `promoteShotId`.
     property string mode: "create"
     property int editRecipeId: -1
     // Recipe-shaped map (camelCase RecipeStorage keys) used to seed the form:
@@ -47,6 +52,7 @@ Page {
     property string bagSwapHint: ""
 
     readonly property bool hasBean: fBeanBaseId !== "" || fRoaster !== "" || fCoffee !== ""
+    readonly property bool wideLayout: width >= Theme.scaled(720)
 
     StackView.onActivated: root.currentPageTitle = mode === "edit"
         ? TranslationManager.translate("recipes.composer.editTitle", "Edit Recipe")
@@ -63,64 +69,6 @@ Page {
         else if (prefill && Object.keys(prefill).length > 0)
             applyRecipeMap(prefill)
         nameField.forceActiveFocus()
-    }
-
-    // Build the current steam settings as a snapshot (promote fallback when
-    // the shot predates steam snapshots). Mirrors currentSteamSpecJson().
-    function currentSteamSnapshot() {
-        var s = {}
-        var idx = Settings.brew.selectedSteamPitcher
-        var presets = Settings.brew.steamPitcherPresets
-        if (idx >= 0 && idx < presets.length && !presets[idx].disabled) {
-            s.pitcherName = presets[idx].name || ""
-            s.durationSec = presets[idx].duration || 0
-            s.flow = presets[idx].flow || 0
-            s.temperatureC = presets[idx].temperature || 0
-        }
-        if (Settings.brew.lastSteamMilkG > 0)
-            s.milkWeightG = Settings.brew.lastSteamMilkG
-        return Object.keys(s).length > 0 ? JSON.stringify(s) : ""
-    }
-
-    function prefillFromShot(shot) {
-        var beanBaseId = ""
-        if (shot.beanBaseJson) {
-            try { beanBaseId = JSON.parse(shot.beanBaseJson).id || "" } catch (e) {}
-        }
-        var hasBean = beanBaseId !== "" || shot.beanBrand || shot.beanType
-        // Route through `prefill` so save() picks up the provenance fields.
-        prefill = ({
-            name: "",
-            profileTitle: shot.profileName || "",
-            profileJson: shot.profileJson || "",
-            beanBaseId: beanBaseId,
-            roasterName: shot.beanBrand || "",
-            coffeeName: shot.beanType || "",
-            equipmentId: shot.equipmentId || 0,
-            doseG: shot.doseWeightG || 0,
-            yieldG: shot.targetWeightG || 0,
-            tempOverrideC: shot.temperatureOverrideC || 0,
-            // Linked bean → inherit (the bag already carries the dial via
-            // write-through); no bean → the shot's grind lives on the recipe.
-            grindPinned: hasBean ? "" : (shot.grinderSetting || ""),
-            steamJson: shot.steamJson && shot.steamJson !== "" ? shot.steamJson
-                                                               : currentSteamSnapshot(),
-            createdFromShotId: promoteShotId
-        })
-        applyRecipeMap(prefill)
-        // Suggest a name from the drink so saving is one edit, not two.
-        var bean = ((shot.beanBrand || "") + " " + (shot.beanType || "")).trim()
-        nameField.text = bean !== "" ? bean : (shot.profileName || "")
-        nameField.selectAll()
-    }
-
-    Connections {
-        target: MainController.shotHistory
-        enabled: composerPage.promoteShotId > 0
-        function onShotReady(id, shot) {
-            if (id === composerPage.promoteShotId)
-                composerPage.prefillFromShot(shot)
-        }
     }
 
     function applyRecipeMap(r) {
@@ -173,6 +121,55 @@ Page {
         return JSON.stringify(s)
     }
 
+    // Build the current steam settings as a snapshot (promote fallback when
+    // the shot predates steam snapshots). Mirrors currentSteamSpecJson().
+    function currentSteamSnapshot() {
+        var s = {}
+        var idx = Settings.brew.selectedSteamPitcher
+        var presets = Settings.brew.steamPitcherPresets
+        if (idx >= 0 && idx < presets.length && !presets[idx].disabled) {
+            s.pitcherName = presets[idx].name || ""
+            s.durationSec = presets[idx].duration || 0
+            s.flow = presets[idx].flow || 0
+            s.temperatureC = presets[idx].temperature || 0
+        }
+        if (Settings.brew.lastSteamMilkG > 0)
+            s.milkWeightG = Settings.brew.lastSteamMilkG
+        return Object.keys(s).length > 0 ? JSON.stringify(s) : ""
+    }
+
+    function prefillFromShot(shot) {
+        var beanBaseId = ""
+        if (shot.beanBaseJson) {
+            try { beanBaseId = JSON.parse(shot.beanBaseJson).id || "" } catch (e) {}
+        }
+        var hasBeanData = beanBaseId !== "" || shot.beanBrand || shot.beanType
+        // Route through `prefill` so save() picks up the provenance fields.
+        prefill = ({
+            name: "",
+            profileTitle: shot.profileName || "",
+            profileJson: shot.profileJson || "",
+            beanBaseId: beanBaseId,
+            roasterName: shot.beanBrand || "",
+            coffeeName: shot.beanType || "",
+            equipmentId: shot.equipmentId || 0,
+            doseG: shot.doseWeightG || 0,
+            yieldG: shot.targetWeightG || 0,
+            tempOverrideC: shot.temperatureOverrideC || 0,
+            // Linked bean → inherit (the bag already carries the dial via
+            // write-through); no bean → the shot's grind lives on the recipe.
+            grindPinned: hasBeanData ? "" : (shot.grinderSetting || ""),
+            steamJson: shot.steamJson && shot.steamJson !== "" ? shot.steamJson
+                                                               : currentSteamSnapshot(),
+            createdFromShotId: promoteShotId
+        })
+        applyRecipeMap(prefill)
+        // Suggest a name from the drink so saving is one edit, not two.
+        var bean = ((shot.beanBrand || "") + " " + (shot.beanType || "")).trim()
+        nameField.text = bean !== "" ? bean : (shot.profileName || "")
+        nameField.selectAll()
+    }
+
     // Resolve the linked bean's current open-bag grind for the inherit hint.
     function refreshInheritedGrind() {
         fInheritedGrind = ""
@@ -203,7 +200,7 @@ Page {
             doseG: parseFloat(doseField.text) || 0,
             yieldG: parseFloat(yieldField.text) || 0,
             tempOverrideC: parseFloat(tempField.text) || 0,
-            grindPinned: fGrindPinned.trim(),  // " " is only the form's "pin armed, value pending" marker
+            grindPinned: fGrindPinned.trim(),  // " " is only the form's "pin armed" marker
             steamJson: buildSteamJson()
         }
         if (prefill && prefill.createdFromShotId)
@@ -214,6 +211,15 @@ Page {
             MainController.recipeStorage.requestUpdateRecipe(editRecipeId, map)
         else
             MainController.recipeStorage.requestCreateRecipe(map)
+    }
+
+    Connections {
+        target: MainController.shotHistory
+        enabled: composerPage.promoteShotId > 0
+        function onShotReady(id, shot) {
+            if (id === composerPage.promoteShotId)
+                composerPage.prefillFromShot(shot)
+        }
     }
 
     Connections {
@@ -287,209 +293,319 @@ Page {
     Tr { id: trNone; key: "recipes.composer.none"; fallback: "None"; visible: false }
     Tr { id: trInherited; key: "recipes.composer.grindInherited"; fallback: "Follows the bag"; visible: false }
 
+    // --- Reusable pieces -----------------------------------------------
+
+    // A labeled, field-styled picker button: label above, current value in a
+    // bordered field with a chevron. Reads as an input, not a giant button.
+    component PickerField: ColumnLayout {
+        id: pickerField
+        property string label: ""
+        property string value: ""
+        property string placeholder: ""
+        signal activated()
+        spacing: Theme.scaled(4)
+        Label {
+            text: pickerField.label
+            font: Theme.captionFont
+            color: Theme.textSecondaryColor
+            Accessible.ignored: true
+        }
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: Theme.scaled(44)
+            radius: Theme.scaled(8)
+            color: Theme.surfaceColor
+            border.color: Theme.borderColor
+            border.width: 1
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: Theme.spacingMedium
+                anchors.rightMargin: Theme.spacingMedium
+                spacing: Theme.spacingSmall
+                Label {
+                    Layout.fillWidth: true
+                    text: pickerField.value !== "" ? pickerField.value : pickerField.placeholder
+                    font: Theme.bodyFont
+                    color: pickerField.value !== "" ? Theme.textColor : Theme.textSecondaryColor
+                    elide: Text.ElideRight
+                    Accessible.ignored: true
+                }
+                Label {
+                    text: "→"
+                    font: Theme.bodyFont
+                    color: Theme.textSecondaryColor
+                    Accessible.ignored: true
+                }
+            }
+            AccessibleMouseArea {
+                anchors.fill: parent
+                accessibleName: pickerField.label + ", "
+                    + (pickerField.value !== "" ? pickerField.value : pickerField.placeholder)
+                accessibleItem: parent
+                onAccessibleClicked: pickerField.activated()
+            }
+        }
+    }
+
+    // A labeled numeric field (label above the input).
+    component NumberField: ColumnLayout {
+        id: numberField
+        property string label: ""
+        property alias text: numberInput.text
+        property alias input: numberInput
+        signal edited(string newText)
+        spacing: Theme.scaled(4)
+        Label {
+            text: numberField.label
+            font: Theme.captionFont
+            color: Theme.textSecondaryColor
+            Accessible.ignored: true
+        }
+        StyledTextField {
+            id: numberInput
+            Layout.fillWidth: true
+            inputMethodHints: Qt.ImhFormattedNumbersOnly
+            Accessible.name: numberField.label
+            onTextEdited: numberField.edited(text)
+        }
+    }
+
+    // Section card with a title.
+    component SectionCard: Rectangle {
+        id: sectionCard
+        property string title: ""
+        default property alias content: cardColumn.data
+        Layout.fillWidth: true
+        Layout.alignment: Qt.AlignTop
+        implicitHeight: cardColumn.implicitHeight + 2 * Theme.spacingMedium
+        radius: Theme.cardRadius
+        color: Theme.surfaceColor
+        border.color: Theme.borderColor
+        border.width: 1
+        ColumnLayout {
+            id: cardColumn
+            anchors.fill: parent
+            anchors.margins: Theme.spacingMedium
+            spacing: Theme.spacingMedium
+            Label {
+                text: sectionCard.title
+                font: Theme.subtitleFont
+                color: Theme.textColor
+                Accessible.role: Accessible.Heading
+                Accessible.name: text
+            }
+        }
+    }
+
+    // --- Page body ------------------------------------------------------
+
     KeyboardAwareContainer {
         anchors.fill: parent
         anchors.topMargin: Theme.pageTopMargin
         anchors.bottomMargin: Theme.bottomBarHeight
-        anchors.leftMargin: Theme.standardMargin
-        anchors.rightMargin: Theme.standardMargin
-        textFields: [nameField, doseField, yieldField, tempField, grindPinField, milkField]
+        textFields: [nameField, doseField.input, yieldField.input, tempField.input, grindPinField, milkField.input]
 
         Flickable {
             anchors.fill: parent
-            contentHeight: formColumn.implicitHeight + Theme.scaled(20)
+            contentHeight: outerColumn.implicitHeight + Theme.scaled(24)
             clip: true
             boundsBehavior: Flickable.StopAtBounds
 
             ColumnLayout {
-                id: formColumn
-                width: parent.width
+                id: outerColumn
+                width: Math.min(parent.width - 2 * Theme.standardMargin, Theme.scaled(980))
+                anchors.horizontalCenter: parent.horizontalCenter
                 spacing: Theme.spacingMedium
 
-                Tr {
-                    key: composerPage.mode === "edit" ? "recipes.composer.editTitle" : "recipes.composer.createTitle"
-                    fallback: composerPage.mode === "edit" ? "Edit Recipe" : "New Recipe"
-                    font: Theme.titleFont
-                    color: Theme.textColor
-                    Accessible.role: Accessible.Heading
-                    Accessible.name: text
-                }
-
-                // --- Name (required) ---
+                // Name — the one field every recipe needs; full width, prominent.
                 StyledTextField {
                     id: nameField
                     Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingMedium
+                    font: Theme.subtitleFont
                     placeholderText: TranslationManager.translate("recipes.composer.namePlaceholder", "Recipe name (e.g. Morning cappuccino)")
                     Accessible.name: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name")
                 }
 
-                // --- Profile (required) ---
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-                    Tr {
-                        key: "recipes.composer.profileLabel"; fallback: "Profile"
-                        font: Theme.bodyFont; color: Theme.textColor
-                    }
-                    Item { Layout.fillWidth: true }
-                    ActionButton {
-                        text: composerPage.fProfileTitle !== "" ? composerPage.fProfileTitle
-                            : TranslationManager.translate("recipes.composer.chooseProfile", "Choose profile…")
-                        onClicked: profilePicker.open()
-                    }
-                }
-
-                // --- Bean (optional) ---
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-                    Tr {
-                        key: "recipes.composer.beanLabel"; fallback: "Bean"
-                        font: Theme.bodyFont; color: Theme.textColor
-                    }
-                    Item { Layout.fillWidth: true }
-                    ActionButton {
-                        text: composerPage.hasBean
-                            ? (composerPage.fRoaster + " " + composerPage.fCoffee).trim()
-                            : trNone.text
-                        onClicked: { MainController.bagStorage.requestInventory(); bagPicker.open() }
-                    }
-                }
-                Label {
-                    visible: composerPage.bagSwapHint !== ""
-                    Layout.fillWidth: true
-                    text: composerPage.bagSwapHint
-                    font: Theme.captionFont
-                    color: Theme.secondaryTextColor
-                    wrapMode: Text.WordWrap
-                }
-
-                // --- Equipment (optional) ---
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-                    Tr {
-                        key: "recipes.composer.equipmentLabel"; fallback: "Equipment"
-                        font: Theme.bodyFont; color: Theme.textColor
-                    }
-                    Item { Layout.fillWidth: true }
-                    ActionButton {
-                        text: composerPage.fEquipmentId > 0 && composerPage.fEquipmentName !== ""
-                            ? composerPage.fEquipmentName : trNone.text
-                        onClicked: { MainController.equipmentStorage.requestInventory(); equipmentPicker.open() }
-                    }
-                }
-
-                // --- Dose / yield / temperature ---
                 GridLayout {
                     Layout.fillWidth: true
-                    columns: 3
+                    columns: composerPage.wideLayout ? 2 : 1
                     columnSpacing: Theme.spacingMedium
-                    Tr { key: "recipes.composer.doseLabel"; fallback: "Dose (g)"; font: Theme.captionFont; color: Theme.secondaryTextColor }
-                    Tr { key: "recipes.composer.yieldLabel"; fallback: "Yield (g)"; font: Theme.captionFont; color: Theme.secondaryTextColor }
-                    Tr { key: "recipes.composer.tempLabel"; fallback: "Temp override (°C)"; font: Theme.captionFont; color: Theme.secondaryTextColor }
-                    StyledTextField {
-                        id: doseField
-                        Layout.fillWidth: true
-                        inputMethodHints: Qt.ImhFormattedNumbersOnly
-                        Accessible.name: TranslationManager.translate("recipes.composer.doseLabel", "Dose (g)")
-                    }
-                    StyledTextField {
-                        id: yieldField
-                        Layout.fillWidth: true
-                        inputMethodHints: Qt.ImhFormattedNumbersOnly
-                        Accessible.name: TranslationManager.translate("recipes.composer.yieldLabel", "Yield (g)")
-                    }
-                    StyledTextField {
-                        id: tempField
-                        Layout.fillWidth: true
-                        inputMethodHints: Qt.ImhFormattedNumbersOnly
-                        Accessible.name: TranslationManager.translate("recipes.composer.tempLabel", "Temperature override in Celsius")
-                    }
-                }
+                    rowSpacing: Theme.spacingMedium
 
-                // --- Grind: inherit (default) or pin ---
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 0
-                        Tr {
-                            key: "recipes.composer.grindLabel"; fallback: "Grind"
-                            font: Theme.bodyFont; color: Theme.textColor
+                    // ------ The drink: profile + targets ------
+                    SectionCard {
+                        title: TranslationManager.translate("recipes.composer.sectionDrink", "The drink")
+
+                        PickerField {
+                            Layout.fillWidth: true
+                            label: TranslationManager.translate("recipes.composer.profileLabel", "Profile") + " *"
+                            value: composerPage.fProfileTitle
+                            placeholder: TranslationManager.translate("recipes.composer.chooseProfile", "Choose profile…")
+                            onActivated: profilePicker.openPicker()
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingMedium
+                            NumberField {
+                                id: doseField
+                                Layout.fillWidth: true
+                                label: TranslationManager.translate("recipes.composer.doseLabel", "Dose (g)")
+                            }
+                            NumberField {
+                                id: yieldField
+                                Layout.fillWidth: true
+                                label: TranslationManager.translate("recipes.composer.yieldLabel", "Yield (g)")
+                            }
+                            NumberField {
+                                id: tempField
+                                Layout.fillWidth: true
+                                label: TranslationManager.translate("recipes.composer.tempLabel", "Temp override (" + Theme.tempUnitSuffix() + ")")
+                            }
+                        }
+                    }
+
+                    // ------ Beans & grind ------
+                    SectionCard {
+                        title: TranslationManager.translate("recipes.composer.sectionBean", "Beans & grind")
+
+                        PickerField {
+                            Layout.fillWidth: true
+                            label: TranslationManager.translate("recipes.composer.beanLabel", "Bean")
+                            value: composerPage.hasBean
+                                ? (composerPage.fRoaster + " " + composerPage.fCoffee).trim() : ""
+                            placeholder: trNone.text
+                            onActivated: { MainController.bagStorage.requestInventory(); bagPicker.open() }
+                        }
+                        Label {
+                            visible: composerPage.bagSwapHint !== ""
+                            Layout.fillWidth: true
+                            text: composerPage.bagSwapHint
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            wrapMode: Text.WordWrap
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingMedium
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.scaled(2)
+                                Label {
+                                    text: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
+                                    font: Theme.captionFont
+                                    color: Theme.textSecondaryColor
+                                    Accessible.ignored: true
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: composerPage.fGrindPinned === ""
+                                        ? (composerPage.hasBean
+                                            ? trInherited.text + (composerPage.fInheritedGrind !== "" ? ": " + composerPage.fInheritedGrind : "")
+                                            : TranslationManager.translate("recipes.composer.grindNoBean", "Stored on the recipe (no bean linked)"))
+                                        : TranslationManager.translate("recipes.composer.grindPinnedHint", "Pinned — this recipe keeps its own grind")
+                                    font: Theme.bodyFont
+                                    color: Theme.textColor
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+                            ColumnLayout {
+                                spacing: Theme.scaled(2)
+                                Label {
+                                    text: TranslationManager.translate("recipes.composer.pinGrindShort", "Pin")
+                                    font: Theme.captionFont
+                                    color: Theme.textSecondaryColor
+                                    Layout.alignment: Qt.AlignHCenter
+                                    Accessible.ignored: true
+                                }
+                                StyledSwitch {
+                                    id: pinSwitch
+                                    checked: composerPage.fGrindPinned !== "" || !composerPage.hasBean
+                                    enabled: composerPage.hasBean  // bean-less recipes always keep grind locally
+                                    Accessible.name: TranslationManager.translate("recipes.composer.pinGrind", "Pin grind to this recipe")
+                                    onToggled: {
+                                        if (checked)
+                                            composerPage.fGrindPinned = grindPinField.text !== "" ? grindPinField.text
+                                                : (composerPage.fInheritedGrind !== "" ? composerPage.fInheritedGrind : " ")
+                                        else
+                                            composerPage.fGrindPinned = ""
+                                    }
+                                }
+                            }
+                        }
+                        StyledTextField {
+                            id: grindPinField
+                            Layout.fillWidth: true
+                            visible: composerPage.fGrindPinned !== "" || !composerPage.hasBean
+                            text: composerPage.fGrindPinned.trim()
+                            placeholderText: TranslationManager.translate("recipes.composer.grindPlaceholder", "Grind setting (e.g. 2.4)")
+                            Accessible.name: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
+                            onTextEdited: composerPage.fGrindPinned = text === "" ? " " : text
+                        }
+                    }
+
+                    // ------ Equipment ------
+                    SectionCard {
+                        title: TranslationManager.translate("recipes.composer.sectionEquipment", "Equipment")
+
+                        PickerField {
+                            Layout.fillWidth: true
+                            label: TranslationManager.translate("recipes.composer.equipmentLabel", "Grinder / basket package")
+                            value: composerPage.fEquipmentId > 0 ? composerPage.fEquipmentName : ""
+                            placeholder: trNone.text
+                            onActivated: { MainController.equipmentStorage.requestInventory(); equipmentPicker.open() }
+                        }
+                    }
+
+                    // ------ Steam ------
+                    SectionCard {
+                        title: TranslationManager.translate("recipes.composer.sectionSteam", "Steam")
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingMedium
+                            Label {
+                                Layout.fillWidth: true
+                                text: TranslationManager.translate("recipes.composer.milkDrink", "Milk drink")
+                                font: Theme.bodyFont
+                                color: Theme.textColor
+                                Accessible.ignored: true
+                            }
+                            StyledSwitch {
+                                checked: composerPage.fHasMilk
+                                Accessible.name: TranslationManager.translate("recipes.composer.milkDrink", "Milk drink")
+                                onToggled: composerPage.fHasMilk = checked
+                            }
                         }
                         Label {
                             Layout.fillWidth: true
-                            text: composerPage.fGrindPinned === ""
-                                ? (composerPage.hasBean
-                                    ? trInherited.text + (composerPage.fInheritedGrind !== "" ? ": " + composerPage.fInheritedGrind : "")
-                                    : TranslationManager.translate("recipes.composer.grindNoBean", "Stored on the recipe (no bean linked)"))
-                                : TranslationManager.translate("recipes.composer.grindPinnedHint", "Pinned — this recipe keeps its own grind")
+                            text: TranslationManager.translate("recipes.composer.milkHint",
+                                  "Milk drinks keep the steam heater warm while this recipe is active (warm-up takes 5–9 minutes).")
                             font: Theme.captionFont
-                            color: Theme.secondaryTextColor
+                            color: Theme.textSecondaryColor
                             wrapMode: Text.WordWrap
                         }
-                    }
-                    StyledSwitch {
-                        id: pinSwitch
-                        checked: composerPage.fGrindPinned !== "" || !composerPage.hasBean
-                        enabled: composerPage.hasBean  // bean-less recipes always keep grind locally
-                        Accessible.name: TranslationManager.translate("recipes.composer.pinGrind", "Pin grind to this recipe")
-                        onToggled: {
-                            if (checked)
-                                composerPage.fGrindPinned = grindPinField.text !== "" ? grindPinField.text
-                                    : (composerPage.fInheritedGrind !== "" ? composerPage.fInheritedGrind : " ")
-                            else
-                                composerPage.fGrindPinned = ""
+                        RowLayout {
+                            visible: composerPage.fHasMilk
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingMedium
+                            NumberField {
+                                id: milkField
+                                Layout.fillWidth: true
+                                label: TranslationManager.translate("recipes.composer.milkWeight", "Milk (g)")
+                                text: composerPage.fMilkWeightG > 0 ? String(composerPage.fMilkWeightG) : ""
+                                onEdited: function(newText) { composerPage.fMilkWeightG = parseFloat(newText) || 0 }
+                            }
+                            PickerField {
+                                Layout.fillWidth: true
+                                label: TranslationManager.translate("recipes.composer.pitcher", "Pitcher")
+                                value: composerPage.fPitcherName
+                                placeholder: TranslationManager.translate("recipes.composer.choosePitcher", "Choose pitcher…")
+                                onActivated: pitcherPicker.open()
+                            }
                         }
-                    }
-                }
-                StyledTextField {
-                    id: grindPinField
-                    Layout.fillWidth: true
-                    visible: composerPage.fGrindPinned !== "" || !composerPage.hasBean
-                    text: composerPage.fGrindPinned.trim()
-                    placeholderText: TranslationManager.translate("recipes.composer.grindPlaceholder", "Grind setting (e.g. 2.4)")
-                    Accessible.name: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
-                    onTextEdited: composerPage.fGrindPinned = text === "" ? " " : text
-                }
-
-                // --- Steam ---
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-                    Tr {
-                        key: "recipes.composer.milkDrink"; fallback: "Milk drink"
-                        font: Theme.bodyFont; color: Theme.textColor
-                    }
-                    Item { Layout.fillWidth: true }
-                    StyledSwitch {
-                        checked: composerPage.fHasMilk
-                        Accessible.name: TranslationManager.translate("recipes.composer.milkDrink", "Milk drink")
-                        onToggled: composerPage.fHasMilk = checked
-                    }
-                }
-                GridLayout {
-                    visible: composerPage.fHasMilk
-                    Layout.fillWidth: true
-                    columns: 2
-                    columnSpacing: Theme.spacingMedium
-                    Tr { key: "recipes.composer.milkWeight"; fallback: "Milk (g)"; font: Theme.captionFont; color: Theme.secondaryTextColor }
-                    Tr { key: "recipes.composer.pitcher"; fallback: "Pitcher"; font: Theme.captionFont; color: Theme.secondaryTextColor }
-                    StyledTextField {
-                        id: milkField
-                        Layout.fillWidth: true
-                        inputMethodHints: Qt.ImhFormattedNumbersOnly
-                        text: composerPage.fMilkWeightG > 0 ? String(composerPage.fMilkWeightG) : ""
-                        Accessible.name: TranslationManager.translate("recipes.composer.milkWeight", "Milk weight in grams")
-                        onTextEdited: composerPage.fMilkWeightG = parseFloat(text) || 0
-                    }
-                    ActionButton {
-                        Layout.fillWidth: true
-                        text: composerPage.fPitcherName !== "" ? composerPage.fPitcherName
-                            : TranslationManager.translate("recipes.composer.choosePitcher", "Choose pitcher…")
-                        onClicked: pitcherPicker.open()
                     }
                 }
 
@@ -504,6 +620,7 @@ Page {
 
                 RowLayout {
                     Layout.fillWidth: true
+                    Layout.bottomMargin: Theme.spacingMedium
                     spacing: Theme.spacingMedium
                     Item { Layout.fillWidth: true }
                     ActionButton {
@@ -523,42 +640,68 @@ Page {
     // --- Pickers: lightweight list dialogs (selection only — the full
     // management UIs stay on their own pages/dialogs) ---
 
-    Dialog {
-        id: profilePicker
+    component PickerDialog: Dialog {
         modal: true
         anchors.centerIn: parent
-        width: Math.min(Theme.scaled(500), parent.width - Theme.scaled(40))
-        height: Math.min(Theme.scaled(600), parent.height - Theme.scaled(80))
+        width: Math.min(Theme.scaled(520), parent.width - Theme.scaled(40))
+        height: Math.min(Theme.scaled(620), parent.height - Theme.scaled(80))
         background: Rectangle { color: Theme.surfaceColor; radius: Theme.cardRadius; border.color: Theme.borderColor; border.width: 1 }
-        contentItem: ListView {
-            clip: true
-            model: ProfileManager.allProfilesList
-            delegate: ItemDelegate {
-                width: ListView.view.width
-                contentItem: Label {
-                    text: modelData.title
-                    font: Theme.bodyFont
-                    color: Theme.textColor
-                    elide: Text.ElideRight
+    }
+
+    PickerDialog {
+        id: profilePicker
+        property string filter: ""
+        function openPicker() {
+            filter = ""
+            open()
+            profileSearchField.forceActiveFocus()
+        }
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingSmall
+            StyledTextField {
+                id: profileSearchField
+                Layout.fillWidth: true
+                placeholderText: TranslationManager.translate("profileselector.search", "Search profiles…")
+                Accessible.name: placeholderText
+                onTextChanged: profilePicker.filter = text.trim().toLowerCase()
+            }
+            ListView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: {
+                    var all = ProfileManager.allProfilesList
+                    if (profilePicker.filter === "")
+                        return all
+                    var out = []
+                    for (var i = 0; i < all.length; ++i) {
+                        if (String(all[i].title).toLowerCase().indexOf(profilePicker.filter) >= 0)
+                            out.push(all[i])
+                    }
+                    return out
                 }
-                Accessible.role: Accessible.Button
-                Accessible.name: modelData.title
-                onClicked: {
-                    composerPage.fProfileTitle = modelData.title
-                    composerPage.fProfileJson = ""  // installed profile: resolve by title
-                    profilePicker.close()
+                delegate: ItemDelegate {
+                    width: ListView.view.width
+                    contentItem: Label {
+                        text: modelData.title
+                        font: Theme.bodyFont
+                        color: Theme.textColor
+                        elide: Text.ElideRight
+                    }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: modelData.title
+                    onClicked: {
+                        composerPage.fProfileTitle = modelData.title
+                        composerPage.fProfileJson = ""  // installed profile: resolve by title
+                        profilePicker.close()
+                    }
                 }
             }
         }
     }
 
-    Dialog {
+    PickerDialog {
         id: bagPicker
-        modal: true
-        anchors.centerIn: parent
-        width: Math.min(Theme.scaled(500), parent.width - Theme.scaled(40))
-        height: Math.min(Theme.scaled(600), parent.height - Theme.scaled(80))
-        background: Rectangle { color: Theme.surfaceColor; radius: Theme.cardRadius; border.color: Theme.borderColor; border.width: 1 }
         contentItem: ListView {
             clip: true
             // "None" sentinel first, then the open-bag inventory.
@@ -600,13 +743,8 @@ Page {
         }
     }
 
-    Dialog {
+    PickerDialog {
         id: equipmentPicker
-        modal: true
-        anchors.centerIn: parent
-        width: Math.min(Theme.scaled(500), parent.width - Theme.scaled(40))
-        height: Math.min(Theme.scaled(600), parent.height - Theme.scaled(80))
-        background: Rectangle { color: Theme.surfaceColor; radius: Theme.cardRadius; border.color: Theme.borderColor; border.width: 1 }
         contentItem: ListView {
             clip: true
             model: [{ isNone: true }].concat(composerPage._packages)
@@ -635,13 +773,9 @@ Page {
         }
     }
 
-    Dialog {
+    PickerDialog {
         id: pitcherPicker
-        modal: true
-        anchors.centerIn: parent
-        width: Math.min(Theme.scaled(500), parent.width - Theme.scaled(40))
-        height: Math.min(Theme.scaled(400), parent.height - Theme.scaled(80))
-        background: Rectangle { color: Theme.surfaceColor; radius: Theme.cardRadius; border.color: Theme.borderColor; border.width: 1 }
+        height: Math.min(Theme.scaled(420), parent.height - Theme.scaled(80))
         contentItem: ListView {
             clip: true
             model: Settings.brew.steamPitcherPresets

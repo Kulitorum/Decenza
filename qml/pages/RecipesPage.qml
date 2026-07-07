@@ -89,7 +89,7 @@ Page {
                 key: "recipes.emptyHint"
                 fallback: "No recipes yet. Save one from a good shot in History, or add one here."
                 font: Theme.bodyFont
-                color: Theme.secondaryTextColor
+                color: Theme.textSecondaryColor
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
             }
@@ -132,7 +132,7 @@ Page {
                             text: recipesPage.recipeSubtitle(modelData)
                                   + (modelData.shotCount > 0 ? " · " + modelData.shotCount + " " + trShots.text : "")
                             font: Theme.captionFont
-                            color: Theme.secondaryTextColor
+                            color: Theme.textSecondaryColor
                             elide: Text.ElideRight
                         }
                         RowLayout {
@@ -203,7 +203,7 @@ Page {
                     Label {
                         text: modelData.name
                         font: Theme.bodyFont
-                        color: Theme.secondaryTextColor
+                        color: Theme.textSecondaryColor
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
