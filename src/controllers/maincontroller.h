@@ -428,6 +428,11 @@ private:
     void stampActiveRecipe(const QString& field, const QVariant& value);
     // Rebuild + stamp the active recipe's steam block from live settings.
     void stampActiveRecipeSteam();
+    // True when the active recipe's steam block declares a milk drink.
+    // sendMachineSettings treats this like keepSteamHeaterOn — the steam
+    // heater takes 5-9 minutes to warm, so a milk recipe holds it on for
+    // as long as it is active and the machine is awake.
+    bool activeRecipeHasMilk() const;
     // Clear the active recipe id/cache and the pinned-grind suspension.
     void clearActiveRecipeState();
     // Wire the deactivation watchers + write-through stamps (called once

@@ -16,7 +16,7 @@ OpenSpec change: `add-recipes`. Spec files under `openspec/changes/add-recipes/s
 ## Activation (single path)
 
 `MainController::activateRecipe(id)` → `RecipeStorage::requestRecipeForActivation` (one background pass: recipe + resolved bag) → `applyActivatedRecipe`:
-profile by title with stored-JSON fallback → bag via `setActiveBagKeepFields` + explicit field applies from the bundle's bag map (deterministic; no async `applyActiveBag` race) → equipment → grind routing (suspension flag set **before** the setter when pinned) → queued dose write (beats loadProfile's deferred recommended dose) → yield/temp overrides + re-upload → steam block + heater intent (`hasMilk` → `startSteamHeating("recipe-activated")`; never fights `keepSteamHeaterOn`) → `activeRecipeId` last.
+profile by title with stored-JSON fallback → bag via `setActiveBagKeepFields` + explicit field applies from the bundle's bag map (deterministic; no async `applyActiveBag` race) → equipment → grind routing (suspension flag set **before** the setter when pinned) → queued dose write (beats loadProfile's deferred recommended dose) → yield/temp overrides + re-upload → steam block + heater hold (`hasMilk` → `startSteamHeating("recipe-activated")` now, and `sendMachineSettings` keeps it on while the recipe is active; never fights `keepSteamHeaterOn`) → `activeRecipeId` last.
 
 QML pill taps, MCP `recipe_activate`, and the web `/activate` route all call this one path. Terminal status: `recipeActivated(id, success)` (queued, lands after the dose write).
 
@@ -33,5 +33,5 @@ QML pill taps, MCP `recipe_activate`, and the web `/activate` route all call thi
 
 - `ShotProjection` gained `recipeId`/`steamJson`; the composer prefill reads them from `shotReady`.
 - Adding a recipe column = a kCols row in recipestorage.cpp **plus** the CREATE TABLE + a migration step (same rule as bags).
-- Steam-heater warm-up time on real hardware is unmeasured — heater derivation deliberately only *turns on* (milk drinks); milk-less recipes change nothing. Revisit aggressive-off only with a measured warm-up.
+- The steam heater takes **5–9 minutes** to warm (measured). An active milk recipe therefore HOLDS the heater on: `sendMachineSettings` treats `activeRecipeHasMilk()` like `keepSteamHeaterOn`, so re-sends (wake/reconnect/edits) keep it warm; deactivation or a milk-less switch releases the hold. Milk-less recipes never force the heater off (keep-on users unaffected).
 - Device transfer / backup import does not yet copy the `recipes` table (follow-up; bags/equipment have importers to mirror).

@@ -51,7 +51,7 @@
 
 ## 7. Docs, Polish, Verification
 
-- [ ] 7.1 Measure DE1 steam-heater warm-up on hardware; tune heater-off aggressiveness (ask Jeff to run on-machine check)
+- [x] 7.1 Steam-heater warm-up measured by Jeff: 5–9 minutes. Implemented as a heater HOLD — an active milk recipe keeps the heater on (machine awake) across all settings re-sends; deactivation/milk-less switch releases it.
 - [x] 7.2 MCP_SERVER.md tool table + SHOTSERVER.md endpoints + new docs/CLAUDE_MD/RECIPES.md + CLAUDE.md table row. (Manual wiki page: separate repo — write after merge.)
 - [x] 7.3 Translations for all new user-visible strings (Tr keys), no hardcoded styling, accessibility pass on new pages/widget
 - [x] 7.4 Full build via Qt Creator MCP (tests included in kit); all 2610 tests green, no new entries in tests_with_warnings. (QML runtime warnings: verified when Jeff launches the app.)

@@ -24,12 +24,20 @@ No brewing, steaming, or navigation flow SHALL require a recipe. With no recipe 
 - **WHEN** a recipe with no linked bean is activated
 - **THEN** profile, dose, steam, and recipe-local grind apply, and the active bag is not changed
 
-### Requirement: Steam settings write on recipe switch with derived heater state
-Activating a recipe SHALL write its steam block into the live brew settings (propagating to the DE1 as today) at activation time, not at shot start, so heater warm-up time is maximized. The steam heater target state SHALL derive from the recipe's `hasMilk`: true → heater warmed, false → heater allowed cold. When `keepSteamHeaterOn` is enabled by the user, a milk-less recipe SHALL NOT override it to off. No new user-facing steam-mode setting SHALL be added.
+### Requirement: Steam settings write on recipe switch with a held heater state
+Activating a recipe SHALL write its steam block into the live brew settings (propagating to the DE1 as today) at activation time, not at shot start. Because the steam heater takes 5–9 minutes to reach temperature, an active milk recipe (`hasMilk: true`) SHALL HOLD the heater on for as long as it is active and the machine is awake: every machine-settings send SHALL treat an active milk recipe like `keepSteamHeaterOn`, so re-sends (wake, reconnect, settings edits) keep the heater warm. Deactivating (or switching to a milk-less recipe) SHALL return the heater to the user's baseline. When `keepSteamHeaterOn` is enabled by the user, a milk-less recipe SHALL NOT override it to off. No new user-facing steam-mode setting SHALL be added.
 
 #### Scenario: Milk recipe selected
 - **WHEN** a recipe with `hasMilk: true` is activated
 - **THEN** steam temperature/flow/timeout and pitcher/milk weight apply immediately and the heater begins warming
+
+#### Scenario: Heater hold survives settings re-sends
+- **WHEN** a milk recipe is active with `keepSteamHeaterOn` disabled and machine settings are re-sent (wake, reconnect, an unrelated settings edit)
+- **THEN** the steam heater target stays on
+
+#### Scenario: Leaving the milk recipe releases the hold
+- **WHEN** the active milk recipe is deactivated (or a milk-less recipe is activated) and the user has `keepSteamHeaterOn` disabled
+- **THEN** the heater returns to off
 
 #### Scenario: Milk-less recipe with keep-heater-on user
 - **WHEN** a recipe with `hasMilk: false` is activated and the user has `keepSteamHeaterOn` enabled

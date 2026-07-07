@@ -818,11 +818,17 @@ void MainController::setupRecipeConnections() {
         }
         const qint64 resolvedBagId = m_activeRecipe.value(
             QStringLiteral("resolvedBagId"), m_settings->dye()->activeBagId()).toLongLong();
+        const bool hadMilk = activeRecipeHasMilk();
         m_activeRecipe = recipe;
         m_activeRecipe.insert(QStringLiteral("resolvedBagId"), resolvedBagId);
         m_settings->dye()->setGrindBagWriteThroughSuspended(
             !recipe.value("grindPinned").toString().isEmpty());
         emit activeRecipeChanged();
+        // Re-assert the heater hold when hasMilk changed (composer/MCP edit
+        // of the active recipe) or on the startup restore of a milk recipe —
+        // the 5-9 minute warm-up means the hold must follow the cache.
+        if (activeRecipeHasMilk() != hadMilk || activeRecipeHasMilk())
+            applySteamSettings();
     });
 
     // --- Deactivate on ingredient swaps (tweaks refine the recipe; swapping
@@ -1018,25 +1024,34 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
             const double milkG = steam.value("milkWeightG").toDouble();
             if (milkG > 0)
                 brew->setLastSteamMilkG(milkG);
-
-            // Heater intent derives from hasMilk — no new setting. A milk
-            // drink declares "I will steam": warm the heater now (activation
-            // time, not shot start, so warm-up hides in the workflow). A
-            // milk-less drink changes nothing — keepSteamHeaterOn users stay
-            // warm, eco users stay cold. Never fights an explicit keep-on.
-            if (steam.value("hasMilk").toBool())
-                startSteamHeating(QStringLiteral("recipe-activated"));
-            else
-                applySteamSettings();
         }
+
+        // Cache before the heater derivation below: sendMachineSettings
+        // reads activeRecipeHasMilk() from this cache. Safe — the watchers
+        // are still behind the m_applyingRecipe guard.
+        m_activeRecipe = recipe;
+        m_activeRecipe.insert(QStringLiteral("resolvedBagId"), openBagId);
+
+        // Heater intent derives from hasMilk — no new setting. The steam
+        // heater takes 5-9 MINUTES to warm, so a milk recipe HOLDS the
+        // heater on for as long as it is active and the machine is awake:
+        // sendMachineSettings treats an active milk recipe like
+        // keepSteamHeaterOn, so every later settings re-send (wake,
+        // reconnect, edits) keeps it warm. A milk-less recipe returns the
+        // heater to the user's baseline. Never fights an explicit keep-on.
+        if (steam.value("hasMilk").toBool())
+            startSteamHeating(QStringLiteral("recipe-activated"));
+        else
+            applySteamSettings();
 
         // Selection state last, so the watchers above never see a half-
         // applied recipe.
         dye->setActiveRecipeId(static_cast<int>(recipeId));
+    } else {
+        m_activeRecipe = recipe;
+        m_activeRecipe.insert(QStringLiteral("resolvedBagId"), openBagId);
     }
 
-    m_activeRecipe = recipe;
-    m_activeRecipe.insert(QStringLiteral("resolvedBagId"), openBagId);
     emit activeRecipeChanged();
     m_recipeStorage->requestTouchLastUsed(recipeId);
     m_applyingRecipe = false;
@@ -1050,6 +1065,7 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
 }
 
 void MainController::deactivateRecipe() {
+    const bool hadMilk = activeRecipeHasMilk();
     if (m_settings) {
         m_settings->dye()->setGrindBagWriteThroughSuspended(false);
         m_settings->dye()->setActiveRecipeId(-1);
@@ -1058,6 +1074,18 @@ void MainController::deactivateRecipe() {
         m_activeRecipe.clear();
         emit activeRecipeChanged();
     }
+    // Leaving a milk recipe releases the heater hold: re-send settings so
+    // the heater returns to the user's baseline (keep-on users stay warm,
+    // eco users go cold).
+    if (hadMilk)
+        applySteamSettings();
+}
+
+bool MainController::activeRecipeHasMilk() const {
+    if (m_activeRecipe.isEmpty())
+        return false;
+    return parseSteamBlock(m_activeRecipe.value(QStringLiteral("steamJson")).toString())
+        .value(QStringLiteral("hasMilk")).toBool();
 }
 
 void MainController::stampActiveRecipe(const QString& field, const QVariant& value) {
@@ -1318,7 +1346,12 @@ void MainController::sendMachineSettings(const QString& reason) {
     double steamTemp;
     if (currentPitcherDisabled || m_settings->brew()->steamDisabled()) {
         steamTemp = 0.0;
-    } else if (!m_settings->brew()->keepSteamHeaterOn()) {
+    } else if (!m_settings->brew()->keepSteamHeaterOn() && !activeRecipeHasMilk()) {
+        // The steam heater needs 5-9 MINUTES to come up to temperature, so a
+        // milk recipe must HOLD the heater on for as long as it is active and
+        // the machine is awake (add-recipes) — a one-time warm at activation
+        // would be undone by the next settings re-send for keep-heater-off
+        // users, and warming at steam time would mean a long wait.
         steamTemp = 0.0;
     } else {
         steamTemp = m_settings->brew()->steamTemperature();

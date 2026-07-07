@@ -30,7 +30,7 @@ A recipe is therefore mostly a *re-scoping and naming* of data the app already c
 Grind remains a bag property (aging/re-dials are bean events; sibling recipes follow automatically). A recipe stores `grindPinned` (nullable string — `dyeGrinderSetting` is free-form text, so deltas are impossible). Resolution order: pin → linked bean's current open bag → recipe-local value (bean-less recipes). Write-through routing while a recipe is active: grind changes go to the **bag** when inherited (conservative default; pinning is a deliberate act in the composer), to the **pin** when pinned.
 
 ### D3. Steam block with snapshot pitcher
-Recipe steam spec: `hasMilk`, `milkWeightG`, pitcher **snapshot** (name + volume, not a preset index — presets are a mutable global list; snapshot-not-reference per the Bean Base precedent), steam temperature/flow/timeout. On activation these write into the live `SettingsBrew` values (which propagate to the DE1 as today). `hasMilk` **derives** heater behavior: milk recipe → heater on; milk-less recipe → heater off. No new user-facing steam-mode setting. `keepSteamHeaterOn` remains the fallback when no recipe is active.
+Recipe steam spec: `hasMilk`, `milkWeightG`, pitcher **snapshot** (name + volume, not a preset index — presets are a mutable global list; snapshot-not-reference per the Bean Base precedent), steam temperature/flow/timeout. On activation these write into the live `SettingsBrew` values (which propagate to the DE1 as today). `hasMilk` **derives** heater behavior: the DE1 steam heater takes 5–9 minutes to warm (measured on hardware), so an active milk recipe HOLDS the heater on — sendMachineSettings treats it like `keepSteamHeaterOn`, surviving every re-send while the recipe is active and the machine awake; deactivation releases the hold. No new user-facing steam-mode setting. `keepSteamHeaterOn` remains the baseline when no recipe is active.
 
 ### D4. Activation = extended shot-load, in one controller
 `MainController` gains recipe activation that reuses the `applyLoadedShotMetadata` pipeline (profile by name with stored-JSON fallback, bag-first-then-fields ordering, queued dose write) plus the steam write and heater decision. Active recipe id lives in `SettingsDye` (beside `activeBagId`). QML pill taps, MCP `recipe_activate`, and the web `/activate` route all call this one path. Steam settings write on **recipe switch** (not shot start) so heater warm-up time is hidden.
@@ -52,7 +52,7 @@ A single create/edit window (new QML page) reused for: blank creation (Recipes p
 
 ## Risks / Trade-offs
 
-- [Heater-cold default annoys mixed households: first milk drink after a milk-less recipe waits for warm-up] → Heater state is applied at recipe *switch*, maximizing warm-up lead time; verify real DE1 warm-up duration during implementation and, if long, keep `keepSteamHeaterOn=true` users unaffected (derivation only *turns on* aggressively, never fights an explicit keep-on).
+- [Heater warm-up is 5–9 minutes (measured)] → An active milk recipe holds the heater on continuously (not a one-time warm), so the drink is ready whenever the user steams; `keepSteamHeaterOn=true` users are unaffected either way (the hold only ever turns the heater ON, never fights an explicit keep-on).
 - [Write-through surprises: a user tweaks dose "just once" and the recipe changes] → Same semantics users already know from bags ("no dirty state"); composer always shows current values; acceptable by precedent.
 - [Deactivate-on-swap feels abrupt] → Pill visibly deselects (same affordance as bag pills); no data is lost — the recipe is unchanged, the user is simply free-styling.
 - [Steam settings BLE write on switch adds traffic] → One settings write per recipe switch, well within the 50ms write spacing and command queue.
@@ -66,6 +66,5 @@ Single forward SQLite migration in `ShotHistoryStorage` (new `recipes` table; `s
 
 ## Open Questions
 
-- Exact DE1 steam-heater warm-up time (affects how aggressive heater-off can be; measure on hardware during implementation).
 - Whether the web pages get the AI "Get info from page" bag niceties from the current bag-detail-editing branch in v1 (default: no — fields only).
 - Recipes page sort: MRU vs alphabetical with active-first (default: MRU, matching the pills).
