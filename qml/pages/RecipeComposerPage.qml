@@ -63,12 +63,27 @@ Page {
     property real fPitcherTemperatureC: 0
     property string errorMessage: ""
     property string bagSwapHint: ""
+    // Auto-suggested name ("<bean> <profile>"): applied while the field is
+    // empty or still holds the previous suggestion — never over a user edit.
+    property string _autoName: ""
+
+    function suggestName() {
+        var bean = (fCoffee !== "" ? fCoffee : fRoaster).trim()
+        var parts = []
+        if (bean !== "") parts.push(bean)
+        if (fProfileTitle !== "") parts.push(fProfileTitle)
+        var suggestion = parts.join(" · ")
+        if (suggestion === "" || (nameField.text !== "" && nameField.text !== _autoName))
+            return
+        nameField.text = suggestion
+        _autoName = suggestion
+    }
 
     readonly property bool hasBean: fBeanBaseId !== "" || fRoaster !== "" || fCoffee !== ""
-    // 3 cards side by side on wide screens (tablets landscape), 2 on medium,
-    // 1 stacked when narrow — everything incl. Save/Cancel fits one page.
-    readonly property int gridColumns: width >= Theme.scaled(1000) ? 3
-                                     : width >= Theme.scaled(680) ? 2 : 1
+    // Four cards — Profile | Bean / Equipment | Steam — as a 2x2 grid on
+    // tablets, stacked when narrow. With Save/Cancel in the top row the
+    // whole composer fits one page.
+    readonly property int gridColumns: width >= Theme.scaled(680) ? 2 : 1
 
     StackView.onActivated: root.currentPageTitle = mode === "edit"
         ? TranslationManager.translate("recipes.composer.editTitle", "Edit Recipe")
@@ -504,9 +519,9 @@ Page {
                     columnSpacing: Theme.spacingMedium
                     rowSpacing: Theme.spacingMedium
 
-                    // ------ The drink: profile + targets ------
+                    // ------ Profile + targets ------
                     SectionCard {
-                        title: TranslationManager.translate("recipes.composer.sectionDrink", "The drink")
+                        title: TranslationManager.translate("recipes.composer.sectionProfile", "Profile")
 
                         PickerField {
                             Layout.fillWidth: true
@@ -570,22 +585,15 @@ Page {
 
                     // ------ Beans & grind ------
                     SectionCard {
-                        title: TranslationManager.translate("recipes.composer.sectionBean", "Beans & equipment")
+                        title: TranslationManager.translate("recipes.composer.sectionBean", "Bean")
 
                         PickerField {
                             Layout.fillWidth: true
-                            label: TranslationManager.translate("recipes.composer.beanLabel", "Bean")
+                            label: TranslationManager.translate("recipes.composer.beanLabel", "Coffee bag")
                             value: composerPage.hasBean
                                 ? (composerPage.fRoaster + " " + composerPage.fCoffee).trim() : ""
                             placeholder: trNone.text
                             onActivated: { MainController.bagStorage.requestInventory(); bagPicker.open() }
-                        }
-                        PickerField {
-                            Layout.fillWidth: true
-                            label: TranslationManager.translate("recipes.composer.equipmentLabel", "Grinder / basket package")
-                            value: composerPage.fEquipmentId > 0 ? composerPage.fEquipmentName : ""
-                            placeholder: trNone.text
-                            onActivated: { MainController.equipmentStorage.requestInventory(); equipmentPicker.open() }
                         }
                         Label {
                             visible: composerPage.bagSwapHint !== ""
@@ -688,6 +696,19 @@ Page {
                                 Layout.fillWidth: true
                                 label: TranslationManager.translate("recipes.composer.rpmLabel", "RPM")
                             }
+                        }
+                    }
+
+                    // ------ Equipment ------
+                    SectionCard {
+                        title: TranslationManager.translate("recipes.composer.sectionEquipment", "Equipment")
+
+                        PickerField {
+                            Layout.fillWidth: true
+                            label: TranslationManager.translate("recipes.composer.equipmentLabel", "Grinder / basket package")
+                            value: composerPage.fEquipmentId > 0 ? composerPage.fEquipmentName : ""
+                            placeholder: trNone.text
+                            onActivated: { MainController.equipmentStorage.requestInventory(); equipmentPicker.open() }
                         }
                     }
 
@@ -820,6 +841,7 @@ Page {
                         if (detail.target_weight > 0 && yieldField.text === "")
                             yieldField.text = Number(detail.target_weight).toFixed(1)
                         composerPage.fProfileTempC = detail.espresso_temperature || 0
+                        composerPage.suggestName()
                         profilePicker.close()
                     }
                 }
@@ -869,6 +891,7 @@ Page {
                             composerPage.bagSwapHint = TranslationManager.translate(
                                 "recipes.composer.grindFollowsHint", "Grind now follows %1: %2")
                                 .arg(contentItem.text).arg(composerPage.fInheritedGrind || "—")
+                        composerPage.suggestName()
                     }
                     bagPicker.close()
                 }
