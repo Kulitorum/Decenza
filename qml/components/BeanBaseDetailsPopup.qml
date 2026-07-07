@@ -45,6 +45,9 @@ Popup {
     }
 
     readonly property string elevationText: {
+        // Canonical/user-edited blobs carry a display string; legacy Bean Base
+        // blobs carry the numeric min/max pair instead.
+        if (bean.elevation) return String(bean.elevation)
         const lo = Number(bean.minElevationM || 0)
         const hi = Number(bean.maxElevationM || 0)
         if (lo > 0 && hi > 0 && hi !== lo) return lo + "–" + hi + " m"
@@ -172,6 +175,9 @@ Popup {
                 AttrLabel { text: TranslationManager.translate("beanbase.details.region", "Region"); visible: root.fieldOrEmpty("region").length > 0 }
                 AttrValue { text: root.fieldOrEmpty("region"); visible: root.fieldOrEmpty("region").length > 0 }
 
+                AttrLabel { text: TranslationManager.translate("beanbase.details.farm", "Farm"); visible: root.fieldOrEmpty("farm").length > 0 }
+                AttrValue { text: root.fieldOrEmpty("farm"); visible: root.fieldOrEmpty("farm").length > 0 }
+
                 AttrLabel { text: TranslationManager.translate("beanbase.details.producer", "Producer"); visible: root.fieldOrEmpty("producer").length > 0 }
                 AttrValue { text: root.fieldOrEmpty("producer"); visible: root.fieldOrEmpty("producer").length > 0 }
 
@@ -192,6 +198,12 @@ Popup {
 
                 AttrLabel { text: TranslationManager.translate("beanbase.details.harvest", "Harvest"); visible: root.fieldOrEmpty("harvest").length > 0 }
                 AttrValue { text: root.fieldOrEmpty("harvest"); visible: root.fieldOrEmpty("harvest").length > 0 }
+
+                AttrLabel { text: TranslationManager.translate("beanbase.details.qualityScore", "Quality score"); visible: root.fieldOrEmpty("qualityScore").length > 0 }
+                AttrValue { text: root.fieldOrEmpty("qualityScore"); visible: root.fieldOrEmpty("qualityScore").length > 0 }
+
+                AttrLabel { text: TranslationManager.translate("beanbase.details.placeOfPurchase", "Purchased at"); visible: root.fieldOrEmpty("placeOfPurchase").length > 0 }
+                AttrValue { text: root.fieldOrEmpty("placeOfPurchase"); visible: root.fieldOrEmpty("placeOfPurchase").length > 0 }
             }
 
             // Tasting tag chips

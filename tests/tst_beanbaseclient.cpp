@@ -528,6 +528,117 @@ private slots:
         QCOMPARE(BeanBaseBlob::canonicalId(
             "{\"id\":\"abc\",\"visualizerCanonicalId\":\"abc\"}"), QString("abc"));
     }
+
+    // ==========================================
+    // Blob edit merge / canonical snapshot / revert (add-bag-detail-editing)
+    // ==========================================
+
+    static QJsonObject parsed(const QString& blob) {
+        return QJsonDocument::fromJson(blob.toUtf8()).object();
+    }
+
+    void mergeCapturesCanonicalOnFirstEditAndPreservesLinkKeys() {
+        // A linked blob as a canonical pick stores it: id + identity + details.
+        QJsonObject start;
+        start["id"] = "uuid-1";
+        start["visualizerCanonicalId"] = "uuid-1";
+        start["canonicalRoasterId"] = "roaster-uuid";
+        start["roasterName"] = "Prodigal";
+        start["roastName"] = "First Batch";
+        start["origin"] = "Colombia";
+        start["tastingNotes"] = "cherry";
+        start["description"] = "catalog text";
+        const QString blob = QString::fromUtf8(QJsonDocument(start).toJson(QJsonDocument::Compact));
+
+        const QString merged = BeanBaseBlob::mergeBeanDetails(
+            blob, {{"tastingNotes", "plum, cocoa"}, {"link", "https://example.com/bag"}});
+        const QJsonObject obj = parsed(merged);
+
+        // Link keys + non-edited fields preserved; edits applied.
+        QCOMPARE(obj.value("id").toString(), QString("uuid-1"));
+        QCOMPARE(obj.value("canonicalRoasterId").toString(), QString("roaster-uuid"));
+        QCOMPARE(obj.value("description").toString(), QString("catalog text"));
+        QCOMPARE(obj.value("origin").toString(), QString("Colombia"));
+        QCOMPARE(obj.value("tastingNotes").toString(), QString("plum, cocoa"));
+        QCOMPARE(obj.value("link").toString(), QString("https://example.com/bag"));
+
+        // First edit captured the PRE-edit values as the pristine snapshot.
+        const QJsonObject canonical = obj.value("canonical").toObject();
+        QCOMPARE(canonical.value("tastingNotes").toString(), QString("cherry"));
+        QCOMPARE(canonical.value("origin").toString(), QString("Colombia"));
+        QVERIFY(!canonical.contains("link"));  // canonical had none
+
+        // A second edit leaves the snapshot untouched.
+        const QJsonObject again = parsed(BeanBaseBlob::mergeBeanDetails(merged, {{"origin", "Peru"}}));
+        QCOMPARE(again.value("origin").toString(), QString("Peru"));
+        QCOMPARE(again.value("canonical").toObject().value("origin").toString(), QString("Colombia"));
+        QCOMPARE(again.value("canonical").toObject().value("tastingNotes").toString(), QString("cherry"));
+    }
+
+    void mergeOnManualBagAddsDetailsWithoutLinking() {
+        // Empty blob + manual details: keys land, no id, no snapshot, unlinked.
+        const QString merged = BeanBaseBlob::mergeBeanDetails(
+            QString(), {{"origin", "Ethiopia"}, {"variety", "Heirloom"}, {"farm", "Gora Kone"},
+                        {"qualityScore", "88"}, {"placeOfPurchase", "Local cafe"}});
+        const QJsonObject obj = parsed(merged);
+        QCOMPARE(obj.value("origin").toString(), QString("Ethiopia"));
+        QCOMPARE(obj.value("farm").toString(), QString("Gora Kone"));
+        QCOMPARE(obj.value("qualityScore").toString(), QString("88"));
+        QCOMPARE(obj.value("placeOfPurchase").toString(), QString("Local cafe"));
+        QVERIFY(!obj.contains("canonical"));
+        QVERIFY(!BeanBaseBlob::isLinked(merged));
+    }
+
+    void mergeEmptyValueRemovesKeyAndClearingAllYieldsEmptyBlob() {
+        const QString withDetails = BeanBaseBlob::mergeBeanDetails(
+            QString(), {{"origin", "Ethiopia"}, {"region", "Guji"}});
+        const QString cleared = BeanBaseBlob::mergeBeanDetails(withDetails, {{"region", "  "}});
+        QVERIFY(!parsed(cleared).contains("region"));
+        QCOMPARE(parsed(cleared).value("origin").toString(), QString("Ethiopia"));
+
+        // Clearing the last key returns "" — the zero-footprint empty blob.
+        QCOMPARE(BeanBaseBlob::mergeBeanDetails(cleared, {{"origin", ""}}), QString());
+        // Non-editable keys in the edits map are ignored entirely.
+        const QJsonObject obj = parsed(BeanBaseBlob::mergeBeanDetails(
+            withDetails, {{"id", "forged"}, {"canonical", "forged"}}));
+        QVERIFY(!obj.contains("id"));
+        QVERIFY(!obj.contains("canonical"));
+    }
+
+    void revertRestoresCanonicalValuesAndRemovesUserAdditions() {
+        QJsonObject start;
+        start["id"] = "uuid-1";
+        start["roastName"] = "First Batch";
+        start["origin"] = "Colombia";
+        const QString blob = QString::fromUtf8(QJsonDocument(start).toJson(QJsonDocument::Compact));
+        const QString edited = BeanBaseBlob::mergeBeanDetails(
+            blob, {{"roastName", "First Batch 2026"}, {"origin", "Peru"},
+                   {"link", "https://example.com/added"}});
+        QVERIFY(BeanBaseBlob::differsFromCanonical(edited));
+
+        const QString reverted = BeanBaseBlob::revertToCanonical(edited);
+        const QJsonObject obj = parsed(reverted);
+        QCOMPARE(obj.value("roastName").toString(), QString("First Batch"));
+        QCOMPARE(obj.value("origin").toString(), QString("Colombia"));
+        QVERIFY(!obj.contains("link"));  // user addition canonical lacked: removed
+        QCOMPARE(obj.value("id").toString(), QString("uuid-1"));
+        QVERIFY(!BeanBaseBlob::differsFromCanonical(reverted));
+    }
+
+    void revertAndDiffAreNoopsWithoutLinkOrSnapshot() {
+        // Manual bag with details: no snapshot, nothing to revert to.
+        const QString manual = BeanBaseBlob::mergeBeanDetails(QString(), {{"origin", "Ethiopia"}});
+        QCOMPARE(BeanBaseBlob::revertToCanonical(manual), manual);
+        QVERIFY(!BeanBaseBlob::differsFromCanonical(manual));
+
+        // Linked-but-never-edited legacy blob: no snapshot yet, revert no-op.
+        const QString legacy = "{\"id\":\"uuid-1\",\"origin\":\"Colombia\"}";
+        QCOMPARE(BeanBaseBlob::revertToCanonical(legacy), legacy);
+        QVERIFY(!BeanBaseBlob::differsFromCanonical(legacy));
+
+        QCOMPARE(BeanBaseBlob::revertToCanonical(QString()), QString());
+        QVERIFY(!BeanBaseBlob::differsFromCanonical(QString()));
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_BeanBaseClient)

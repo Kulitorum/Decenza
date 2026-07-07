@@ -37,9 +37,6 @@ Dialog {
     // "create" -> requestCreateBag on confirm; "edit" -> requestUpdateBag
     property string formMode: "create"
     property int editBagId: -1
-    // Identity known from the picked result -> shown as read-only confirmation,
-    // not editable fields ("show fields only for unknown values").
-    property bool identityKnown: false
     property bool _awaitingCreate: false
     property bool _armedForm: false   // openForEdit pre-armed the form
     property string errorMessage: ""
@@ -78,21 +75,96 @@ Dialog {
     property string fFrozenDate: ""
     property string fDefrostDate: ""
 
+    // Bean details (add-bag-detail-editing): the descriptive working keys of
+    // the beanBaseData blob, editable for linked and manual bags alike. A
+    // canonical link prefills them and shows a badge — it never locks a field.
+    property string fOrigin: ""
+    property string fRegion: ""
+    property string fFarm: ""
+    property string fProducer: ""
+    property string fVariety: ""
+    property string fElevation: ""
+    property string fProcess: ""
+    property string fHarvest: ""
+    property string fQualityScore: ""
+    property string fPlaceOfPurchase: ""
+    property string fTastingNotes: ""
+    property string fLink: ""
+    property bool detailsExpanded: false
+    // Product URL when the form opened; a changed URL on save re-resolves the
+    // bag image (the cached og:image pixels describe the old page).
+    property string _openedLink: ""
+
     readonly property var formBeanBase: {
         if (!fBeanBaseData || fBeanBaseData.length === 0) return ({})
         try { return JSON.parse(fBeanBaseData) } catch (e) { return ({}) }
     }
     readonly property var _formAttrParts: {
         var parts = []
-        if (formBeanBase.origin) parts.push(String(formBeanBase.origin))
-        if (formBeanBase.variety) parts.push(String(formBeanBase.variety))
-        if (formBeanBase.process) parts.push(String(formBeanBase.process))
+        if (fOrigin) parts.push(fOrigin)
+        if (fVariety) parts.push(fVariety)
+        if (fProcess) parts.push(fProcess)
         return parts
     }
     // Plain join for the accessibility string; joinWithBullet (styled bold dot,
     // HTML-escaped) for the displayed line.
     readonly property string formAttrLine: _formAttrParts.join("  ·  ")
     readonly property string formAttrLineRich: Theme.joinWithBullet(_formAttrParts)
+
+    // Pull the editable detail fields out of the staged blob (canonical pick,
+    // enrichment arrival, unlink, revert — every fBeanBaseData mutation).
+    function syncDetailFieldsFromBlob() {
+        var bb = formBeanBase
+        function s(key) { return bb[key] !== undefined && bb[key] !== null ? String(bb[key]) : "" }
+        fOrigin = s("origin"); fRegion = s("region"); fFarm = s("farm")
+        fProducer = s("producer"); fVariety = s("variety"); fElevation = s("elevation")
+        fProcess = s("process"); fHarvest = s("harvest"); fQualityScore = s("qualityScore")
+        fPlaceOfPurchase = s("placeOfPurchase"); fTastingNotes = s("tastingNotes"); fLink = s("link")
+    }
+
+    // The edits map handed to BeanBaseBlob::mergeBeanDetails. All detail keys
+    // are always present (the form is the full truth for them: an emptied
+    // field removes its key). Identity working keys ride along only when a
+    // blob exists or details were entered — a plain rename of a detail-less
+    // manual bag must not conjure a blob.
+    function detailEdits() {
+        var edits = {
+            "origin": fOrigin, "region": fRegion, "farm": fFarm,
+            "producer": fProducer, "variety": fVariety, "elevation": fElevation,
+            "process": fProcess, "harvest": fHarvest, "qualityScore": fQualityScore,
+            "placeOfPurchase": fPlaceOfPurchase, "tastingNotes": fTastingNotes, "link": fLink
+        }
+        var anyDetail = false
+        for (var k in edits) {
+            if (String(edits[k]).trim().length > 0) { anyDetail = true; break }
+        }
+        if (fBeanBaseData.length > 0 || anyDetail) {
+            edits["roasterName"] = fRoaster.trim()
+            edits["roastName"] = fCoffee.trim()
+            edits["degree"] = fRoastLevel
+        }
+        return edits
+    }
+
+    // Live-staged blob (current form values merged over the stored one).
+    // Recomputed on any field edit; feeds the Save path and the Revert gate.
+    readonly property string stagedBlob: MainController.beanbase.mergeBeanDetails(fBeanBaseData, detailEdits())
+    readonly property bool canRevert: fBeanBaseId.length > 0
+        && MainController.beanbase.blobDiffersFromCanonical(stagedBlob)
+
+    // Revert to Bean Base data: restore every canonical-supplied value over
+    // the working keys, drop user additions the canonical entry lacked, and
+    // SAVE — a revert persists like any edit (and pushes to Visualizer).
+    function performRevert() {
+        var reverted = MainController.beanbase.revertToCanonical(stagedBlob)
+        fBeanBaseData = reverted
+        syncDetailFieldsFromBlob()
+        var bb = formBeanBase
+        if (bb.roasterName) fRoaster = String(bb.roasterName)
+        if (bb.roastName) fCoffee = String(bb.roastName)
+        fRoastLevel = bb.degree ? String(bb.degree) : ""
+        confirmForm()
+    }
 
     // --- Manual-entry autosuggest (history + Bean Base canonical) ---
     // Canonical entries for the current form query; refreshed as the user
@@ -148,6 +220,7 @@ Dialog {
                 continue
             fBeanBaseId = String(entry.id || "")
             fBeanBaseData = JSON.stringify(entry)
+            syncDetailFieldsFromBlob()
             if (entry.roasterName) fRoaster = entry.roasterName
             fLinkDirty = true
             MainController.beanbase.fetchCanonicalDetails(entry)
@@ -200,7 +273,9 @@ Dialog {
         fRpm = ""
         fDose = ""; fYield = ""; fNotes = ""
         fFreeze = false; fFrozenDate = ""; fDefrostDate = ""
-        identityKnown = false
+        syncDetailFieldsFromBlob()   // blob is empty: clears every detail field
+        detailsExpanded = false
+        _openedLink = ""
         errorMessage = ""
     }
 
@@ -210,6 +285,8 @@ Dialog {
         fRoastLevel = bag.roastLevel || ""
         fBeanBaseId = bag.beanBaseId ? String(bag.beanBaseId) : ""
         fBeanBaseData = bag.beanBaseData || ""
+        syncDetailFieldsFromBlob()
+        _openedLink = fLink
         fGrinderSetting = bag.grinderSetting || ""
         fEquipmentId = bag.equipmentId || -1
         fRpm = (bag.rpm ?? 0) > 0 ? String(bag.rpm) : ""
@@ -225,14 +302,15 @@ Dialog {
     }
 
     // Tier 1-4 search result -> creation form. Roast date is ALWAYS blank and
-    // never inferred — a new bag is a new roast date.
+    // never inferred — a new bag is a new roast date. Identity is prefilled
+    // but stays editable, linked or not (add-bag-detail-editing): the link is
+    // a badge, never a lock.
     function openFormFromResult(row) {
         resetForm()
         formMode = "create"
         editBagId = -1
         prefillFromBag(row)
         fRoastDate = ""
-        identityKnown = fRoaster.length > 0 || fCoffee.length > 0
         mode = "form"
     }
 
@@ -314,9 +392,10 @@ Dialog {
                 // "Add New Bag" → picking an existing inventory bag means
                 // "another bag of the same coffee" (e.g. a fresh purchase):
                 // open the creation form pre-filled from it with the bean
-                // identity LOCKED — same as picking a History result — and the
-                // roast date blank. A separate bag is created; two bags of one
-                // coffee, with their own dates/freeze, is expected and fine.
+                // identity prefilled (and editable) — same as picking a History
+                // result — and the roast date blank. A separate bag is created;
+                // two bags of one coffee, with their own dates/freeze, is
+                // expected and fine.
                 openFormFromResult(row)
             } else {
                 // Switching contexts (brew / idle / post-shot / historical):
@@ -342,13 +421,21 @@ Dialog {
                 "changebeans.form.identityRequired", "Enter a roaster or coffee name")
             return
         }
+        // Merge the edited detail fields into the blob (canonical snapshot
+        // captured on the first edit of a linked bag; cleared fields removed).
+        var mergedBlob = stagedBlob
+        // A changed product URL re-resolves the bag image — the cached
+        // og:image pixels describe the old page (linked bags only: the image
+        // cache is keyed by canonical id).
+        if (fBeanBaseId.length > 0 && fLink.trim() !== _openedLink && fLink.trim().length > 0)
+            MainController.beanbase.refreshBagImage(fBeanBaseId, fCoffee.trim(), fLink.trim())
         var fields = {
             "roasterName": fRoaster.trim(),
             "coffeeName": fCoffee.trim(),
             "roastDate": fRoastDate.length === 10 ? fRoastDate : "",
             "roastLevel": fRoastLevel,
             "beanBaseId": fBeanBaseId,
-            "beanBaseData": fBeanBaseData,
+            "beanBaseData": mergedBlob,
             "grinderSetting": fGrinderSetting.trim(),
             "rpm": parseInt(fRpm) || 0,
             "doseWeightG": parseWeight(fDose),
@@ -376,6 +463,62 @@ Dialog {
             fields["equipmentId"] = fEquipmentId
             _awaitingCreate = true
             MainController.bagStorage.requestCreateBag(fields)
+        }
+    }
+
+    // Revert confirmation: local edits (including a user-added URL the
+    // canonical entry lacked) are discarded and the bag saved immediately.
+    Dialog {
+        id: revertConfirmDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(Theme.scaled(420), parent ? parent.width * 0.9 : Theme.scaled(420))
+        modal: true
+        closePolicy: Dialog.CloseOnEscape
+        padding: Theme.scaled(20)
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 1
+            border.color: Theme.borderColor
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(16)
+
+            Accessible.role: Accessible.Dialog
+            Accessible.name: trRevertConfirm.text
+
+            Tr {
+                id: trRevertConfirm
+                Layout.fillWidth: true
+                key: "changebeans.form.revert.confirm"
+                fallback: "Restore the original Bean Base data? Your edits to the bean details are discarded and the bag is saved."
+                font: Theme.bodyFont
+                color: Theme.textColor
+                wrapMode: Text.Wrap
+                Accessible.ignored: true
+            }
+
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: Theme.scaled(10)
+
+                AccessibleButton {
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("common.button.cancel", "Cancel")
+                    onClicked: revertConfirmDialog.close()
+                }
+                AccessibleButton {
+                    text: TranslationManager.translate("changebeans.form.revert.confirmButton", "Revert & save")
+                    accessibleName: TranslationManager.translate("changebeans.form.revert.accessible", "Revert edited values to the original Bean Base data and save")
+                    onClicked: {
+                        revertConfirmDialog.close()
+                        root.performRevert()
+                    }
+                }
+            }
         }
     }
 
@@ -437,7 +580,7 @@ Dialog {
     onOpened: {
         if (mode === "search")
             searchField.forceActiveFocus()
-        else if (!identityKnown)
+        else if (fRoaster.length === 0 && fCoffee.length === 0)
             roasterInput.forceActiveFocus()
         else
             roastDateField.textField.forceActiveFocus()
@@ -466,7 +609,11 @@ Dialog {
                                  root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight)
         textFields: [searchField, roasterInput.textField, coffeeInput.textField, roastDateField.textField,
                      grindSettingInput, doseInput, yieldInput,
-                     notesInput, frozenDateField.textField, defrostDateField.textField]
+                     notesInput, frozenDateField.textField, defrostDateField.textField,
+                     originField.textField, regionField.textField, farmField.textField,
+                     producerField.textField, varietyField.textField, elevationField.textField,
+                     processField.textField, harvestField.textField, qualityScoreField.textField,
+                     placeOfPurchaseField.textField, tastingNotesField.textField, urlField.textField]
         targetFlickable: formFlickable
 
         ColumnLayout {
@@ -774,52 +921,35 @@ Dialog {
 
                     Item { Layout.preferredHeight: Theme.scaled(6) }
 
-                    // --- Known identity: read-only confirmation ---
-                    ColumnLayout {
-                        visible: root.identityKnown
+                    // --- Canonical link badge (create mode). The link marks
+                    // provenance, it never locks fields — every value below is
+                    // editable (add-bag-detail-editing). Edit mode shows the
+                    // link state in the search bar instead.
+                    RowLayout {
+                        visible: root.formMode === "create" && root.fBeanBaseId.length > 0
                         Layout.fillWidth: true
                         Layout.leftMargin: Theme.scaled(20)
                         Layout.rightMargin: Theme.scaled(20)
-                        spacing: Theme.scaled(2)
+                        spacing: Theme.scaled(6)
 
                         Accessible.role: Accessible.StaticText
-                        Accessible.name: [root.fRoaster, root.fCoffee].filter(function(s) { return s.length > 0 }).join(" ")
-                            + (root.fBeanBaseId.length > 0
-                                ? ", " + TranslationManager.translate("beans.summary.accessible.verified", "linked to Bean Base") : "")
-                            + (root.formAttrLine.length > 0 ? ", " + root.formAttrLine : "")
+                        Accessible.name: TranslationManager.translate("beans.summary.accessible.verified", "linked to Bean Base")
                         Accessible.focusable: true
 
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(6)
-
-                            ColoredIcon {
-                                visible: root.fBeanBaseId.length > 0
-                                source: "qrc:/icons/tick.svg"
-                                iconWidth: Theme.scaled(14)
-                                iconHeight: Theme.scaled(14)
-                                iconColor: Theme.primaryColor
-                                Accessible.ignored: true
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: [root.fRoaster, root.fCoffee].filter(function(s) { return s.length > 0 }).join(" ")
-                                font: Theme.subtitleFont
-                                color: Theme.textColor
-                                elide: Text.ElideRight
-                                Accessible.ignored: true
-                            }
+                        ColoredIcon {
+                            source: "qrc:/icons/tick.svg"
+                            iconWidth: Theme.scaled(14)
+                            iconHeight: Theme.scaled(14)
+                            iconColor: Theme.primaryColor
+                            Accessible.ignored: true
                         }
 
-                        Text {
+                        Tr {
                             Layout.fillWidth: true
-                            visible: root.formAttrLine.length > 0
-                            text: root.formAttrLineRich
-                            textFormat: Text.StyledText
+                            key: "changebeans.form.linkedBadge"
+                            fallback: "Linked to Bean Base"
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor
-                            elide: Text.ElideRight
                             Accessible.ignored: true
                         }
                     }
@@ -849,6 +979,7 @@ Dialog {
                             onEntrySelected: function(entry) {
                                 root.fBeanBaseId = String(entry.id || "")
                                 root.fBeanBaseData = JSON.stringify(entry)
+                                root.syncDetailFieldsFromBlob()
                                 if (entry.roasterName) root.fRoaster = entry.roasterName
                                 if (entry.roastName) root.fCoffee = entry.roastName
                                 root.fLinkDirty = true
@@ -864,6 +995,10 @@ Dialog {
                             onUnlinkRequested: {
                                 root.fBeanBaseId = ""
                                 root.fBeanBaseData = ""
+                                // Cached canonical attributes clear with the
+                                // link (bean-base-search: unlink preserves the
+                                // identity fields, not the attribute cache).
+                                root.syncDetailFieldsFromBlob()
                                 root.fLinkDirty = true
                             }
                         }
@@ -879,15 +1014,15 @@ Dialog {
                                 for (var key in attrs)
                                     blob[key] = attrs[key]
                                 root.fBeanBaseData = JSON.stringify(blob)
+                                root.syncDetailFieldsFromBlob()
                             } catch (e) {
                                 // Corrupt staged blob: keep the minimal entry
                             }
                         }
                     }
 
-                    // --- Unknown identity: editable fields (manual entry / edit mode) ---
+                    // --- Identity: always editable, linked or not ---
                     FieldRow {
-                        visible: !root.identityKnown
                         labelKey: "changebeans.form.roaster"
                         labelFallback: "Roaster:"
 
@@ -905,7 +1040,6 @@ Dialog {
                     }
 
                     FieldRow {
-                        visible: !root.identityKnown
                         labelKey: "changebeans.form.coffee"
                         labelFallback: "Coffee:"
 
@@ -935,9 +1069,11 @@ Dialog {
                         onValueEdited: root.fRoastDate = dateString
                     }
 
-                    // --- Roast level: editable only when not supplied by the pick ---
+                    // --- Roast level: always editable. A canonical degree that
+                    // is not one of the combo levels (e.g. "Light To
+                    // Medium-light") is shown as the display text until the
+                    // user actively picks a level.
                     FieldRow {
-                        visible: !root.identityKnown
                         labelKey: "changebeans.form.roastLevel"
                         labelFallback: "Roast level:"
 
@@ -952,7 +1088,190 @@ Dialog {
                                 TranslationManager.translate("shotmetadata.roastlevel.mediumdark", "Medium-Dark"),
                                 TranslationManager.translate("shotmetadata.roastlevel.dark", "Dark")]
                             currentIndex: Math.max(0, model.indexOf(root.fRoastLevel))
+                            displayText: root.fRoastLevel.length > 0 && currentIndex <= 0
+                                ? root.fRoastLevel : currentText
                             onActivated: root.fRoastLevel = currentIndex > 0 ? currentText : ""
+                        }
+                    }
+
+                    // --- Bean details (add-bag-detail-editing): the descriptive
+                    // working keys of the beanBaseData blob. Collapsed by
+                    // default with the origin·variety·process summary in the
+                    // header; every field editable, linked or not. ---
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Theme.scaled(20)
+                        Layout.rightMargin: Theme.scaled(20)
+                        Layout.preferredHeight: Theme.scaled(36)
+                        color: "transparent"
+
+                        Accessible.role: Accessible.Button
+                        Accessible.name: trBeanDetails.text
+                            + (root.formAttrLine.length > 0 ? ", " + root.formAttrLine : "")
+                            + ", " + (root.detailsExpanded
+                                ? TranslationManager.translate("common.expanded", "expanded")
+                                : TranslationManager.translate("common.collapsed", "collapsed"))
+                        Accessible.focusable: true
+                        Accessible.onPressAction: detailsHeaderArea.clicked(null)
+
+                        RowLayout {
+                            anchors.fill: parent
+                            spacing: Theme.scaled(6)
+
+                            Tr {
+                                id: trBeanDetails
+                                key: "changebeans.form.beanDetails"
+                                fallback: "Bean details"
+                                font: Theme.bodyFont
+                                color: Theme.textSecondaryColor
+                                Accessible.ignored: true
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: !root.detailsExpanded && root.formAttrLine.length > 0
+                                text: root.formAttrLineRich
+                                textFormat: Text.StyledText
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                elide: Text.ElideRight
+                                Accessible.ignored: true
+                            }
+
+                            Item { visible: root.detailsExpanded || root.formAttrLine.length === 0; Layout.fillWidth: true }
+
+                            ColoredIcon {
+                                source: "qrc:/icons/ArrowLeft.svg"
+                                iconWidth: Theme.scaled(12)
+                                iconHeight: Theme.scaled(12)
+                                iconColor: Theme.textSecondaryColor
+                                rotation: root.detailsExpanded ? -90 : 180
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        MouseArea {
+                            id: detailsHeaderArea
+                            anchors.fill: parent
+                            onClicked: root.detailsExpanded = !root.detailsExpanded
+                        }
+                    }
+
+                    ColumnLayout {
+                        visible: root.detailsExpanded
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(10)
+
+                        component DetailField: FieldRow {
+                            id: detailRow
+                            property string accessibleText: ""
+                            property string value: ""
+                            property alias textField: detailInput
+                            signal edited(string text)
+                            StyledTextField {
+                                id: detailInput
+                                Layout.fillWidth: true
+                                text: detailRow.value
+                                accessibleName: detailRow.accessibleText
+                                onTextEdited: detailRow.edited(text)
+                            }
+                        }
+
+                        DetailField {
+                            id: originField
+                            labelKey: "beanbase.details.origin"; labelFallback: "Origin:"
+                            accessibleText: TranslationManager.translate("beanbase.details.origin", "Origin")
+                            value: root.fOrigin
+                            onEdited: function(t) { root.fOrigin = t }
+                        }
+                        DetailField {
+                            id: regionField
+                            labelKey: "beanbase.details.region"; labelFallback: "Region:"
+                            accessibleText: TranslationManager.translate("beanbase.details.region", "Region")
+                            value: root.fRegion
+                            onEdited: function(t) { root.fRegion = t }
+                        }
+                        DetailField {
+                            id: farmField
+                            labelKey: "beanbase.details.farm"; labelFallback: "Farm:"
+                            accessibleText: TranslationManager.translate("beanbase.details.farm", "Farm")
+                            value: root.fFarm
+                            onEdited: function(t) { root.fFarm = t }
+                        }
+                        DetailField {
+                            id: producerField
+                            labelKey: "beanbase.details.producer"; labelFallback: "Producer:"
+                            accessibleText: TranslationManager.translate("beanbase.details.producer", "Producer")
+                            value: root.fProducer
+                            onEdited: function(t) { root.fProducer = t }
+                        }
+                        DetailField {
+                            id: varietyField
+                            labelKey: "beanbase.details.variety"; labelFallback: "Variety:"
+                            accessibleText: TranslationManager.translate("beanbase.details.variety", "Variety")
+                            value: root.fVariety
+                            onEdited: function(t) { root.fVariety = t }
+                        }
+                        DetailField {
+                            id: elevationField
+                            labelKey: "beanbase.details.elevation"; labelFallback: "Elevation:"
+                            accessibleText: TranslationManager.translate("beanbase.details.elevation", "Elevation")
+                            value: root.fElevation
+                            onEdited: function(t) { root.fElevation = t }
+                        }
+                        DetailField {
+                            id: processField
+                            labelKey: "beanbase.details.process"; labelFallback: "Process:"
+                            accessibleText: TranslationManager.translate("beanbase.details.process", "Process")
+                            value: root.fProcess
+                            onEdited: function(t) { root.fProcess = t }
+                        }
+                        DetailField {
+                            id: harvestField
+                            labelKey: "beanbase.details.harvest"; labelFallback: "Harvest:"
+                            accessibleText: TranslationManager.translate("beanbase.details.harvest", "Harvest")
+                            value: root.fHarvest
+                            onEdited: function(t) { root.fHarvest = t }
+                        }
+                        DetailField {
+                            id: qualityScoreField
+                            labelKey: "beanbase.details.qualityScore"; labelFallback: "Quality score:"
+                            accessibleText: TranslationManager.translate("beanbase.details.qualityScore", "Quality score")
+                            value: root.fQualityScore
+                            onEdited: function(t) { root.fQualityScore = t }
+                        }
+                        DetailField {
+                            id: placeOfPurchaseField
+                            labelKey: "beanbase.details.placeOfPurchase"; labelFallback: "Purchased at:"
+                            accessibleText: TranslationManager.translate("beanbase.details.placeOfPurchase", "Purchased at")
+                            value: root.fPlaceOfPurchase
+                            onEdited: function(t) { root.fPlaceOfPurchase = t }
+                        }
+                        DetailField {
+                            id: tastingNotesField
+                            labelKey: "beanbase.details.tastingNotes"; labelFallback: "Tasting notes:"
+                            accessibleText: TranslationManager.translate("beanbase.details.tastingNotes", "Tasting notes")
+                            value: root.fTastingNotes
+                            onEdited: function(t) { root.fTastingNotes = t }
+                        }
+                        DetailField {
+                            id: urlField
+                            labelKey: "changebeans.form.url"; labelFallback: "URL:"
+                            accessibleText: TranslationManager.translate("changebeans.form.url.accessible", "Roaster product page URL")
+                            value: root.fLink
+                            onEdited: function(t) { root.fLink = t }
+                        }
+
+                        // Revert to the pristine canonical values (shown only
+                        // when linked AND something differs from the snapshot).
+                        // A revert saves immediately — it is an edit like any
+                        // other, and it pushes to Visualizer the same way.
+                        AccessibleButton {
+                            Layout.leftMargin: Theme.scaled(20)
+                            visible: root.canRevert
+                            text: TranslationManager.translate("changebeans.form.revert", "Revert to Bean Base data")
+                            accessibleName: TranslationManager.translate("changebeans.form.revert.accessible", "Revert edited values to the original Bean Base data and save")
+                            onClicked: revertConfirmDialog.open()
                         }
                     }
 

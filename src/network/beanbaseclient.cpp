@@ -1,4 +1,5 @@
 #include "beanbaseclient.h"
+#include "beanbase_blob.h"
 
 #include <QDebug>
 #include <QDir>
@@ -256,6 +257,21 @@ void BeanBaseClient::ensureBagImage(const QString& canonicalId,
     recoverBagLink(canonicalId, roastName);
 }
 
+void BeanBaseClient::refreshBagImage(const QString& canonicalId,
+                                     const QString& roastName,
+                                     const QString& productUrl) {
+    // The product URL was user-edited (add-bag-detail-editing): the cached
+    // pixels and the once-per-session attempt guard both describe the OLD
+    // page, so drop them and re-resolve from the new URL.
+    if (!isSafeCacheFilename(canonicalId))
+        return;
+    const QString existing = bagImagePath(canonicalId);
+    if (!existing.isEmpty())
+        QFile::remove(existing);
+    m_imageAttempted.remove(canonicalId);
+    ensureBagImage(canonicalId, roastName, productUrl);
+}
+
 void BeanBaseClient::recoverBagLink(const QString& canonicalId, const QString& roastName) {
     if (!isSafeCacheFilename(canonicalId))
         return;
@@ -387,6 +403,18 @@ void BeanBaseClient::downloadBagImage(const QString& canonicalId, const QString&
         });
         worker->start();
     });
+}
+
+QString BeanBaseClient::mergeBeanDetails(const QString& blob, const QVariantMap& edits) {
+    return BeanBaseBlob::mergeBeanDetails(blob, edits);
+}
+
+QString BeanBaseClient::revertToCanonical(const QString& blob) {
+    return BeanBaseBlob::revertToCanonical(blob);
+}
+
+bool BeanBaseClient::blobDiffersFromCanonical(const QString& blob) {
+    return BeanBaseBlob::differsFromCanonical(blob);
 }
 
 QString BeanBaseClient::extractOgImage(const QByteArray& html) {

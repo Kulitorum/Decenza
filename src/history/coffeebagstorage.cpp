@@ -133,6 +133,7 @@ const BagCol kCols[] = {
     COL_DBL  ("yield_override_g",      yieldOverrideG),
     COL_STR  ("visualizer_bag_id",     visualizerBagId,     false),
     COL_STR  ("visualizer_roaster_id", visualizerRoasterId, false),
+    COL_BOOL ("visualizer_sync_pending", visualizerSyncPending),
     COL_EPOCH("last_used",             lastUsedEpoch),
 };
 
@@ -412,6 +413,7 @@ bool CoffeeBagStorage::ensureTableStatic(QSqlDatabase& db)
             yield_override_g REAL,
             visualizer_bag_id TEXT,
             visualizer_roaster_id TEXT,
+            visualizer_sync_pending INTEGER NOT NULL DEFAULT 0,
             last_used INTEGER,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
             updated_at INTEGER DEFAULT (strftime('%s', 'now'))
@@ -793,8 +795,26 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
         }
     }
 
+    // Build the source SELECT tolerantly: a backup from an older version lacks
+    // newer columns (equipment_id/rpm pre-22, visualizer_sync_pending pre-24),
+    // and naming a missing column fails the whole SELECT — so missing ones are
+    // substituted with NULL, keeping bagFromQueryRow's positional read aligned
+    // with kCols while absent fields land on the struct defaults.
+    QSet<QString> srcColumns;
+    {
+        QSqlQuery info(srcDb);
+        if (info.exec("PRAGMA table_info(coffee_bags)"))
+            while (info.next())
+                srcColumns.insert(info.value(1).toString());
+    }
+    QStringList selectCols;
+    for (const QString& col : bagColumnList().split(QStringLiteral(", ")))
+        selectCols << (srcColumns.contains(col)
+                           ? col
+                           : QStringLiteral("NULL AS %1").arg(col));
+
     QSqlQuery srcBags(srcDb);
-    if (!srcBags.exec(QString("SELECT %1 FROM coffee_bags").arg(bagColumnList()))) {
+    if (!srcBags.exec(QString("SELECT %1 FROM coffee_bags").arg(selectCols.join(QStringLiteral(", "))))) {
         qWarning() << "CoffeeBagStorage: failed to query source bags:" << srcBags.lastError().text();
         return false;
     }

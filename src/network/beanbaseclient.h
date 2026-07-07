@@ -73,12 +73,27 @@ public:
     Q_INVOKABLE void ensureBagImage(const QString& canonicalId,
                                     const QString& roastName,
                                     const QString& productUrl);
+    // The user edited the bag's product URL: evict the cached image + the
+    // once-per-session attempt guard for this id and re-resolve from the new
+    // URL (add-bag-detail-editing). ensureBagImage() alone would keep serving
+    // the stale pixels.
+    Q_INVOKABLE void refreshBagImage(const QString& canonicalId,
+                                     const QString& roastName,
+                                     const QString& productUrl);
     // Recover the product URL for a blob that lacks `link`, independent of the
     // image state (a bag whose image is already cached still needs its reorder
     // URL). Re-searches the canonical API by roastName, matches the id, and
     // emits bagLinkRecovered on success. One attempt per id per session;
     // silent on failure. ensureBagImage routes its legacy branch through this.
     Q_INVOKABLE void recoverBagLink(const QString& canonicalId, const QString& roastName);
+
+    // --- Blob edit helpers (add-bag-detail-editing) ---
+    // Thin QML bridges over the header-only BeanBaseBlob helpers so the bag
+    // editor and MCP bag_update share ONE merge/revert implementation. Pure
+    // string→string; no instance state.
+    Q_INVOKABLE static QString mergeBeanDetails(const QString& blob, const QVariantMap& edits);
+    Q_INVOKABLE static QString revertToCanonical(const QString& blob);
+    Q_INVOKABLE static bool blobDiffersFromCanonical(const QString& blob);
 
     // og:image URL extraction from product-page HTML (property= or name=,
     // og:image:secure_url variant, either attribute order; protocol-relative

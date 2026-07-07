@@ -1327,6 +1327,26 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 24: visualizer_sync_pending on coffee_bags (add-bag-detail-
+    // editing) — set when a bag edit's Visualizer PATCH fails retryably, so
+    // the next upload cycle re-pushes it. One idempotent additive column;
+    // hasColumn guards the retry after a mid-step crash. Gate ">= 23 && < 24"
+    // so it only advances from a committed migration 23 (mirrors the chain).
+    if (currentVersion >= 23 && currentVersion < 24) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 24 (bag visualizer_sync_pending)";
+
+        if (!hasColumn("coffee_bags", "visualizer_sync_pending"))
+            query.exec ("ALTER TABLE coffee_bags ADD COLUMN visualizer_sync_pending INTEGER NOT NULL DEFAULT 0");
+
+        if (hasColumn("coffee_bags", "visualizer_sync_pending")) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (24)");
+            currentVersion = 24;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 24 incomplete - will retry next launch";
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }

@@ -148,6 +148,14 @@ public:
     // blob→API field mapping and the fill-blanks contract are unit-tested.
     static QJsonObject buildBagEnrichBody(const QJsonObject& remoteBag, const QVariantMap& bag);
 
+    // Every Visualizer-stored descriptive field from a bag map (name +
+    // roast/lifecycle/canonical + the beanBaseData blob attributes), added to
+    // `body` at CURRENT values (empty locals omitted — never sent as null).
+    // Omits roaster_id — the caller sets that. Used by the bag-edit path
+    // (patchRemoteBag), which overwrites the full set on an explicit user
+    // edit. Pure + public so the blob→API mapping is unit-tested.
+    static void addBagDescriptiveFields(QJsonObject& body, const QVariantMap& bag);
+
 signals:
     void uploadingChanged();
     void lastUploadStatusChanged();
@@ -176,6 +184,12 @@ signals:
     // PATCH-correlated updateFailed, which upload-policy skips never emit.
     void uploadSkipped(const QString& reason);
     void connectionTestResult(bool success, const QString& message);
+    // A bag edit-push was rejected by server validation (HTTP 422 — e.g. the
+    // renamed bag collides with an existing roaster+name+roast_date, or the
+    // defrost date precedes the frozen date). Definitive: not retried; local
+    // values stay as edited. Carries the server's message for a one-shot
+    // non-blocking toast (add-bag-detail-editing).
+    void bagPushRejected(qint64 localBagId, const QString& message);
     // Reconciliation list fetch results.
     void shotListFetched(const QVariantList& shots);
     void shotListFailed(const QString& error);
@@ -237,11 +251,6 @@ private:
     // Used by the bag-edit path (updateBagOnVisualizer).
     void resolveRoasterId(const QString& roasterName, const QString& canonicalRoasterId,
                           std::function<void(const QString& roasterId)> onResolved);
-    // Add every Visualizer-stored descriptive field to `body` from a bag map
-    // (name + roast/lifecycle/canonical + the beanBaseData blob attributes).
-    // Omits roaster_id — the caller sets that. Used by the bag-edit path
-    // (patchRemoteBag), which overwrites the full set on an explicit user edit.
-    void addBagDescriptiveFields(QJsonObject& body, const QVariantMap& bag) const;
     // PATCH /api/coffee_bags/:visualizerBagId with the descriptive fields, plus
     // roaster_id when `roasterId` differs from the bag's stored one (rename).
     // Persists the new visualizerRoasterId on a roaster change. 403 → not premium
@@ -250,6 +259,14 @@ private:
     void patchRemoteBag(const QVariantMap& bag, const QString& roasterId);
     void persistBagSyncIds(qint64 localBagId, const QString& visualizerBagId,
                            const QString& visualizerRoasterId);
+    // Set/clear coffee_bags.visualizer_sync_pending (background write, no
+    // signals): set on a retryable push failure or a push parked while CM was
+    // Unknown; cleared on success and on every definitive outcome (403/404/422).
+    void persistBagSyncPending(qint64 localBagId, bool pending);
+    // Re-push every sync-pending bag. Called from the upload read-back once CM
+    // is confirmed Active (add-bag-detail-editing) — the event-driven retry for
+    // offline/5xx-failed edit pushes.
+    void retrySyncPendingBags();
     QNetworkRequest makeApiJsonRequest(const QString& path) const;
 
     // Single mutation point for m_cmState — every CM-probe transition flows

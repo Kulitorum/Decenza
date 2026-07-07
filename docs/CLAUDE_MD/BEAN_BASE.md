@@ -40,6 +40,8 @@ The notes below describe the loffeelabs API that the integration originally ship
 
 Entries are QVariantMaps (QML lingua franca; deliberately not a C++ value type). Keys, by producer (the "Bean Base" column documents the removed `searchBeanBase()` shape — no live producer now, but consumers still tolerate these keys if a snapshot from before the removal carries them):
 
+**User-editable working keys (add-bag-detail-editing):** the bag editor (ChangeBeansDialog) and MCP `bag_update` edit the blob's descriptive keys through `BeanBaseBlob::mergeBeanDetails()` (`src/network/beanbase_blob.h`; QML bridge on `BeanBaseClient`). Editable list: `roasterName, roastName, degree, origin, region, farm, producer, variety, elevation, process, harvest, qualityScore, placeOfPurchase, tastingNotes, link` (`farm`/`qualityScore`/`placeOfPurchase` are user-input-only — the canonical DB has no such columns). An empty edit REMOVES the key (absent-not-empty). **A blob without `id` is valid**: a manual bag carrying user-entered details stays unlinked (`isLinked` keys solely off a non-empty `id`). On the first edit of a linked blob, the pre-edit values are snapshotted into a `canonical` sub-object (never touched by later edits) — `revertToCanonical()` restores them and `differsFromCanonical()` drives the editor's "Revert to Bean Base data" affordance. Consumers of flat keys ignore `canonical`; shot snapshots carry it along unchanged.
+
 | Key | canonical (`search()`) | Bean Base (removed `searchBeanBase()`) | enrichment (`canonicalDetails`) |
 |---|---|---|---|
 | `id` (opaque string; **non-empty = linked**) | UUID | integer-as-string | — |
@@ -60,14 +62,16 @@ The canonical DB has **no image column**, so canonical blobs carry no `image` (o
 ## UI rules
 
 - Search bar (`BeanBaseSearchBar.qml`) is always visible — search is keyless since the canonical switch. Label is the verbatim branding "Search Loffee Labs Bean Base" (untranslated).
-- **Lock follows the data**: a field (Roaster/Coffee/Roast level) locks iff linked AND the entry supplied a non-empty value. Locked roast level renders as read-only text (Bean Base degree strings like "Light To Medium-light" don't fit the combo model). Tapping any locked field opens the details popup.
+- **Lock follows the data — BeanInfoPage only**: on the live-DYE BeanInfoPage, a field (Roaster/Coffee/Roast level) locks iff linked AND the entry supplied a non-empty value; tapping a locked field opens the details popup. **The bag editor (ChangeBeansDialog) has no locks** (add-bag-detail-editing): identity, roast level, and the whole Bean details section stay editable while linked — the canonical link is a badge, not a lock (matching Visualizer's own bag editor), and editing never breaks the link. A non-combo canonical degree ("Light To Medium-light") shows as the roast-level combo's displayText until the user picks a level.
 - The link is always correctable: Unlink works without a key; typing while linked re-enters search; edit mode rewrites the *shot's* snapshot (`requestUpdateShotMetadata` carries `beanBaseJson`).
 - Details surfaces: `BeanBaseDetailsRow`/`BeanBaseDetailsPopup` on BeanInfoPage (live DYE state), PostShotReviewPage + ShotDetailPage (per-shot snapshot). Zero footprint when the blob is empty.
 - PostShotReviewPage also hosts the full search/link/unlink flow: a pick rewrites the SHOT's snapshot via the page's autosave (undoable); the sticky DYE link follows only for the MOST RECENT shot (gate on `lastSavedShotId`, which is seeded from MAX(id) at startup so the rule holds across restarts) — historic edits never touch the bean dialog or brew settings. The sticky sync runs only after the DB write is confirmed.
 
-## Visualizer linkage (shot PATCH shipped; bag CRUD / id-resolution pending — design.md § Context 9)
+## Visualizer linkage (shot PATCH + CM bag sync + edit-push shipped)
 
 From the open-source `miharekar/visualizer` repo: `canonical_coffee_bags.id` is a Visualizer UUID; the Bean Base integer lives in `loffee_labs_id` — **no API resolves one to the other today**, so canonical linkage needs a small upstream addition. Bag CRUD is at `/api/coffee_bags` (writes premium-gated); shot PATCH accepts `shot[canonical_coffee_bag_id]` (all users) and `shot[coffee_bag_id]` (coffee management enabled, auto-fills bean fields server-side).
+
+**Bag edit-push (add-bag-detail-editing):** editing a bag (editor save or MCP `bag_update`) that changed a Visualizer-stored field (`CoffeeBagStorage::touchesVisualizerFields` → `bagVisualizerFieldsChanged` → `updateBagOnVisualizer`, gated on visualizerAutoUpdate + CM Active + `visualizerBagId`) PATCHes the remote bag with the FULL current field set (`addBagDescriptiveFields`, static + unit-tested; empty locals omitted, never nulled — a local clear can't wipe a server value). Roaster renames re-resolve via find-or-create and re-point `roaster_id`. Failure handling: retryable (network/429/5xx) or CM-still-Unknown sets `coffee_bags.visualizer_sync_pending` (migration 24), drained by `retrySyncPendingBags()` when the next upload's read-back confirms CM Active; 403 → NoCoffeeManagement; 404 → next upload recreates; 422 → `bagPushRejected` signal → one-shot toast in Main.qml, local values kept. The upload-time `buildBagEnrichBody` path stays fill-blanks-only and now also carries `farm`/`quality_score`/`place_of_purchase`/`url`.
 
 ## Testing
 

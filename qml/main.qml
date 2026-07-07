@@ -3703,6 +3703,64 @@ ApplicationWindow {
         onTriggered: shotExportToast.opacity = 0
     }
 
+    // ============ BAG PUSH REJECTED TOAST ============
+    // Shown when a bag edit's Visualizer sync is rejected by server validation
+    // (HTTP 422 — e.g. renamed bag collides with an existing roaster+name+
+    // roast_date). One-shot, not retried; the local edit is kept as-is
+    // (add-bag-detail-editing).
+    property string bagPushToastText: ""
+    Tr { id: trBagPushRejected; key: "main.toast.bagPushRejected"; fallback: "Visualizer did not accept the bag update: %1"; visible: false }
+
+    Connections {
+        target: MainController.visualizer
+
+        function onBagPushRejected(localBagId, message) {
+            bagPushToastText = trBagPushRejected.text.arg(message)
+            bagPushToast.opacity = 1
+            bagPushToastTimer.restart()
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(bagPushToastText)
+            }
+        }
+    }
+
+    Rectangle {
+        id: bagPushToast
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.scaled(40)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(bagPushToastLabel.implicitWidth + Theme.scaled(32), parent.width - Theme.scaled(40))
+        height: bagPushToastLabel.implicitHeight + Theme.scaled(16)
+        radius: Theme.cardRadius
+        color: Theme.surfaceColor
+        opacity: 0
+        visible: opacity > 0
+        z: 600
+        Accessible.ignored: true
+
+        Behavior on opacity {
+            NumberAnimation { duration: 300 }
+        }
+
+        Text {
+            id: bagPushToastLabel
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, bagPushToast.width - Theme.scaled(32))
+            text: bagPushToastText
+            color: Theme.textColor
+            font.pixelSize: Theme.scaled(13)
+            wrapMode: Text.WordWrap
+            horizontalAlignment: Text.AlignHCenter
+            Accessible.ignored: true
+        }
+    }
+
+    Timer {
+        id: bagPushToastTimer
+        interval: 5000
+        onTriggered: bagPushToast.opacity = 0
+    }
+
     // ============ DISCARDED ABORTED SHOT TOAST ============
     // Shown when MainController's aborted-shot classifier drops a shot that did
     // not start (extraction < 10 s AND yield < 5 g). Notification only — there

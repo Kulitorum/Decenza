@@ -60,6 +60,10 @@ struct CoffeeBag {
     // Visualizer Coffee Management sync state
     QString visualizerBagId;
     QString visualizerRoasterId;
+    // A bag edit's Visualizer PATCH failed retryably (offline/429/5xx); the
+    // next upload cycle re-pushes and clears it. Device-local: excluded from
+    // nothing (imports carry it fine), but never a reason to PATCH by itself.
+    bool visualizerSyncPending = false;
 
     qint64 lastUsedEpoch = 0; // bumped on selection and shot save (MRU ordering)
 
