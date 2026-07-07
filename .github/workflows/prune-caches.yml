@@ -30,6 +30,13 @@ on:
       - 'Linux AppImage Build'
       - 'Linux ARM64 AppImage Build'
     types: [completed]
+  # Nearly all builds run on TAG pushes, and GitHub's docs don't clearly
+  # guarantee workflow_run fires for tag-triggered runs (no `branches:`
+  # filter here, so it should — but field reports show this edge being
+  # flaky). The daily cron is the guaranteed fallback: pruning is
+  # idempotent and takes seconds, so a redundant pass is free.
+  schedule:
+    - cron: '17 3 * * *'
   workflow_dispatch:
 
 permissions:
