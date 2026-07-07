@@ -434,9 +434,8 @@ Page {
                     id: nameField
                     Layout.fillWidth: true
                     Layout.topMargin: Theme.spacingMedium
-                    font: Theme.subtitleFont
-                    placeholderText: TranslationManager.translate("recipes.composer.namePlaceholder", "Recipe name (e.g. Morning cappuccino)")
-                    Accessible.name: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name")
+                    placeholder: TranslationManager.translate("recipes.composer.namePlaceholder", "Recipe name (e.g. Morning cappuccino)")
+                    accessibleName: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name")
                 }
 
                 GridLayout {
@@ -463,16 +462,19 @@ Page {
                             NumberField {
                                 id: doseField
                                 Layout.fillWidth: true
+                                Layout.preferredWidth: Theme.scaled(120)
                                 label: TranslationManager.translate("recipes.composer.doseLabel", "Dose (g)")
                             }
                             NumberField {
                                 id: yieldField
                                 Layout.fillWidth: true
+                                Layout.preferredWidth: Theme.scaled(120)
                                 label: TranslationManager.translate("recipes.composer.yieldLabel", "Yield (g)")
                             }
                             NumberField {
                                 id: tempField
                                 Layout.fillWidth: true
+                                Layout.preferredWidth: Theme.scaled(120)
                                 label: TranslationManager.translate("recipes.composer.tempLabel", "Temp override (" + Theme.tempUnitSuffix() + ")")
                             }
                         }
@@ -580,7 +582,7 @@ Page {
                                 StyledTextField {
                                     id: grindField
                                     Layout.fillWidth: true
-                                    placeholderText: TranslationManager.translate("recipes.composer.grindPlaceholder", "e.g. 2.4")
+                                    placeholder: TranslationManager.translate("recipes.composer.grindPlaceholder", "e.g. 2.4")
                                     Accessible.name: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
                                 }
                             }
@@ -669,13 +671,15 @@ Page {
                     Layout.bottomMargin: Theme.spacingMedium
                     spacing: Theme.spacingMedium
                     Item { Layout.fillWidth: true }
-                    ActionButton {
-                        text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    AccessibleButton {
+                        text: TranslationManager.translate("common.cancel", "Cancel")
+                        accessibleName: TranslationManager.translate("recipes.composer.accessible.cancel", "Cancel recipe editing")
                         onClicked: pageStack.pop()
                     }
-                    ActionButton {
-                        text: TranslationManager.translate("common.button.save", "Save")
-                        highlighted: true
+                    AccessibleButton {
+                        primary: true
+                        text: TranslationManager.translate("common.save", "Save")
+                        accessibleName: TranslationManager.translate("recipes.composer.accessible.save", "Save the recipe")
                         onClicked: composerPage.save()
                     }
                 }
@@ -707,7 +711,7 @@ Page {
             StyledTextField {
                 id: profileSearchField
                 Layout.fillWidth: true
-                placeholderText: TranslationManager.translate("profileselector.search", "Search profiles…")
+                placeholder: TranslationManager.translate("profileselector.search", "Search profiles…")
                 Accessible.name: placeholderText
                 onTextChanged: profilePicker.filter = text.trim().toLowerCase()
             }
@@ -739,6 +743,14 @@ Page {
                     onClicked: {
                         composerPage.fProfileTitle = modelData.title
                         composerPage.fProfileJson = ""  // installed profile: resolve by title
+                        // Pull the profile's own numbers into empty fields so
+                        // picking a profile seeds the drink — never clobbers a
+                        // value the user (or a shot prefill) already set.
+                        var detail = ProfileManager.getProfileByFilename(modelData.name)
+                        if (detail.recommended_dose > 0 && doseField.text === "")
+                            doseField.text = Number(detail.recommended_dose).toFixed(1)
+                        if (detail.target_weight > 0 && yieldField.text === "")
+                            yieldField.text = Number(detail.target_weight).toFixed(1)
                         profilePicker.close()
                     }
                 }
