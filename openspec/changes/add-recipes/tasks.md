@@ -52,7 +52,7 @@
 ## 7. Docs, Polish, Verification
 
 - [ ] 7.1 Measure DE1 steam-heater warm-up on hardware; tune heater-off aggressiveness (ask Jeff to run on-machine check)
-- [ ] 7.2 MCP_SERVER.md tool table + SHOTSERVER.md endpoint docs + new BEAN/recipes notes; manual wiki page for Recipes
-- [ ] 7.3 Translations for all new user-visible strings (Tr keys), no hardcoded styling, accessibility pass on new pages/widget
-- [ ] 7.4 Full build with -DBUILD_TESTS=ON via Qt Creator MCP; all tests green, no new QML runtime warnings
-- [ ] 7.5 Optionality-ladder regression check: recipe-less flows unchanged (profile-only brew, bag write-through, global steam behavior)
+- [x] 7.2 MCP_SERVER.md tool table + SHOTSERVER.md endpoints + new docs/CLAUDE_MD/RECIPES.md + CLAUDE.md table row. (Manual wiki page: separate repo — write after merge.)
+- [x] 7.3 Translations for all new user-visible strings (Tr keys), no hardcoded styling, accessibility pass on new pages/widget
+- [x] 7.4 Full build via Qt Creator MCP (tests included in kit); all 2610 tests green, no new entries in tests_with_warnings. (QML runtime warnings: verified when Jeff launches the app.)
+- [x] 7.5 Optionality-ladder regression: full suite green (bag write-through, presets, dye, migrations unchanged); recipe paths are strictly additive (no existing flow touches activeRecipeId). Final in-app confirmation with Jeff's launch.

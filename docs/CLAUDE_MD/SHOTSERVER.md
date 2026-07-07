@@ -13,6 +13,9 @@ The ShotServer is the in-app HTTP server that exposes shot history, settings, la
 - `shotserver_auth.cpp` — authentication
 - `shotserver_theme.cpp` — theme endpoints
 - `shotserver_upload.cpp` — file upload handling
+- `shotserver_recipes.cpp` — recipes REST + `/recipes` page (add-recipes)
+- `shotserver_bags.cpp` — coffee-bag REST + `/beans` page (add-recipes)
+- `shotserver_equipment.cpp` — equipment-package REST + `/equipment` page (add-recipes)
 
 The layout editor web UI is served as inline HTML/JS from `shotserver_layout.cpp`.
 
@@ -29,3 +32,10 @@ The layout editor web UI is served as inline HTML/JS from `shotserver_layout.cpp
 - **Check `r.ok` before `r.json()`** in fetch chains. Non-2xx responses with non-JSON bodies will throw on `.json()` and produce a misleading "Network error" instead of "Server error (500)".
 - **Use `AbortController` with a timeout** for community API calls (client-side 45s, server-side 60s safety net).
 - **Don't mutate state before async success.** For example, increment a page counter only after the fetch succeeds, not before — otherwise failed requests skip pages permanently.
+
+## Recipes / bags / equipment surfaces (add-recipes)
+
+- Endpoints: `GET/POST /api/recipes`, `POST /api/recipes/from-shot/<shotId>`, `GET/POST /api/recipe/<id>` plus `/clone`, `/archive` (body: `restore`/`delete`), `/activate`; `GET/POST /api/bags`, `GET/POST /api/bag/<id>` plus `/finish`, `/delete`, `/activate`; `GET/POST /api/equipment`, `GET/POST /api/equipment/<id>` plus `/remove`, `/delete`, `/activate`. All behind the auth gate.
+- Reads use storage statics on background threads (recipes) or one-shot `inventoryReady`/`*Ready` connections (bags/equipment); mutations always go through the app's storage instances via one-shot signal connections so in-app views refresh exactly as for local edits.
+- `POST /api/recipe/<id>/activate` calls `MainController::activateRecipe` — the single activation path shared with the idle pills and MCP; respond only on the matching `recipeActivated(id, success)`.
+- Lifecycle guards are storage-enforced and surface as HTTP 409 (delete refused for rows with shots/references).

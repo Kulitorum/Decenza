@@ -1305,6 +1305,58 @@ private slots:
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
     }
 
+    // Pinned-grind routing (add-recipes): while the active recipe PINS its
+    // grind, SettingsDye suspends the bag write-through — the pin is the
+    // recipe's private dial, and sibling recipes (which inherit the bag's
+    // value) must not follow it. MainController sets/clears the suspension;
+    // here we drive the flag directly and assert the bag row stays put.
+    void settingsDyeGrindPinSuspendsBagWriteThrough() {
+        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+
+        const QString path = freshDb();
+        withRawDb(path, "pin_tables", [&](QSqlDatabase& db) {
+            CoffeeBagStorage::ensureTableStatic(db);
+        });
+        qint64 bagId = -1;
+        withRawDb(path, "pin_seed", [&](QSqlDatabase& db) {
+            CoffeeBag b; b.roasterName = "R"; b.coffeeName = "Pin"; b.grinderSetting = "1.0";
+            bagId = CoffeeBagStorage::insertBagStatic(db, b);
+        });
+        QVERIFY(bagId > 0);
+
+        CoffeeBagStorage bagStorage; bagStorage.initialize(path);
+        SettingsVisualizer viz; SettingsDye dye(&viz);
+        dye.setBagStorage(&bagStorage);
+
+        dye.setActiveBagId(static_cast<int>(bagId));
+        QTRY_COMPARE_WITH_TIMEOUT(dye.dyeGrinderSetting(), QString("1.0"), 15000);
+
+        auto bagGrind = [&]() { QString v; withRawDb(path, "pin_bg",
+            [&](QSqlDatabase& db) { v = CoffeeBagStorage::loadBagStatic(db, bagId).grinderSetting; }); return v; };
+
+        // Unsuspended: the edit writes through to the bag row.
+        dye.setDyeGrinderSetting("2.0");
+        QTRY_COMPARE_WITH_TIMEOUT(bagGrind(), QString("2.0"), 15000);
+
+        // Suspended (recipe pin active): the edit stays on the dye cache; the
+        // bag keeps its value. Drain the worker before the negative read so a
+        // wrongly-issued write would have landed by the time we assert.
+        dye.setGrindBagWriteThroughSuspended(true);
+        dye.setDyeGrinderSetting("3.0");
+        QCOMPARE(dye.dyeGrinderSetting(), QString("3.0"));
+        for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
+        QCOMPARE(bagGrind(), QString("2.0"));  // unchanged — the pin never landed
+
+        // Lifting the suspension resumes normal bean-dial write-through.
+        dye.setGrindBagWriteThroughSuspended(false);
+        dye.setDyeGrinderSetting("4.0");
+        QTRY_COMPARE_WITH_TIMEOUT(bagGrind(), QString("4.0"), 15000);
+
+        // Drain before stack teardown (see settingsDyeYieldOverridePath).
+        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
+        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+    }
+
     // Regression for the same-row write reorder that SerialDbWorker fixes. Fire
     // many writes at ONE package row back-to-back with NO settle between them and
     // assert the LAST submitted value is the one that SETTLES. Under the old
