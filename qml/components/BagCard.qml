@@ -35,7 +35,7 @@ Rectangle {
 
     // Bag photo from the on-disk image cache (canonical entries carry no image
     // — the photo is resolved from the product page's og:image and cached as a
-    // file, never stored in the DB). Legacy pre-canonical blobs may still carry
+    // file, never stored in the DB). Legacy pre-removal blobs may still carry
     // a CDN `image` URL, used as fallback.
     readonly property string canonicalId: hasCanonical ? String(bag.beanBaseId) : ""
     property string cachedImagePath: ""
@@ -58,6 +58,20 @@ Rectangle {
         function onBagImageReady(id, path) {
             if (id === card.canonicalId)
                 card.cachedImagePath = path
+        }
+        // One-time blob backfill: the image re-search recovered the product
+        // URL for a blob linked before `link` was captured. Persist it so the
+        // details popup can offer the reorder link (bag row only — shot
+        // snapshots stay as recorded, per the propagate default).
+        function onBagLinkRecovered(id, link) {
+            if (id !== card.canonicalId || !card.bag || card.bag.id === undefined)
+                return
+            if (card.beanBase.link)
+                return
+            var blob = card.beanBase
+            blob.link = link
+            MainController.bagStorage.requestUpdateBag(card.bag.id,
+                { "beanBaseData": JSON.stringify(blob) })
         }
     }
 
@@ -183,8 +197,8 @@ Rectangle {
                 anchors.right: parent.right
                 spacing: Theme.scaled(10)
 
-                // Bag photo thumbnail (canonical CDN URL from the snapshot
-                // blob, same source as BeanBaseDetailsRow). A dimmed beans
+                // Bag photo thumbnail from the file cache (see cachedImagePath
+                // above; legacy blob `image` URL as fallback). A dimmed beans
                 // icon keeps the slot for imageless/offline bags so mixed
                 // inventories stay aligned.
                 Rectangle {

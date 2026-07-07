@@ -55,17 +55,20 @@ public:
     Q_INVOKABLE void fetchCanonicalDetails(const QVariantMap& entry);
 
     // --- Bag image file cache (pixels never enter the database) ---
-    // The canonical DB has no image column, but every entry carries the
+    // The canonical DB has no image column, but entries generally carry the
     // roaster's product-page URL. ensureBagImage() resolves a bag photo
     // best-effort: product page → og:image meta tag → download → file in the
-    // app cache directory keyed by canonical id (size-capped LRU; evictable
-    // and re-resolvable, so it is a cache, not data). When productUrl is empty
-    // (blobs linked before `link` was captured), the URL is first recovered by
-    // re-searching the canonical API by roastName and matching the id. One
-    // attempt per canonical id per app session; silent on every failure path
-    // (no og:image, network error, page gone) — consumers keep their
-    // placeholder. Emits bagImageReady(canonicalId, filePath) on success, and
-    // re-emits it (deferred) when the file already exists.
+    // app cache directory keyed by canonical id (size-capped, oldest-first
+    // eviction by write time; evictable and re-resolvable, so it is a cache,
+    // not data). When productUrl is empty (a blob linked before `link` was
+    // captured, or an entry the API served without a url), the URL is first
+    // recovered by re-searching the canonical API by roastName and matching
+    // the id — a recovered URL is also announced via bagLinkRecovered so
+    // consumers can backfill the blob. One attempt per canonical id per app
+    // session; silent on every failure path (no og:image, network error, page
+    // gone) — consumers keep their placeholder; only local disk faults warn.
+    // Emits bagImageReady(canonicalId, filePath) on success, and re-emits it
+    // (deferred) when the file already exists.
     Q_INVOKABLE QString bagImagePath(const QString& canonicalId) const;
     Q_INVOKABLE void ensureBagImage(const QString& canonicalId,
                                     const QString& roastName,
@@ -73,7 +76,8 @@ public:
 
     // og:image URL extraction from product-page HTML (property= or name=,
     // og:image:secure_url variant, either attribute order; protocol-relative
-    // URLs normalized to https). Empty when absent. Static + public for tests.
+    // URLs normalized to https). Empty when absent or not an absolute http(s)
+    // URL. Static + public for tests.
     static QString extractOgImage(const QByteArray& html);
 
     // Test seam: redirect requests at a local fake server. Production code
@@ -104,6 +108,10 @@ signals:
 
     // A bag photo landed in (or already existed in) the file cache.
     void bagImageReady(const QString& canonicalId, const QString& filePath);
+    // The image re-search recovered a product URL for a blob that lacked
+    // `link` (linked before the url→link capture). BagCard backfills it into
+    // the bag blob so the details popup can offer the reorder link.
+    void bagLinkRecovered(const QString& canonicalId, const QString& link);
 
 private:
     void doSendCanonicalSearch(const QString& query);

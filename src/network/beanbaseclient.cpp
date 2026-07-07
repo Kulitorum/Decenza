@@ -1,5 +1,6 @@
 #include "beanbaseclient.h"
 
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -204,8 +205,19 @@ QString BeanBaseClient::imageCacheDir() const {
         + QStringLiteral("/bagimages");
 }
 
+namespace {
+// The canonical id doubles as the cache filename. Ids are Visualizer UUIDs,
+// but the value round-trips through blobs, backups, and device migration —
+// refuse anything that isn't a plain filename component so a crafted id can
+// never escape the cache directory.
+bool isSafeCacheFilename(const QString& id) {
+    return !id.isEmpty() && !id.contains(QLatin1Char('/'))
+        && !id.contains(QLatin1Char('\\')) && !id.contains(QLatin1String(".."));
+}
+}  // namespace
+
 QString BeanBaseClient::bagImagePath(const QString& canonicalId) const {
-    if (canonicalId.isEmpty())
+    if (!isSafeCacheFilename(canonicalId))
         return {};
     const QString path = imageCacheDir() + QLatin1Char('/') + canonicalId;
     return QFile::exists(path) ? path : QString();
@@ -214,7 +226,7 @@ QString BeanBaseClient::bagImagePath(const QString& canonicalId) const {
 void BeanBaseClient::ensureBagImage(const QString& canonicalId,
                                     const QString& roastName,
                                     const QString& productUrl) {
-    if (canonicalId.isEmpty())
+    if (!isSafeCacheFilename(canonicalId))
         return;
 
     const QString existing = bagImagePath(canonicalId);
@@ -263,8 +275,13 @@ void BeanBaseClient::ensureBagImage(const QString& canonicalId,
             if (entry.value(QStringLiteral("id")).toString() != canonicalId)
                 continue;
             const QString link = entry.value(QStringLiteral("link")).toString();
-            if (!link.isEmpty())
+            if (!link.isEmpty()) {
+                // Announce the recovered product URL so consumers can backfill
+                // it into blobs that predate the url→link capture (BagCard
+                // persists it; the details popup shows it for reordering).
+                emit bagLinkRecovered(canonicalId, link);
                 fetchProductPage(canonicalId, link);
+            }
             return;
         }
     });
@@ -304,21 +321,37 @@ void BeanBaseClient::downloadBagImage(const QString& canonicalId, const QString&
         if (bytes.isEmpty() || bytes.size() > kBagImageMaxBytes)
             return;
 
-        // File write + LRU eviction off the main thread (disk-I/O rule). The
-        // completion hops back via the `this` connection context and emits
-        // only if the write actually landed.
+        // File write + eviction off the main thread (disk-I/O rule). The write
+        // is atomic (temp file + verified write + rename) so a disk-full or
+        // crash mid-write can never leave a truncated file that satisfies
+        // bagImagePath() and suppresses re-resolution forever. The completion
+        // hops back via the `this` connection context and emits only if the
+        // rename landed.
         const QString dir = imageCacheDir();
         const QString path = dir + QLatin1Char('/') + canonicalId;
         QPointer<BeanBaseClient> self(this);
         QThread* worker = QThread::create([bytes, dir, path]() {
-            QDir().mkpath(dir);
-            QFile f(path);
-            if (f.open(QIODevice::WriteOnly)) {
-                f.write(bytes);
-                f.close();
+            if (!QDir().mkpath(dir)) {
+                qWarning() << "BeanBase: cannot create bag image cache dir" << dir;
+                return;
             }
-            // Keep the cache a cache: evict oldest files beyond the cap,
-            // never the one just written.
+            QFile f(path + QStringLiteral(".part"));
+            bool ok = f.open(QIODevice::WriteOnly) && f.write(bytes) == bytes.size();
+            f.close();
+            ok = ok && f.error() == QFileDevice::NoError
+                && QFile::rename(f.fileName(), path);
+            if (!ok) {
+                // A local disk fault (full disk, permissions) — unlike the
+                // expected network/og:image misses, this is worth a log line.
+                qWarning() << "BeanBase: bag image write failed" << path << f.errorString();
+                QFile::remove(f.fileName());
+                return;
+            }
+            // Keep the cache a cache: evict oldest-written files beyond the
+            // cap (Time|Reversed = oldest first), never the one just written.
+            // A concurrent worker for another id could evict this file between
+            // the emit and the QML load — cosmetic and self-healing (next
+            // session re-resolves), so not worth serializing.
             QFileInfoList files = QDir(dir).entryInfoList(QDir::Files, QDir::Time | QDir::Reversed);
             qint64 total = 0;
             for (const QFileInfo& fi : files)
@@ -328,8 +361,11 @@ void BeanBaseClient::downloadBagImage(const QString& canonicalId, const QString&
                     break;
                 if (fi.filePath() == path)
                     continue;
+                if (!QFile::remove(fi.filePath())) {
+                    qWarning() << "BeanBase: bag image cache eviction failed" << fi.filePath();
+                    continue;  // Don't credit the failed removal against the cap.
+                }
                 total -= fi.size();
-                QFile::remove(fi.filePath());
             }
         });
         connect(worker, &QThread::finished, worker, &QObject::deleteLater);

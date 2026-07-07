@@ -197,6 +197,15 @@ private slots:
         QCOMPARE(BeanBaseClient::extractOgImage(
             "<meta property=\"og:image\" content=\"/relative.jpg\">"), QString());
         QCOMPARE(BeanBaseClient::extractOgImage(""), QString());
+        // Hostile schemes never pass the absolute-http filter.
+        QCOMPARE(BeanBaseClient::extractOgImage(
+            "<meta property=\"og:image\" content=\"file:///etc/passwd\">"), QString());
+        // og:image:width (common real-world tag, listed before og:image) must
+        // not match the property anchor — the real image URL still wins.
+        QCOMPARE(BeanBaseClient::extractOgImage(
+            "<meta property=\"og:image:width\" content=\"1200\">"
+            "<meta property=\"og:image\" content=\"https://cdn.x/e.jpg\">"),
+            QString("https://cdn.x/e.jpg"));
     }
 
     void ensureBagImageResolvesAndCaches() {
@@ -229,12 +238,59 @@ private slots:
         QCOMPARE(f.readAll(), QByteArray("JPEGBYTES"));
         QCOMPARE(client.bagImagePath("bag-1"), path);
 
-        // Cached: a second ensure re-emits (deferred) without any new request.
+        // Cached: a second ensure re-emits (deferred) with the same payload
+        // and without any new request.
         const int requestsAfterResolve = server.requestCount();
         QSignalSpy spy2(&client, &BeanBaseClient::bagImageReady);
         client.ensureBagImage("bag-1", "Milk Blend", "");
         QVERIFY(spy2.wait(1000));
+        QCOMPARE(spy2.first().at(0).toString(), QString("bag-1"));
+        QCOMPARE(spy2.first().at(1).toString(), path);
         QCOMPARE(server.requestCount(), requestsAfterResolve);
+    }
+
+    void ensureBagImageDirectUrlSkipsResearch() {
+        // The primary production path: a blob that already carries `link` goes
+        // straight to the product page — the canonical re-search must not run.
+        FakeBeanBaseServer server;
+        const QByteArray base = server.baseUrl().toUtf8();
+        server.respondForPath("/product",
+            "<html><meta property=\"og:image\" content=\"" + base + "/photo.jpg\"></html>");
+        server.respondForPath("/photo.jpg", "DIRECTBYTES");
+
+        QTemporaryDir cacheDir;
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setVisualizerBaseUrl(server.baseUrl());
+        client.setImageCacheDir(cacheDir.path());
+
+        QSignalSpy spy(&client, &BeanBaseClient::bagImageReady);
+        client.ensureBagImage("bag-2", "Milk Blend", server.baseUrl() + "/product");
+        QVERIFY(spy.wait(5000));
+        QCOMPARE(spy.first().at(0).toString(), QString("bag-2"));
+        for (const QString& line : server.requestLines())
+            QVERIFY2(!line.contains("/api/canonical_coffee_bags"),
+                     "direct productUrl must skip the canonical re-search");
+    }
+
+    void ensureBagImageRejectsUnsafeIds() {
+        // The canonical id doubles as the cache filename and round-trips
+        // through blobs/backups/migration — traversal-shaped ids are refused
+        // before any path use or network activity.
+        FakeBeanBaseServer server;
+        QTemporaryDir cacheDir;
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setVisualizerBaseUrl(server.baseUrl());
+        client.setImageCacheDir(cacheDir.path());
+
+        QCOMPARE(client.bagImagePath("../escape"), QString());
+        QCOMPARE(client.bagImagePath("a/b"), QString());
+        QCOMPARE(client.bagImagePath("a\\b"), QString());
+
+        QSignalSpy spy(&client, &BeanBaseClient::bagImageReady);
+        client.ensureBagImage("../escape", "Nope", server.baseUrl() + "/product");
+        client.ensureBagImage("a/b", "Nope", "");
+        QVERIFY(!spy.wait(300));
+        QCOMPARE(server.requestCount(), 0);
     }
 
     void ensureBagImageFailureIsSilentAndOnce() {
