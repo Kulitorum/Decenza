@@ -40,6 +40,10 @@ Page {
     property string fCoffee: ""
     property real fEquipmentId: 0
     property string fEquipmentName: ""
+    // Whether the linked package's grinder has adjustable rpm (registry-
+    // derived). RPM is only offered when it does — same rule as the dye
+    // rpm field elsewhere in the app.
+    property bool fEquipmentRpmCapable: false
     // Grind override (add-recipes): OFF (default, bean linked) = the recipe
     // follows the bean's bag — shown read-only. ON = grind + rpm are this
     // recipe's own. Bean-less recipes always store grind locally (no switch).
@@ -210,7 +214,8 @@ Page {
             // Override OFF (with a bean) = inherit: store nothing. Bean-less
             // recipes always keep their grind/rpm on the recipe.
             grindPinned: (!hasBean || fGrindOverride) ? grindField.text.trim() : "",
-            rpmPinned: (!hasBean || fGrindOverride) ? (parseInt(rpmField.text) || 0) : 0,
+            rpmPinned: ((!hasBean || fGrindOverride) && fEquipmentRpmCapable)
+                ? (parseInt(rpmField.text) || 0) : 0,
             steamJson: buildSteamJson()
         }
         if (prefill && prefill.createdFromShotId)
@@ -294,9 +299,11 @@ Page {
                     if (packages[i].id === composerPage.fEquipmentId) {
                         composerPage.fEquipmentName = packages[i].name
                             || (packages[i].grinderBrand + " " + packages[i].grinderModel).trim()
+                        composerPage.fEquipmentRpmCapable = !!packages[i].rpmCapable
                         return
                     }
                 }
+                composerPage.fEquipmentRpmCapable = false
             }
         }
     }
@@ -524,7 +531,7 @@ Page {
                                         var inherited = trInherited.text
                                         if (composerPage.fInheritedGrind !== "") {
                                             inherited += ": " + composerPage.fInheritedGrind
-                                            if (composerPage.fInheritedRpm > 0)
+                                            if (composerPage.fEquipmentRpmCapable && composerPage.fInheritedRpm > 0)
                                                 inherited += " · " + composerPage.fInheritedRpm + " rpm"
                                         }
                                         return inherited
@@ -551,7 +558,8 @@ Page {
                                         if (checked && grindField.text === "") {
                                             // Start the override from the inherited values.
                                             grindField.text = composerPage.fInheritedGrind
-                                            rpmField.text = composerPage.fInheritedRpm > 0
+                                            rpmField.text = composerPage.fEquipmentRpmCapable
+                                                    && composerPage.fInheritedRpm > 0
                                                 ? String(composerPage.fInheritedRpm) : ""
                                         }
                                     }
@@ -588,6 +596,7 @@ Page {
                             }
                             NumberField {
                                 id: rpmField
+                                visible: composerPage.fEquipmentRpmCapable
                                 Layout.fillWidth: true
                                 label: TranslationManager.translate("recipes.composer.rpmLabel", "RPM")
                             }
@@ -827,9 +836,11 @@ Page {
                     if (modelData.isNone) {
                         composerPage.fEquipmentId = 0
                         composerPage.fEquipmentName = ""
+                        composerPage.fEquipmentRpmCapable = false
                     } else {
                         composerPage.fEquipmentId = modelData.id
                         composerPage.fEquipmentName = contentItem.text
+                        composerPage.fEquipmentRpmCapable = !!modelData.rpmCapable
                     }
                     equipmentPicker.close()
                 }
