@@ -4,6 +4,7 @@
 #include <QString>
 #include <QHash>
 #include <QPointer>
+#include <QSet>
 #include <QTimer>
 #include <QVariantList>
 
@@ -53,9 +54,33 @@ public:
     // when the entry has no descriptive values — enrichment is best-effort.
     Q_INVOKABLE void fetchCanonicalDetails(const QVariantMap& entry);
 
+    // --- Bag image file cache (pixels never enter the database) ---
+    // The canonical DB has no image column, but every entry carries the
+    // roaster's product-page URL. ensureBagImage() resolves a bag photo
+    // best-effort: product page → og:image meta tag → download → file in the
+    // app cache directory keyed by canonical id (size-capped LRU; evictable
+    // and re-resolvable, so it is a cache, not data). When productUrl is empty
+    // (blobs linked before `link` was captured), the URL is first recovered by
+    // re-searching the canonical API by roastName and matching the id. One
+    // attempt per canonical id per app session; silent on every failure path
+    // (no og:image, network error, page gone) — consumers keep their
+    // placeholder. Emits bagImageReady(canonicalId, filePath) on success, and
+    // re-emits it (deferred) when the file already exists.
+    Q_INVOKABLE QString bagImagePath(const QString& canonicalId) const;
+    Q_INVOKABLE void ensureBagImage(const QString& canonicalId,
+                                    const QString& roastName,
+                                    const QString& productUrl);
+
+    // og:image URL extraction from product-page HTML (property= or name=,
+    // og:image:secure_url variant, either attribute order; protocol-relative
+    // URLs normalized to https). Empty when absent. Static + public for tests.
+    static QString extractOgImage(const QByteArray& html);
+
     // Test seam: redirect requests at a local fake server. Production code
     // never calls this; the default is the live service.
     void setVisualizerBaseUrl(const QString& baseUrl) { m_visualizerBaseUrl = baseUrl; }
+    // Test seam: cache directory override (default: CacheLocation/bagimages).
+    void setImageCacheDir(const QString& dir) { m_imageCacheDir = dir; }
 
     // Parses the /api/canonical_coffee_bags JSON ({data:[…]}) into entries:
     // {id, visualizerCanonicalId, source:"visualizer", roasterName (from
@@ -77,8 +102,14 @@ signals:
     // Best-effort attribute enrichment for a previously selected entry.
     void canonicalDetails(const QString& canonicalId, const QVariantMap& attrs);
 
+    // A bag photo landed in (or already existed in) the file cache.
+    void bagImageReady(const QString& canonicalId, const QString& filePath);
+
 private:
     void doSendCanonicalSearch(const QString& query);
+    void fetchProductPage(const QString& canonicalId, const QString& productUrl);
+    void downloadBagImage(const QString& canonicalId, const QString& imageUrl);
+    QString imageCacheDir() const;
 
     QNetworkAccessManager* m_networkManager = nullptr;  // Non-owning
     QString m_visualizerBaseUrl;
@@ -91,4 +122,9 @@ private:
 
     // Session cache: normalized query -> parsed entries.
     QHash<QString, QVariantList> m_canonicalCache;
+
+    // Image cache state: directory override (tests) and the one-attempt-per-
+    // session guard that keeps failed resolutions from retrying every view.
+    QString m_imageCacheDir;
+    QSet<QString> m_imageAttempted;
 };

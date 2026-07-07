@@ -19,6 +19,31 @@ Popup {
 
     function fieldOrEmpty(key) { return bean[key] !== undefined && bean[key] !== null ? String(bean[key]) : "" }
 
+    // Bag photo from the on-disk image cache (resolved from the product page's
+    // og:image; canonical entries carry no image field). Legacy blobs may still
+    // carry a CDN `image` URL, used as fallback. Resolution is requested when
+    // the popup opens so the photo appears on the spot when it can be fetched.
+    property string cachedImagePath: ""
+
+    onAboutToShow: {
+        var id = fieldOrEmpty("id")
+        if (id.length === 0) {
+            cachedImagePath = ""
+            return
+        }
+        cachedImagePath = MainController.beanbase.bagImagePath(id)
+        if (cachedImagePath.length === 0)
+            MainController.beanbase.ensureBagImage(id, fieldOrEmpty("roastName"), fieldOrEmpty("link"))
+    }
+
+    Connections {
+        target: MainController.beanbase
+        function onBagImageReady(id, path) {
+            if (root.visible && id === root.fieldOrEmpty("id"))
+                root.cachedImagePath = path
+        }
+    }
+
     readonly property string elevationText: {
         const lo = Number(bean.minElevationM || 0)
         const hi = Number(bean.maxElevationM || 0)
@@ -115,7 +140,9 @@ Popup {
                     ? Layout.preferredWidth * (implicitHeight / Math.max(1, implicitWidth))
                     : 0
                 visible: status === Image.Ready
-                source: root.fieldOrEmpty("image")
+                source: root.cachedImagePath.length > 0
+                    ? "file:///" + root.cachedImagePath
+                    : root.fieldOrEmpty("image")
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
                 Accessible.ignored: true

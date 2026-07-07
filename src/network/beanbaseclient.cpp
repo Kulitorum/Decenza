@@ -1,5 +1,8 @@
 #include "beanbaseclient.h"
 
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -8,6 +11,9 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
+#include <QStandardPaths>
+#include <QThread>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -41,7 +47,15 @@ constexpr struct { const char* apiKey; const char* blobKey; } kAttrMap[] = {
     {"harvest_time", "harvest"},
     {"tasting_notes", "tastingNotes"},
     {"elevation", "elevation"},
+    // The roaster's product page. Consumers: the details popup's open-page
+    // button and ensureBagImage's og:image resolution.
+    {"url", "link"},
 };
+
+// Bag image cache limits: a product photo is typically 100 KB–2 MB; the cap
+// keeps the whole cache a bounded, evictable convenience.
+constexpr qint64 kBagImageMaxBytes = 8 * 1024 * 1024;
+constexpr qint64 kBagImageCacheCapBytes = 30 * 1024 * 1024;
 }  // namespace
 
 BeanBaseClient::BeanBaseClient(QNetworkAccessManager* networkManager,
@@ -181,6 +195,180 @@ void BeanBaseClient::fetchCanonicalDetails(const QVariantMap& entry) {
         if (self)
             emit self->canonicalDetails(canonicalId, attrs);
     }, Qt::QueuedConnection);
+}
+
+QString BeanBaseClient::imageCacheDir() const {
+    if (!m_imageCacheDir.isEmpty())
+        return m_imageCacheDir;
+    return QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+        + QStringLiteral("/bagimages");
+}
+
+QString BeanBaseClient::bagImagePath(const QString& canonicalId) const {
+    if (canonicalId.isEmpty())
+        return {};
+    const QString path = imageCacheDir() + QLatin1Char('/') + canonicalId;
+    return QFile::exists(path) ? path : QString();
+}
+
+void BeanBaseClient::ensureBagImage(const QString& canonicalId,
+                                    const QString& roastName,
+                                    const QString& productUrl) {
+    if (canonicalId.isEmpty())
+        return;
+
+    const QString existing = bagImagePath(canonicalId);
+    if (!existing.isEmpty()) {
+        // Deferred re-emit so a consumer that connects right after invoking
+        // still hears it (same rationale as fetchCanonicalDetails).
+        QPointer<BeanBaseClient> self(this);
+        QMetaObject::invokeMethod(this, [self, canonicalId, existing]() {
+            if (self)
+                emit self->bagImageReady(canonicalId, existing);
+        }, Qt::QueuedConnection);
+        return;
+    }
+
+    if (m_imageAttempted.contains(canonicalId))
+        return;
+    m_imageAttempted.insert(canonicalId);
+
+    if (!productUrl.isEmpty()) {
+        fetchProductPage(canonicalId, productUrl);
+        return;
+    }
+
+    // Legacy blob without `link` (captured only since the url→link mapping):
+    // recover the product URL by re-searching the canonical API by name and
+    // matching the id.
+    const QString query = roastName.trimmed();
+    if (query.isEmpty())
+        return;
+
+    QUrl url(QStringLiteral("%1/api/canonical_coffee_bags").arg(m_visualizerBaseUrl));
+    QUrlQuery urlQuery;
+    urlQuery.addQueryItem(QStringLiteral("q"), query);
+    url.setQuery(urlQuery);
+    QNetworkRequest request{url};
+    request.setTransferTimeout(kTransferTimeoutMs);
+
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, canonicalId]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError)
+            return;
+        const QVariantList entries = parseCanonicalCoffeeBags(reply->readAll());
+        for (const QVariant& v : entries) {
+            const QVariantMap entry = v.toMap();
+            if (entry.value(QStringLiteral("id")).toString() != canonicalId)
+                continue;
+            const QString link = entry.value(QStringLiteral("link")).toString();
+            if (!link.isEmpty())
+                fetchProductPage(canonicalId, link);
+            return;
+        }
+    });
+}
+
+void BeanBaseClient::fetchProductPage(const QString& canonicalId, const QString& productUrl) {
+    const QUrl url(productUrl);
+    if (!url.isValid() || !url.scheme().startsWith(QLatin1String("http")))
+        return;
+    QNetworkRequest request{url};
+    request.setTransferTimeout(kTransferTimeoutMs);
+
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, canonicalId]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError)
+            return;
+        const QString imageUrl = extractOgImage(reply->readAll());
+        if (!imageUrl.isEmpty())
+            downloadBagImage(canonicalId, imageUrl);
+    });
+}
+
+void BeanBaseClient::downloadBagImage(const QString& canonicalId, const QString& imageUrl) {
+    const QUrl url(imageUrl);
+    if (!url.isValid() || !url.scheme().startsWith(QLatin1String("http")))
+        return;
+    QNetworkRequest request{url};
+    request.setTransferTimeout(kTransferTimeoutMs);
+
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, canonicalId]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError)
+            return;
+        const QByteArray bytes = reply->readAll();
+        if (bytes.isEmpty() || bytes.size() > kBagImageMaxBytes)
+            return;
+
+        // File write + LRU eviction off the main thread (disk-I/O rule). The
+        // completion hops back via the `this` connection context and emits
+        // only if the write actually landed.
+        const QString dir = imageCacheDir();
+        const QString path = dir + QLatin1Char('/') + canonicalId;
+        QPointer<BeanBaseClient> self(this);
+        QThread* worker = QThread::create([bytes, dir, path]() {
+            QDir().mkpath(dir);
+            QFile f(path);
+            if (f.open(QIODevice::WriteOnly)) {
+                f.write(bytes);
+                f.close();
+            }
+            // Keep the cache a cache: evict oldest files beyond the cap,
+            // never the one just written.
+            QFileInfoList files = QDir(dir).entryInfoList(QDir::Files, QDir::Time | QDir::Reversed);
+            qint64 total = 0;
+            for (const QFileInfo& fi : files)
+                total += fi.size();
+            for (const QFileInfo& fi : files) {
+                if (total <= kBagImageCacheCapBytes)
+                    break;
+                if (fi.filePath() == path)
+                    continue;
+                total -= fi.size();
+                QFile::remove(fi.filePath());
+            }
+        });
+        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+        connect(worker, &QThread::finished, this, [self, canonicalId, path]() {
+            if (self && QFile::exists(path))
+                emit self->bagImageReady(canonicalId, path);
+        });
+        worker->start();
+    });
+}
+
+QString BeanBaseClient::extractOgImage(const QByteArray& html) {
+    const QString text = QString::fromUtf8(html);
+    // Any <meta …> tag declaring og:image (property= or name=, secure_url
+    // variant), in either attribute order; take its content attribute.
+    static const QRegularExpression kTagRe(
+        QStringLiteral("<meta\\b[^>]*>"), QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression kPropRe(
+        QStringLiteral("(?:property|name)\\s*=\\s*[\"']og:image(?::secure_url)?[\"']"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression kContentRe(
+        QStringLiteral("content\\s*=\\s*[\"']([^\"']+)[\"']"),
+        QRegularExpression::CaseInsensitiveOption);
+
+    auto it = kTagRe.globalMatch(text);
+    while (it.hasNext()) {
+        const QString tag = it.next().captured(0);
+        if (!kPropRe.match(tag).hasMatch())
+            continue;
+        const auto content = kContentRe.match(tag);
+        if (!content.hasMatch())
+            continue;
+        const QString url = content.captured(1).trimmed();
+        if (url.startsWith(QLatin1String("//")))
+            return QStringLiteral("https:") + url;  // Protocol-relative.
+        if (url.startsWith(QLatin1String("http")))
+            return url;
+    }
+    return {};
 }
 
 QVariantList BeanBaseClient::parseCanonicalCoffeeBags(const QByteArray& json, bool* parsedOk) {

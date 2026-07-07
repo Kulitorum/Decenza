@@ -33,6 +33,34 @@ Rectangle {
         try { return JSON.parse(bag.beanBaseData) } catch (e) { return ({}) }
     }
 
+    // Bag photo from the on-disk image cache (canonical entries carry no image
+    // — the photo is resolved from the product page's og:image and cached as a
+    // file, never stored in the DB). Legacy pre-canonical blobs may still carry
+    // a CDN `image` URL, used as fallback.
+    readonly property string canonicalId: hasCanonical ? String(bag.beanBaseId) : ""
+    property string cachedImagePath: ""
+
+    function refreshBagImage() {
+        if (canonicalId.length === 0) {
+            cachedImagePath = ""
+            return
+        }
+        cachedImagePath = MainController.beanbase.bagImagePath(canonicalId)
+        if (cachedImagePath.length === 0)
+            MainController.beanbase.ensureBagImage(canonicalId,
+                (bag && bag.coffeeName) || "", beanBase.link || "")
+    }
+    Component.onCompleted: refreshBagImage()
+    onCanonicalIdChanged: refreshBagImage()
+
+    Connections {
+        target: MainController.beanbase
+        function onBagImageReady(id, path) {
+            if (id === card.canonicalId)
+                card.cachedImagePath = path
+        }
+    }
+
     // Canonical attribute line: origin · variety · process (only what exists).
     // Plain join for accessibility; joinWithBullet (styled bold dot, HTML-escaped)
     // for display.
@@ -184,7 +212,9 @@ Rectangle {
                         anchors.fill: parent
                         anchors.margins: 1
                         visible: status === Image.Ready
-                        source: card.beanBase.image || ""
+                        source: card.cachedImagePath.length > 0
+                            ? "file:///" + card.cachedImagePath
+                            : (card.beanBase.image || "")
                         // Decode at thumbnail resolution — never the full photo.
                         sourceSize.width: Theme.scaled(88)
                         sourceSize.height: Theme.scaled(88)
