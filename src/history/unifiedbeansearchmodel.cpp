@@ -3,6 +3,8 @@
 #include "network/beanbaseclient.h"
 #include "core/dbutils.h"
 
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QSqlDatabase>
@@ -22,6 +24,37 @@ bool matchesQuery(const QVariantMap& row, const QString& query)
         return true;
     return row.value("roasterName").toString().contains(query, Qt::CaseInsensitive)
         || row.value("coffeeName").toString().contains(query, Qt::CaseInsensitive);
+}
+
+// A blob whose only key is "link" is BagCard's backfill artifact for a bag
+// that was created without descriptive data (see the entryJson comment in
+// mergeLanes) — it carries nothing the fresh canonical entry doesn't (entries
+// include "link"), so it must not shadow the entry the way a real legacy blob
+// (CDN image URL, tasting tags) legitimately does.
+bool blobIsEffectivelyEmpty(const QString& blob)
+{
+    if (blob.trimmed().isEmpty())
+        return true;
+    const QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    if (obj.isEmpty())
+        return true;  // unparseable or {}
+    const QStringList keys = obj.keys();
+    return keys.size() == 1 && keys.first() == QLatin1String("link");
+}
+
+// One-line differentiator for canonical rows. Bean Base holds near-duplicate
+// submissions of the same roaster+name under distinct canonical ids, so
+// roaster+name alone renders identical rows; roast level, origin and tasting
+// notes are the fields that actually vary between them.
+QString canonicalDetail(const QVariantMap& entry)
+{
+    QStringList parts;
+    for (const char* key : {"degree", "origin", "tastingNotes"}) {
+        const QString v = entry.value(QLatin1String(key)).toString().trimmed();
+        if (!v.isEmpty())
+            parts << v;
+    }
+    return parts.join(QStringLiteral(" · "));
 }
 
 } // namespace
@@ -269,6 +302,14 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
         row["coffeeName"] = coffee;
         row["beanBaseId"] = canonicalId;
         row["bagId"] = -1;
+        row["detail"] = canonicalDetail(entry);
+        // The full entry, serialized the same way a BeanBaseSearchBar pick
+        // stores it (JSON.stringify(entry)): a bag created from this row must
+        // carry the descriptive blob, not just the canonical id — an id with
+        // an empty blob renders an empty details popup (BagCard's link
+        // backfill then persists `{"link":…}` as the whole blob).
+        const QString entryJson = QString::fromUtf8(
+            QJsonDocument(QJsonObject::fromVariantMap(entry)).toJson(QJsonDocument::Compact));
 
         // Same coffee in history -> single Tier 1 entry, both source labels:
         // grinder/dose from history, canonical identity from Bean Base.
@@ -285,12 +326,18 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
             row["doseWeightG"] = h.value("doseWeightG");
             row["yieldOverrideG"] = h.value("yieldOverrideG");
             row["roastLevel"] = h.value("roastLevel");
-            row["beanBaseData"] = h.value("beanBaseData");
+            // History's blob may carry legacy-only fields (CDN image URL,
+            // tasting tags), so keep it when it has real content; the fresh
+            // entry covers snapshots that predate the blob AND snapshots
+            // holding only BagCard's `{"link":…}` backfill artifact.
+            const QString histBlob = h.value("beanBaseData").toString();
+            row["beanBaseData"] = blobIsEffectivelyEmpty(histBlob) ? entryJson : histBlob;
             row["lastUsedEpoch"] = h.value("lastUsedEpoch");
             row["tier"] = static_cast<int>(Tier::HistoryCanonical);
             row["sources"] = QStringLiteral("beanbase+history");
             tier1.append(row);
         } else {
+            row["beanBaseData"] = entryJson;
             row["tier"] = static_cast<int>(Tier::CanonicalOnly);
             row["sources"] = QStringLiteral("beanbase");
             tier2.append(row);
@@ -393,6 +440,7 @@ QVariant UnifiedBeanSearchModel::data(const QModelIndex& index, int role) const
     case FrozenDateRole: return row.value("frozenDate");
     case DefrostDateRole: return row.value("defrostDate");
     case LastUsedEpochRole: return row.value("lastUsedEpoch");
+    case DetailRole: return row.value("detail");
     }
     return QVariant();
 }
@@ -410,5 +458,6 @@ QHash<int, QByteArray> UnifiedBeanSearchModel::roleNames() const
         {FrozenDateRole, "frozenDate"},
         {DefrostDateRole, "defrostDate"},
         {LastUsedEpochRole, "lastUsedEpoch"},
+        {DetailRole, "detail"},
     };
 }
