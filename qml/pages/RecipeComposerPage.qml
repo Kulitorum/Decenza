@@ -35,6 +35,11 @@ Page {
     // --- form state ---
     property string fProfileTitle: ""
     property string fProfileJson: ""
+    // Temp override works like the shot plan / Brew Settings: an OFFSET on
+    // the profile's temperature ("+2°"), stored absolute (profile + delta)
+    // in the recipe. Needs the profile's base temp to be meaningful.
+    property real fProfileTempC: 0
+    property real fTempDeltaC: 0
     property string fBeanBaseId: ""
     property string fRoaster: ""
     property string fCoffee: ""
@@ -60,7 +65,10 @@ Page {
     property string bagSwapHint: ""
 
     readonly property bool hasBean: fBeanBaseId !== "" || fRoaster !== "" || fCoffee !== ""
-    readonly property bool wideLayout: width >= Theme.scaled(720)
+    // 3 cards side by side on wide screens (tablets landscape), 2 on medium,
+    // 1 stacked when narrow — everything incl. Save/Cancel fits one page.
+    readonly property int gridColumns: width >= Theme.scaled(1000) ? 3
+                                     : width >= Theme.scaled(680) ? 2 : 1
 
     StackView.onActivated: root.currentPageTitle = mode === "edit"
         ? TranslationManager.translate("recipes.composer.editTitle", "Edit Recipe")
@@ -89,7 +97,9 @@ Page {
         fEquipmentId = r.equipmentId || 0
         doseField.text = r.doseG > 0 ? Number(r.doseG).toFixed(1) : ""
         yieldField.text = r.yieldG > 0 ? Number(r.yieldG).toFixed(1) : ""
-        tempField.text = r.tempOverrideC > 0 ? Number(r.tempOverrideC).toFixed(1) : ""
+        refreshProfileTemp()
+        fTempDeltaC = (r.tempOverrideC > 0 && fProfileTempC > 0)
+            ? r.tempOverrideC - fProfileTempC : 0
         fGrindOverride = (r.grindPinned || "") !== "" || (r.rpmPinned || 0) > 0
         grindField.text = r.grindPinned || ""
         rpmField.text = (r.rpmPinned || 0) > 0 ? String(r.rpmPinned) : ""
@@ -181,6 +191,18 @@ Page {
         nameField.selectAll()
     }
 
+    // Resolve the selected profile's base temperature (for the offset control).
+    function refreshProfileTemp() {
+        fProfileTempC = 0
+        if (fProfileTitle === "")
+            return
+        var fn = ProfileManager.findProfileByTitle(fProfileTitle)
+        if (fn && fn !== "") {
+            var d = ProfileManager.getProfileByFilename(fn)
+            fProfileTempC = d.espresso_temperature || 0
+        }
+    }
+
     // Resolve the linked bean's current open-bag grind for the inherit hint.
     function refreshInheritedGrind() {
         fInheritedGrind = ""
@@ -210,7 +232,9 @@ Page {
             equipmentId: fEquipmentId,
             doseG: parseFloat(doseField.text) || 0,
             yieldG: parseFloat(yieldField.text) || 0,
-            tempOverrideC: parseFloat(tempField.text) || 0,
+            // Offset semantics (like the shot plan): 0° = no override.
+            tempOverrideC: (fProfileTempC > 0 && Math.abs(fTempDeltaC) > 0.05)
+                ? fProfileTempC + fTempDeltaC : 0,
             // Override OFF (with a bean) = inherit: store nothing. Bean-less
             // recipes always keep their grind/rpm on the recipe.
             grindPinned: (!hasBean || fGrindOverride) ? grindField.text.trim() : "",
@@ -405,7 +429,7 @@ Page {
             id: cardColumn
             anchors.fill: parent
             anchors.margins: Theme.spacingMedium
-            spacing: Theme.spacingMedium
+            spacing: Theme.spacingSmall
             Label {
                 text: sectionCard.title
                 font: Theme.subtitleFont
@@ -422,7 +446,7 @@ Page {
         anchors.fill: parent
         anchors.topMargin: Theme.pageTopMargin
         anchors.bottomMargin: Theme.bottomBarHeight
-        textFields: [nameField, doseField.input, yieldField.input, tempField.input, grindField, rpmField.input, milkField.input]
+        textFields: [nameField, doseField.input, yieldField.input, grindField, rpmField.input, milkField.input]
 
         Flickable {
             anchors.fill: parent
@@ -432,34 +456,51 @@ Page {
 
             ColumnLayout {
                 id: outerColumn
-                width: Math.min(parent.width - 2 * Theme.standardMargin, Theme.scaled(980))
+                width: Math.min(parent.width - 2 * Theme.standardMargin, Theme.scaled(1400))
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: Theme.spacingMedium
 
-                // Name — the one field every recipe needs; full width, labeled
-                // (it opens focused, which hides the placeholder, so the label
-                // must carry the meaning).
-                ColumnLayout {
+                // Top row: the name field with Save/Cancel beside it — the
+                // actions stay on screen without their own row. The field is
+                // labeled (it opens focused, which hides the placeholder).
+                RowLayout {
                     Layout.fillWidth: true
-                    Layout.topMargin: Theme.spacingMedium
-                    spacing: Theme.scaled(4)
-                    Label {
-                        text: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name") + " *"
-                        font: Theme.captionFont
-                        color: Theme.textSecondaryColor
-                        Accessible.ignored: true
-                    }
-                    StyledTextField {
-                        id: nameField
+                    Layout.topMargin: Theme.spacingSmall
+                    spacing: Theme.spacingMedium
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        placeholder: TranslationManager.translate("recipes.composer.namePlaceholder", "e.g. Morning cappuccino")
-                        accessibleName: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name")
+                        spacing: Theme.scaled(4)
+                        Label {
+                            text: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name") + " *"
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            Accessible.ignored: true
+                        }
+                        StyledTextField {
+                            id: nameField
+                            Layout.fillWidth: true
+                            placeholder: TranslationManager.translate("recipes.composer.namePlaceholder", "e.g. Morning cappuccino")
+                            accessibleName: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name")
+                        }
+                    }
+                    AccessibleButton {
+                        Layout.alignment: Qt.AlignBottom
+                        text: TranslationManager.translate("common.cancel", "Cancel")
+                        accessibleName: TranslationManager.translate("recipes.composer.accessible.cancel", "Cancel recipe editing")
+                        onClicked: pageStack.pop()
+                    }
+                    AccessibleButton {
+                        Layout.alignment: Qt.AlignBottom
+                        primary: true
+                        text: TranslationManager.translate("common.save", "Save")
+                        accessibleName: TranslationManager.translate("recipes.composer.accessible.save", "Save the recipe")
+                        onClicked: composerPage.save()
                     }
                 }
 
                 GridLayout {
                     Layout.fillWidth: true
-                    columns: composerPage.wideLayout ? 2 : 1
+                    columns: composerPage.gridColumns
                     columnSpacing: Theme.spacingMedium
                     rowSpacing: Theme.spacingMedium
 
@@ -490,18 +531,46 @@ Page {
                                 Layout.preferredWidth: Theme.scaled(120)
                                 label: TranslationManager.translate("recipes.composer.yieldLabel", "Yield (g)")
                             }
-                            NumberField {
-                                id: tempField
+                            ColumnLayout {
                                 Layout.fillWidth: true
                                 Layout.preferredWidth: Theme.scaled(120)
-                                label: TranslationManager.translate("recipes.composer.tempLabel", "Temp override (" + Theme.tempUnitSuffix() + ")")
+                                spacing: Theme.scaled(4)
+                                Label {
+                                    text: TranslationManager.translate("recipes.composer.tempOffsetLabel", "Temp offset")
+                                    font: Theme.captionFont
+                                    color: Theme.textSecondaryColor
+                                    Accessible.ignored: true
+                                }
+                                // Same control as Brew Settings: an offset on the
+                                // profile's temperature, 0° = no override.
+                                ValueInput {
+                                    id: tempInput
+                                    Layout.fillWidth: true
+                                    enabled: composerPage.fProfileTempC > 0
+                                    readonly property real displayDelta: Theme.cDeltaToDisplay(composerPage.fTempDeltaC)
+                                    value: displayDelta
+                                    from: composerPage.fProfileTempC > 0
+                                        ? Theme.cDeltaToDisplay(70 - composerPage.fProfileTempC) : -10
+                                    to: composerPage.fProfileTempC > 0
+                                        ? Theme.cDeltaToDisplay(100 - composerPage.fProfileTempC) : 10
+                                    stepSize: 1
+                                    decimals: 0
+                                    suffix: "°"
+                                    displayText: (displayDelta > 0 ? "+" : "") + displayDelta.toFixed(0) + "°"
+                                    valueColor: Math.abs(composerPage.fTempDeltaC) > 0.1 ? Theme.temperatureColor : Theme.textSecondaryColor
+                                    accentColor: Theme.temperatureColor
+                                    accessibleName: TranslationManager.translate("recipes.composer.tempOffsetAccessible", "Brew temperature offset")
+                                    onValueModified: function(newValue) {
+                                        composerPage.fTempDeltaC = Theme.displayToCDelta(newValue)
+                                    }
+                                }
                             }
                         }
                     }
 
                     // ------ Beans & grind ------
                     SectionCard {
-                        title: TranslationManager.translate("recipes.composer.sectionBean", "Beans & grind")
+                        title: TranslationManager.translate("recipes.composer.sectionBean", "Beans & equipment")
 
                         PickerField {
                             Layout.fillWidth: true
@@ -510,6 +579,13 @@ Page {
                                 ? (composerPage.fRoaster + " " + composerPage.fCoffee).trim() : ""
                             placeholder: trNone.text
                             onActivated: { MainController.bagStorage.requestInventory(); bagPicker.open() }
+                        }
+                        PickerField {
+                            Layout.fillWidth: true
+                            label: TranslationManager.translate("recipes.composer.equipmentLabel", "Grinder / basket package")
+                            value: composerPage.fEquipmentId > 0 ? composerPage.fEquipmentName : ""
+                            placeholder: trNone.text
+                            onActivated: { MainController.equipmentStorage.requestInventory(); equipmentPicker.open() }
                         }
                         Label {
                             visible: composerPage.bagSwapHint !== ""
@@ -615,19 +691,6 @@ Page {
                         }
                     }
 
-                    // ------ Equipment ------
-                    SectionCard {
-                        title: TranslationManager.translate("recipes.composer.sectionEquipment", "Equipment")
-
-                        PickerField {
-                            Layout.fillWidth: true
-                            label: TranslationManager.translate("recipes.composer.equipmentLabel", "Grinder / basket package")
-                            value: composerPage.fEquipmentId > 0 ? composerPage.fEquipmentName : ""
-                            placeholder: trNone.text
-                            onActivated: { MainController.equipmentStorage.requestInventory(); equipmentPicker.open() }
-                        }
-                    }
-
                     // ------ Steam ------
                     SectionCard {
                         title: TranslationManager.translate("recipes.composer.sectionSteam", "Steam")
@@ -649,9 +712,10 @@ Page {
                             }
                         }
                         Label {
+                            visible: composerPage.fHasMilk
                             Layout.fillWidth: true
                             text: TranslationManager.translate("recipes.composer.milkHint",
-                                  "Milk drinks keep the steam heater warm while this recipe is active (warm-up takes 5–9 minutes).")
+                                  "Keeps the steam heater warm while this recipe is active (5–9 min warm-up).")
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor
                             wrapMode: Text.WordWrap
@@ -687,23 +751,6 @@ Page {
                     wrapMode: Text.WordWrap
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.bottomMargin: Theme.spacingMedium
-                    spacing: Theme.spacingMedium
-                    Item { Layout.fillWidth: true }
-                    AccessibleButton {
-                        text: TranslationManager.translate("common.cancel", "Cancel")
-                        accessibleName: TranslationManager.translate("recipes.composer.accessible.cancel", "Cancel recipe editing")
-                        onClicked: pageStack.pop()
-                    }
-                    AccessibleButton {
-                        primary: true
-                        text: TranslationManager.translate("common.save", "Save")
-                        accessibleName: TranslationManager.translate("recipes.composer.accessible.save", "Save the recipe")
-                        onClicked: composerPage.save()
-                    }
-                }
             }
         }
     }
@@ -772,6 +819,7 @@ Page {
                             doseField.text = Number(detail.recommended_dose).toFixed(1)
                         if (detail.target_weight > 0 && yieldField.text === "")
                             yieldField.text = Number(detail.target_weight).toFixed(1)
+                        composerPage.fProfileTempC = detail.espresso_temperature || 0
                         profilePicker.close()
                     }
                 }
