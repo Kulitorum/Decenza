@@ -519,248 +519,261 @@ Page {
                     columnSpacing: Theme.spacingMedium
                     rowSpacing: Theme.spacingMedium
 
-                    // ------ Profile + targets ------
-                    SectionCard {
-                        title: TranslationManager.translate("recipes.composer.sectionProfile", "Profile")
+                    // Two INDEPENDENT columns (not grid rows): a growing
+                    // card (e.g. the grind override revealing its fields)
+                    // only pushes its own column down — Equipment stays
+                    // right under Profile.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignTop
+                        spacing: Theme.spacingMedium
+                        // ------ Profile + targets ------
+                        SectionCard {
+                            title: TranslationManager.translate("recipes.composer.sectionProfile", "Profile")
 
-                        PickerField {
-                            Layout.fillWidth: true
-                            label: TranslationManager.translate("recipes.composer.profileLabel", "Profile") + " *"
-                            value: composerPage.fProfileTitle
-                            placeholder: TranslationManager.translate("recipes.composer.chooseProfile", "Choose profile…")
-                            onActivated: profilePicker.openPicker()
-                        }
+                            PickerField {
+                                Layout.fillWidth: true
+                                label: TranslationManager.translate("recipes.composer.profileLabel", "Profile") + " *"
+                                value: composerPage.fProfileTitle
+                                placeholder: TranslationManager.translate("recipes.composer.chooseProfile", "Choose profile…")
+                                onActivated: profilePicker.openPicker()
+                            }
 
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingMedium
-                            NumberField {
-                                id: doseField
+                            RowLayout {
                                 Layout.fillWidth: true
-                                Layout.preferredWidth: Theme.scaled(120)
-                                label: TranslationManager.translate("recipes.composer.doseLabel", "Dose (g)")
-                            }
-                            NumberField {
-                                id: yieldField
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: Theme.scaled(120)
-                                label: TranslationManager.translate("recipes.composer.yieldLabel", "Yield (g)")
-                            }
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: Theme.scaled(120)
-                                spacing: Theme.scaled(4)
-                                Label {
-                                    text: TranslationManager.translate("recipes.composer.tempOffsetLabel", "Temp offset")
-                                    font: Theme.captionFont
-                                    color: Theme.textSecondaryColor
-                                    Accessible.ignored: true
-                                }
-                                // Same control as Brew Settings: an offset on the
-                                // profile's temperature, 0° = no override.
-                                ValueInput {
-                                    id: tempInput
+                                spacing: Theme.spacingMedium
+                                NumberField {
+                                    id: doseField
                                     Layout.fillWidth: true
-                                    enabled: composerPage.fProfileTempC > 0
-                                    readonly property real displayDelta: Theme.cDeltaToDisplay(composerPage.fTempDeltaC)
-                                    value: displayDelta
-                                    from: composerPage.fProfileTempC > 0
-                                        ? Theme.cDeltaToDisplay(70 - composerPage.fProfileTempC) : -10
-                                    to: composerPage.fProfileTempC > 0
-                                        ? Theme.cDeltaToDisplay(100 - composerPage.fProfileTempC) : 10
-                                    stepSize: 1
-                                    decimals: 0
-                                    suffix: "°"
-                                    displayText: (displayDelta > 0 ? "+" : "") + displayDelta.toFixed(0) + "°"
-                                    valueColor: Math.abs(composerPage.fTempDeltaC) > 0.1 ? Theme.temperatureColor : Theme.textSecondaryColor
-                                    accentColor: Theme.temperatureColor
-                                    accessibleName: TranslationManager.translate("recipes.composer.tempOffsetAccessible", "Brew temperature offset")
-                                    onValueModified: function(newValue) {
-                                        composerPage.fTempDeltaC = Theme.displayToCDelta(newValue)
+                                    Layout.preferredWidth: Theme.scaled(120)
+                                    label: TranslationManager.translate("recipes.composer.doseLabel", "Dose (g)")
+                                }
+                                NumberField {
+                                    id: yieldField
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: Theme.scaled(120)
+                                    label: TranslationManager.translate("recipes.composer.yieldLabel", "Yield (g)")
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: Theme.scaled(120)
+                                    spacing: Theme.scaled(4)
+                                    Label {
+                                        text: TranslationManager.translate("recipes.composer.tempOffsetLabel", "Temp offset")
+                                        font: Theme.captionFont
+                                        color: Theme.textSecondaryColor
+                                        Accessible.ignored: true
+                                    }
+                                    // Same control as Brew Settings: an offset on the
+                                    // profile's temperature, 0° = no override.
+                                    ValueInput {
+                                        id: tempInput
+                                        Layout.fillWidth: true
+                                        enabled: composerPage.fProfileTempC > 0
+                                        readonly property real displayDelta: Theme.cDeltaToDisplay(composerPage.fTempDeltaC)
+                                        value: displayDelta
+                                        from: composerPage.fProfileTempC > 0
+                                            ? Theme.cDeltaToDisplay(70 - composerPage.fProfileTempC) : -10
+                                        to: composerPage.fProfileTempC > 0
+                                            ? Theme.cDeltaToDisplay(100 - composerPage.fProfileTempC) : 10
+                                        stepSize: 1
+                                        decimals: 0
+                                        suffix: "°"
+                                        displayText: (displayDelta > 0 ? "+" : "") + displayDelta.toFixed(0) + "°"
+                                        valueColor: Math.abs(composerPage.fTempDeltaC) > 0.1 ? Theme.temperatureColor : Theme.textSecondaryColor
+                                        accentColor: Theme.temperatureColor
+                                        accessibleName: TranslationManager.translate("recipes.composer.tempOffsetAccessible", "Brew temperature offset")
+                                        onValueModified: function(newValue) {
+                                            composerPage.fTempDeltaC = Theme.displayToCDelta(newValue)
+                                        }
                                     }
                                 }
+                            }
+                        }
+                        // ------ Equipment ------
+                        SectionCard {
+                            title: TranslationManager.translate("recipes.composer.sectionEquipment", "Equipment")
+
+                            PickerField {
+                                Layout.fillWidth: true
+                                label: TranslationManager.translate("recipes.composer.equipmentLabel", "Grinder / basket package")
+                                value: composerPage.fEquipmentId > 0 ? composerPage.fEquipmentName : ""
+                                placeholder: trNone.text
+                                onActivated: { MainController.equipmentStorage.requestInventory(); equipmentPicker.open() }
                             }
                         }
                     }
 
-                    // ------ Beans & grind ------
-                    SectionCard {
-                        title: TranslationManager.translate("recipes.composer.sectionBean", "Bean")
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignTop
+                        spacing: Theme.spacingMedium
+                        // ------ Beans & grind ------
+                        SectionCard {
+                            title: TranslationManager.translate("recipes.composer.sectionBean", "Bean")
 
-                        PickerField {
-                            Layout.fillWidth: true
-                            label: TranslationManager.translate("recipes.composer.beanLabel", "Coffee bag")
-                            value: composerPage.hasBean
-                                ? (composerPage.fRoaster + " " + composerPage.fCoffee).trim() : ""
-                            placeholder: trNone.text
-                            onActivated: { MainController.bagStorage.requestInventory(); bagPicker.open() }
-                        }
-                        Label {
-                            visible: composerPage.bagSwapHint !== ""
-                            Layout.fillWidth: true
-                            text: composerPage.bagSwapHint
-                            font: Theme.captionFont
-                            color: Theme.textSecondaryColor
-                            wrapMode: Text.WordWrap
-                        }
-
-                        // Grind: inherits from the bean by default (shown read-only);
-                        // the override switch reveals recipe-private grind + rpm.
-                        RowLayout {
-                            visible: composerPage.hasBean
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingMedium
-                            ColumnLayout {
+                            PickerField {
                                 Layout.fillWidth: true
-                                spacing: Theme.scaled(2)
-                                Label {
-                                    text: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
-                                    font: Theme.captionFont
-                                    color: Theme.textSecondaryColor
-                                    Accessible.ignored: true
-                                }
-                                Label {
+                                label: TranslationManager.translate("recipes.composer.beanLabel", "Coffee bag")
+                                value: composerPage.hasBean
+                                    ? (composerPage.fRoaster + " " + composerPage.fCoffee).trim() : ""
+                                placeholder: trNone.text
+                                onActivated: { MainController.bagStorage.requestInventory(); bagPicker.open() }
+                            }
+                            Label {
+                                visible: composerPage.bagSwapHint !== ""
+                                Layout.fillWidth: true
+                                text: composerPage.bagSwapHint
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WordWrap
+                            }
+
+                            // Grind: inherits from the bean by default (shown read-only);
+                            // the override switch reveals recipe-private grind + rpm.
+                            RowLayout {
+                                visible: composerPage.hasBean
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingMedium
+                                ColumnLayout {
                                     Layout.fillWidth: true
-                                    text: {
-                                        if (composerPage.fGrindOverride)
-                                            return TranslationManager.translate("recipes.composer.grindOverridden", "Overridden for this recipe")
-                                        var inherited = trInherited.text
-                                        if (composerPage.fInheritedGrind !== "") {
-                                            inherited += ": " + composerPage.fInheritedGrind
-                                            if (composerPage.fEquipmentRpmCapable && composerPage.fInheritedRpm > 0)
-                                                inherited += " · " + composerPage.fInheritedRpm + " rpm"
-                                        }
-                                        return inherited
+                                    spacing: Theme.scaled(2)
+                                    Label {
+                                        text: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
+                                        font: Theme.captionFont
+                                        color: Theme.textSecondaryColor
+                                        Accessible.ignored: true
                                     }
-                                    font: Theme.bodyFont
-                                    color: Theme.textColor
-                                    wrapMode: Text.WordWrap
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: {
+                                            if (composerPage.fGrindOverride)
+                                                return TranslationManager.translate("recipes.composer.grindOverridden", "Overridden for this recipe")
+                                            var inherited = trInherited.text
+                                            if (composerPage.fInheritedGrind !== "") {
+                                                inherited += ": " + composerPage.fInheritedGrind
+                                                if (composerPage.fEquipmentRpmCapable && composerPage.fInheritedRpm > 0)
+                                                    inherited += " · " + composerPage.fInheritedRpm + " rpm"
+                                            }
+                                            return inherited
+                                        }
+                                        font: Theme.bodyFont
+                                        color: Theme.textColor
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
+                                ColumnLayout {
+                                    spacing: Theme.scaled(2)
+                                    Label {
+                                        text: TranslationManager.translate("recipes.composer.grindOverrideShort", "Override")
+                                        font: Theme.captionFont
+                                        color: Theme.textSecondaryColor
+                                        Layout.alignment: Qt.AlignHCenter
+                                        Accessible.ignored: true
+                                    }
+                                    StyledSwitch {
+                                        checked: composerPage.fGrindOverride
+                                        Accessible.name: TranslationManager.translate("recipes.composer.grindOverride", "Override grind for this recipe")
+                                        onToggled: {
+                                            composerPage.fGrindOverride = checked
+                                            if (checked && grindField.text === "") {
+                                                // Start the override from the inherited values.
+                                                grindField.text = composerPage.fInheritedGrind
+                                                rpmField.text = composerPage.fEquipmentRpmCapable
+                                                        && composerPage.fInheritedRpm > 0
+                                                    ? String(composerPage.fInheritedRpm) : ""
+                                            }
+                                        }
+                                    }
                                 }
                             }
-                            ColumnLayout {
-                                spacing: Theme.scaled(2)
+                            Label {
+                                visible: !composerPage.hasBean
+                                Layout.fillWidth: true
+                                text: TranslationManager.translate("recipes.composer.grindNoBean", "Grind is stored on the recipe (no bean linked)")
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WordWrap
+                            }
+                            RowLayout {
+                                visible: !composerPage.hasBean || composerPage.fGrindOverride
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingMedium
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: Theme.scaled(4)
+                                    Label {
+                                        text: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
+                                        font: Theme.captionFont
+                                        color: Theme.textSecondaryColor
+                                        Accessible.ignored: true
+                                    }
+                                    StyledTextField {
+                                        id: grindField
+                                        Layout.fillWidth: true
+                                        placeholder: TranslationManager.translate("recipes.composer.grindPlaceholder", "e.g. 2.4")
+                                        Accessible.name: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
+                                    }
+                                }
+                                NumberField {
+                                    id: rpmField
+                                    visible: composerPage.fEquipmentRpmCapable
+                                    Layout.fillWidth: true
+                                    label: TranslationManager.translate("recipes.composer.rpmLabel", "RPM")
+                                }
+                            }
+                        }
+                        // ------ Steam ------
+                        SectionCard {
+                            title: TranslationManager.translate("recipes.composer.sectionSteam", "Steam")
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingMedium
                                 Label {
-                                    text: TranslationManager.translate("recipes.composer.grindOverrideShort", "Override")
-                                    font: Theme.captionFont
-                                    color: Theme.textSecondaryColor
-                                    Layout.alignment: Qt.AlignHCenter
+                                    Layout.fillWidth: true
+                                    text: TranslationManager.translate("recipes.composer.milkDrink", "Milk drink")
+                                    font: Theme.bodyFont
+                                    color: Theme.textColor
                                     Accessible.ignored: true
                                 }
                                 StyledSwitch {
-                                    checked: composerPage.fGrindOverride
-                                    Accessible.name: TranslationManager.translate("recipes.composer.grindOverride", "Override grind for this recipe")
-                                    onToggled: {
-                                        composerPage.fGrindOverride = checked
-                                        if (checked && grindField.text === "") {
-                                            // Start the override from the inherited values.
-                                            grindField.text = composerPage.fInheritedGrind
-                                            rpmField.text = composerPage.fEquipmentRpmCapable
-                                                    && composerPage.fInheritedRpm > 0
-                                                ? String(composerPage.fInheritedRpm) : ""
-                                        }
-                                    }
+                                    checked: composerPage.fHasMilk
+                                    Accessible.name: TranslationManager.translate("recipes.composer.milkDrink", "Milk drink")
+                                    onToggled: composerPage.fHasMilk = checked
                                 }
                             }
-                        }
-                        Label {
-                            visible: !composerPage.hasBean
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("recipes.composer.grindNoBean", "Grind is stored on the recipe (no bean linked)")
-                            font: Theme.captionFont
-                            color: Theme.textSecondaryColor
-                            wrapMode: Text.WordWrap
-                        }
-                        RowLayout {
-                            visible: !composerPage.hasBean || composerPage.fGrindOverride
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingMedium
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.scaled(4)
-                                Label {
-                                    text: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
-                                    font: Theme.captionFont
-                                    color: Theme.textSecondaryColor
-                                    Accessible.ignored: true
-                                }
-                                StyledTextField {
-                                    id: grindField
-                                    Layout.fillWidth: true
-                                    placeholder: TranslationManager.translate("recipes.composer.grindPlaceholder", "e.g. 2.4")
-                                    Accessible.name: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
-                                }
-                            }
-                            NumberField {
-                                id: rpmField
-                                visible: composerPage.fEquipmentRpmCapable
-                                Layout.fillWidth: true
-                                label: TranslationManager.translate("recipes.composer.rpmLabel", "RPM")
-                            }
-                        }
-                    }
-
-                    // ------ Equipment ------
-                    SectionCard {
-                        title: TranslationManager.translate("recipes.composer.sectionEquipment", "Equipment")
-
-                        PickerField {
-                            Layout.fillWidth: true
-                            label: TranslationManager.translate("recipes.composer.equipmentLabel", "Grinder / basket package")
-                            value: composerPage.fEquipmentId > 0 ? composerPage.fEquipmentName : ""
-                            placeholder: trNone.text
-                            onActivated: { MainController.equipmentStorage.requestInventory(); equipmentPicker.open() }
-                        }
-                    }
-
-                    // ------ Steam ------
-                    SectionCard {
-                        title: TranslationManager.translate("recipes.composer.sectionSteam", "Steam")
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingMedium
                             Label {
+                                visible: composerPage.fHasMilk
                                 Layout.fillWidth: true
-                                text: TranslationManager.translate("recipes.composer.milkDrink", "Milk drink")
-                                font: Theme.bodyFont
-                                color: Theme.textColor
-                                Accessible.ignored: true
+                                text: TranslationManager.translate("recipes.composer.milkHint",
+                                      "Keeps the steam heater warm while this recipe is active (5–9 min warm-up).")
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WordWrap
                             }
-                            StyledSwitch {
-                                checked: composerPage.fHasMilk
-                                Accessible.name: TranslationManager.translate("recipes.composer.milkDrink", "Milk drink")
-                                onToggled: composerPage.fHasMilk = checked
-                            }
-                        }
-                        Label {
-                            visible: composerPage.fHasMilk
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("recipes.composer.milkHint",
-                                  "Keeps the steam heater warm while this recipe is active (5–9 min warm-up).")
-                            font: Theme.captionFont
-                            color: Theme.textSecondaryColor
-                            wrapMode: Text.WordWrap
-                        }
-                        RowLayout {
-                            visible: composerPage.fHasMilk
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingMedium
-                            PickerField {
+                            RowLayout {
+                                visible: composerPage.fHasMilk
                                 Layout.fillWidth: true
-                                label: TranslationManager.translate("recipes.composer.pitcher", "Pitcher")
-                                value: composerPage.fPitcherName
-                                placeholder: TranslationManager.translate("recipes.composer.choosePitcher", "Choose pitcher…")
-                                onActivated: pitcherPicker.open()
-                            }
-                            NumberField {
-                                id: milkField
-                                Layout.fillWidth: true
-                                label: TranslationManager.translate("recipes.composer.milkWeight", "Milk (g)")
-                                text: composerPage.fMilkWeightG > 0 ? String(composerPage.fMilkWeightG) : ""
-                                onEdited: function(newText) { composerPage.fMilkWeightG = parseFloat(newText) || 0 }
+                                spacing: Theme.spacingMedium
+                                PickerField {
+                                    Layout.fillWidth: true
+                                    label: TranslationManager.translate("recipes.composer.pitcher", "Pitcher")
+                                    value: composerPage.fPitcherName
+                                    placeholder: TranslationManager.translate("recipes.composer.choosePitcher", "Choose pitcher…")
+                                    onActivated: pitcherPicker.open()
+                                }
+                                NumberField {
+                                    id: milkField
+                                    Layout.fillWidth: true
+                                    label: TranslationManager.translate("recipes.composer.milkWeight", "Milk (g)")
+                                    text: composerPage.fMilkWeightG > 0 ? String(composerPage.fMilkWeightG) : ""
+                                    onEdited: function(newText) { composerPage.fMilkWeightG = parseFloat(newText) || 0 }
+                                }
                             }
                         }
                     }
+
                 }
 
                 Label {
