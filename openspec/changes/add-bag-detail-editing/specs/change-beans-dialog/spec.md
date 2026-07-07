@@ -19,3 +19,7 @@ After selecting any result, the dialog SHALL show a Bag Details form pre-filled 
 - **WHEN** the user selects "Enter manually"
 - **THEN** all fields SHALL be shown as editable: roaster, coffee name, roast date, roast level, grinder setting, dose
 - **AND** the collapsed Bean details section SHALL be available for optional detail entry
+
+#### Scenario: Canonical linking available in create mode
+- **WHEN** the bag form opens in create mode (history pick, inventory re-buy, or manual entry) without a canonical link
+- **THEN** the Bean Base search bar SHALL be present (prefilled with the known roaster/coffee text when any) so the bag can be linked before saving — no save-then-"Find in Bean Base" round-trip

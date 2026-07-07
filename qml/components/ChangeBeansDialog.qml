@@ -328,6 +328,8 @@ Dialog {
         prefillFromBag(row)
         fRoastDate = ""
         mode = "form"
+        if (fBeanBaseId.length === 0)
+            editLinkBar.prefill([fRoaster, fCoffee].filter(function(x) { return x.length > 0 }).join(" "))
     }
 
     function openManualEntry() {
@@ -946,44 +948,13 @@ Dialog {
 
                     Item { Layout.preferredHeight: Theme.scaled(6) }
 
-                    // --- Canonical link badge (create mode). The link marks
-                    // provenance, it never locks fields — every value below is
-                    // editable (add-bag-detail-editing). Edit mode shows the
-                    // link state in the search bar instead.
-                    RowLayout {
-                        visible: root.formMode === "create" && root.fBeanBaseId.length > 0
-                        Layout.fillWidth: true
-                        Layout.leftMargin: Theme.scaled(20)
-                        Layout.rightMargin: Theme.scaled(20)
-                        spacing: Theme.scaled(6)
-
-                        Accessible.role: Accessible.StaticText
-                        Accessible.name: TranslationManager.translate("beans.summary.accessible.verified", "linked to Bean Base")
-                        Accessible.focusable: true
-
-                        ColoredIcon {
-                            source: "qrc:/icons/tick.svg"
-                            iconWidth: Theme.scaled(14)
-                            iconHeight: Theme.scaled(14)
-                            iconColor: Theme.primaryColor
-                            Accessible.ignored: true
-                        }
-
-                        Tr {
-                            Layout.fillWidth: true
-                            key: "changebeans.form.linkedBadge"
-                            fallback: "Linked to Bean Base"
-                            font: Theme.captionFont
-                            color: Theme.textSecondaryColor
-                            Accessible.ignored: true
-                        }
-                    }
-
-                    // --- Bean Base link (edit mode): upgrade a free-text bag
-                    // to its canonical record. Saving then propagates the
-                    // link to every shot pulled with this bag.
+                    // --- Bean Base link: upgrade a free-text bag to its
+                    // canonical record (edit mode: saving propagates the link
+                    // to every shot pulled with this bag). Visible in CREATE
+                    // mode too — a bag built from a history pick must be
+                    // linkable in the same form, not save-then-"Find in Bean
+                    // Base" from the card.
                     Item {
-                        visible: root.formMode === "edit"
                         Layout.fillWidth: true
                         Layout.leftMargin: Theme.scaled(20)
                         Layout.rightMargin: Theme.scaled(20)
