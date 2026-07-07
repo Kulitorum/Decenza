@@ -73,6 +73,12 @@ public:
     Q_INVOKABLE void ensureBagImage(const QString& canonicalId,
                                     const QString& roastName,
                                     const QString& productUrl);
+    // Recover the product URL for a blob that lacks `link`, independent of the
+    // image state (a bag whose image is already cached still needs its reorder
+    // URL). Re-searches the canonical API by roastName, matches the id, and
+    // emits bagLinkRecovered on success. One attempt per id per session;
+    // silent on failure. ensureBagImage routes its legacy branch through this.
+    Q_INVOKABLE void recoverBagLink(const QString& canonicalId, const QString& roastName);
 
     // og:image URL extraction from product-page HTML (property= or name=,
     // og:image:secure_url variant, either attribute order; protocol-relative
@@ -132,7 +138,10 @@ private:
     QHash<QString, QVariantList> m_canonicalCache;
 
     // Image cache state: directory override (tests) and the one-attempt-per-
-    // session guard that keeps failed resolutions from retrying every view.
+    // session guards that keep failed resolutions from retrying every view.
     QString m_imageCacheDir;
     QSet<QString> m_imageAttempted;
+    QSet<QString> m_linkAttempted;
+    // Ids whose image resolution is waiting on link recovery (legacy blobs).
+    QSet<QString> m_imageAwaitingLink;
 };

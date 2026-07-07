@@ -49,6 +49,10 @@ Rectangle {
         if (cachedImagePath.length === 0)
             MainController.beanbase.ensureBagImage(canonicalId,
                 (bag && bag.coffeeName) || "", beanBase.link || "")
+        // The reorder URL is wanted even when the image is already cached
+        // (a legacy blob whose photo resolved before link backfill existed).
+        if (!beanBase.link)
+            MainController.beanbase.recoverBagLink(canonicalId, (bag && bag.coffeeName) || "")
     }
     Component.onCompleted: refreshBagImage()
     onCanonicalIdChanged: refreshBagImage()

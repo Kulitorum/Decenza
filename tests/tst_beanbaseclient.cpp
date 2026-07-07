@@ -272,6 +272,47 @@ private slots:
                      "direct productUrl must skip the canonical re-search");
     }
 
+    void recoverBagLinkIndependentOfImageCache() {
+        // A legacy blob whose photo was cached before link backfill existed:
+        // ensureBagImage short-circuits on the file, but the reorder URL must
+        // still be recoverable — and recovery must not re-download the image.
+        FakeBeanBaseServer server;
+        const QByteArray base = server.baseUrl().toUtf8();
+        server.respondForPath("/api/canonical_coffee_bags",
+            "{\"data\":[{\"id\":\"bag-3\",\"name\":\"Milk Blend\","
+            "\"canonical_roaster_name\":\"Prodigal\",\"url\":\"" + base + "/product\"}]}");
+
+        QTemporaryDir cacheDir;
+        QFile seeded(cacheDir.path() + "/bag-3");
+        QVERIFY(seeded.open(QIODevice::WriteOnly));
+        seeded.write("CACHED");
+        seeded.close();
+
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setVisualizerBaseUrl(server.baseUrl());
+        client.setImageCacheDir(cacheDir.path());
+
+        // Image path short-circuits on the seeded file — no network.
+        QSignalSpy imgSpy(&client, &BeanBaseClient::bagImageReady);
+        client.ensureBagImage("bag-3", "Milk Blend", "");
+        QVERIFY(imgSpy.wait(1000));
+        QCOMPARE(server.requestCount(), 0);
+
+        // Link recovery still runs and announces the URL, without touching
+        // the product page (no pending image wants it).
+        QSignalSpy linkSpy(&client, &BeanBaseClient::bagLinkRecovered);
+        client.recoverBagLink("bag-3", "Milk Blend");
+        QVERIFY(linkSpy.wait(3000));
+        QCOMPARE(linkSpy.first().at(0).toString(), QString("bag-3"));
+        QCOMPARE(linkSpy.first().at(1).toString(), QString(base + "/product"));
+        QCOMPARE(server.requestCount(), 1);  // the search only
+
+        // Dedup: second recovery attempt is a no-op.
+        client.recoverBagLink("bag-3", "Milk Blend");
+        QVERIFY(!linkSpy.wait(300) || linkSpy.count() == 1);
+        QCOMPARE(server.requestCount(), 1);
+    }
+
     void ensureBagImageRejectsUnsafeIds() {
         // The canonical id doubles as the cache filename and round-trips
         // through blobs/backups/migration — traversal-shaped ids are refused

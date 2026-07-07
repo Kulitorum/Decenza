@@ -251,8 +251,18 @@ void BeanBaseClient::ensureBagImage(const QString& canonicalId,
     }
 
     // Legacy blob without `link` (captured only since the url→link mapping):
-    // recover the product URL by re-searching the canonical API by name and
-    // matching the id.
+    // recover the product URL first, then continue the image chain from it.
+    m_imageAwaitingLink.insert(canonicalId);
+    recoverBagLink(canonicalId, roastName);
+}
+
+void BeanBaseClient::recoverBagLink(const QString& canonicalId, const QString& roastName) {
+    if (!isSafeCacheFilename(canonicalId))
+        return;
+    if (m_linkAttempted.contains(canonicalId))
+        return;
+    m_linkAttempted.insert(canonicalId);
+
     const QString query = roastName.trimmed();
     if (query.isEmpty())
         return;
@@ -280,7 +290,9 @@ void BeanBaseClient::ensureBagImage(const QString& canonicalId,
                 // it into blobs that predate the url→link capture (BagCard
                 // persists it; the details popup shows it for reordering).
                 emit bagLinkRecovered(canonicalId, link);
-                fetchProductPage(canonicalId, link);
+                // Continue a pending image resolution that was waiting on it.
+                if (m_imageAwaitingLink.remove(canonicalId))
+                    fetchProductPage(canonicalId, link);
             }
             return;
         }
