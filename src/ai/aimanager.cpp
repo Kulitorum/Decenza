@@ -20,6 +20,7 @@
 #include <QLocale>
 #include <QDebug>
 #include <QCryptographicHash>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QThread>
@@ -1175,15 +1176,15 @@ void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt)
     provider->analyze(systemPrompt, userPrompt);
 }
 
-void AIManager::extractCoffeeBagDetails(const QString& pageText)
+void AIManager::extractCoffeeBagDetails(const QString& requestToken, const QString& pageText)
 {
     if (m_analyzing) {
-        emit bagDetailsExtractionFailed(QStringLiteral("AI is busy - try again in a moment"));
+        emit bagDetailsExtractionFailed(requestToken, QStringLiteral("busy"));
         return;
     }
     AIProvider* provider = currentProvider();
     if (!provider || !isConfigured()) {
-        emit bagDetailsExtractionFailed(QStringLiteral("No AI provider configured"));
+        emit bagDetailsExtractionFailed(requestToken, QStringLiteral("notConfigured"));
         return;
     }
 
@@ -1204,10 +1205,12 @@ void AIManager::extractCoffeeBagDetails(const QString& pageText)
     m_analyzing = true;
     m_isConversationRequest = false;
     m_isBagExtractionRequest = true;
+    m_bagExtractionToken = requestToken;
     emit analyzingChanged();
 
     m_lastSystemPrompt = kSystemPrompt;
-    m_lastUserPrompt = QStringLiteral("[Bag page text, %1 chars]").arg(pageText.size());
+    m_lastUserPrompt = QStringLiteral("[Bag page text from %1, %2 chars]")
+                           .arg(requestToken).arg(pageText.size());
     logPrompt(selectedProvider(), kSystemPrompt, m_lastUserPrompt);
     provider->analyze(kSystemPrompt, pageText);
 }
@@ -1237,10 +1240,33 @@ QVariantMap AIManager::parseBagExtraction(const QString& response, bool* ok)
     const QJsonObject obj = doc.object();
     QVariantMap fields;
     for (const QString& key : kKeys) {
-        const QString value = obj.value(key).toVariant().toString().trimmed();
+        const QJsonValue raw = obj.value(key);
+        QString value;
+        if (raw.isArray()) {
+            // Models frequently return tasting notes as an array despite the
+            // prompt — join the scalar elements rather than dropping them.
+            QStringList parts;
+            const QJsonArray arr = raw.toArray();
+            for (const QJsonValue& v : arr) {
+                const QString part = v.toVariant().toString().trimmed();
+                if (!part.isEmpty())
+                    parts << part;
+            }
+            value = parts.join(QStringLiteral(", "));
+        } else if (raw.isObject()) {
+            qWarning() << "AIManager: bag extraction returned an object for" << key << "- skipped";
+        } else {
+            value = raw.toVariant().toString().trimmed();
+        }
+        // Cap per value: a prompt-injected page must not push multi-KB text
+        // through a form field into the DB blob.
         if (!value.isEmpty())
-            fields.insert(key, value);
+            fields.insert(key, value.left(500));
     }
+    // A non-empty object that yielded nothing usable is a response we could
+    // not read, NOT an honest "the page states nothing" ({} stays a success).
+    if (fields.isEmpty() && !obj.isEmpty())
+        return {};
     if (ok)
         *ok = true;
     return fields;
@@ -1301,12 +1327,14 @@ void AIManager::onAnalysisComplete(const QString& response)
     // Emit to the appropriate listener based on request type
     if (m_isBagExtractionRequest) {
         m_isBagExtractionRequest = false;
+        const QString token = m_bagExtractionToken;
+        m_bagExtractionToken.clear();
         bool parsed = false;
         const QVariantMap fields = parseBagExtraction(response, &parsed);
         if (parsed)
-            emit bagDetailsExtracted(fields);
+            emit bagDetailsExtracted(token, fields);
         else
-            emit bagDetailsExtractionFailed(QStringLiteral("Could not read the AI's response"));
+            emit bagDetailsExtractionFailed(token, QStringLiteral("unreadable"));
     } else if (m_isConversationRequest) {
         emit conversationResponseReceived(response);
     } else {
@@ -1327,7 +1355,9 @@ void AIManager::onAnalysisFailed(const QString& error)
     // Emit to the appropriate listener based on request type
     if (m_isBagExtractionRequest) {
         m_isBagExtractionRequest = false;
-        emit bagDetailsExtractionFailed(error);
+        const QString token = m_bagExtractionToken;
+        m_bagExtractionToken.clear();
+        emit bagDetailsExtractionFailed(token, error);
     } else if (m_isConversationRequest) {
         emit conversationErrorOccurred(error);
     } else {

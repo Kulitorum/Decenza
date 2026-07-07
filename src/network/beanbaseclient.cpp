@@ -429,12 +429,17 @@ bool BeanBaseClient::blobDiffersFromCanonical(const QString& blob) {
 }
 
 void BeanBaseClient::fetchPageText(const QString& url) {
+    // Failure reasons: stable codes ("invalidUrl", "notAWebPage", "emptyPage")
+    // the QML layer translates; transport failures pass Qt's errorString.
     const QUrl parsed(url);
     if (!parsed.isValid() || !parsed.scheme().startsWith(QLatin1String("http"))) {
+        // The http(s)-only gate matters: the URL is user-entered and the text
+        // goes to a third-party AI provider — a file:// URL must never be read.
+        qWarning() << "BeanBaseClient: fetchPageText rejected non-http url" << url;
         QPointer<BeanBaseClient> self(this);
         QMetaObject::invokeMethod(this, [self, url]() {
             if (self)
-                emit self->pageTextFailed(url, QStringLiteral("Not a valid web address"));
+                emit self->pageTextFailed(url, QStringLiteral("invalidUrl"));
         }, Qt::QueuedConnection);
         return;
     }
@@ -446,14 +451,34 @@ void BeanBaseClient::fetchPageText(const QString& url) {
     connect(reply, &QNetworkReply::finished, this, [this, reply, url]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "BeanBaseClient: fetchPageText failed for" << url << "-" << reply->errorString();
             emit pageTextFailed(url, reply->errorString());
             return;
         }
-        const QString text = extractPageText(reply->readAll());
+        // A PDF/image/zip URL would decode to replacement-character soup that
+        // passes the length gate and earns a confident "nothing found on the
+        // page" — reject non-text content as a FORMAT failure instead.
+        const QString contentType = reply->header(QNetworkRequest::ContentTypeHeader).toString();
+        if (!contentType.isEmpty()
+            && !contentType.startsWith(QLatin1String("text/"))
+            && !contentType.contains(QLatin1String("html"), Qt::CaseInsensitive)
+            && !contentType.contains(QLatin1String("xml"), Qt::CaseInsensitive)) {
+            qWarning() << "BeanBaseClient: fetchPageText got non-text content" << contentType << "for" << url;
+            emit pageTextFailed(url, QStringLiteral("notAWebPage"));
+            return;
+        }
+        // The 15 s transfer timeout bounds time, not bytes — cap the body so
+        // a huge asset can't stall the main thread in the regex passes.
+        QByteArray body = reply->readAll();
+        constexpr qsizetype kMaxBodyBytes = 512 * 1024;
+        if (body.size() > kMaxBodyBytes)
+            body.truncate(kMaxBodyBytes);
+        const QString text = extractPageText(body);
         // Visualizer treats < 100 chars as "blocked or empty" and falls back
         // to a scraping proxy; we have no proxy, so it is simply a failure.
         if (text.size() < 100) {
-            emit pageTextFailed(url, QStringLiteral("The page returned no readable text"));
+            qWarning() << "BeanBaseClient: fetchPageText got no readable text from" << url;
+            emit pageTextFailed(url, QStringLiteral("emptyPage"));
             return;
         }
         emit pageTextReady(url, text);

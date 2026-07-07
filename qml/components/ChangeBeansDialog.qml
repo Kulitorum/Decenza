@@ -101,6 +101,31 @@ Dialog {
     // an AI provider being configured (the button hides otherwise).
     property bool fetchingInfo: false
     property string infoStatus: ""
+    // URL captured at click time — completion signals are gated on THIS, not
+    // the live field: editing the URL mid-fetch must neither wedge the busy
+    // flag nor let a stale extraction (an LLM call is slow) fill a form it
+    // wasn't requested for.
+    property string _fetchUrl: ""
+
+    // Stable failure codes from the C++ layers -> translated messages; other
+    // strings (Qt transport errors, provider errors) pass through verbatim.
+    function infoErrorText(error) {
+        switch (error) {
+        case "invalidUrl":
+            return TranslationManager.translate("changebeans.form.getInfo.invalidUrl", "Not a valid web address")
+        case "notAWebPage":
+            return TranslationManager.translate("changebeans.form.getInfo.notAWebPage", "That address is not a web page")
+        case "emptyPage":
+            return TranslationManager.translate("changebeans.form.getInfo.emptyPage", "The page returned no readable text")
+        case "busy":
+            return TranslationManager.translate("changebeans.form.getInfo.busy", "The AI is busy — try again in a moment")
+        case "notConfigured":
+            return TranslationManager.translate("changebeans.form.getInfo.notConfigured", "No AI provider configured")
+        case "unreadable":
+            return TranslationManager.translate("changebeans.form.getInfo.unreadable", "Could not read the AI's response")
+        }
+        return error
+    }
 
     readonly property var formBeanBase: {
         if (!fBeanBaseData || fBeanBaseData.length === 0) return ({})
@@ -292,6 +317,7 @@ Dialog {
         _openedLink = ""
         fetchingInfo = false
         infoStatus = ""
+        _fetchUrl = ""
         errorMessage = ""
     }
 
@@ -619,7 +645,14 @@ Dialog {
         }
     }
 
-    onClosed: _awaitingCreate = false
+    onClosed: {
+        _awaitingCreate = false
+        // Abandoning the dialog cancels a Get info in flight: a late page
+        // result must not spend an AI call for a form nobody is looking at.
+        fetchingInfo = false
+        infoStatus = ""
+        _fetchUrl = ""
+    }
 
     background: Rectangle {
         color: Theme.surfaceColor
@@ -1005,16 +1038,17 @@ Dialog {
                     Connections {
                         target: MainController.beanbase
                         function onPageTextReady(url, text) {
-                            if (!root.fetchingInfo || url !== root.fLink.trim()) return
+                            if (!root.fetchingInfo || url !== root._fetchUrl) return
                             root.infoStatus = TranslationManager.translate(
                                 "changebeans.form.getInfo.extracting", "Extracting details…")
-                            MainController.aiManager.extractCoffeeBagDetails(text)
+                            MainController.aiManager.extractCoffeeBagDetails(url, text)
                         }
                         function onPageTextFailed(url, error) {
-                            if (!root.fetchingInfo || url !== root.fLink.trim()) return
+                            if (!root.fetchingInfo || url !== root._fetchUrl) return
                             root.fetchingInfo = false
                             root.infoStatus = TranslationManager.translate(
-                                "changebeans.form.getInfo.pageFailed", "Couldn't read the page: %1").arg(error)
+                                "changebeans.form.getInfo.pageFailed", "Couldn't read the page: %1")
+                                .arg(root.infoErrorText(error))
                             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
                                 AccessibilityManager.announce(root.infoStatus)
                         }
@@ -1024,8 +1058,8 @@ Dialog {
                         target: MainController.aiManager
                         // Fill ONLY empty fields — the page never overrides
                         // something the user (or the canonical entry) set.
-                        function onBagDetailsExtracted(fields) {
-                            if (!root.fetchingInfo) return
+                        function onBagDetailsExtracted(requestToken, fields) {
+                            if (!root.fetchingInfo || requestToken !== root._fetchUrl) return
                             root.fetchingInfo = false
                             var applied = 0
                             function take(key, current, apply) {
@@ -1053,10 +1087,10 @@ Dialog {
                             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
                                 AccessibilityManager.announce(root.infoStatus)
                         }
-                        function onBagDetailsExtractionFailed(error) {
-                            if (!root.fetchingInfo) return
+                        function onBagDetailsExtractionFailed(requestToken, error) {
+                            if (!root.fetchingInfo || requestToken !== root._fetchUrl) return
                             root.fetchingInfo = false
-                            root.infoStatus = error
+                            root.infoStatus = root.infoErrorText(error)
                             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
                                 AccessibilityManager.announce(root.infoStatus)
                         }
@@ -1273,9 +1307,10 @@ Dialog {
                                     "Fetch the product page and fill empty bean detail fields using AI")
                                 onClicked: {
                                     root.fetchingInfo = true
+                                    root._fetchUrl = root.fLink.trim()
                                     root.infoStatus = TranslationManager.translate(
                                         "changebeans.form.getInfo.fetching", "Reading page…")
-                                    MainController.beanbase.fetchPageText(root.fLink.trim())
+                                    MainController.beanbase.fetchPageText(root._fetchUrl)
                                 }
                             }
 

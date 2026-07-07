@@ -43,7 +43,7 @@ public:
                     }
                     const QByteArray resp =
                         "HTTP/1.1 " + m_statusLine + "\r\n"
-                        "Content-Type: application/json\r\n"
+                        "Content-Type: " + m_contentType + "\r\n"
                         "Content-Length: " + QByteArray::number(body.size()) + "\r\n"
                         "Connection: close\r\n"
                         "\r\n" + body;
@@ -76,12 +76,17 @@ public:
     // the in-flight supersede/abort path is exercisable.
     void hangWithoutResponding() { m_hang = true; }
 
+    // fetchPageText guards on Content-Type; page-serving tests override the
+    // JSON default the API-shaped tests rely on.
+    void setContentType(const QByteArray& contentType) { m_contentType = contentType; }
+
     int requestCount() const { return m_requestLines.size(); }
     QStringList requestLines() const { return m_requestLines; }
 
 private:
     QTcpServer m_server;
     QByteArray m_statusLine = "200 OK";
+    QByteArray m_contentType = "application/json";
     // NOTE: no raw string literals anywhere in this file — moc miscounts the
     // braces inside "..." and silently drops every class declared after one,
     // which breaks the test class's vtable at link time.
@@ -264,9 +269,9 @@ private slots:
         client.setImageCacheDir(cacheDir.path());
 
         QSignalSpy spy(&client, &BeanBaseClient::bagImageReady);
-        client.ensureBagImage("bag-2", "Milk Blend", server.baseUrl() + "/product");
+        client.ensureBagImage("canon-img-2", "Milk Blend", server.baseUrl() + "/product");
         QVERIFY(spy.wait(5000));
-        QCOMPARE(spy.first().at(0).toString(), QString("bag-2"));
+        QCOMPARE(spy.first().at(0).toString(), QString("canon-img-2"));
         for (const QString& line : server.requestLines())
             QVERIFY2(!line.contains("/api/canonical_coffee_bags"),
                      "direct productUrl must skip the canonical re-search");
@@ -279,11 +284,11 @@ private slots:
         FakeBeanBaseServer server;
         const QByteArray base = server.baseUrl().toUtf8();
         server.respondForPath("/api/canonical_coffee_bags",
-            "{\"data\":[{\"id\":\"bag-3\",\"name\":\"Milk Blend\","
+            "{\"data\":[{\"id\":\"canon-img-3\",\"name\":\"Milk Blend\","
             "\"canonical_roaster_name\":\"Prodigal\",\"url\":\"" + base + "/product\"}]}");
 
         QTemporaryDir cacheDir;
-        QFile seeded(cacheDir.path() + "/bag-3");
+        QFile seeded(cacheDir.path() + "/canon-img-3");
         QVERIFY(seeded.open(QIODevice::WriteOnly));
         seeded.write("CACHED");
         seeded.close();
@@ -294,21 +299,21 @@ private slots:
 
         // Image path short-circuits on the seeded file — no network.
         QSignalSpy imgSpy(&client, &BeanBaseClient::bagImageReady);
-        client.ensureBagImage("bag-3", "Milk Blend", "");
+        client.ensureBagImage("canon-img-3", "Milk Blend", "");
         QVERIFY(imgSpy.wait(1000));
         QCOMPARE(server.requestCount(), 0);
 
         // Link recovery still runs and announces the URL, without touching
         // the product page (no pending image wants it).
         QSignalSpy linkSpy(&client, &BeanBaseClient::bagLinkRecovered);
-        client.recoverBagLink("bag-3", "Milk Blend");
+        client.recoverBagLink("canon-img-3", "Milk Blend");
         QVERIFY(linkSpy.wait(3000));
-        QCOMPARE(linkSpy.first().at(0).toString(), QString("bag-3"));
+        QCOMPARE(linkSpy.first().at(0).toString(), QString("canon-img-3"));
         QCOMPARE(linkSpy.first().at(1).toString(), QString(base + "/product"));
         QCOMPARE(server.requestCount(), 1);  // the search only
 
         // Dedup: second recovery attempt is a no-op.
-        client.recoverBagLink("bag-3", "Milk Blend");
+        client.recoverBagLink("canon-img-3", "Milk Blend");
         QVERIFY(!linkSpy.wait(300) || linkSpy.count() == 1);
         QCOMPARE(server.requestCount(), 1);
     }
@@ -689,6 +694,70 @@ private slots:
             big += "<p>lorem ipsum dolor sit amet</p>";
         big += "</body>";
         QVERIFY(BeanBaseClient::extractPageText(big).size() <= 20000);
+    }
+
+    void fetchPageTextOutcomes() {
+        FakeBeanBaseServer server;
+        server.setContentType("text/html");
+        QByteArray page = "<html><body><p>" + QByteArray(200, 'a') + "</p></body></html>";
+        server.respondForPath("/page", page);
+        server.respondForPath("/short", "<html><body>Denied</body></html>");
+        BeanBaseClient client(&m_nam, &m_settings);
+        QSignalSpy ready(&client, &BeanBaseClient::pageTextReady);
+        QSignalSpy failed(&client, &BeanBaseClient::pageTextFailed);
+
+        // Success: text extracted, URL echoed back (the staleness gate).
+        const QString pageUrl = server.baseUrl() + "/page";
+        client.fetchPageText(pageUrl);
+        QVERIFY(ready.wait(5000));
+        QCOMPARE(ready.last().at(0).toString(), pageUrl);
+        QVERIFY(ready.last().at(1).toString().contains(QString(200, 'a')));
+
+        // Under 100 readable chars = the Visualizer "blocked or empty" gate:
+        // a bot wall must be a visible failure, not AI input.
+        client.fetchPageText(server.baseUrl() + "/short");
+        QVERIFY(failed.wait(5000));
+        QCOMPARE(failed.last().at(1).toString(), QString("emptyPage"));
+
+        // Non-text content (a PDF/image link) is a FORMAT failure, not a
+        // confident "nothing found on the page".
+        server.setContentType("application/pdf");
+        client.fetchPageText(pageUrl);
+        QVERIFY(failed.wait(5000));
+        QCOMPARE(failed.last().at(1).toString(), QString("notAWebPage"));
+        server.setContentType("text/html");
+
+        // HTTP errors surface Qt's error string (reply->error() covers 4xx).
+        server.respondWith("404 Not Found", "gone");
+        client.fetchPageText(server.baseUrl() + "/nothing-here");
+        QVERIFY(failed.wait(5000));
+        QVERIFY(!failed.last().at(1).toString().isEmpty());
+
+        // http(s)-only gate: the URL is user-entered and the text is shipped
+        // to a third-party AI — file:// must never be read. No server hit.
+        const int requestsBefore = server.requestCount();
+        client.fetchPageText("file:///etc/hosts");
+        QVERIFY(failed.wait(1000));
+        QCOMPARE(failed.last().at(1).toString(), QString("invalidUrl"));
+        client.fetchPageText("not a url");
+        QVERIFY(failed.wait(1000));
+        QCOMPARE(failed.last().at(1).toString(), QString("invalidUrl"));
+        QCOMPARE(server.requestCount(), requestsBefore);
+    }
+
+    void ensureBagImageManualBagNoUrlIsSilent() {
+        // A manual bag's name must never leak to the canonical search API:
+        // "bag-" keys have no canonical entry to recover a URL from, so an
+        // empty product URL means no image, no network.
+        FakeBeanBaseServer server;
+        QTemporaryDir cacheDir;
+        BeanBaseClient client(&m_nam, &m_settings);
+        client.setVisualizerBaseUrl(server.baseUrl());
+        client.setImageCacheDir(cacheDir.path());
+        QSignalSpy spy(&client, &BeanBaseClient::bagImageReady);
+        client.ensureBagImage("bag-42", "My Home Roast", "");
+        QVERIFY(!spy.wait(300));
+        QCOMPARE(server.requestCount(), 0);
     }
 
     void revertAndDiffAreNoopsWithoutLinkOrSnapshot() {
