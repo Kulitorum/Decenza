@@ -745,19 +745,19 @@ Page {
                             visible: composerPage.fHasMilk
                             Layout.fillWidth: true
                             spacing: Theme.spacingMedium
-                            NumberField {
-                                id: milkField
-                                Layout.fillWidth: true
-                                label: TranslationManager.translate("recipes.composer.milkWeight", "Milk (g)")
-                                text: composerPage.fMilkWeightG > 0 ? String(composerPage.fMilkWeightG) : ""
-                                onEdited: function(newText) { composerPage.fMilkWeightG = parseFloat(newText) || 0 }
-                            }
                             PickerField {
                                 Layout.fillWidth: true
                                 label: TranslationManager.translate("recipes.composer.pitcher", "Pitcher")
                                 value: composerPage.fPitcherName
                                 placeholder: TranslationManager.translate("recipes.composer.choosePitcher", "Choose pitcher…")
                                 onActivated: pitcherPicker.open()
+                            }
+                            NumberField {
+                                id: milkField
+                                Layout.fillWidth: true
+                                label: TranslationManager.translate("recipes.composer.milkWeight", "Milk (g)")
+                                text: composerPage.fMilkWeightG > 0 ? String(composerPage.fMilkWeightG) : ""
+                                onEdited: function(newText) { composerPage.fMilkWeightG = parseFloat(newText) || 0 }
                             }
                         }
                     }
