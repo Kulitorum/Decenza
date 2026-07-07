@@ -1,0 +1,110 @@
+name: Prune stale compiler caches
+
+# ccache-action / sccache write a NEW timestamp-suffixed cache entry every
+# build (GH caches are immutable, so the action can't update in place — it
+# finds the latest via prefix restore-keys). Old copies are never cleaned up,
+# so stale copies of each platform's compiler cache pile up and push the repo
+# toward GitHub's 10 GB cap, triggering LRU eviction of still-useful Qt/ccache
+# entries and causing cold builds.
+#
+# This used to be a final step inside macos-release.yml, on the assumption that
+# macOS was the slowest build so every other platform had already saved its
+# fresh cache by prune time. That stopped holding (Linux x64 now outlasts
+# macOS), and the in-build prune could never see the running build's own cache
+# (ccache-action saves in a post-job step), so it had to keep 2 copies per
+# group and still left 3 copies for any platform finishing after macOS.
+#
+# As a standalone workflow triggered when a build workflow completes — and
+# skipping while any build is still in progress or queued — every fresh cache
+# is already saved when we prune, so keeping exactly 1 copy per (prefix, ref)
+# group is safe. The last build to finish re-triggers us, so the skip never
+# strands stale entries.
+
+on:
+  workflow_run:
+    workflows:
+      - 'Android APK Build'
+      - 'iOS App Store Build'
+      - 'macOS Build'
+      - 'Windows Build'
+      - 'Linux AppImage Build'
+      - 'Linux ARM64 AppImage Build'
+    types: [completed]
+  # Nearly all builds run on TAG pushes, and GitHub's docs don't clearly
+  # guarantee workflow_run fires for tag-triggered runs (no `branches:`
+  # filter here, so it should — but field reports show this edge being
+  # flaky). The daily cron is the guaranteed fallback: pruning is
+  # idempotent and takes seconds, so a redundant pass is free.
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write  # gh cache delete / gh run list
+
+concurrency:
+  group: prune-caches
+  cancel-in-progress: true
+
+jobs:
+  prune:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Skip while builds are running
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          # If any build workflow is still queued or running, its compiler
+          # cache hasn't been saved yet — pruning now would repeat the old
+          # in-build prune's blind spot. Skip; the completion of that run
+          # fires this workflow again.
+          BUILD_WORKFLOWS='Android APK Build|iOS App Store Build|macOS Build|Windows Build|Linux AppImage Build|Linux ARM64 AppImage Build'
+          ACTIVE=$(gh run list --repo "$GITHUB_REPOSITORY" --limit 100 \
+            --json workflowName,status \
+            --jq '[.[] | select((.status == "in_progress" or .status == "queued"))
+                        | .workflowName] | unique | .[]' \
+            | grep -cE "^($BUILD_WORKFLOWS)$" || true)
+          if [ "${ACTIVE:-0}" -gt 0 ]; then
+            echo "$ACTIVE build workflow(s) still active — skipping prune."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No build workflows active — pruning."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prune stale ccache/sccache entries
+        if: ${{ steps.gate.outputs.skip == 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          # Keep the newest copy of each timestamped ccache/sccache prefix,
+          # grouped per ref so a main-scoped entry survives a newer tag-push
+          # build. qt-*/openssl-* use stable keys (no timestamp suffix) and are
+          # excluded by the regex filter — they are exactly the caches we want
+          # to keep restorable. gh's built-in --jq does not accept --arg /
+          # --argjson, so pipe to real jq.
+          KEEP=1
+          TS='-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$'
+          gh cache list --repo "$GITHUB_REPOSITORY" --limit 500 \
+            --json id,key,createdAt,ref \
+            | jq -r --argjson keep "$KEEP" --arg ts "$TS" '
+                map(select(.key | test($ts)))
+                | group_by((.key | sub($ts; "")) + "@@" + .ref)
+                | map(sort_by(.createdAt) | reverse | .[$keep:])
+                | flatten
+                | .[] | "\(.id)\t\(.key)"
+              ' \
+            | while IFS=$'\t' read -r id key; do
+                [ -n "$id" ] || continue
+                if gh cache delete "$id" --repo "$GITHUB_REPOSITORY"; then
+                  echo "- deleted \`$key\` (id $id)" >> "$GITHUB_STEP_SUMMARY"
+                else
+                  echo "::warning::Failed to delete cache $key (id $id)"
+                fi
+              done
+          gh api "repos/$GITHUB_REPOSITORY/actions/cache/usage" --jq \
+            '"Remaining: \(.active_caches_count) caches, \((.active_caches_size_in_bytes/1073741824)*100|round/100) GB / 10 GB cap"' \
+            >> "$GITHUB_STEP_SUMMARY" || true

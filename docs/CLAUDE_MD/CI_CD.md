@@ -17,6 +17,8 @@ All workflows have concurrency controls — if the same workflow triggers twice 
 
 On tag push: all workflows bump version code and build. All except iOS upload to GitHub Release; iOS uploads to App Store Connect instead. On `workflow_dispatch`: build only, no version bump, no upload (unless explicitly opted in).
 
+**Cache pruning:** `prune-caches.yml` fires whenever a build workflow completes (plus a daily cron fallback, since `workflow_run` for tag-triggered runs is an under-documented edge); it skips while any build is still queued/running (the last one to finish re-triggers it), then deletes all but the newest copy of each timestamped ccache/sccache entry per (prefix, ref). Stable-keyed `qt-*`/`openssl-*` caches are never touched. This keeps the repo's cache store (10 GB GitHub cap) from filling with stale compiler-cache generations; it replaced the old KEEP=2 prune step inside `macos-release.yml`, which ran before late-finishing builds (and macOS itself) had saved their fresh caches.
+
 ### Quick commands
 ```bash
 # Trigger individual TEST builds (no upload, no version bump)

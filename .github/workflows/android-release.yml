@@ -102,7 +102,25 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: android-arm64
-          max-size: 500M
+          # At 500M the cache sat at 99.8% full and evicted at save time
+          # (a full build is ~600 objects ≈ one cache-full). 1G fits in the
+          # repo cache budget now that prune-caches.yml keeps 1 copy/group.
+          max-size: 1G
+
+      # androiddeployqt's "Creating APK" step otherwise downloads the full
+      # gradle distribution and re-resolves every dependency on each run
+      # (~1m14s of the job). Stable key: an exact hit skips re-saving, so
+      # this entry never accumulates timestamped copies. The Qt version
+      # pins the gradle/AGP generation — bump the key with Qt upgrades.
+      - name: Cache Gradle (androiddeployqt)
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-android-qt6.11.1-${{ hashFiles('android/build.gradle') }}
+          restore-keys: |
+            gradle-android-qt6.11.1-
 
       - name: Configure ccache for CI
         run: ccache --set-config=compiler_check=content
