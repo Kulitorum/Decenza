@@ -259,26 +259,35 @@ Popup {
 
             // Product link — the action line plus the visible URL itself, so
             // the destination is recognizable at a glance (reordering aid).
-            ColumnLayout {
-                id: productLink
+            // Wrapped in a plain Item so the AccessibleMouseArea can anchor-
+            // fill it: anchors on a direct child of a ColumnLayout are
+            // undefined behavior (the layout manages that child's geometry).
+            Item {
                 Layout.fillWidth: true
                 visible: root.fieldOrEmpty("link").length > 0
-                spacing: Theme.scaled(1)
+                implicitHeight: productLink.implicitHeight
 
-                Text {
-                    Layout.fillWidth: true
-                    text: TranslationManager.translate("beanbase.details.viewAtRoaster", "View at roaster")
-                    color: Theme.primaryColor
-                    font.pixelSize: Theme.scaled(13)
-                    Accessible.ignored: true  // accessibleItem; node carried by AccessibleMouseArea
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: root.fieldOrEmpty("link")
-                    color: Theme.textSecondaryColor
-                    font.pixelSize: Theme.scaled(11)
-                    elide: Text.ElideMiddle
-                    Accessible.ignored: true
+                ColumnLayout {
+                    id: productLink
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    spacing: Theme.scaled(1)
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: TranslationManager.translate("beanbase.details.viewAtRoaster", "View at roaster")
+                        color: Theme.primaryColor
+                        font.pixelSize: Theme.scaled(13)
+                        Accessible.ignored: true  // accessibleItem; node carried by AccessibleMouseArea
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.fieldOrEmpty("link")
+                        color: Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(11)
+                        elide: Text.ElideMiddle
+                        Accessible.ignored: true
+                    }
                 }
 
                 AccessibleMouseArea {

@@ -1156,7 +1156,7 @@ Dialog {
                         value: root.fRoastDate
                         fieldAccessibleName: TranslationManager.translate("changebeans.form.roastDate.accessible", "Roast date, optional.")
                         calendarAccessibleName: TranslationManager.translate("changebeans.form.roastDate.openCalendar", "Open calendar to pick roast date")
-                        onValueEdited: root.fRoastDate = dateString
+                        onValueEdited: function(dateString) { root.fRoastDate = dateString }
                     }
 
                     // --- Roast level: always editable. A canonical degree that
@@ -1447,7 +1447,7 @@ Dialog {
                         value: root.fFrozenDate
                         fieldAccessibleName: TranslationManager.translate("changebeans.form.frozenDate.accessible", "Frozen date.")
                         calendarAccessibleName: TranslationManager.translate("changebeans.form.frozenDate.openCalendar", "Open calendar to pick frozen date")
-                        onValueEdited: root.fFrozenDate = dateString
+                        onValueEdited: function(dateString) { root.fFrozenDate = dateString }
                     }
 
                     // Defrost date is only directly editable in edit mode
@@ -1460,7 +1460,7 @@ Dialog {
                         value: root.fDefrostDate
                         fieldAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Defrost date, optional.")
                         calendarAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.openCalendar", "Open calendar to pick defrost date")
-                        onValueEdited: root.fDefrostDate = dateString
+                        onValueEdited: function(dateString) { root.fDefrostDate = dateString }
                     }
 
                     // --- Grinder setting + dose (the per-bag dial-in fields) ---
