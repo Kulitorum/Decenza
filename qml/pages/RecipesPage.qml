@@ -4,10 +4,10 @@ import QtQuick.Layouts
 import Decenza
 import "../components"
 
-// Recipes management (add-recipes): mirrors EquipmentPage/BeanInfoPage. All
-// non-archived recipes as rows with activate/edit/clone/archive actions;
-// archived recipes in a collapsed section below (kept for shot-history
-// provenance — a used recipe can never be deleted, only archived).
+// Recipes management (add-recipes): mirrors BeanInfoPage — cards in a Flow
+// grid, tap a card to activate the recipe, compact action row per card.
+// A recipe with shots archives (provenance must survive); one without is a
+// mistaken creation and deletes outright — same lifecycle as bags.
 Page {
     id: recipesPage
     objectName: "recipesPage"
@@ -39,18 +39,176 @@ Page {
     Tr { id: trShots; key: "recipes.list.shots"; fallback: "shots"; visible: false }
     Tr { id: trActive; key: "recipes.list.active"; fallback: "Active"; visible: false }
     Tr { id: trCopyOf; key: "recipes.list.copyOf"; fallback: "Copy of %1"; visible: false }
+    Tr { id: trMilk; key: "recipes.list.milk"; fallback: "milk"; visible: false }
 
-    function recipeSubtitle(r) {
-        var parts = []
-        if (r.profileTitle) parts.push(r.profileTitle)
-        var bean = ((r.roasterName || "") + " " + (r.coffeeName || "")).trim()
-        if (bean !== "") parts.push(bean)
-        if (r.doseG > 0 && r.yieldG > 0)
-            parts.push(Number(r.doseG).toFixed(1) + "g → " + Number(r.yieldG).toFixed(1) + "g")
-        return parts.join(" · ")
+    function openClone(recipe) {
+        // Clone lands in the composer as a prefilled copy with the name
+        // focused — rename, tweak, save. Provenance points at the source;
+        // the golden-shot link is not copied.
+        var copy = JSON.parse(JSON.stringify(recipe))
+        delete copy.id
+        delete copy.shotCount
+        copy.createdFromShotId = 0
+        copy.clonedFromRecipeId = recipe.id
+        copy.name = trCopyOf.text.arg(recipe.name)
+        pageStack.push(Qt.resolvedUrl("RecipeComposerPage.qml"), { mode: "create", prefill: copy })
+    }
+
+    // Recipe card: tap = activate (like tapping a bag card selects the bag).
+    component RecipeCard: Rectangle {
+        id: card
+        property var recipe: ({})
+        property bool archivedCard: false
+
+        readonly property bool selected: recipe && recipe.id !== undefined
+            && recipe.id === Settings.dye.activeRecipeId
+        readonly property bool hasShots: recipe && (recipe.shotCount ?? 0) > 0
+        readonly property var steam: {
+            if (!recipe || !recipe.steamJson || String(recipe.steamJson).length === 0) return ({})
+            try { return JSON.parse(recipe.steamJson) } catch (e) { return ({}) }
+        }
+
+        implicitHeight: cardColumn.implicitHeight + 2 * Theme.spacingMedium
+        radius: Theme.cardRadius
+        color: Theme.surfaceColor
+        border.color: selected ? Theme.accentColor : Theme.borderColor
+        border.width: selected ? 2 : 1
+        opacity: archivedCard ? 0.7 : 1.0
+
+        function subtitle() {
+            var r = card.recipe
+            var parts = []
+            var bean = ((r.roasterName || "") + " " + (r.coffeeName || "")).trim()
+            if (bean !== "") parts.push(bean)
+            if (r.profileTitle) parts.push(r.profileTitle)
+            if (r.doseG > 0 && r.yieldG > 0)
+                parts.push(Number(r.doseG).toFixed(1) + "g → " + Number(r.yieldG).toFixed(1) + "g")
+            if (card.steam.hasMilk)
+                parts.push(trMilk.text + (card.steam.milkWeightG ? " " + card.steam.milkWeightG + "g" : ""))
+            if (r.shotCount > 0)
+                parts.push(r.shotCount + " " + trShots.text)
+            return parts.join(" · ")
+        }
+
+        // Tap anywhere on the card to activate (buttons overlay and win).
+        AccessibleMouseArea {
+            anchors.fill: parent
+            enabled: !card.archivedCard
+            accessibleName: TranslationManager.translate("recipes.accessible.activate", "Activate recipe %1").arg(card.recipe.name || "")
+            accessibleItem: card
+            onAccessibleClicked: {
+                if (card.recipe.id !== Settings.dye.activeRecipeId)
+                    MainController.activateRecipe(card.recipe.id)
+            }
+        }
+
+        ColumnLayout {
+            id: cardColumn
+            anchors.fill: parent
+            anchors.margins: Theme.spacingMedium
+            spacing: Theme.spacingSmall
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+                Label {
+                    text: card.recipe.name || ""
+                    font: Theme.subtitleFont
+                    color: Theme.textColor
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+                Label {
+                    visible: card.selected
+                    text: trActive.text
+                    font: Theme.captionFont
+                    color: Theme.accentColor
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: card.subtitle()
+                font: Theme.captionFont
+                color: Theme.textSecondaryColor
+                wrapMode: Text.WordWrap
+            }
+
+            // Action row — compact, BagCard-style.
+            Flow {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(6)
+
+                StyledIconButton {
+                    visible: !card.archivedCard
+                    width: Theme.scaled(36)
+                    height: Theme.scaled(36)
+                    icon.source: "qrc:/icons/edit.svg"
+                    accessibleName: TranslationManager.translate("recipes.accessible.edit", "Edit recipe")
+                    onClicked: pageStack.push(Qt.resolvedUrl("RecipeComposerPage.qml"),
+                                              { mode: "edit", editRecipeId: card.recipe.id })
+                }
+
+                AccessibleButton {
+                    visible: !card.archivedCard
+                    height: Theme.scaled(36)
+                    _customFontSize: Theme.captionFont.pixelSize
+                    leftPadding: Theme.scaled(10)
+                    rightPadding: Theme.scaled(10)
+                    text: TranslationManager.translate("recipes.action.clone", "Clone")
+                    accessibleName: TranslationManager.translate("recipes.accessible.clone", "Clone this recipe")
+                    onClicked: recipesPage.openClone(card.recipe)
+                }
+
+                // Used recipe: archive (history keeps its name). Same rule
+                // and wording pattern as "Bag finished".
+                AccessibleButton {
+                    visible: !card.archivedCard && card.hasShots
+                    height: Theme.scaled(36)
+                    _customFontSize: Theme.captionFont.pixelSize
+                    leftPadding: Theme.scaled(10)
+                    rightPadding: Theme.scaled(10)
+                    text: TranslationManager.translate("recipes.action.archive", "Archive")
+                    accessibleName: TranslationManager.translate("recipes.accessible.archive", "Archive: remove from the list; shot history is kept")
+                    onClicked: {
+                        if (card.recipe.id === Settings.dye.activeRecipeId)
+                            MainController.deactivateRecipe()
+                        MainController.recipeStorage.requestArchiveRecipe(card.recipe.id)
+                    }
+                }
+
+                // No shots yet: a mistaken creation — delete outright.
+                StyledIconButton {
+                    visible: !card.archivedCard && !card.hasShots
+                    width: Theme.scaled(36)
+                    height: Theme.scaled(36)
+                    icon.source: "qrc:/icons/trash.svg"
+                    accessibleName: TranslationManager.translate("recipes.accessible.delete", "Delete recipe")
+                    accessibleDescription: TranslationManager.translate("recipes.accessible.deleteHint", "Deletes this unused recipe entirely")
+                    onClicked: {
+                        if (card.recipe.id === Settings.dye.activeRecipeId)
+                            MainController.deactivateRecipe()
+                        MainController.recipeStorage.requestDeleteRecipe(card.recipe.id)
+                    }
+                }
+
+                // Archived card: restore is the only action.
+                AccessibleButton {
+                    visible: card.archivedCard
+                    height: Theme.scaled(36)
+                    _customFontSize: Theme.captionFont.pixelSize
+                    leftPadding: Theme.scaled(10)
+                    rightPadding: Theme.scaled(10)
+                    text: TranslationManager.translate("recipes.action.restore", "Restore")
+                    accessibleName: TranslationManager.translate("recipes.accessible.restore", "Restore this archived recipe")
+                    onClicked: MainController.recipeStorage.requestUnarchiveRecipe(card.recipe.id)
+                }
+            }
+        }
     }
 
     Flickable {
+        id: flickable
         anchors.fill: parent
         anchors.topMargin: Theme.pageTopMargin
         anchors.bottomMargin: Theme.bottomBarHeight
@@ -62,9 +220,10 @@ Page {
 
         ColumnLayout {
             id: contentColumn
-            width: parent.width
+            width: flickable.width
             spacing: Theme.spacingMedium
 
+            // Header row: title + Add Recipe (BeanInfoPage pattern)
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spacingMedium
@@ -77,9 +236,12 @@ Page {
                     Accessible.name: text
                 }
                 Item { Layout.fillWidth: true }
-                ActionButton {
+                AccessibleButton {
                     id: addRecipeButton
+                    primary: true
+                    Layout.preferredHeight: Theme.scaled(44)
                     text: TranslationManager.translate("recipes.addButton", "Add Recipe")
+                    accessibleName: TranslationManager.translate("recipes.accessible.add", "Add a new recipe")
                     onClicked: pageStack.push(Qt.resolvedUrl("RecipeComposerPage.qml"), { mode: "create" })
                 }
             }
@@ -94,122 +256,56 @@ Page {
                 wrapMode: Text.WordWrap
             }
 
-            Repeater {
-                model: recipesPage.recipes
-                delegate: Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: rowContent.implicitHeight + 2 * Theme.spacingMedium
-                    radius: Theme.cardRadius
-                    color: Theme.surfaceColor
-                    border.color: modelData.id === Settings.dye.activeRecipeId ? Theme.accentColor : Theme.borderColor
-                    border.width: 1
+            // Card grid (BeanInfoPage pattern: fixed base width, computed columns)
+            Flow {
+                Layout.fillWidth: true
+                spacing: Theme.spacingMedium
 
-                    ColumnLayout {
-                        id: rowContent
-                        anchors.fill: parent
-                        anchors.margins: Theme.spacingMedium
-                        spacing: Theme.spacingSmall
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingMedium
-                            Label {
-                                text: modelData.name
-                                font: Theme.subtitleFont
-                                color: Theme.textColor
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-                            Label {
-                                visible: modelData.id === Settings.dye.activeRecipeId
-                                text: trActive.text
-                                font: Theme.captionFont
-                                color: Theme.accentColor
-                            }
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            text: recipesPage.recipeSubtitle(modelData)
-                                  + (modelData.shotCount > 0 ? " · " + modelData.shotCount + " " + trShots.text : "")
-                            font: Theme.captionFont
-                            color: Theme.textSecondaryColor
-                            elide: Text.ElideRight
-                        }
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingSmall
-                            ActionButton {
-                                text: TranslationManager.translate("recipes.action.activate", "Activate")
-                                enabled: modelData.id !== Settings.dye.activeRecipeId
-                                onClicked: MainController.activateRecipe(modelData.id)
-                            }
-                            ActionButton {
-                                text: TranslationManager.translate("common.button.edit", "Edit")
-                                onClicked: pageStack.push(Qt.resolvedUrl("RecipeComposerPage.qml"),
-                                                          { mode: "edit", editRecipeId: modelData.id })
-                            }
-                            ActionButton {
-                                text: TranslationManager.translate("recipes.action.clone", "Clone")
-                                onClicked: {
-                                    // Clone lands in the composer as a prefilled copy with
-                                    // the name focused — rename, tweak, save. Provenance
-                                    // points at the source; the golden-shot link is not copied.
-                                    var copy = JSON.parse(JSON.stringify(modelData))
-                                    delete copy.id
-                                    delete copy.shotCount
-                                    copy.createdFromShotId = 0
-                                    copy.clonedFromRecipeId = modelData.id
-                                    copy.name = trCopyOf.text.arg(modelData.name)
-                                    pageStack.push(Qt.resolvedUrl("RecipeComposerPage.qml"),
-                                                   { mode: "create", prefill: copy })
-                                }
-                            }
-                            Item { Layout.fillWidth: true }
-                            ActionButton {
-                                // A recipe with history archives (provenance must
-                                // survive); one with no shots is a mistaken creation
-                                // and deletes outright — same rule as bags.
-                                text: modelData.shotCount > 0
-                                    ? TranslationManager.translate("recipes.action.archive", "Archive")
-                                    : TranslationManager.translate("common.button.delete", "Delete")
-                                onClicked: {
-                                    if (modelData.id === Settings.dye.activeRecipeId)
-                                        MainController.deactivateRecipe()
-                                    if (modelData.shotCount > 0)
-                                        MainController.recipeStorage.requestArchiveRecipe(modelData.id)
-                                    else
-                                        MainController.recipeStorage.requestDeleteRecipe(modelData.id)
-                                }
-                            }
+                Repeater {
+                    model: recipesPage.recipes
+                    delegate: RecipeCard {
+                        recipe: modelData
+                        width: {
+                            var avail = flickable.width
+                            var cardW = Theme.scaled(380)
+                            var columns = Math.max(1, Math.floor(avail / cardW))
+                            return (avail - (columns - 1) * Theme.spacingMedium) / columns
                         }
                     }
                 }
             }
 
             // --- Archived section ---
-            ActionButton {
+            AccessibleButton {
                 visible: recipesPage.archivedRecipes.length > 0
+                height: Theme.scaled(36)
+                _customFontSize: Theme.captionFont.pixelSize
+                leftPadding: Theme.scaled(10)
+                rightPadding: Theme.scaled(10)
                 text: (recipesPage.showArchived
                        ? TranslationManager.translate("recipes.archived.hide", "Hide archived")
                        : TranslationManager.translate("recipes.archived.show", "Show archived"))
                       + " (" + recipesPage.archivedRecipes.length + ")"
+                accessibleName: text
                 onClicked: recipesPage.showArchived = !recipesPage.showArchived
             }
-            Repeater {
-                model: recipesPage.showArchived ? recipesPage.archivedRecipes : []
-                delegate: RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
-                    Label {
-                        text: modelData.name
-                        font: Theme.bodyFont
-                        color: Theme.textSecondaryColor
-                        elide: Text.ElideRight
-                        Layout.fillWidth: true
-                    }
-                    ActionButton {
-                        text: TranslationManager.translate("recipes.action.restore", "Restore")
-                        onClicked: MainController.recipeStorage.requestUnarchiveRecipe(modelData.id)
+
+            Flow {
+                visible: recipesPage.showArchived
+                Layout.fillWidth: true
+                spacing: Theme.spacingMedium
+
+                Repeater {
+                    model: recipesPage.showArchived ? recipesPage.archivedRecipes : []
+                    delegate: RecipeCard {
+                        recipe: modelData
+                        archivedCard: true
+                        width: {
+                            var avail = flickable.width
+                            var cardW = Theme.scaled(380)
+                            var columns = Math.max(1, Math.floor(avail / cardW))
+                            return (avail - (columns - 1) * Theme.spacingMedium) / columns
+                        }
                     }
                 }
             }
