@@ -3,6 +3,8 @@
 #include "network/beanbaseclient.h"
 #include "core/dbutils.h"
 
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QSqlDatabase>
@@ -285,6 +287,13 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
         row["beanBaseId"] = canonicalId;
         row["bagId"] = -1;
         row["detail"] = canonicalDetail(entry);
+        // The full entry, serialized the same way a BeanBaseSearchBar pick
+        // stores it (JSON.stringify(entry)): a bag created from this row must
+        // carry the descriptive blob, not just the canonical id — an id with
+        // an empty blob renders an empty details popup (BagCard's link
+        // backfill then persists `{"link":…}` as the whole blob).
+        const QString entryJson = QString::fromUtf8(
+            QJsonDocument(QJsonObject::fromVariantMap(entry)).toJson(QJsonDocument::Compact));
 
         // Same coffee in history -> single Tier 1 entry, both source labels:
         // grinder/dose from history, canonical identity from Bean Base.
@@ -301,12 +310,17 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
             row["doseWeightG"] = h.value("doseWeightG");
             row["yieldOverrideG"] = h.value("yieldOverrideG");
             row["roastLevel"] = h.value("roastLevel");
-            row["beanBaseData"] = h.value("beanBaseData");
+            // History's blob may carry legacy-only fields (CDN image URL,
+            // tasting tags), so keep it when present; the fresh entry covers
+            // shots linked by name whose snapshots predate the blob.
+            const QString histBlob = h.value("beanBaseData").toString();
+            row["beanBaseData"] = histBlob.isEmpty() ? entryJson : histBlob;
             row["lastUsedEpoch"] = h.value("lastUsedEpoch");
             row["tier"] = static_cast<int>(Tier::HistoryCanonical);
             row["sources"] = QStringLiteral("beanbase+history");
             tier1.append(row);
         } else {
+            row["beanBaseData"] = entryJson;
             row["tier"] = static_cast<int>(Tier::CanonicalOnly);
             row["sources"] = QStringLiteral("beanbase");
             tier2.append(row);

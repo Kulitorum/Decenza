@@ -831,6 +831,67 @@ private slots:
             QCOMPARE(tierOf(v), Tier::CanonicalOnly);
     }
 
+    // A bag created from a canonical row must carry the full descriptive blob,
+    // not just the canonical id: with an empty blob the bag renders an empty
+    // details popup, and BagCard's link backfill then persists `{"link":…}` as
+    // the whole blob (the "broken details after adding Hometown" bug).
+    void mergeLanesCanonicalRowsCarryBlob() {
+        QVariantList canonical;
+        canonical.append(QVariantMap{
+            {"id", "canon-X"}, {"roasterName", "Sweet Bloom"}, {"roastName", "Hometown"},
+            {"degree", "Light"}, {"origin", "Colombia"},
+            {"link", "https://sweetbloomcoffee.com/product/hometown/"}});
+        canonical.append(QVariantMap{
+            {"id", "canon-Y"}, {"roasterName", "Sweet Bloom"}, {"roastName", "Other"},
+            {"degree", "Dark"}});
+
+        QVariantList history;  // canon-Y also in history, with an empty blob
+        history.append(QVariantMap{
+            {"roasterName", "Sweet Bloom"}, {"coffeeName", "Other"}, {"beanBaseId", "canon-Y"},
+            {"beanBaseData", ""}, {"lastUsedEpoch", 100}});
+
+        const QVariantList merged = UnifiedBeanSearchModel::mergeLanes({}, canonical, history, QString());
+        QCOMPARE(merged.size(), 2);
+
+        // Tier 1 (canon-Y merged with history): empty history blob falls back
+        // to the serialized entry.
+        QCOMPARE(tierOf(merged[0]), Tier::HistoryCanonical);
+        const QVariantMap tier1Blob = QJsonDocument::fromJson(
+            merged[0].toMap().value("beanBaseData").toString().toUtf8()).object().toVariantMap();
+        QCOMPARE(tier1Blob.value("degree").toString(), QString("Dark"));
+
+        // Tier 2 (canon-X): blob is the entry itself — id, identity, attrs, link.
+        QCOMPARE(tierOf(merged[1]), Tier::CanonicalOnly);
+        const QVariantMap tier2Blob = QJsonDocument::fromJson(
+            merged[1].toMap().value("beanBaseData").toString().toUtf8()).object().toVariantMap();
+        QCOMPARE(tier2Blob.value("id").toString(), QString("canon-X"));
+        QCOMPARE(tier2Blob.value("roastName").toString(), QString("Hometown"));
+        QCOMPARE(tier2Blob.value("roasterName").toString(), QString("Sweet Bloom"));
+        QCOMPARE(tier2Blob.value("degree").toString(), QString("Light"));
+        QCOMPARE(tier2Blob.value("origin").toString(), QString("Colombia"));
+        QCOMPARE(tier2Blob.value("link").toString(),
+                 QString("https://sweetbloomcoffee.com/product/hometown/"));
+    }
+
+    // Tier 1 keeps a non-empty history blob (it may carry legacy-only fields
+    // like a CDN image URL) instead of replacing it with the fresh entry.
+    void mergeLanesTier1PrefersHistoryBlob() {
+        QVariantList canonical;
+        canonical.append(QVariantMap{
+            {"id", "canon-Z"}, {"roasterName", "R"}, {"roastName", "Z"}, {"degree", "Light"}});
+        QVariantList history;
+        history.append(QVariantMap{
+            {"roasterName", "R"}, {"coffeeName", "Z"}, {"beanBaseId", "canon-Z"},
+            {"beanBaseData", "{\"degree\":\"Light\",\"image\":\"https://cdn/legacy.jpg\"}"},
+            {"lastUsedEpoch", 100}});
+
+        const QVariantList merged = UnifiedBeanSearchModel::mergeLanes({}, canonical, history, QString());
+        QCOMPARE(merged.size(), 1);
+        QCOMPARE(tierOf(merged[0]), Tier::HistoryCanonical);
+        QCOMPARE(merged[0].toMap().value("beanBaseData").toString(),
+                 QString("{\"degree\":\"Light\",\"image\":\"https://cdn/legacy.jpg\"}"));
+    }
+
     // Within-tier MRU ordering: two inventory bags out of epoch order must come
     // back most-recently-used first (guards the stable_sort comparator).
     void mergeLanesOrdersByMruWithinTier() {
