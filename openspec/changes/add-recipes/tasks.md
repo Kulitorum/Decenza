@@ -42,12 +42,12 @@
 
 ## 6. ShotServer
 
-- [ ] 6.1 shotserver_recipes.cpp: REST routes (list/get/create/update/clone/archive/activate/from-shot) through RecipeStorage + shared activation; auth-gated; async per SHOTSERVER.md
-- [ ] 6.2 /recipes embedded management page (list, active highlight, create/edit/clone/archive/activate)
-- [ ] 6.3 Promote-to-recipe action in the web shot browser
-- [ ] 6.4 shotserver_bags.cpp: bags REST (list w/ finished filter, get, create, update write-through, finish, activate; delete guard) + /beans page (plain fields v1)
-- [ ] 6.5 shotserver_equipment.cpp: equipment REST (list/get/create/update/remove/activate; soft-remove for used) + /equipment page
-- [ ] 6.6 Route wiring in shotserver.cpp dispatch + nav links between /shots, /beans, /equipment, /recipes pages
+- [x] 6.1 shotserver_recipes.cpp: REST routes (list/get/create/update/clone/archive/activate/from-shot) through RecipeStorage + shared activation; auth-gated; async per SHOTSERVER.md
+- [x] 6.2 /recipes embedded management page (list, active highlight, create/edit/clone/archive/activate)
+- [x] 6.3 Promote-to-recipe action in the web shot browser
+- [x] 6.4 shotserver_bags.cpp: bags REST (list w/ finished filter, get, create, update write-through, finish, activate; delete guard) + /beans page (plain fields v1)
+- [x] 6.5 shotserver_equipment.cpp: equipment REST (list/get/create/update/remove/activate; soft-remove for used) + /equipment page
+- [x] 6.6 Route wiring in shotserver.cpp dispatch + nav links between /shots, /beans, /equipment, /recipes pages
 
 ## 7. Docs, Polish, Verification
 

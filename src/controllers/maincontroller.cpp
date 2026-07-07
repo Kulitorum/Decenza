@@ -440,6 +440,8 @@ MainController::MainController(QNetworkAccessManager* networkManager,
 
     // Set MachineState on ShotServer for home automation API
     m_shotServer->setMachineState(m_machineState);
+    // MainController for the recipes/bags/equipment web surfaces (add-recipes)
+    m_shotServer->setMainController(this);
 
     // Emit remoteSleepRequested when sleep command received via REST API
     connect(m_shotServer, &ShotServer::sleepRequested, this, &MainController::remoteSleepRequested);

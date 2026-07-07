@@ -2578,6 +2578,32 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         connect(t, &QThread::finished, t, &QThread::deleteLater);
         t->start();
     }
+    // Recipes / Beans / Equipment management pages (add-recipes)
+    else if (path == "/recipes") {
+        sendHtml(socket, generateRecipesPage());
+    }
+    else if (path == "/beans") {
+        sendHtml(socket, generateBeansPage());
+    }
+    else if (path == "/equipment") {
+        sendHtml(socket, generateEquipmentPage());
+    }
+    // Recipes / bags / equipment REST APIs (add-recipes)
+    else if (path == "/api/recipes" || path.startsWith("/api/recipes/") || path.startsWith("/api/recipe/")) {
+        qsizetype headerEndPos = request.indexOf("\r\n\r\n");
+        QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
+        handleRecipesApi(socket, method, path, body);
+    }
+    else if (path == "/api/bags" || path.startsWith("/api/bag/")) {
+        qsizetype headerEndPos = request.indexOf("\r\n\r\n");
+        QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
+        handleBagsApi(socket, method, path, body);
+    }
+    else if (path == "/api/equipment" || path.startsWith("/api/equipment/")) {
+        qsizetype headerEndPos = request.indexOf("\r\n\r\n");
+        QByteArray body = (headerEndPos >= 0) ? request.mid(headerEndPos + 4) : QByteArray();
+        handleEquipmentApi(socket, method, path, body);
+    }
     // Theme editor
     else if (path == "/theme") {
         sendHtml(socket, generateThemePage());

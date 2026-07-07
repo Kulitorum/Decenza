@@ -321,6 +321,9 @@ set(SOURCES
     src/models/shotcomparisonmodel.cpp
     src/models/flowcalibrationmodel.cpp
     src/network/shotserver.cpp
+    src/network/shotserver_recipes.cpp
+    src/network/shotserver_bags.cpp
+    src/network/shotserver_equipment.cpp
     src/network/shotserver_shots.cpp
     src/network/shotserver_upload.cpp
     src/network/shotserver_backup.cpp
