@@ -67,6 +67,26 @@ Page {
             if (!recipe || !recipe.steamJson || String(recipe.steamJson).length === 0) return ({})
             try { return JSON.parse(recipe.steamJson) } catch (e) { return ({}) }
         }
+        // Bean photo from the same on-disk cache the bag cards use, keyed by
+        // the recipe's canonical bean id (the bag side fetches/caches it).
+        readonly property string imageKey: recipe && recipe.beanBaseId
+            ? String(recipe.beanBaseId) : ""
+        property string cachedImagePath: ""
+        function refreshBeanImage() {
+            cachedImagePath = imageKey.length > 0
+                ? MainController.beanbase.bagImagePath(imageKey) : ""
+            if (imageKey.length > 0 && cachedImagePath.length === 0)
+                MainController.beanbase.ensureBagImage(imageKey, recipe.coffeeName || "", "")
+        }
+        onImageKeyChanged: refreshBeanImage()
+        Component.onCompleted: refreshBeanImage()
+        Connections {
+            target: MainController.beanbase
+            function onBagImageReady(key, path) {
+                if (key === card.imageKey)
+                    card.cachedImagePath = path
+            }
+        }
 
         implicitHeight: cardColumn.implicitHeight + 2 * Theme.spacingMedium
         radius: Theme.cardRadius
@@ -110,28 +130,75 @@ Page {
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Theme.spacingSmall
-                Label {
-                    text: card.recipe.name || ""
-                    font: Theme.subtitleFont
-                    color: Theme.textColor
-                    elide: Text.ElideRight
-                    Layout.fillWidth: true
-                }
-                Label {
-                    visible: card.selected
-                    text: trActive.text
-                    font: Theme.captionFont
-                    color: Theme.accentColor
-                }
-            }
+                spacing: Theme.scaled(10)
 
-            Label {
-                Layout.fillWidth: true
-                text: card.subtitle()
-                font: Theme.captionFont
-                color: Theme.textSecondaryColor
-                wrapMode: Text.WordWrap
+                // Bean photo thumbnail (BagCard pattern): cached photo when the
+                // recipe's bean is linked, dimmed beans icon otherwise so mixed
+                // lists stay aligned.
+                Rectangle {
+                    Layout.preferredWidth: Theme.scaled(44)
+                    Layout.preferredHeight: Theme.scaled(44)
+                    Layout.alignment: Qt.AlignTop
+                    radius: Theme.scaled(6)
+                    color: Theme.backgroundColor
+                    border.color: Theme.borderColor
+                    border.width: 1
+
+                    ColoredIcon {
+                        anchors.centerIn: parent
+                        visible: recipeThumb.status !== Image.Ready
+                        source: "qrc:/icons/coffeebeans.svg"
+                        iconWidth: Theme.scaled(22)
+                        iconHeight: Theme.scaled(22)
+                        iconColor: Theme.textSecondaryColor
+                        opacity: 0.5
+                        Accessible.ignored: true
+                    }
+
+                    Image {
+                        id: recipeThumb
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        visible: status === Image.Ready
+                        source: card.cachedImagePath.length > 0
+                            ? "file:///" + card.cachedImagePath : ""
+                        // Decode at thumbnail resolution — never the full photo.
+                        sourceSize.width: Theme.scaled(88)
+                        sourceSize.height: Theme.scaled(88)
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        Accessible.ignored: true
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(2)
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSmall
+                        Label {
+                            text: card.recipe.name || ""
+                            font: Theme.subtitleFont
+                            color: Theme.textColor
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+                        Label {
+                            visible: card.selected
+                            text: trActive.text
+                            font: Theme.captionFont
+                            color: Theme.accentColor
+                        }
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: card.subtitle()
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                        wrapMode: Text.WordWrap
+                    }
+                }
             }
 
             // Action row — compact, BagCard-style.
