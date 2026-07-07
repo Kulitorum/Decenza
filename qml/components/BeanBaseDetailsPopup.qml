@@ -19,6 +19,31 @@ Popup {
 
     function fieldOrEmpty(key) { return bean[key] !== undefined && bean[key] !== null ? String(bean[key]) : "" }
 
+    // Bag photo from the on-disk image cache (resolved from the product page's
+    // og:image; canonical entries carry no image field). Legacy blobs may still
+    // carry a CDN `image` URL, used as fallback. Resolution is requested when
+    // the popup opens so the photo appears on the spot when it can be fetched.
+    property string cachedImagePath: ""
+
+    onAboutToShow: {
+        var id = fieldOrEmpty("id")
+        if (id.length === 0) {
+            cachedImagePath = ""
+            return
+        }
+        cachedImagePath = MainController.beanbase.bagImagePath(id)
+        if (cachedImagePath.length === 0)
+            MainController.beanbase.ensureBagImage(id, fieldOrEmpty("roastName"), fieldOrEmpty("link"))
+    }
+
+    Connections {
+        target: MainController.beanbase
+        function onBagImageReady(id, path) {
+            if (root.visible && id === root.fieldOrEmpty("id"))
+                root.cachedImagePath = path
+        }
+    }
+
     readonly property string elevationText: {
         const lo = Number(bean.minElevationM || 0)
         const hi = Number(bean.maxElevationM || 0)
@@ -115,7 +140,9 @@ Popup {
                     ? Layout.preferredWidth * (implicitHeight / Math.max(1, implicitWidth))
                     : 0
                 visible: status === Image.Ready
-                source: root.fieldOrEmpty("image")
+                source: root.cachedImagePath.length > 0
+                    ? "file:///" + root.cachedImagePath
+                    : root.fieldOrEmpty("image")
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
                 Accessible.ignored: true
@@ -214,15 +241,29 @@ Popup {
                 wrapMode: Text.WordWrap
             }
 
-            // Product link
-            Text {
+            // Product link — the action line plus the visible URL itself, so
+            // the destination is recognizable at a glance (reordering aid).
+            ColumnLayout {
                 id: productLink
                 Layout.fillWidth: true
                 visible: root.fieldOrEmpty("link").length > 0
-                text: TranslationManager.translate("beanbase.details.viewAtRoaster", "View at roaster")
-                color: Theme.primaryColor
-                font.pixelSize: Theme.scaled(13)
-                Accessible.ignored: true  // accessibleItem; node carried by AccessibleMouseArea
+                spacing: Theme.scaled(1)
+
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("beanbase.details.viewAtRoaster", "View at roaster")
+                    color: Theme.primaryColor
+                    font.pixelSize: Theme.scaled(13)
+                    Accessible.ignored: true  // accessibleItem; node carried by AccessibleMouseArea
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: root.fieldOrEmpty("link")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(11)
+                    elide: Text.ElideMiddle
+                    Accessible.ignored: true
+                }
 
                 AccessibleMouseArea {
                     anchors.fill: parent

@@ -847,6 +847,10 @@ Dialog {
                                 // variety, process, ...) — merged below when
                                 // canonicalDetails arrives.
                                 MainController.beanbase.fetchCanonicalDetails(entry)
+                                // Warm the bag-photo file cache so the
+                                // inventory card shows the image right away.
+                                MainController.beanbase.ensureBagImage(
+                                    String(entry.id || ""), entry.roastName || "", entry.link || "")
                             }
                             onUnlinkRequested: {
                                 root.fBeanBaseId = ""

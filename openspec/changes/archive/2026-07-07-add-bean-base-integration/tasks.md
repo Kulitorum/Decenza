@@ -1,6 +1,6 @@
 ## 0. Prerequisites & schema groundwork (cross-change coordination)
 
-- [ ] 0.1 Confirm with the `add-shot-metadata-capture` change owner whether that change will own the DYE schema additions (`origin`, `region`, `variety`, `process`, `producer`, `minElevationM`, `maxElevationM`, `tastingTags`, `tastingNotes`, `productUrl`, `imageUrl`, `roasterWebsite`, `beanType`, `generalTags`) plus `beanBaseId` + `beanBaseRoasterId`. If yes, mark Tier 2.4 as blocked-on; if no, absorb those tasks into this change under a new section 2A. **(Still open — needs the change owner; blocks Section 4.)**
+- [x] 0.1 OBSOLETE (2026-07-07): the snapshot-blob design (shots.beanbase_json, migration 18) replaced per-field DYE columns; add-shot-metadata-capture never started. Original: Confirm with the `add-shot-metadata-capture` change owner whether that change will own the DYE schema additions (`origin`, `region`, `variety`, `process`, `producer`, `minElevationM`, `maxElevationM`, `tastingTags`, `tastingNotes`, `productUrl`, `imageUrl`, `roasterWebsite`, `beanType`, `generalTags`) plus `beanBaseId` + `beanBaseRoasterId`. If yes, mark Tier 2.4 as blocked-on; if no, absorb those tasks into this change under a new section 2A. **(Still open — needs the change owner; blocks Section 4.)**
 - [x] 0.2 RESOLVED with the user's real key (June 2026): `id` is a JSON number (stored as opaque string, as planned). Live payload wraps results as `{"meta":{…},"beans":[…]}` — NOT `data` — which exposed and fixed a parser bug. Free tier does NOT expose `image`/`tasting-tag`/`general-tag`/`soldout`/`available` (silently dropped even via `fields=`): bag photos unavailable from the API today (UI collapses gracefully; ask Loffee Labs about tier gating), tag chips dormant, `tasting` comma-string carries the flavor list. Full shape in `design.md` § Context item 6.
 - [x] 0.3 RESOLVED from the open-source `miharekar/visualizer` repo (design.md § Context 9): full CRUD at `/api/coffee_bags` (+`/api/roasters`), Basic auth, bag WRITES are premium-gated; `canonical_coffee_bags.id` is a Visualizer UUID with the Bean Base integer in `loffee_labs_id` (no API lookup exists — canonical linkage needs a small upstream addition); shot PATCH accepts `shot[canonical_coffee_bag_id]` for all users and `shot[coffee_bag_id]` with coffee management enabled (server auto-fills bean fields from the bag). Section 7 re-scoped accordingly.
 
@@ -71,7 +71,7 @@
 - [x] 5.4 Tapping a dropdown row emits `entrySelected(entry)` and collapses the dropdown.
 - [x] 5.5 Typing while in `linked` state automatically transitions to "search mode" (emits `unlinkRequested()` and re-opens the dropdown). This matches Visualizer's `canonical_selector_controller` behavior.
 - [x] 5.6 Accessibility: search field is `Accessible.role: TextField` with name "Search Loffee Labs Bean Base"; dropdown rows are `AccessibleButton`-equivalent with `accessibleName` of the row text.
-- [ ] 5.7 Component test — DEFERRED: no QML component-test harness exists in tests/ today; covered by manual verification (Section 10) until one is introduced.
+- [x] 5.7 CLOSED won't-do (2026-07-07): no QML component-test harness exists; covered by manual verification. Original: Component test — DEFERRED: no QML component-test harness exists in tests/ today; covered by manual verification (Section 10) until one is introduced.
 
 ## 6. Tier 2 — Integrate `BeanBaseSearchBar` into BeanInfoPage
 
@@ -85,21 +85,21 @@
   - Trigger the `↑` suggestion arrows on Roaster + Coffee to hide (e.g., `Settings.dye.beanBaseId` non-empty → `suggestionArrow.visible = false`).
 - [x] 6.5 Render Roaster, Coffee, AND Roast level controls locked with a subtle "verified" tint when linked AND the matched entry supplied a non-empty value for that field (lock condition: `linked && pulledValueNonEmpty` — e.g. an entry with no `degree` leaves Roast level editable so the user can fill the gap). Unlinked beans keep today's fully-editable free-text experience with zero added friction (most beans are not in Bean Base).
 - [x] 6.6 On `unlinkRequested()`: clear `Settings.dye.beanBaseId` + `beanBaseRoasterId` + cached attribute fields. Roaster + Coffee field values are *retained* (do not clear) so the user can edit them freely.
-- [ ] 6.7 Preset-list thumbnails (left column rows) — NOT YET: FavoritesListView rows are text-based; the bag photo IS shown in the details row + popup (6B). Revisit as polish if wanted.
+- [x] 6.7 DONE (2026-07-07, this archive PR): BagCard now shows a 44px bag-photo thumbnail resolved via the og:image file cache (`BeanBaseClient::ensureBagImage`; legacy blob `image` URL as fallback) with a beans-icon placeholder. Original: Preset-list thumbnails (left column rows) — NOT YET: FavoritesListView rows are text-based; the bag photo IS shown in the details row + popup (6B). Revisit as polish if wanted.
 - [x] 6.8 In edit mode (`isEditMode`), keep the search bar visible — retro-linking a historical shot is a deliberate use case, and so is FIXING a wrong link ("forgot to change the bean"). Re-link/unlink in edit mode updates the edited shot's `beanbase_json` snapshot (and visible bean fields) for that shot only; current DYE session state is untouched. The shot-metadata update path (`requestUpdateShotMetadata`) must carry the snapshot.
 - [x] 6.9 Translation keys: `beaninfo.beanbase.linked`, `beaninfo.beanbase.unlink`, `beaninfo.beanbase.openUrl`, `beaninfo.accessibility.searchBar`.
 - [x] 6.10 Accessibility focus order: search bar comes before Roaster field; when linked, "Unlink" button is reachable before Roaster.
 
 ## 5B. Tier 2 — Search quality follow-up (from live-API probing)
 
-- [ ] 5B.1 Multi-word zero-result fallback: `search=` is contiguous-substring only ("prodigal washed" → 0). When a multi-word query returns 0 results, retry with `roaster=<leading word(s)>` anchoring or longest-single-word fallback before showing "No matches". (See design.md § Context 7.)
+- [x] 5B.1 OBSOLETE (2026-07-07): loffeelabs whole-word `search=` was replaced by Visualizer canonical search (substring + multi-word native). Original: Multi-word zero-result fallback: `search=` is contiguous-substring only ("prodigal washed" → 0). When a multi-word query returns 0 results, retry with `roaster=<leading word(s)>` anchoring or longest-single-word fallback before showing "No matches". (See design.md § Context 7.)
 
 ## 5C. Tier 2/3 — Visualizer-powered lookup (from § Context 10; user-requested direction)
 
 - [x] 5C.1 Add `visualizerCanonicalSearch(q)` to the client layer: GET `visualizer.coffee/canonical/autocomplete_coffee_bags?q=`, parse `<li>` attrs (`data-autocomplete-value` UUID, `data-roaster`, `data-coffee-bag`). No auth, substring + multi-word. Defensive parsing (internal endpoint).
 - [x] 5C.2 Use it as the search bar's multi-word / no-key path (supersedes 5B.1). CONFIRMED LIVE: the two-stage flow (`autocomplete_roasters` → `autocomplete_coffee_bags?require_roaster=true&canonical_roaster_id=<uuid>`) embeds a JSON payload per result (roast_level, country, region, farmer, variety, elevation, processing, harvest_time, tasting_notes) — so Visualizer alone supplies most attributes keylessly. No loffee_labs_id is exposed (no precise Bean Base cross-lookup); Bean Base adds only link/type/description/image, via fuzzy `roaster=`+`search=` when a key exists.
 - [x] 5C.3 Shot PATCH linkage: send `shot[canonical_coffee_bag_id] = visualizerCanonicalId` on uploads/updates (accepted for ALL users — no premium needed). This delivers Tier 3's cross-user clustering without the bag-CRUD premium gate.
-- [ ] 5C.4 Upstream ask (miharekar): JSON canonical endpoint incl. `loffee_labs_id` + display attributes — would obsolete per-user Bean Base keys entirely.
+- [x] 5C.4 SATISFIED (2026-07-07): Visualizer's official /api/canonical_coffee_bags JSON endpoint adopted (#1336); per-user Bean Base keys removed entirely. Original: Upstream ask (miharekar): JSON canonical endpoint incl. `loffee_labs_id` + display attributes — would obsolete per-user Bean Base keys entirely.
 
 > 5C IMPLEMENTED (June 2026): `search()` is now the canonical path (keyless, 350 ms debounce, no rate floor, session cache + roaster-UUID cache); `searchBeanBase()` keeps the Bean Base contract for optional enrichment; `fetchCanonicalDetails()` does the two-stage payload fetch (emitted via `canonicalDetails`, merged into the blob by BeanInfoPage); uploader PATCH sends `shot[canonical_coffee_bag_id]` from the blob's `visualizerCanonicalId` (emit-only, never nulled — the user may have linked in Visualizer's UI). MCP tool RENAMED `bean_base_search`→`bean_search` and switched to the canonical path with per-result enrichment (top 5, 4 s grace). Search bar is now ALWAYS visible (spec revised). Caught by tests: const-ref aliasing bug (doSendCanonicalSearch cleared the member its `query` param aliased — results cached under ""). 51/51 green.
 
@@ -122,7 +122,9 @@
 
 > Premium detection (prerequisite, designed June 2026): `POST /api/coffee_bags` with an empty body — 401 = bad creds, 403 "must be a premium user" = not premium, 400 ParameterMissing = PREMIUM (params rejected before any write; zero side effects). Note premium ≠ coffee_management_enabled (a separate user preference gating shot[coffee_bag_id]); verify by reading the PATCH response back. Upstream nicety: ask for `premium` in `/api/me`.
 
-> **RE-SCOPED after 0.3 (design.md § Context 9).** Blocked on: (a) an upstream loffee_labs_id→canonical-UUID lookup (propose/contribute to miharekar/visualizer — it's open source), and (b) bag writes being premium-only. Implementable once (a) lands: ensure-roaster → ensure-bag (full Bean Base attributes) → PATCH shot with coffee_bag_id / canonical_coffee_bag_id. Original tasks below kept for the field mapping; revise against the confirmed params when implementing.
+> **OBSOLETE (2026-07-07).** The blocker dissolved when search moved to Visualizer canonical UUIDs natively (#1336) — no loffee_labs_id→UUID lookup needed. Bag payloads carry canonical_coffee_bag_id/canonical_roaster_id + cached attributes (visualizeruploader.cpp), and shots PATCH the canonical id directly; the fetch-user-bags dedup flow below was keyed to the removed API-key configuration trigger and is superseded by the bag-sync architecture (#1334, migration 16 queue). Tasks left unchecked as a record of the unbuilt original plan.
+>
+> Original re-scope: Blocked on: (a) an upstream loffee_labs_id→canonical-UUID lookup (propose/contribute to miharekar/visualizer — it's open source), and (b) bag writes being premium-only. Implementable once (a) lands: ensure-roaster → ensure-bag (full Bean Base attributes) → PATCH shot with coffee_bag_id / canonical_coffee_bag_id. Original tasks below kept for the field mapping; revise against the confirmed params when implementing.
 
 - [ ] 7.1 Extend `VisualizerUploader::buildCoffeeBagJson()` (or whichever method serializes the bag payload — verify in `src/network/visualizeruploader.cpp` lines around the existing bag block) to include:
   - `coffee_bag[canonical_coffee_bag_id]` = `dyeBeanBaseId` if non-empty
@@ -167,22 +169,22 @@
   - Uses the same `BeanBaseClient` instance (with same rate-limit harness).
   - Rejects gracefully with a structured error if `Settings.beanbase.beanBaseApiKey` is empty.
 - [x] 8.4 Documented in MCP_SERVER.md (new Bean Base section: bean_base_search, beanBase read/write on shot tools, key not exposed via MCP).
-- [ ] 8.5 Integration test: with a mock Bean Base server, the advisor receives the attribute block for a linked preset and free-text fallback otherwise.
+- [x] 8.5 OBSOLETE (2026-07-07): the advisor reads the local snapshot blob (no live Bean Base server exists to mock). Original: Integration test: with a mock Bean Base server, the advisor receives the attribute block for a linked preset and free-text fallback otherwise.
 
 ## 9. Documentation & cross-references
 
 - [x] 9.1 Update `docs/CLAUDE_MD/AI_ADVISOR.md` § "Bean Data Enrichment" (lines 384–432): mark Bean Base integration as in-progress (with reference to this change), keep the Visualizer-linkage paragraph accurate (correct the "ids match" assumption — they don't; Visualizer stores Bean Base ids verbatim in its `canonical_coffee_bag_id` column).
 - [x] 9.2 Add a new `docs/CLAUDE_MD/BEAN_BASE.md` covering: API endpoints, free-tier rate limits, the `BeanBaseClient` rate-limit + cache harness, the field-mapping table, the linked-state matrix, and the Visualizer upload linkage shape.
 - [x] 9.3 Link the new doc from the table in `CLAUDE.md` ("Reference Documents" section).
-- [ ] 9.4 If the tab is renamed to "Cloud" in a future change, this doc gets updated then — not now.
+- [x] 9.4 CLOSED (2026-07-07): explicit not-now by design. Original: If the tab is renamed to "Cloud" in a future change, this doc gets updated then — not now.
 
 ## 10. Verification
 
-- [ ] 10.1 Manual: with no key → BeanInfoPage looks identical to today; Settings shows the new section with a working "Get free key" link.
-- [ ] 10.2 Manual: with a valid key → typing "prodigal espress" in the search bar yields a Visualizer-like dropdown; tapping a result populates Roaster + Coffee + Roast level and shows "✓ Linked".
-- [ ] 10.3 Manual: with an invalid key → Test Key shows "Invalid API key"; search bar still visible but every search shows a graceful error toast.
-- [ ] 10.4 Manual: after linking → upload to Visualizer; verify in the rendered shot page that the coffee_bag shows the canonical-bag verified state with the right roaster + name + URL.
-- [ ] 10.5 Manual: clear the API key while a preset is linked → the linked-state indicator persists, search bar disappears. Re-enter the key → search bar returns; existing link unchanged.
-- [ ] 10.6 Manual: AI advisor with a linked preset → confirm in MCP debug logs that the `beanBaseAttributes` block is included in the prompt.
-- [ ] 10.7 Manual: AI advisor calls `bean_base_search` → response comes back within rate-limit budget, results are usable.
-- [ ] 10.8 Manual: backup/restore round-trip → API key, beanBaseId on presets, and cached attributes all survive.
+- [x] 10.1 OBSOLETE (key removed; search is keyless). Original: with no key → BeanInfoPage looks identical to today; Settings shows the new section with a working "Get free key" link.
+- [x] 10.2 VERIFIED in production use (canonical search dropdown). Original: with a valid key → typing "prodigal espress" in the search bar yields a Visualizer-like dropdown; tapping a result populates Roaster + Coffee + Roast level and shows "✓ Linked".
+- [x] 10.3 OBSOLETE (key removed). Original: with an invalid key → Test Key shows "Invalid API key"; search bar still visible but every search shows a graceful error toast.
+- [x] 10.4 VERIFIED in production use (canonical id lands on Visualizer). Original: after linking → upload to Visualizer; verify in the rendered shot page that the coffee_bag shows the canonical-bag verified state with the right roaster + name + URL.
+- [x] 10.5 OBSOLETE (key removed). Original: clear the API key while a preset is linked → the linked-state indicator persists, search bar disappears. Re-enter the key → search bar returns; existing link unchanged.
+- [x] 10.6 VERIFIED (advisor currentBean.beanBase block ships from the snapshot). Original: AI advisor with a linked preset → confirm in MCP debug logs that the `beanBaseAttributes` block is included in the prompt.
+- [x] 10.7 OBSOLETE (bean_base_search replaced by keyless bean_search MCP tool). Original: AI advisor calls `bean_base_search` → response comes back within rate-limit budget, results are usable.
+- [x] 10.8 VERIFIED (backup/restore covers dye/bag storage incl. blob; key no longer exists). Original: backup/restore round-trip → API key, beanBaseId on presets, and cached attributes all survive.

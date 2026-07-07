@@ -20,7 +20,7 @@ BeanBaseSearchBar (BeanInfoPage + PostShotReviewPage)
               └─ advisor: currentBean.beanBase via DialingBlocks::buildCurrentBeanBlock
 ```
 
-**Snapshot, not reference**: every shot stores the full bean JSON at link time. Bean Base delists/mutates entries (`historical=true` is Dev-tier-gated), so history must never depend on their retention. Bag images are CDN URLs, not stored pixels.
+**Snapshot, not reference**: every shot stores the full bean JSON at link time. Bean Base delists/mutates entries (`historical=true` is Dev-tier-gated), so history must never depend on their retention. The snapshot never preserves the photo — legacy pre-removal blobs carry a CDN `image` URL, canonical blobs nothing; locally displayed pixels live in an evictable file cache (see 'Bag images' below).
 
 ## Historical: the Loffee Labs Bean Base API (removed June 2026)
 
@@ -48,9 +48,14 @@ Entries are QVariantMaps (QML lingua franca; deliberately not a C++ value type).
 | `roasterName`, `roastName` | ✓ | ✓ | — |
 | `degree, origin, region, producer, variety, process, harvest, tastingNotes` | — | ✓ | ✓ (remapped from Visualizer columns) |
 | `elevation` (display string) | — | — | ✓ |
-| `minElevationM/maxElevationM` (int), `link, image, beanType, description, tastingTags, generalTags, soldout, available, roasterRegion, roasterCountry` | — | ✓ | — |
+| `link` (roaster product page) | ✓ (from `url`) | ✓ | — |
+| `minElevationM/maxElevationM` (int), `image, beanType, description, tastingTags, generalTags, soldout, available, roasterRegion, roasterCountry` | — | ✓ | — |
 
 The blob = one entry JSON-compacted. `src/network/beanbase_blob.h` is the C++ definition of "linked" (`isLinked`: parses + non-empty `id`) and of the uploader's canonical id (`canonicalId`); QML mirrors it via `bean.id !== ""` checks. A misspelled key reads as `undefined`/`""` with no diagnostics — check this table before adding readers.
+
+## Bag images (file cache, never in the DB)
+
+The canonical DB has **no image column**, so canonical blobs carry no `image` (only legacy pre-removal blobs do). Bag photos are resolved best-effort by `BeanBaseClient::ensureBagImage()`: the entry's `link` (roaster product page) is fetched once and its `og:image` meta tag downloaded to a **file cache** at `CacheLocation/bagimages/<canonicalId>` — size-capped (30 MB), oldest-written evicted first, re-resolvable; pixels never enter the database or the blob (writes are atomic: temp file + rename). Blobs linked before `link` was captured recover the URL by re-searching the canonical API by name; the recovered `link` is backfilled into the bag blob (`bagLinkRecovered` → BagCard) so the details popup can offer the reorder URL. One attempt per canonical id per session; expected misses are silent (consumers keep their placeholder), local disk faults `qWarning`. Consumers: `BagCard` (`Theme.scaled(44)` thumbnail + beans-icon placeholder) and `BeanBaseDetailsPopup` (large photo) — both fall back to a legacy blob `image` URL; `BeanBaseDetailsRow` still renders only the legacy blob URL and does not use the cache. File writes and eviction run off the main thread.
 
 ## UI rules
 
