@@ -34,14 +34,15 @@
 
 ## 5. Phase 1 — Release
 
-- [ ] 5.1 Open a PR (not a push to main); run `/pr-review-toolkit:review-pr`; address findings
-- [ ] 5.2 Comment on issue #1223 summarizing the Phase 1 fix and requesting the reporter's scrubbed `shots.db` as a second regression fixture / Phase 2 validation dataset
+- [x] 5.1 Open a PR (not a push to main); run `/pr-review-toolkit:review-pr`; address findings — **shipped as PR #1236 (merged 2026-05-19)**
+- [x] 5.2 Comment on issue #1223 summarizing the Phase 1 fix and requesting the reporter's scrubbed `shots.db` as a second regression fixture / Phase 2 validation dataset — **issue closed; reporter DB received (see 6.6)**
 
-## 6. Phase 2 — Deliberate UGS calibration (validation-gated)
+## 6. Phase 2 — Deliberate UGS calibration (SPLIT OUT)
 
-- [ ] 6.1 Add a `SettingsGrinder` domain sub-object (settings-architecture rules: not on `Settings` directly; `qmlRegisterUncreatableType`; `Settings.grinder.*` QML access) storing per-`(grinderModel, grinderBurrs)` calibration records
-- [ ] 6.2 Implement the two-anchor capture (record fine + coarse anchor shots, reject anchors closer than the minimum UGS span, compute + persist Conversion Key with both anchors + timestamp)
-- [ ] 6.3 Make `buildGrinderCalibrationBlock` prefer a stored Conversion Key when present → `confidence: "calibrated"`, validated range = deliberate anchor span; per-coffee anchor + cap still apply
-- [ ] 6.4 Add the default-off long-hop validation gate; with gate off, calibrated confidence holds only within the Phase 1 window and falls back to directional beyond it
-- [ ] 6.5 Tests: stored-key precedence, anchors-too-close rejection, no-calibration leaves Phase 1 untouched, gate-off keeps long-hop directional, gate-on (after fixture validation) permits bounded long-hop numbers
-- [x] 6.6 #1223 reporter DB (markpalmos-database, DF83V + Mignon Specialita, 5434 shots) received and Phase-1-validated offline via tools/calib_analysis.py: LEGACY faithfully reproduces the exact reported failure (DF83V: conversionKey 0.42, TurboTurbo rgs **22** — the number the AI gave fredphoesh); PROPOSED → DIRECTIONAL only on both grinders (no fabricated number). Second independent dataset confirms Phase 1. Binary DB NOT committed (privacy — real user history). Deliberate-calibration (Phase 2) long-hop gate remains deferred until that mechanism is built.
+Phase 2 (deliberate two-anchor calibration, `SettingsGrinder` storage,
+validation gate) was split to its own change `add-grinder-ugs-calibration`
+on 2026-07-07, parked pending a go/no-go decision. The `grinder-ugs-calibration`
+delta spec moved with it; only the validation record below stays here as part
+of the Phase-1 story.
+
+- [x] 6.6 #1223 reporter DB (markpalmos-database, DF83V + Mignon Specialita, 5434 shots) received and Phase-1-validated offline via tools/calib_analysis.py: LEGACY faithfully reproduces the exact reported failure (DF83V: conversionKey 0.42, TurboTurbo rgs **22** — the number the AI gave fredphoesh); PROPOSED → DIRECTIONAL only on both grinders (no fabricated number). Second independent dataset confirms Phase 1. Binary DB NOT committed (privacy — real user history).

@@ -21,12 +21,12 @@ The within-coffee signal, once the coffee confounder is removed, is real and con
 - **Honest unavailable state**: when no validated within-coffee anchor exists (the common single-style user), return qualitative-only — never a fabricated number.
 - **AI-usage constraints**: the rendered prompt SHALL explicitly forbid the model from translating UGS distances into click counts beyond the validated range, and SHALL mark out-of-range profiles as directional-only. UGS is presented as relative ordering, not an absolute dial. **BREAKING**: `source: "extrapolated"` numeric `rgs` values are removed/replaced with a directional marker; payload consumers must handle a non-numeric out-of-range entry.
 
-**Phase 2 — Do it properly (opt-in, validation-gated).** The deliberate two-distant-anchor calibration from the original UGS spec (Cremina/UGS-0 + Rao-Allongé/UGS-8 style): user pulls two anchor profiles once per grinder+burrs, the system stores a Conversion Key, and the dialing block consumes the stored key for full-range numeric guidance (still per-coffee anchored, still capped to the *calibrated* range). Phase 2 is scoped behind explicit validation on a second real dataset before the numeric long-hop path is trusted.
+**Phase 2 — Do it properly (opt-in, validation-gated).** SPLIT OUT 2026-07-07 to its own change, `add-grinder-ugs-calibration`, parked pending a go/no-go decision. The deliberate two-distant-anchor calibration from the original UGS spec: user pulls two anchor profiles once per grinder+burrs, the system stores a Conversion Key, and the dialing block consumes the stored key for full-range numeric guidance. The `grinder-ugs-calibration` delta spec moved with the split; this change now covers Phase 1 only.
 
 ## Capabilities
 
 ### New Capabilities
-- `grinder-ugs-calibration`: Phase 2 opt-in deliberate UGS calibration — capture two distant anchor shots per grinder+burrs, persist a Conversion Key, and expose it for the dialing block to consume. Includes the validation gate that keeps long-hop numeric guidance disabled until the mechanism is confirmed on independent data.
+<!-- none — `grinder-ugs-calibration` moved to add-grinder-ugs-calibration with the Phase 2 split -->
 
 ### Modified Capabilities
 - `dialing-context-payload`: the `grinderCalibration` requirement is rewritten — within-coffee paired conversion key, dialed-in quality filter, per-coffee anchor, mandatory extrapolation cap, qualitative/unavailable fallback, and a `confidence` + `usageConstraint` field. Consumes a Phase 2 stored Conversion Key when present.
