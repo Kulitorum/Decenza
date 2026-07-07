@@ -480,9 +480,7 @@ Page {
                         width: Theme.scaled(70)
                         height: Theme.scaled(40)
                         radius: Theme.scaled(20)
-                        color: Theme.surfaceColor
-                        border.color: Theme.borderColor
-                        border.width: Theme.scaled(1)
+                        color: Theme.primaryColor
                         Accessible.ignored: true
 
                         Text {
@@ -490,7 +488,7 @@ Page {
                             text: TranslationManager.translate("autofavorites.recipe", "Recipe")
                             font.pixelSize: Theme.scaled(14)
                             font.bold: true
-                            color: Theme.textColor
+                            color: Theme.primaryContrastColor
                             Accessible.ignored: true
                         }
 
