@@ -58,7 +58,7 @@ Each result row SHALL display a label indicating its source(s): "Bean Base", "Hi
 - **THEN** its source label SHALL be visible without requiring any interaction
 
 ### Requirement: Bag details form after picking a result
-After selecting any result, the dialog SHALL show a Bag Details form pre-filled with available data. The form SHALL only show fields for which the system does not already have a value.
+After selecting any result, the dialog SHALL show a Bag Details form pre-filled with available data. The form SHALL only show fields for which the system does not already have a value, except the Bean details section, which SHALL always be present (collapsed) with canonical-supplied values prefilled as editable fields — canonical attributes are no longer rendered as read-only confirmation.
 
 #### Scenario: Picking a canonical + history result
 - **WHEN** the user picks a Tier 1 result (both sources)
@@ -68,11 +68,16 @@ After selecting any result, the dialog SHALL show a Bag Details form pre-filled 
 #### Scenario: Picking a canonical-only result
 - **WHEN** the user picks a Tier 2 Bean Base result with no history
 - **THEN** the form SHALL show: roast date (blank — optional), grinder setting (blank)
-- **AND** canonical attributes SHALL be shown as read-only confirmation, not editable fields
+- **AND** canonical attributes SHALL prefill the collapsed Bean details section as editable fields (per `bag-detail-editing`), not read-only confirmation
 
 #### Scenario: Manual entry
 - **WHEN** the user selects "Enter manually"
 - **THEN** all fields SHALL be shown as editable: roaster, coffee name, roast date, roast level, grinder setting, dose
+- **AND** the collapsed Bean details section SHALL be available for optional detail entry
+
+#### Scenario: Canonical linking available in create mode
+- **WHEN** the bag form opens in create mode (history pick, inventory re-buy, or manual entry) without a canonical link
+- **THEN** the Bean Base search bar SHALL be present (prefilled with the known roaster/coffee text when any) so the bag can be linked before saving — no save-then-"Find in Bean Base" round-trip
 
 ### Requirement: Roast date is always user-entered, never inferred, and optional
 The system SHALL never infer or pre-fill the roast date from any source — a new bag is a new roast date. The roast date field SHALL always be blank when the form opens. It SHALL NOT be required: a bag may be created without one (supermarket beans, gifts, unknown roast dates), and the summary already silences an absent roast date rather than showing a placeholder.

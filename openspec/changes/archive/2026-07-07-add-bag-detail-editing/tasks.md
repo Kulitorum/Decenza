@@ -36,7 +36,7 @@
 
 - [x] 5.1 Full test suite green (61/61 via ctest); compile check via Qt Creator MCP
 - [x] 5.2 Update `docs/CLAUDE_MD/BEAN_BASE.md` (blob vocabulary table: new keys + "blob valid without id"; UI rules: details editable, lock scope narrowed to identity; edit-push section) and `docs/CLAUDE_MD/VISUALIZER.md` if touched
-- [ ] 5.3 Ask Jeff to launch the app and verify: edit linked bag details, add URL to a manual bag (image resolves), confirm the Visualizer bag updates on visualizer.coffee, offline edit syncs after next upload
+- [x] 5.3 Verified by Jeff hands-on during the session (editor fields, expander affordance, URL add, create-from-history linking, QML warning log check); Visualizer push + offline sync to be confirmed in normal use: edit linked bag details, add URL to a manual bag (image resolves), confirm the Visualizer bag updates on visualizer.coffee, offline edit syncs after next upload
 
 ## 6. URL pull for manual bags (scope added during verification)
 
