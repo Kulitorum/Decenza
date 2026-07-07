@@ -187,9 +187,10 @@ signals:
     // A bag edit-push was rejected by server validation (HTTP 422 — e.g. the
     // renamed bag collides with an existing roaster+name+roast_date, or the
     // defrost date precedes the frozen date). Definitive: not retried; local
-    // values stay as edited. Carries the server's message for a one-shot
-    // non-blocking toast (add-bag-detail-editing).
-    void bagPushRejected(qint64 localBagId, const QString& message);
+    // values stay as edited. Carries the bag's display name (a 422 can fire
+    // from the retry drain long after the edit) and the server's message for
+    // a one-shot non-blocking toast (add-bag-detail-editing).
+    void bagPushRejected(qint64 localBagId, const QString& bagName, const QString& message);
     // Reconciliation list fetch results.
     void shotListFetched(const QVariantList& shots);
     void shotListFailed(const QString& error);
@@ -260,8 +261,14 @@ private:
     void persistBagSyncIds(qint64 localBagId, const QString& visualizerBagId,
                            const QString& visualizerRoasterId);
     // Set/clear coffee_bags.visualizer_sync_pending (background write, no
-    // signals): set on a retryable push failure or a push parked while CM was
-    // Unknown; cleared on success and on every definitive outcome (403/404/422).
+    // signals). Park-first contract: updateBagOnVisualizer SETS it before any
+    // network I/O (and when parking during CM-Unknown); it is CLEARED only by
+    // an outcome — patchRemoteBag's reply (200/403/404/422) or the not-synced-
+    // yet skip. Failures that never produce a reply (roaster-list GET dying
+    // offline, roaster create dropped, bag load failure) therefore leave it
+    // set for the next upload cycle's retry. One deliberate leak: a roaster-
+    // create 403 flips CM off with the flag still set — inert (retry requires
+    // Active) and self-draining if premium returns.
     void persistBagSyncPending(qint64 localBagId, bool pending);
     // Re-push every sync-pending bag. Called from the upload read-back once CM
     // is confirmed Active (add-bag-detail-editing) — the event-driven retry for

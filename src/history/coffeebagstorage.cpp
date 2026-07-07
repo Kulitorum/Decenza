@@ -803,9 +803,21 @@ bool CoffeeBagStorage::importBagsStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     QSet<QString> srcColumns;
     {
         QSqlQuery info(srcDb);
-        if (info.exec("PRAGMA table_info(coffee_bags)"))
-            while (info.next())
-                srcColumns.insert(info.value(1).toString());
+        if (!info.exec("PRAGMA table_info(coffee_bags)")) {
+            // Must be fatal: an empty column set would substitute NULL for
+            // EVERY column below — the SELECT still succeeds and, in replace
+            // mode, the cleared inventory gets repopulated with nameless
+            // all-NULL bags while this function reports success.
+            qWarning() << "CoffeeBagStorage: failed to read source bag schema:"
+                       << info.lastError().text();
+            return false;
+        }
+        while (info.next())
+            srcColumns.insert(info.value(1).toString());
+    }
+    if (!srcColumns.contains(QStringLiteral("id"))) {
+        qWarning() << "CoffeeBagStorage: source coffee_bags schema has no id column - aborting import";
+        return false;
     }
     QStringList selectCols;
     for (const QString& col : bagColumnList().split(QStringLiteral(", ")))

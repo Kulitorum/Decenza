@@ -3709,17 +3709,21 @@ ApplicationWindow {
     // roast_date). One-shot, not retried; the local edit is kept as-is
     // (add-bag-detail-editing).
     property string bagPushToastText: ""
-    Tr { id: trBagPushRejected; key: "main.toast.bagPushRejected"; fallback: "Visualizer did not accept the bag update: %1"; visible: false }
+    Tr { id: trBagPushRejected; key: "main.toast.bagPushRejected"; fallback: "Visualizer did not accept the update for %1: %2"; visible: false }
 
     Connections {
         target: MainController.visualizer
 
-        function onBagPushRejected(localBagId, message) {
-            bagPushToastText = trBagPushRejected.text.arg(message)
+        function onBagPushRejected(localBagId, bagName, message) {
+            // Name the bag: a 422 can arrive from the retry drain long after
+            // the edit, when a bare "the bag update" identifies nothing.
+            bagPushToastText = trBagPushRejected.text.arg(bagName).arg(message)
             bagPushToast.opacity = 1
             bagPushToastTimer.restart()
             if (AccessibilityManager.enabled) {
-                AccessibilityManager.announce(bagPushToastText)
+                // Assertive: this is the only trace that the local and remote
+                // bags have permanently diverged.
+                AccessibilityManager.announce(bagPushToastText, true)
             }
         }
     }

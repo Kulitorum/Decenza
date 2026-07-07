@@ -91,13 +91,20 @@ Dialog {
     property string fTastingNotes: ""
     property string fLink: ""
     property bool detailsExpanded: false
-    // Product URL when the form opened; a changed URL on save re-resolves the
-    // bag image (the cached og:image pixels describe the old page).
+    // Product URL when the form opened; a URL changed to a NON-EMPTY value on
+    // save re-resolves the bag image (the cached og:image pixels describe the
+    // old page). Clearing the URL keeps the cached image — there is nothing
+    // to re-resolve from.
     property string _openedLink: ""
 
     readonly property var formBeanBase: {
         if (!fBeanBaseData || fBeanBaseData.length === 0) return ({})
-        try { return JSON.parse(fBeanBaseData) } catch (e) { return ({}) }
+        try { return JSON.parse(fBeanBaseData) } catch (e) {
+            // The C++ merge refuses to touch a corrupt blob, so the stored
+            // data survives — but the form renders blank detail fields.
+            console.warn("ChangeBeansDialog: corrupt beanBaseData for bag", editBagId, e)
+            return ({})
+        }
     }
     readonly property var _formAttrParts: {
         var parts = []
@@ -111,8 +118,10 @@ Dialog {
     readonly property string formAttrLine: _formAttrParts.join("  ·  ")
     readonly property string formAttrLineRich: Theme.joinWithBullet(_formAttrParts)
 
-    // Pull the editable detail fields out of the staged blob (canonical pick,
-    // enrichment arrival, unlink, revert — every fBeanBaseData mutation).
+    // Pull the editable detail fields out of the stored form blob,
+    // fBeanBaseData (canonical pick, enrichment arrival, unlink, revert —
+    // every fBeanBaseData mutation). NOT the live `stagedBlob` — that one is
+    // derived FROM these fields.
     function syncDetailFieldsFromBlob() {
         var bb = formBeanBase
         function s(key) { return bb[key] !== undefined && bb[key] !== null ? String(bb[key]) : "" }
@@ -424,9 +433,9 @@ Dialog {
         // Merge the edited detail fields into the blob (canonical snapshot
         // captured on the first edit of a linked bag; cleared fields removed).
         var mergedBlob = stagedBlob
-        // A changed product URL re-resolves the bag image — the cached
-        // og:image pixels describe the old page (linked bags only: the image
-        // cache is keyed by canonical id).
+        // A URL changed to a non-empty value re-resolves the bag image — the
+        // cached og:image pixels describe the old page (linked bags only:
+        // the image cache is keyed by canonical id).
         if (fBeanBaseId.length > 0 && fLink.trim() !== _openedLink && fLink.trim().length > 0)
             MainController.beanbase.refreshBagImage(fBeanBaseId, fCoffee.trim(), fLink.trim())
         var fields = {
@@ -995,9 +1004,11 @@ Dialog {
                             onUnlinkRequested: {
                                 root.fBeanBaseId = ""
                                 root.fBeanBaseData = ""
-                                // Cached canonical attributes clear with the
-                                // link (bean-base-search: unlink preserves the
-                                // identity fields, not the attribute cache).
+                                // The whole blob clears with the link — the
+                                // canonical attribute cache AND any unsaved
+                                // detail edits typed this session (bean-base-
+                                // search: unlink preserves only the identity
+                                // fields).
                                 root.syncDetailFieldsFromBlob()
                                 root.fLinkDirty = true
                             }
@@ -1016,7 +1027,10 @@ Dialog {
                                 root.fBeanBaseData = JSON.stringify(blob)
                                 root.syncDetailFieldsFromBlob()
                             } catch (e) {
-                                // Corrupt staged blob: keep the minimal entry
+                                // Keep the minimal entry; without the log the
+                                // detail fields just never populate, which is
+                                // indistinguishable from an empty API result.
+                                console.warn("ChangeBeansDialog: dropping enrichment, corrupt staged blob:", e)
                             }
                         }
                     }
@@ -1098,12 +1112,17 @@ Dialog {
                     // working keys of the beanBaseData blob. Collapsed by
                     // default with the origin·variety·process summary in the
                     // header; every field editable, linked or not. ---
+                    // Header styled like the input controls around it (same
+                    // fill + radius as StyledComboBox) so it reads as tappable,
+                    // with a down/up chevron — a bare label + right-arrow read
+                    // as static text with a navigation affordance.
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.leftMargin: Theme.scaled(20)
                         Layout.rightMargin: Theme.scaled(20)
-                        Layout.preferredHeight: Theme.scaled(36)
-                        color: "transparent"
+                        Layout.preferredHeight: Theme.scaled(40)
+                        radius: Theme.scaled(6)
+                        color: Qt.rgba(255, 255, 255, 0.1)
 
                         Accessible.role: Accessible.Button
                         Accessible.name: trBeanDetails.text
@@ -1116,6 +1135,8 @@ Dialog {
 
                         RowLayout {
                             anchors.fill: parent
+                            anchors.leftMargin: Theme.scaled(12)
+                            anchors.rightMargin: Theme.scaled(12)
                             spacing: Theme.scaled(6)
 
                             Tr {
@@ -1123,7 +1144,7 @@ Dialog {
                                 key: "changebeans.form.beanDetails"
                                 fallback: "Bean details"
                                 font: Theme.bodyFont
-                                color: Theme.textSecondaryColor
+                                color: Theme.textColor
                                 Accessible.ignored: true
                             }
 
@@ -1145,7 +1166,9 @@ Dialog {
                                 iconWidth: Theme.scaled(12)
                                 iconHeight: Theme.scaled(12)
                                 iconColor: Theme.textSecondaryColor
-                                rotation: root.detailsExpanded ? -90 : 180
+                                // ArrowLeft points west: -90 = down (expand
+                                // opens below), +90 = up (collapse).
+                                rotation: root.detailsExpanded ? 90 : -90
                                 Accessible.ignored: true
                             }
                         }

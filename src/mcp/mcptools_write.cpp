@@ -1750,34 +1750,50 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             }
 
             // Read the current blob, merge, then run the normal update.
-            QThread* mergeThread = QThread::create([dbPath, bagId, fields, blobEdits, proceed, respond]() {
+            QThread* mergeThread = QThread::create([dbPath, bagId, fields, blobEdits, proceed, respondWithBag, respond]() {
                 bool found = false;
-                QString currentBlob;
+                QString currentBlob, curRoaster, curCoffee, curLevel;
                 withTempDb(dbPath, "mcp_bagupd_blob", [&](QSqlDatabase& db) {
                     const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
                     found = bag.isValid();
                     currentBlob = bag.beanBaseData;
+                    curRoaster = bag.roasterName;
+                    curCoffee = bag.coffeeName;
+                    curLevel = bag.roastLevel;
                 });
-                QMetaObject::invokeMethod(qApp, [found, currentBlob, bagId, fields, blobEdits, proceed, respond]() {
+                QMetaObject::invokeMethod(qApp, [found, currentBlob, curRoaster, curCoffee, curLevel,
+                                                 bagId, fields, blobEdits, proceed, respondWithBag, respond]() {
                     if (!found) {
                         respond(QJsonObject{{"error", "Bag not found: " + QString::number(bagId)}});
                         return;
                     }
+                    // Identity mirrors into the blob's working keys when a
+                    // blob exists OR this update introduces one (a non-empty
+                    // detail edit) — the same rule as the bag editor's
+                    // detailEdits(), so both write paths produce the same
+                    // blob. The mirror value is the post-update state: the
+                    // arg when given, else the stored column (the editor's
+                    // always-populated form fields behave identically).
+                    bool anyDetail = false;
+                    for (auto it = blobEdits.constBegin(); it != blobEdits.constEnd(); ++it) {
+                        if (!it.value().toString().trimmed().isEmpty()) { anyDetail = true; break; }
+                    }
                     QVariantMap edits = blobEdits;
-                    if (!currentBlob.isEmpty()) {
-                        if (fields.contains("roasterName"))
-                            edits.insert("roasterName", fields.value("roasterName"));
-                        if (fields.contains("coffeeName"))
-                            edits.insert("roastName", fields.value("coffeeName"));
-                        if (fields.contains("roastLevel"))
-                            edits.insert("degree", fields.value("roastLevel"));
+                    if (!currentBlob.isEmpty() || anyDetail) {
+                        edits.insert("roasterName", fields.value("roasterName", curRoaster));
+                        edits.insert("roastName", fields.value("coffeeName", curCoffee));
+                        edits.insert("degree", fields.value("roastLevel", curLevel));
                     }
                     QVariantMap finalFields = fields;
                     const QString merged = BeanBaseBlob::mergeBeanDetails(currentBlob, edits);
                     if (merged != currentBlob)
                         finalFields.insert("beanBaseData", merged);
                     if (finalFields.isEmpty()) {
-                        respond(QJsonObject{{"error", "No fields to update"}});
+                        // Everything merged to its current value (idempotent
+                        // re-apply, or clearing an already-absent key): a
+                        // semantically successful request — echo the bag
+                        // rather than erroring at the caller.
+                        respondWithBag();
                         return;
                     }
                     proceed(finalFields);

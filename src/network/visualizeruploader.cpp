@@ -1944,11 +1944,14 @@ void VisualizerUploader::addBagDescriptiveFields(QJsonObject& body, const QVaria
     // local-only: no server field, and `metadata` is the user's own space.
     // The canonical id is a LINK, not a substitute for the attributes — the
     // server does not auto-fill them, so we always send the blob fields.
-    body["name"] = bag.value("coffeeName").toString();
+    // EVERY field (name included) is omitted when locally empty, never sent
+    // as ""/null: a roaster-only local bag must not blank (name: 422s) or
+    // clear a server-side value the user set on visualizer.coffee.
     auto setIf = [&body](const char* key, const QString& value) {
         if (!value.isEmpty())
             body[QLatin1String(key)] = value;
     };
+    setIf("name", bag.value("coffeeName").toString());
     // No RoastDate::toIso() here, unlike the shot paths: a CoffeeBag's roastDate
     // is ISO yyyy-MM-dd by construction (ChangeBeansDialog only stores a 10-char
     // yyyy-mm-dd), which is exactly what the server's roast_date column expects.
@@ -2010,6 +2013,16 @@ void VisualizerUploader::updateBagOnVisualizer(qint64 localBagId)
         return;
     }
 
+    // Park FIRST, un-park on outcome. Any failure between here and
+    // patchRemoteBag's reply handler — bag load failure, the roaster-list GET
+    // dying offline, a roaster create dropped — leaves the flag set and the
+    // edit is re-pushed on the next upload cycle instead of silently lost
+    // (the transport failure that motivates the retry hits the roaster GET
+    // first, one hop before the PATCH). patchRemoteBag clears it on every
+    // reply it actually receives (200/403/404/422); only retryable outcomes
+    // leave it set.
+    persistBagSyncPending(localBagId, true);
+
     const QString dbPath = m_localDbPath;
     QPointer<VisualizerUploader> self(this);
     QThread* thread = QThread::create([self, dbPath, localBagId]() {
@@ -2020,13 +2033,26 @@ void VisualizerUploader::updateBagOnVisualizer(qint64 localBagId)
                 bagMap = bag.toVariantMap();
         });
         // QPointer dereference only on the main thread.
-        QMetaObject::invokeMethod(qApp, [self, bagMap]() {
-            if (!self || bagMap.isEmpty())
+        QMetaObject::invokeMethod(qApp, [self, bagMap, localBagId]() {
+            if (!self)
                 return;
-            // Not synced yet → nothing to update; the bag is created later on
-            // its next shot upload (gated by auto-upload).
-            if (bagMap.value("visualizerBagId").toString().isEmpty())
+            if (bagMap.isEmpty()) {
+                // Deleted bag (row gone, flag moot) or a transient load
+                // failure (flag stays set, retried next cycle). Log so the
+                // retry drain's count is explainable.
+                qDebug() << "Visualizer CM: bag" << localBagId << "load failed or deleted - push skipped";
                 return;
+            }
+            // Not synced yet → nothing to PATCH, and pending is moot: the
+            // next shot upload's server-side find-or-create carries the
+            // CURRENT local fields anyway. Clearing here also stops a bag
+            // parked while CM was Unknown (but never uploaded) from sitting
+            // in the pending set forever.
+            if (bagMap.value("visualizerBagId").toString().isEmpty()) {
+                self->persistBagSyncPending(localBagId, false);
+                qDebug() << "Visualizer CM: bag" << localBagId << "not synced yet - upload-time create covers it";
+                return;
+            }
             const QString roasterName = bagMap.value("roasterName").toString().trimmed();
             if (roasterName.isEmpty()) {
                 // No roaster to (re)resolve — PATCH descriptive fields only,
@@ -2064,11 +2090,14 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
         body["roaster_id"] = roasterId;
 
     const qint64 localBagId = bag.value("id").toLongLong();
+    const QString bagDisplayName = QStringList{bag.value("roasterName").toString(),
+                                               bag.value("coffeeName").toString()}
+                                       .join(QLatin1Char(' ')).trimmed();
     QNetworkRequest request = makeApiJsonRequest(QStringLiteral("/api/coffee_bags/") + bagUuid);
     QNetworkReply* reply = m_networkManager->sendCustomRequest(
         request, "PATCH", QJsonDocument(body).toJson(QJsonDocument::Compact));
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, bagUuid, roasterId, roasterChanged, localBagId]() {
+            [this, reply, bagUuid, roasterId, roasterChanged, localBagId, bagDisplayName]() {
         reply->deleteLater();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (status == 200) {
@@ -2093,14 +2122,17 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
         } else if (status == 422) {
             // The server rejected the values (name+roast_date uniqueness,
             // defrost-before-frozen). Retrying the same body cannot succeed —
-            // keep the local edit, surface the server's message once.
+            // keep the local edit, surface the server's message once. The
+            // toast names the bag: a 422 can fire from the retry drain hours
+            // after the edit, when "the bag update" identifies nothing.
             persistBagSyncPending(localBagId, false);
             const QJsonObject err = QJsonDocument::fromJson(reply->readAll()).object();
             QString message = err.value(QStringLiteral("error")).toString();
             if (message.isEmpty())
                 message = QStringLiteral("Visualizer rejected the bag update");
-            emit bagPushRejected(localBagId, message);
-            qDebug() << "Visualizer CM: bag update 422 -" << message;
+            emit bagPushRejected(localBagId, bagDisplayName, message);
+            qDebug() << "Visualizer CM: bag update 422 for bag" << localBagId
+                     << "(" << bagDisplayName << ") -" << message;
         } else {
             // Transport error (status 0), 429, or 5xx: retryable. Park the bag
             // as sync-pending; the next upload cycle re-pushes it.
@@ -2128,10 +2160,11 @@ void VisualizerUploader::persistBagSyncPending(qint64 localBagId, bool pending)
 
 void VisualizerUploader::retrySyncPendingBags()
 {
-    // Re-push bags whose edit-time PATCH failed retryably (or was parked while
-    // CM was Unknown). Called from the upload read-back once CM is confirmed
-    // Active — event-driven, no timers. updateBagOnVisualizer clears/sets the
-    // flag per outcome, so this self-drains and re-parks on repeat failure.
+    // Re-push bags whose edit-time push never completed (parked while CM was
+    // Unknown, or any failure after the park-first set). Called from the
+    // upload read-back once CM is confirmed Active — event-driven, no timers.
+    // Each re-push runs the full park-first cycle, so this self-drains on
+    // success/definitive outcomes and re-parks on repeat failure.
     if (m_localDbPath.isEmpty() || m_cmState != CmState::Active)
         return;
     const QString dbPath = m_localDbPath;
@@ -2140,8 +2173,12 @@ void VisualizerUploader::retrySyncPendingBags()
         QVector<qint64> pendingIds;
         withTempDb(dbPath, "viz_bagretry", [&](QSqlDatabase& db) {
             QSqlQuery query(db);
-            if (!query.exec("SELECT id FROM coffee_bags WHERE visualizer_sync_pending = 1"))
+            if (!query.exec("SELECT id FROM coffee_bags WHERE visualizer_sync_pending = 1")) {
+                // This is the ONLY drain trigger — a silent skip here would
+                // make "my edit never reached Visualizer" undebuggable.
+                qWarning() << "Visualizer CM: sync-pending query failed:" << query.lastError().text();
                 return;
+            }
             while (query.next())
                 pendingIds << query.value(0).toLongLong();
         });

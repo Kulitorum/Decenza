@@ -266,8 +266,13 @@ void BeanBaseClient::refreshBagImage(const QString& canonicalId,
     if (!isSafeCacheFilename(canonicalId))
         return;
     const QString existing = bagImagePath(canonicalId);
-    if (!existing.isEmpty())
-        QFile::remove(existing);
+    if (!existing.isEmpty() && !QFile::remove(existing)) {
+        // Bail rather than proceed: ensureBagImage would find the surviving
+        // file, take its cache-hit branch, and confirm the refresh with the
+        // OLD page's pixels — a silent no-op forever.
+        qWarning() << "BeanBaseClient: could not evict cached bag image" << existing;
+        return;
+    }
     m_imageAttempted.remove(canonicalId);
     ensureBagImage(canonicalId, roastName, productUrl);
 }

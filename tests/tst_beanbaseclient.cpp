@@ -625,6 +625,51 @@ private slots:
         QVERIFY(!BeanBaseBlob::differsFromCanonical(reverted));
     }
 
+    void corruptBlobIsNeverDestructivelyRebuilt() {
+        // A non-empty blob that doesn't parse to a JSON object (truncated
+        // write, damaged DB) must survive merge/revert UNCHANGED — rebuilding
+        // it from the edits alone would silently discard the canonical link,
+        // snapshot, and description while beanbase_id still claims a link.
+        const QString truncated = "{\"id\":\"uuid-1\",\"origin\":\"Colo";
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("refusing merge"));
+        QCOMPARE(BeanBaseBlob::mergeBeanDetails(truncated, {{"origin", "Peru"}}), truncated);
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("refusing revert"));
+        QCOMPARE(BeanBaseBlob::revertToCanonical(truncated), truncated);
+        QVERIFY(!BeanBaseBlob::differsFromCanonical(truncated));
+
+        const QString array = "[1,2,3]";
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("refusing merge"));
+        QCOMPARE(BeanBaseBlob::mergeBeanDetails(array, {{"origin", "Peru"}}), array);
+
+        // Empty is NOT corrupt — the manual-details path must keep working.
+        QVERIFY(!BeanBaseBlob::mergeBeanDetails(QString(), {{"origin", "Peru"}}).isEmpty());
+    }
+
+    void numericJsonValuesSurviveCaptureAndDiff() {
+        // Bean-Base-era blobs carry numeric values ("id":31754); capture/diff
+        // use toVariant().toString() so numbers aren't dropped as empty. A
+        // "consistency" refactor to plain toString() would silently break
+        // snapshot capture and report spurious diffs — this pins the choice.
+        const QString blob = "{\"id\":31754,\"qualityScore\":87,\"origin\":\"Colombia\"}";
+        const QString merged = BeanBaseBlob::mergeBeanDetails(blob, {{"origin", "Peru"}});
+        const QJsonObject canonical = QJsonDocument::fromJson(merged.toUtf8())
+                                          .object().value("canonical").toObject();
+        QCOMPARE(canonical.value("qualityScore").toVariant().toString(), QString("87"));
+        QVERIFY(BeanBaseBlob::differsFromCanonical(merged));   // origin changed
+        QVERIFY(!BeanBaseBlob::differsFromCanonical(BeanBaseBlob::revertToCanonical(merged)));
+    }
+
+    void revertRestoresAClearedCanonicalKey() {
+        // Third revert direction: the user CLEARED a key the canonical entry
+        // supplied (working key absent, snapshot key present).
+        const QString blob = "{\"id\":\"uuid-1\",\"region\":\"Huila\"}";
+        const QString cleared = BeanBaseBlob::mergeBeanDetails(blob, {{"region", ""}});
+        QVERIFY(!parsed(cleared).contains("region"));
+        QVERIFY(BeanBaseBlob::differsFromCanonical(cleared));
+        QCOMPARE(parsed(BeanBaseBlob::revertToCanonical(cleared)).value("region").toString(),
+                 QString("Huila"));
+    }
+
     void revertAndDiffAreNoopsWithoutLinkOrSnapshot() {
         // Manual bag with details: no snapshot, nothing to revert to.
         const QString manual = BeanBaseBlob::mergeBeanDetails(QString(), {{"origin", "Ethiopia"}});

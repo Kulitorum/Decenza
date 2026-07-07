@@ -1,7 +1,9 @@
 #pragma once
 
+#include <QDebug>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -76,15 +78,34 @@ inline void captureCanonicalIfNeeded(QJsonObject& obj)
     obj[QStringLiteral("canonical")] = snapshot;
 }
 
+// True when the string is non-empty but does not parse to a JSON object —
+// merging into (or reverting) such a blob would silently REBUILD it, throwing
+// away the canonical link, snapshot, and description. Corrupt machine-written
+// JSON is rare, which is exactly why it must be loud and non-destructive.
+inline bool isCorruptBlob(const QString& blob)
+{
+    if (blob.isEmpty())
+        return false;
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(blob.toUtf8(), &parseError);
+    return parseError.error != QJsonParseError::NoError || !doc.isObject();
+}
+
 // Merge user edits into the blob's working keys. Only editableKeys() entries
 // in `edits` apply; an empty value REMOVES the key (absent-not-empty keeps the
 // details popup's zero-footprint-per-field rule working). Returns the compact
 // blob, or "" when the result carries no keys at all (a manual bag whose last
-// detail was cleared goes back to a truly empty blob). Shared by the bag
-// editor (via the QML bridge) and MCP bag_update so both paths have identical
-// semantics.
+// detail was cleared goes back to a truly empty blob). A corrupt input blob
+// is returned unchanged (edits refused) rather than destructively rebuilt.
+// Shared by the bag editor (via the QML bridge) and MCP bag_update so both
+// paths have identical merge semantics (the callers assemble their own edit
+// maps: the editor always sends every detail key, MCP only provided params).
 inline QString mergeBeanDetails(const QString& blob, const QVariantMap& edits)
 {
+    if (isCorruptBlob(blob)) {
+        qWarning() << "BeanBaseBlob: refusing merge into corrupt blob (kept unchanged)";
+        return blob;
+    }
     QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
     captureCanonicalIfNeeded(obj);
     for (const QString& key : editableKeys()) {
@@ -103,9 +124,14 @@ inline QString mergeBeanDetails(const QString& blob, const QVariantMap& edits)
 
 // Restore the pristine canonical values: every editable key returns to the
 // snapshot's value, and working keys the canonical entry lacked (e.g. a
-// user-added link) are removed. No-op without a link or snapshot.
+// user-added link) are removed. No-op without a link or snapshot, and on a
+// corrupt blob (same non-destructive rule as mergeBeanDetails).
 inline QString revertToCanonical(const QString& blob)
 {
+    if (isCorruptBlob(blob)) {
+        qWarning() << "BeanBaseBlob: refusing revert of corrupt blob (kept unchanged)";
+        return blob;
+    }
     QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
     if (obj.value(QStringLiteral("id")).toVariant().toString().isEmpty()
         || !obj.contains(QStringLiteral("canonical")))

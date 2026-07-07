@@ -10,6 +10,7 @@
 #include <QRegularExpression>
 #include <QCoreApplication>
 #include <QThread>
+#include <QNetworkAccessManager>
 
 #include "history/shothistorystorage.h"
 #include "history/coffeebagstorage.h"
@@ -754,6 +755,62 @@ private slots:
             QVERIFY(!bags.first().bag.visualizerSyncPending);
             QCOMPARE(bags.first().bag.equipmentId, qint64(0));
         });
+    }
+
+    void migration24RetriesAfterMidStepCrash() {
+        // The state the hasColumn guard exists for: crash between the ALTER
+        // and the version write (column present, version still 23).
+        const QString path = freshDb();
+        withRawDb(path, "m24_crash", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(hasColumn(db, "coffee_bags", "visualizer_sync_pending"));  // ALTER "already ran"
+            QVERIFY(q.exec("DELETE FROM schema_version"));
+            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (23)"));
+        });
+        {
+            ShotHistoryStorage storage;
+            QVERIFY(initAndClose(path, storage));  // re-runs migration 24
+        }
+        withRawDb(path, "m24_crash_check", [&](QSqlDatabase& db) {
+            QVERIFY(hasColumn(db, "coffee_bags", "visualizer_sync_pending"));
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT version FROM schema_version"));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 24);
+        });
+    }
+
+    // The entry point of the edit-push retry state machine: an edit made
+    // before any upload has probed CM (state Unknown - e.g. offline start)
+    // must be parked as sync-pending, NOT silently dropped. Parks before any
+    // network I/O, so this runs harness-free.
+    void unknownCmParksEditAsSyncPending() {
+        const QString path = freshDb();
+        qint64 bagId = -1;
+        withRawDb(path, "park_seed", [&](QSqlDatabase& db) {
+            CoffeeBag bag;
+            bag.roasterName = "Park";
+            bag.coffeeName = "Me";
+            bagId = CoffeeBagStorage::insertBagStatic(db, bag);
+        });
+        QVERIFY(bagId > 0);
+
+        QNetworkAccessManager nam;
+        VisualizerUploader uploader(&nam, /*settings=*/nullptr);
+        uploader.setLocalDbPath(path);
+        QCOMPARE(uploader.cmState(), VisualizerUploader::CmState::Unknown);
+        uploader.updateBagOnVisualizer(bagId);
+
+        // The park is a background single-row write - poll for it.
+        bool pending = false;
+        QElapsedTimer timer; timer.start();
+        while (!pending && timer.elapsed() < 5000) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+            withRawDb(path, "park_check", [&](QSqlDatabase& db) {
+                pending = CoffeeBagStorage::loadBagStatic(db, bagId).visualizerSyncPending;
+            });
+        }
+        QVERIFY2(pending, "edit during CM-Unknown must be parked as sync-pending");
     }
 
     // ==========================================

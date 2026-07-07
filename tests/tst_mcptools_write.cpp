@@ -373,6 +373,66 @@ private slots:
             QThread::msleep(25);
         }
     }
+
+    // The linked-bag case is where the MCP wiring does real work: the tool
+    // description promises "Bean-detail edits keep a canonical Bean Base link
+    // intact", the identity mirror rewrites the blob working keys, and the
+    // first edit captures the pristine `canonical` snapshot.
+    void bagUpdatePreservesCanonicalLinkAndCapturesSnapshot()
+    {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("bagupd_linked.db")));
+        registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        qint64 bagId = -1;
+        withTempDb(storage.databasePath(), "bagupd_seed3", [&](QSqlDatabase& db) {
+            CoffeeBag bag;
+            bag.roasterName = "Prodigal";
+            bag.coffeeName = "First Batch";
+            bag.beanBaseId = "uuid-1";
+            bag.beanBaseData = QStringLiteral(
+                "{\"id\":\"uuid-1\",\"visualizerCanonicalId\":\"uuid-1\","
+                "\"canonicalRoasterId\":\"roaster-uuid\",\"roasterName\":\"Prodigal\","
+                "\"roastName\":\"First Batch\",\"origin\":\"Colombia\"}");
+            bagId = CoffeeBagStorage::insertBagStatic(db, bag);
+        });
+        QVERIFY(bagId > 0);
+
+        QJsonObject args;
+        args["bagId"] = bagId;
+        args["tastingNotes"] = "plum";
+        args["coffeeName"] = "First Batch 2026";
+        QJsonObject result = f.callAsyncTool("bag_update", args);
+        QVERIFY2(result["success"].toBool(), qPrintable(QJsonDocument(result).toJson()));
+        const QJsonObject beanBase = result["bag"].toObject()["beanBase"].toObject();
+        // Link intact, identity mirror applied, snapshot = pre-edit values.
+        QCOMPARE(beanBase["id"].toString(), QString("uuid-1"));
+        QCOMPARE(beanBase["canonicalRoasterId"].toString(), QString("roaster-uuid"));
+        QCOMPARE(beanBase["roastName"].toString(), QString("First Batch 2026"));
+        QCOMPARE(beanBase["tastingNotes"].toString(), QString("plum"));
+        const QJsonObject canonical = beanBase["canonical"].toObject();
+        QCOMPARE(canonical["roastName"].toString(), QString("First Batch"));
+        QCOMPARE(canonical["origin"].toString(), QString("Colombia"));
+        QVERIFY(!canonical.contains("tastingNotes"));  // canonical had none
+
+        // Idempotent re-apply: same value again is a success, not an error.
+        QJsonObject again;
+        again["bagId"] = bagId;
+        again["tastingNotes"] = "plum";
+        QJsonObject result2 = f.callAsyncTool("bag_update", again);
+        QVERIFY2(result2["success"].toBool(), qPrintable(QJsonDocument(result2).toJson()));
+        // And the snapshot is untouched by the second edit.
+        QCOMPARE(result2["bag"].toObject()["beanBase"].toObject()
+                     ["canonical"].toObject()["origin"].toString(), QString("Colombia"));
+
+        storage.close();
+        for (int i = 0; i < 20; i++) {
+            QCoreApplication::processEvents();
+            QThread::msleep(25);
+        }
+    }
 };
 
 QTEST_MAIN(tst_McpToolsWrite)
