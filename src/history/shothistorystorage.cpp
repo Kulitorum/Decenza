@@ -2,6 +2,7 @@
 #include "shothistorystorage_internal.h"
 #include "coffeebagstorage.h"
 #include "equipmentstorage.h"
+#include "recipestorage.h"
 #include "ai/conductance.h"
 #include "ai/shotanalysis.h"
 #include "ai/shotsummarizer.h"
@@ -1344,6 +1345,34 @@ bool ShotHistoryStorage::runMigrations()
             currentVersion = 24;
         } else {
             qWarning() << "ShotHistoryStorage: migration 24 incomplete - will retry next launch";
+        }
+    }
+
+    // Migration 25: recipes (add-recipes). Create the recipes table and add
+    // shot provenance: recipe_id names the recipe active at shot start, and
+    // steam_json snapshots the steam spec in effect so promote-from-shot
+    // round-trips the whole drink. Both nullable — legacy rows unaffected.
+    // Idempotent (CREATE IF NOT EXISTS + hasColumn guards); the bump gates on
+    // the post-conditions like migrations 19/24. Whitespace before the
+    // open-paren dodges the QSqlQuery permission-hook false-positive, as
+    // elsewhere. Do not auto-format.
+    if (currentVersion >= 24 && currentVersion < 25) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 25 (recipes)";
+
+        const bool tableOk = RecipeStorage::ensureTableStatic(m_db);
+
+        if (!hasColumn("shots", "recipe_id"))
+            query.exec ("ALTER TABLE shots ADD COLUMN recipe_id INTEGER");
+        if (!hasColumn("shots", "steam_json"))
+            query.exec ("ALTER TABLE shots ADD COLUMN steam_json TEXT");
+        query.exec("CREATE INDEX IF NOT EXISTS idx_shots_recipe_id ON shots(recipe_id)");
+
+        if (tableOk && hasColumn("shots", "recipe_id") && hasColumn("shots", "steam_json")) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (25)");
+            currentVersion = 25;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 25 incomplete - will retry next launch";
         }
     }
 

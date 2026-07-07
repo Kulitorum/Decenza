@@ -2,12 +2,12 @@
 
 ## 1. Schema & Storage
 
-- [ ] 1.1 ShotHistoryStorage migration: new `recipes` table (name, profile title + JSON fallback, bean link ids, equipment package id, doseG, yieldG, tempOverride, grindPinned nullable text, steam-block JSON, archived flag, created-from provenance, last-used, timestamps)
-- [ ] 1.2 Same migration: `shots.recipe_id` (nullable) + shot steam-spec snapshot column; verify legacy rows load unchanged
-- [ ] 1.3 `RecipeStorage` (src/history/) cloned from CoffeeBagStorage patterns: requestInventory (MRU), requestRecipe, requestCreate/Update/Clone/Archive/Delete, requestTouchLastUsed; all via `withTempDb` on background threads with ready signals
-- [ ] 1.4 Lifecycle enforcement in storage: hard delete only when no shot references the recipe; archive otherwise
-- [ ] 1.5 Bean-link resolution helper: canonical Bean Base id → current open bag (fallback roaster/coffee identity); "no open bag" state
-- [ ] 1.6 Unit tests for RecipeStorage (CRUD, lifecycle guard, MRU order, bean resolution, steam-block round-trip, migration)
+- [x] 1.1 ShotHistoryStorage migration: new `recipes` table (name, profile title + JSON fallback, bean link ids, equipment package id, doseG, yieldG, tempOverride, grindPinned nullable text, steam-block JSON, archived flag, created-from provenance, last-used, timestamps)
+- [x] 1.2 Same migration: `shots.recipe_id` (nullable) + shot steam-spec snapshot column; verify legacy rows load unchanged
+- [x] 1.3 `RecipeStorage` (src/history/) cloned from CoffeeBagStorage patterns: requestInventory (MRU), requestRecipe, requestCreate/Update/Clone/Archive/Delete, requestTouchLastUsed; all via `withTempDb` on background threads with ready signals
+- [x] 1.4 Lifecycle enforcement in storage: hard delete only when no shot references the recipe; archive otherwise
+- [x] 1.5 Bean-link resolution helper: canonical Bean Base id → current open bag (fallback roaster/coffee identity); "no open bag" state
+- [x] 1.6 Unit tests for RecipeStorage (CRUD, lifecycle guard, MRU order, bean resolution, steam-block round-trip, migration)
 
 ## 2. Activation & Write-Through (shared controller)
 
