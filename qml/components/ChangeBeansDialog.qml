@@ -1277,6 +1277,50 @@ Dialog {
                         }
 
                         DetailField {
+                            id: urlField
+                            labelKey: "changebeans.form.url"; labelFallback: "URL:"
+                            accessibleText: TranslationManager.translate("changebeans.form.url.accessible", "Roaster product page URL")
+                            value: root.fLink
+                            onEdited: function(t) { root.fLink = t }
+                        }
+
+                        // "Get info from page": Visualizer-style extraction —
+                        // fetch the page text, let the configured AI pull out
+                        // the details, fill only fields still empty. Hidden
+                        // without a URL or a configured AI provider.
+                        RowLayout {
+                            Layout.leftMargin: Theme.scaled(20)
+                            Layout.rightMargin: Theme.scaled(20)
+                            spacing: Theme.scaled(10)
+                            visible: root.fLink.trim().length > 0
+                                && MainController.aiManager && MainController.aiManager.isConfigured
+
+                            AccessibleButton {
+                                enabled: !root.fetchingInfo
+                                text: TranslationManager.translate("changebeans.form.getInfo", "Get info from page")
+                                accessibleName: TranslationManager.translate("changebeans.form.getInfo.accessible",
+                                    "Fetch the product page and fill empty bean detail fields using AI")
+                                onClicked: {
+                                    root.fetchingInfo = true
+                                    root.infoStatus = TranslationManager.translate(
+                                        "changebeans.form.getInfo.fetching", "Reading page…")
+                                    MainController.beanbase.fetchPageText(root.fLink.trim())
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: root.infoStatus.length > 0
+                                text: root.infoStatus
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.Wrap
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: text
+                            }
+                        }
+
+                        DetailField {
                             id: originField
                             labelKey: "beanbase.details.origin"; labelFallback: "Origin:"
                             accessibleText: TranslationManager.translate("beanbase.details.origin", "Origin")
@@ -1353,50 +1397,6 @@ Dialog {
                             value: root.fTastingNotes
                             onEdited: function(t) { root.fTastingNotes = t }
                         }
-                        DetailField {
-                            id: urlField
-                            labelKey: "changebeans.form.url"; labelFallback: "URL:"
-                            accessibleText: TranslationManager.translate("changebeans.form.url.accessible", "Roaster product page URL")
-                            value: root.fLink
-                            onEdited: function(t) { root.fLink = t }
-                        }
-
-                        // "Get info from page": Visualizer-style extraction —
-                        // fetch the page text, let the configured AI pull out
-                        // the details, fill only fields still empty. Hidden
-                        // without a URL or a configured AI provider.
-                        RowLayout {
-                            Layout.leftMargin: Theme.scaled(20)
-                            Layout.rightMargin: Theme.scaled(20)
-                            spacing: Theme.scaled(10)
-                            visible: root.fLink.trim().length > 0
-                                && MainController.aiManager && MainController.aiManager.isConfigured
-
-                            AccessibleButton {
-                                enabled: !root.fetchingInfo
-                                text: TranslationManager.translate("changebeans.form.getInfo", "Get info from page")
-                                accessibleName: TranslationManager.translate("changebeans.form.getInfo.accessible",
-                                    "Fetch the product page and fill empty bean detail fields using AI")
-                                onClicked: {
-                                    root.fetchingInfo = true
-                                    root.infoStatus = TranslationManager.translate(
-                                        "changebeans.form.getInfo.fetching", "Reading page…")
-                                    MainController.beanbase.fetchPageText(root.fLink.trim())
-                                }
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                visible: root.infoStatus.length > 0
-                                text: root.infoStatus
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                wrapMode: Text.Wrap
-                                Accessible.role: Accessible.StaticText
-                                Accessible.name: text
-                            }
-                        }
-
                         // Revert to the pristine canonical values (shown only
                         // when linked AND something differs from the snapshot).
                         // A revert saves immediately — it is an edit like any
