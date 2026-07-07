@@ -23,7 +23,18 @@ Page {
         root.currentPageTitle = TranslationManager.translate("recipes.title", "Recipes")
         MainController.recipeStorage.requestInventory()
         MainController.recipeStorage.requestArchived()
+        MainController.bagStorage.requestInventory()
         addRecipeButton.forceActiveFocus()
+    }
+
+    // Open-bag inventory, used by the cards to resolve each recipe's bean to
+    // its bag — the bean photo of a non-canonical bag is cached under the
+    // BAG's image key ("bag-<id>"), not a Bean Base id.
+    property var _bags: []
+    Connections {
+        target: MainController.bagStorage
+        function onInventoryReady(bags) { recipesPage._bags = bags }
+        function onBagsChanged() { MainController.bagStorage.requestInventory() }
     }
 
     Connections {
@@ -67,16 +78,45 @@ Page {
             if (!recipe || !recipe.steamJson || String(recipe.steamJson).length === 0) return ({})
             try { return JSON.parse(recipe.steamJson) } catch (e) { return ({}) }
         }
-        // Bean photo from the same on-disk cache the bag cards use, keyed by
-        // the recipe's canonical bean id (the bag side fetches/caches it).
-        readonly property string imageKey: recipe && recipe.beanBaseId
-            ? String(recipe.beanBaseId) : ""
+        // Bean photo from the same on-disk cache the bag cards use. Canonical
+        // beans are keyed by their Bean Base id; a manual bag's photo lives
+        // under the BAG's key ("bag-<id>"), so resolve the recipe's bean to
+        // its open bag (same identity match as activation) for the fallback.
+        readonly property var openBag: {
+            if (!recipe) return null
+            var bags = recipesPage._bags
+            for (var i = 0; i < bags.length; ++i) {
+                var b = bags[i]
+                var match = recipe.beanBaseId && String(recipe.beanBaseId).length > 0
+                    ? b.beanBaseId === recipe.beanBaseId
+                    : (String(b.roasterName || "").toLowerCase() === String(recipe.roasterName || "").toLowerCase()
+                       && String(b.coffeeName || "").toLowerCase() === String(recipe.coffeeName || "").toLowerCase()
+                       && (String(recipe.roasterName || "") !== "" || String(recipe.coffeeName || "") !== ""))
+                if (match) return b
+            }
+            return null
+        }
+        readonly property string imageKey: {
+            if (recipe && recipe.beanBaseId && String(recipe.beanBaseId).length > 0)
+                return String(recipe.beanBaseId)
+            if (openBag)
+                return openBag.beanBaseId && String(openBag.beanBaseId).length > 0
+                    ? String(openBag.beanBaseId) : "bag-" + openBag.id
+            return ""
+        }
         property string cachedImagePath: ""
         function refreshBeanImage() {
             cachedImagePath = imageKey.length > 0
                 ? MainController.beanbase.bagImagePath(imageKey) : ""
-            if (imageKey.length > 0 && cachedImagePath.length === 0)
-                MainController.beanbase.ensureBagImage(imageKey, recipe.coffeeName || "", "")
+            if (imageKey.length > 0 && cachedImagePath.length === 0) {
+                // The bag's product-page link (from its blob) lets the cache
+                // backfill a manual bag's photo, same as BagCard.
+                var link = ""
+                if (openBag && openBag.beanBaseData && String(openBag.beanBaseData).length > 0) {
+                    try { link = JSON.parse(openBag.beanBaseData).link || "" } catch (e) {}
+                }
+                MainController.beanbase.ensureBagImage(imageKey, recipe.coffeeName || "", link)
+            }
         }
         onImageKeyChanged: refreshBeanImage()
         // The plan line needs the profile's base temperature and target
