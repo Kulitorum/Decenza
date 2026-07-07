@@ -805,7 +805,7 @@ private slots:
     // name under distinct canonical ids, differing only in descriptive attrs.
     // Each must stay its own row (distinct id = distinct pick target) and carry
     // a "detail" line (degree · origin · tastingNotes) so the UI can tell them
-    // apart — the exact bug of identical-looking "Hometown Blend" rows.
+    // apart — the exact bug of identical-looking same-name rows.
     void mergeLanesCanonicalDuplicatesCarryDetail() {
         QVariantList canonical;
         canonical.append(QVariantMap{
@@ -854,11 +854,12 @@ private slots:
         QCOMPARE(merged.size(), 2);
 
         // Tier 1 (canon-Y merged with history): empty history blob falls back
-        // to the serialized entry.
+        // to the serialized entry. The detail line rides on tier 1 rows too.
         QCOMPARE(tierOf(merged[0]), Tier::HistoryCanonical);
         const QVariantMap tier1Blob = QJsonDocument::fromJson(
             merged[0].toMap().value("beanBaseData").toString().toUtf8()).object().toVariantMap();
         QCOMPARE(tier1Blob.value("degree").toString(), QString("Dark"));
+        QCOMPARE(merged[0].toMap().value("detail").toString(), QString("Dark"));
 
         // Tier 2 (canon-X): blob is the entry itself — id, identity, attrs, link.
         QCOMPARE(tierOf(merged[1]), Tier::CanonicalOnly);
@@ -871,6 +872,30 @@ private slots:
         QCOMPARE(tier2Blob.value("origin").toString(), QString("Colombia"));
         QCOMPARE(tier2Blob.value("link").toString(),
                  QString("https://sweetbloomcoffee.com/product/hometown/"));
+    }
+
+    // A history snapshot holding only BagCard's `{"link":…}` backfill artifact
+    // (a bag created while canonical rows carried no blob) must NOT shadow the
+    // fresh entry — otherwise the pre-fix corruption re-persists into every
+    // new bag created from that Tier 1 row.
+    void mergeLanesTier1ReplacesLinkOnlyBlob() {
+        QVariantList canonical;
+        canonical.append(QVariantMap{
+            {"id", "canon-W"}, {"roasterName", "R"}, {"roastName", "W"},
+            {"degree", "Light"}, {"link", "https://roaster.example/w"}});
+        QVariantList history;
+        history.append(QVariantMap{
+            {"roasterName", "R"}, {"coffeeName", "W"}, {"beanBaseId", "canon-W"},
+            {"beanBaseData", "{\"link\":\"https://roaster.example/w\"}"},
+            {"lastUsedEpoch", 100}});
+
+        const QVariantList merged = UnifiedBeanSearchModel::mergeLanes({}, canonical, history, QString());
+        QCOMPARE(merged.size(), 1);
+        QCOMPARE(tierOf(merged[0]), Tier::HistoryCanonical);
+        const QVariantMap blob = QJsonDocument::fromJson(
+            merged[0].toMap().value("beanBaseData").toString().toUtf8()).object().toVariantMap();
+        QCOMPARE(blob.value("degree").toString(), QString("Light"));  // fresh entry won
+        QCOMPARE(blob.value("link").toString(), QString("https://roaster.example/w"));
     }
 
     // Tier 1 keeps a non-empty history blob (it may carry legacy-only fields

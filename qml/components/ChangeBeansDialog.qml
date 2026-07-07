@@ -623,6 +623,8 @@ Dialog {
                                 Text {
                                     Layout.fillWidth: true
                                     text: resultRow.primaryText
+                                    // Bean Base free text — never let AutoText parse it as markup
+                                    textFormat: Text.PlainText
                                     font.family: Theme.bodyFont.family
                                     font.pixelSize: Theme.bodyFont.pixelSize
                                     font.bold: true
@@ -638,6 +640,8 @@ Dialog {
                                     // (roast level · origin · notes) is what tells the
                                     // canonical DB's same-name near-duplicates apart.
                                     text: model.roastDate || model.detail || ""
+                                    // Bean Base free text — never let AutoText parse it as markup
+                                    textFormat: Text.PlainText
                                     font: Theme.captionFont
                                     color: Theme.textSecondaryColor
                                     elide: Text.ElideRight

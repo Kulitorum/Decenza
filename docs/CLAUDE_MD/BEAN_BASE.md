@@ -46,8 +46,8 @@ Entries are QVariantMaps (QML lingua franca; deliberately not a C++ value type).
 | `visualizerCanonicalId` | = id | — | — |
 | `source` | "visualizer" | "beanbase" | — |
 | `roasterName`, `roastName` | ✓ | ✓ | — |
-| `degree, origin, region, producer, variety, process, harvest, tastingNotes` | — | ✓ | ✓ (remapped from Visualizer columns) |
-| `elevation` (display string) | — | — | ✓ |
+| `degree, origin, region, producer, variety, process, harvest, tastingNotes` | ✓ (remapped from Visualizer columns via `kAttrMap`) | ✓ | ✓ (same values; `canonicalDetails` is a local re-emit) |
+| `elevation` (display string) | ✓ | — | ✓ |
 | `link` (roaster product page) | ✓ (from `url`) | ✓ | — |
 | `minElevationM/maxElevationM` (int), `image, beanType, description, tastingTags, generalTags, soldout, available, roasterRegion, roasterCountry` | — | ✓ | — |
 

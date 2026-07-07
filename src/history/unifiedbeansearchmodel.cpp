@@ -26,6 +26,22 @@ bool matchesQuery(const QVariantMap& row, const QString& query)
         || row.value("coffeeName").toString().contains(query, Qt::CaseInsensitive);
 }
 
+// A blob whose only key is "link" is BagCard's backfill artifact for a bag
+// that was created without descriptive data (see the entryJson comment in
+// mergeLanes) — it carries nothing the fresh canonical entry doesn't (entries
+// include "link"), so it must not shadow the entry the way a real legacy blob
+// (CDN image URL, tasting tags) legitimately does.
+bool blobIsEffectivelyEmpty(const QString& blob)
+{
+    if (blob.trimmed().isEmpty())
+        return true;
+    const QJsonObject obj = QJsonDocument::fromJson(blob.toUtf8()).object();
+    if (obj.isEmpty())
+        return true;  // unparseable or {}
+    const QStringList keys = obj.keys();
+    return keys.size() == 1 && keys.first() == QLatin1String("link");
+}
+
 // One-line differentiator for canonical rows. Bean Base holds near-duplicate
 // submissions of the same roaster+name under distinct canonical ids, so
 // roaster+name alone renders identical rows; roast level, origin and tasting
@@ -311,10 +327,11 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
             row["yieldOverrideG"] = h.value("yieldOverrideG");
             row["roastLevel"] = h.value("roastLevel");
             // History's blob may carry legacy-only fields (CDN image URL,
-            // tasting tags), so keep it when present; the fresh entry covers
-            // shots linked by name whose snapshots predate the blob.
+            // tasting tags), so keep it when it has real content; the fresh
+            // entry covers snapshots that predate the blob AND snapshots
+            // holding only BagCard's `{"link":…}` backfill artifact.
             const QString histBlob = h.value("beanBaseData").toString();
-            row["beanBaseData"] = histBlob.isEmpty() ? entryJson : histBlob;
+            row["beanBaseData"] = blobIsEffectivelyEmpty(histBlob) ? entryJson : histBlob;
             row["lastUsedEpoch"] = h.value("lastUsedEpoch");
             row["tier"] = static_cast<int>(Tier::HistoryCanonical);
             row["sources"] = QStringLiteral("beanbase+history");

@@ -76,9 +76,11 @@ public:
         FrozenDateRole,
         DefrostDateRole,
         LastUsedEpochRole,
-        DetailRole,        // Canonical rows only: "roast level · origin · tasting notes",
+        DetailRole,        // "roast level · origin · tasting notes" — set on rows sourced
+                           // from a Bean Base canonical entry (Tier::HistoryCanonical and
+                           // Tier::CanonicalOnly); empty for every other tier. These are
                            // the fields that differ between Bean Base's near-duplicate
-                           // submissions of the same roaster+name
+                           // submissions of the same roaster+name.
     };
     Q_ENUM(Roles)
 
