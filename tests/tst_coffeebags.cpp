@@ -723,7 +723,7 @@ private slots:
             QCOMPARE(q.value(0).toInt(), 0);  // existing rows default to 0
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 24);
+            QCOMPARE(q.value(0).toInt(), 25);  // chain runs on to migration 25 (add-recipes)
         });
     }
 
@@ -776,7 +776,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 24);
+            QCOMPARE(q.value(0).toInt(), 25);  // chain runs on to migration 25 (add-recipes)
         });
     }
 

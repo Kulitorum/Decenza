@@ -471,6 +471,40 @@ Page {
                             }
                         }
                     }
+
+                    // Create-recipe button: an auto-favorite is literally "a
+                    // shot you keep reloading" — a recipe announcing itself.
+                    // Opens the composer prefilled from the group's shot.
+                    Rectangle {
+                        id: favRecipeButton
+                        width: Theme.scaled(70)
+                        height: Theme.scaled(40)
+                        radius: Theme.scaled(20)
+                        color: Theme.surfaceColor
+                        border.color: Theme.borderColor
+                        border.width: Theme.scaled(1)
+                        Accessible.ignored: true
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: TranslationManager.translate("autofavorites.recipe", "Recipe")
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                            color: Theme.textColor
+                            Accessible.ignored: true
+                        }
+
+                        AccessibleMouseArea {
+                            anchors.fill: parent
+                            accessibleName: TranslationManager.translate("autofavorites.accessible.recipe", "Create recipe from this favorite") +
+                                ". " + favoriteDelegate._groupByText
+                            accessibleItem: favRecipeButton
+                            onAccessibleClicked: {
+                                pageStack.push(Qt.resolvedUrl("RecipeComposerPage.qml"),
+                                               { mode: "create", promoteShotId: model.shotId })
+                            }
+                        }
+                    }
                 }
             }
 

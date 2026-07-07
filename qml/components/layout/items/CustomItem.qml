@@ -290,6 +290,7 @@ Item {
                 "profiles": "ProfileSelectorPage.qml",
                 "profileEditor": "ProfileEditorPage.qml",
                 "recipes": "RecipeEditorPage.qml",
+                "recipeList": "RecipesPage.qml",
                 "descaling": "DescalingPage.qml",
                 "ai": "AISettingsPage.qml",
                 "visualizer": "VisualizerBrowserPage.qml",

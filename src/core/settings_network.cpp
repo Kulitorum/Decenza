@@ -688,6 +688,7 @@ const QVector<WidgetCatalogEntry>& widgetCatalogTable() {
         { "quit",          0, "layoutEditor.widgetQuit",      "Quit",      "layoutEditor.chipQuit",      "Quit",      "special", true },
         { "history",       0, "layoutEditor.widgetHistory",   "History",   "layoutEditor.chipHistory",   "History",   "", true },
         { "beans",         0, "layoutEditor.widgetBeans",     "Beans",     "layoutEditor.chipBeans",     "Beans",     "", true },
+        { "recipes",       0, "layoutEditor.widgetRecipes",   "Recipes",   "layoutEditor.chipRecipes",   "Recipes",   "", true },
         { "equipment",     0, "layoutEditor.widgetEquipment", "Equipment", "layoutEditor.chipEquipment", "Equipment", "", true },
         { "autofavorites", 0, "layoutEditor.widgetFavorites", "Favorites", "layoutEditor.chipFavorites", "Favorites", "", true },
         { "discuss",       0, "layoutEditor.widgetDiscuss",   "Discuss",   "layoutEditor.chipDiscuss",   "Discuss",   "", true },

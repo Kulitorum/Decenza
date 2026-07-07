@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QRegularExpression>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
@@ -145,6 +146,8 @@ private slots:
             QCOMPARE(r.name, QString("Evening capp"));
 
             // Unknown keys are ignored; a map of only unknown keys updates nothing.
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression("ignoring unknown update key"));
             QVERIFY(!RecipeStorage::updateRecipeFieldsStatic(db, id, {{"bogus", 1}}));
 
             // Empty string collapses to NULL (insert-equivalent coercion):
@@ -249,8 +252,12 @@ private slots:
         RecipeStorage storage;
         storage.initialize(path);
 
-        // Used recipe refuses deletion (archive is the only exit).
+        // Used recipe refuses deletion (archive is the only exit). The
+        // refusal qWarning fires on the worker thread before recipeDeleted is
+        // queued back, so it lands (and is matched) before the QTRY returns.
         {
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression("refusing to delete recipe"));
             QSignalSpy spy(&storage, &RecipeStorage::recipeDeleted);
             storage.requestDeleteRecipe(usedId);
             QTRY_COMPARE(spy.count(), 1);

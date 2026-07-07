@@ -701,6 +701,8 @@ set(QML_FILES
     qml/pages/VisualizerMultiImportPage.qml
     qml/pages/BeanInfoPage.qml
     qml/pages/EquipmentPage.qml
+    qml/pages/RecipesPage.qml
+    qml/pages/RecipeComposerPage.qml
     qml/pages/PostShotReviewPage.qml
     qml/pages/AISettingsPage.qml
     qml/pages/DialingAssistantPage.qml
@@ -830,6 +832,7 @@ set(QML_FILES
     qml/components/layout/items/HotWaterItem.qml
     qml/components/layout/items/FlushItem.qml
     qml/components/layout/items/BeansItem.qml
+    qml/components/layout/items/RecipesItem.qml
     qml/components/layout/items/EquipmentItem.qml
     qml/components/layout/items/HistoryItem.qml
     qml/components/layout/items/DiscussItem.qml

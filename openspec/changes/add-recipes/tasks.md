@@ -21,18 +21,18 @@
 
 ## 3. Composer UI
 
-- [ ] 3.1 RecipeComposerPage.qml: all fields, name+profile required, pickers reusing ProfileSelectorPage / ChangeBeansDialog / SwitchEquipmentDialog, "none" states, grind inherited-vs-pin control, steam block incl. pitcher snapshot; Theme + Tr + accessibility rules; add to CMakeLists
-- [ ] 3.2 Inline hint when linked bag changes ("grind now follows <bag>: <value>")
-- [ ] 3.3 Prefill-from-shot path (shot record + steam snapshot, fallback current steam settings) with hasMilk prompt
-- [ ] 3.4 Clone path: copy all fields + pin state, focus name, provenance = source recipe, golden-shot link not copied
-- [ ] 3.5 Promote buttons: ShotHistoryPage row (beside Load), ShotDetailPage, AutoFavoritesPage row
-- [ ] 3.6 RecipesPage.qml (management): list, create/edit/clone/archive/delete-guard, archived section; add to CMakeLists
+- [x] 3.1 RecipeComposerPage.qml: all fields, name+profile required, pickers reusing ProfileSelectorPage / ChangeBeansDialog / SwitchEquipmentDialog, "none" states, grind inherited-vs-pin control, steam block incl. pitcher snapshot; Theme + Tr + accessibility rules; add to CMakeLists
+- [x] 3.2 Inline hint when linked bag changes ("grind now follows <bag>: <value>")
+- [x] 3.3 Prefill-from-shot path (shot record + steam snapshot, fallback current steam settings) with hasMilk prompt
+- [x] 3.4 Clone path: copy all fields + pin state, focus name, provenance = source recipe, golden-shot link not copied
+- [x] 3.5 Promote buttons: ShotHistoryPage row (beside Load), ShotDetailPage, AutoFavoritesPage row
+- [x] 3.6 RecipesPage.qml (management): list, create/edit/clone/archive/delete-guard, archived section; add to CMakeLists
 
 ## 4. Idle Quick-Switch Widget
 
-- [ ] 4.1 RecipesItem.qml cloned from BeansItem.qml: MRU pill row (last 5), pill activate, double/long-press → RecipesPage, empty-state direct navigation, accessibility announcements
-- [ ] 4.2 Registration: CMakeLists file list, LayoutItemDelegate switch, widgetCatalogTable(), LayoutCenterZone
-- [ ] 4.3 Verify Beans-button coherence (recipe activation updates bag pill selection; swap deactivation deselects recipe pill)
+- [x] 4.1 RecipesItem.qml cloned from BeansItem.qml: MRU pill row (last 5), pill activate, double/long-press → RecipesPage, empty-state direct navigation, accessibility announcements
+- [x] 4.2 Registration: CMakeLists file list, LayoutItemDelegate switch, widgetCatalogTable(), LayoutCenterZone
+- [x] 4.3 Verify Beans-button coherence (recipe activation updates bag pill selection; swap deactivation deselects recipe pill)
 
 ## 5. MCP
 
