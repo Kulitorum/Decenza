@@ -24,6 +24,21 @@ bool matchesQuery(const QVariantMap& row, const QString& query)
         || row.value("coffeeName").toString().contains(query, Qt::CaseInsensitive);
 }
 
+// One-line differentiator for canonical rows. Bean Base holds near-duplicate
+// submissions of the same roaster+name under distinct canonical ids, so
+// roaster+name alone renders identical rows; roast level, origin and tasting
+// notes are the fields that actually vary between them.
+QString canonicalDetail(const QVariantMap& entry)
+{
+    QStringList parts;
+    for (const char* key : {"degree", "origin", "tastingNotes"}) {
+        const QString v = entry.value(QLatin1String(key)).toString().trimmed();
+        if (!v.isEmpty())
+            parts << v;
+    }
+    return parts.join(QStringLiteral(" · "));
+}
+
 } // namespace
 
 UnifiedBeanSearchModel::UnifiedBeanSearchModel(QObject* parent)
@@ -269,6 +284,7 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
         row["coffeeName"] = coffee;
         row["beanBaseId"] = canonicalId;
         row["bagId"] = -1;
+        row["detail"] = canonicalDetail(entry);
 
         // Same coffee in history -> single Tier 1 entry, both source labels:
         // grinder/dose from history, canonical identity from Bean Base.
@@ -393,6 +409,7 @@ QVariant UnifiedBeanSearchModel::data(const QModelIndex& index, int role) const
     case FrozenDateRole: return row.value("frozenDate");
     case DefrostDateRole: return row.value("defrostDate");
     case LastUsedEpochRole: return row.value("lastUsedEpoch");
+    case DetailRole: return row.value("detail");
     }
     return QVariant();
 }
@@ -410,5 +427,6 @@ QHash<int, QByteArray> UnifiedBeanSearchModel::roleNames() const
         {FrozenDateRole, "frozenDate"},
         {DefrostDateRole, "defrostDate"},
         {LastUsedEpochRole, "lastUsedEpoch"},
+        {DetailRole, "detail"},
     };
 }

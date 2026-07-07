@@ -634,7 +634,10 @@ Dialog {
                                 Text {
                                     Layout.fillWidth: true
                                     visible: text.length > 0
-                                    text: model.roastDate || ""
+                                    // Bean Base rows have no roast date; their detail line
+                                    // (roast level · origin · notes) is what tells the
+                                    // canonical DB's same-name near-duplicates apart.
+                                    text: model.roastDate || model.detail || ""
                                     font: Theme.captionFont
                                     color: Theme.textSecondaryColor
                                     elide: Text.ElideRight
@@ -665,7 +668,9 @@ Dialog {
 
                         AccessibleMouseArea {
                             anchors.fill: parent
-                            accessibleName: resultRow.primaryText + ", " + root.sourceLabel(model.sources, model.tier)
+                            accessibleName: resultRow.primaryText
+                                + (model.detail ? ", " + model.detail : "")
+                                + ", " + root.sourceLabel(model.sources, model.tier)
                                 + (resultRow.isActiveBag
                                     ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                             accessibleItem: resultRow

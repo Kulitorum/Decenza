@@ -801,6 +801,36 @@ private slots:
         QCOMPARE(merged[2].toMap().value("coffeeName").toString(), QString("Z"));
     }
 
+    // Bean Base's canonical DB holds near-duplicate submissions: same roaster+
+    // name under distinct canonical ids, differing only in descriptive attrs.
+    // Each must stay its own row (distinct id = distinct pick target) and carry
+    // a "detail" line (degree · origin · tastingNotes) so the UI can tell them
+    // apart — the exact bug of identical-looking "Hometown Blend" rows.
+    void mergeLanesCanonicalDuplicatesCarryDetail() {
+        QVariantList canonical;
+        canonical.append(QVariantMap{
+            {"id", "canon-1"}, {"roasterName", "Sweet Bloom"}, {"roastName", "Hometown"},
+            {"degree", "Medium-light"}, {"origin", "Colombia, Ethiopia"},
+            {"tastingNotes", "Blackberries, Praline"}});
+        canonical.append(QVariantMap{
+            {"id", "canon-2"}, {"roasterName", "Sweet Bloom"}, {"roastName", "Hometown"},
+            {"degree", "Light To Medium"}, {"origin", "Colombia, Ethiopia"},
+            {"tastingNotes", "Blackberries, Cocoa"}});
+        canonical.append(QVariantMap{  // no descriptive attrs at all
+            {"id", "canon-3"}, {"roasterName", "Sweet Bloom"}, {"roastName", "Hometown"}});
+
+        const QVariantList merged = UnifiedBeanSearchModel::mergeLanes({}, canonical, {}, "hometown");
+        QCOMPARE(merged.size(), 3);
+
+        QCOMPARE(merged[0].toMap().value("detail").toString(),
+                 QString("Medium-light · Colombia, Ethiopia · Blackberries, Praline"));
+        QCOMPARE(merged[1].toMap().value("detail").toString(),
+                 QString("Light To Medium · Colombia, Ethiopia · Blackberries, Cocoa"));
+        QCOMPARE(merged[2].toMap().value("detail").toString(), QString());
+        for (const QVariant& v : merged)
+            QCOMPARE(tierOf(v), Tier::CanonicalOnly);
+    }
+
     // Within-tier MRU ordering: two inventory bags out of epoch order must come
     // back most-recently-used first (guards the stable_sort comparator).
     void mergeLanesOrdersByMruWithinTier() {
