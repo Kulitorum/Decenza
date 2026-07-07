@@ -11,13 +11,13 @@
 
 ## 2. Activation & Write-Through (shared controller)
 
-- [ ] 2.1 Active recipe id property in `SettingsDye` (beside activeBagId), serializer + QML registration per SETTINGS.md checklist
-- [ ] 2.2 MainController recipe activation reusing applyLoadedShotMetadata pipeline (bag-first ordering, queued dose write) + equipment package selection
-- [ ] 2.3 Steam application on activation: write steam block into SettingsBrew (propagates to DE1), pitcher/milk weight applied; heater state derived from hasMilk with keepSteamHeaterOn never overridden to off
-- [ ] 2.4 Write-through routing while active: dose/yield/temp/steam/milk → recipe; grind → bag when inherited, pin when pinned
-- [ ] 2.5 Deactivation on ingredient swap: profile change, bag/bean change, equipment change clear active recipe (event-based flags, no timers)
-- [ ] 2.6 Shot save records recipe_id + steam snapshot; MRU touch on shot start with recipe active
-- [ ] 2.7 Unit tests for activation semantics, write-through routing, deactivation triggers
+- [x] 2.1 Active recipe id property in `SettingsDye` (beside activeBagId), serializer + QML registration per SETTINGS.md checklist
+- [x] 2.2 MainController recipe activation reusing applyLoadedShotMetadata pipeline (bag-first ordering, queued dose write) + equipment package selection
+- [x] 2.3 Steam application on activation: pitcher preset selected by snapshot name (recreated from the snapshot if deleted), milk weight applied; heater intent derived from hasMilk via startSteamHeating (never fights keepSteamHeaterOn)
+- [x] 2.4 Write-through routing while active: dose/yield/temp/steam/milk → recipe; grind → bag when inherited, pin when pinned (SettingsDye suspension flag)
+- [x] 2.5 Deactivation on ingredient swap: watchers compare against the recipe's own ingredients (same-value re-selection and startup auto-load never deactivate); event-based, no timers
+- [x] 2.6 Shot save records recipe_id + steam snapshot (all three metadata sites); recipe MRU touch on shot save
+- [x] 2.7 Unit tests: storage routing/lifecycle/clone in tst_recipestorage; activeRecipeId + pinned-grind write-through suspension in tst_settings. (MainController activation itself has no existing test harness anywhere in the suite — verified via the app per project practice.)
 
 ## 3. Composer UI
 

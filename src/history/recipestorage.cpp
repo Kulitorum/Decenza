@@ -1,4 +1,5 @@
 #include "recipestorage.h"
+#include "coffeebagstorage.h"
 #include "core/dbutils.h"
 
 #include <QSqlQuery>
@@ -237,6 +238,34 @@ void RecipeStorage::requestRecipe(qint64 recipeId)
         // as "active recipe vanished" by SettingsDye; only a genuine
         // not-found (db opened, row absent) should do that.
         [this, recipeId, result](bool dbOpened) { if (dbOpened) emit recipeReady(recipeId, *result); });
+}
+
+void RecipeStorage::requestRecipeForActivation(qint64 recipeId)
+{
+    auto recipe = std::make_shared<QVariantMap>();
+    auto bagId = std::make_shared<qint64>(-1);
+    auto bag = std::make_shared<QVariantMap>();
+    runAsync("recipes_activate",
+        [recipeId, recipe, bagId, bag](QSqlDatabase& db) {
+            const Recipe r = loadRecipeStatic(db, recipeId);
+            if (!r.isValid())
+                return;
+            *recipe = r.toVariantMap();
+            *bagId = resolveOpenBagStatic(db, r);
+            if (*bagId > 0) {
+                const CoffeeBag resolved = CoffeeBagStorage::loadBagStatic(db, *bagId);
+                if (resolved.isValid())
+                    *bag = resolved.toVariantMap();
+                else
+                    *bagId = -1;
+            }
+        },
+        // Emit even on open failure: activation callers (UI pill tap, MCP,
+        // web) wait on this as their terminal status; an empty recipe map
+        // tells them the activation failed.
+        [this, recipeId, recipe, bagId, bag](bool) {
+            emit recipeActivationReady(recipeId, *recipe, *bagId, *bag);
+        });
 }
 
 void RecipeStorage::requestCreateRecipe(const QVariantMap& recipeMap)

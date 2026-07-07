@@ -1,8 +1,11 @@
 #include <QtTest>
 #include <QSettings>
 #include <QSignalSpy>
+#include <QSqlDatabase>
+#include <QTemporaryDir>
 
 #include "core/settings.h"
+#include "history/coffeebagstorage.h"
 #include "core/settings_app.h"
 #include "core/settings_brew.h"
 #include "core/settings_dye.h"
@@ -79,6 +82,17 @@ private:
     QByteArray m_origVesselPresets;
     QByteArray m_origPitcherPresets;
     bool m_origMilkAutoCapture;
+    int m_origActiveRecipeId;
+    int m_origActiveBagId;
+    QString m_origDyeGrinderSetting;
+    // applyActiveBag (triggered by the grind-pin test's bag selection) also
+    // rewrites these — save/restore so the test leaves no trace.
+    QString m_origDyeBeanType;
+    QString m_origDyeRoastDate;
+    QString m_origDyeRoastLevel;
+    qint64 m_origActiveEquipmentId;
+    double m_origDyeBeanWeight;
+    int m_origDyeGrinderRpm;
 
 private slots:
 
@@ -106,6 +120,15 @@ private slots:
         { QSettings raw("DecentEspresso", "DE1Qt");
           m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();
           m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray(); }
+        m_origActiveRecipeId = m_settings.dye()->activeRecipeId();
+        m_origActiveBagId = m_settings.dye()->activeBagId();
+        m_origDyeGrinderSetting = m_settings.dye()->dyeGrinderSetting();
+        m_origDyeBeanType = m_settings.dye()->dyeBeanType();
+        m_origDyeRoastDate = m_settings.dye()->dyeRoastDate();
+        m_origDyeRoastLevel = m_settings.dye()->dyeRoastLevel();
+        m_origActiveEquipmentId = m_settings.dye()->activeEquipmentId();
+        m_origDyeBeanWeight = m_settings.dye()->dyeBeanWeight();
+        m_origDyeGrinderRpm = m_settings.dye()->dyeGrinderRpm();
     }
 
     void cleanup() {
@@ -131,6 +154,23 @@ private slots:
           raw.setValue("water/vesselPresets", m_origVesselPresets);
           raw.setValue("steam/pitcherPresets", m_origPitcherPresets);
           raw.sync(); }
+        // Recipe state (add-recipes). Detach the test-local bag storage FIRST
+        // (its object died with the test scope — a dangling m_bagStorage would
+        // crash the next write-through, and a live one would look up the
+        // restored real-world bag id in the test DB and "vanish-clear" it).
+        // With no storage attached, the restores below are pure QSettings
+        // writes. setBagStorage(nullptr) is a no-op when never set.
+        m_settings.dye()->setBagStorage(nullptr);
+        m_settings.dye()->setGrindBagWriteThroughSuspended(false);
+        m_settings.dye()->setActiveRecipeId(m_origActiveRecipeId);
+        m_settings.dye()->setActiveBagId(m_origActiveBagId);
+        m_settings.dye()->setDyeGrinderSetting(m_origDyeGrinderSetting);
+        m_settings.dye()->setDyeBeanType(m_origDyeBeanType);
+        m_settings.dye()->setDyeRoastDate(m_origDyeRoastDate);
+        m_settings.dye()->setDyeRoastLevel(m_origDyeRoastLevel);
+        m_settings.dye()->setActiveEquipmentId(m_origActiveEquipmentId);
+        m_settings.dye()->setDyeBeanWeight(m_origDyeBeanWeight);
+        m_settings.dye()->setDyeGrinderRpm(m_origDyeGrinderRpm);
     }
 
     // ==========================================
@@ -998,6 +1038,72 @@ private slots:
         QCOMPARE(healed.scaleName(), QString("Healed Scale"));
         // primaryScaleAddress unchanged (it was already correct).
         QCOMPARE(healed.primaryScaleAddress(), QString("PRIMARY:AA:11"));
+    }
+
+    // ==========================================
+    // Recipes (add-recipes): active id + pinned-grind write-through routing
+    // ==========================================
+
+    void activeRecipeIdRoundTrip() {
+        m_settings.dye()->setActiveRecipeId(-1);
+        QSignalSpy spy(m_settings.dye(), &SettingsDye::activeRecipeIdChanged);
+        m_settings.dye()->setActiveRecipeId(42);
+        QCOMPARE(m_settings.dye()->activeRecipeId(), 42);
+        QCOMPARE(spy.count(), 1);
+        m_settings.dye()->setActiveRecipeId(42);  // same value: no signal
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void grindPinSuspendsBagWriteThrough() {
+        // A grind edit normally writes through to the active bag (bean dial
+        // memory). While the active recipe PINS its grind, the bag must NOT
+        // follow — the pin is the recipe's private dial and sibling recipes
+        // inherit the bag's value.
+        QTemporaryDir dir;
+        const QString dbPath = dir.filePath("grind_pin.db");
+        qint64 bagId = 0;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", "grind_pin_setup");
+            db.setDatabaseName(dbPath);
+            QVERIFY(db.open());
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            CoffeeBag bag;
+            bag.roasterName = "Test Roaster";
+            bag.coffeeName = "Test Coffee";
+            bag.grinderSetting = "1.0";
+            bagId = CoffeeBagStorage::insertBagStatic(db, bag);
+            QVERIFY(bagId > 0);
+        }
+        QSqlDatabase::removeDatabase("grind_pin_setup");
+
+        CoffeeBagStorage storage;
+        storage.initialize(dbPath);
+        m_settings.dye()->setBagStorage(&storage);
+        m_settings.dye()->setActiveBagId(static_cast<int>(bagId));
+        // Bag apply is async: the dye cache adopts the bag's grind.
+        QTRY_COMPARE(m_settings.dye()->dyeGrinderSetting(), QString("1.0"));
+
+        // Unsuspended: the edit reaches the bag row.
+        m_settings.dye()->setDyeGrinderSetting("2.0");
+        {
+            QSignalSpy ready(&storage, &CoffeeBagStorage::bagReady);
+            // The worker is FIFO, so this read drains after the write above.
+            storage.requestBag(bagId);
+            QTRY_VERIFY(ready.count() >= 1);
+            QCOMPARE(ready.last().at(1).toMap().value("grinderSetting").toString(),
+                     QString("2.0"));
+        }
+
+        // Suspended (recipe pin active): the edit stays out of the bag.
+        m_settings.dye()->setGrindBagWriteThroughSuspended(true);
+        m_settings.dye()->setDyeGrinderSetting("3.0");
+        {
+            QSignalSpy ready(&storage, &CoffeeBagStorage::bagReady);
+            storage.requestBag(bagId);
+            QTRY_VERIFY(ready.count() >= 1);
+            QCOMPARE(ready.last().at(1).toMap().value("grinderSetting").toString(),
+                     QString("2.0"));  // unchanged — the pin never landed
+        }
     }
 };
 

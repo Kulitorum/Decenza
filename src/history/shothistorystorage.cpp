@@ -1547,6 +1547,8 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     data.bagId = metadata.bagId;
     data.frozenDate = metadata.frozenDate;
     data.defrostDate = metadata.defrostDate;
+    data.recipeId = metadata.recipeId;
+    data.steamJson = metadata.steamJson;
 
     if (profile) {
         data.profileKbId = ShotSummarizer::computeProfileKbId(profile->title(), profile->editorType());
@@ -1719,7 +1721,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     channeling_detected, grind_issue_detected,
                     skip_first_frame_detected, pour_truncated_detected,
                     stopped_by, beanbase_json, beanbase_id,
-                    bag_id, frozen_date, defrost_date
+                    bag_id, frozen_date, defrost_date,
+                    recipe_id, steam_json
                 ) VALUES (
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
@@ -1732,7 +1735,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :channeling_detected, :grind_issue_detected,
                     :skip_first_frame_detected, :pour_truncated_detected,
                     :stopped_by, :beanbase_json, :beanbase_id,
-                    :bag_id, :frozen_date, :defrost_date
+                    :bag_id, :frozen_date, :defrost_date,
+                    :recipe_id, :steam_json
                 )
             )");
 
@@ -1780,6 +1784,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":bag_id", bagIdIsSet(data.bagId) ? QVariant(data.bagId) : QVariant());
             query.bindValue(":frozen_date", data.frozenDate.isEmpty() ? QVariant() : data.frozenDate);
             query.bindValue(":defrost_date", data.defrostDate.isEmpty() ? QVariant() : data.defrostDate);
+            query.bindValue(":recipe_id", data.recipeId > 0 ? QVariant(data.recipeId) : QVariant());
+            query.bindValue(":steam_json", data.steamJson.isEmpty() ? QVariant() : data.steamJson);
 
             if (!query.exec()) {
                 locked = isLockError(query.lastError());
@@ -2304,7 +2310,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                s.equipment_id, s.rpm,
                ep.in_inventory, ep.superseded_by, ep.name,
                eb.brand, eb.model,
-               epp.model
+               epp.model,
+               s.recipe_id, s.steam_json
         FROM shots s
         LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder'
         LEFT JOIN equipment_items eb ON eb.package_id = s.equipment_id AND eb.kind = 'basket'
@@ -2388,6 +2395,9 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // (add-puckprep-equipment); empty when the package has no puck prep. Flags +
     // distribution are derived downstream (core/puckprep.h), never stored.
     record.puckPrep = query.value(46).toString();
+    // Recipe provenance (cols 47/48, add-recipes): NULL = pre-recipe shot.
+    record.recipeId = query.value(47).isNull() ? -1 : query.value(47).toLongLong();
+    record.steamJson = query.value(48).toString();
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so

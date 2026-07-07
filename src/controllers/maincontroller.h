@@ -17,6 +17,7 @@
 #include "../history/shothistorystorage.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/equipmentstorage.h"
+#include "../history/recipestorage.h"
 #include "../history/unifiedbeansearchmodel.h"
 #include "../history/shotimporter.h"
 #include "../profile/profileconverter.h"
@@ -63,6 +64,12 @@ class MainController : public QObject {
     Q_PROPERTY(ShotHistoryStorage* shotHistory READ shotHistory CONSTANT)
     Q_PROPERTY(CoffeeBagStorage* bagStorage READ bagStorage CONSTANT)
     Q_PROPERTY(EquipmentStorage* equipmentStorage READ equipmentStorage CONSTANT)
+    Q_PROPERTY(RecipeStorage* recipeStorage READ recipeStorage CONSTANT)
+    // The active recipe's full row (empty map = none). Refreshed on
+    // activation, on external edits to the active row, and cleared on
+    // deactivation. QML reads name/steam fields from here; the id itself
+    // lives in Settings.dye.activeRecipeId.
+    Q_PROPERTY(QVariantMap activeRecipe READ activeRecipe NOTIFY activeRecipeChanged)
     Q_PROPERTY(UnifiedBeanSearchModel* beanSearch READ beanSearch CONSTANT)
     Q_PROPERTY(ShotImporter* shotImporter READ shotImporter CONSTANT)
     Q_PROPERTY(ProfileConverter* profileConverter READ profileConverter CONSTANT)
@@ -126,6 +133,8 @@ public:
     ShotHistoryStorage* shotHistory() const { return m_shotHistory; }
     CoffeeBagStorage* bagStorage() const { return m_bagStorage; }
     EquipmentStorage* equipmentStorage() const { return m_equipmentStorage; }
+    RecipeStorage* recipeStorage() const { return m_recipeStorage; }
+    QVariantMap activeRecipe() const { return m_activeRecipe; }
     UnifiedBeanSearchModel* beanSearch() const { return m_beanSearch; }
     ShotImporter* shotImporter() const { return m_shotImporter; }
     ProfileConverter* profileConverter() const { return m_profileConverter; }
@@ -148,6 +157,22 @@ public:
     // so the loaded recipe matches the auto-favorite card (which buckets dose to
     // the nearest 0.5 g). Pass 0 to use the shot's saved dose unchanged.
     Q_INVOKABLE void loadShotWithMetadata(qint64 shotId, double doseOverride = 0);
+
+    // --- Recipes (add-recipes) ---
+    // Activate a recipe: apply its profile, resolved open bag, equipment,
+    // dose/yield/temp, grind routing, and steam block (the single activation
+    // path shared by QML pill taps, MCP recipe_activate, and the web
+    // /activate route). Async; terminal status via recipeActivated().
+    Q_INVOKABLE void activateRecipe(qint64 recipeId);
+    // Leave the recipe (pill deselects). The recipe row itself is unchanged;
+    // live settings stay as they are — the user is free-styling now.
+    Q_INVOKABLE void deactivateRecipe();
+    // Compact-JSON snapshot of the steam spec currently in effect (recipe's
+    // hasMilk when one is active, plus live steam settings + pitcher +
+    // milk weight). Stamped onto every saved shot and used by the composer
+    // to prefill promote-from-shot steam. Public for the shot-save path,
+    // MCP, and web prefill.
+    QString currentSteamSpecJson() const;
 
     // Clipboard
     Q_INVOKABLE void copyToClipboard(const QString& text);
@@ -234,6 +259,12 @@ signals:
 
     // Shot metadata loaded from history (for async loadShotWithMetadata)
     void shotMetadataLoaded(qint64 shotId, bool success);
+
+    // Recipe activation finished (add-recipes). success=false when the
+    // recipe id was not found or storage failed. Terminal status for QML
+    // pill taps, MCP recipe_activate, and the web /activate route.
+    void recipeActivated(qint64 recipeId, bool success);
+    void activeRecipeChanged();
 
     // Auto-wake: emitted when scheduled wake time is reached
     void autoWakeTriggered();
@@ -375,6 +406,33 @@ private:
     ShotHistoryStorage* m_shotHistory = nullptr;
     CoffeeBagStorage* m_bagStorage = nullptr;
     EquipmentStorage* m_equipmentStorage = nullptr;
+    RecipeStorage* m_recipeStorage = nullptr;
+
+    // --- Recipes (add-recipes) ---
+    // Cached row of the active recipe (empty = none), kept fresh by
+    // activation and by recipesChanged re-reads. Drives grind routing
+    // (pinned vs inherited) and the write-through stamps.
+    QVariantMap m_activeRecipe;
+    // Event-based guard (never a timer): true while activation is applying
+    // the recipe's values, so the deactivate-on-ingredient-swap watchers and
+    // the write-through stamps ignore self-inflicted change signals.
+    bool m_applyingRecipe = false;
+    // Outstanding write-through stamps whose recipeUpdated echo should not
+    // trigger a cache re-read (mirrors SettingsDye::m_pendingSelfWrites).
+    int m_pendingRecipeSelfWrites = 0;
+    // Apply the activation bundle on the main thread (recipeActivationReady).
+    void applyActivatedRecipe(qint64 recipeId, const QVariantMap& recipe,
+                              qint64 openBagId, const QVariantMap& openBag);
+    // Stamp a tweak onto the active recipe row (no-op when none is active
+    // or activation is applying).
+    void stampActiveRecipe(const QString& field, const QVariant& value);
+    // Rebuild + stamp the active recipe's steam block from live settings.
+    void stampActiveRecipeSteam();
+    // Clear the active recipe id/cache and the pinned-grind suspension.
+    void clearActiveRecipeState();
+    // Wire the deactivation watchers + write-through stamps (called once
+    // from the constructor after storages exist).
+    void setupRecipeConnections();
     UnifiedBeanSearchModel* m_beanSearch = nullptr;
     ShotImporter* m_shotImporter = nullptr;
     ProfileConverter* m_profileConverter = nullptr;

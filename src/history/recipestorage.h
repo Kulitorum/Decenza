@@ -96,6 +96,11 @@ public:
     Q_INVOKABLE void requestInventory();                   // archived = false, MRU order
     Q_INVOKABLE void requestArchived();                    // archived = true, MRU order
     Q_INVOKABLE void requestRecipe(qint64 recipeId);       // recipeReady()
+    // Activation bundle: the recipe row, its resolved open bag id, and that
+    // bag's full map, loaded in ONE background pass so activation applies a
+    // consistent snapshot. openBagId is -1 (and openBag empty) when the
+    // recipe has no bean link or no open bag of the bean exists.
+    Q_INVOKABLE void requestRecipeForActivation(qint64 recipeId);  // recipeActivationReady()
 
     // Async writes — all emit recipesChanged() on success.
     Q_INVOKABLE void requestCreateRecipe(const QVariantMap& recipe);        // recipeCreated()
@@ -133,6 +138,9 @@ signals:
     void inventoryReady(const QVariantList& recipes);
     void archivedReady(const QVariantList& recipes);
     void recipeReady(qint64 recipeId, const QVariantMap& recipe); // map empty if not found
+    // recipe empty when the id was not found (activation must fail cleanly).
+    void recipeActivationReady(qint64 recipeId, const QVariantMap& recipe,
+                               qint64 openBagId, const QVariantMap& openBag);
     void recipeCreated(qint64 recipeId, const QVariantMap& recipe); // recipeId -1 on failure
     void recipeUpdated(qint64 recipeId, bool success);
     void recipeDeleted(qint64 recipeId, bool success);
