@@ -2030,6 +2030,12 @@ QString ShotServer::generateLayoutPage() const
                 </div>
                 <div class="ss-slider-row">
                     <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                        <input type="checkbox" id="spYieldTargetOnly" onchange="spConfigChanged()">
+                        <span style="color:var(--text-secondary)">Final yield only (hide profile default, e.g. "40g" not "36 &#8594; 40g")</span>
+                    </label>
+                </div>
+                <div class="ss-slider-row">
+                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
                         <input type="checkbox" id="spShowSteamPlan" checked onchange="spConfigChanged()">
                         <span style="color:var(--text-secondary)">Steam plan (while steaming)</span>
                     </label>
@@ -3050,6 +3056,7 @@ QString ShotServer::generateLayoutPage() const
                     spRender();
                     document.getElementById("spSentence").checked = typeof props.shotPlanSentence === "boolean" ? props.shotPlanSentence : true;
                     document.getElementById("spStacked").checked = props.shotPlanStacked === true;
+                    document.getElementById("spYieldTargetOnly").checked = props.shotPlanYieldTargetOnly === true;
                     document.getElementById("spShowSteamPlan").checked = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true;
                     spSyncStacked();
                     document.getElementById("ssShotPlanSettings").style.display = "";
@@ -3100,6 +3107,7 @@ QString ShotServer::generateLayoutPage() const
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanItems", value: spItems}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanSentence", value: document.getElementById("spSentence").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanStacked", value: document.getElementById("spStacked").checked}, function() {});
+            apiPost("/api/layout/item", {itemId: id, key: "shotPlanYieldTargetOnly", value: document.getElementById("spYieldTargetOnly").checked}, function() {});
             apiPost("/api/layout/item", {itemId: id, key: "shotPlanShowSteamPlan", value: document.getElementById("spShowSteamPlan").checked}, function() {});
         }
     }
