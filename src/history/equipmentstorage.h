@@ -47,10 +47,13 @@ struct EquipmentItem {
 };
 
 // An equipment package: the switchable container the active bag points at via
-// coffee_bags.equipment_id (and shots.equipment_id snapshots). It owns one or
-// more EquipmentItems (exactly one grinder today). The package also carries the
-// grinder-scoped "last dial" memory — switching to a package applies these to
-// the active bag's grind setting / rpm (the bean-scoped memory lives on the bag).
+// coffee_bags.equipment_id (and shots.equipment_id snapshots). It owns zero or
+// more EquipmentItems — at most one grinder, OPTIONAL since
+// add-recipe-wizard-tea (a basket-only tea setup is a grinder-less package:
+// display name falls back to the basket identity, grind/rpm surfaces stay
+// absent). The package also carries the grinder-scoped "last dial" memory —
+// switching to a package applies these to the active bag's grind setting /
+// rpm (the bean-scoped memory lives on the bag).
 struct EquipmentPackage {
     qint64 id = 0;
 

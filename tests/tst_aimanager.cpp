@@ -126,6 +126,31 @@ private slots:
         QVERIFY(!ok);
     }
 
+    // Tea vocabulary (add-recipe-wizard-tea): the union whitelist passes the
+    // tea keys through, numeric brewing values survive (as strings, like
+    // elevation above), and the coffee-only keys still coexist. The °F/cup
+    // NORMALIZATION itself is the model's job (prompt contract) — what the
+    // parser must guarantee is that normalized numbers arrive intact.
+    void parseBagExtractionTeaKeys()
+    {
+        bool ok = false;
+        const QVariantMap fields = AIManager::parseBagExtraction(
+            "{\"teaType\":\"black\",\"origin\":\"Sri Lanka\",\"garden\":\"Kenilworth\","
+            "\"cultivar\":\"TRI 2025\",\"flush\":\"Spring 2026\","
+            "\"tastingNotes\":\"malty, honey\",\"brewTempC\":100,"
+            "\"leafGramsPer100Ml\":0.85,\"steepTime\":\"3-5 minutes\","
+            "\"price\":\"£17.95\"}", &ok);
+        QVERIFY(ok);
+        QCOMPARE(fields.value("teaType").toString(), QString("black"));
+        QCOMPARE(fields.value("garden").toString(), QString("Kenilworth"));
+        QCOMPARE(fields.value("cultivar").toString(), QString("TRI 2025"));
+        QCOMPARE(fields.value("flush").toString(), QString("Spring 2026"));
+        QCOMPARE(fields.value("brewTempC").toString(), QString("100"));
+        QCOMPARE(fields.value("leafGramsPer100Ml").toString(), QString("0.85"));
+        QCOMPARE(fields.value("steepTime").toString(), QString("3-5 minutes"));
+        QVERIFY(!fields.contains("price"));
+    }
+
     // The extraction request-type routing: ANY leak into recommendationReceived
     // renders raw JSON in the advisor UI; a stuck flag misroutes the advisor's
     // next response. Drives the private slots directly via the friend seam —

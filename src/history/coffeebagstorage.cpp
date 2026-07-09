@@ -231,9 +231,16 @@ TeaBrewingData CoffeeBag::teaBrewingFromBlob(const QString& beanBaseData)
     if (!doc.isObject())
         return data;
     const QJsonObject obj = doc.object();
+    // The numbers may arrive string-typed: the extraction pipeline normalizes
+    // every value to a string on its way through the form fields, so a blob
+    // merged from "Get info from page" holds "100", not 100.
+    const auto num = [&obj](const QString& key) {
+        const QJsonValue v = obj.value(key);
+        return v.isString() ? v.toString().toDouble() : v.toDouble();
+    };
     data.teaType = obj.value(QStringLiteral("teaType")).toString().trimmed().toLower();
-    data.brewTempC = obj.value(QStringLiteral("brewTempC")).toDouble();
-    data.leafGramsPer100Ml = obj.value(QStringLiteral("leafGramsPer100Ml")).toDouble();
+    data.brewTempC = num(QStringLiteral("brewTempC"));
+    data.leafGramsPer100Ml = num(QStringLiteral("leafGramsPer100Ml"));
     data.steepTime = obj.value(QStringLiteral("steepTime")).toString();
     return data;
 }

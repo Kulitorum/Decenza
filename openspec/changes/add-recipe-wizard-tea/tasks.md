@@ -39,12 +39,12 @@
 - [ ] 5.2 ChangeBeansDialog tea mode: suppress Visualizer lane, past-tea-bags-only search, straight-to-form when none; tea form labels + hidden fields (roast level, grind/rpm, canonical link)
 - [ ] 5.3 BagCard + details popup: hide coffee-only rows for tea bags; show teaType/brewing fields
 - [ ] 5.4 Unified bean search model kind awareness (wizard bean-step filter)
-- [ ] 5.5 Grinder-less packages: relax EquipmentStorage create precondition, display-name fallback to basket, audit `flattenPackage`/QML consumers for invalid grinder; unit test create/read of basket-only package
+- [x] 5.5 Grinder-less packages: relax EquipmentStorage create precondition, display-name fallback to basket, audit `flattenPackage`/QML consumers for invalid grinder; unit test create/read of basket-only package
 
 ## 6. Extraction
 
-- [ ] 6.1 Tea extraction system prompt in AIManager, selected by bag kind; parse whitelist for tea keys; °F/boiling→Celsius and g-per-cup→per-100ml normalization asserted in parser unit tests
-- [ ] 6.2 Raise fetchPageText cap 20k → 48k
+- [x] 6.1 Tea extraction system prompt in AIManager, selected by bag kind; parse whitelist for tea keys; unit tests assert tea keys + numeric values survive the parser. NOTE: the °F/g-per-cup normalization is the model's job (prompt contract) — not unit-testable without an LLM; verified live at 6.6
+- [x] 6.2 Raise fetchPageText cap 20k → 48k
 - [ ] 6.3 Spike: confirm Anthropic web_fetch / OpenAI web-search request shapes for the two providers shipped in #1445
 - [ ] 6.4 Stage-2 fallback: on emptyPage/blocked, re-issue extraction as a provider web-fetch request (same JSON contract + `imageUrl`); feature-detect per provider; stage-1 error surfaces unchanged when unavailable
 - [ ] 6.5 `imageUrl` consumption: bag image download/cache accepts an explicit URL alongside the og:image path

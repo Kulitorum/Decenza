@@ -985,6 +985,13 @@ private slots:
         QCOMPARE(sparse.leafGramsPer100Ml, 0.0);
         QVERIFY(sparse.steepTime.isEmpty());
 
+        // String-typed numbers (the extraction->form->blob path stores every
+        // value as a string) parse the same as native numbers.
+        const TeaBrewingData stringly = CoffeeBag::teaBrewingFromBlob(
+            "{\"teaType\":\"green\",\"brewTempC\":\"80\",\"leafGramsPer100Ml\":\"0.85\"}");
+        QCOMPARE(stringly.brewTempC, 80.0);
+        QCOMPARE(stringly.leafGramsPer100Ml, 0.85);
+
         // Empty / invalid blobs are tolerated.
         QVERIFY(CoffeeBag::teaBrewingFromBlob(QString()).teaType.isEmpty());
         QVERIFY(CoffeeBag::teaBrewingFromBlob("not json").teaType.isEmpty());
