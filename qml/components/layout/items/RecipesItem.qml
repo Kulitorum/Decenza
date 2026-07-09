@@ -204,7 +204,7 @@ Item {
                     try { water = !!(r.hotWaterJson && JSON.parse(r.hotWaterJson).hasWater) } catch (e) {}
                     t = milk ? "latte" : (water ? "americano" : "espresso")
                 }
-                var icon = "qrc:/icons/espresso 8mm.svg"
+                var icon = "qrc:/icons/espresso.svg"
                 if (t === "filter") icon = "qrc:/icons/filter.svg"
                 else if (t === "americano" || t === "long_black") icon = "qrc:/icons/water.svg"
                 else if (t === "latte") icon = "qrc:/icons/steam.svg"

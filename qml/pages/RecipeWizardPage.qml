@@ -106,7 +106,7 @@ Page {
         case "latte": return "qrc:/icons/steam.svg"
         case "tea": case "tea_hotwater": return "qrc:/icons/tea.svg"
         }
-        return "qrc:/icons/espresso 8mm.svg"
+        return "qrc:/icons/espresso.svg"
     }
 
     // --- form state (same vocabulary as the old composer) ------------------
