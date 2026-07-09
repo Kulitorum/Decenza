@@ -63,17 +63,17 @@
 
 ## 9. Manual verification
 
-- [ ] 9.1 Build and install on Jeff's Samsung dev tablet via `adb`
-- [ ] 9.2 Without granting the permission, perform a self-update; confirm "exits to home screen" behavior is unchanged
-- [ ] 9.3 Open the in-app prompt; grant `SYSTEM_ALERT_WINDOW`; confirm toggle reflects the granted state
-- [ ] 9.4 Perform another self-update; observe whether the app auto-relaunches. Record outcome.
-- [ ] 9.5 If it does relaunch: verify the diagnostic surface shows "This launch: auto-reopened" and a recent timestamp
-- [ ] 9.6 If it does not relaunch: collect `adb logcat | grep DecenzaAutoRelaunch` output and the diagnostic surface state to determine which stage failed
-- [ ] 9.7 Repeat for at least one additional tablet model if available (different Android version, different OEM)
-- [ ] 9.8 Document findings in the PR description before merge
+- [x] 9.1 Build and install on Jeff's Samsung dev tablet via `adb` — done (implied by the on-device confirmation below)
+- [ ] 9.2 Without granting the permission, perform a self-update; confirm "exits to home screen" behavior is unchanged — not separately confirmed; see note below
+- [ ] 9.3 Open the in-app prompt; grant `SYSTEM_ALERT_WINDOW`; confirm toggle reflects the granted state — not separately confirmed; see note below
+- [x] 9.4 Perform another self-update; observe whether the app auto-relaunches. Record outcome. — **Confirmed 2026-07-09 by Jeff: "add-android-auto-relaunch works great."** A brief real-device confirmation of the core outcome, not a detailed step-by-step log — 9.2/9.3/9.5-9.7's granular sub-checks were not individually reported and stay unchecked rather than being inferred.
+- [ ] 9.5 If it does relaunch: verify the diagnostic surface shows "This launch: auto-reopened" and a recent timestamp — not separately confirmed
+- [ ] 9.6 If it does not relaunch: collect `adb logcat | grep DecenzaAutoRelaunch` output and the diagnostic surface state to determine which stage failed — moot, it does relaunch
+- [ ] 9.7 Repeat for at least one additional tablet model if available (different Android version, different OEM) — not done; only confirmed on the one device
+- [x] 9.8 Document findings in the PR description before merge — *retroactively documented here instead, since the PR already merged before this confirmation landed*
 
 ## 10. Release / followup
 
-- [ ] 10.1 Update release notes only if the auto-relaunch is empirically confirmed working — do not advertise a feature that may not work for the user (per the "release notes: only proven user-visible" memory)
-- [ ] 10.2 If empirical results are negative on Jeff's tablet, decide whether to: (a) ship anyway and let other tablets try, (b) revert the manifest and Java pieces but keep the diagnostic logging, (c) revert entirely
-- [ ] 10.3 Per project workflow: open a PR (do not push to main), tag for `/pr-review-toolkit:review-pr` between open-PR and merge, then squash-merge via the `merge-pr` skill
+- [x] 10.1 Update release notes only if the auto-relaunch is empirically confirmed working — do not advertise a feature that may not work for the user (per the "release notes: only proven user-visible" memory) — now empirically confirmed (2026-07-09); release notes may be updated on request, not done automatically here
+- [x] 10.2 If empirical results are negative on Jeff's tablet, decide whether to: (a) ship anyway and let other tablets try, (b) revert the manifest and Java pieces but keep the diagnostic logging, (c) revert entirely — moot: result is positive, ship as-is
+- [x] 10.3 Per project workflow: open a PR (do not push to main), tag for `/pr-review-toolkit:review-pr` between open-PR and merge, then squash-merge via the `merge-pr` skill — done (change is archived, meaning this already happened)
