@@ -1,7 +1,8 @@
 # advisor-structured-next Specification
 
 ## Purpose
-TBD - created by archiving change add-structured-next-shot. Update Purpose after archive.
+Defines the optional trailing `nextShot` JSON block an AI Advisor response appends when it makes a concrete grind/dose/profile recommendation — its schema, the system-prompt teaching that produces it, `AIManager`'s tolerant parser, `AIConversation`'s per-turn persistence of the parsed block, and its surfacing through the `ai_advisor_invoke` MCP tool envelope.
+
 ## Requirements
 ### Requirement: AI advisor responses SHALL carry an optional structured `nextShot` JSON block
 

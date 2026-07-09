@@ -1,7 +1,7 @@
 # layout-widget-catalog Specification
 
 ## Purpose
-TBD - created by archiving change unify-layout-widget-catalog. Update Purpose after archive.
+The single source of truth for the layout widget catalog — each placeable widget type's palette category, palette label, chip label, and display flag — declared once in a C++ table and consumed by the in-app add-widget palette, chip labels, library card display names, and the web layout editor, replacing the previously hand-synchronized copies in QML and JS.
 ## Requirements
 ### Requirement: The widget catalog is declared in one place
 

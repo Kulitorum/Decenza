@@ -1,7 +1,8 @@
 # layout-clock-widget Specification
 
 ## Purpose
-TBD - created by archiving change rename-clock-widget-add-colors. Update Purpose after archive.
+Governs the user-visible label for the layout system's Clock widget, which is presented as "Time" everywhere it appears in the native and web layout editors while its internal `clock` type identifier stays unchanged for backward compatibility.
+
 ## Requirements
 ### Requirement: Clock widget editor label reads "Time"
 

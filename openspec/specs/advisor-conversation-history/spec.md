@@ -1,7 +1,8 @@
 # advisor-conversation-history Specification
 
 ## Purpose
-TBD - created by archiving change add-closed-loop-advisor. Update Purpose after archive.
+Defines how `AIConversation` binds each user/assistant turn pair to the shot it discussed via an optional per-turn `shotId`, and exposes readers (`shotIdForTurn`, `recentAssistantTurns`) that let later code find prior advisor turns tied to a specific shot. This is the linkage that closes the loop between an AI Advisor recommendation and the shot it was about.
+
 ## Requirements
 ### Requirement: `AIConversation` SHALL persist a per-turn `shotId`
 

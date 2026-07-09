@@ -1,7 +1,7 @@
 # canonical-bean-search Specification
 
 ## Purpose
-TBD - created by archiving change migrate-canonical-search-api. Update Purpose after archive.
+Specifies `BeanBaseClient`'s use of Visualizer's documented, public JSON API (`/api/canonical_coffee_bags`, `/api/canonical_roasters`) for bean/roaster lookups in place of the undocumented autocomplete HTML endpoints — covering the single-request full-attribute response, type-ahead debounce with latest-wins and session caching, bounded rate-limit-aware failure handling, and keyless canonical identity round-tripping to Visualizer.
 ## Requirements
 ### Requirement: Canonical search uses the official Visualizer JSON API
 

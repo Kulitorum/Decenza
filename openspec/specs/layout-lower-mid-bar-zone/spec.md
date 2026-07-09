@@ -1,7 +1,8 @@
 # layout-lower-mid-bar-zone Specification
 
 ## Purpose
-TBD - created by archiving change composable-brew-bar. Update Purpose after archive.
+Defines the optional `lowerMidBar` layout zone, a general-purpose full-width band rendered above the bottom action bar on the idle/home screen: it accepts any palette widget, collapses to zero height when empty so existing layouts are visually unaffected, and is shown or hidden at runtime based on available viewport height rather than a hardcoded device list.
+
 ## Requirements
 ### Requirement: Optional lower-mid-bar layout zone
 

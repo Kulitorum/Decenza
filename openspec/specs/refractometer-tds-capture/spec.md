@@ -1,7 +1,8 @@
 # refractometer-tds-capture Specification
 
 ## Purpose
-TBD - created by archiving change gate-r2-tds-auto-populate. Update Purpose after archive.
+Governs when DiFluid R2 refractometer `tdsChanged` readings are allowed to populate shot review fields: only while `PostShotReviewPage` is the active page and the reading is at or above the 3.0% plausible-espresso threshold, with `editDrinkEy` recomputed from the page's current dose/yield. The BLE signal path itself stays non-mutating everywhere else, and `Settings.dyeDrinkTds`/`dyeDrinkEy` remain in-memory session-scratch values that never persist across restarts or backups.
+
 ## Requirements
 ### Requirement: Refractometer readings only populate the active shot review page
 

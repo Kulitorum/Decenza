@@ -1,5 +1,7 @@
 # Change: Update Stop-At-Weight Prediction Model
 
+**Status: WITHDRAWN — 0/35 tasks, `tasks.md` was never checked off to record the decision.** `analysis.md`'s Phase 0 gate found the full regression-based replacement model (Drip Prediction Model, Per-Pair Prediction with Pending-Batch Warm-Up, Smart Global Bootstrap, Implausibility Gate) was validated on inflated simulator estimates, not production data, and recommended withdrawing both halves of this proposal in favor of a minimal, production-validated σ tune. None of this change's spec deltas were merged into `openspec/specs/stop-at-weight-learning/spec.md` (the live spec still describes the original Gaussian-weighted-average model). The narrower σ change shipped separately and successfully as `tune-saw-old-prediction` (PR #870).
+
 ## Why
 
 The current SAW drip prediction is `drip = lag × flow` — a single-parameter model fit per (profile, scale) pair, plus a Gaussian-flow-similarity weighted average over the global pool as a fallback. Field data (shots 882–887, 80's Espresso + Decent Scale) shows the model systematically over-predicts at low flow:

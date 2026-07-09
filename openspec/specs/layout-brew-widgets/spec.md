@@ -1,7 +1,8 @@
 # layout-brew-widgets Specification
 
 ## Purpose
-TBD - created by archiving change composable-brew-bar. Update Purpose after archive.
+Defines a set of home-screen layout widgets for brewing context — profile name, measured dose weight, measured milk weight, and a ratio quick-select pill that opens the ratio chooser and applies a chosen preset live to the stop-at-weight target — each placeable through the standard layout palette registration points.
+
 ## Requirements
 ### Requirement: Profile name widget
 

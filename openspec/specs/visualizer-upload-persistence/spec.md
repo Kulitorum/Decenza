@@ -1,7 +1,7 @@
 # visualizer-upload-persistence Specification
 
 ## Purpose
-TBD - created by archiving change persist-visualizer-id-in-controller. Update Purpose after archive.
+Defines the authoritative, UI-independent path by which a successful Visualizer upload's returned shot id and URL are written back to the originating local `shots` row from `MainController`, plus the one-time bounded reconciliation pass that relinks pre-existing uploads missing that id and corrects stale cloud ratings, and the upload payload's grinder, rpm, and coffee_bag_id resolution rules.
 ## Requirements
 ### Requirement: A successful Visualizer upload SHALL persist its returned id to the originating local shot via a non-UI path
 

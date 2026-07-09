@@ -1,7 +1,8 @@
 # layout-editor-usability Specification
 
 ## Purpose
-TBD - created by archiving change improve-layout-editor-usability. Update Purpose after archive.
+Covers general usability and accessibility fixes to the in-app and web layout editors: instruction text that matches the actual interactions, confirmation prompts before destructive actions (reset to default, removing a configured widget), a categorized and filterable widget picker, accessible controls with SVG icons, a live home-screen preview in the in-app editor, a stable chip remove control, and enforcing only one open widget-options editor at a time.
+
 ## Requirements
 ### Requirement: Editor guidance matches actual interactions
 

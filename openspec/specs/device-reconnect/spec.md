@@ -1,7 +1,7 @@
 # device-reconnect Specification
 
 ## Purpose
-TBD - created by archiving change fix-scale-reconnect-de1-wedge. Update Purpose after archive.
+Defines the BLE reconnect strategy for scales and the DE1: background scale reconnect uses passive scanning rather than a parked `connectToDevice()`, a bounded direct-connect fast path is reserved for foreground-triggered scale connects (aborting the controller on timeout) with duplicate-attempt protection, while the DE1 retains sustained direct-connect for sleep-wake and has its own recovery path for a connect attempt that hangs in `Connecting`.
 ## Requirements
 ### Requirement: Background scale reconnect uses passive scanning, not parked direct-connect
 

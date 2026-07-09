@@ -1,7 +1,7 @@
 # wifi-scale-discovery Specification
 
 ## Purpose
-TBD - created by archiving change add-wifi-scale-support. Update Purpose after archive.
+Covers on-demand mDNS discovery of the Half Decent Scale (HDS) over WiFi alongside the existing BLE scan, the WebSocket-based `DecentScaleWifi` driver that implements the `ScaleDevice` interface (weight, tare, timer, LED, status/battery/charging, button and power events), the `"wifi:<hostname>"` saved-address scheme that lets the same physical scale be selected on either transport, and the cached-IP-with-hostname-fallback and app-owned reconnect behavior that keep the WiFi connection resilient.
 ## Requirements
 ### Requirement: On-demand WiFi scale discovery
 

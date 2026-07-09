@@ -1,7 +1,8 @@
 # bag-freeze-lifecycle Specification
 
 ## Purpose
-TBD - created by archiving change bean-bag-inventory. Update Purpose after archive.
+Defines how a bag tracks its current portion's freeze/defrost lifecycle via `frozenDate`/`defrostDate`, the "Thaw" action that records a portion leaving the freezer, the freeze toggle in the bag creation form, and the capture of both dates into each shot's snapshot so a shot permanently records the beans' thermal history.
+
 ## Requirements
 ### Requirement: Bag tracks current freeze/defrost state
 A bag SHALL store `frozenDate` (nullable date) and `defrostDate` (nullable date) representing the bag's current portion's lifecycle. These fields do NOT accumulate — only the current portion is tracked. The full defrost history is reconstructable from the shot snapshot fields.

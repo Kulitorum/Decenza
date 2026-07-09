@@ -1,7 +1,7 @@
 # brew-overrides Specification
 
 ## Purpose
-TBD - created by archiving change add-brew-overrides. Update Purpose after archive.
+Defines the persistent per-brew overrides (temperature, dose, ratio, yield, grind) set via the BrewDialog: temperature is stored and applied as a delta relative to the profile's `espressoTemperature` anchor, identically across the live-brew upload and "Update Profile" save paths; overrides survive app restart, are shown in the shot plan display, and are recorded to and retrievable from shot history.
 ## Requirements
 ### Requirement: Persistent Brew Overrides
 

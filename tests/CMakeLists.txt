@@ -569,8 +569,12 @@ target_link_libraries(tst_dialing_blocks PRIVATE Qt6::Graphs Qt6::Quick)
 target_include_directories(tst_dialing_blocks PRIVATE ${CMAKE_BINARY_DIR})
 # Built-in profile corpus, for the KB-coverage gate (every shipped profile
 # must resolve to a KB entry — restructure-kb-as-validated-json, task 5.2/6.6).
+# SHOTS_CORPUS_DIR: the tests/data/shots/ regression corpus, for the
+# companion KB-coverage gate over every shot fixture's profile_title
+# (task 5.2 supplement).
 target_compile_definitions(tst_dialing_blocks PRIVATE
-    PROFILES_DIR="${CMAKE_SOURCE_DIR}/resources/profiles")
+    PROFILES_DIR="${CMAKE_SOURCE_DIR}/resources/profiles"
+    SHOTS_CORPUS_DIR="${CMAKE_SOURCE_DIR}/tests/data/shots")
 
 # --- tst_shotrecord_cache: ShotRecord::cachedAnalysis dedup + fallback ---
 add_decenza_test(tst_shotrecord_cache
@@ -934,4 +938,29 @@ target_link_libraries(tst_steamhealth PRIVATE Qt6::Quick Qt6::Graphs)
 # --- tst_raceconditionfix: Temporary canary for the run_tests parser-race fix ---
 add_decenza_test(tst_raceconditionfix
     tst_raceconditionfix.cpp
+)
+
+# --- tst_kb_schema: build-time KB validator (tools/validate_kb.py) coverage
+# (change: restructure-kb-as-validated-json, task 5.1). Shells out to the
+# same Python interpreter the root CMakeLists.txt's `validate_kb` build gate
+# uses (find_package(Python3) there defines Python3_EXECUTABLE in this
+# subdirectory's scope since add_subdirectory(tests) runs after that block),
+# so this test exercises the exact command CI/local builds run — not a
+# reimplementation. Asserts the real shipped profile_knowledge.json passes,
+# and that a representative set of deliberately-corrupted fixtures (written
+# to a QTemporaryDir at runtime) fail with an error naming the offending
+# entry/key, per the profile-knowledge-base spec's five validator scenarios.
+# No Decenza sources needed — pure QProcess + QJsonDocument plumbing.
+if(NOT Python3_Interpreter_FOUND)
+    message(FATAL_ERROR
+        "Python3 not found — tst_kb_schema requires the same interpreter "
+        "the validate_kb build gate uses. Install Python 3.")
+endif()
+add_decenza_test(tst_kb_schema
+    tst_kb_schema.cpp
+)
+target_compile_definitions(tst_kb_schema PRIVATE
+    VALIDATE_KB_PYTHON3="${Python3_EXECUTABLE}"
+    VALIDATE_KB_SCRIPT="${CMAKE_SOURCE_DIR}/tools/validate_kb.py"
+    VALIDATE_KB_REAL_JSON="${CMAKE_SOURCE_DIR}/resources/ai/profile_knowledge.json"
 )

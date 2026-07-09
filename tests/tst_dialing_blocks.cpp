@@ -2524,6 +2524,290 @@ private slots:
                      .arg(resolved)));
     }
 
+    // -------------------------------------------------------------------
+    // restructure-kb-as-validated-json task 5.2 supplement: the spec's
+    // "corpus resolution test" (`## A corpus resolution test SHALL be a
+    // hard gate`) names "every profile title appearing in tests/data/
+    // shots/" as required coverage, distinct from kbCoverage_
+    // everyBuiltInProfileResolves above (which only walks resources/
+    // profiles/*.json shipped built-ins). Enumerate every shot fixture's
+    // `profile_title` and assert it resolves — EXCEPT the two documented
+    // exceptions below, which are deliberately unresolvable fixtures (not
+    // a coverage gap): an empty title (synthetic curve-only fixtures with
+    // no real profile identity) and "Gagné/Adaptive Shot 92C vME 7 bar"
+    // (gagne_adaptive_clean.json's manifest description states this
+    // custom variant is INTENTIONALLY absent from the gagne-adaptive
+    // aliases, to pin the grindCoverage="notAnalyzable" unresolved-KB
+    // path — resolving it would be a silent behavior change the fixture
+    // exists to catch, not a fix). Any OTHER unresolved title is a real
+    // gap: add a KB entry/alias, per the "no allowlist" policy
+    // kbCoverage_everyBuiltInProfileResolves documents above.
+    // -------------------------------------------------------------------
+    void kbCoverage_shotCorpusProfileTitlesResolve()
+    {
+        QDir dir(QStringLiteral(SHOTS_CORPUS_DIR));
+        QVERIFY2(dir.exists(),
+                 qPrintable(QStringLiteral("shots corpus dir not found: ") + dir.path()));
+        const QStringList files = dir.entryList({ QStringLiteral("*.json") }, QDir::Files);
+        QVERIFY2(files.size() >= 15,
+                 qPrintable(QStringLiteral("expected the full shot corpus, found %1")
+                     .arg(files.size())));
+
+        // Deliberately-unresolvable fixture, documented in
+        // tests/data/shots/manifest.json's gagne_adaptive_clean.json entry
+        // (grep for "vME" there for the full rationale).
+        static const QString kKnownUnresolvable =
+            QStringLiteral("Gagné/Adaptive Shot 92C vME 7 bar");
+
+        QStringList unresolved;
+        int resolved = 0, checked = 0;
+        for (const QString& fn : files) {
+            if (fn == QStringLiteral("manifest.json")) continue;  // not a shot fixture
+            QFile pf(dir.filePath(fn));
+            QVERIFY2(pf.open(QIODevice::ReadOnly),
+                     qPrintable(QStringLiteral("cannot open ") + fn));
+            const QJsonObject po = QJsonDocument::fromJson(pf.readAll()).object();
+            pf.close();
+            const QString title = po.value(QStringLiteral("profile_title")).toString();
+            if (title.isEmpty()) continue;  // synthetic curve-only fixture, no profile identity
+            if (title == kKnownUnresolvable) continue;  // documented exception, see comment above
+            ++checked;
+
+            QString t = title;
+            if (t.startsWith(QLatin1Char('*'))) t = t.mid(1);
+            QString editor;
+            if (t.startsWith(QStringLiteral("D-Flow"), Qt::CaseInsensitive))
+                editor = QStringLiteral("dflow");
+            else if (t.startsWith(QStringLiteral("A-Flow"), Qt::CaseInsensitive))
+                editor = QStringLiteral("aflow");
+
+            if (ShotSummarizer::computeProfileKbId(title, editor).isEmpty())
+                unresolved << (title + QStringLiteral(" (") + fn + QLatin1Char(')'));
+            else
+                ++resolved;
+        }
+        QVERIFY2(unresolved.isEmpty(),
+                 qPrintable(QStringLiteral("shot corpus profile title(s) with NO matching "
+                     "KB entry — add a KB entry/alias, or if genuinely intentional add a "
+                     "documented exception like kKnownUnresolvable above:\n  ")
+                     + unresolved.join(QStringLiteral("\n  "))));
+        // Sanity floor: confirm the exclusion filters above did not eat the
+        // whole corpus silently (e.g. a profile_title field rename).
+        QVERIFY2(checked >= 10 && resolved == checked,
+                 qPrintable(QStringLiteral("only checked %1 / resolved %2 shot-corpus "
+                     "titles — expected >= 10 checked, all resolved")
+                     .arg(checked).arg(resolved)));
+    }
+
+    // -------------------------------------------------------------------
+    // restructure-kb-as-validated-json task 5.3: fact-value parity as a
+    // frozen-baseline regression guard. The literal pre-migration markdown
+    // source (resources/ai/profile_knowledge.md) no longer exists in the
+    // repo (task 6.1e deleted it), so a live pre/post diff is impossible
+    // now — this instead PINS the currently-resolved fact values for a
+    // representative profile set (the same profiles the expertBand_* tests
+    // above already exercise piecemeal via relative/absolute checks) as one
+    // consolidated table, so a future KB edit that silently drifts a UGS
+    // value, an analysisFlags entry, or a band bound fails loudly here
+    // instead of only being caught if it happens to touch one of the
+    // narrower existing assertions. Values were cross-checked against the
+    // expertBand_allShippedRows_seedCoverage / expertBand_staleKbId_.../
+    // recipeVariantPrefixResolution_1198 tests above — this table must
+    // never introduce a second, inconsistent set of "known-good" numbers.
+    // -------------------------------------------------------------------
+    void factValueParity_frozenBaselineForRepresentativeProfiles()
+    {
+        using ExpertBand = ShotAnalysis::ExpertBand;
+        struct Row {
+            QString title, editor;
+            double ugs; bool ugsInferred;
+            QStringList analysisFlags;
+            bool hasBand; ExpertBand::Axis axis;
+            bool hasLo; double lo; bool hasHi; double hi;
+        };
+        const QVector<Row> rows = {
+            // D-Flow / default: base section, no band (matches
+            // expertBand_staleKbId_freshTitleResolutionRecoversBand's
+            // "D-Flow / default has no cited band" assertion).
+            { "D-Flow / default", "dflow", 0.5, false,
+              { "flow_trend_ok" }, false, ExpertBand::Axis::PressurePeak, false, 0.0, false, 0.0 },
+            // D-Flow / Q ≡ Damian's Q (structural zero-dup).
+            { "D-Flow / Q", "dflow", 1.0, true,
+              { "flow_trend_ok" }, true, ExpertBand::Axis::PressurePeak, true, 6.0, true, 9.0 },
+            // D-Flow / La Pavoni: strictly coarser than base (1.0 > 0.5).
+            { "D-Flow / La Pavoni", "dflow", 1.0, true,
+              { "flow_trend_ok" }, true, ExpertBand::Axis::PressurePeak, true, 6.0, true, 9.0 },
+            // Damian's LRv2 / LRv3: shared section, no band.
+            { "Damian's LRv2", "dflow", 0.0, false,
+              { "flow_trend_ok" }, false, ExpertBand::Axis::PressurePeak, false, 0.0, false, 0.0 },
+            { "Damian's LRv3", "dflow", 0.0, false,
+              { "flow_trend_ok" }, false, ExpertBand::Axis::PressurePeak, false, 0.0, false, 0.0 },
+            // A-Flow / default-medium: cited band, matches
+            // expertBand_aflow_resolvesFromTitle.
+            { "A-Flow / default-medium", "aflow", 1.5, false,
+              { "flow_trend_ok" }, true, ExpertBand::Axis::PressurePeak, true, 6.0, true, 9.0 },
+            // Londinium: matches expertBand_londinium_resolvesAndDoesNotCatchDamianLR.
+            { "Londinium", "advanced", 0.0, false,
+              { "flow_trend_ok" }, true, ExpertBand::Axis::PressurePeak, true, 8.0, true, 9.0 },
+            // Adaptive v2: matches expertBand_adaptiveV2_resolvesAndDoesNotCatchGagne.
+            { "Adaptive v2", "advanced", 1.25, false,
+              {}, true, ExpertBand::Axis::PressurePeak, true, 6.0, true, 9.0 },
+            // Rao Allongé: one-sided flow floor, matches
+            // expertBand_allonge_resolvesAsOneSidedFlowFloor.
+            { "Rao Allongé", "advanced", 8.0, false,
+              { "channeling_expected", "grind_check_skip" },
+              true, ExpertBand::Axis::ExtractionFlow, true, 4.5, false, 0.0 },
+        };
+
+        for (const Row& row : rows) {
+            const QString kbId = ShotSummarizer::computeProfileKbId(row.title, row.editor);
+            QVERIFY2(!kbId.isEmpty(), qPrintable(row.title + QStringLiteral(" must resolve")));
+
+            QVERIFY2(qFuzzyIsNull(ShotSummarizer::ugsForKbId(kbId) - row.ugs),
+                     qPrintable(QStringLiteral("%1: ugs drifted, expected %2 got %3")
+                         .arg(row.title).arg(row.ugs).arg(ShotSummarizer::ugsForKbId(kbId))));
+            QCOMPARE(ShotSummarizer::ugsInferredForKbId(kbId), row.ugsInferred);
+
+            const QStringList flags = ShotSummarizer::getAnalysisFlags(kbId);
+            QCOMPARE(flags.size(), row.analysisFlags.size());
+            for (const QString& f : row.analysisFlags)
+                QVERIFY2(flags.contains(f),
+                         qPrintable(QStringLiteral("%1: analysisFlags missing %2")
+                             .arg(row.title, f)));
+
+            const auto band = ShotSummarizer::expertBandForKbId(kbId);
+            QCOMPARE(band.has_value(), row.hasBand);
+            if (row.hasBand) {
+                QCOMPARE(band->axis, row.axis);
+                QCOMPARE(band->lo.has_value(), row.hasLo);
+                if (row.hasLo) QCOMPARE(*band->lo, row.lo);
+                QCOMPARE(band->hi.has_value(), row.hasHi);
+                if (row.hasHi) QCOMPARE(*band->hi, row.hi);
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // restructure-kb-as-validated-json task 5.4: the assembled LLM-facing
+    // blob for a profile with a cited expertBand carries the band claim
+    // rendered from the struct EXACTLY once. Mirrors the real assembly
+    // split (shotAnalysisSystemPrompt's "## Current Profile Knowledge"
+    // section emits the raw KB `prose`; buildUserPrompt/
+    // renderShotAnalysisProse's "## Detector Observations" section emits
+    // ShotAnalysis::analyzeShot's struct-rendered band-deviation sentence,
+    // which only fires when the shot's actual peak/flow falls outside the
+    // band): concatenating both halves — the way the real advisor turn
+    // does — must not contain two copies of the same band claim (D9: prose
+    // numbers are commentary, the struct is the sole source of the cited
+    // band). Uses A-Flow (cited provenance, no `proseRestatesBand`
+    // acknowledgement needed — its prose narrates "9–10 bar" as the
+    // profile's own ramp-target commentary, distinct from the struct's
+    // "6.0–9.0 band" formatted clause) rather than the D-Flow/Q example
+    // named in the task description, whose prose is a REVIEWED, ACKED
+    // near-verbatim restatement (see its expertBand.proseRestatesBand) —
+    // deliberately picking the profile whose prose does NOT already
+    // license restating the bound keeps this test unambiguous about what
+    // "duplicate" means.
+    // -------------------------------------------------------------------
+    void assembledBlob_bandRenderedOnceFromStruct_notDuplicatedInProse()
+    {
+        using ExpertBand = ShotAnalysis::ExpertBand;
+
+        const QString kbId = ShotSummarizer::computeProfileKbId(
+            QStringLiteral("A-Flow / default-medium"), QStringLiteral("aflow"));
+        QVERIFY(!kbId.isEmpty());
+
+        const auto band = ShotSummarizer::expertBandForKbId(kbId);
+        QVERIFY2(band.has_value(), "A-Flow must carry a cited expertBand for this test");
+        QCOMPARE(band->axis, ExpertBand::Axis::PressurePeak);
+        QVERIFY(band->lo.has_value() && band->hi.has_value());
+        QCOMPARE(*band->lo, 6.0);
+        QCOMPARE(*band->hi, 9.0);
+
+        const QString prose = ShotSummarizer::profileKnowledgeForKbId(kbId);
+        QVERIFY2(!prose.isEmpty(), "A-Flow KB prose must be present");
+
+        // Fixture mirrors tst_shotanalysis.cpp's bandFixture(): a clean
+        // shot (no channeling, no truncation, flow tracking goal) whose
+        // pressure peak (10 bar) sits outside the 6.0-9.0 band by more
+        // than EXPERT_BAND_PRESSURE_MARGIN_BAR (0.3), isolating the
+        // band-deviation line with no other detector confounding it.
+        QList<HistoryPhaseMarker> phases;
+        {
+            HistoryPhaseMarker preinfusion;
+            preinfusion.time = 0.0; preinfusion.label = "preinfusion start";
+            preinfusion.frameNumber = 0; preinfusion.isFlowMode = true;
+            phases << preinfusion;
+            HistoryPhaseMarker pour;
+            pour.time = 8.0; pour.label = "pour";
+            pour.frameNumber = 1; pour.isFlowMode = false;
+            phases << pour;
+        }
+        QVector<QPointF> pressure, flow, weight, dCdt, pressureGoal, flowGoal;
+        const double peakBar = 10.0;
+        for (double t = 0.0; t <= 8.0 + 1e-9; t += 0.1)
+            pressure << QPointF(t, 1.0 + (t / 8.0) * (peakBar - 1.0));
+        for (double t = 8.1; t <= 30.0 + 1e-9; t += 0.1)
+            pressure << QPointF(t, peakBar);
+        for (double t = 0.0; t <= 30.0 + 1e-9; t += 0.1) {
+            flow << QPointF(t, 1.8);
+            flowGoal << QPointF(t, 1.8);
+            dCdt << QPointF(t, 0.0);
+            weight << QPointF(t, (t / 30.0) * 36.0);
+        }
+        pressureGoal = pressure;
+
+        const auto result = ShotAnalysis::analyzeShot(
+            pressure, flow, weight, dCdt, phases,
+            QStringLiteral("espresso"), 30.0, pressureGoal, flowGoal,
+            ShotSummarizer::getAnalysisFlags(kbId),
+            -1.0, 36.0, 36.0, -1, band, /*profileKbResolved=*/true);
+
+        QString deviationLine;
+        for (const QVariant& v : result.lines) {
+            const QVariantMap m = v.toMap();
+            if (m.value(QStringLiteral("kind")).toString() == QStringLiteral("expert_band_deviation")) {
+                deviationLine = m.value(QStringLiteral("text")).toString();
+                break;
+            }
+        }
+        QVERIFY2(!deviationLine.isEmpty(),
+                 "expected the struct-rendered expert_band_deviation line to fire "
+                 "for a 10 bar peak vs the 6.0-9.0 A-Flow band");
+        QVERIFY2(deviationLine.contains(QStringLiteral("outside"))
+                     && deviationLine.contains(QStringLiteral("judge by taste")),
+                 qPrintable(deviationLine));
+
+        // Assemble the blob the way the real advisor turn does: the KB
+        // prose (system-prompt "## Current Profile Knowledge" section)
+        // followed by the detector observation (user-prompt "## Detector
+        // Observations" section).
+        const QString blob = prose + QStringLiteral("\n\n") + deviationLine;
+
+        QVERIFY2(!blob.isEmpty(), "assembled blob must be non-empty");
+        QVERIFY2(blob.contains(deviationLine),
+                 "assembled blob must carry the struct-rendered band sentence");
+
+        // The exact struct-formatted clause (matches the %1–%2 formatting
+        // in ShotAnalysis::analyzeShot's expert-band block: fixed one
+        // decimal, en-dash, the word "band") — this precise substring is
+        // what a duplicate-copy regression (D9: a `prose` line hand-
+        // authored to restate the band) would double up. It must appear
+        // in the blob exactly once, contributed solely by the struct-
+        // rendered line, never a second time from raw prose text.
+        const QString bandClause = QStringLiteral("%1–%2 band")
+            .arg(*band->lo, 0, 'f', 1).arg(*band->hi, 0, 'f', 1);
+        QCOMPARE(blob.count(bandClause), 1);
+        // And confirm prose alone (without the struct line) does NOT
+        // already contain it — otherwise the count-of-1 above would be
+        // vacuously true for the wrong reason (both halves contributing
+        // zero, or prose alone already carrying it once and the struct
+        // line's copy pushing it to 2, which the QCOMPARE above would
+        // have already caught, but this isolates *which* half the one
+        // occurrence came from).
+        QCOMPARE(prose.count(bandClause), 0);
+    }
+
     // restructure-kb-as-validated-json: the resolver's CENTRAL safety
     // property — an UNKNOWN input is a strict no-op across every consumer
     // (the order-dependent greedy startsWith/contains fallback is deleted

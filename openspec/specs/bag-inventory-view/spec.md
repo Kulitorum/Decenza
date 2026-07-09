@@ -1,7 +1,8 @@
 # bag-inventory-view Specification
 
 ## Purpose
-TBD - created by archiving change bean-bag-inventory. Update Purpose after archive.
+Governs the Beans window's bag-inventory list that replaced the old preset list: cards that show less when more is known (canonical vs. partial data), the single life-stage-appropriate removal action per card (delete before any shot, "Bag finished" after), the idle-page MRU bag-pill widget, and in-place editing that never disturbs existing shots' immutable bean snapshots.
+
 ## Requirements
 ### Requirement: Beans window shows bag inventory
 The Beans window SHALL display a list of bags where `inInventory = true`, replacing the current preset list.

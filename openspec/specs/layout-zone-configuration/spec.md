@@ -1,7 +1,7 @@
 # layout-zone-configuration Specification
 
 ## Purpose
-TBD - created by archiving change composable-brew-bar. Update Purpose after archive.
+Defines per-zone layout options — item distribution (packed/equalWidth/spaced), alignment, and theme-defined style presets (standard/accentBar) — along with the zone-options panel used to edit them, built-in populate presets (Brew bar, Compact status bar), and the reset-to-default action, applied uniformly across all bar zones including the top status bar.
 ## Requirements
 ### Requirement: Open zone options in the editors
 

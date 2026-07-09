@@ -1,102 +1,10 @@
 # Profile Knowledge Base
 
-Curated knowledge about Decent DE1 profiles — which beans they suit, expected flavor outcomes, and recommended parameters. This data feeds the AI advisor's system prompt and the automated shot summary tool.
+Curated knowledge about Decent DE1 profiles — which beans they suit, expected flavor outcomes, and recommended parameters.
+
+The structured, runtime-loaded knowledge base is `resources/ai/profile_knowledge.json` (schema: `resources/ai/profile_knowledge.schema.json`; format documented in the `profile-knowledge-base` OpenSpec capability). This document is its residue companion: fuller design-doc-level knowledge (grind ordering rationale, mother-category theory, roast-level advice, source citations) that didn't fit the JSON's per-profile `prose` field but is still useful context for whoever edits the KB next. It feeds neither the AI advisor's system prompt nor the automated shot summary tool directly — that's the JSON's job.
 
 Every claim is tagged with a source key (e.g., `[SRC:medium]`). See [Sources](#sources) at the bottom for full URLs. When updating this document, always tag new information with its source.
-
----
-
-## KB File Format (`resources/ai/profile_knowledge.md`)
-
-The runtime KB lives in `resources/ai/profile_knowledge.md`. It is parsed by `ShotSummarizer::loadProfileKnowledge()` and matched by `ShotSummarizer::matchProfileKey()`. This section documents the format so new entries can be added correctly.
-
-### Section Header
-
-Each entry begins with a `##` heading. The title becomes the primary lookup key after normalization (lowercase, diacritics stripped, punctuation normalized):
-
-```
-## D-Flow
-## Blooming Espresso
-## Filter 2.0
-```
-
-**Important:** If the title contains ` / ` (space-slash-space), the parser splits it and registers **each split part, lowercased verbatim**, as a separate key — a prefix on the left of the slash is NOT redistributed to the right part. Use this deliberately only when every split part is itself a meaningful, collision-free key (e.g. `## Traditional / Spring Lever Machine` registers "traditional" and "spring lever machine"). It is a footgun otherwise: `## Damian's LRv2 / LRv3` registers "damian's lrv2" and the bare token **"lrv3"** (NOT "damian's lrv3"), and `## D-Flow / Q` would register "d-flow" (colliding with the base `## D-Flow` section). In those cases, give the section an explicit `Also matches:` line so resolution is by a real exact key instead of a fuzzy substring fallback: the `## Damian's LRv2 / LRv3` section carries `Also matches: "Damian's LRv2", "Damian's LRv3"`, the 6-bar variant section is titled `## D-Flow Q variant` (no slash) with `Also matches: "D-Flow / Q", "Damian's Q"`, and the La Pavoni variant section is titled `## D-Flow La Pavoni variant` (no slash) with `Also matches: "D-Flow / La Pavoni"`.
-
-### Also matches:
-
-Lists additional profile titles that should resolve to this entry. Each alias is registered as its own normalized key — it is **not** split on ` / `. Use this for variant names, typos, display-name variants, and legacy profile titles:
-
-```
-Also matches: "D-Flow / default", "D-Flow / Q", "Damian's LRv2", "Londinium / LRv3"
-```
-
-Matching is case- and accent-insensitive (`é` → `e`, etc.). Include the exact display title from the profile JSON `"title"` field.
-
-### AnalysisFlags:
-
-Comma-separated flags consumed by `ShotAnalysis::generateLines()` and `ShotSummarizer::computeChannelingAnomaly()` to suppress false-positive warnings in the automated Shot Summary dialog. The parser uses `split(',')` — space-only separators are **not** recognized:
-
-```
-AnalysisFlags: flow_trend_ok
-AnalysisFlags: channeling_expected
-AnalysisFlags: flow_trend_ok, channeling_expected
-```
-
-| Flag | Effect | Trigger threshold | Use when |
-|------|--------|-------------------|----------|
-| `flow_trend_ok` | Suppresses "Flow rose/dropped X ml/s" caution | Flow at end of pour differs from start of pour by >0.5 ml/s | Declining-pressure profiles (lever, Espresso Forge); constant-pressure profiles (E61, Classic Italian — rising flow is normal puck erosion); blooming profiles (flow ramps from ~0 at bloom exit to extraction rate, always exceeds threshold); pour-over profiles (flow pulses between 0 and target); manual/GHC profiles (operator-controlled, any pattern valid); tea profiles (not espresso, different flow dynamics entirely) |
-| `channeling_expected` | Suppresses dC/dt channeling detection entirely | |dC/dt| sustained above 3.0 for >10 samples during pour | Only for profiles where high-velocity channeling is inherent: Allongé at 4.5 ml/s constant flow |
-
-**Channeling check is also auto-skipped (no flag needed) when:**
-- `beverageType` is `"filter"` or `"pourover"`
-- Average flow during pour exceeds 3.0 ml/s (turbo shots)
-
-**Flow trend check is NOT auto-skipped for turbo/filter** — add `flow_trend_ok` to any profile whose pour-phase flow legitimately rises or falls >0.5 ml/s on a well-dialed shot.
-
-**Quick reference — profiles with `flow_trend_ok`:**
-
-| Reason | Profiles |
-|--------|---------|
-| Declining pressure → flow varies | D-Flow profiles, Default, Londinium, 80's Espresso, Best Overall, Cremina, Gagné Adaptive, Advanced Spring Lever, Traditional/Spring Lever, Espresso Forge, A-Flow profiles, Idan's Strega Plus |
-| Constant pressure → rising flow (puck erosion) | E61 (all variants), Classic Italian / Gentler 8.4 / Italian Australian, Trendy 6 Bar, Preinfuse Then 45ml |
-| Blooming profile → ramp from ~0 at bloom exit | Blooming Espresso, Blooming Allonge, Easy Blooming, TurboBloom |
-| Turbo (no bloom) → rapid preinfusion-to-extraction transition | TurboTurbo |
-| Small basket / declining pressure | 7g Basket |
-| Gentle/Sweet constant-pressure shot | Gentle & Sweet, Extractamundo Dos |
-| Pour-over / filter — flow pulses between 0 and target | Pour Over Basket, Filter 2.0, Filter3 |
-| Manual — operator defines the flow | GHC Manual Control |
-| Tea — not espresso | Tea (all variants) |
-
-### Field lines
-
-All other lines are free-form `Field: value` pairs consumed verbatim by the AI system prompt and formatted for display in the profile KB viewer. Recognized conventions:
-
-| Field | Purpose |
-|-------|---------|
-| `Category:` | Short descriptor shown in the viewer header area |
-| `How it works:` | One-paragraph design intent |
-| `Also matches:` | Alias list (parsed by code — see above) |
-| `Expected curves:` | What pressure/flow graphs should look like |
-| `Duration:` | Expected shot time range |
-| `Temperature:` | Key temperatures and why |
-| `Grind:` | Relative grind direction |
-| `Roast:` | Roast suitability |
-| `Flavor:` | Taste character |
-| `Dose:` | Dose and ratio guidance |
-| `DO NOT flag ...` | Explicit suppression instruction for the AI (plain sentence, no colon required) |
-| `Note:` | Clarifications or disambiguation |
-| `AnalysisFlags:` | Parsed by code — see above |
-| `Skip-Catalog:` | When `true`, the section is excluded from `buildProfileCatalog()`'s one-liner list and is also lifted out of normal profile-match injection. Used for cross-cutting reference sections (e.g. `## Cross-Profile Grind Ordering`) that aren't actual profiles but live in the KB so they're parseable and editable alongside profile entries. |
-
-The display renderer (`ProfileSelectorPage.qml`) bolds lines matching `Label: value` where the label is ≤35 characters and the line does not start with `-` (bullet lines are never bolded), italicizes `DO NOT` lines, and hides `Also matches:` and `AnalysisFlags:` lines entirely. All KB text is HTML-escaped before rendering.
-
-### Matching priority
-
-`matchProfileKey()` tries in this order:
-1. Direct key lookup on the normalized profile title
-2. Prefix match — title starts with a known key, or a known key starts with the title
-3. Substring fuzzy match — known key (≥4 chars) is contained within the normalized title
-4. Editor-type fallback — `dflow` or `D-Flow` → D-Flow entry, `aflow` or `A-Flow` → A-Flow entry
 
 ---
 
@@ -387,7 +295,7 @@ All ship with the generic note *"A-Flow: an alternative profile for D-Flow"* `[S
 > These are **standalone profiles by Damian** (diy.brakel.com.au), shipped as their own built-in profiles. Their titles do **not** start with `D-Flow/`, so the app does **not** classify them as D-Flow-editor profiles (editor membership is by title prefix; see above). `Damian's LRv2` and `Damian's LRv3` are not editor-generated at all and are distinct profiles from each other; `Damian's Q` is a *related* profile — based on / similar to `D-Flow / Q` but built with the **Advanced** editor (not the D-Flow editor). They are *not* "variants of a D-Flow profile" (D-Flow is an editor, see above). Each has its own pressure target so each wants a different grind; do NOT transfer a grinder setting 1:1 between them.
 
 - **UGS (per profile — NOT grind-equivalent)**: LM Leva ≈ 0.5 (≈ `D-Flow / default`, ~8-bar); LRv2 & LRv3 ≈ 0 (canonical Londinium/LRv3 — finer); Q ≈ ~1.0 (inferred — 6-bar approach, coarser). `[SRC:ugs-chart]`
-- In the shipped KB (`resources/ai/profile_knowledge.md`) these resolve to separate sections so the AI keys guidance per profile. `[SRC:community-index]`
+- In the shipped KB (`resources/ai/profile_knowledge.json`) these resolve to separate entries so the AI keys guidance per profile. `[SRC:community-index]`
 
 #### Damian's LM Leva
 
@@ -1021,112 +929,6 @@ Quick reference for which profiles work across roast levels. All profiles are ma
 | GHC/manual pressure control | Operator-controlled; no target curves |
 | Tea portafilter / Tea in a basket | Tea beverage; not espresso analysis |
 | Cleaning / Descale / Test profiles | Maintenance; not analyzed |
-
----
-
-## Basecamp Research Status
-
-Goal: research every built-in espresso profile from community sources and enrich the KB with creator info, dial-in tips, and real-world usage data.
-
-**Skip** (not espresso profiles — no dial-in analysis): Test profiles, Cleaning/Descale/Flush, Steam only.
-
-### ✅ Basecamp research complete
-
-| Profile | Source | Creator |
-|---------|--------|---------|
-| Easy Blooming | `community-index` | Stéphane |
-| Gagné/Adaptive Shot 92C | `bc-adaptive` | Jonathan Gagné |
-| Gagné/Adaptive Allongé 94C | `bc-adaptive` | Jonathan Gagné |
-| TurboBloom | `community-index` | Collin |
-| TurboTurbo | `community-index` | Collin + Jan |
-| I Got Your Back | `profile-notes` + confirmed | Shin |
-| Damian's LM Leva | `community-index` | Damian |
-| Damian's LRv2 | `community-index` | Damian |
-| Damian's LRv3 / Londonium | `community-index` + `profile-notes` | Damian |
-| Damian's Q | `profile-notes` | Damian |
-| Adaptive LPI | `community-index` | Trevor Rainey + Jonathan Gagné |
-| Hendon Turbo 6b Pressure Decline | `community-index` | Jan |
-| Hendon Turbo Flow | `community-index` | Jan |
-| Hendon Turbo Bloom | `community-index` | Jan |
-| JW Spring Lever | `community-index` | John Weiss |
-| JW Flat 9 Bar Advanced | `community-index` | John Weiss |
-| Idan's Strega Plus | `community-index` | Idan |
-| Nu Skool | `community-index` | Dan Calabro |
-| A-Flow (all variants) | `bc-aflow` | Janek |
-| Filter3 | `bc-filter3` | Scott Rao |
-| Advanced Spring Lever / ASL2 | `bc-asl` | John Weiss |
-| D-Flow / La Pavoni | `bc-la-pavoni` | Damian |
-| Best Practice (light roast) | `bc-best-practice` | John Buckman |
-| Classic Italian espresso | `bc-classic-italian` | Luca Frangella |
-
-### 🔍 Community mentions found — deeper search pending
-
-Title searches found mentions of these profiles in broader threads. Need to read full thread bodies and comments for dial-in tips.
-
-| Profile | What was found | Next step |
-|---------|----------------|-----------|
-| E61 variants (rocketing / classic gently / fast preinfusion) | 1 troubleshooting thread (skip-first-step bug, ID 6243257662); no dial-in content yet | Search thread bodies/comments for variant-specific tips |
-| Traditional Lever / Low Pressure 6 bar / Two Spring | Lever emulation threads (8467241229, 5362104423, 6673220784); 6 bar preset confirmed in café use (6207614858) | Read full threads for dial-in content |
-
-### 📚 Published sources only (Decent blog / videos / EAF / Scott Rao)
-
-Good KB coverage from official sources. Basecamp search for community dial-in tips is lower priority.
-
-| Profile(s) | Source key(s) |
-|------------|---------------|
-| D-Flow (all variants) | `dflow-blog`, `medium-video` |
-| Adaptive v2 | `adaptive-adastra`, `adaptive-search`, `light-video` |
-| Blooming Espresso | `rao-blooming`, `light-video` |
-| Blooming Allongé, Rao Allongé | `eaf-profiling`, `light-video` |
-| Default, Londinium | `medium-video`, `dark-video` |
-| Gentle & Sweet, Extractamundo Dos | `light-video`, `gentle-search` |
-| Flow Profile (milky / straight) | `medium-video` |
-| Cremina, 80's Espresso, Best Overall, E61 | `dark-video` |
-| Filter 2.0 / 2.1 | `filter-blog`, `filter-search` |
-| Sprover | `eaf-profiling` |
-| Turbo Shot | `eaf-profiling`, `turbo-search` |
-
-### 🔲 Needs Basecamp research — known community thread exists
-
-All batch 3 profiles from the [Community Profiles Index](https://3.basecamp.com/3671212/buckets/7351439/documents/4263724650) have been completed. No outstanding items in this category.
-
-### ✨ Enriched with community data (no dedicated thread, but mentions found)
-
-These profiles had no dedicated Basecamp thread but community mentions and tips were found in broader discussions.
-
-| Profile | Source | What was added |
-|---------|--------|----------------|
-| Gentler 8.4 bar / Italian Australian | `bc-classic-italian` (sibling profiles) | Shares all technique with Classic Italian; basket/headspace/ratio tips apply |
-| Innovative Long Preinfusion | `bc-ilp` | Two known bugs documented: preinfusion skipping (pressure sensor threshold fix) and early-stop (grind too fine) |
-| V60 / Pour Over Basket | `bc-pour-over` | Grind coarser than manual V60, output volume design intent, height clearance, basket vs Filter 2.1 comparison |
-| 7g Basket | `bc-classic-italian` | Community prefers 12g/14g over 7g for Italian-style shots |
-
-### ❌ Confirmed no community discussion found
-
-Broad title and keyword search completed. Zero relevant threads or mentions found for these profiles.
-
-- **Espresso Forge Dark / Light** — no threads; "forge" keyword returns only hardware threads (Forged Carbon Portafilter)
-- **Gentle Flat 2.5 / Gentle Preinfusion Flow / Hybrid Pour Over** — no threads; part of John Weiss's family but no dedicated community discussion
-- **GHC Manual Control** (flow + pressure variants) — no threads; all GHC results are Group Head Controller hardware discussion
-- **Preinfuse Then 45ml** — no threads; Matt Perger mentions are about water chemistry (Rao/Perger water recipe), not this profile
-- **Kalita pour over basket** — no dedicated threads
-- **Cold brew basket variants** — no dedicated threads; cold brew threads are about external cold brew techniques
-- **Trendy 6 Bar** — no threads by name; a 6 bar profile is confirmed in café use but no dial-in discussion
-- **Tea portafilter variants** (~15 profiles) — not espresso profiles; no search attempted
-
----
-
-## TODO: Additional Data Needed
-
-- [x] ~~Specific temperature recommendations per profile per roast level~~ — Added for Cremina (92C), Londinium (88C), Best Overall (88C), E61 (92C), 80's Espresso (80-70C declining) from dark-video; D-Flow defaults from medium-video
-- [x] ~~D-Flow default temperature and pressure values from the profile JSON~~ — Added default 8.5 bar max pressure, 1.7 ml/s flow, 3 bar infusion pressure from medium-video
-- [x] ~~Turbo Shot profile specifics as implemented in Decenza~~ — Covered in profile_knowledge.md
-- [x] ~~Grind size guidance relative between profiles~~ — Added relative grind ordering from dark-video (E61 coarsest > 80's > Londinium=Cremina=Best Overall finest) and light-video (Allonge coarsest > Adaptive > G&S=Extractamundo > Blooming finest)
-- [ ] Blooming Espresso temperature guidance by roast (not mentioned in transcripts)
-- [x] ~~Community favorites and real-world dial-in tips for newer profiles~~ — Added creator attributions (Stéphane/Easy Blooming, Jonathan Gagné/Gagné Adaptive, Collin/TurboBloom, Collin+Jan/TurboTurbo, Shin/I Got Your Back), sourced dial-in tips for all; profile_knowledge.md updated with creator info and dial-in guidance
-- [x] ~~Sourced profile detail sections for the ~20 profiles added in 2026~~ — Added `### ProfileName` sections for all batch 1: Classic Italian, Traditional/Spring Lever, Advanced Spring Lever, Best Practice, Easy Blooming, Gagné Adaptive, I Got Your Back, TurboBloom, TurboTurbo, Gentle Flat / Long Preinfusion family, Preinfuse Then 45ml, 7g Basket, Espresso Forge, Pour Over Basket, Trendy 6 Bar, GHC Manual. Sources: `community-index`, `bc-adaptive`, `profile-notes`. (Tea and Cleaning omitted — not espresso profiles.)
-- [x] ~~Sourced profile detail sections for batch 3 community profiles~~ — Added `### ProfileName` sections for: Adaptive LPI, Damian's LM Leva, Damian's LRv2, Damian's LRv3/Londonium, Damian's Q, Hendon Turbo variants (6b Pressure Decline, Flow, Bloom), JW Spring Lever, JW Flat 9 Bar Advanced, Idan's Strega Plus, Nu Skool. Sources: `community-index`, `profile-notes`.
-- [ ] Video timestamps from Decent's YouTube for user reference
 
 ---
 

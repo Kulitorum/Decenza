@@ -1,7 +1,7 @@
 # ble-error-surfacing Specification
 
 ## Purpose
-TBD - created by archiving change suppress-transient-ble-write-popup. Update Purpose after archive.
+Governs which DE1 BLE connection failures reach the user: transient write-retry exhaustion is logged and self-heals via the existing reconnect ladder without a popup, persistent reconnect failures are still surfaced (debounced to one message per distinct error), and stale queued connection-error popups are dropped once the link has already recovered, except permission call-to-actions which are always shown.
 ## Requirements
 ### Requirement: Transient DE1 write-retry exhaustion is not a user-facing error
 When a DE1 BLE write exhausts its retry budget (write timeout or `CharacteristicWriteError`), the system SHALL log a warning and emit the `de1LinkFault("write-failed")` diagnostic signal, and SHALL NOT surface a user-facing error dialog for the failure itself. Recovery SHALL proceed via the existing disconnect detection and automatic reconnect ladder.

@@ -1,7 +1,8 @@
 # android-update-relaunch Specification
 
 ## Purpose
-TBD - created by archiving change add-android-auto-relaunch. Update Purpose after archive.
+Covers the opt-in Android-only mechanism that relaunches Decenza automatically after a successful self-update, gated on the user granting `SYSTEM_ALERT_WINDOW`, including the explanatory permission prompt, the diagnostic record of whether each launch was auto- or user-initiated, and the requirement that non-Android platforms are unaffected.
+
 ## Requirements
 ### Requirement: Optional auto-relaunch after Android self-update
 

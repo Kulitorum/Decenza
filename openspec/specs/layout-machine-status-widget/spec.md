@@ -1,7 +1,7 @@
 # layout-machine-status-widget Specification
 
 ## Purpose
-TBD - created by archiving change composable-status-bar. Update Purpose after archive.
+Merges the legacy `connectionStatus` widget into `machineStatus` so the layout system offers a single widget for machine phase and offline state, with existing `connectionStatus` items in saved layouts and default layouts migrated to render as `machineStatus` transparently.
 ## Requirements
 ### Requirement: Machine status and connection status are one widget
 

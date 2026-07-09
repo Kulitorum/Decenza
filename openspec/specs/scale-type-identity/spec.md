@@ -1,7 +1,8 @@
 # scale-type-identity Specification
 
 ## Purpose
-TBD - created by archiving change normalize-scale-type-ids. Update Purpose after archive.
+Requires that every persisted scale identity — the `scale/type` setting, `knownScales` entries, and all SAW learning keys — be keyed on the stable canonical type-id returned by `ScaleDevice::type()` (e.g. `decent`, `decent-wifi`) rather than the human-readable display name, so renaming a scale's label never breaks its learned calibration data. `ScaleFactory` owns the single id/display-name mapping and a `normalizeScaleTypeId()` helper, and a one-time idempotent migration rekeys any legacy display-name-keyed data without loss.
+
 ## Requirements
 ### Requirement: scaleType is a canonical type-id
 

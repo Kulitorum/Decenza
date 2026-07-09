@@ -1,7 +1,7 @@
 # live-milk-readout Specification
 
 ## Purpose
-TBD - created by archiving change restore-live-milk-weigh. Update Purpose after archive.
+Defines the live net-milk weight suffix (" (Xg)") shown on steam preset pills, computed from the connected scale's reading minus the preset's saved empty-pitcher weight, kept purely display-only and independent of weight-timed steaming's capture pipeline, and identical across the idle-page pill row and the compact steam widget's preset popup.
 ## Requirements
 ### Requirement: Live net-milk suffix on steam preset pills
 The idle-page steam preset pill row SHALL append a live net-milk suffix `" (Xg)"` to each pill, where `X = round(max(0, scaleWeight − pitcherWeightG))`, updating as the scale weight changes. The suffix SHALL be shown for a pill only when that preset has a saved empty-pitcher weight (`pitcherWeightG > 0`), a scale is connected, and the scale is not the FlowScale fallback. Disabled ("Off") presets SHALL never show a suffix.

@@ -1,7 +1,8 @@
 # home-screen-widget Specification
 
 ## Purpose
-TBD - created by archiving change add-machine-status-widget. Update Purpose after archive.
+Decenza publishes a compact, off-main-thread machine-status snapshot (phase, connection state, temperature vs. target, most-recent shot) to platform-shared storage so native iOS and Android Home Screen widgets can render machine state without the app running in the foreground. Covers snapshot freshness/staleness handling, honest display when disconnected, tap-to-open behavior, and inclusion of the widget in each platform's release pipeline.
+
 ## Requirements
 ### Requirement: Machine-status snapshot publication
 

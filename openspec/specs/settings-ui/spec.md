@@ -1,7 +1,8 @@
 # settings-ui Specification
 
 ## Purpose
-TBD - created by archiving change reorganize-settings-tabs. Update Purpose after archive.
+Defines the organization of the Settings page's tab bar and content: a live-filtering search dialog backed by a static searchable-settings index, the consolidated Calibration/Machine/History & Data/About/Language & Access tabs (merging and renaming previously scattered cards), the fixed tab order, and card-label renames for clarity. Also covers the Visualizer tab's Auto-Update Shots toggle and its dependency on Auto-Upload Shots.
+
 ## Requirements
 ### Requirement: Settings Search Dialog
 The app SHALL provide a search function accessible via a search icon on the right end of the settings tab bar. Tapping the icon SHALL open a modal Dialog containing a text field and a scrollable list of matching settings. Results SHALL filter live as the user types, matching against setting titles, descriptions, and keyword synonyms. Each result SHALL be an AccessibleButton showing the setting name and parent tab name. Tapping a result SHALL close the dialog, switch to the correct tab, scroll to the target card, and briefly highlight it.

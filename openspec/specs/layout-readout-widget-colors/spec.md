@@ -1,7 +1,7 @@
 # layout-readout-widget-colors Specification
 
 ## Purpose
-TBD - created by archiving change rename-clock-widget-add-colors. Update Purpose after archive.
+Defines the per-instance `color` property that readout layout widgets (Clock, Temperature, Steam Temp, Water Level, Machine Status, Scale Weight, Battery Level, Scale Battery, Dose Weight, Milk Weight, Profile Name) can carry to tint their value text and icon with a named theme color, overriding any dynamic state coloring, with a single shared palette and picker UI reused across both the native and web layout editors.
 ## Requirements
 ### Requirement: Per-instance color override for readout widgets
 

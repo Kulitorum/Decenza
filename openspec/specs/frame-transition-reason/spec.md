@@ -1,7 +1,8 @@
 # frame-transition-reason Specification
 
 ## Purpose
-TBD - created by archiving change unconfirmed-transition-reason. Update Purpose after archive.
+Defines the `transitionReason` vocabulary recorded on each shot phase marker to distinguish a frame exit confirmed by a sensor threshold from one merely inferred (`pressure`/`flow`/`weight` vs. `pressure_unconfirmed`/`flow_unconfirmed`) or driven by time expiry, and how that value is rendered consistently across the live transition pill, shot graph markers, and ShotServer, and passed through unchanged by history persistence and AI-summary consumers.
+
 ## Requirements
 ### Requirement: Transition reason vocabulary distinguishes confirmed from unconfirmed exits
 

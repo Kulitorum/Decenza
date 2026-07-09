@@ -1,7 +1,8 @@
 # shot-save-filter Specification
 
 ## Purpose
-TBD - created by archiving change add-discard-aborted-shots. Update Purpose after archive.
+Defines the classifier that discards espresso shots which never really started (extraction under 10 s AND final weight under 5 g) before they reach `ShotHistoryStorage` or visualizer auto-upload, with a toast notifying the user of the discard. Also covers the equipment and active-bag fields (`equipment_id`, rpm, `bagId`/`frozenDate`/`defrostDate`, dose/yield stamping) snapshotted onto shots that are kept.
+
 ## Requirements
 ### Requirement: The application SHALL classify and discard espresso shots that did not start
 

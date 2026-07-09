@@ -1,7 +1,8 @@
 # advisor-retry-on-failure Specification
 
 ## Purpose
-TBD - created by archiving change add-ai-advisor-retry. Update Purpose after archive.
+Governs recovery from a failed AI Advisor request: the failed user turn is preserved rather than discarded, `AIConversation::retry()` re-sends it without duplicating history or re-running per-turn hooks, a new message after a failure replaces the stale pending turn to keep role alternation valid, and `ConversationOverlay.qml` surfaces a Retry control alongside the error.
+
 ## Requirements
 ### Requirement: A failed advisor request SHALL preserve the user's pending turn
 

@@ -1,7 +1,7 @@
 # mcp-server Specification
 
 ## Purpose
-TBD - created by archiving change update-mcp-protocol-2025-11-25. Update Purpose after archive.
+Decenza's MCP server: protocol version negotiation and the `MCP-Protocol-Version` header, `Origin` validation, structured tool output, resource-link content blocks, tool/resource titles and icons, and JSON Schema 2020-12 input schemas, plus the domain tool surface for scale connection-priority mode and diagnostics, equipment package (grinder/basket/puck-prep) reads and writes, and bag bean-detail fields.
 ## Requirements
 ### Requirement: Latest Protocol Version Support
 

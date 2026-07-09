@@ -1,7 +1,7 @@
 # layout-readout-capability-schema Specification
 
 ## Purpose
-TBD - created by archiving change unify-readout-options. Update Purpose after archive.
+The single source of truth for which per-instance option keys (display mode, color, data mode, ratio suffix, etc.) each layout readout widget type supports, and each type's default display mode when unset. The in-app has-options gate, the unified readout options editor, and the web layout editor all derive their behavior from this schema instead of maintaining independent, hand-synchronized type lists.
 ## Requirements
 ### Requirement: Widget option capabilities are declared in one schema
 

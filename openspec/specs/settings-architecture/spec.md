@@ -1,7 +1,8 @@
 # settings-architecture Specification
 
 ## Purpose
-TBD - created by archiving change split-headers-by-domain. Update Purpose after archive.
+Defines the decomposition of the monolithic `Settings` class into domain sub-objects (`SettingsMqtt`, `SettingsCalibration`, `SettingsBrew`, etc.), each owning its own `QSettings` instance and property set, with `Settings` reduced to a thin façade exposing sub-object accessors and cross-domain wiring. Specifies the required QML access pattern (`Settings.<domain>.<prop>`), the narrow-header-inclusion rule that bounds recompilation blast radius for domain-specific consumers, and the extraction of shot-history data structures into their own header.
+
 ## Requirements
 ### Requirement: Settings Domain Decomposition
 

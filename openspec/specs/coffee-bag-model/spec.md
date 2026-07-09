@@ -1,7 +1,7 @@
 # coffee-bag-model Specification
 
 ## Purpose
-TBD - created by archiving change bean-bag-inventory. Update Purpose after archive.
+The single source of truth for the `CoffeeBag` data model and its `coffee_bags` database table: identity, freeze/notes lifecycle fields, last-used grinder/dose, dose/yield-override, and Visualizer sync bookkeeping, plus how bags survive backup restore and device-to-device transfer, how the active bag is selected and written through from bean/grinder edits, and how bag state is stamped onto each shot snapshot.
 ## Requirements
 ### Requirement: CoffeeBag data model
 The system SHALL define a `CoffeeBag` value type with the following fields:
