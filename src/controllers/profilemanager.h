@@ -149,6 +149,12 @@ public:
     Q_INVOKABLE bool deleteProfile(const QString& filename);
     Q_INVOKABLE QVariantMap getProfileByFilename(const QString& filename) const;
 
+    // Recipe-wizard tea helpers (add-recipe-wizard-tea): QML-visible views of
+    // the DrinkTypes header (src/core/drinktypes.h — the single source for
+    // the keyword table and per-type default temps).
+    Q_INVOKABLE bool teaProfileMatchesType(const QString& profileTitle, const QString& teaType) const;
+    Q_INVOKABLE double defaultTeaTempC(const QString& teaType) const;
+
     // === Read-only protection ===
     Q_INVOKABLE bool isCurrentProfileReadOnly() const;
     Q_INVOKABLE bool isBuiltInFilename(const QString& filename) const;

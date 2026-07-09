@@ -883,7 +883,7 @@ Page {
                             id: recipeArea
                             anchors.fill: parent
                             onClicked: {
-                                pageStack.push(Qt.resolvedUrl("RecipeComposerPage.qml"),
+                                pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"),
                                                { mode: "create", promoteShotId: model.id })
                             }
                         }

@@ -498,7 +498,7 @@ Page {
                                 ". " + favoriteDelegate._groupByText
                             accessibleItem: favRecipeButton
                             onAccessibleClicked: {
-                                pageStack.push(Qt.resolvedUrl("RecipeComposerPage.qml"),
+                                pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"),
                                                { mode: "create", promoteShotId: model.shotId })
                             }
                         }

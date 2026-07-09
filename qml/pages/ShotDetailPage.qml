@@ -338,7 +338,7 @@ Page {
                         accessibleName: TranslationManager.translate("shotdetail.button.recipe", "Create recipe from this shot")
                         accessibleItem: parent
                         onAccessibleClicked: {
-                            pageStack.push(Qt.resolvedUrl("RecipeComposerPage.qml"),
+                            pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"),
                                 { mode: "create", promoteShotId: shotDetailPage.shotId })
                         }
                     }

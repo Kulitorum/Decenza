@@ -21,17 +21,17 @@
 
 ## 4. Recipe wizard UI
 
-- [ ] 4.1 Drink-type template table (profile filter set, bag kind, block pre-seeds, details field list, tea default temps) as a QML/C++ single source
-- [ ] 4.2 Wizard page skeleton: step host, breadcrumb chips, auto-advance picker steps, StackView registration, CMakeLists entries for all new QML files
-- [ ] 4.3 Drink-type step (6 tiles, SVG icons added to resources)
-- [ ] 4.4 Bean step: kind-filtered open bags + "No bean" row
-- [ ] 4.5 Profile step: tiered ranked list with headers and reason chips, search within filter set, "Just hot water" fixed row for tea
-- [ ] 4.6 Details step: per-type field sets; prefill priority (history → bag brewing data → profile defaults); portafilter-tea temp-correction rule; never overwrite user edits
-- [ ] 4.7 Summary step: name + component rows, row-tap → step → return, add/remove milk/water block affordances, per-drink-type equipment row, save path (create + update)
-- [ ] 4.8 Name auto-suggestion ("<Bean> <DrinkType>", user-edit wins) — port composer's `_autoName` guard
-- [ ] 4.9 Entry-point rerouting: RecipesPage add/edit/clone, promote buttons (ShotHistoryPage, ShotDetailPage, AutoFavoritesPage) → wizard summary with prefill/derived drink type; delete `RecipeComposerPage.qml` (file + CMakeLists)
-- [ ] 4.10 `RecipesItem` pill drink-type icons (SVG, derived fallback for legacy rows)
-- [ ] 4.11 Accessibility pass on all new pages (roles, names, focus order, AccessibleButton/AccessibleMouseArea) and translations for every new string
+- [x] 4.1 Drink-type template table (profile filter set, bag kind, block pre-seeds, details field list, tea default temps) as a QML/C++ single source
+- [x] 4.2 Wizard page skeleton: step host, breadcrumb chips, auto-advance picker steps, StackView registration, CMakeLists entries for all new QML files
+- [x] 4.3 Drink-type step (6 tiles, SVG icons added to resources)
+- [x] 4.4 Bean step: kind-filtered open bags + "No bean" row
+- [x] 4.5 Profile step: tiered ranked list with headers and reason chips, search within filter set, "Just hot water" fixed row for tea
+- [x] 4.6 Details step: per-type field sets; prefill priority (history → bag brewing data → profile defaults); portafilter-tea temp-correction rule; never overwrite user edits
+- [x] 4.7 Summary step: name + component rows, row-tap → step → return, add/remove milk/water block affordances, per-drink-type equipment row, save path (create + update)
+- [x] 4.8 Name auto-suggestion ("<Bean> <DrinkType>", user-edit wins) — port composer's `_autoName` guard
+- [x] 4.9 Entry-point rerouting: RecipesPage add/edit/clone, promote buttons (ShotHistoryPage, ShotDetailPage, AutoFavoritesPage) → wizard summary with prefill/derived drink type; delete `RecipeComposerPage.qml` (file + CMakeLists)
+- [x] 4.10 `RecipesItem` pill drink-type icons (SVG, derived fallback for legacy rows)
+- [x] 4.11 Accessibility pass on all new pages (roles, names, focus order, AccessibleButton/AccessibleMouseArea) and translations for every new string
 
 ## 5. Tea bags
 

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import Decenza
 
@@ -23,6 +24,10 @@ FocusScope {
     property bool modified: false
     // When modified, format as "Name (modified)" for read-only presets; otherwise "*Name".
     property bool modifiedIsReadOnly: false
+    // Optional per-preset icon: a preset may carry an `icon` url (e.g. the
+    // recipe pills' drink-type icon, add-recipe-wizard-tea). Presets without
+    // one render exactly as before. Colorized to match the pill text.
+    readonly property real pillIconSize: Theme.scaled(20)
 
     // Effective max width - ensures we never exceed parent width even if maxWidth is larger
     readonly property real effectiveMaxWidth: {
@@ -153,6 +158,8 @@ FocusScope {
         var totalWidth = 0
         for (var i = 0; i < presets.length; i++) {
             var textWidth = measureTextWidth(pillLayoutName(i)) + (pillSuffixFn ? pillSuffixMaxWidth : 0)
+            if (presets[i] && presets[i].icon)
+                textWidth += pillIconSize + Theme.scaled(6)
             var pillWidth = textWidth + pillPadding
             pillWidths.push(pillWidth)
             totalWidth += pillWidth
@@ -294,15 +301,34 @@ FocusScope {
                             radius: parent.radius + Theme.focusMargin
                         }
 
-                        Text {
-                            id: pillText
+                        Row {
                             anchors.centerIn: parent
-                            text: pillDisplayName(modelData.index)
-                            color: pill.isSelected ? Theme.primaryContrastColor : Theme.textColor
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
-                            // Decorative - accessibility handled by AccessibleTapHandler
-                            Accessible.ignored: true
+                            spacing: Theme.scaled(6)
+                            Image {
+                                visible: !!(modelData.preset && modelData.preset.icon)
+                                anchors.verticalCenter: parent.verticalCenter
+                                source: (modelData.preset && modelData.preset.icon) || ""
+                                sourceSize.width: root.pillIconSize
+                                sourceSize.height: root.pillIconSize
+                                fillMode: Image.PreserveAspectFit
+                                Accessible.ignored: true
+                                layer.enabled: true
+                                layer.smooth: true
+                                layer.effect: MultiEffect {
+                                    colorization: 1.0
+                                    colorizationColor: pill.isSelected ? Theme.primaryContrastColor : Theme.textColor
+                                }
+                            }
+                            Text {
+                                id: pillText
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: pillDisplayName(modelData.index)
+                                color: pill.isSelected ? Theme.primaryContrastColor : Theme.textColor
+                                font.pixelSize: Theme.scaled(16)
+                                font.bold: true
+                                // Decorative - accessibility handled by AccessibleTapHandler
+                                Accessible.ignored: true
+                            }
                         }
 
                         // Using TapHandler for better touch responsiveness (avoids Flickable conflicts)

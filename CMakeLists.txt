@@ -706,7 +706,7 @@ set(QML_FILES
     qml/pages/BeanInfoPage.qml
     qml/pages/EquipmentPage.qml
     qml/pages/RecipesPage.qml
-    qml/pages/RecipeComposerPage.qml
+    qml/pages/RecipeWizardPage.qml
     qml/pages/PostShotReviewPage.qml
     qml/pages/AISettingsPage.qml
     qml/pages/DialingAssistantPage.qml

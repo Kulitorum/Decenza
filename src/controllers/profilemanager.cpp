@@ -1,5 +1,6 @@
 #include "core/settings_app.h"
 #include "profilemanager.h"
+#include "../core/drinktypes.h"
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
 #include "../core/settings_dye.h"
@@ -1033,6 +1034,14 @@ QVariantMap ProfileManager::getProfileByFilename(const QString& filename) const 
     result["steps"] = steps;
 
     return result;
+}
+
+bool ProfileManager::teaProfileMatchesType(const QString& profileTitle, const QString& teaType) const {
+    return DrinkTypes::teaProfileMatchesType(profileTitle, teaType);
+}
+
+double ProfileManager::defaultTeaTempC(const QString& teaType) const {
+    return DrinkTypes::defaultTeaTempC(teaType);
 }
 
 
