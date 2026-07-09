@@ -149,6 +149,61 @@ private slots:
         QCOMPARE(fields.value("leafGramsPer100Ml").toString(), QString("0.85"));
         QCOMPARE(fields.value("steepTime").toString(), QString("3-5 minutes"));
         QVERIFY(!fields.contains("price"));
+
+        // imageUrl is the stage-2-only channel for SPA product photos into the
+        // bag-image cache — it must survive the whitelist.
+        bool ok2 = false;
+        const QVariantMap withImage = AIManager::parseBagExtraction(
+            "{\"teaType\":\"black\",\"imageUrl\":\"https://x/tin.jpg\"}", &ok2);
+        QVERIFY(ok2);
+        QCOMPARE(withImage.value("imageUrl").toString(), QString("https://x/tin.jpg"));
+    }
+
+    // The extraction prompt must switch vocabulary by bag kind: a tea page
+    // asked for coffee keys (roastLevel) would silently return the wrong data.
+    // Drives the request builder via the friend seam (m_lastSystemPrompt).
+    void extractionKindSelectsVocabulary()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        settings.ai()->setAiProvider("openai");
+        settings.ai()->setOpenaiApiKey("sk-test");  // isConfigured() so the request builds
+        AIManager mgr(&nam, &settings);
+
+        mgr.extractCoffeeBagDetails("https://x/tea", "tea page text", "tea");
+        QVERIFY(mgr.m_lastSystemPrompt.contains("teaType"));
+        QVERIFY(mgr.m_lastSystemPrompt.contains("leafGramsPer100Ml"));
+        QVERIFY(!mgr.m_lastSystemPrompt.contains("roastLevel"));
+        mgr.m_analyzing = false;  // clear the in-flight guard for the next call
+
+        mgr.extractCoffeeBagDetails("https://x/coffee", "coffee page text", "coffee");
+        QVERIFY(mgr.m_lastSystemPrompt.contains("roastLevel"));
+        QVERIFY(!mgr.m_lastSystemPrompt.contains("teaType"));
+    }
+
+    // Stable guard codes on the stage-2 URL path: notConfigured with no
+    // provider, urlFetchUnsupported when the provider has no web tool
+    // (ChangeBeansDialog and bag_extract_details both branch on these).
+    void urlExtractionGuardCodes()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;  // no provider configured
+        AIManager mgr(&nam, &settings);
+        QSignalSpy failed(&mgr, &AIManager::bagDetailsExtractionFailed);
+
+        mgr.extractCoffeeBagDetailsFromUrl("https://x/bag", "https://x/bag", "coffee");
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.last().at(1).toString(), QString("notConfigured"));
+
+        // Ollama is configured but has no server-side web tool.
+        settings.ai()->setAiProvider("ollama");
+        settings.ai()->setOllamaEndpoint("http://localhost:11434");
+        settings.ai()->setOllamaModel("llama3");
+        AIManager mgr2(&nam, &settings);
+        QSignalSpy failed2(&mgr2, &AIManager::bagDetailsExtractionFailed);
+        mgr2.extractCoffeeBagDetailsFromUrl("https://x/bag", "https://x/bag", "coffee");
+        QCOMPARE(failed2.count(), 1);
+        QCOMPARE(failed2.last().at(1).toString(), QString("urlFetchUnsupported"));
     }
 
     // The extraction request-type routing: ANY leak into recommendationReceived

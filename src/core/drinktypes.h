@@ -7,8 +7,11 @@
 
 // Drink-type helpers for the recipe wizard (add-recipe-wizard-tea).
 //
-// Tea profile recommendation has two data-driven signals, both defined here so
-// the ranking logic and its unit tests share one source:
+// Tea profile recommendation has two data-driven signals. `teaProfileMatchesType`
+// (type match) is the shared authority used by both the wizard's ranking and
+// the unit tests. `teaTempProximity` (temp proximity) is the reference/tested
+// implementation of the tier-③ ordering key; the wizard reimplements the
+// ordering inline in QML (RecipeWizardPage.qml) with the same distance metric.
 //
 //  1. Type match: the stock Decent tea profiles encode the tea type in their
 //     TITLE ("Tea portafilter/black tea", ".../Sencha", ".../Oolong 1st
@@ -20,7 +23,7 @@
 //  2. Temperature proximity: for profiles with no recognizable type in the
 //     title (user-imported), order by |profile temp − the bag's stated
 //     brewTempC|. The profile temps themselves encode the style (Sencha 60°,
-//     Japanese green 74°, white 80°, oolong 88–94°, black ~98°).
+//     Japanese green 74°, white 80°, oolong 88–94°, black 105°).
 //
 // Tea default temperatures (design D8): used by the wizard when the vendor
 // stated nothing — sensible per-type steeping classes, never guessed per-bag.

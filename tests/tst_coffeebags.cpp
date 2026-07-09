@@ -1205,6 +1205,40 @@ private slots:
         });
     }
 
+    // Tea re-buy lane (add-recipe-wizard-tea): the kind filter keeps only
+    // identities that belong to a known tea bag — matched by bag_id OR by
+    // case-insensitive roaster+coffee identity — while kind="" stays unfiltered.
+    void historyQueryTeaKindFilter() {
+        const QString path = freshDb();
+        withRawDb(path, "histkind", [&](QSqlDatabase& db) {
+            // A tea bag linked to its shot by bag_id.
+            CoffeeBag teaBag; teaBag.roasterName = "Harney"; teaBag.coffeeName = "Ceylon";
+            teaBag.kind = "tea";
+            const qint64 teaBagId = CoffeeBagStorage::insertBagStatic(db, teaBag);
+            insertShot(db, "Harney", "Ceylon", 100, QString(), teaBagId);
+
+            // A tea bag matched only by identity (different case, no bag_id link).
+            CoffeeBag teaBag2; teaBag2.roasterName = "Fortnum"; teaBag2.coffeeName = "Royal Blend";
+            teaBag2.kind = "tea";
+            QVERIFY(CoffeeBagStorage::insertBagStatic(db, teaBag2) > 0);
+            insertShot(db, "FORTNUM", "royal blend", 200);  // case differs
+
+            // A coffee bag + shot (must be excluded from the tea lane).
+            CoffeeBag coffeeBag; coffeeBag.roasterName = "Onyx"; coffeeBag.coffeeName = "Geometry";
+            const qint64 cId = CoffeeBagStorage::insertBagStatic(db, coffeeBag);
+            insertShot(db, "Onyx", "Geometry", 300, QString(), cId);
+
+            // Tea filter: exactly the two tea identities, coffee excluded.
+            const QVariantList tea = UnifiedBeanSearchModel::queryHistoryStatic(db, QString(), 50, "tea");
+            QCOMPARE(tea.size(), 2);
+            for (const QVariant& v : tea)
+                QVERIFY(v.toMap().value("roasterName").toString() != "Onyx");
+
+            // Unfiltered lane still returns all three (legacy behavior).
+            QCOMPARE(UnifiedBeanSearchModel::queryHistoryStatic(db, QString(), 50, QString()).size(), 3);
+        });
+    }
+
     void mergeLanesTiersAndAbsorption() {
         // Inventory bag for coffee A; canonical results for A and B;
         // history rows for B (linked) and C (free text).

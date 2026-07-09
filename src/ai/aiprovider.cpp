@@ -260,8 +260,8 @@ void OpenAIProvider::analyzeUrl(const QString& systemPrompt, const QString& user
     QJsonObject searchTool;
     searchTool["type"] = QString("web_search");
     requestBody["tools"] = QJsonArray{searchTool};
-    // Reasoning "low", not "minimal": the gpt-5 family rejects web_search at
-    // minimal effort. max_output_tokens covers reasoning + the JSON answer.
+    // Reasoning "low", not the "none" floor: the gpt-5.4 generation rejects
+    // web_search below "low". max_output_tokens covers reasoning + the JSON answer.
     QJsonObject reasoning;
     reasoning["effort"] = QString("low");
     requestBody["reasoning"] = reasoning;

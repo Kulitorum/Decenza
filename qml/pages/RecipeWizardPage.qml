@@ -251,6 +251,13 @@ Page {
         refreshProfileTemp()
         fTempDeltaC = (r.tempOverrideC > 0 && fProfileTempC > 0)
             ? r.tempOverrideC - fProfileTempC : 0
+        // Tea stores its brew temperature ABSOLUTE in tempOverrideC, and the
+        // save path reads it only from fTeaTempC — seed it here or an
+        // edit/clone/promote (which all load through this function and open on
+        // the summary, never through applyDetailsPrefill) would save 0 and
+        // silently discard the stored temperature.
+        fTeaTempC = (r.drinkType && String(r.drinkType).indexOf("tea") === 0
+                     && r.tempOverrideC > 0) ? r.tempOverrideC : 0
         fGrindOverride = (r.grindPinned || "") !== "" || (r.rpmPinned || 0) > 0
         grindField.text = r.grindPinned || ""
         rpmField.text = (r.rpmPinned || 0) > 0 ? String(r.rpmPinned) : ""
@@ -259,6 +266,9 @@ Page {
         // Drink type: stored value, else derive from the loaded blocks — a
         // legacy (pre-migration-28) recipe opens under the right template.
         fDrinkType = r.drinkType || deriveDrinkType()
+        // Loading an existing recipe counts as "already filled" — a later async
+        // history reply must not overwrite the saved numbers.
+        _detailsUserEdited = true
         if (fEquipmentId > 0)
             MainController.equipmentStorage.requestInventory()
         refreshInheritedGrind()
@@ -550,8 +560,10 @@ Page {
         if (detail.target_weight > 0 && yieldField.text === "")
             yieldField.text = Number(detail.target_weight).toFixed(1)
         fProfileTempC = detail.espresso_temperature || 0
-        if (isTeaDrink && fTeaTempC <= 0)
-            fTeaTempC = fProfileTempC
+        // Tea temp is resolved entirely by applyDetailsPrefill (bag vendor
+        // temp with the type-match correction, then profile default, then
+        // history overwrite) — pre-seeding it here would make that whole
+        // chain dead code (its `fTeaTempC <= 0` gate would never open).
         suggestName()
         stepDone("details")
         applyDetailsPrefill()
@@ -578,15 +590,23 @@ Page {
     // for a different profile — never a computed click count (the KB's own
     // cross-profile rule).
     property string grindHint: ""
+    // True once the user has typed in a details field (or an existing recipe
+    // was loaded). The profile/bag seeds fill the fields synchronously so the
+    // details step is never blank; the async shot-history reply then OVERWRITES
+    // them (design D6: history that actually worked wins) — but only while this
+    // is false, so a value the user has since typed is never clobbered.
+    property bool _detailsUserEdited: false
 
     function applyDetailsPrefill() {
-        // Tier 2/3 seeds first (synchronous); the shot-history tier lands
-        // async via latestShotForBeanProfileReady and wins by overwriting
-        // still-empty fields only — user edits are never clobbered.
+        // Profile/bag seeds run synchronously so the details step is never
+        // blank; the shot-history tier lands async via
+        // latestShotForBeanProfileReady and OVERWRITES them (history that
+        // actually worked is the top priority — design D6), guarded by
+        // _detailsUserEdited so a typed value is never clobbered.
         if (isTeaDrink) {
             _teaBrewing = ({})
             if (fBagBlob !== "") {
-                try { _teaBrewing = JSON.parse(fBagBlob) } catch (e) { _teaBrewing = ({}) }
+                try { _teaBrewing = JSON.parse(fBagBlob) } catch (e) { _teaBrewing = ({}); console.warn("RecipeWizard: bad bag blob JSON:", e) }
             }
             var stated = parseFloat(_teaBrewing.brewTempC) || 0
             var typeMatched = fProfileTitle !== ""
@@ -633,7 +653,7 @@ Page {
         _ranked = ({})
         var teaType = ""
         if (isTeaDrink && fBagBlob !== "") {
-            try { teaType = String(JSON.parse(fBagBlob).teaType || "") } catch (e) {}
+            try { teaType = String(JSON.parse(fBagBlob).teaType || "") } catch (e) { console.warn("RecipeWizard: bad bag blob JSON:", e) }
         }
         var roastLevel = ""  // the bag list carries roastLevel per bag
         if (!isTeaDrink && _selectedBagRoastLevel !== "")
@@ -736,7 +756,7 @@ Page {
         }
         var statedTemp = 0
         if (isTeaDrink && fBagBlob !== "") {
-            try { statedTemp = parseFloat(JSON.parse(fBagBlob).brewTempC) || 0 } catch (e) {}
+            try { statedTemp = parseFloat(JSON.parse(fBagBlob).brewTempC) || 0 } catch (e) { console.warn("RecipeWizard: bad bag blob JSON:", e) }
         }
         if (statedTemp > 0) {
             var withTemp = rest.map(function(p) {
@@ -759,7 +779,7 @@ Page {
 
     function _teaBrewingTypeForRanking() {
         if (fBagBlob === "") return ""
-        try { return String(JSON.parse(fBagBlob).teaType || "") } catch (e) { return "" }
+        try { return String(JSON.parse(fBagBlob).teaType || "") } catch (e) { console.warn("RecipeWizard: bad bag blob JSON:", e); return "" }
     }
 
     // --- connections --------------------------------------------------------
@@ -775,12 +795,23 @@ Page {
     Connections {
         target: MainController.shotHistory
         function onRankedProfilesForBeanReady(result) {
+            // Stale-reply guard: ignore a ranking that answers a bean the user
+            // has since switched away from (the query echoes its bean).
+            if (String(result.queryBrand || "") !== wizardPage.fRoaster
+                || String(result.queryType || "") !== wizardPage.fCoffee)
+                return
             wizardPage._ranked = result
             wizardPage.rebuildProfileModel()
         }
         function onLatestGrindForBeanReady(grind) {
             if (!wizardPage.activeTemplate.grind) return
-            if (!grind || Object.keys(grind).length === 0) {
+            // Stale-reply guard: the query echoes the bean+roast it answered.
+            if (!grind || String(grind.queryBrand || "") !== wizardPage.fRoaster
+                || String(grind.queryType || "") !== wizardPage.fCoffee
+                || String(grind.queryRoast || "") !== wizardPage._selectedBagRoastLevel) {
+                return
+            }
+            if (!grind.grinderSetting) {
                 wizardPage.grindHint = ""
                 return
             }
@@ -811,21 +842,30 @@ Page {
         function onLatestShotForBeanProfileReady(shot) {
             if (!shot || Object.keys(shot).length === 0)
                 return
-            // History wins the prefill — but only into still-empty fields.
-            if (doseField.text === "" && shot.doseWeightG > 0)
+            // Stale-reply guard: this async reply may land after the user has
+            // switched bean/profile — ignore it unless it still answers the
+            // current selection (the returned shot echoes the bean+profile it
+            // was queried for).
+            if (String(shot.profileName || "") !== wizardPage.fProfileTitle
+                || String(shot.beanBrand || "") !== wizardPage.fRoaster
+                || String(shot.beanType || "") !== wizardPage.fCoffee)
+                return
+            // History is the top-priority tier (design D6): overwrite the
+            // profile/bag seeds with the numbers that actually worked — but
+            // never a value the user has typed (_detailsUserEdited).
+            if (wizardPage._detailsUserEdited)
+                return
+            if (shot.doseWeightG > 0)
                 doseField.text = Number(shot.doseWeightG).toFixed(1)
-            if (yieldField.text === "" && shot.targetWeightG > 0)
+            if (shot.targetWeightG > 0)
                 yieldField.text = Number(shot.targetWeightG).toFixed(1)
             if (shot.temperatureOverrideC > 0) {
-                if (wizardPage.isTeaDrink) {
-                    if (wizardPage.fTeaTempC <= 0)
-                        wizardPage.fTeaTempC = shot.temperatureOverrideC
-                } else if (Math.abs(wizardPage.fTempDeltaC) < 0.05 && wizardPage.fProfileTempC > 0) {
+                if (wizardPage.isTeaDrink)
+                    wizardPage.fTeaTempC = shot.temperatureOverrideC
+                else if (wizardPage.fProfileTempC > 0)
                     wizardPage.fTempDeltaC = shot.temperatureOverrideC - wizardPage.fProfileTempC
-                }
             }
-            if (wizardPage.activeTemplate.grind && !wizardPage.hasBean
-                && grindField.text === "" && shot.grinderSetting)
+            if (wizardPage.activeTemplate.grind && !wizardPage.hasBean && shot.grinderSetting)
                 grindField.text = shot.grinderSetting
         }
     }
@@ -833,9 +873,18 @@ Page {
     Connections {
         target: MainController.recipeStorage
         function onRecipeReady(recipeId, recipe) {
-            if (wizardPage.mode === "edit" && recipeId === wizardPage.editRecipeId
-                && Object.keys(recipe).length > 0)
+            if (wizardPage.mode !== "edit" || recipeId !== wizardPage.editRecipeId)
+                return
+            if (Object.keys(recipe).length > 0) {
                 wizardPage.applyRecipeMap(recipe)
+            } else {
+                // The recipe was deleted between opening the list and the load
+                // landing — don't leave a blank "edit" form the user fills in
+                // and only fails to save. Leave the page instead.
+                console.warn("RecipeWizard: recipe", wizardPage.editRecipeId,
+                             "no longer exists — leaving edit")
+                root.goBack()
+            }
         }
         function onRecipeCreated(recipeId, recipe) {
             if (wizardPage.mode !== "edit" && wizardPage._submitting) {
@@ -860,9 +909,13 @@ Page {
         }
         function onLastEquipmentForDrinkTypeReady(drinkType, equipmentId) {
             // Per-drink-type default: only fills an EMPTY equipment choice.
-            if (drinkType === wizardPage.fDrinkType && wizardPage.fEquipmentId <= 0
-                && equipmentId > 0) {
-                wizardPage.fEquipmentId = equipmentId
+            // No recipe of this type yet → fall back to the currently active
+            // package (design D10), so the row prefills instead of "None".
+            if (drinkType !== wizardPage.fDrinkType || wizardPage.fEquipmentId > 0)
+                return
+            var id = equipmentId > 0 ? equipmentId : Settings.dye.activeEquipmentId
+            if (id > 0) {
+                wizardPage.fEquipmentId = id
                 MainController.equipmentStorage.requestInventory()
             }
         }
@@ -1375,12 +1428,14 @@ Page {
                                     label: wizardPage.isTeaDrink
                                         ? TranslationManager.translate("recipes.wizard.leafDose", "Leaf (g)")
                                         : TranslationManager.translate("recipes.composer.doseLabel", "Dose (g)")
+                                    onEdited: wizardPage._detailsUserEdited = true
                                 }
                                 NumberField {
                                     id: yieldField
                                     visible: !wizardPage.isHotWaterTea
                                     Layout.fillWidth: true
                                     label: TranslationManager.translate("recipes.composer.yieldLabel", "Yield (g)")
+                                    onEdited: wizardPage._detailsUserEdited = true
                                 }
                                 // Coffee drinks: temperature as an OFFSET on the
                                 // profile (shot-plan semantics). Tea: absolute.
@@ -1412,6 +1467,7 @@ Page {
                                         accessibleName: TranslationManager.translate("recipes.composer.tempOffsetAccessible", "Brew temperature offset")
                                         onValueModified: function(newValue) {
                                             wizardPage.fTempDeltaC = Theme.displayToCDelta(newValue)
+                                            wizardPage._detailsUserEdited = true
                                         }
                                     }
                                 }
@@ -1420,7 +1476,10 @@ Page {
                                     Layout.fillWidth: true
                                     label: TranslationManager.translate("recipes.wizard.teaTemp", "Temp (°C)")
                                     text: wizardPage.fTeaTempC > 0 ? String(Math.round(wizardPage.fTeaTempC)) : ""
-                                    onEdited: function(newText) { wizardPage.fTeaTempC = parseFloat(newText) || 0 }
+                                    onEdited: function(newText) {
+                                        wizardPage.fTeaTempC = parseFloat(newText) || 0
+                                        wizardPage._detailsUserEdited = true
+                                    }
                                 }
                             }
                         }
@@ -1470,6 +1529,7 @@ Page {
                                             Layout.fillWidth: true
                                             placeholder: TranslationManager.translate("recipes.composer.grindPlaceholder", "e.g. 2.4")
                                             Accessible.name: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
+                                            onTextEdited: wizardPage._detailsUserEdited = true
                                         }
                                         StyledTextField {
                                             id: rpmField

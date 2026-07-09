@@ -646,6 +646,10 @@ void ShotHistoryStorage::requestRankedProfilesForBean(const QString& beanBrand,
         withTempDb(dbPath, "shs_rankedprof", [&](QSqlDatabase& db) {
             result = loadRankedProfilesForBeanStatic(db, beanBrand, beanType, roastLevel, teaType);
         });
+        // Echo the queried bean so a caller can drop a stale reply that lands
+        // after the user switched beans (the QML wizard's stale-reply guard).
+        result.insert(QStringLiteral("queryBrand"), beanBrand);
+        result.insert(QStringLiteral("queryType"), beanType);
 
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, result = std::move(result), destroyed]() {
@@ -828,6 +832,12 @@ void ShotHistoryStorage::requestLatestGrindForBean(const QString& beanBrand,
         withTempDb(dbPath, "shs_beangrind", [&](QSqlDatabase& db) {
             grind = loadLatestGrindForBeanStatic(db, beanBrand, beanType, roastLevel);
         });
+        // Echo the query so QML can drop a stale reply (a "no grind" result is
+        // still tagged so its own stale copy can be filtered — the QML side
+        // keys the empty case on the absence of grinderSetting, not the map).
+        grind.insert(QStringLiteral("queryBrand"), beanBrand);
+        grind.insert(QStringLiteral("queryType"), beanType);
+        grind.insert(QStringLiteral("queryRoast"), roastLevel);
 
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, grind = std::move(grind), destroyed]() {

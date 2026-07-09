@@ -90,6 +90,22 @@ struct Recipe {
     // validation on every surface (wizard, MCP, web).
     static bool hotWaterActive(const QString& hotWaterJson);
 
+    // The drink-type vocabulary. MCP schema enums are advisory (the registry
+    // doesn't enforce them) and the web API accepts free text, so write
+    // surfaces MUST gate on this — a stored "Tea" looks valid everywhere but
+    // misses every exact-match consumer (wizard template lookup, equipment
+    // default query, and the stored-tea protection in the update
+    // re-derivation, which would then re-derive it to "latte" on a steam
+    // stamp).
+    static bool isKnownDrinkType(const QString& drinkType) {
+        static const QStringList kDrinkTypes = {
+            QStringLiteral("espresso"), QStringLiteral("filter"),
+            QStringLiteral("americano"), QStringLiteral("long_black"),
+            QStringLiteral("latte"), QStringLiteral("tea"),
+            QStringLiteral("tea_hotwater")};
+        return kDrinkTypes.contains(drinkType);
+    }
+
     // The one save-validation rule every surface enforces: a name, and a
     // profile unless the recipe is hot-water-only. QML reaches it through
     // RecipeStorage::isSaveValid.

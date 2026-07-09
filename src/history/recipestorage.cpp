@@ -405,9 +405,48 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
     // Stripped here; consumed by the drink-type re-derivation below.
     QVariantMap patch = fields;
     const QString hintedBev = patch.take(QStringLiteral("profileBeverageType")).toString();
+    if (patch.isEmpty()) {
+        // A hint-only patch would reach updateRecipeFieldsStatic with zero
+        // assignments and fail with a mystery success=false — name the cause.
+        qWarning() << "RecipeStorage: update for recipe" << recipeId
+                   << "carried no persistable fields";
+        emit recipeUpdated(recipeId, false);
+        return;
+    }
     runAsync("recipes_update",
         [recipeId, fields = std::move(patch), hintedBev, success](QSqlDatabase& db) {
+            // The whole update is transactional so the validity check below
+            // can reject the patch without leaving a half-applied row.
+            if (!db.transaction()) {
+                qWarning() << "RecipeStorage: update transaction begin failed for recipe"
+                           << recipeId << "-" << db.lastError().text();
+                return;
+            }
             *success = updateRecipeFieldsStatic(db, recipeId, fields);
+            if (!*success) {
+                db.rollback();
+                return;
+            }
+            const Recipe updated = loadRecipeStatic(db, recipeId);
+            if (!updated.isValid()) {
+                db.rollback();
+                *success = false;
+                return;
+            }
+            // Storage-level invariant: a recipe must stay saveable — a name,
+            // and a profile unless hot-water-only. Enforced against the
+            // RESULTING row so every surface inherits it (the web update
+            // route shipped without the MCP tool's early guard, and neither
+            // surface caught removing the hot-water block from an already
+            // profile-less recipe).
+            if (!Recipe::saveValidationPasses(updated.name, updated.profileTitle,
+                                              updated.hotWaterJson)) {
+                qWarning() << "RecipeStorage: rejecting update that would strand recipe"
+                           << recipeId << "(name/profile/hot-water invariant)";
+                db.rollback();
+                *success = false;
+                return;
+            }
             // drink_type follows the blocks when the caller changed them
             // without setting it explicitly (MCP/web edits must not strand a
             // stale type — e.g. adding a hot-water block to an espresso).
@@ -418,27 +457,32 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
             const bool touchesBlocks = fields.contains(QStringLiteral("steamJson"))
                 || fields.contains(QStringLiteral("hotWaterJson"))
                 || fields.contains(QStringLiteral("profileTitle"));
-            if (*success && touchesBlocks && !fields.contains(QStringLiteral("drinkType"))) {
-                const Recipe updated = loadRecipeStatic(db, recipeId);
-                if (updated.isValid()) {
-                    QString bev = hintedBev;
-                    if (bev.isEmpty() && !updated.profileJson.isEmpty())
-                        bev = QJsonDocument::fromJson(updated.profileJson.toUtf8())
-                                  .object().value(QStringLiteral("beverage_type")).toString();
-                    // When the profile didn't change, the stored type already
-                    // encodes its profile-derived category — without this, a
-                    // steam-settings stamp on an active TEA recipe would
-                    // re-derive it into "latte" (beverage_type unresolvable
-                    // on this thread for installed profiles).
-                    if (bev.isEmpty() && !fields.contains(QStringLiteral("profileTitle"))) {
-                        if (updated.drinkType == QLatin1String("tea"))
-                            bev = QStringLiteral("tea_portafilter");
-                        else if (updated.drinkType == QLatin1String("filter"))
-                            bev = QStringLiteral("filter");
-                    }
-                    updateRecipeFieldsStatic(db, recipeId,
-                        {{QStringLiteral("drinkType"), Recipe::deriveDrinkType(updated, bev)}});
+            if (touchesBlocks && !fields.contains(QStringLiteral("drinkType"))) {
+                QString bev = hintedBev;
+                if (bev.isEmpty() && !updated.profileJson.isEmpty())
+                    bev = QJsonDocument::fromJson(updated.profileJson.toUtf8())
+                              .object().value(QStringLiteral("beverage_type")).toString();
+                // When the profile didn't change, the stored type already
+                // encodes its profile-derived category — without this, a
+                // steam-settings stamp on an active TEA recipe would
+                // re-derive it into "latte" (beverage_type unresolvable
+                // on this thread for installed profiles).
+                if (bev.isEmpty() && !fields.contains(QStringLiteral("profileTitle"))) {
+                    if (updated.drinkType == QLatin1String("tea"))
+                        bev = QStringLiteral("tea_portafilter");
+                    else if (updated.drinkType == QLatin1String("filter"))
+                        bev = QStringLiteral("filter");
                 }
+                if (!updateRecipeFieldsStatic(db, recipeId,
+                        {{QStringLiteral("drinkType"), Recipe::deriveDrinkType(updated, bev)}}))
+                    qWarning() << "RecipeStorage: drink-type re-derivation stamp failed for recipe"
+                               << recipeId << "- stored type may be stale";
+            }
+            if (!db.commit()) {
+                qWarning() << "RecipeStorage: update commit failed for recipe" << recipeId
+                           << "-" << db.lastError().text();
+                db.rollback();
+                *success = false;
             }
         },
         // Write: emit regardless — *success is false on open failure, the

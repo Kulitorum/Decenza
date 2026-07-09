@@ -444,9 +444,12 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
             }
             const QString urlOverride = args["url"].toString().trimmed();
 
-            // One-shot chain state. Every connection is severed on the first
-            // terminal outcome so a concurrent in-app extraction (different
-            // token/url) never cross-talks.
+            // Chain state. Each STEP disarms after its first accept (per-step
+            // flags), and the whole thing severs all connections on the first
+            // terminal outcome (`done` + finish()). Both matter: bag-refresh
+            // and page-fetch signals are broadcast, so a concurrent
+            // requestBag/fetch for the same key would otherwise re-fire a step
+            // and torpedo this run.
             struct ExtractState {
                 QList<QMetaObject::Connection> conns;
                 QString url;
@@ -454,6 +457,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 int stage = 1;
                 QString stage1Error;
                 qsizetype textChars = 0;
+                bool fetchArmed = false;    // pageTextReady/Failed accepted once
                 bool done = false;
             };
             auto st = std::make_shared<ExtractState>();
@@ -465,51 +469,35 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 reply();
             };
 
-            // Step 1: resolve the bag (link + kind) via the storage instance.
-            st->conns << QObject::connect(bagStorage, &CoffeeBagStorage::bagReady, qApp,
-                [st, aiManager, beanbase, bagId, urlOverride, finish, respond](qint64 readyId, const QVariantMap& bagMap) {
-                    if (st->done || readyId != bagId) return;
-                    const CoffeeBag bag = CoffeeBag::fromVariantMap(bagMap);
-                    if (!bag.isValid()) {
-                        finish([respond]() { respond(QJsonObject{{"error", "Bag not found"}}); });
-                        return;
-                    }
-                    QString link = urlOverride;
-                    if (link.isEmpty()) {
-                        const QJsonObject blob = QJsonDocument::fromJson(bag.beanBaseData.toUtf8()).object();
-                        link = blob.value(QStringLiteral("link")).toString();
-                    }
-                    if (link.isEmpty()) {
-                        finish([respond]() { respond(QJsonObject{{"error",
-                            "Bag has no product URL (set one with bag_update link=...)"}}); });
-                        return;
-                    }
-                    st->url = link;
-                    st->kind = bag.isTea() ? QStringLiteral("tea") : QStringLiteral("coffee");
-                    beanbase->fetchPageText(st->url);
-                });
-
-            // Step 2a: local fetch succeeded -> stage-1 extraction.
+            // Step 2a: local fetch succeeded -> stage-1 extraction. One-shot:
+            // disarm so a concurrent fetch of the same URL can't re-enter.
             st->conns << QObject::connect(beanbase, &BeanBaseClient::pageTextReady, qApp,
                 [st, aiManager](const QString& url, const QString& text) {
-                    if (st->done || url != st->url) return;
+                    if (st->done || st->fetchArmed || url != st->url) return;
+                    st->fetchArmed = true;
                     st->textChars = text.size();
                     aiManager->extractCoffeeBagDetails(st->url, text, st->kind);
                 });
 
-            // Step 2b: local fetch failed -> provider-side web fetch when the
-            // provider has a web tool, else surface the stage-1 error.
+            // Step 2b: local fetch failed -> provider-side web fetch, but ONLY
+            // for an empty/blocked page (the in-app dialog's rule): a bad URL
+            // or a down site would just burn provider tokens on a guaranteed
+            // stage-2 failure. Otherwise surface the stage-1 error.
             st->conns << QObject::connect(beanbase, &BeanBaseClient::pageTextFailed, qApp,
                 [st, aiManager, finish, respond](const QString& url, const QString& error) {
-                    if (st->done || url != st->url) return;
+                    if (st->done || st->fetchArmed || url != st->url) return;
+                    st->fetchArmed = true;
                     st->stage1Error = error;
-                    if (aiManager->supportsUrlExtraction()) {
+                    if (error == QLatin1String("emptyPage") && aiManager->supportsUrlExtraction()) {
                         st->stage = 2;
                         aiManager->extractCoffeeBagDetailsFromUrl(st->url, st->url, st->kind);
+                    } else if (error == QLatin1String("emptyPage")) {
+                        finish([respond, error]() { respond(QJsonObject{{"error",
+                            QString("Page fetch returned nothing (%1) and the configured provider has "
+                                    "no web-fetch tool for the stage-2 fallback").arg(error)}}); });
                     } else {
                         finish([respond, error]() { respond(QJsonObject{{"error",
-                            QString("Page fetch failed (%1) and the configured provider has "
-                                    "no web-fetch tool for the stage-2 fallback").arg(error)}}); });
+                            QString("Page fetch failed: %1").arg(error)}}); });
                     }
                 });
 
@@ -532,11 +520,60 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 [st, finish, respond](const QString& token, const QString& error) {
                     if (st->done || token != st->url) return;
                     const int stage = st->stage;
-                    finish([respond, error, stage]() { respond(QJsonObject{
-                        {"error", QString("Extraction failed at stage %1: %2").arg(stage).arg(error)}}); });
+                    // Carry the stage-1 reason into a stage-2 failure — it is
+                    // the actual root cause the caller needs, and it otherwise
+                    // only rode along in the success response.
+                    QString msg = QString("Extraction failed at stage %1: %2").arg(stage).arg(error);
+                    if (stage == 2 && !st->stage1Error.isEmpty())
+                        msg += QString(" (stage 1: %1)").arg(st->stage1Error);
+                    finish([respond, msg]() { respond(QJsonObject{{"error", msg}}); });
                 });
 
-            bagStorage->requestBag(bagId);
+            // Step 1: resolve the bag (link + kind) on a background thread —
+            // NOT via the bagReady signal. requestBag has two documented
+            // no-emit paths (uninitialized storage, DB open failure); routed
+            // through them the MCP caller would hang forever and the armed
+            // connections would leak onto app-lifetime singletons, later
+            // hijacking an in-app "Get info" for the same URL. A direct
+            // withTempDb load has a guaranteed terminal (found=false on any
+            // failure), exactly like bag_update.
+            const QString dbPath = bagStorage->databasePath();
+            QThread* loadThread = QThread::create(
+                [st, beanbase, dbPath, bagId, urlOverride, finish, respond]() {
+                    CoffeeBag bag;
+                    const bool opened = withTempDb(dbPath, "mcp_extract_bag", [&](QSqlDatabase& db) {
+                        bag = CoffeeBagStorage::loadBagStatic(db, bagId);
+                    });
+                    QString link = urlOverride;
+                    bool tea = false;
+                    if (opened && bag.isValid()) {
+                        tea = bag.isTea();
+                        if (link.isEmpty())
+                            link = QJsonDocument::fromJson(bag.beanBaseData.toUtf8())
+                                       .object().value(QStringLiteral("link")).toString();
+                    }
+                    QMetaObject::invokeMethod(qApp, [st, beanbase, opened, valid = bag.isValid(),
+                                                     tea, link, finish, respond]() {
+                        if (!opened) {
+                            finish([respond]() { respond(QJsonObject{{"error", "Could not open bag database"}}); });
+                            return;
+                        }
+                        if (!valid) {
+                            finish([respond]() { respond(QJsonObject{{"error", "Bag not found"}}); });
+                            return;
+                        }
+                        if (link.isEmpty()) {
+                            finish([respond]() { respond(QJsonObject{{"error",
+                                "Bag has no product URL (set one with bag_update link=...)"}}); });
+                            return;
+                        }
+                        st->url = link;
+                        st->kind = tea ? QStringLiteral("tea") : QStringLiteral("coffee");
+                        beanbase->fetchPageText(st->url);
+                    }, Qt::QueuedConnection);
+                });
+            QObject::connect(loadThread, &QThread::finished, loadThread, &QObject::deleteLater);
+            loadThread->start();
         },
         "control");
 

@@ -493,6 +493,97 @@ private slots:
         });
     }
 
+    // The storage layer enforces the save invariant against the RESULTING row,
+    // so every surface (wizard, MCP, web) inherits it — the web update route
+    // shipped without the MCP tool's early guard, and neither surface caught
+    // removing the hot-water block from an already profile-less recipe.
+    void updateCannotStrandRecipe() {
+        const QString path = freshDbPath();
+        qint64 espId = 0, hwId = 0;
+        withRawDb(path, "strand_setup", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe esp;
+            esp.name = "Espresso"; esp.profileTitle = "Default"; esp.drinkType = "espresso";
+            espId = RecipeStorage::insertRecipeStatic(db, esp);
+            Recipe hw;  // profile-less hot-water tea
+            hw.name = "Earl Grey"; hw.drinkType = "tea_hotwater";
+            hw.hotWaterJson = "{\"hasWater\":true,\"vesselName\":\"Mug\"}";
+            hwId = RecipeStorage::insertRecipeStatic(db, hw);
+        });
+        QVERIFY(espId > 0 && hwId > 0);
+
+        RecipeStorage storage;
+        storage.initialize(path);
+
+        // Clearing the profile on a non-hot-water recipe is rejected — the row
+        // is untouched.
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            storage.requestUpdateRecipe(espId, {{"profileTitle", QString()}});
+            QTRY_COMPARE(spy.count(), 1);
+            QVERIFY(!spy.at(0).at(1).toBool());  // failed
+        }
+        // Removing the hot-water block from a profile-less recipe is rejected
+        // too (the case the per-surface profileTitle guard misses entirely).
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            storage.requestUpdateRecipe(hwId, {{"hotWaterJson", QString()}});
+            QTRY_COMPARE(spy.count(), 1);
+            QVERIFY(!spy.at(0).at(1).toBool());
+        }
+        // A hint-only patch (nothing persistable) fails cleanly, not silently.
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            storage.requestUpdateRecipe(espId, {{"profileBeverageType", "espresso"}});
+            QTRY_COMPARE(spy.count(), 1);
+            QVERIFY(!spy.at(0).at(1).toBool());
+        }
+        // Both rows survived the rejected updates intact.
+        withRawDb(path, "strand_verify", [&](QSqlDatabase& db) {
+            const Recipe esp = RecipeStorage::loadRecipeStatic(db, espId);
+            QCOMPARE(esp.profileTitle, QString("Default"));
+            QVERIFY(Recipe::saveValidationPasses(esp.name, esp.profileTitle, esp.hotWaterJson));
+            const Recipe hw = RecipeStorage::loadRecipeStatic(db, hwId);
+            QVERIFY(Recipe::hotWaterActive(hw.hotWaterJson));
+        });
+    }
+
+    void isKnownDrinkTypeVocabulary() {
+        for (const QString& t : {QStringLiteral("espresso"), QStringLiteral("filter"),
+                                 QStringLiteral("americano"), QStringLiteral("long_black"),
+                                 QStringLiteral("latte"), QStringLiteral("tea"),
+                                 QStringLiteral("tea_hotwater")})
+            QVERIFY2(Recipe::isKnownDrinkType(t), qPrintable(t));
+        QVERIFY(!Recipe::isKnownDrinkType("Tea"));          // case
+        QVERIFY(!Recipe::isKnownDrinkType("cappuccino"));   // typo
+        QVERIFY(!Recipe::isKnownDrinkType(""));
+    }
+
+    // The stored-filter arm of the update re-derivation: a block stamp that
+    // leaves neither milk nor water active must keep drink_type "filter", not
+    // slide to "espresso" (the tea arm is covered above).
+    void updateRederivesPreservesFilter() {
+        const QString path = freshDbPath();
+        qint64 id = 0;
+        withRawDb(path, "filter_setup", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe r;
+            r.name = "Pour"; r.profileTitle = "Filter 2.0"; r.drinkType = "filter";
+            id = RecipeStorage::insertRecipeStatic(db, r);
+        });
+        RecipeStorage storage;
+        storage.initialize(path);
+        QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+        // A steam stamp with hasMilk:false touches a block without changing the
+        // profile — re-derivation must fall back to the stored filter category.
+        storage.requestUpdateRecipe(id, {{"steamJson", "{\"hasMilk\":false}"}});
+        QTRY_COMPARE(spy.count(), 1);
+        QVERIFY(spy.at(0).at(1).toBool());
+        withRawDb(path, "filter_verify", [&](QSqlDatabase& db) {
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).drinkType, QString("filter"));
+        });
+    }
+
     void requestRecipeForActivation() {
         const QString path = freshDbPath();
         qint64 recipeId = 0, bareId = 0, openBagId = 0;

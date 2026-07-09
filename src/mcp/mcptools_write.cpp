@@ -1771,7 +1771,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // bag must not conjure one).
             const bool identityEdit = fields.contains("roasterName")
                 || fields.contains("coffeeName") || fields.contains("roastLevel");
-            if (blobEdits.isEmpty() && !identityEdit) {
+            // Coffee-only columns must reach the kind gate in the merge thread
+            // (the bag's kind isn't known until it's loaded). roastLevel already
+            // routes through via identityEdit; grinderSetting would otherwise
+            // short-circuit past the gate onto a tea bag.
+            const bool coffeeOnlyEdit = fields.contains("roastLevel")
+                || fields.contains("grinderSetting");
+            if (blobEdits.isEmpty() && !identityEdit && !coffeeOnlyEdit) {
                 proceed(fields);
                 return;
             }
@@ -1813,6 +1819,21 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                             respond(QJsonObject{{"error",
                                 QString("%1 only apply to tea bags; bag %2 is a coffee bag "
                                         "(kind is set at creation and immutable)")
+                                    .arg(offending.join(", ")).arg(bagId)}});
+                            return;
+                        }
+                    } else {
+                        // Reverse gate (symmetry with bag_create): roast level and
+                        // grinder setting are meaningless on a tea bag — reject
+                        // rather than store a value tea surfaces hide anyway.
+                        static const QStringList kCoffeeOnly = {"roastLevel", "grinderSetting"};
+                        QStringList offending;
+                        for (const QString& key : kCoffeeOnly)
+                            if (fields.contains(key) && !fields.value(key).toString().trimmed().isEmpty())
+                                offending << key;
+                        if (!offending.isEmpty()) {
+                            respond(QJsonObject{{"error",
+                                QString("%1 do not apply to tea bags; bag %2 is a tea bag")
                                     .arg(offending.join(", ")).arg(bagId)}});
                             return;
                         }
@@ -1966,9 +1987,24 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             if (!blobEdits.isEmpty())
                 bag.insert("beanBaseData", BeanBaseBlob::mergeBeanDetails(QString(), blobEdits));
 
+            // bagCreated is a broadcast with no request token, so a concurrent
+            // create from another surface (in-app Add, web POST) would run this
+            // one-shot handler with the OTHER bag. Correlate on the submitted
+            // identity: skip an emission whose roaster+coffee+kind don't match
+            // ours (a failed create — bagId<=0 — is still ours to report). Two
+            // genuinely-identical concurrent creates can't be told apart, but
+            // then either bag is a correct answer.
+            const QString wantRoaster = roaster;
+            const QString wantCoffee = coffee;
+            const QString wantKind = kind;
             auto conn = std::make_shared<QMetaObject::Connection>();
             *conn = QObject::connect(bagStorage, &CoffeeBagStorage::bagCreated, qApp,
-                [conn, bagToJson, respond](qint64 bagId, const QVariantMap& created) {
+                [conn, bagToJson, respond, wantRoaster, wantCoffee, wantKind](qint64 bagId, const QVariantMap& created) {
+                    if (bagId > 0
+                        && (created.value("roasterName").toString() != wantRoaster
+                            || created.value("coffeeName").toString() != wantCoffee
+                            || created.value("kind").toString() != wantKind))
+                        return;  // someone else's concurrent create
                     QObject::disconnect(*conn);
                     if (bagId <= 0) {
                         respond(QJsonObject{{"error", "Could not create the bag"}});

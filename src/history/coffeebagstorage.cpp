@@ -315,6 +315,16 @@ void CoffeeBagStorage::requestBag(qint64 bagId)
 
 void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
 {
+    // Guarantee a terminal bagCreated even when uninitialized (same reason as
+    // requestUpdateBag): runAsync silently drops the job when m_dbPath is
+    // empty, and MCP/web callers arm a one-shot bagCreated to send their
+    // response — without this they hang forever, and the armed connection then
+    // consumes the NEXT create from any surface, answering with the wrong bag.
+    if (m_dbPath.isEmpty()) {
+        qWarning() << "CoffeeBagStorage: requestCreateBag on uninitialized storage";
+        emit bagCreated(-1, QVariantMap());
+        return;
+    }
     auto newId = std::make_shared<qint64>(-1);
     auto created = std::make_shared<QVariantMap>();
     runAsync("bags_create",

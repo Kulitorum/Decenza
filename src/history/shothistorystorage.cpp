@@ -1439,10 +1439,14 @@ bool ShotHistoryStorage::runMigrations()
     if (currentVersion >= 27 && currentVersion < 28) {
         qDebug() << "ShotHistoryStorage: Running migration to version 28 (drink_type + bag kind)";
 
-        if (!hasColumn("recipes", "drink_type"))
-            query.exec ("ALTER TABLE recipes ADD COLUMN drink_type TEXT");
-        if (!hasColumn("coffee_bags", "kind"))
-            query.exec ("ALTER TABLE coffee_bags ADD COLUMN kind TEXT NOT NULL DEFAULT 'coffee'");
+        if (!hasColumn("recipes", "drink_type")
+            && !query.exec ("ALTER TABLE recipes ADD COLUMN drink_type TEXT"))
+            qWarning() << "ShotHistoryStorage: migration 28 add recipes.drink_type failed -"
+                       << query.lastError().text();
+        if (!hasColumn("coffee_bags", "kind")
+            && !query.exec ("ALTER TABLE coffee_bags ADD COLUMN kind TEXT NOT NULL DEFAULT 'coffee'"))
+            qWarning() << "ShotHistoryStorage: migration 28 add coffee_bags.kind failed -"
+                       << query.lastError().text();
 
         if (hasColumn("recipes", "drink_type") && hasColumn("coffee_bags", "kind")) {
             query.exec ("DELETE FROM schema_version");

@@ -189,6 +189,13 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
     // hot-water-only (hasWater in the block) — the shared validation rule.
     if (path == "/api/recipes" && method == "POST") {
         QVariantMap fields = recipeFieldsFromBody(bodyJson);
+        // The REST route accepts free text — enforce the drink-type vocabulary
+        // (the bundled page's <select> constrains only the browser form).
+        const QString requestedType = fields.value("drinkType").toString();
+        if (!requestedType.isEmpty() && !Recipe::isKnownDrinkType(requestedType)) {
+            respondJson(QJsonObject{{"error", QString("Unknown drinkType '%1'").arg(requestedType)}}, 400);
+            return;
+        }
         if (!Recipe::saveValidationPasses(fields.value("name").toString(),
                                           fields.value("profileTitle").toString(),
                                           fields.value("hotWaterJson").toString())) {
@@ -336,6 +343,23 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
         // POST /api/recipe/<id> — update
         if (action.isEmpty()) {
             QVariantMap fields = recipeFieldsFromBody(bodyJson);
+            const QString requestedType = fields.value("drinkType").toString();
+            if (!requestedType.isEmpty() && !Recipe::isKnownDrinkType(requestedType)) {
+                respondJson(QJsonObject{{"error", QString("Unknown drinkType '%1'").arg(requestedType)}}, 400);
+                return;
+            }
+            // Mirror the MCP recipe_update guard: clearing the profile is only
+            // valid when this same call makes the recipe hot-water-only. The
+            // storage layer now enforces the resulting-row invariant too; this
+            // early check just gives the caller a named error instead of a
+            // generic update failure.
+            if (fields.contains("profileTitle")
+                && fields.value("profileTitle").toString().trimmed().isEmpty()
+                && !Recipe::hotWaterActive(fields.value("hotWaterJson").toString())) {
+                respondJson(QJsonObject{{"error", "profileTitle can only be cleared when the same "
+                                                  "call sets a hot-water block with hasWater true"}}, 400);
+                return;
+            }
             if (fields.isEmpty()) {
                 respondJson(QJsonObject{{"error", "No editable fields provided"}}, 400);
                 return;

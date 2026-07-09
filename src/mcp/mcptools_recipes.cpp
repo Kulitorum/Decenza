@@ -402,6 +402,14 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 return;
             }
             QVariantMap fields = recipeFieldsFromArgs(args);
+            // Schema enums are advisory to the model — enforce the vocabulary
+            // here (a typo'd type silently breaks every exact-match consumer).
+            const QString requestedType = fields.value("drinkType").toString();
+            if (!requestedType.isEmpty() && !Recipe::isKnownDrinkType(requestedType)) {
+                respond(QJsonObject{{"error", QString("Unknown drinkType '%1' — one of espresso, "
+                    "filter, americano, long_black, latte, tea, tea_hotwater").arg(requestedType)}});
+                return;
+            }
             if (!Recipe::saveValidationPasses(fields.value("name").toString(),
                                               fields.value("profileTitle").toString(),
                                               fields.value("hotWaterJson").toString())) {
@@ -473,6 +481,12 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
             }
             const qint64 recipeId = args["recipeId"].toInteger();
             QVariantMap fields = recipeFieldsFromArgs(args);
+            const QString requestedType = fields.value("drinkType").toString();
+            if (!requestedType.isEmpty() && !Recipe::isKnownDrinkType(requestedType)) {
+                respond(QJsonObject{{"error", QString("Unknown drinkType '%1' — one of espresso, "
+                    "filter, americano, long_black, latte, tea, tea_hotwater").arg(requestedType)}});
+                return;
+            }
             // Installed profiles embed no JSON: resolve the new title's
             // beverage_type here (main thread) so the storage-side drink-type
             // re-derivation doesn't mis-derive a tea/filter profile as
