@@ -21,6 +21,7 @@
 #include "core/dbutils.h"
 #include "core/grinderaliases.h"
 
+#include <QSet>
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QDateTime>
@@ -626,6 +627,189 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
         qWarning() << "ShotHistoryStorage::loadRecentShotsByKbIdStatic: query failed:" << query.lastError().text();
     }
     return results;
+}
+
+void ShotHistoryStorage::requestRankedProfilesForBean(const QString& beanBrand,
+                                                      const QString& beanType,
+                                                      const QString& roastLevel,
+                                                      const QString& teaType)
+{
+    if (!m_ready) {
+        emit rankedProfilesForBeanReady(QVariantMap());
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    QThread* thread = QThread::create([this, dbPath, beanBrand, beanType, roastLevel, teaType, destroyed]() {
+        QVariantMap result;
+        withTempDb(dbPath, "shs_rankedprof", [&](QSqlDatabase& db) {
+            result = loadRankedProfilesForBeanStatic(db, beanBrand, beanType, roastLevel, teaType);
+        });
+
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, result = std::move(result), destroyed]() {
+            if (*destroyed) return;
+            emit rankedProfilesForBeanReady(result);
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
+QVariantMap ShotHistoryStorage::loadRankedProfilesForBeanStatic(QSqlDatabase& db,
+                                                                const QString& beanBrand,
+                                                                const QString& beanType,
+                                                                const QString& roastLevel,
+                                                                const QString& teaType)
+{
+    // Recency, not frequency: a re-dial makes the old pairing stale, and
+    // frequency is sticky in the wrong direction. Rows are
+    // {profileName, lastUsed} (epoch seconds), newest pairing first.
+    const auto runTier = [&db](const QString& sql,
+                               const QVariantList& binds) -> QVariantList {
+        QVariantList tier;
+        QSqlQuery query(db);
+        if (!query.prepare(sql)) {
+            qWarning() << "ShotHistoryStorage::loadRankedProfilesForBeanStatic: prepare failed:"
+                       << query.lastError().text();
+            return tier;
+        }
+        for (qsizetype i = 0; i < binds.size(); ++i)
+            query.bindValue(static_cast<int>(i), binds.at(i));
+        if (!query.exec()) {
+            qWarning() << "ShotHistoryStorage::loadRankedProfilesForBeanStatic: query failed:"
+                       << query.lastError().text();
+            return tier;
+        }
+        while (query.next()) {
+            QVariantMap row;
+            row["profileName"] = query.value(0).toString();
+            row["lastUsed"] = query.value(1).toLongLong();
+            tier.append(row);
+        }
+        return tier;
+    };
+
+    QVariantMap result;
+
+    // Tier ①: profiles used with THIS bean (exact identity match).
+    QVariantList withBean;
+    if (!beanBrand.isEmpty() || !beanType.isEmpty()) {
+        withBean = runTier(QStringLiteral(
+            "SELECT profile_name, MAX(timestamp) AS last_used FROM shots "
+            "WHERE COALESCE(bean_brand,'') = ? AND COALESCE(bean_type,'') = ? "
+            "AND COALESCE(profile_name,'') != '' "
+            "GROUP BY profile_name ORDER BY last_used DESC"),
+            {beanBrand, beanType});
+    }
+    result["withBean"] = withBean;
+
+    // Tier ②: profiles used with SIMILAR beans — same teaType (bag-blob JOIN)
+    // for tea, same roast level for coffee — excluding this bean's own shots.
+    QVariantList similar;
+    if (!teaType.isEmpty()) {
+        similar = runTier(QStringLiteral(
+            "SELECT s.profile_name, MAX(s.timestamp) AS last_used FROM shots s "
+            "JOIN coffee_bags b ON b.id = s.bag_id "
+            "WHERE LOWER(COALESCE(json_extract(b.beanbase_json,'$.teaType'),'')) = LOWER(?) "
+            "AND NOT (COALESCE(s.bean_brand,'') = ? AND COALESCE(s.bean_type,'') = ?) "
+            "AND COALESCE(s.profile_name,'') != '' "
+            "GROUP BY s.profile_name ORDER BY last_used DESC"),
+            {teaType, beanBrand, beanType});
+    } else if (!roastLevel.isEmpty()) {
+        similar = runTier(QStringLiteral(
+            "SELECT profile_name, MAX(timestamp) AS last_used FROM shots "
+            "WHERE COALESCE(roast_level,'') = ? "
+            "AND NOT (COALESCE(bean_brand,'') = ? AND COALESCE(bean_type,'') = ?) "
+            "AND COALESCE(profile_name,'') != '' "
+            "GROUP BY profile_name ORDER BY last_used DESC"),
+            {roastLevel, beanBrand, beanType});
+    }
+
+    // Dedupe: a profile already in tier ① never repeats in tier ②.
+    QSet<QString> seen;
+    for (const QVariant& v : std::as_const(withBean))
+        seen.insert(v.toMap().value(QStringLiteral("profileName")).toString());
+    QVariantList similarDeduped;
+    for (const QVariant& v : std::as_const(similar)) {
+        if (!seen.contains(v.toMap().value(QStringLiteral("profileName")).toString()))
+            similarDeduped.append(v);
+    }
+    result["similar"] = similarDeduped;
+
+    return result;
+}
+
+void ShotHistoryStorage::requestLatestShotForBeanProfile(const QString& beanBrand,
+                                                         const QString& beanType,
+                                                         const QString& profileName)
+{
+    if (!m_ready || profileName.isEmpty() || (beanBrand.isEmpty() && beanType.isEmpty())) {
+        emit latestShotForBeanProfileReady(QVariantMap());
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    QThread* thread = QThread::create([this, dbPath, beanBrand, beanType, profileName, destroyed]() {
+        QVariantMap shot;
+        withTempDb(dbPath, "shs_beanprof", [&](QSqlDatabase& db) {
+            shot = loadLatestShotForBeanProfileStatic(db, beanBrand, beanType, profileName);
+        });
+
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, shot = std::move(shot), destroyed]() {
+            if (*destroyed) return;
+            emit latestShotForBeanProfileReady(shot);
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
+QVariantMap ShotHistoryStorage::loadLatestShotForBeanProfileStatic(QSqlDatabase& db,
+                                                                   const QString& beanBrand,
+                                                                   const QString& beanType,
+                                                                   const QString& profileName)
+{
+    QVariantMap shot;
+    QSqlQuery query(db);
+    // targetWeightG prefers the shot's SAW target (the user's intent) over
+    // the landed final weight (target + stop error + drips).
+    if (!query.prepare(QStringLiteral(
+            "SELECT id, timestamp, dose_weight, yield_override, final_weight, "
+            "temperature_override, grinder_setting, rpm FROM shots "
+            "WHERE COALESCE(bean_brand,'') = ? AND COALESCE(bean_type,'') = ? "
+            "AND profile_name = ? "
+            "ORDER BY timestamp DESC LIMIT 1"))) {
+        qWarning() << "ShotHistoryStorage::loadLatestShotForBeanProfileStatic: prepare failed:"
+                   << query.lastError().text();
+        return shot;
+    }
+    query.bindValue(0, beanBrand);
+    query.bindValue(1, beanType);
+    query.bindValue(2, profileName);
+    if (!query.exec()) {
+        qWarning() << "ShotHistoryStorage::loadLatestShotForBeanProfileStatic: query failed:"
+                   << query.lastError().text();
+        return shot;
+    }
+    if (!query.next())
+        return shot;
+
+    shot["shotId"] = query.value("id").toLongLong();
+    shot["timestamp"] = query.value("timestamp").toLongLong();
+    shot["doseWeightG"] = query.value("dose_weight").toDouble();
+    const double yieldOverride = query.value("yield_override").toDouble();
+    shot["targetWeightG"] = yieldOverride > 0 ? yieldOverride
+                                              : query.value("final_weight").toDouble();
+    shot["temperatureOverrideC"] = query.value("temperature_override").toDouble();
+    shot["grinderSetting"] = query.value("grinder_setting").toString();
+    shot["rpm"] = query.value("rpm").toLongLong();
+    return shot;
 }
 
 // convertShotRecord (the QVariantMap projection consumed by requestShot,

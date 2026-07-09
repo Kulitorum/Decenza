@@ -96,6 +96,12 @@ add_decenza_test(tst_basketaliases
     tst_basketaliases.cpp
 )
 
+# --- tst_drinktypes: recipe-wizard tea profile type-matching, temp proximity,
+# and per-type default temps (header-only target; add-recipe-wizard-tea) ---
+add_decenza_test(tst_drinktypes
+    tst_drinktypes.cpp
+)
+
 # --- tst_mcptools_shots_helpers: detectorResults envelope reshape (issue #1012) ---
 add_decenza_test(tst_mcptools_shots_helpers
     tst_mcptools_shots_helpers.cpp

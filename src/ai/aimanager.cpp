@@ -1178,7 +1178,8 @@ void AIManager::analyze(const QString& systemPrompt, const QString& userPrompt)
     provider->analyze(systemPrompt, userPrompt);
 }
 
-void AIManager::extractCoffeeBagDetails(const QString& requestToken, const QString& pageText)
+void AIManager::extractCoffeeBagDetails(const QString& requestToken, const QString& pageText,
+                                        const QString& kind)
 {
     if (m_analyzing) {
         emit bagDetailsExtractionFailed(requestToken, QStringLiteral("busy"));
@@ -1193,7 +1194,7 @@ void AIManager::extractCoffeeBagDetails(const QString& requestToken, const QStri
     // Extraction contract mirrors Visualizer's "Get info": page text in, a
     // flat JSON object of only-what-the-page-states out. Keys = the blob
     // vocabulary so the caller can merge without remapping.
-    static const QString kSystemPrompt = QStringLiteral(
+    static const QString kCoffeePrompt = QStringLiteral(
         "You extract coffee bag details from the plain text of a roaster's product page. "
         "Reply with ONLY a JSON object - no markdown, no commentary. Use exactly these keys, "
         "omitting any the page does not clearly state: origin (country), region, farm, "
@@ -1203,6 +1204,28 @@ void AIManager::extractCoffeeBagDetails(const QString& requestToken, const QStri
         "wording), tastingNotes (comma-separated flavor descriptors from the page). "
         "Never guess or infer a value the text does not state. For blends without a stated "
         "origin, leave origin out and describe the blend in variety if stated.");
+    // Tea vocabulary (add-recipe-wizard-tea): descriptive keys renamed for
+    // tea (garden/cultivar/flush) plus STRUCTURED brewing numbers the recipe
+    // wizard seeds from — brewTempC must be Celsius (the model converts °F
+    // and boiling-water wordings), leafGramsPer100Ml must be normalized from
+    // per-cup dosing (1 cup = 237 ml unless the page defines one).
+    static const QString kTeaPrompt = QStringLiteral(
+        "You extract loose-leaf tea details from the plain text of a tea vendor's product page. "
+        "Reply with ONLY a JSON object - no markdown, no commentary. Use exactly these keys, "
+        "omitting any the page does not clearly state: teaType (one of: black, green, oolong, "
+        "white, herbal, pu-erh - map the page's wording; a tisane or infusion is herbal), "
+        "origin (country), region, garden (the estate or garden name), cultivar, flush (the "
+        "harvest or flush, e.g. \"First flush 2026\", \"Spring 2026\"), tastingNotes "
+        "(comma-separated flavor descriptors from the page), brewTempC (NUMBER, Celsius - "
+        "convert Fahrenheit, e.g. 212 -> 100; \"boiling\" or \"freshly-boiled\" -> 100), "
+        "leafGramsPer100Ml (NUMBER - normalize the stated leaf dose to grams per 100 ml of "
+        "water; treat one cup as 237 ml unless the page defines a cup), steepTime (display "
+        "string, e.g. \"3-5 minutes\"). "
+        "Never guess or infer a value the text does not state - in particular, never invent "
+        "brewing numbers the page does not give.");
+
+    const QString& systemPrompt =
+        (kind == QLatin1String("tea")) ? kTeaPrompt : kCoffeePrompt;
 
     m_analyzing = true;
     m_isConversationRequest = false;
@@ -1210,11 +1233,11 @@ void AIManager::extractCoffeeBagDetails(const QString& requestToken, const QStri
     m_bagExtractionToken = requestToken;
     emit analyzingChanged();
 
-    m_lastSystemPrompt = kSystemPrompt;
+    m_lastSystemPrompt = systemPrompt;
     m_lastUserPrompt = QStringLiteral("[Bag page text from %1, %2 chars]")
                            .arg(requestToken).arg(pageText.size());
-    logPrompt(selectedProvider(), kSystemPrompt, m_lastUserPrompt);
-    provider->analyze(kSystemPrompt, pageText);
+    logPrompt(selectedProvider(), systemPrompt, m_lastUserPrompt);
+    provider->analyze(systemPrompt, pageText);
 }
 
 // static
@@ -1238,7 +1261,13 @@ QVariantMap AIManager::parseBagExtraction(const QString& response, bool* ok)
         QStringLiteral("origin"), QStringLiteral("region"), QStringLiteral("farm"),
         QStringLiteral("producer"), QStringLiteral("variety"), QStringLiteral("elevation"),
         QStringLiteral("process"), QStringLiteral("harvest"), QStringLiteral("roastLevel"),
-        QStringLiteral("tastingNotes")};
+        QStringLiteral("tastingNotes"),
+        // Tea vocabulary (add-recipe-wizard-tea). Union whitelist: the prompt
+        // selected by bag kind controls which keys come back; this filter just
+        // has to let both vocabularies through.
+        QStringLiteral("teaType"), QStringLiteral("garden"), QStringLiteral("cultivar"),
+        QStringLiteral("flush"), QStringLiteral("brewTempC"),
+        QStringLiteral("leafGramsPer100Ml"), QStringLiteral("steepTime")};
     const QJsonObject obj = doc.object();
     QVariantMap fields;
     for (const QString& key : kKeys) {

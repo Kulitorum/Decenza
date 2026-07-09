@@ -1428,6 +1428,31 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 28: recipes.drink_type + coffee_bags.kind (add-recipe-wizard-tea).
+    // drink_type records the wizard's drink intent (empty on legacy rows =
+    // derive from blocks at read time); kind marks a bag as coffee or tea and
+    // is stamped at creation only. Both are additive with safe defaults —
+    // existing bags become 'coffee' via the column default; existing recipes
+    // keep an empty drink_type. Fresh DBs get both columns from the
+    // ensureTableStatic CREATE TABLEs (the hasColumn guards make both paths
+    // converge). Idempotent, gated ">= 27 && < 28", mirroring migration 27.
+    if (currentVersion >= 27 && currentVersion < 28) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 28 (drink_type + bag kind)";
+
+        if (!hasColumn("recipes", "drink_type"))
+            query.exec ("ALTER TABLE recipes ADD COLUMN drink_type TEXT");
+        if (!hasColumn("coffee_bags", "kind"))
+            query.exec ("ALTER TABLE coffee_bags ADD COLUMN kind TEXT NOT NULL DEFAULT 'coffee'");
+
+        if (hasColumn("recipes", "drink_type") && hasColumn("coffee_bags", "kind")) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (28)");
+            currentVersion = 28;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 28 incomplete - will retry next launch";
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }

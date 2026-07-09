@@ -2,22 +2,22 @@
 
 ## 1. Schema and data model
 
-- [ ] 1.1 Migration + kCols row for `recipes.drink_type`; derivation function (blocks + profile beverage_type → type) with unit tests covering all seven values and the ambiguous milk+water case
-- [ ] 1.2 Migration + kCols row for `coffee_bags.kind` ("coffee" default); verify transfer/backup import carries both new columns (extend existing import tests)
-- [ ] 1.3 Relax `RecipeStorage` save validation to "profile required unless hot-water block with hasWater"; unit test the three validation cases
-- [ ] 1.4 Tea blob vocabulary: teaType/garden/cultivar/flush/brewTempC/leafGramsPer100Ml/steepTime read/write helpers on the bag blob; unit tests
+- [x] 1.1 Migration + kCols row for `recipes.drink_type`; derivation function (blocks + profile beverage_type → type) with unit tests covering all seven values and the ambiguous milk+water case
+- [x] 1.2 Migration + kCols row for `coffee_bags.kind` ("coffee" default); verify transfer/backup import carries both new columns (extend existing import tests)
+- [x] 1.3 Relax `RecipeStorage` save validation to "profile required unless hot-water block with hasWater"; unit test the three validation cases
+- [x] 1.4 Tea blob vocabulary: teaType/garden/cultivar/flush/brewTempC/leafGramsPer100Ml/steepTime read/write helpers on the bag blob; unit tests
 
 ## 2. Profile ranking and prefill queries
 
-- [ ] 2.1 `ShotHistoryStorage` ranked-profiles read: (profile_name, MAX(timestamp)) grouped by bean identity, plus similar-bean tier (roast_level / teaType); background thread, request/ready signals; unit tests against a seeded shots DB
-- [ ] 2.2 Most-recent-shot-for-(bean,profile) prefill lookup (reuse shot projection read); unit test
-- [ ] 2.3 Last-package-for-drink-type equipment default query on `RecipeStorage`; unit test
-- [ ] 2.4 Tea profile type-match keyword table (stock title → teaType) + temp-proximity ordering helper; unit tests including no-brewTempC fallback to alphabetical
+- [x] 2.1 `ShotHistoryStorage` ranked-profiles read: (profile_name, MAX(timestamp)) grouped by bean identity, plus similar-bean tier (roast_level / teaType); background thread, request/ready signals; unit tests against a seeded shots DB
+- [x] 2.2 Most-recent-shot-for-(bean,profile) prefill lookup (reuse shot projection read); unit test
+- [x] 2.3 Last-package-for-drink-type equipment default query on `RecipeStorage`; unit test
+- [x] 2.4 Tea profile type-match keyword table (stock title → teaType) + temp-proximity ordering helper; unit tests including no-brewTempC fallback to alphabetical
 
 ## 3. Profile-less activation
 
-- [ ] 3.1 `applyActivatedRecipe` early branch: skip profile/dose/yield stages when profile_title empty; apply bag + equipment + hot-water block; no heater hold; `recipeActivated`/`activeRecipeId` semantics unchanged
-- [ ] 3.2 Unit test: profile-less activation leaves the loaded profile untouched and applies the vessel snapshot
+- [x] 3.1 `applyActivatedRecipe` early branch: skip profile/dose/yield stages when profile_title empty; apply bag + equipment + hot-water block; no heater hold; `recipeActivated`/`activeRecipeId` semantics unchanged
+- [x] 3.2 Unit-test the profile-less gate helpers (`Recipe::hotWaterActive` / `saveValidationPasses` in tst_recipestorage; `activeRecipeHasMilk` profile-less rule noted in code). NOTE: scope adjusted — MainController has no unit-test harness (no tst_maincontroller exists), so the full activation path (profile untouched, vessel snapshot applied) is exercised via the in-app verification at 8.3 instead
 
 ## 4. Recipe wizard UI
 

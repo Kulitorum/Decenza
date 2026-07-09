@@ -43,8 +43,15 @@ struct Recipe {
     qint64 id = 0;
 
     QString name;          // required
-    QString profileTitle;  // required; resolved by title at activation
+    QString profileTitle;  // resolved by title at activation; may be empty ONLY
+                           // for a hot-water-only recipe (hasWater in the block)
     QString profileJson;   // fallback when the titled profile is not installed
+
+    // Drink type (add-recipe-wizard-tea): user intent recorded by the wizard —
+    // "espresso" | "filter" | "americano" | "long_black" | "latte" | "tea" |
+    // "tea_hotwater". Presentation only: activation and machine behavior read
+    // the blocks, never this. Empty (legacy rows) = derive via deriveDrinkType.
+    QString drinkType;
 
     // Bean link (bean-level, NOT bag-level): canonical Bean Base id when
     // available, else roaster+coffee identity. Resolves to the current open
@@ -77,6 +84,29 @@ struct Recipe {
     bool isValid() const { return id > 0; }
     QVariantMap toVariantMap() const;
     static Recipe fromVariantMap(const QVariantMap& map);
+
+    // True when the hot-water block JSON is present with hasWater set — the
+    // condition under which a recipe may be profile-less. Shared by the save
+    // validation on every surface (wizard, MCP, web).
+    static bool hotWaterActive(const QString& hotWaterJson);
+
+    // The one save-validation rule every surface enforces: a name, and a
+    // profile unless the recipe is hot-water-only. QML reaches it through
+    // RecipeStorage::isSaveValid.
+    static bool saveValidationPasses(const QString& name, const QString& profileTitle,
+                                     const QString& hotWaterJson) {
+        return !name.trimmed().isEmpty()
+            && (!profileTitle.trimmed().isEmpty() || hotWaterActive(hotWaterJson));
+    }
+
+    // Derive the drink type from the blocks + the profile's beverage_type
+    // (caller resolves it; pass empty when the profile is unknown). Used for
+    // legacy rows without a stored drinkType and for promote-from-shot.
+    // Precedence: profile-less + hot water → tea_hotwater; tea_portafilter →
+    // tea; milk → latte (milk wins over added water: a flat-white-plus-splash
+    // is still a milk drink); hot water by order → americano/long_black;
+    // filter/pourover → filter; else espresso.
+    static QString deriveDrinkType(const Recipe& recipe, const QString& profileBeverageType);
 };
 
 // An inventory row: a recipe plus its shot count. Mirrors InventoryBag — the
@@ -106,8 +136,20 @@ public:
     QString databasePath() const { return m_dbPath; }
 
     // Async queries — results via signals (QVariantList of toVariantMap()).
+    // QML-visible view of Recipe::saveValidationPasses (the wizard's Save gate).
+    Q_INVOKABLE bool isSaveValid(const QString& name, const QString& profileTitle,
+                                 const QString& hotWaterJson) const {
+        return Recipe::saveValidationPasses(name, profileTitle, hotWaterJson);
+    }
+
     Q_INVOKABLE void requestInventory();                   // archived = false, MRU order
     Q_INVOKABLE void requestArchived();                    // archived = true, MRU order
+
+    // The wizard's per-drink-type equipment default: the package on the most
+    // recently used unarchived recipe of this drink type (0 = none; caller
+    // falls back to the active package). Emits lastEquipmentForDrinkTypeReady.
+    Q_INVOKABLE void requestLastEquipmentForDrinkType(const QString& drinkType);
+    static qint64 lastEquipmentForDrinkTypeStatic(QSqlDatabase& db, const QString& drinkType);
     Q_INVOKABLE void requestRecipe(qint64 recipeId);       // recipeReady()
     // Activation bundle: the recipe row, its resolved open bag id, and that
     // bag's full map, loaded in ONE background pass so activation applies a
@@ -167,6 +209,7 @@ public:
 signals:
     void inventoryReady(const QVariantList& recipes);
     void archivedReady(const QVariantList& recipes);
+    void lastEquipmentForDrinkTypeReady(const QString& drinkType, qint64 equipmentId);
     void recipeReady(qint64 recipeId, const QVariantMap& recipe); // map empty if not found
     // recipe empty when the id was not found (activation must fail cleanly).
     void recipeActivationReady(qint64 recipeId, const QVariantMap& recipe,

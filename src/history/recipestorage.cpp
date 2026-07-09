@@ -2,6 +2,8 @@
 #include "coffeebagstorage.h"
 #include "core/dbutils.h"
 
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QSqlDatabase>
@@ -31,9 +33,9 @@ QVariant nullIfZero(double v) {
 // INSERT list + binds, camelCase->column update map, and QVariantMap
 // round-trip are all derived from this one ordered table. The physical
 // schema (CREATE TABLE in ensureTableStatic + migration 25, plus migration 26
-// for rpm_pinned and migration 27 for hot_water_json) is the only thing not
-// generated from it — adding a column is a row here PLUS a schema/migration
-// edit there.
+// for rpm_pinned, migration 27 for hot_water_json, and migration 28 for
+// drink_type) is the only thing not generated from it — adding a column is a
+// row here PLUS a schema/migration edit there.
 //
 // `shotCount` is intentionally NOT here (see InventoryRecipe): it is a
 // per-query aggregate injected by requestInventory only.
@@ -91,6 +93,7 @@ const RecipeCol kCols[] = {
     COL_STR  ("name",                  name),
     COL_STR  ("profile_title",         profileTitle),
     COL_STR  ("profile_json",          profileJson),
+    COL_STR  ("drink_type",            drinkType),
     COL_STR  ("beanbase_id",           beanBaseId),
     COL_STR  ("roaster_name",          roasterName),
     COL_STR  ("coffee_name",           coffeeName),
@@ -162,6 +165,46 @@ Recipe Recipe::fromVariantMap(const QVariantMap& map)
             c.set(recipe, map.value(key));
     }
     return recipe;
+}
+
+// static
+bool Recipe::hotWaterActive(const QString& hotWaterJson)
+{
+    if (hotWaterJson.isEmpty())
+        return false;
+    const QJsonDocument doc = QJsonDocument::fromJson(hotWaterJson.toUtf8());
+    return doc.isObject() && doc.object().value(QStringLiteral("hasWater")).toBool();
+}
+
+// static
+QString Recipe::deriveDrinkType(const Recipe& recipe, const QString& profileBeverageType)
+{
+    const bool water = hotWaterActive(recipe.hotWaterJson);
+    if (recipe.profileTitle.trimmed().isEmpty() && water)
+        return QStringLiteral("tea_hotwater");
+
+    const QString bev = profileBeverageType.trimmed().toLower();
+    if (bev == QLatin1String("tea_portafilter"))
+        return QStringLiteral("tea");
+
+    bool milk = false;
+    if (!recipe.steamJson.isEmpty()) {
+        const QJsonDocument doc = QJsonDocument::fromJson(recipe.steamJson.toUtf8());
+        milk = doc.isObject() && doc.object().value(QStringLiteral("hasMilk")).toBool();
+    }
+    if (milk)
+        return QStringLiteral("latte");
+
+    if (water) {
+        const QString order = QJsonDocument::fromJson(recipe.hotWaterJson.toUtf8())
+                                  .object().value(QStringLiteral("order")).toString();
+        return order == QLatin1String("before") ? QStringLiteral("long_black")
+                                                : QStringLiteral("americano");
+    }
+
+    if (bev == QLatin1String("filter") || bev == QLatin1String("pourover"))
+        return QStringLiteral("filter");
+    return QStringLiteral("espresso");
 }
 
 RecipeStorage::RecipeStorage(QObject* parent)
@@ -242,6 +285,41 @@ void RecipeStorage::requestRecipe(qint64 recipeId)
         // as "active recipe vanished" by SettingsDye; only a genuine
         // not-found (db opened, row absent) should do that.
         [this, recipeId, result](bool dbOpened) { if (dbOpened) emit recipeReady(recipeId, *result); });
+}
+
+void RecipeStorage::requestLastEquipmentForDrinkType(const QString& drinkType)
+{
+    auto equipmentId = std::make_shared<qint64>(0);
+    runAsync("recipes_last_equipment",
+        [drinkType, equipmentId](QSqlDatabase& db) {
+            *equipmentId = lastEquipmentForDrinkTypeStatic(db, drinkType);
+        },
+        [this, drinkType, equipmentId](bool) {
+            emit lastEquipmentForDrinkTypeReady(drinkType, *equipmentId);
+        });
+}
+
+// static
+qint64 RecipeStorage::lastEquipmentForDrinkTypeStatic(QSqlDatabase& db, const QString& drinkType)
+{
+    if (drinkType.isEmpty())
+        return 0;
+    QSqlQuery query(db);
+    if (!query.prepare(QStringLiteral(
+            "SELECT equipment_id FROM recipes "
+            "WHERE drink_type = :type AND COALESCE(equipment_id, 0) > 0 AND archived = 0 "
+            "ORDER BY last_used DESC, id DESC LIMIT 1"))) {
+        qWarning() << "RecipeStorage: lastEquipmentForDrinkType prepare failed:"
+                   << query.lastError().text();
+        return 0;
+    }
+    query.bindValue(":type", drinkType);
+    if (!query.exec()) {
+        qWarning() << "RecipeStorage: lastEquipmentForDrinkType query failed:"
+                   << query.lastError().text();
+        return 0;
+    }
+    return query.next() ? query.value(0).toLongLong() : 0;
 }
 
 void RecipeStorage::requestRecipeForActivation(qint64 recipeId)
@@ -443,6 +521,7 @@ bool RecipeStorage::ensureTableStatic(QSqlDatabase& db)
             name TEXT NOT NULL,
             profile_title TEXT,
             profile_json TEXT,
+            drink_type TEXT,
             beanbase_id TEXT,
             roaster_name TEXT,
             coffee_name TEXT,

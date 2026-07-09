@@ -91,6 +91,39 @@ public:
     // Thread-safe: caller provides their own connection. Shared by MCP and in-app AI.
     static QVariantList loadRecentShotsByKbIdStatic(QSqlDatabase& db, const QString& kbId, int limit, qint64 excludeShotId = -1);
 
+    // Async: profiles used with a bean, for the recipe wizard's ranked profile
+    // step (add-recipe-wizard-tea). Emits rankedProfilesForBeanReady() with
+    // {"withBean": [...], "similar": [...]}, each entry {profileName, lastUsed},
+    // recency-ordered, similar deduped against withBean. Similarity is
+    // teaType (bag-blob JOIN via shots.bag_id) when teaType is non-empty, else
+    // roast level. Beverage-type filtering is NOT done here — the wizard
+    // intersects these names with its drink-type-filtered profile list.
+    Q_INVOKABLE void requestRankedProfilesForBean(const QString& beanBrand,
+                                                  const QString& beanType,
+                                                  const QString& roastLevel,
+                                                  const QString& teaType = QString());
+
+    // Static version for background-thread use — caller provides the connection.
+    static QVariantMap loadRankedProfilesForBeanStatic(QSqlDatabase& db,
+                                                       const QString& beanBrand,
+                                                       const QString& beanType,
+                                                       const QString& roastLevel,
+                                                       const QString& teaType = QString());
+
+    // Async: the most recent shot with this exact bean+profile pair — the
+    // wizard's details-step prefill source (dose/yield/temp/grind that
+    // actually worked, beating profile defaults). Emits
+    // latestShotForBeanProfileReady() with an empty map when no such shot.
+    Q_INVOKABLE void requestLatestShotForBeanProfile(const QString& beanBrand,
+                                                     const QString& beanType,
+                                                     const QString& profileName);
+
+    // Static version for background-thread use — caller provides the connection.
+    static QVariantMap loadLatestShotForBeanProfileStatic(QSqlDatabase& db,
+                                                          const QString& beanBrand,
+                                                          const QString& beanType,
+                                                          const QString& profileName);
+
     // Static version for background-thread use — caller provides their own connection.
     // Always recomputes the four quality badges from the loaded curve data and, when
     // any recomputed flag differs from the stored column, issues an UPDATE on the same
@@ -271,6 +304,8 @@ signals:
     void loadingFilteredChanged();
     void shotReady(qint64 shotId, const ShotProjection& shot);
     void recentShotsByKbIdReady(const QString& kbId, const QVariantList& shots);
+    void rankedProfilesForBeanReady(const QVariantMap& result);
+    void latestShotForBeanProfileReady(const QVariantMap& shot);
     void importDatabaseFinished(bool success);
     void shotMetadataUpdated(qint64 shotId, bool success);
     void autoFavoritesReady(const QVariantList& results);

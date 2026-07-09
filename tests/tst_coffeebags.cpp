@@ -818,7 +818,7 @@ private slots:
             QCOMPARE(q.value(0).toInt(), 0);  // existing rows default to 0
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 27);  // chain runs on to the latest (hot_water_json)
+            QCOMPARE(q.value(0).toInt(), 28);  // chain runs on to the latest (drink_type + bag kind)
         });
     }
 
@@ -839,6 +839,10 @@ private slots:
             QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN visualizer_sync_pending"));
             QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN equipment_id"));
             QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN rpm"));
+            // kind is NOT NULL DEFAULT 'coffee' in the dest: the missing
+            // source column reads as "" and must normalize at bind time
+            // (bindKind), not blow up the INSERT with an explicit NULL.
+            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN kind"));
         });
 
         QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/true));
@@ -849,6 +853,173 @@ private slots:
             QCOMPARE(bags.first().bag.roasterName, QString("Old Backup"));
             QVERIFY(!bags.first().bag.visualizerSyncPending);
             QCOMPARE(bags.first().bag.equipmentId, qint64(0));
+            QCOMPARE(bags.first().bag.kind, QString("coffee"));
+        });
+    }
+
+    void rankedProfilesForBean() {
+        const QString path = freshDb();
+        withRawDb(path, "ranked", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            const auto shot = [&](const QString& profile, qint64 ts, const QString& brand,
+                                  const QString& type, const QString& roast, qint64 bagId = -1) {
+                q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                          "bean_brand, bean_type, roast_level, bag_id) VALUES (?,?,?,30,?,?,?,?)");
+                q.addBindValue(QUuid::createUuid().toString(QUuid::WithoutBraces));
+                q.addBindValue(ts);
+                q.addBindValue(profile);
+                q.addBindValue(brand);
+                q.addBindValue(type);
+                q.addBindValue(roast);
+                q.addBindValue(bagId > 0 ? QVariant(bagId) : QVariant());
+                QVERIFY(q.exec());
+            };
+
+            // Coffee: this bean (R/Ethiopia, Light) used P1 then P2; a similar
+            // Light bean used P3 and P2 (P2 must dedupe out of tier 2); a Dark
+            // bean used P4 (wrong roast, excluded).
+            shot("P1", 100, "R", "Ethiopia", "Light");
+            shot("P2", 200, "R", "Ethiopia", "Light");
+            shot("P3", 300, "R", "Colombia", "Light");
+            shot("P2", 250, "R", "Colombia", "Light");
+            shot("P4", 400, "R", "Brazil", "Dark");
+
+            QVariantMap r = ShotHistoryStorage::loadRankedProfilesForBeanStatic(
+                db, "R", "Ethiopia", "Light");
+            QVariantList withBean = r.value("withBean").toList();
+            QVariantList similar = r.value("similar").toList();
+            QCOMPARE(withBean.size(), 2);
+            QCOMPARE(withBean.at(0).toMap().value("profileName").toString(), QString("P2"));
+            QCOMPARE(withBean.at(0).toMap().value("lastUsed").toLongLong(), qint64(200));
+            QCOMPARE(withBean.at(1).toMap().value("profileName").toString(), QString("P1"));
+            QCOMPARE(similar.size(), 1);
+            QCOMPARE(similar.at(0).toMap().value("profileName").toString(), QString("P3"));
+
+            // Tea: similarity is the bag blob's teaType, not roast level.
+            CoffeeBag t1; t1.roasterName = "F&M"; t1.coffeeName = "Royal Blend";
+            t1.kind = "tea"; t1.beanBaseData = "{\"teaType\":\"black\"}";
+            CoffeeBag t2; t2.roasterName = "Harney"; t2.coffeeName = "Ceylon";
+            t2.kind = "tea"; t2.beanBaseData = "{\"teaType\":\"Black\"}";
+            CoffeeBag t3; t3.roasterName = "YS"; t3.coffeeName = "Bi Luo Chun";
+            t3.kind = "tea"; t3.beanBaseData = "{\"teaType\":\"green\"}";
+            const qint64 b1 = CoffeeBagStorage::insertBagStatic(db, t1);
+            const qint64 b2 = CoffeeBagStorage::insertBagStatic(db, t2);
+            const qint64 b3 = CoffeeBagStorage::insertBagStatic(db, t3);
+            QVERIFY(b1 > 0 && b2 > 0 && b3 > 0);
+            shot("TeaBlack", 500, "F&M", "Royal Blend", "", b1);
+            shot("TeaOther", 600, "Harney", "Ceylon", "", b2);
+            shot("TeaGreen", 700, "YS", "Bi Luo Chun", "", b3);
+
+            r = ShotHistoryStorage::loadRankedProfilesForBeanStatic(
+                db, "F&M", "Royal Blend", QString(), "black");
+            QCOMPARE(r.value("withBean").toList().size(), 1);
+            QCOMPARE(r.value("withBean").toList().at(0).toMap().value("profileName").toString(),
+                     QString("TeaBlack"));
+            QCOMPARE(r.value("similar").toList().size(), 1);
+            QCOMPARE(r.value("similar").toList().at(0).toMap().value("profileName").toString(),
+                     QString("TeaOther"));
+
+            // Bean-less request: no tiers, no noise.
+            r = ShotHistoryStorage::loadRankedProfilesForBeanStatic(db, "", "", "");
+            QVERIFY(r.value("withBean").toList().isEmpty());
+            QVERIFY(r.value("similar").toList().isEmpty());
+        });
+    }
+
+    void latestShotForBeanProfilePrefill() {
+        const QString path = freshDb();
+        withRawDb(path, "prefill", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            const auto shot = [&](qint64 ts, double dose, const QVariant& yieldOverride,
+                                  double finalW, const QString& grind) {
+                q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                          "bean_brand, bean_type, dose_weight, yield_override, final_weight, "
+                          "temperature_override, grinder_setting, rpm) "
+                          "VALUES (?,?,'P',30,'R','Ethiopia',?,?,?,92.5,?,90)");
+                q.addBindValue(QUuid::createUuid().toString(QUuid::WithoutBraces));
+                q.addBindValue(ts);
+                q.addBindValue(dose);
+                q.addBindValue(yieldOverride);
+                q.addBindValue(finalW);
+                q.addBindValue(grind);
+                QVERIFY(q.exec());
+            };
+            shot(100, 17.0, 34.0, 35.2, "14");
+            shot(200, 18.0, 40.0, 41.1, "15");   // most recent wins
+            shot(150, 18.5, QVariant(), 39.0, "16");
+
+            QVariantMap s = ShotHistoryStorage::loadLatestShotForBeanProfileStatic(
+                db, "R", "Ethiopia", "P");
+            QCOMPARE(s.value("doseWeightG").toDouble(), 18.0);
+            QCOMPARE(s.value("targetWeightG").toDouble(), 40.0);  // SAW target, not final
+            QCOMPARE(s.value("temperatureOverrideC").toDouble(), 92.5);
+            QCOMPARE(s.value("grinderSetting").toString(), QString("15"));
+            QCOMPARE(s.value("rpm").toLongLong(), qint64(90));
+
+            // No yield override on the newest shot -> final weight fallback.
+            shot(300, 19.0, QVariant(), 42.3, "17");
+            s = ShotHistoryStorage::loadLatestShotForBeanProfileStatic(db, "R", "Ethiopia", "P");
+            QCOMPARE(s.value("targetWeightG").toDouble(), 42.3);
+
+            // Unknown pair -> empty map.
+            QVERIFY(ShotHistoryStorage::loadLatestShotForBeanProfileStatic(
+                        db, "R", "Kenya", "P").isEmpty());
+        });
+    }
+
+    void teaBrewingBlobParsing() {
+        // Full tea blob: everything lands typed and normalized.
+        const TeaBrewingData full = CoffeeBag::teaBrewingFromBlob(
+            "{\"teaType\":\"Black\",\"origin\":\"Sri Lanka\",\"brewTempC\":100,"
+            "\"leafGramsPer100Ml\":0.85,\"steepTime\":\"3-5 minutes\"}");
+        QCOMPARE(full.teaType, QString("black"));
+        QCOMPARE(full.brewTempC, 100.0);
+        QCOMPARE(full.leafGramsPer100Ml, 0.85);
+        QCOMPARE(full.steepTime, QString("3-5 minutes"));
+
+        // Vendor stated nothing (Yunnan Sourcing case): defaults, no guesses.
+        const TeaBrewingData sparse = CoffeeBag::teaBrewingFromBlob(
+            "{\"teaType\":\"black\",\"origin\":\"Yunnan\"}");
+        QCOMPARE(sparse.teaType, QString("black"));
+        QCOMPARE(sparse.brewTempC, 0.0);
+        QCOMPARE(sparse.leafGramsPer100Ml, 0.0);
+        QVERIFY(sparse.steepTime.isEmpty());
+
+        // Empty / invalid blobs are tolerated.
+        QVERIFY(CoffeeBag::teaBrewingFromBlob(QString()).teaType.isEmpty());
+        QVERIFY(CoffeeBag::teaBrewingFromBlob("not json").teaType.isEmpty());
+
+        // isTea reads the kind, empty kind = coffee.
+        CoffeeBag bag;
+        QVERIFY(!bag.isTea());
+        bag.kind = "tea";
+        QVERIFY(bag.isTea());
+        bag.kind.clear();
+        QVERIFY(!bag.isTea());
+    }
+
+    void bagKindRoundTripsAndTeaSurvivesImport() {
+        // Tea kind round-trips through insert/load, and rides a transfer
+        // import verbatim (kCols-driven SELECT + INSERT).
+        const QString srcPath = freshDb();
+        const QString destPath = freshDb();
+        withRawDb(srcPath, "tea_src", [&](QSqlDatabase& db) {
+            CoffeeBag tea;
+            tea.roasterName = "Fortnum & Mason";
+            tea.coffeeName = "Royal Blend";
+            tea.kind = "tea";
+            const qint64 id = CoffeeBagStorage::insertBagStatic(db, tea);
+            QVERIFY(id > 0);
+            QCOMPARE(CoffeeBagStorage::loadBagStatic(db, id).kind, QString("tea"));
+            insertShot(db, "Fortnum & Mason", "Royal Blend", 5000, QString(), id);
+        });
+
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/true));
+
+        withRawDb(destPath, "tea_check", [&](QSqlDatabase& db) {
+            const QVector<InventoryBag> bags = CoffeeBagStorage::loadInventoryStatic(db);
+            QCOMPARE(bags.size(), 1);
+            QCOMPARE(bags.first().bag.kind, QString("tea"));
         });
     }
 
@@ -871,7 +1042,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 27);  // chain runs on to the latest (hot_water_json)
+            QCOMPARE(q.value(0).toInt(), 28);  // chain runs on to the latest (drink_type + bag kind)
         });
     }
 
@@ -904,7 +1075,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 27);  // chain runs on to the latest (hot_water_json)
+            QCOMPARE(q.value(0).toInt(), 28);  // chain runs on to the latest (drink_type + bag kind)
             // The repaired table is writable — insertRecipeStatic binds
             // rpm_pinned unconditionally, so it would fail wholesale if the
             // ALTER hadn't landed.

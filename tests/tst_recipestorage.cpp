@@ -49,6 +49,7 @@ static Recipe sampleRecipe() {
     r.name = "Morning capp";
     r.profileTitle = "D-Flow / default";
     r.profileJson = "{\"title\":\"D-Flow / default\"}";
+    r.drinkType = "latte";  // migration-28 field; round-trips through COL_STR
     r.beanBaseId = "bb-uuid-1";
     r.roasterName = "Roaster";
     r.coffeeName = "Guji";
@@ -84,6 +85,7 @@ private slots:
         QCOMPARE(back.name, r.name);
         QCOMPARE(back.profileTitle, r.profileTitle);
         QCOMPARE(back.profileJson, r.profileJson);
+        QCOMPARE(back.drinkType, r.drinkType);
         QCOMPARE(back.beanBaseId, r.beanBaseId);
         QCOMPARE(back.roasterName, r.roasterName);
         QCOMPARE(back.coffeeName, r.coffeeName);
@@ -106,6 +108,102 @@ private slots:
         QCOMPARE(r.doseG, 0.0);
         QCOMPARE(r.archived, false);
         QVERIFY(r.grindPinned.isEmpty());
+        QVERIFY(r.drinkType.isEmpty());
+    }
+
+    // --- drink-type derivation + hot-water gate (add-recipe-wizard-tea) ---
+
+    void hotWaterActiveGate() {
+        QVERIFY(!Recipe::hotWaterActive(QString()));
+        QVERIFY(!Recipe::hotWaterActive("not json"));
+        QVERIFY(!Recipe::hotWaterActive("{\"hasWater\":false,\"vesselName\":\"Cup\"}"));
+        QVERIFY(Recipe::hotWaterActive("{\"hasWater\":true,\"vesselName\":\"Cup\"}"));
+    }
+
+    void saveValidationRule() {
+        const QString water = "{\"hasWater\":true,\"vesselName\":\"Cup\"}";
+        // Name + profile: the classic case.
+        QVERIFY(Recipe::saveValidationPasses("Capp", "D-Flow", QString()));
+        // Name + hot-water block, no profile: hot-water tea.
+        QVERIFY(Recipe::saveValidationPasses("Earl Grey", QString(), water));
+        // No profile and no hot water: rejected on every surface.
+        QVERIFY(!Recipe::saveValidationPasses("Broken", QString(), QString()));
+        // hasWater:false does not excuse a missing profile; no name never passes.
+        QVERIFY(!Recipe::saveValidationPasses("Broken", "",
+                                              "{\"hasWater\":false}"));
+        QVERIFY(!Recipe::saveValidationPasses("  ", "D-Flow", QString()));
+    }
+
+    void deriveDrinkTypeMatrix() {
+        const QString waterAfter  = "{\"hasWater\":true,\"vesselName\":\"Cup\",\"order\":\"after\"}";
+        const QString waterBefore = "{\"hasWater\":true,\"vesselName\":\"Cup\",\"order\":\"before\"}";
+        const QString milk        = "{\"hasMilk\":true,\"milkWeightG\":150}";
+
+        Recipe r;
+        r.profileTitle = "Some profile";
+
+        // Bare espresso profile; empty beverage_type is espresso.
+        QCOMPARE(Recipe::deriveDrinkType(r, ""), QString("espresso"));
+        QCOMPARE(Recipe::deriveDrinkType(r, "espresso"), QString("espresso"));
+
+        // Profile beverage_type routes filter and tea.
+        QCOMPARE(Recipe::deriveDrinkType(r, "filter"), QString("filter"));
+        QCOMPARE(Recipe::deriveDrinkType(r, "pourover"), QString("filter"));
+        QCOMPARE(Recipe::deriveDrinkType(r, "Tea_Portafilter "), QString("tea"));
+
+        // Hot-water order splits americano / long black; missing order = after.
+        r.hotWaterJson = waterAfter;
+        QCOMPARE(Recipe::deriveDrinkType(r, "espresso"), QString("americano"));
+        r.hotWaterJson = waterBefore;
+        QCOMPARE(Recipe::deriveDrinkType(r, "espresso"), QString("long_black"));
+        r.hotWaterJson = "{\"hasWater\":true,\"vesselName\":\"Cup\"}";
+        QCOMPARE(Recipe::deriveDrinkType(r, "espresso"), QString("americano"));
+
+        // Milk wins over added water (a milk drink with a splash is still
+        // a milk drink) — the documented ambiguous-combination rule.
+        r.steamJson = milk;
+        r.hotWaterJson = waterAfter;
+        QCOMPARE(Recipe::deriveDrinkType(r, "espresso"), QString("latte"));
+        r.hotWaterJson.clear();
+        QCOMPARE(Recipe::deriveDrinkType(r, "espresso"), QString("latte"));
+
+        // Tea profile beats milk (the profile type is the strongest signal).
+        QCOMPARE(Recipe::deriveDrinkType(r, "tea_portafilter"), QString("tea"));
+
+        // Profile-less + hot water = hot-water tea; with a profile it is not.
+        Recipe hw;
+        hw.hotWaterJson = waterAfter;
+        QCOMPARE(Recipe::deriveDrinkType(hw, ""), QString("tea_hotwater"));
+        hw.profileTitle = "Some profile";
+        QCOMPARE(Recipe::deriveDrinkType(hw, "espresso"), QString("americano"));
+    }
+
+    void lastEquipmentForDrinkType() {
+        withRawDb(freshDbPath(), "lastequip", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            const auto make = [&](const QString& type, qint64 equipId, qint64 lastUsed,
+                                  bool archived = false) {
+                Recipe r;
+                r.name = QString("%1-%2").arg(type).arg(lastUsed);
+                r.profileTitle = "P";
+                r.drinkType = type;
+                r.equipmentId = equipId;
+                r.lastUsedEpoch = lastUsed;
+                r.archived = archived;
+                QVERIFY(RecipeStorage::insertRecipeStatic(db, r) > 0);
+            };
+            make("espresso", 1, 100);
+            make("espresso", 2, 200);          // most recent espresso package
+            make("tea",      5, 300);
+            make("tea",      6, 400, true);    // archived: ignored
+            make("filter",   0, 500);          // no equipment: ignored
+
+            QCOMPARE(RecipeStorage::lastEquipmentForDrinkTypeStatic(db, "espresso"), qint64(2));
+            QCOMPARE(RecipeStorage::lastEquipmentForDrinkTypeStatic(db, "tea"), qint64(5));
+            QCOMPARE(RecipeStorage::lastEquipmentForDrinkTypeStatic(db, "filter"), qint64(0));
+            QCOMPARE(RecipeStorage::lastEquipmentForDrinkTypeStatic(db, "latte"), qint64(0));
+            QCOMPARE(RecipeStorage::lastEquipmentForDrinkTypeStatic(db, ""), qint64(0));
+        });
     }
 
     // --- insert / load / update statics ---

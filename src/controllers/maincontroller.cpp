@@ -961,10 +961,19 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
     // not silently light up the pill while the machine keeps the previously
     // loaded profile. Bail before any state changes so the caller can report
     // the failure honestly.
+    //
+    // Exception (add-recipe-wizard-tea): a PROFILE-LESS recipe — no title,
+    // hot-water block present — is a valid hot-water drink (tea). It skips
+    // every profile-coupled stage below (profile load, dose write, yield/temp
+    // overrides, steam-heater hold) and leaves the loaded espresso profile
+    // untouched: the machine action is the user starting Hot Water.
     const QString profileTitle = recipe.value("profileTitle").toString();
     const QString profileJson = recipe.value("profileJson").toString();
-    const QString filename = m_profileManager->findProfileByTitle(profileTitle);
-    if (filename.isEmpty() && profileJson.isEmpty()) {
+    const bool profileLess = profileTitle.trimmed().isEmpty()
+        && Recipe::hotWaterActive(recipe.value("hotWaterJson").toString());
+    const QString filename = profileLess ? QString()
+                                         : m_profileManager->findProfileByTitle(profileTitle);
+    if (filename.isEmpty() && profileJson.isEmpty() && !profileLess) {
         qWarning() << "applyActivatedRecipe: no profile data for recipe" << recipeId
                    << "(title" << profileTitle << "not installed, no JSON) - activation failed";
         emit recipeActivated(recipeId, false);
@@ -977,11 +986,13 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
     // chance to decrement) so it can't swallow this recipe's first edit.
     m_pendingRecipeSelfWrites = 0;
 
-    if (!filename.isEmpty()) {
-        m_profileManager->loadProfile(filename);
-    } else {
-        m_profileManager->loadProfileFromJson(profileJson);
-        m_profileManager->persistCurrentProfile();
+    if (!profileLess) {
+        if (!filename.isEmpty()) {
+            m_profileManager->loadProfile(filename);
+        } else {
+            m_profileManager->loadProfileFromJson(profileJson);
+            m_profileManager->persistCurrentProfile();
+        }
     }
 
     if (m_settings) {
@@ -1028,8 +1039,10 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
 
         // Dose — queued so it wins over loadProfile's own deferred
         // setDyeBeanWeight(recommendedDose) (same trick as shot load).
+        // Profile-less recipes skip it: dyeBeanWeight is espresso-shot
+        // metadata, and a hot-water tea's leaf dose is not a shot dose.
         const double doseG = recipe.value("doseG").toDouble();
-        if (doseG > 0) {
+        if (doseG > 0 && !profileLess) {
             QPointer<Settings> settings(m_settings);
             QMetaObject::invokeMethod(this, [settings, doseG]() {
                 if (settings) settings->dye()->setDyeBeanWeight(doseG);
@@ -1037,16 +1050,19 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         }
 
         // Yield / temperature overrides on top of the profile defaults.
+        // Profile-less recipes have no profile to override or re-upload.
         bool hasOverrides = false;
-        const double yieldG = recipe.value("yieldG").toDouble();
-        if (yieldG > 0) {
-            m_settings->brew()->setBrewYieldOverride(yieldG);
-            hasOverrides = true;
-        }
-        const double tempC = recipe.value("tempOverrideC").toDouble();
-        if (tempC > 0) {
-            m_settings->brew()->setTemperatureOverride(tempC);
-            hasOverrides = true;
+        if (!profileLess) {
+            const double yieldG = recipe.value("yieldG").toDouble();
+            if (yieldG > 0) {
+                m_settings->brew()->setBrewYieldOverride(yieldG);
+                hasOverrides = true;
+            }
+            const double tempC = recipe.value("tempOverrideC").toDouble();
+            if (tempC > 0) {
+                m_settings->brew()->setTemperatureOverride(tempC);
+                hasOverrides = true;
+            }
         }
         if (hasOverrides)
             m_profileManager->uploadCurrentProfile();
@@ -1098,7 +1114,10 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         // keepSteamHeaterOn, so every later settings re-send (wake,
         // reconnect, edits) keeps it warm. A milk-less recipe returns the
         // heater to the user's baseline. Never fights an explicit keep-on.
-        if (steam.value("hasMilk").toBool())
+        // Profile-less (hot-water) recipes never take the hold — hot water
+        // needs no pre-warm, and activeRecipeHasMilk() mirrors this rule so
+        // later sendMachineSettings re-sends don't re-assert it either.
+        if (steam.value("hasMilk").toBool() && !profileLess)
             startSteamHeating(QStringLiteral("recipe-activated"));
         else
             applySteamSettings();
@@ -1205,6 +1224,11 @@ void MainController::deactivateRecipe() {
 
 bool MainController::activeRecipeHasMilk() const {
     if (m_activeRecipe.isEmpty())
+        return false;
+    // A profile-less (hot-water tea) recipe never holds the steam heater,
+    // even if an MCP/web author attached a milk block to one — activation
+    // skipped the hold and re-sends must not re-assert it.
+    if (m_activeRecipe.value(QStringLiteral("profileTitle")).toString().trimmed().isEmpty())
         return false;
     return parseSteamBlock(m_activeRecipe.value(QStringLiteral("steamJson")).toString())
         .value(QStringLiteral("hasMilk")).toBool();

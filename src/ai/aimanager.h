@@ -157,11 +157,18 @@ public:
     // that the user may have moved on to a different bag by the time it lands.
     // Guard failures use stable codes ("busy", "notConfigured", "unreadable")
     // the QML layer translates; provider errors pass through as text.
-    Q_INVOKABLE void extractCoffeeBagDetails(const QString& requestToken, const QString& pageText);
-    // Response JSON -> whitelisted blob-vocabulary fields (origin, region,
-    // farm, producer, variety, elevation, process, harvest, roastLevel,
-    // tastingNotes). Tolerates markdown fences; string-array values are
-    // joined ", "; object values are skipped; values capped at 500 chars.
+    // `kind` selects the extraction vocabulary: "coffee" (default) or "tea"
+    // (add-recipe-wizard-tea) — tea pages yield teaType/garden/cultivar/flush
+    // plus structured brewing fields (brewTempC normalized to Celsius,
+    // leafGramsPer100Ml normalized from per-cup wordings, steepTime).
+    Q_INVOKABLE void extractCoffeeBagDetails(const QString& requestToken, const QString& pageText,
+                                             const QString& kind = QStringLiteral("coffee"));
+    // Response JSON -> whitelisted blob-vocabulary fields (coffee: origin,
+    // region, farm, producer, variety, elevation, process, harvest,
+    // roastLevel, tastingNotes; tea adds teaType, garden, cultivar, flush,
+    // brewTempC, leafGramsPer100Ml, steepTime). Tolerates markdown fences;
+    // string-array values are joined ", "; object values are skipped;
+    // values capped at 500 chars.
     // ok=false when nothing parses OR the object had content but no usable
     // whitelisted values ("couldn't read it" is distinct from the honest
     // empty-object "the page states nothing"). Static + public for tests.
