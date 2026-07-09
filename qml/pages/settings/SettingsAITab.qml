@@ -294,24 +294,21 @@ KeyboardAwareContainer {
                         }
                     }
 
-                    // Provider-specific guidance. Gated per provider so a future
-                    // provider that gains multiple models can't inherit wrong copy.
+                    // Provider-specific guidance. The English copy lives in
+                    // AIProvider::modelHint() (next to the model catalog) so the
+                    // app and the ShotServer web settings page share one source;
+                    // the per-provider translation key keeps it translatable.
+                    // The key is built dynamically, which the QML string scanner
+                    // cannot see -- main.cpp registers these keys at startup so
+                    // the batch-translation registry stays complete.
                     Text {
                         visible: text.length > 0
                         text: {
-                            switch (modelSelect.currentProvider) {
-                            case "gemini":
-                                return TranslationManager.translate("settings.ai.modelHint.gemini",
-                                    "3.5 Flash is the most capable. 2.5 Flash is more available (fewer busy errors).")
-                            case "anthropic":
-                                return TranslationManager.translate("settings.ai.modelHint.anthropic",
-                                    "Sonnet 5 is the most capable. Sonnet 4.6 is the established default.")
-                            case "openai":
-                                return TranslationManager.translate("settings.ai.modelHint.openai",
-                                    "GPT-5.4 is more capable. GPT-5.4 mini is cheaper and faster.")
-                            default:
-                                return ""
-                            }
+                            var hint = MainController.aiManager
+                                ? MainController.aiManager.modelHint(modelSelect.currentProvider) : ""
+                            if (hint === "") return ""
+                            return TranslationManager.translate(
+                                "settings.ai.modelHint." + modelSelect.currentProvider, hint)
                         }
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)

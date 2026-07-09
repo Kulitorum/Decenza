@@ -168,14 +168,22 @@ QVariantList AIManager::availableModels(const QString& providerId) const
     if (!provider) return out;
     const QList<AIProvider::ModelOption> models = provider->availableModels();
     for (const AIProvider::ModelOption& opt : models) {
-        // Keys are a contract with SettingsAITab.qml: "name" is the combo's
-        // textRole, "id" is read back on selection. Keep both in sync with the QML.
+        // Keys are a contract with SettingsAITab.qml and the ShotServer
+        // settings page JS (served as providerModelCatalogs): "name" is the
+        // display label, "id" is read back on selection. Keep both in sync
+        // with those consumers.
         QVariantMap entry;
         entry["id"] = opt.id;
         entry["name"] = opt.displayName;
         out.append(entry);
     }
     return out;
+}
+
+QString AIManager::modelHint(const QString& providerId) const
+{
+    AIProvider* provider = providerById(providerId);
+    return provider ? provider->modelHint() : QString();
 }
 
 void AIManager::setSelectedProvider(const QString& provider)

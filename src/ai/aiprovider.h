@@ -39,6 +39,12 @@ public:
     // single source of truth for both the UI list and `shortModelName()`.
     virtual QList<ModelOption> availableModels() const { return {}; }
 
+    // One-line guidance comparing the catalog's models, shown under the model
+    // picker in both the in-app AI settings tab and the ShotServer web page.
+    // Lives next to availableModels() so the catalog and its guidance share a
+    // single source and can't drift between UIs. Empty = no hint.
+    virtual QString modelHint() const { return {}; }
+
     Status status() const { return m_status; }
 
     // Main analysis method
@@ -98,6 +104,7 @@ public:
     QString shortModelName() const override;  // catalog display for m_model
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
+    QString modelHint() const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     // Select the wire model. Ignores empty (keeps current default) and any id
@@ -139,6 +146,7 @@ public:
     QString shortModelName() const override;  // catalog display for m_model
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
+    QString modelHint() const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     // Select the wire model. Ignores empty (keeps current default) and any id
@@ -188,6 +196,7 @@ public:
     QString shortModelName() const override;  // catalog display for m_model
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
     QList<ModelOption> availableModels() const override;
+    QString modelHint() const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     // Select the wire model. Ignores empty (keeps current default) and any id

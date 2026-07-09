@@ -11,6 +11,7 @@
 //   - unknown id    → warn + keep the current model (never send a dead id)
 //   - valid id      → switch the wire model; shortModelName() tracks it
 //   - construction  → default to availableModels().first().id
+//   - modelHint()   → non-empty and mentions every catalog entry by name
 //
 // These methods are pure (no network I/O) and public, so no mocking or
 // friend-class access is needed. Gemini is covered too — it shipped the
@@ -52,6 +53,19 @@ void checkProvider(QNetworkAccessManager& nam, const Catalog& expected)
     // the "single source of truth" claim the UI's unset→index-0 fallback relies on.
     QCOMPARE(p.modelName(), expected.first().first);
     QCOMPARE(p.shortModelName(), expected.first().second);
+
+    // modelHint() is the guidance line shown under the model picker in both
+    // the app and the ShotServer web page. A multi-model provider must have
+    // one (both UIs gate on non-empty), and it must mention every catalog
+    // entry by display name — a catalog bump that forgets the hint would ship
+    // stale model-comparison advice to both UIs at once.
+    const QString hint = p.modelHint();
+    QVERIFY2(!hint.isEmpty(), "multi-model provider must provide a modelHint()");
+    for (const AIProvider::ModelOption& opt : models) {
+        QVERIFY2(hint.contains(opt.displayName),
+                 qPrintable(QStringLiteral("modelHint() does not mention catalog model '%1'")
+                                .arg(opt.displayName)));
+    }
 
     // Selecting the opt-in (last) model switches the wire model and its label.
     const QString optId = expected.last().first;
