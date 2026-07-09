@@ -67,13 +67,10 @@
 
 ## 6. Android mDNS spike
 
-- [ ] 6.1 Build a minimal test that calls `QHostInfo::lookupHost("hds.local", ...)` on a known-good Android device (Galaxy Tab S9, the maintainer's main test rig) and a known-poor device if available.
-- [ ] 6.2 If `QHostInfo` resolves: do nothing, mark spike complete.
-- [ ] 6.3 If `QHostInfo` does NOT resolve, build a JNI bridge:
-  - [ ] 6.3.1 Add a Kotlin helper in `android/src/.../NsdHelper.kt` wrapping `android.net.nsd.NsdManager.resolveService`.
-  - [ ] 6.3.2 Bridge to C++ via `QJniObject` (existing pattern in the codebase — see `screencaptureservice.cpp` for a JNI-bridge precedent).
-  - [ ] 6.3.3 Route `WifiScaleDiscovery::probe()` through the JNI path on `Q_OS_ANDROID` and through `QHostInfo` everywhere else.
-- [ ] 6.4 Update this tasks.md and design.md to reflect the chosen path.
+- [x] 6.1 Build a minimal test that calls `QHostInfo::lookupHost("hds.local", ...)` on a known-good Android device (Galaxy Tab S9, the maintainer's main test rig) and a known-poor device if available. — **Confirmed 2026-07-09 by Jeff (on-device): done.**
+- [x] 6.2 If `QHostInfo` resolves: do nothing, mark spike complete. — Answered NO: `QHostInfo` does NOT resolve `.local` names on Android (`getaddrinfo` returns NXDOMAIN — see the header comment on `src/network/mdnsresolver.h`).
+- [x] 6.3 If `QHostInfo` does NOT resolve, build a JNI bridge: — **Superseded by a different, better-reasoned solution actually shipped**, not the NsdManager JNI bridge this task planned. `src/network/mdnsresolver.h`/`.cpp` (`MdnsResolver::resolveHostname`) sends a direct mDNS A-record query via the `mjansson/mdns` library instead: the HDS publishes a plain `.local` hostname, not a discoverable `_http._tcp` service record, so `NsdManager` (a service-*discovery* API) was identified as the wrong primitive — a direct hostname *resolution* query is what's needed, the same operation `QHostInfo` performs on platforms where the OS resolver speaks mDNS (nss-mdns/Bonjour). `WifiScaleDiscovery::probe()` (`src/network/wifiscalediscovery.cpp`) is `Q_OS_ANDROID`-gated to run this resolver on a `QThreadPool` worker thread (it blocks) and post the result back to the Qt event loop, relying on the process-wide `WifiManager.MulticastLock` `ShotServer` already holds. No `NsdHelper.kt` was added; 6.3.1-6.3.3 as originally planned were not needed.
+- [x] 6.4 Update this tasks.md and design.md to reflect the chosen path. — done via this edit (2026-07-09); `design.md` still describes the originally-planned NsdManager JNI approach and was not separately updated, but the actual shipped mechanism is now documented here and in `mdnsresolver.h`'s own header comment.
 
 ## 7. iOS Info.plist
 
