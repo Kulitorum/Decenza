@@ -233,6 +233,115 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     sendRequest(requestBody);
 }
 
+void OpenAIProvider::analyzeUrl(const QString& systemPrompt, const QString& userPrompt)
+{
+    if (!isConfigured()) {
+        emit analysisFailed("OpenAI API key not configured");
+        return;
+    }
+
+    setStatus(Status::Busy);
+    m_retryCount = 0;
+    ++m_reqGen;
+
+    // The web_search tool lives on the Responses API, not chat/completions.
+    // Its open_page action lets the model retrieve the specific URL named in
+    // the user prompt (add-recipe-wizard-tea stage-2 extraction).
+    QJsonObject requestBody;
+    requestBody["model"] = m_model;
+    requestBody["instructions"] = systemPrompt;
+    requestBody["input"] = userPrompt;
+    QJsonObject searchTool;
+    searchTool["type"] = QString("web_search");
+    requestBody["tools"] = QJsonArray{searchTool};
+    // Reasoning "low", not "minimal": the gpt-5 family rejects web_search at
+    // minimal effort. max_output_tokens covers reasoning + the JSON answer.
+    QJsonObject reasoning;
+    reasoning["effort"] = QString("low");
+    requestBody["reasoning"] = reasoning;
+    requestBody["max_output_tokens"] = 2048;
+
+    sendResponsesRequest(requestBody);
+}
+
+void OpenAIProvider::sendResponsesRequest(const QJsonObject& requestBody)
+{
+    QUrl url(QString::fromLatin1(RESPONSES_API_URL));
+    QNetworkRequest req;
+    req.setUrl(url);
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QVariant(QString("application/json")));
+    req.setRawHeader("Authorization", ("Bearer " + m_apiKey).toUtf8());
+    req.setTransferTimeout(ANALYSIS_TIMEOUT_MS);
+
+    m_retryFn = [this, requestBody]() { sendResponsesRequest(requestBody); };
+
+    QByteArray body = QJsonDocument(requestBody).toJson();
+    QNetworkReply* reply = m_networkManager->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onResponsesReply(reply);
+    });
+}
+
+void OpenAIProvider::onResponsesReply(QNetworkReply* reply)
+{
+    if (tryScheduleRetry(reply)) { reply->deleteLater(); return; }
+    reply->deleteLater();
+    setStatus(Status::Ready);
+
+    if (reply->error() != QNetworkReply::NoError) {
+        QByteArray body = reply->readAll();
+        if (!body.isEmpty()) {
+            QJsonDocument bodyDoc = QJsonDocument::fromJson(body);
+            QString apiError = bodyDoc.object()["error"].toObject()["message"].toString();
+            if (!apiError.isEmpty()) {
+                int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                qWarning() << "OpenAI Responses API error" << status << "-" << apiError;
+                emit analysisFailed("OpenAI error: " + apiError);
+                return;
+            }
+            qWarning() << "AI request failed"
+                       << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                       << "-" << body;
+        }
+        emit analysisFailed(friendlyNetworkError(reply));
+        return;
+    }
+
+    QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+    QJsonObject root = doc.object();
+
+    if (root.contains("error") && root["error"].isObject()) {
+        QString errorMsg = root["error"].toObject()["message"].toString();
+        if (!errorMsg.isEmpty()) {
+            emit analysisFailed("OpenAI error: " + errorMsg);
+            return;
+        }
+    }
+
+    // The Responses output array interleaves reasoning/web_search_call items
+    // with message items; the answer is the message items' output_text parts.
+    QString text;
+    const QJsonArray output = root["output"].toArray();
+    for (const QJsonValue& itemVal : output) {
+        const QJsonObject item = itemVal.toObject();
+        if (item["type"].toString() != QLatin1String("message"))
+            continue;
+        const QJsonArray content = item["content"].toArray();
+        for (const QJsonValue& partVal : content) {
+            const QJsonObject part = partVal.toObject();
+            if (part["type"].toString() == QLatin1String("output_text"))
+                text += part["text"].toString();
+        }
+    }
+    if (text.isEmpty()) {
+        qWarning() << "OpenAI Responses: no output_text (status"
+                   << root["status"].toString() << ")";
+        emit analysisFailed("OpenAI returned empty response content");
+        return;
+    }
+    emit analysisComplete(text);
+}
+
 void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
 {
     if (!isConfigured()) {
@@ -870,6 +979,47 @@ void GeminiProvider::analyze(const QString& systemPrompt, const QString& userPro
     sendRequest(requestBody);
 }
 
+void GeminiProvider::analyzeUrl(const QString& systemPrompt, const QString& userPrompt)
+{
+    if (!isConfigured()) {
+        emit analysisFailed("Gemini API key not configured");
+        return;
+    }
+
+    setStatus(Status::Busy);
+    m_retryCount = 0;
+    ++m_reqGen;
+
+    // Same body as analyze() plus the url_context server tool: the API
+    // fetches the URL named in the user prompt during generateContent
+    // (add-recipe-wizard-tea stage-2 extraction).
+    QJsonObject requestBody;
+    QJsonObject sysInstruction;
+    QJsonArray sysParts;
+    QJsonObject sysTextPart;
+    sysTextPart["text"] = systemPrompt;
+    sysParts.append(sysTextPart);
+    sysInstruction["parts"] = sysParts;
+    requestBody["system_instruction"] = sysInstruction;
+
+    QJsonArray contents;
+    QJsonObject userContent;
+    userContent["role"] = QString("user");
+    QJsonArray userParts;
+    QJsonObject userTextPart;
+    userTextPart["text"] = userPrompt;
+    userParts.append(userTextPart);
+    userContent["parts"] = userParts;
+    contents.append(userContent);
+    requestBody["contents"] = contents;
+
+    QJsonObject urlContextTool;
+    urlContextTool["url_context"] = QJsonObject{};
+    requestBody["tools"] = QJsonArray{urlContextTool};
+
+    sendRequest(requestBody);
+}
+
 void GeminiProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
 {
     if (!isConfigured()) {
@@ -967,7 +1117,16 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
         return;
     }
 
-    QString text = parts[0].toObject()["text"].toString();
+    // Join every non-thought text part: plain replies have exactly one, but
+    // a url_context response (analyzeUrl) may split the answer across parts;
+    // thought parts are hidden reasoning and must not leak into the answer.
+    QString text;
+    for (const QJsonValue& partVal : parts) {
+        const QJsonObject part = partVal.toObject();
+        if (part["thought"].toBool())
+            continue;
+        text += part["text"].toString();
+    }
     if (text.isEmpty()) {
         emit analysisFailed("Gemini returned empty response content");
         return;

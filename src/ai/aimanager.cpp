@@ -1297,7 +1297,7 @@ void AIManager::extractCoffeeBagDetailsFromUrl(const QString& requestToken, cons
             "Never guess or infer a value the text does not state. For blends without a stated "
             "origin, leave origin out and describe the blend in variety if stated.");
     const QString systemPrompt = base + QStringLiteral(
-        " Fetch the product page URL in the user message yourself with the web_fetch tool first. "
+        " Retrieve the product page URL in the user message yourself with your web tool first. "
         "Additionally include the key imageUrl (the MAIN product photo's absolute URL from the "
         "fetched page, when one is shown - never a logo or banner).");
     const QString userPrompt = QStringLiteral(

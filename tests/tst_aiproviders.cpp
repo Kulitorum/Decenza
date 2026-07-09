@@ -103,6 +103,20 @@ private slots:
             { "gemini-3.5-flash", "3.5 Flash" },
         });
     }
+
+    // Stage-2 URL extraction feature matrix (add-recipe-wizard-tea): the
+    // three cloud providers with a server-side web tool support analyzeUrl;
+    // Ollama (local) and OpenRouter don't. ChangeBeansDialog gates the
+    // stage-2 fallback on this flag, so a flip here is user-visible.
+    void urlAnalysisSupportMatrix()
+    {
+        QNetworkAccessManager nam;
+        QVERIFY(OpenAIProvider(&nam, "key").supportsUrlAnalysis());
+        QVERIFY(AnthropicProvider(&nam, "key").supportsUrlAnalysis());
+        QVERIFY(GeminiProvider(&nam, "key").supportsUrlAnalysis());
+        QVERIFY(!OpenRouterProvider(&nam, "key", "model").supportsUrlAnalysis());
+        QVERIFY(!OllamaProvider(&nam, "http://localhost:11434", "model").supportsUrlAnalysis());
+    }
 };
 
 QTEST_GUILESS_MAIN(tst_AIProviders)

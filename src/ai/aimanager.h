@@ -165,10 +165,11 @@ public:
                                              const QString& kind = QStringLiteral("coffee"));
     // Stage-2 extraction fallback: the local page fetch got nothing (a
     // JS-rendered shop), so the provider fetches the URL itself via its
-    // server-side web-fetch tool (Anthropic web_fetch; other providers report
-    // "urlFetchUnsupported"). Same signals + JSON contract as stage 1, plus
-    // an imageUrl key (SPA pages have no og:image for the photo pipeline).
-    // Gate calls on supportsUrlExtraction().
+    // server-side web tool (Anthropic web_fetch, OpenAI Responses web_search,
+    // Gemini url_context; Ollama/OpenRouter report "urlFetchUnsupported").
+    // Same signals + JSON contract as stage 1, plus an imageUrl key (SPA
+    // pages have no og:image for the photo pipeline). Gate calls on
+    // supportsUrlExtraction().
     Q_INVOKABLE bool supportsUrlExtraction() const;
     Q_INVOKABLE void extractCoffeeBagDetailsFromUrl(const QString& requestToken, const QString& url,
                                                     const QString& kind = QStringLiteral("coffee"));
