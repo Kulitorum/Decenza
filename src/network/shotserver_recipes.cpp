@@ -11,6 +11,7 @@
 
 #include "shotserver.h"
 #include "../controllers/maincontroller.h"
+#include "../controllers/profilemanager.h"
 #include "../core/dbutils.h"
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
@@ -37,12 +38,28 @@
 namespace {
 
 QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
-                          qint64 shotCount = -1)
+                          qint64 shotCount = -1,
+                          const QHash<QString, QString>& bevByTitle = {})
 {
     QJsonObject o;
     o["id"] = r.id;
     o["name"] = r.name;
     o["profileTitle"] = r.profileTitle;
+    // Stored drink type; legacy rows derive from the blocks (embedded profile
+    // JSON supplies beverage_type when present).
+    if (!r.drinkType.isEmpty()) {
+        o["drinkType"] = r.drinkType;
+    } else {
+        QString bev;
+        if (!r.profileJson.isEmpty())
+            bev = QJsonDocument::fromJson(r.profileJson.toUtf8())
+                      .object().value(QStringLiteral("beverage_type")).toString();
+        // Installed profiles embed no JSON — the main-thread-captured catalog
+        // snapshot supplies their beverage_type (else tea derives as espresso).
+        if (bev.isEmpty())
+            bev = bevByTitle.value(r.profileTitle.trimmed().toLower());
+        o["drinkType"] = Recipe::deriveDrinkType(r, bev);
+    }
     o["beanBaseId"] = r.beanBaseId;
     o["roasterName"] = r.roasterName;
     o["coffeeName"] = r.coffeeName;
@@ -88,7 +105,7 @@ QVariantMap recipeFieldsFromBody(const QJsonObject& body)
     QVariantMap fields;
     static const QStringList kStringKeys = {
         "name", "profileTitle", "profileJson", "beanBaseId", "roasterName", "coffeeName",
-        "grindPinned"};
+        "grindPinned", "drinkType"};
     for (const QString& key : kStringKeys) {
         if (body.contains(key))
             fields.insert(key, body[key].toString());
@@ -144,13 +161,17 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
 
     // GET /api/recipes — list (query ?archived=1 to include archived)
     if (path == "/api/recipes" && method == "GET") {
-        QThread* t = QThread::create([dbPath, activeRecipeId, respondJson]() {
+        const QHash<QString, QString> bevByTitle =
+            (m_mainController && m_mainController->profileManager())
+                ? m_mainController->profileManager()->beverageTypeByTitleSnapshot()
+                : QHash<QString, QString>();
+        QThread* t = QThread::create([dbPath, activeRecipeId, respondJson, bevByTitle]() {
             QJsonArray recipes;
             const bool opened = withTempDb(dbPath, "web_recipes", [&](QSqlDatabase& db) {
                 for (const InventoryRecipe& e : RecipeStorage::loadInventoryStatic(db, false))
-                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount));
+                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount, bevByTitle));
                 for (const InventoryRecipe& e : RecipeStorage::loadInventoryStatic(db, true))
-                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount));
+                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount, bevByTitle));
             });
             QMetaObject::invokeMethod(qApp, [opened, recipes, respondJson]() {
                 if (!opened)
@@ -164,13 +185,35 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
         return;
     }
 
-    // POST /api/recipes — create
+    // POST /api/recipes — create. Profile required unless the recipe is
+    // hot-water-only (hasWater in the block) — the shared validation rule.
     if (path == "/api/recipes" && method == "POST") {
-        const QVariantMap fields = recipeFieldsFromBody(bodyJson);
-        if (fields.value("name").toString().trimmed().isEmpty()
-            || fields.value("profileTitle").toString().trimmed().isEmpty()) {
-            respondJson(QJsonObject{{"error", "name and profileTitle are required"}}, 400);
+        QVariantMap fields = recipeFieldsFromBody(bodyJson);
+        // The REST route accepts free text — enforce the drink-type vocabulary
+        // (the bundled page's <select> constrains only the browser form).
+        const QString requestedType = fields.value("drinkType").toString();
+        if (!requestedType.isEmpty() && !Recipe::isKnownDrinkType(requestedType)) {
+            respondJson(QJsonObject{{"error", QString("Unknown drinkType '%1'").arg(requestedType)}}, 400);
             return;
+        }
+        if (!Recipe::saveValidationPasses(fields.value("name").toString(),
+                                          fields.value("profileTitle").toString(),
+                                          fields.value("hotWaterJson").toString())) {
+            respondJson(QJsonObject{{"error", "name is required, and profileTitle is required "
+                                              "unless the recipe has a hot-water block with "
+                                              "hasWater true"}}, 400);
+            return;
+        }
+        // Derive the drink type when the caller didn't state one.
+        if (fields.value("drinkType").toString().isEmpty()) {
+            const Recipe shaped = Recipe::fromVariantMap(fields);
+            QString bev;
+            if (!shaped.profileJson.isEmpty())
+                bev = QJsonDocument::fromJson(shaped.profileJson.toUtf8())
+                          .object().value(QStringLiteral("beverage_type")).toString();
+            if (bev.isEmpty() && m_mainController && m_mainController->profileManager())
+                bev = m_mainController->profileManager()->beverageTypeForTitle(shaped.profileTitle);
+            fields.insert("drinkType", Recipe::deriveDrinkType(shaped, bev));
         }
         auto conn = std::make_shared<QMetaObject::Connection>();
         *conn = connect(recipeStorage, &RecipeStorage::recipeCreated, this,
@@ -299,7 +342,24 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
 
         // POST /api/recipe/<id> — update
         if (action.isEmpty()) {
-            const QVariantMap fields = recipeFieldsFromBody(bodyJson);
+            QVariantMap fields = recipeFieldsFromBody(bodyJson);
+            const QString requestedType = fields.value("drinkType").toString();
+            if (!requestedType.isEmpty() && !Recipe::isKnownDrinkType(requestedType)) {
+                respondJson(QJsonObject{{"error", QString("Unknown drinkType '%1'").arg(requestedType)}}, 400);
+                return;
+            }
+            // Mirror the MCP recipe_update guard: clearing the profile is only
+            // valid when this same call makes the recipe hot-water-only. The
+            // storage layer now enforces the resulting-row invariant too; this
+            // early check just gives the caller a named error instead of a
+            // generic update failure.
+            if (fields.contains("profileTitle")
+                && fields.value("profileTitle").toString().trimmed().isEmpty()
+                && !Recipe::hotWaterActive(fields.value("hotWaterJson").toString())) {
+                respondJson(QJsonObject{{"error", "profileTitle can only be cleared when the same "
+                                                  "call sets a hot-water block with hasWater true"}}, 400);
+                return;
+            }
             if (fields.isEmpty()) {
                 respondJson(QJsonObject{{"error", "No editable fields provided"}}, 400);
                 return;
@@ -315,6 +375,17 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                     else
                         respondJson(QJsonObject{{"error", "Recipe not found or update failed"}}, 404);
                 });
+            // Installed profiles embed no JSON: resolve the new title's
+            // beverage_type (main thread) for the storage-side drink-type
+            // re-derivation. Transient hint — RecipeStorage strips it.
+            if (!fields.value("profileTitle").toString().trimmed().isEmpty()
+                && fields.value("drinkType").toString().isEmpty()
+                && m_mainController && m_mainController->profileManager()) {
+                const QString bev = m_mainController->profileManager()->beverageTypeForTitle(
+                    fields.value("profileTitle").toString());
+                if (!bev.isEmpty())
+                    fields.insert("profileBeverageType", bev);
+            }
             recipeStorage->requestUpdateRecipe(recipeId, fields);
             return;
         }
@@ -473,6 +544,17 @@ QString ShotServer::generateRecipesPage() const
         <label>Yield (g)</label><input id="fYield" type="number" step="0.1">
         <label>Temp override (&deg;C)</label><input id="fTemp" type="number" step="0.1">
         <label>Pinned grind (empty = follow the bag)</label><input id="fGrind">
+        <label>Drink type</label>
+        <select id="fDrinkType">
+            <option value="">(automatic from blocks)</option>
+            <option value="espresso">Espresso</option>
+            <option value="filter">Filter</option>
+            <option value="americano">Americano</option>
+            <option value="long_black">Long black</option>
+            <option value="latte">Latte / Cappuccino</option>
+            <option value="tea">Tea (portafilter)</option>
+            <option value="tea_hotwater">Tea (hot water)</option>
+        </select>
         <label><input id="fHasMilk" type="checkbox" style="width:auto"> Milk drink</label>
         <label>Milk (g)</label><input id="fMilk" type="number" step="1">
         <label>Pitcher name</label><input id="fPitcher">
@@ -508,6 +590,7 @@ QString ShotServer::generateRecipesPage() const
 
         function subtitle(r) {
             const parts = [];
+            if (r.drinkType) parts.push(esc(r.drinkType.replace('_', ' ')));
             if (r.profileTitle) parts.push(esc(r.profileTitle));
             const bean = ((r.roasterName || '') + ' ' + (r.coffeeName || '')).trim();
             if (bean) parts.push(esc(bean));
@@ -575,6 +658,7 @@ QString ShotServer::generateRecipesPage() const
             const r = recipes.find(x => x.id === id) || {};
             document.getElementById('editorTitle').textContent = id ? 'Edit Recipe' : 'New Recipe';
             document.getElementById('fName').value = r.name || '';
+            document.getElementById('fDrinkType').value = r.drinkType || '';
             document.getElementById('fProfile').value = r.profileTitle || '';
             document.getElementById('fRoaster').value = r.roasterName || '';
             document.getElementById('fCoffee').value = r.coffeeName || '';
@@ -596,7 +680,12 @@ QString ShotServer::generateRecipesPage() const
         function saveEditor() {
             const name = document.getElementById('fName').value.trim();
             const profileTitle = document.getElementById('fProfile').value.trim();
-            if (!name || !profileTitle) { status('Name and profile title are required'); return; }
+            const hasWater = document.getElementById('fHasWater').checked;
+            if (!name) { status('Name is required'); return; }
+            // Profile-less recipes are valid only as hot-water drinks (tea).
+            if (!profileTitle && !hasWater) {
+                status('Profile title is required (unless the recipe adds hot water)'); return;
+            }
             const steam = {};
             if (document.getElementById('fHasMilk').checked) steam.hasMilk = true;
             const milk = parseFloat(document.getElementById('fMilk').value);
@@ -604,13 +693,14 @@ QString ShotServer::generateRecipesPage() const
             const pitcher = document.getElementById('fPitcher').value.trim();
             if (pitcher) steam.pitcherName = pitcher;
             const hotWater = {};
-            if (document.getElementById('fHasWater').checked) hotWater.hasWater = true;
+            if (hasWater) hotWater.hasWater = true;
             const vessel = document.getElementById('fVessel').value.trim();
             if (vessel) hotWater.vesselName = vessel;
             hotWater.order = document.getElementById('fWaterOrder').value === 'before' ? 'before' : 'after';
             const bodyData = {
                 name: name,
                 profileTitle: profileTitle,
+                drinkType: document.getElementById('fDrinkType').value,
                 roasterName: document.getElementById('fRoaster').value.trim(),
                 coffeeName: document.getElementById('fCoffee').value.trim(),
                 doseG: parseFloat(document.getElementById('fDose').value) || 0,

@@ -116,6 +116,49 @@ private slots:
         });
     }
 
+    // --- grinder-less (basket-only) packages: tea setups (add-recipe-wizard-tea) ---
+    void basketOnlyPackage() {
+        const QString path = freshDbPath();
+        withRawDb(path, "eq_teabasket", [](QSqlDatabase& db) {
+            QVERIFY(EquipmentStorage::ensureTablesStatic(db));
+            EquipmentPackage pkg;
+            const qint64 id = EquipmentStorage::createPackageWithGrinderStatic(
+                db, pkg, "", "", "", "Decent", "Tea Basket");
+            QVERIFY(id > 0);
+
+            // No grinder item row; display name fell back to the basket.
+            QVERIFY(!EquipmentStorage::loadGrinderItemStatic(db, id).isValid());
+            const EquipmentItem basket = EquipmentStorage::loadBasketItemStatic(db, id);
+            QVERIFY(basket.isValid());
+            QCOMPARE(basket.brand, QString("Decent"));
+            QCOMPARE(EquipmentStorage::loadPackageStatic(db, id).name,
+                     QString("Decent Tea Basket"));
+
+            // Dedup matches the grinder-less identity (empty grinder + basket)…
+            QCOMPARE(EquipmentStorage::findPackageByGrinderIdentityStatic(
+                         db, "", "", "", 0, "decent", "tea basket"), id);
+            // …and does NOT match a different basket or a grinder-carrying query.
+            QCOMPARE(EquipmentStorage::findPackageByGrinderIdentityStatic(
+                         db, "", "", "", 0, "VST", "18g"), (qint64)0);
+            QCOMPARE(EquipmentStorage::findPackageByGrinderIdentityStatic(
+                         db, "Niche", "Zero", "", 0, "Decent", "Tea Basket"), (qint64)0);
+
+            // In-place identity edit works with no grinder row (unused package):
+            // changing the basket keeps the same id and stays grinder-less.
+            const qint64 edited = EquipmentStorage::supersedeOrEditStatic(
+                db, id, "", "", "", "Weber", "Unibasket 18g", "");
+            QCOMPARE(edited, id);
+            QCOMPARE(EquipmentStorage::loadBasketItemStatic(db, id).brand, QString("Weber"));
+            QVERIFY(!EquipmentStorage::loadGrinderItemStatic(db, id).isValid());
+
+            // Adding a grinder to a grinder-less package inserts the item.
+            const qint64 withGrinder = EquipmentStorage::supersedeOrEditStatic(
+                db, id, "Niche", "Zero", "63mm conical", "Weber", "Unibasket 18g", "");
+            QCOMPARE(withGrinder, id);
+            QCOMPARE(EquipmentStorage::loadGrinderItemStatic(db, id).brand, QString("Niche"));
+        });
+    }
+
     // --- identity dedup lookup ---
     void identityDedup() {
         const QString path = freshDbPath();

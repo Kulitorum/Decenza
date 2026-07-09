@@ -221,7 +221,10 @@ Dialog {
         return -1
     }
 
-    readonly property bool canSave: (fBrand.trim().length > 0 || fModel.trim().length > 0)
+    // A package needs SOME identity — grinder OR basket. Basket-only
+    // (grinder-less) packages are valid tea setups (add-recipe-wizard-tea).
+    readonly property bool canSave: (fBrand.trim().length > 0 || fModel.trim().length > 0
+                                     || fBasketBrand.trim().length > 0 || fBasketModel.trim().length > 0)
                                     && duplicateOfId < 0
     property bool _awaitingCreate: false
 

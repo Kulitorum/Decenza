@@ -53,7 +53,7 @@ Page {
     Tr { id: trMilk; key: "recipes.list.milk"; fallback: "milk"; visible: false }
 
     function openClone(recipe) {
-        // Clone lands in the composer as a prefilled copy with the name
+        // Clone lands on the wizard summary as a prefilled copy with the name
         // focused — rename, tweak, save. Provenance points at the source;
         // the golden-shot link is not copied.
         var copy = JSON.parse(JSON.stringify(recipe))
@@ -62,7 +62,7 @@ Page {
         copy.createdFromShotId = 0
         copy.clonedFromRecipeId = recipe.id
         copy.name = trCopyOf.text.arg(recipe.name)
-        pageStack.push(Qt.resolvedUrl("RecipeComposerPage.qml"), { mode: "create", prefill: copy })
+        pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"), { mode: "create", prefill: copy })
     }
 
     // Recipe card: tap = activate (like tapping a bag card selects the bag).
@@ -300,7 +300,7 @@ Page {
                     height: Theme.scaled(36)
                     icon.source: "qrc:/icons/edit.svg"
                     accessibleName: TranslationManager.translate("recipes.accessible.edit", "Edit recipe")
-                    onClicked: pageStack.push(Qt.resolvedUrl("RecipeComposerPage.qml"),
+                    onClicked: pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"),
                                               { mode: "edit", editRecipeId: card.recipe.id })
                 }
 
@@ -397,7 +397,7 @@ Page {
                     Layout.preferredHeight: Theme.scaled(44)
                     text: TranslationManager.translate("recipes.addButton", "Add Recipe")
                     accessibleName: TranslationManager.translate("recipes.accessible.add", "Add a new recipe")
-                    onClicked: pageStack.push(Qt.resolvedUrl("RecipeComposerPage.qml"), { mode: "create" })
+                    onClicked: pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"), { mode: "create" })
                 }
             }
 

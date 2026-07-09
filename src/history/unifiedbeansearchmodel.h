@@ -42,6 +42,12 @@ class UnifiedBeanSearchModel : public QAbstractListModel {
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged)
     Q_PROPERTY(bool searching READ searching NOTIFY searchingChanged)
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
+    // Bag-kind scope (add-recipe-wizard-tea): "" (default) = the pre-existing
+    // coffee behavior, unfiltered. "tea" = the Add Tea flow — the Visualizer
+    // canonical lane is suppressed entirely (coffee-only database; tea terms
+    // return coffee false-positives), and the inventory/history lanes keep
+    // only known tea bags.
+    Q_PROPERTY(QString bagKind READ bagKind WRITE setBagKind NOTIFY bagKindChanged)
 
 public:
     // Search-result tier — the model's core ranking invariant (lower = better).
@@ -93,6 +99,8 @@ public:
     QString query() const { return m_query; }
     void setQuery(const QString& query);
     bool searching() const { return m_searching; }
+    QString bagKind() const { return m_bagKind; }
+    void setBagKind(const QString& kind);
 
     // Refresh inventory + recent-history suggestions (dialog open).
     Q_INVOKABLE void refresh();
@@ -108,7 +116,8 @@ public:
     // Distinct coffees from the shot history, newest first, capped at
     // `limit`. Grouped on COALESCE(beanbase_id, brand|type) with a C++
     // post-merge of linked+unlinked duplicates. Static for unit tests.
-    static QVariantList queryHistoryStatic(QSqlDatabase& db, const QString& filter, int limit = 50);
+    static QVariantList queryHistoryStatic(QSqlDatabase& db, const QString& filter, int limit = 50,
+                                           const QString& kind = QString());
 
     // Pure merge of the three lanes into the ranked result list. Static for
     // unit tests; each entry is a QVariantMap with the keys exposed by get().
@@ -121,6 +130,7 @@ signals:
     void queryChanged();
     void searchingChanged();
     void countChanged();
+    void bagKindChanged();
 
 private:
     void requestHistory();
@@ -132,6 +142,7 @@ private:
     QString m_dbPath;
 
     QString m_query;
+    QString m_bagKind;
     QVariantList m_inventory;        // toVariantMap() rows, all inInventory bags
     QVariantList m_canonical;        // BeanBaseClient searchResults entries
     QVariantList m_history;          // queryHistoryStatic rows

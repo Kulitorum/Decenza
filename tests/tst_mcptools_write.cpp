@@ -374,6 +374,104 @@ private slots:
         }
     }
 
+    // bag_create (add-recipe-wizard-tea): kind stamped at creation, gated in
+    // both directions. Needs a real CoffeeBagStorage (the tool creates via the
+    // async instance — there is no static fallback like bag_update).
+    void bagCreateKindAndGating()
+    {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("bagcreate.db")));
+        CoffeeBagStorage bagStorage;
+        bagStorage.initialize(storage.databasePath());
+        registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
+                          nullptr, &bagStorage, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        // Tea bag with brewing data: kind + tea vocabulary round-trip.
+        QJsonObject tea;
+        tea["kind"] = "tea";
+        tea["roasterName"] = "Harney & Sons";
+        tea["coffeeName"] = "Decaf Ceylon";
+        tea["teaType"] = "black";
+        tea["brewTempC"] = 100;
+        QJsonObject r = f.callAsyncTool("bag_create", tea);
+        QVERIFY2(r["success"].toBool(), qPrintable(QJsonDocument(r).toJson()));
+        QJsonObject bag = r["bag"].toObject();
+        QCOMPARE(bag["kind"].toString(), QString("tea"));
+        QCOMPARE(bag["teaType"].toString(), QString("black"));
+        QCOMPARE(bag["brewTemperatureC"].toDouble(), 100.0);
+
+        // kind=coffee + a tea field: rejected (synchronous, before storage).
+        QJsonObject bad1;
+        bad1["kind"] = "coffee"; bad1["roasterName"] = "X"; bad1["teaType"] = "black";
+        QVERIFY(f.callAsyncTool("bag_create", bad1).contains("error"));
+
+        // kind=tea + a coffee-only field: rejected.
+        QJsonObject bad2;
+        bad2["kind"] = "tea"; bad2["roasterName"] = "X"; bad2["roastLevel"] = "Light";
+        QVERIFY(f.callAsyncTool("bag_create", bad2).contains("error"));
+
+        // Omitted kind defaults to coffee.
+        QJsonObject def;
+        def["roasterName"] = "Onyx"; def["coffeeName"] = "Geometry";
+        QJsonObject dr = f.callAsyncTool("bag_create", def);
+        QVERIFY2(dr["success"].toBool(), qPrintable(QJsonDocument(dr).toJson()));
+        QCOMPARE(dr["bag"].toObject()["kind"].toString(), QString("coffee"));
+
+        // Neither roaster nor coffee name: rejected.
+        QJsonObject empty; empty["kind"] = "tea";
+        QVERIFY(f.callAsyncTool("bag_create", empty).contains("error"));
+
+        storage.close();
+        for (int i = 0; i < 20; i++) {
+            QCoreApplication::processEvents();
+            QThread::msleep(25);
+        }
+    }
+
+    // bag_update kind gate runs on the static path (nullptr bagStorage): tea
+    // vocabulary is rejected on a coffee bag and coffee-only columns on a tea
+    // bag; both accepted on the matching kind.
+    void bagUpdateKindGating()
+    {
+        McpTestFixture f;
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(f.tempDir.filePath("bagkind.db")));
+        registerWriteTools(&f.registry, &f.profileManager, &storage, &f.settings,
+                          nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        qint64 coffeeId = -1, teaId = -1;
+        withTempDb(storage.databasePath(), "bagkind_seed", [&](QSqlDatabase& db) {
+            CoffeeBag c; c.roasterName = "Onyx"; c.coffeeName = "Geometry";
+            coffeeId = CoffeeBagStorage::insertBagStatic(db, c);
+            CoffeeBag t; t.roasterName = "Harney"; t.coffeeName = "Ceylon"; t.kind = "tea";
+            teaId = CoffeeBagStorage::insertBagStatic(db, t);
+        });
+        QVERIFY(coffeeId > 0 && teaId > 0);
+
+        // teaType on a coffee bag: rejected.
+        QJsonObject t1; t1["bagId"] = coffeeId; t1["teaType"] = "black";
+        QVERIFY(f.callAsyncTool("bag_update", t1).contains("error"));
+
+        // roastLevel/grinderSetting on a tea bag: rejected.
+        QJsonObject t2; t2["bagId"] = teaId; t2["roastLevel"] = "Light";
+        QVERIFY(f.callAsyncTool("bag_update", t2).contains("error"));
+        QJsonObject t3; t3["bagId"] = teaId; t3["grinderSetting"] = "12";
+        QVERIFY(f.callAsyncTool("bag_update", t3).contains("error"));
+
+        // teaType on the tea bag: accepted.
+        QJsonObject ok; ok["bagId"] = teaId; ok["teaType"] = "black";
+        QJsonObject r = f.callAsyncTool("bag_update", ok);
+        QVERIFY2(r["success"].toBool(), qPrintable(QJsonDocument(r).toJson()));
+        QCOMPARE(r["bag"].toObject()["teaType"].toString(), QString("black"));
+
+        storage.close();
+        for (int i = 0; i < 20; i++) {
+            QCoreApplication::processEvents();
+            QThread::msleep(25);
+        }
+    }
+
     // The linked-bag case is where the MCP wiring does real work: the tool
     // description promises "Bean-detail edits keep a canonical Bean Base link
     // intact", the identity mirror rewrites the blob working keys, and the

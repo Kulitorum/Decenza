@@ -2,6 +2,8 @@
 #include "coffeebagstorage.h"
 #include "core/dbutils.h"
 
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlQuery>
 #include <QSqlError>
 #include <QSqlDatabase>
@@ -31,9 +33,9 @@ QVariant nullIfZero(double v) {
 // INSERT list + binds, camelCase->column update map, and QVariantMap
 // round-trip are all derived from this one ordered table. The physical
 // schema (CREATE TABLE in ensureTableStatic + migration 25, plus migration 26
-// for rpm_pinned and migration 27 for hot_water_json) is the only thing not
-// generated from it — adding a column is a row here PLUS a schema/migration
-// edit there.
+// for rpm_pinned, migration 27 for hot_water_json, and migration 28 for
+// drink_type) is the only thing not generated from it — adding a column is a
+// row here PLUS a schema/migration edit there.
 //
 // `shotCount` is intentionally NOT here (see InventoryRecipe): it is a
 // per-query aggregate injected by requestInventory only.
@@ -91,6 +93,7 @@ const RecipeCol kCols[] = {
     COL_STR  ("name",                  name),
     COL_STR  ("profile_title",         profileTitle),
     COL_STR  ("profile_json",          profileJson),
+    COL_STR  ("drink_type",            drinkType),
     COL_STR  ("beanbase_id",           beanBaseId),
     COL_STR  ("roaster_name",          roasterName),
     COL_STR  ("coffee_name",           coffeeName),
@@ -162,6 +165,46 @@ Recipe Recipe::fromVariantMap(const QVariantMap& map)
             c.set(recipe, map.value(key));
     }
     return recipe;
+}
+
+// static
+bool Recipe::hotWaterActive(const QString& hotWaterJson)
+{
+    if (hotWaterJson.isEmpty())
+        return false;
+    const QJsonDocument doc = QJsonDocument::fromJson(hotWaterJson.toUtf8());
+    return doc.isObject() && doc.object().value(QStringLiteral("hasWater")).toBool();
+}
+
+// static
+QString Recipe::deriveDrinkType(const Recipe& recipe, const QString& profileBeverageType)
+{
+    const bool water = hotWaterActive(recipe.hotWaterJson);
+    if (recipe.profileTitle.trimmed().isEmpty() && water)
+        return QStringLiteral("tea_hotwater");
+
+    const QString bev = profileBeverageType.trimmed().toLower();
+    if (bev == QLatin1String("tea_portafilter"))
+        return QStringLiteral("tea");
+
+    bool milk = false;
+    if (!recipe.steamJson.isEmpty()) {
+        const QJsonDocument doc = QJsonDocument::fromJson(recipe.steamJson.toUtf8());
+        milk = doc.isObject() && doc.object().value(QStringLiteral("hasMilk")).toBool();
+    }
+    if (milk)
+        return QStringLiteral("latte");
+
+    if (water) {
+        const QString order = QJsonDocument::fromJson(recipe.hotWaterJson.toUtf8())
+                                  .object().value(QStringLiteral("order")).toString();
+        return order == QLatin1String("before") ? QStringLiteral("long_black")
+                                                : QStringLiteral("americano");
+    }
+
+    if (bev == QLatin1String("filter") || bev == QLatin1String("pourover"))
+        return QStringLiteral("filter");
+    return QStringLiteral("espresso");
 }
 
 RecipeStorage::RecipeStorage(QObject* parent)
@@ -244,6 +287,41 @@ void RecipeStorage::requestRecipe(qint64 recipeId)
         [this, recipeId, result](bool dbOpened) { if (dbOpened) emit recipeReady(recipeId, *result); });
 }
 
+void RecipeStorage::requestLastEquipmentForDrinkType(const QString& drinkType)
+{
+    auto equipmentId = std::make_shared<qint64>(0);
+    runAsync("recipes_last_equipment",
+        [drinkType, equipmentId](QSqlDatabase& db) {
+            *equipmentId = lastEquipmentForDrinkTypeStatic(db, drinkType);
+        },
+        [this, drinkType, equipmentId](bool) {
+            emit lastEquipmentForDrinkTypeReady(drinkType, *equipmentId);
+        });
+}
+
+// static
+qint64 RecipeStorage::lastEquipmentForDrinkTypeStatic(QSqlDatabase& db, const QString& drinkType)
+{
+    if (drinkType.isEmpty())
+        return 0;
+    QSqlQuery query(db);
+    if (!query.prepare(QStringLiteral(
+            "SELECT equipment_id FROM recipes "
+            "WHERE drink_type = :type AND COALESCE(equipment_id, 0) > 0 AND archived = 0 "
+            "ORDER BY last_used DESC, id DESC LIMIT 1"))) {
+        qWarning() << "RecipeStorage: lastEquipmentForDrinkType prepare failed:"
+                   << query.lastError().text();
+        return 0;
+    }
+    query.bindValue(":type", drinkType);
+    if (!query.exec()) {
+        qWarning() << "RecipeStorage: lastEquipmentForDrinkType query failed:"
+                   << query.lastError().text();
+        return 0;
+    }
+    return query.next() ? query.value(0).toLongLong() : 0;
+}
+
 void RecipeStorage::requestRecipeForActivation(qint64 recipeId)
 {
     // Terminal emit even when uninitialized — runAsync drops the job on an
@@ -321,9 +399,91 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
         return;
     }
     auto success = std::make_shared<bool>(false);
+    // Transient hint, not a column: the surface's resolved beverage_type for
+    // an installed profileTitle in this patch (installed profiles embed no
+    // JSON, and the profile catalog isn't reachable on the DB thread).
+    // Stripped here; consumed by the drink-type re-derivation below.
+    QVariantMap patch = fields;
+    const QString hintedBev = patch.take(QStringLiteral("profileBeverageType")).toString();
+    if (patch.isEmpty()) {
+        // A hint-only patch would reach updateRecipeFieldsStatic with zero
+        // assignments and fail with a mystery success=false — name the cause.
+        qWarning() << "RecipeStorage: update for recipe" << recipeId
+                   << "carried no persistable fields";
+        emit recipeUpdated(recipeId, false);
+        return;
+    }
     runAsync("recipes_update",
-        [recipeId, fields, success](QSqlDatabase& db) {
+        [recipeId, fields = std::move(patch), hintedBev, success](QSqlDatabase& db) {
+            // The whole update is transactional so the validity check below
+            // can reject the patch without leaving a half-applied row.
+            if (!db.transaction()) {
+                qWarning() << "RecipeStorage: update transaction begin failed for recipe"
+                           << recipeId << "-" << db.lastError().text();
+                return;
+            }
             *success = updateRecipeFieldsStatic(db, recipeId, fields);
+            if (!*success) {
+                db.rollback();
+                return;
+            }
+            const Recipe updated = loadRecipeStatic(db, recipeId);
+            if (!updated.isValid()) {
+                db.rollback();
+                *success = false;
+                return;
+            }
+            // Storage-level invariant: a recipe must stay saveable — a name,
+            // and a profile unless hot-water-only. Enforced against the
+            // RESULTING row so every surface inherits it (the web update
+            // route shipped without the MCP tool's early guard, and neither
+            // surface caught removing the hot-water block from an already
+            // profile-less recipe).
+            if (!Recipe::saveValidationPasses(updated.name, updated.profileTitle,
+                                              updated.hotWaterJson)) {
+                qWarning() << "RecipeStorage: rejecting update that would strand recipe"
+                           << recipeId << "(name/profile/hot-water invariant)";
+                db.rollback();
+                *success = false;
+                return;
+            }
+            // drink_type follows the blocks when the caller changed them
+            // without setting it explicitly (MCP/web edits must not strand a
+            // stale type — e.g. adding a hot-water block to an espresso).
+            // Derivation from the UPDATED row; profile beverage_type comes
+            // from the embedded JSON when present (installed-profile lookup
+            // isn't available on this thread — the wizard stores the exact
+            // type on its own saves anyway).
+            const bool touchesBlocks = fields.contains(QStringLiteral("steamJson"))
+                || fields.contains(QStringLiteral("hotWaterJson"))
+                || fields.contains(QStringLiteral("profileTitle"));
+            if (touchesBlocks && !fields.contains(QStringLiteral("drinkType"))) {
+                QString bev = hintedBev;
+                if (bev.isEmpty() && !updated.profileJson.isEmpty())
+                    bev = QJsonDocument::fromJson(updated.profileJson.toUtf8())
+                              .object().value(QStringLiteral("beverage_type")).toString();
+                // When the profile didn't change, the stored type already
+                // encodes its profile-derived category — without this, a
+                // steam-settings stamp on an active TEA recipe would
+                // re-derive it into "latte" (beverage_type unresolvable
+                // on this thread for installed profiles).
+                if (bev.isEmpty() && !fields.contains(QStringLiteral("profileTitle"))) {
+                    if (updated.drinkType == QLatin1String("tea"))
+                        bev = QStringLiteral("tea_portafilter");
+                    else if (updated.drinkType == QLatin1String("filter"))
+                        bev = QStringLiteral("filter");
+                }
+                if (!updateRecipeFieldsStatic(db, recipeId,
+                        {{QStringLiteral("drinkType"), Recipe::deriveDrinkType(updated, bev)}}))
+                    qWarning() << "RecipeStorage: drink-type re-derivation stamp failed for recipe"
+                               << recipeId << "- stored type may be stale";
+            }
+            if (!db.commit()) {
+                qWarning() << "RecipeStorage: update commit failed for recipe" << recipeId
+                           << "-" << db.lastError().text();
+                db.rollback();
+                *success = false;
+            }
         },
         // Write: emit regardless — *success is false on open failure, the
         // terminal status callers wait on.
@@ -443,6 +603,7 @@ bool RecipeStorage::ensureTableStatic(QSqlDatabase& db)
             name TEXT NOT NULL,
             profile_title TEXT,
             profile_json TEXT,
+            drink_type TEXT,
             beanbase_id TEXT,
             roaster_name TEXT,
             coffee_name TEXT,

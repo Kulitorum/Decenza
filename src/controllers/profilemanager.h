@@ -4,6 +4,7 @@
 #include <QTimer>
 #include <QVariantList>
 #include <QMap>
+#include <QHash>
 #include "../profile/profile.h"
 
 class Settings;
@@ -148,6 +149,33 @@ public:
     Q_INVOKABLE QString profileKnowledgeContent(const QString& profileTitle) const;
     Q_INVOKABLE bool deleteProfile(const QString& filename);
     Q_INVOKABLE QVariantMap getProfileByFilename(const QString& filename) const;
+
+    // Recipe-wizard tea helpers (add-recipe-wizard-tea): QML-visible views of
+    // the DrinkTypes header (src/core/drinktypes.h — the single source for
+    // the keyword table and per-type default temps).
+    Q_INVOKABLE bool teaProfileMatchesType(const QString& profileTitle, const QString& teaType) const;
+    Q_INVOKABLE double defaultTeaTempC(const QString& teaType) const;
+    // Does the profile-knowledge base state this profile shines with the
+    // given roast level? (KB roastAffinity, resolved through the same
+    // title/alias matching as the advisor's KB lookups.) The bag's roast
+    // level is normalized ("Medium-Light" → "medium-light"); a localized
+    // roast string simply never matches — graceful degradation, the tier
+    // just loses its KB chips. Drives the wizard's recommended tier.
+    Q_INVOKABLE bool kbProfileSuitsRoast(const QString& profileTitle, const QString& roastLevel) const;
+    // Relative grind direction between two profiles per the KB's UGS ordering
+    // ("finer"/"coarser"/"same"; "" when either UGS is unknown). Direction
+    // only — never a click count (the KB's own cross-profile rule).
+    Q_INVOKABLE QString grindDirectionBetween(const QString& sourceProfileTitle,
+                                              const QString& targetProfileTitle) const;
+    // Installed-catalog lookup: profile title → normalized beverage_type
+    // ("" when the title isn't installed). MCP/web recipe surfaces resolve
+    // drink-type derivation through this — recipes referencing INSTALLED
+    // profiles carry no embedded profile JSON, so without the catalog a tea
+    // profile would derive as espresso. The snapshot variant is for
+    // background-thread closures (recipe list/get JSON): capture on the main
+    // thread, pass by value — ProfileManager itself is main-thread-only.
+    QString beverageTypeForTitle(const QString& profileTitle) const;
+    QHash<QString, QString> beverageTypeByTitleSnapshot() const;
 
     // === Read-only protection ===
     Q_INVOKABLE bool isCurrentProfileReadOnly() const;

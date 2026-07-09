@@ -108,6 +108,16 @@ inline QVector<BasketEntry> allBaskets()
         {"Decent", "18g Ridged", {"decent ridged 18g", "decent 18g ridged"}, 58, 17, 19, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Ridged version of the everyday double for a standard portafilter (discontinued).")},
         {"Decent", "20g Ridged", {"decent ridged 20g", "decent 20g ridged"}, 58, 19, 21, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Ridged larger-capacity double for a standard portafilter (discontinued).")},
         {"Decent", "22g Ridged", {"decent ridged 22g", "decent 22g ridged"}, 58, 21, 23, WP::Straight, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Ridged high-dose double for a standard portafilter (discontinued).")},
+
+        // --- Decent Tea Portafilter (add-recipe-wizard-tea): a valved unibody
+        //     portafilter (Taiwanese bubble-tea design Decent repurposed), not a
+        //     drop-in basket — registered here like the Weber Unifilter so tea
+        //     equipment packages get canonical naming. The valve holds water at
+        //     ~2 bar and releases in short infusions; dose range is LOOSE-LEAF
+        //     grams, and the coffee-oriented spec fields (wall, flow, precision)
+        //     are placeholders — nothing grinds, nothing profiles flow through a
+        //     puck. Pairs with the Tea portafilter/* profiles. ---
+        {"Decent", "Tea Portafilter", {"decent tea", "tea portafilter", "decent tea portafilter", "tea basket", "decent tea basket"}, 58, 2, 8, WP::Straight, false, FR::Open, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Valved tea portafilter: holds water under ~2 bar, releases as short infusions; loose-leaf 2-8 g; the basket the Tea portafilter profiles are designed for.")},
         {"Decent", "14g Slightly Waisted", {"decent slightly waisted", "slightly waisted"}, 58, 12, 15, WP::Stepped, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Necks the 58mm bed down (~52mm) for added body; best near 14g.")},
         {"Decent", "14g Very Waisted", {"decent very waisted", "very waisted"}, 58, 12, 16, WP::Stepped, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("More taper than 'slightly' — more body, easier no-channel shots.")},
         {"Decent", "12g Extremely Waisted", {"decent extremely waisted", "extremely waisted"}, 58, 11, 14, WP::Stepped, true, FR::Standard, 0, 0, QStringLiteral("stainless steel"), QStringLiteral("Most aggressive taper (~50mm bed); deep lever-style puck for body.")},

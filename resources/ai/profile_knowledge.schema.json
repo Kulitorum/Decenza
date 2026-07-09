@@ -99,6 +99,15 @@
           "minLength": 1,
           "description": "Short human descriptor for the profile-catalog line ('<name> — <summary> [family: <family>]'). Replaces the old fragile Category:/Roast: prose-scrape. Optional only for skipCatalog sections."
         },
+        "roastAffinity": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["light", "medium-light", "medium", "medium-dark", "dark"]
+          },
+          "description": "Roast levels this profile is STATED (in its own prose/source docs) to shine with. Optional — author only when the source clearly states suitability; absence means no claim, and a full-range affinity should be omitted (it carries no ranking signal). Load-bearing per D3: a controlled vocabulary consumed by the recipe wizard's profile ranking (add-recipe-wizard-tea) — a bag whose roastLevel matches ranks the profile in the recommended tier."
+        },
         "expertBand": {
           "$ref": "#/$defs/expertBand",
           "description": "Optional. Absent => expertBandForKbId returns std::nullopt (strict no-op, design D6). Never fabricate a band to 'complete' a profile."

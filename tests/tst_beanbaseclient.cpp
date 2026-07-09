@@ -693,7 +693,7 @@ private slots:
         for (int i = 0; i < 5000; i++)
             big += "<p>lorem ipsum dolor sit amet</p>";
         big += "</body>";
-        QVERIFY(BeanBaseClient::extractPageText(big).size() <= 20000);
+        QVERIFY(BeanBaseClient::extractPageText(big).size() <= 48000);
     }
 
     void fetchPageTextOutcomes() {

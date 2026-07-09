@@ -563,10 +563,17 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
                                                         const QString& basketModel,
                                                         const QString& puckPrep)
 {
+    // A fully-empty grinder identity makes this a grinder-less package (e.g. a
+    // basket-only tea setup, add-recipe-wizard-tea): no grinder item row is
+    // inserted, and the display name falls back to the basket identity.
+    const bool grinderLess = brand.trimmed().isEmpty() && model.trimmed().isEmpty()
+        && burrs.trimmed().isEmpty();
     // Persist a name at creation so it survives identity edits / copy-on-write
     // (two packages may share a display name; the id is the permanent handle).
     if (pkg.name.trimmed().isEmpty())
-        pkg.name = (brand.trimmed() + QLatin1Char(' ') + model.trimmed()).trimmed();
+        pkg.name = grinderLess
+            ? (basketBrand.trimmed() + QLatin1Char(' ') + basketModel.trimmed()).trimmed()
+            : (brand.trimmed() + QLatin1Char(' ') + model.trimmed()).trimmed();
     const qint64 packageId = insertPackageStatic(db, pkg);
     if (packageId <= 0)
         return -1;
@@ -582,18 +589,21 @@ qint64 EquipmentStorage::createPackageWithGrinderStatic(QSqlDatabase& db, Equipm
             qWarning() << "EquipmentStorage: rollback drop of package" << packageId
                        << "failed (possible orphan):" << dp.lastError().text();
     };
-    EquipmentItem grinder;
-    grinder.packageId = packageId;
-    grinder.kind = QStringLiteral("grinder");
-    grinder.brand = brand;
-    grinder.model = model;
-    grinder.burrs = burrs;
-    grinder.rpmCapable = deriveRpmCapable(brand, model);
-    if (insertItemStatic(db, grinder) <= 0) {
-        // A package with no grinder item resolves to a blank grinder everywhere;
-        // don't leave that orphan behind — drop the just-inserted package row.
-        dropPackage();
-        return -1;
+    if (!grinderLess) {
+        EquipmentItem grinder;
+        grinder.packageId = packageId;
+        grinder.kind = QStringLiteral("grinder");
+        grinder.brand = brand;
+        grinder.model = model;
+        grinder.burrs = burrs;
+        grinder.rpmCapable = deriveRpmCapable(brand, model);
+        if (insertItemStatic(db, grinder) <= 0) {
+            // A package that ASKED for a grinder but lost the item resolves to a
+            // blank grinder everywhere; don't leave that orphan behind — drop the
+            // just-inserted package row.
+            dropPackage();
+            return -1;
+        }
     }
     // Optional basket item. A failure here is fatal too: a half-built package
     // (grinder but a dropped basket the caller asked for) would silently lose the
@@ -848,25 +858,59 @@ bool EquipmentStorage::updateGrinderItemStatic(QSqlDatabase& db, qint64 packageI
                                                const QString& brand, const QString& model,
                                                const QString& burrs)
 {
-    EquipmentItem item;
-    item.brand = brand;
-    item.model = model;
-    item.burrs = burrs;
-    item.rpmCapable = deriveRpmCapable(brand, model);
+    // Same optional set-semantics + return contract as setBasketItemStatic
+    // (grinder-less packages exist since add-recipe-wizard-tea): empty
+    // identity deletes any existing grinder item, an existing item updates,
+    // a missing one inserts; false ONLY on a genuine SQL failure.
+    const QString b = brand.trimmed();
+    const QString m = model.trimmed();
+    const QString bu = burrs.trimmed();
+    const EquipmentItem cur = loadGrinderItemStatic(db, packageId);
+    const bool wantNone = b.isEmpty() && m.isEmpty() && bu.isEmpty();
 
-    QSqlQuery query(db);
-    query.prepare("UPDATE equipment_items SET brand = :brand, model = :model, attrs = :attrs, "
-                  "updated_at = strftime('%s', 'now') WHERE package_id = :id AND kind = 'grinder'");
-    query.bindValue(":brand", nullIfEmpty(brand));
-    query.bindValue(":model", nullIfEmpty(model));
-    query.bindValue(":attrs", item.attrsJson());
-    query.bindValue(":id", packageId);
-    if (!query.exec()) {
-        qWarning() << "EquipmentStorage: grinder item update failed for package" << packageId << ":"
-                   << query.lastError().text();
+    if (wantNone) {
+        if (!cur.isValid())
+            return true;  // already grinder-less — desired state reached
+        QSqlQuery del(db);
+        del.prepare("DELETE FROM equipment_items WHERE package_id = :id AND kind = 'grinder'");
+        del.bindValue(":id", packageId);
+        if (!del.exec()) {
+            qWarning() << "EquipmentStorage: grinder clear failed for package" << packageId << ":"
+                       << del.lastError().text();
+            return false;
+        }
+        return true;
+    }
+
+    EquipmentItem item;
+    item.brand = b;
+    item.model = m;
+    item.burrs = bu;
+    item.rpmCapable = deriveRpmCapable(b, m);
+
+    if (cur.isValid()) {
+        QSqlQuery query(db);
+        query.prepare("UPDATE equipment_items SET brand = :brand, model = :model, attrs = :attrs, "
+                      "updated_at = strftime('%s', 'now') WHERE package_id = :id AND kind = 'grinder'");
+        query.bindValue(":brand", nullIfEmpty(b));
+        query.bindValue(":model", nullIfEmpty(m));
+        query.bindValue(":attrs", item.attrsJson());
+        query.bindValue(":id", packageId);
+        if (!query.exec()) {
+            qWarning() << "EquipmentStorage: grinder item update failed for package" << packageId << ":"
+                       << query.lastError().text();
+            return false;
+        }
+        return true;
+    }
+
+    item.packageId = packageId;
+    item.kind = QStringLiteral("grinder");
+    if (insertItemStatic(db, item) <= 0) {
+        qWarning() << "EquipmentStorage: grinder item insert failed for package" << packageId;
         return false;
     }
-    return query.numRowsAffected() > 0;
+    return true;
 }
 
 qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, const QString& brand,
@@ -877,20 +921,25 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
                                                             const QString& puckPrep)
 {
     // Full-identity match: grinder brand/model/burrs AND the package's basket
-    // brand/model AND its puckprep canonical flag string. Each optional component
-    // is matched via correlated subqueries so a package LACKING it resolves to ''
-    // and matches an empty param ("no basket" / "no puck prep" are distinct,
-    // matchable identity values). IFNULL on the bind side too: a caller omitting a
-    // component passes a null QString → SQL NULL, and without IFNULL the '' = NULL
-    // comparison is NULL (never true) and component-less packages stop matching.
+    // brand/model AND its puckprep canonical flag string. EVERY component —
+    // including the grinder, which is optional since grinder-less basket-only
+    // packages (add-recipe-wizard-tea) — is matched via correlated subqueries
+    // anchored on the package row, so a package LACKING a component resolves
+    // to '' and matches an empty param ("no grinder" / "no basket" / "no puck
+    // prep" are distinct, matchable identity values). IFNULL on the bind side
+    // too: a caller omitting a component passes a null QString → SQL NULL, and
+    // without IFNULL the '' = NULL comparison is NULL (never true) and
+    // component-less packages stop matching.
     QSqlQuery query(db);
-    query.prepare("SELECT i.package_id FROM equipment_items i "
-                  "JOIN equipment_packages p ON p.id = i.package_id "
-                  "WHERE i.kind = 'grinder' AND p.in_inventory = 1 "
+    query.prepare("SELECT p.id FROM equipment_packages p "
+                  "WHERE p.in_inventory = 1 "
                   "AND p.id != :exclude "
-                  "AND LOWER(IFNULL(i.brand,'')) = LOWER(:brand) "
-                  "AND LOWER(IFNULL(i.model,'')) = LOWER(:model) "
-                  "AND LOWER(IFNULL(json_extract(i.attrs,'$.burrs'),'')) = LOWER(:burrs) "
+                  "AND LOWER(IFNULL((SELECT g.brand FROM equipment_items g "
+                  "  WHERE g.package_id = p.id AND g.kind = 'grinder' ORDER BY g.id LIMIT 1),'')) = LOWER(IFNULL(:brand,'')) "
+                  "AND LOWER(IFNULL((SELECT g.model FROM equipment_items g "
+                  "  WHERE g.package_id = p.id AND g.kind = 'grinder' ORDER BY g.id LIMIT 1),'')) = LOWER(IFNULL(:model,'')) "
+                  "AND LOWER(IFNULL((SELECT json_extract(g.attrs,'$.burrs') FROM equipment_items g "
+                  "  WHERE g.package_id = p.id AND g.kind = 'grinder' ORDER BY g.id LIMIT 1),'')) = LOWER(IFNULL(:burrs,'')) "
                   "AND LOWER(IFNULL((SELECT b.brand FROM equipment_items b "
                   "  WHERE b.package_id = p.id AND b.kind = 'basket' ORDER BY b.id LIMIT 1),'')) = LOWER(IFNULL(:bbrand,'')) "
                   "AND LOWER(IFNULL((SELECT b.model FROM equipment_items b "
@@ -903,9 +952,9 @@ qint64 EquipmentStorage::findPackageByGrinderIdentityStatic(QSqlDatabase& db, co
                   "  WHERE pp.package_id = p.id AND pp.kind = 'puckprep' ORDER BY pp.id LIMIT 1),'') = IFNULL(:puck,'') "
                   "ORDER BY p.id LIMIT 1");
     query.bindValue(":exclude", excludeId);
-    query.bindValue(":brand", brand);
-    query.bindValue(":model", model);
-    query.bindValue(":burrs", burrs);
+    query.bindValue(":brand", brand.trimmed());
+    query.bindValue(":model", model.trimmed());
+    query.bindValue(":burrs", burrs.trimmed());
     query.bindValue(":bbrand", basketBrand.trimmed());
     query.bindValue(":bmodel", basketModel.trimmed());
     // Re-canonicalize the query arg so an unsorted/non-canonical caller still matches

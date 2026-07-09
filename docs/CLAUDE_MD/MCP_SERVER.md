@@ -87,8 +87,8 @@ Each tool has a `category` that determines the minimum access level required:
 | Category | Min Access Level | Tools |
 |----------|-----------------|-------|
 | `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, profiles_get_auto_load, settings_get, dialing_get_context, dialing_get_grinder_calibration, bag_list, equipment_list, recipe_list, recipe_get, steam_pitcher_list, water_vessel_list |
-| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, shots_upload_to_visualizer, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority, bag_select, equipment_select, steam_pitcher_select, water_vessel_select |
-| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, profiles_rename, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, apply_theme, bag_update, equipment_update, recipe_create, recipe_update, recipe_create_from_shot, recipe_clone, recipe_archive, steam_pitcher_add, steam_pitcher_update, steam_pitcher_delete, water_vessel_add, water_vessel_update, water_vessel_delete |
+| `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, shots_upload_to_visualizer, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority, bag_select, equipment_select, steam_pitcher_select, water_vessel_select, bag_extract_details  |
+| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, profiles_rename, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, apply_theme, bag_create, bag_update, equipment_update, recipe_create, recipe_update, recipe_create_from_shot, recipe_clone, recipe_archive, steam_pitcher_add, steam_pitcher_update, steam_pitcher_delete, water_vessel_add, water_vessel_update, water_vessel_delete |
 
 ### Tool → Confirmation Level Mapping
 
@@ -185,9 +185,11 @@ This avoids holding HTTP connections and works naturally with the conversational
 ### Coffee Bags (bean-bag-inventory)
 | Tool | Description | Category |
 |------|-------------|----------|
-| `bag_list` | List coffee bags (inventory by default; `includeEmpty=true` adds bags marked empty). Each bag carries identity, freeze lifecycle, last-used grinder/dose, a parsed `beanBase` snapshot, and `isActive`. | read |
+| `bag_list` | List coffee bags (inventory by default; `includeEmpty=true` adds bags marked empty). Each bag carries identity, `kind` ("coffee"/"tea", creation-time), freeze lifecycle, last-used grinder/dose, a parsed `beanBase` snapshot, `isActive`, and — tea bags — the structured brewing fields (teaType, brewTemperatureC, leafGramsPer100Ml, steepTime). | read |
 | `bag_select` | Set the active bag — what the next shot is pulled with (applies bean identity + last-used grinder/dose). `bagId: 0` clears the selection. | control |
-| `bag_update` | Update bag fields (metadata + freeze lifecycle). Partial: only provided keys change; `""` clears a text/date field. `inInventory=false` = "Bag finished" (marks the bag empty); setting `defrostDate` records a thaw. | settings |
+| `bag_extract_details` | Run the "Get info from page" AI extraction for a bag's URL and return the fields WITHOUT writing (bag_update applies them). Reports stage (1 local fetch / 2 provider web-fetch fallback) + provider/model. Consumes provider tokens. | control |
+| `bag_create` | Create an inventory bag; `kind` = coffee (default) \| tea, stamped at creation and immutable — the MCP counterpart of Add Coffee / Add Tea. Tea vocabulary only on tea bags; roastLevel/grinderSetting only on coffee. NOT auto-activated (use `bag_select`). | settings |
+| `bag_update` | Update bag fields (metadata + freeze lifecycle + bean/tea details). Partial: only provided keys change; `""` clears a text/date field. `inInventory=false` = "Bag finished" (marks the bag empty); setting `defrostDate` records a thaw. `kind` is NOT editable (creation-time identity); tea vocabulary is rejected on coffee bags. | settings |
 
 ### Equipment Packages (add-equipment-packages)
 The grinder is a first-class, switchable **equipment package** (the active bag points at one via `equipment_id`). The grind setting + `rpm` stay as per-bag dial-in.
@@ -203,10 +205,10 @@ The `de1://dialing` resource's grinder block also exposes `packageId`, `rpmAdjus
 A recipe is the whole drink: profile + bean link + equipment + dose/yield/temp + grind routing + steam block. Grind is explicit in responses — `{"mode": "inherited"|"pinned", "value": <text>}` — so a client never guesses where the grind lives; `recipe_get` also resolves the effective grind and open bag. Mutations run through the app's RecipeStorage so the UI refreshes like a local edit; `recipe_activate` uses MainController's single activation path (identical to the idle pill tap).
 | Tool | Description | Category |
 |------|-------------|----------|
-| `recipe_list` | List recipes (MRU order, `isActive` marks the machine's current setup; `includeArchived=true` adds archived ones). | read |
+| `recipe_list` | List recipes (MRU order, `isActive` marks the machine's current setup; `includeArchived=true` adds archived ones). Each recipe carries `drinkType` (stored, or derived for legacy rows). | read |
 | `recipe_get` | One recipe fully resolved: effective grind, the open bag it would select, steam block. | read |
-| `recipe_create` | Create from explicit fields; only `name` + `profileTitle` required (optionality ladder applies inside the recipe). | settings |
-| `recipe_update` | Partial update; `grindPinned: ""` returns the recipe to inheriting grind from its bean's bag. | settings |
+| `recipe_create` | Create from explicit fields; only `name` always required — `profileTitle` is required unless the payload carries a hot-water block with `hasWater` true (profile-less hot-water tea). Accepts `drinkType` (derived from blocks when omitted). | settings |
+| `recipe_update` | Partial update; `grindPinned: ""` returns the recipe to inheriting grind from its bean's bag. Block/profile changes re-derive `drinkType` unless set in the same call; clearing `profileTitle` requires an active hot-water block in the same call. | settings |
 | `recipe_create_from_shot` | The promotion path: prefills from a shot record + its steam snapshot (fallback: current steam settings). | settings |
 | `recipe_clone` | Copy + rename (family-variant workflow); provenance points at the source recipe. | settings |
 | `recipe_archive` | Archive (used recipes can never be hard-deleted — same rule as bags); `restore=true` unarchives, `delete=true` hard-deletes an unused recipe. | settings |

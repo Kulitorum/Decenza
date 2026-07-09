@@ -263,6 +263,19 @@ void BeanBaseClient::ensureBagImage(const QString& canonicalId,
     recoverBagLink(canonicalId, roastName);
 }
 
+void BeanBaseClient::cacheBagImageFromUrl(const QString& imageKey, const QString& imageUrl) {
+    // Stage-2 extraction returned the product photo's URL directly (SPA pages
+    // have no og:image for fetchProductPage to find) — download it into the
+    // cache under the key, exactly like an og:image hit. Cache hits win; the
+    // attempt guard is set so a failed download doesn't retry all session.
+    if (!isSafeCacheFilename(imageKey) || imageUrl.trimmed().isEmpty())
+        return;
+    if (!bagImagePath(imageKey).isEmpty())
+        return;
+    m_imageAttempted.insert(imageKey);
+    downloadBagImage(imageKey, imageUrl.trimmed());
+}
+
 void BeanBaseClient::refreshBagImage(const QString& canonicalId,
                                      const QString& roastName,
                                      const QString& productUrl) {
@@ -505,10 +518,13 @@ QString BeanBaseClient::extractPageText(const QByteArray& html) {
     text.replace(QLatin1String("&#39;"), QLatin1String("'"));
     text.replace(QLatin1String("&nbsp;"), QLatin1String(" "));
     text = text.replace(kSpaceRe, QStringLiteral(" ")).trimmed();
-    // Cap what we hand to the model: product prose sits well within this;
-    // the tail of a huge page is footer/locale noise (see the 19k-char
-    // Shopify example in the PR discussion).
-    constexpr qsizetype kMaxChars = 20000;
+    // Cap what we hand to the model. 48k (~12k tokens) — the old 20k cap
+    // truncated from the WRONG end on menu-heavy Shopify pages: Yunnan
+    // Sourcing's product page squishes to 21.7k chars with ~14.8k of nav
+    // cruft first, leaving the actual product description at 14.8k–17.5k
+    // (verified add-recipe-wizard-tea). The tail past the description is
+    // reviews/footer noise, safe to lose.
+    constexpr qsizetype kMaxChars = 48000;
     if (text.size() > kMaxChars)
         text.truncate(kMaxChars);
     return text;

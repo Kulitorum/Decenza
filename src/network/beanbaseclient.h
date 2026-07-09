@@ -109,6 +109,12 @@ public:
     // URL. Static + public for tests.
     static QString extractOgImage(const QByteArray& html);
 
+    // Stage-2 extraction photo (add-recipe-wizard-tea): the model returned
+    // the product photo's URL directly (no og:image on JS-rendered shops).
+    // Downloads it into the same cache the og:image pipeline fills; a cache
+    // hit is left alone. Emits bagImageReady on success like every other path.
+    Q_INVOKABLE void cacheBagImageFromUrl(const QString& imageKey, const QString& imageUrl);
+
     // Test seam: redirect requests at a local fake server. Production code
     // never calls this; the default is the live service.
     void setVisualizerBaseUrl(const QString& baseUrl) { m_visualizerBaseUrl = baseUrl; }

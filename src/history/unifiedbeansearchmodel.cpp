@@ -113,7 +113,10 @@ void UnifiedBeanSearchModel::setQuery(const QString& query)
     m_query = trimmed;
     emit queryChanged();
 
-    if (m_beanBase && !m_query.isEmpty()) {
+    // Tea mode never searches the Visualizer canonical lane: the database is
+    // coffee-only, and tea terms surface coffees with tea-flavored tasting
+    // notes (verified live: "earl grey" → a Colombian coffee).
+    if (m_beanBase && !m_query.isEmpty() && m_bagKind != QLatin1String("tea")) {
         setSearching(true);
         m_beanBase->search(m_query);  // canonical lane (debounced internally)
     } else {
@@ -121,6 +124,18 @@ void UnifiedBeanSearchModel::setQuery(const QString& query)
     }
     requestHistory();
     rebuild();  // inventory filters instantly while async lanes catch up
+}
+
+void UnifiedBeanSearchModel::setBagKind(const QString& kind)
+{
+    if (m_bagKind == kind)
+        return;
+    m_bagKind = kind;
+    emit bagKindChanged();
+    if (m_bagKind == QLatin1String("tea"))
+        m_canonical.clear();
+    requestHistory();
+    rebuild();
 }
 
 void UnifiedBeanSearchModel::refresh()
@@ -144,11 +159,12 @@ void UnifiedBeanSearchModel::requestHistory()
 
     const QString dbPath = m_dbPath;
     const QString filter = m_query;
+    const QString kind = m_bagKind;
     auto destroyed = m_destroyed;
     auto rows = std::make_shared<QVariantList>();
-    QThread* thread = QThread::create([this, dbPath, filter, rows, destroyed]() {
+    QThread* thread = QThread::create([this, dbPath, filter, kind, rows, destroyed]() {
         withTempDb(dbPath, "bean_hist", [&](QSqlDatabase& db) {
-            *rows = queryHistoryStatic(db, filter);
+            *rows = queryHistoryStatic(db, filter, 50, kind);
         });
         if (*destroyed) return;
         QMetaObject::invokeMethod(this, [this, filter, rows, destroyed]() {
@@ -169,7 +185,8 @@ void UnifiedBeanSearchModel::requestHistory()
     thread->start();
 }
 
-QVariantList UnifiedBeanSearchModel::queryHistoryStatic(QSqlDatabase& db, const QString& filter, int limit)
+QVariantList UnifiedBeanSearchModel::queryHistoryStatic(QSqlDatabase& db, const QString& filter,
+                                                        int limit, const QString& kind)
 {
     QVariantList rows;
     QSqlQuery query(db);
@@ -180,6 +197,9 @@ QVariantList UnifiedBeanSearchModel::queryHistoryStatic(QSqlDatabase& db, const 
     // add-equipment-packages task 4.1); the JOINed grinder item rides along the
     // MAX(timestamp) row the same way the bare shot columns do. burrs is in the
     // item's attrs JSON blob; grinder_setting stays on the shot.
+    // Tea mode (add-recipe-wizard-tea): shots don't record the bag kind, so
+    // the tea re-buy lane keeps only identities that belong to a KNOWN tea
+    // bag (by bag_id or roaster+coffee identity, in inventory or not).
     query.prepare(QStringLiteral(
         "SELECT bean_brand, bean_type, beanbase_id, beanbase_json, roast_level, "
         "       eg.brand AS grinder_brand, eg.model AS grinder_model, "
@@ -189,10 +209,15 @@ QVariantList UnifiedBeanSearchModel::queryHistoryStatic(QSqlDatabase& db, const 
         "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
         "WHERE (COALESCE(bean_brand,'') <> '' OR COALESCE(bean_type,'') <> '') "
         "  AND (:filter = '' OR bean_brand LIKE :like OR bean_type LIKE :like) "
+        "  AND (COALESCE(:kind,'') = '' OR EXISTS (SELECT 1 FROM coffee_bags cb "
+        "       WHERE COALESCE(cb.kind,'coffee') = :kind AND (cb.id = s.bag_id "
+        "          OR (LOWER(COALESCE(cb.roaster_name,'')) = LOWER(COALESCE(s.bean_brand,'')) "
+        "              AND LOWER(COALESCE(cb.coffee_name,'')) = LOWER(COALESCE(s.bean_type,'')))))) "
         "GROUP BY COALESCE(beanbase_id, LOWER(COALESCE(bean_brand,'')) || '|' || LOWER(COALESCE(bean_type,''))) "
         "ORDER BY last_ts DESC LIMIT :limit"));
     query.bindValue(":filter", filter);
     query.bindValue(":like", QStringLiteral("%%%1%%").arg(filter));
+    query.bindValue(":kind", kind);
     query.bindValue(":limit", limit);
     if (!query.exec()) {
         qWarning() << "UnifiedBeanSearchModel: history query failed:" << query.lastError().text();
@@ -398,8 +423,19 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
 
 void UnifiedBeanSearchModel::rebuild()
 {
+    // Tea mode: the inventory lane keeps only tea bags (kind lives on the
+    // bag row; empty reads as coffee). Coffee/legacy mode is unfiltered —
+    // pre-existing behavior, unchanged.
+    QVariantList inventory = m_inventory;
+    if (m_bagKind == QLatin1String("tea")) {
+        inventory.clear();
+        for (const QVariant& v : std::as_const(m_inventory)) {
+            if (v.toMap().value(QStringLiteral("kind")).toString() == QLatin1String("tea"))
+                inventory.append(v);
+        }
+    }
     beginResetModel();
-    m_results = mergeLanes(m_inventory, m_canonical, m_history, m_query);
+    m_results = mergeLanes(inventory, m_canonical, m_history, m_query);
     endResetModel();
     emit countChanged();
 }

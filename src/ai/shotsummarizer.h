@@ -247,6 +247,16 @@ public:
 
     // Get the knowledge base content for a profile by title/type. Returns empty string if no match.
     static QString findProfileSection(const QString& profileTitle, const QString& profileType = QString());
+    // Roast levels the KB states this profile shines with (normalized enum
+    // tokens: light/medium-light/medium/medium-dark/dark). Empty = no claim
+    // or unresolved title. Same title resolution as findProfileSection.
+    static QStringList roastAffinityForTitle(const QString& profileTitle);
+    // Relative grind direction from sourceTitle's profile to targetTitle's,
+    // per KB UGS ordering: "finer" | "coarser" | "same" | "" (either UGS
+    // unknown). DIRECTION ONLY — per the KB's own cross-profile rule, UGS
+    // distance never translates to a grinder-click count; concrete numbers
+    // come from shot history alone. Drives the wizard's grind hint.
+    static QString grindDirectionBetween(const QString& sourceTitle, const QString& targetTitle);
 
     // Direct KB lookup by ID — bypasses fuzzy title matching. Returns empty string
     // if the ID isn't in the knowledge base. Used by MCP to ship just the current
@@ -411,6 +421,10 @@ private:
         QString content;    // Assembled LLM blob (re-authored prose + the
                             // struct-rendered cited band sentence, D9).
         QStringList analysisFlags;     // suppression flags (analyzeShot)
+        // Roast levels the entry's own prose states the profile shines with
+        // (validated enum; empty = no claim). Consumed by the recipe wizard's
+        // profile ranking (add-recipe-wizard-tea).
+        QStringList roastAffinity;
         bool skipCatalog = false;      // cross-cutting reference, not a profile
         QString family;                // validated-enum cluster tag ("" if skipCatalog)
         double ugs = std::numeric_limits<double>::quiet_NaN();

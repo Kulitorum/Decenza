@@ -85,6 +85,15 @@ struct BagCol {
     void (*set)(CoffeeBag&, const QVariant&);     // QVariantMap value -> field
 };
 
+// kind is NOT NULL DEFAULT 'coffee', but the kCols INSERT names every column,
+// so the SQL default never applies — and bindStr's empty->NULL collapse would
+// violate the constraint for a CoffeeBag read from a pre-28 source (backup /
+// device-transfer import reads the missing column as ""). Normalize at bind
+// time instead so stored kinds are always uniform.
+QVariant bindKind(const CoffeeBag& b) {
+    return b.kind.isEmpty() ? QStringLiteral("coffee") : b.kind;
+}
+
 // String columns carry an explicit Visualizer flag (the identity/lifecycle
 // strings sync; the grinder/visualizer-id strings do not). The numeric/bool
 // columns are all local-only.
@@ -115,6 +124,9 @@ const BagCol kCols[] = {
     COL_STR  ("coffee_name",           coffeeName,          true),
     COL_STR  ("roast_date",            roastDate,           true),
     COL_STR  ("roast_level",           roastLevel,          true),
+    BagCol   { "kind", "kind", false, true,
+               &readStr<&CoffeeBag::kind>, &bindKind,
+               &getMember<&CoffeeBag::kind>, &setStr<&CoffeeBag::kind> },
     COL_STR  ("beanbase_id",           beanBaseId,          true),
     COL_STR  ("beanbase_json",         beanBaseData,        true),
     COL_STR  ("frozen_date",           frozenDate,          true),
@@ -209,6 +221,30 @@ CoffeeBag CoffeeBag::fromVariantMap(const QVariantMap& map)
     return bag;
 }
 
+// static
+TeaBrewingData CoffeeBag::teaBrewingFromBlob(const QString& beanBaseData)
+{
+    TeaBrewingData data;
+    if (beanBaseData.isEmpty())
+        return data;
+    const QJsonDocument doc = QJsonDocument::fromJson(beanBaseData.toUtf8());
+    if (!doc.isObject())
+        return data;
+    const QJsonObject obj = doc.object();
+    // The numbers may arrive string-typed: the extraction pipeline normalizes
+    // every value to a string on its way through the form fields, so a blob
+    // merged from "Get info from page" holds "100", not 100.
+    const auto num = [&obj](const QString& key) {
+        const QJsonValue v = obj.value(key);
+        return v.isString() ? v.toString().toDouble() : v.toDouble();
+    };
+    data.teaType = obj.value(QStringLiteral("teaType")).toString().trimmed().toLower();
+    data.brewTempC = num(QStringLiteral("brewTempC"));
+    data.leafGramsPer100Ml = num(QStringLiteral("leafGramsPer100Ml"));
+    data.steepTime = obj.value(QStringLiteral("steepTime")).toString();
+    return data;
+}
+
 CoffeeBagStorage::CoffeeBagStorage(QObject* parent)
     : QObject(parent)
 {
@@ -279,6 +315,16 @@ void CoffeeBagStorage::requestBag(qint64 bagId)
 
 void CoffeeBagStorage::requestCreateBag(const QVariantMap& bagMap)
 {
+    // Guarantee a terminal bagCreated even when uninitialized (same reason as
+    // requestUpdateBag): runAsync silently drops the job when m_dbPath is
+    // empty, and MCP/web callers arm a one-shot bagCreated to send their
+    // response — without this they hang forever, and the armed connection then
+    // consumes the NEXT create from any surface, answering with the wrong bag.
+    if (m_dbPath.isEmpty()) {
+        qWarning() << "CoffeeBagStorage: requestCreateBag on uninitialized storage";
+        emit bagCreated(-1, QVariantMap());
+        return;
+    }
     auto newId = std::make_shared<qint64>(-1);
     auto created = std::make_shared<QVariantMap>();
     runAsync("bags_create",
@@ -392,6 +438,7 @@ bool CoffeeBagStorage::ensureTableStatic(QSqlDatabase& db)
             coffee_name TEXT,
             roast_date TEXT,
             roast_level TEXT,
+            kind TEXT NOT NULL DEFAULT 'coffee',
             beanbase_id TEXT,
             beanbase_json TEXT,
             frozen_date TEXT,

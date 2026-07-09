@@ -44,12 +44,17 @@ The system SHALL provide a "Bag finished" action on each bag card. Activating it
 - **AND** the bean summary in shot contexts SHALL show "No beans selected"
 
 ### Requirement: Add New Bag entry point
-The Beans window SHALL provide an "Add New Bag" action that opens the Change Beans dialog in creation mode.
+The Beans window SHALL provide two creation entry points: an "Add Coffee" action (primary treatment) that opens the Change Beans dialog in its existing creation mode, and an "Add Tea" action (secondary treatment beside it) that opens the Change Beans dialog in tea creation mode. Each entry point stamps the created bag's kind.
 
-#### Scenario: Add new bag from inventory
-- **WHEN** the user taps "Add New Bag"
-- **THEN** the Change Beans dialog SHALL open
+#### Scenario: Add coffee from inventory
+- **WHEN** the user taps "Add Coffee"
+- **THEN** the Change Beans dialog SHALL open in its search-first coffee flow
 - **AND** on bag creation, the new bag SHALL appear in inventory and become the active bag
+
+#### Scenario: Add tea from inventory
+- **WHEN** the user taps "Add Tea"
+- **THEN** the Change Beans dialog SHALL open in tea mode
+- **AND** the created bag SHALL have kind "tea" and appear in inventory
 
 ### Requirement: Idle-page bean widget shows inventory bags
 The idle-page bean layout widget (`BeansItem.qml`) SHALL display the 5 most recently used inventory bags (`inInventory = true`, MRU order) as selectable pills, replacing the showOnIdle-filtered preset pills. Tapping a pill SHALL set `activeBagId`. The full inventory remains on the Beans page.

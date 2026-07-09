@@ -71,14 +71,40 @@ Page {
 
                 Item { Layout.fillWidth: true }
 
+                // Two creation entry points (add-recipe-wizard-tea): the kind
+                // is stamped at creation, so coffee and tea get their own
+                // buttons and flows — coffee keeps the Bean Base search-first
+                // dialog; tea searches past tea bags only (straight to the
+                // form when there are none).
+                AccessibleButton {
+                    id: addTeaButton
+                    Layout.preferredHeight: Theme.scaled(44)
+                    icon.source: "qrc:/icons/tea.svg"
+                    text: TranslationManager.translate("beaninfo.inventory.addTea", "Add Tea")
+                    accessibleName: TranslationManager.translate("beaninfo.inventory.accessible.addTea", "Add a new bag of tea")
+                    onClicked: {
+                        var hasTea = false
+                        for (var i = 0; i < bagInventoryPage.inventoryBags.length; ++i) {
+                            if (String(bagInventoryPage.inventoryBags[i].kind || "") === "tea") {
+                                hasTea = true
+                                break
+                            }
+                        }
+                        changeBeansDialog.openTeaEntry(hasTea)
+                    }
+                }
+
                 AccessibleButton {
                     id: addBagButton
                     primary: true
                     Layout.preferredHeight: Theme.scaled(44)
                     icon.source: "qrc:/icons/plus.svg"
-                    text: TranslationManager.translate("beaninfo.inventory.addBag", "Add New Bag")
+                    text: TranslationManager.translate("beaninfo.inventory.addCoffee", "Add Coffee")
                     accessibleName: TranslationManager.translate("beaninfo.inventory.accessible.addBag", "Add a new bag of beans")
-                    onClicked: changeBeansDialog.open()
+                    onClicked: {
+                        changeBeansDialog.bagKind = "coffee"
+                        changeBeansDialog.open()
+                    }
                 }
             }
 

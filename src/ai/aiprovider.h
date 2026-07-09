@@ -53,6 +53,19 @@ public:
     // Multi-turn conversation method (messages = array of {role, content} objects)
     virtual void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages);
 
+    // Server-side URL retrieval (add-recipe-wizard-tea, stage-2 extraction):
+    // analyze() with the provider's web-fetch tool enabled, so the PROVIDER
+    // fetches a URL named in the user prompt — the fallback when the local
+    // page fetch got nothing (JS-rendered shops). Anthropic (web_fetch),
+    // OpenAI (Responses API web_search), and Gemini (url_context) support
+    // it; providers without a server-side fetch tool (Ollama, OpenRouter)
+    // keep the default (unsupported).
+    virtual bool supportsUrlAnalysis() const { return false; }
+    virtual void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) {
+        Q_UNUSED(systemPrompt); Q_UNUSED(userPrompt);
+        emit analysisFailed(QStringLiteral("URL analysis not supported by this provider"));
+    }
+
     // Test connection
     virtual void testConnection() = 0;
 
@@ -114,14 +127,23 @@ public:
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
+    // OpenAI web search on the Responses API (chat/completions has no general
+    // web tool): the model can open a specific URL from the prompt via the
+    // tool's open_page action. Uses reasoning effort "low" — web_search needs
+    // at least "low"; the gpt-5.4 generation's floor is "none" (it dropped
+    // "minimal"), and web_search is rejected at that floor.
+    bool supportsUrlAnalysis() const override { return true; }
+    void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) override;
     void testConnection() override;
 
 private slots:
     void onAnalysisReply(QNetworkReply* reply);
+    void onResponsesReply(QNetworkReply* reply);
     void onTestReply(QNetworkReply* reply);
 
 private:
     void sendRequest(const QJsonObject& requestBody);
+    void sendResponsesRequest(const QJsonObject& requestBody);
 
     QString m_apiKey;
     // Selected wire model. Defaulted in the constructor to the first
@@ -129,6 +151,7 @@ private:
     // the UI's "unset → index 0" fallback reference the same fact and can't drift.
     QString m_model;
     static constexpr const char* API_URL = "https://api.openai.com/v1/chat/completions";
+    static constexpr const char* RESPONSES_API_URL = "https://api.openai.com/v1/responses";
 };
 
 // Anthropic provider
@@ -156,6 +179,12 @@ public:
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
+    // Anthropic web_fetch server tool (web_fetch_20250910): the API fetches
+    // the URL named in the user prompt during the request — no client-side
+    // round trip. URL validation requires the URL to appear in the message,
+    // which the extraction prompt guarantees.
+    bool supportsUrlAnalysis() const override { return true; }
+    void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) override;
     void testConnection() override;
 
 private slots:
@@ -206,6 +235,11 @@ public:
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
+    // Gemini url_context server tool: the API fetches URLs named in the
+    // prompt during generateContent (supported by every catalog model —
+    // 2.5 and 3.5 families).
+    bool supportsUrlAnalysis() const override { return true; }
+    void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) override;
     void testConnection() override;
 
 private slots:
