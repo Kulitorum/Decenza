@@ -13,6 +13,9 @@ inline QString generateMenuHtml(bool includeUploadApk = false)
                     <div class="menu-dropdown" id="menuDropdown">
                         <a href="#" class="menu-item" id="powerToggle" onclick="togglePower(); return false;">&#9889; Loading...</a>
                         <a href="/" class="menu-item">&#127866; Shot History</a>
+                        <a href="/recipes" class="menu-item">&#128209; Recipes</a>
+                        <a href="/beans" class="menu-item">&#127793; Beans</a>
+                        <a href="/equipment" class="menu-item">&#9881; Equipment</a>
                         <a href="/remote" class="menu-item">&#128421; Remote Control</a>
                         <a href="/settings" class="menu-item">&#128273; AI and Web Service Connections</a>)HTML";
 

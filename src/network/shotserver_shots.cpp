@@ -178,6 +178,7 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
                     </div>
                     <div class="shot-footer">
                         <span class="shot-beans">%14</span>
+                        <button class="shot-recipe-btn" onclick="event.preventDefault(); event.stopPropagation(); promoteToRecipe(%1)" title="Create recipe from this shot">&#128209; Recipe</button>
                         __RATING_CHIP__
                     </div>
                 </a>
@@ -320,6 +321,9 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         .shot-arrow { color: var(--text-secondary); font-size: 1rem; }
         .shot-footer { display: flex; justify-content: space-between; align-items: center; }
         .shot-beans { font-size: 0.8125rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
+        .shot-recipe-btn { background: var(--surface-hover); color: var(--text-secondary); border: 1px solid var(--border);
+                           border-radius: 6px; padding: 0.15rem 0.5rem; font-size: 0.75rem; cursor: pointer; }
+        .shot-recipe-btn:hover { color: var(--text); background: var(--border); }
         .shot-rating { color: var(--accent); font-size: 0.875rem; }
         .shot-temp { color: var(--text-secondary); font-weight: normal; }
         .shot-grind { color: var(--text-secondary); font-weight: normal; }
@@ -688,6 +692,28 @@ QString ShotServer::generateShotListPage(const QVariantList& shots) const
         var selectedShots = [];
         var currentSort = { field: 'date', dir: 'desc' };
         var savedSearches = [];
+
+        // Promote a shot to a recipe (add-recipes): same action as the app's
+        // "Recipe" button beside Load — prefills from the shot server-side.
+        function promoteToRecipe(id) {
+            var name = prompt('Name for the new recipe (e.g. Morning cappuccino):');
+            if (!name || !name.trim()) return;
+            var hasMilk = confirm('Is this a milk drink? (OK = yes, Cancel = no)');
+            fetch('/api/recipes/from-shot/' + id, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name.trim(), hasMilk: hasMilk })
+            })
+            .then(function(r) { return r.json().then(function(d) {
+                if (!r.ok || d.error) throw new Error(d.error || ('Server error (' + r.status + ')'));
+                return d;
+            }); })
+            .then(function() {
+                if (confirm('Recipe created. Open the Recipes page?'))
+                    window.location.href = '/recipes';
+            })
+            .catch(function(e) { alert('Could not create recipe: ' + e.message); });
+        }
 
         function toggleSelect(id, card) {
             var idx = selectedShots.indexOf(id);

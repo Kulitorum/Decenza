@@ -79,6 +79,7 @@ private:
     QByteArray m_origVesselPresets;
     QByteArray m_origPitcherPresets;
     bool m_origMilkAutoCapture;
+    int m_origActiveRecipeId;
 
 private slots:
 
@@ -106,6 +107,7 @@ private slots:
         { QSettings raw("DecentEspresso", "DE1Qt");
           m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();
           m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray(); }
+        m_origActiveRecipeId = m_settings.dye()->activeRecipeId();
     }
 
     void cleanup() {
@@ -131,6 +133,8 @@ private slots:
           raw.setValue("water/vesselPresets", m_origVesselPresets);
           raw.setValue("steam/pitcherPresets", m_origPitcherPresets);
           raw.sync(); }
+        // Recipe state (add-recipes).
+        m_settings.dye()->setActiveRecipeId(m_origActiveRecipeId);
     }
 
     // ==========================================
@@ -999,6 +1003,23 @@ private slots:
         // primaryScaleAddress unchanged (it was already correct).
         QCOMPARE(healed.primaryScaleAddress(), QString("PRIMARY:AA:11"));
     }
+
+    // ==========================================
+    // Recipes (add-recipes): active recipe id (the pinned-grind write-through
+    // routing test lives in tst_coffeebags, beside the other SettingsDye
+    // async write-through tests)
+    // ==========================================
+
+    void activeRecipeIdRoundTrip() {
+        m_settings.dye()->setActiveRecipeId(-1);
+        QSignalSpy spy(m_settings.dye(), &SettingsDye::activeRecipeIdChanged);
+        m_settings.dye()->setActiveRecipeId(42);
+        QCOMPARE(m_settings.dye()->activeRecipeId(), 42);
+        QCOMPARE(spy.count(), 1);
+        m_settings.dye()->setActiveRecipeId(42);  // same value: no signal
+        QCOMPARE(spy.count(), 1);
+    }
+
 };
 
 QTEST_GUILESS_MAIN(tst_Settings)

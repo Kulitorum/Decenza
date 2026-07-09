@@ -17,6 +17,7 @@ Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in th
 | `CI_CD.md` | Release process, GitHub Actions workflows, version bumping |
 | `PLATFORM_BUILD.md` | CLI build commands (Windows/macOS/iOS), Windows installer, Android signing, tablet quirks |
 | `RECIPE_PROFILES.md` | Recipe Editor, D-Flow/A-Flow/Pressure/Flow types, frame generation, JSON format, stop limits, profile_sync tool |
+| `RECIPES.md` | Drink recipes (add-recipes): data model, grind inherit/pin routing, steam block, single activation path, promote-from-shot, MCP/web surfaces. NOT the profile Recipe Editor — that is `RECIPE_PROFILES.md` |
 | `TESTING.md` | Test framework, mock strategy, adding new tests, **`shot_eval` harness + regression corpus** |
 | `BLE_PROTOCOL.md` | BLE UUIDs, retry mechanism, shot debug logging, battery/steam control |
 | `VISUALIZER.md` | DYE metadata, profile import/export, ProfileSaveHelper, filename generation |

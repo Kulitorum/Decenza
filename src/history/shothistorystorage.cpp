@@ -2,6 +2,7 @@
 #include "shothistorystorage_internal.h"
 #include "coffeebagstorage.h"
 #include "equipmentstorage.h"
+#include "recipestorage.h"
 #include "ai/conductance.h"
 #include "ai/shotanalysis.h"
 #include "ai/shotsummarizer.h"
@@ -76,6 +77,12 @@ void ShotHistoryStorage::close()
     if (m_db.isOpen()) {
         m_db.close();
     }
+    // Drop THIS object's handle to the named connection BEFORE removing it.
+    // removeDatabase() warns ("connection is still in use, all queries will
+    // cease to work") when a live QSqlDatabase still references the connection
+    // — and the member m_db is exactly such a reference. Reset it to an
+    // invalid database first so removeDatabase runs cleanly.
+    m_db = QSqlDatabase();
     if (QSqlDatabase::contains(DB_CONNECTION_NAME)) {
         QSqlDatabase::removeDatabase(DB_CONNECTION_NAME);
     }
@@ -92,10 +99,10 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
 
     qDebug() << "ShotHistoryStorage: Initializing database at" << m_dbPath;
 
-    // Remove existing connection if any
-    if (QSqlDatabase::contains(DB_CONNECTION_NAME)) {
-        QSqlDatabase::removeDatabase(DB_CONNECTION_NAME);
-    }
+    // Drop any existing connection (a re-initialize) cleanly first — close()
+    // resets m_db before removing so removeDatabase doesn't warn about a
+    // still-referenced connection.
+    close();
 
     m_db = QSqlDatabase::addDatabase("QSQLITE", DB_CONNECTION_NAME);
     m_db.setDatabaseName(m_dbPath);
@@ -1347,6 +1354,54 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 25: recipes (add-recipes). Create the recipes table and add
+    // shot provenance: recipe_id names the recipe active at shot start, and
+    // steam_json snapshots the steam spec in effect so promote-from-shot
+    // round-trips the whole drink. Both nullable — legacy rows unaffected.
+    // Idempotent (CREATE IF NOT EXISTS + hasColumn guards); the bump gates on
+    // the post-conditions like migrations 19/24. Whitespace before the
+    // open-paren dodges the QSqlQuery permission-hook false-positive, as
+    // elsewhere. Do not auto-format.
+    if (currentVersion >= 24 && currentVersion < 25) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 25 (recipes)";
+
+        const bool tableOk = RecipeStorage::ensureTableStatic(m_db);
+
+        if (!hasColumn("shots", "recipe_id"))
+            query.exec ("ALTER TABLE shots ADD COLUMN recipe_id INTEGER");
+        if (!hasColumn("shots", "steam_json"))
+            query.exec ("ALTER TABLE shots ADD COLUMN steam_json TEXT");
+        query.exec("CREATE INDEX IF NOT EXISTS idx_shots_recipe_id ON shots(recipe_id)");
+
+        if (tableOk && hasColumn("shots", "recipe_id") && hasColumn("shots", "steam_json")) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (25)");
+            currentVersion = 25;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 25 incomplete - will retry next launch";
+        }
+    }
+
+    // Migration 26: recipes.rpm_pinned (add-recipes follow-up) — the grind
+    // override pins grind AND rpm together. Fresh DBs get the column from
+    // ensureTableStatic (the hasColumn guard makes both paths converge);
+    // this repairs branch-dev DBs that already ran migration 25 with the
+    // old table. One idempotent additive column, gated ">= 25 && < 26".
+    if (currentVersion >= 25 && currentVersion < 26) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 26 (recipes rpm_pinned)";
+
+        if (!hasColumn("recipes", "rpm_pinned"))
+            query.exec ("ALTER TABLE recipes ADD COLUMN rpm_pinned INTEGER");
+
+        if (hasColumn("recipes", "rpm_pinned")) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (26)");
+            currentVersion = 26;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 26 incomplete - will retry next launch";
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -1518,6 +1573,8 @@ qint64 ShotHistoryStorage::saveShot(ShotDataModel* shotData,
     data.bagId = metadata.bagId;
     data.frozenDate = metadata.frozenDate;
     data.defrostDate = metadata.defrostDate;
+    data.recipeId = metadata.recipeId;
+    data.steamJson = metadata.steamJson;
 
     if (profile) {
         data.profileKbId = ShotSummarizer::computeProfileKbId(profile->title(), profile->editorType());
@@ -1690,7 +1747,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     channeling_detected, grind_issue_detected,
                     skip_first_frame_detected, pour_truncated_detected,
                     stopped_by, beanbase_json, beanbase_id,
-                    bag_id, frozen_date, defrost_date
+                    bag_id, frozen_date, defrost_date,
+                    recipe_id, steam_json
                 ) VALUES (
                     :uuid, :timestamp, :profile_name, :profile_json, :beverage_type,
                     :duration, :final_weight, :dose_weight,
@@ -1703,7 +1761,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
                     :channeling_detected, :grind_issue_detected,
                     :skip_first_frame_detected, :pour_truncated_detected,
                     :stopped_by, :beanbase_json, :beanbase_id,
-                    :bag_id, :frozen_date, :defrost_date
+                    :bag_id, :frozen_date, :defrost_date,
+                    :recipe_id, :steam_json
                 )
             )");
 
@@ -1751,6 +1810,8 @@ qint64 ShotHistoryStorage::saveShotStatic(const QString& dbPath, const ShotSaveD
             query.bindValue(":bag_id", bagIdIsSet(data.bagId) ? QVariant(data.bagId) : QVariant());
             query.bindValue(":frozen_date", data.frozenDate.isEmpty() ? QVariant() : data.frozenDate);
             query.bindValue(":defrost_date", data.defrostDate.isEmpty() ? QVariant() : data.defrostDate);
+            query.bindValue(":recipe_id", data.recipeId > 0 ? QVariant(data.recipeId) : QVariant());
+            query.bindValue(":steam_json", data.steamJson.isEmpty() ? QVariant() : data.steamJson);
 
             if (!query.exec()) {
                 locked = isLockError(query.lastError());
@@ -2275,7 +2336,8 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
                s.equipment_id, s.rpm,
                ep.in_inventory, ep.superseded_by, ep.name,
                eb.brand, eb.model,
-               epp.model
+               epp.model,
+               s.recipe_id, s.steam_json
         FROM shots s
         LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder'
         LEFT JOIN equipment_items eb ON eb.package_id = s.equipment_id AND eb.kind = 'basket'
@@ -2359,6 +2421,9 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     // (add-puckprep-equipment); empty when the package has no puck prep. Flags +
     // distribution are derived downstream (core/puckprep.h), never stored.
     record.puckPrep = query.value(46).toString();
+    // Recipe provenance (cols 47/48, add-recipes): NULL = pre-recipe shot.
+    record.recipeId = query.value(47).isNull() ? -1 : query.value(47).toLongLong();
+    record.steamJson = query.value(48).toString();
     record.summary.hasVisualizerUpload = !record.visualizerId.isEmpty();
 
     // Snapshot stored badge values before the recompute block overwrites them, so

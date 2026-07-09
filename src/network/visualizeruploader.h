@@ -45,6 +45,13 @@ struct ShotMetadata {
     qint64 bagId = -1;
     QString frozenDate;   // ISO yyyy-MM-dd, "" = not frozen
     QString defrostDate;  // ISO yyyy-MM-dd, "" = not defrosted
+
+    // Recipe provenance (add-recipes): the recipe active at shot start
+    // (<= 0 = none) and a compact-JSON snapshot of the steam spec in effect,
+    // so promote-from-shot round-trips the whole drink. Local history only —
+    // not part of the Visualizer upload payload.
+    qint64 recipeId = -1;
+    QString steamJson;
 };
 
 class VisualizerUploader : public QObject {

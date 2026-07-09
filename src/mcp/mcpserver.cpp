@@ -30,6 +30,10 @@ class ProfileManager;
 void registerProfileTools(McpToolRegistry* registry, ProfileManager* profileManager, Settings* settings);
 void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainController* mainController,
                           MachineState* machineState);
+class RecipeStorage;
+void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistory,
+                         RecipeStorage* recipeStorage, MainController* mainController,
+                         Settings* settings);
 class AccessibilityManager;
 class ScreensaverVideoManager;
 class TranslationManager;
@@ -158,6 +162,9 @@ void McpServer::registerAllTools()
     registerShotTools(m_toolRegistry, m_shotHistory);
     registerProfileTools(m_toolRegistry, m_profileManager, m_settings);
     registerPresetsTools(m_toolRegistry, m_settings, m_mainController, m_machineState);
+    registerRecipeTools(m_toolRegistry, m_shotHistory,
+                        m_mainController ? m_mainController->recipeStorage() : nullptr,
+                        m_mainController, m_settings);
     registerSettingsReadTools(m_toolRegistry, m_settings, m_accessibilityManager,
                               m_screensaverManager, m_translationManager, m_batteryManager,
                               m_mainController ? m_mainController->aiManager() : nullptr);

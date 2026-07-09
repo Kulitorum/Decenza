@@ -75,6 +75,11 @@ class SettingsDye : public QObject {
     // The active coffee bag (DB row id in coffee_bags), -1 = no bag selected.
     // Setting it loads the bag and applies its fields to the dye cache.
     Q_PROPERTY(int activeBagId READ activeBagId WRITE setActiveBagId NOTIFY activeBagIdChanged)
+    // The active recipe (DB row id in recipes), -1 = none (add-recipes). Only
+    // the persisted id lives here — activation, write-through stamping, and
+    // deactivate-on-ingredient-swap are MainController's job (the recipe layer
+    // sits above the settings façade, unlike bags whose fields ARE dye state).
+    Q_PROPERTY(int activeRecipeId READ activeRecipeId WRITE setActiveRecipeId NOTIFY activeRecipeIdChanged)
     // Lifecycle fields of the active bag, mirrored for QML display and the
     // shot snapshot (read-only here; edited via CoffeeBagStorage).
     Q_PROPERTY(QString activeBagFrozenDate READ activeBagFrozenDate NOTIFY activeBagChanged)
@@ -203,6 +208,22 @@ public:
     QString activeBagFrozenDate() const { return m_activeBagFrozenDate; }
     QString activeBagDefrostDate() const { return m_activeBagDefrostDate; }
 
+    // Active recipe (add-recipes). Persisted id only — see the Q_PROPERTY note.
+    int activeRecipeId() const;
+    void setActiveRecipeId(int recipeId);
+
+    // While the active recipe PINS its grind, grind AND rpm edits belong to
+    // the pin, not the bean: the setters must not write through to the bag
+    // (sibling recipes inherit the bag's value and would silently follow a
+    // pinned recipe's private dial). MainController sets this while a
+    // pin-carrying recipe is active and clears it on deactivation. Runtime
+    // state, deliberately not persisted — it is re-derived from the active
+    // recipe row at startup. The grinder-package "lastGrindSetting" write-
+    // through stays on either way (a pinned grind is still the last dial
+    // used on that grinder).
+    void setGrindBagWriteThroughSuspended(bool suspended) { m_grindBagWriteThroughSuspended = suspended; }
+    bool grindBagWriteThroughSuspended() const { return m_grindBagWriteThroughSuspended; }
+
     // The active bag's yield override (grams). 0 = no override; the bag
     // follows the profile's target weight. Applied to Settings.brew's
     // brewYieldOverride on a user bean switch (see applyActiveBag); the
@@ -250,6 +271,7 @@ signals:
     void dyeBeanBaseDataChanged();
     void activeBagIdChanged();
     void activeBagChanged();
+    void activeRecipeIdChanged();
     // Emitted only from applyActiveBag (a user bean switch, not a keep-fields
     // historical/favorite load) carrying the new bag's yield override. The
     // MainController applies it to Settings.brew after the switch's
@@ -280,6 +302,7 @@ private:
 
     bool m_applyingBag = false;  // Suppress write-through echo during applyActiveBag
     bool m_keepFieldsOnNextApply = false;  // setActiveBagKeepFields: next bagReady only refreshes lifecycle
+    bool m_grindBagWriteThroughSuspended = false;  // active recipe pins grind (add-recipes)
     int m_pendingSelfWrites = 0; // Outstanding write-throughs whose bagUpdated echo to skip
     QString m_activeBagFrozenDate;
     QString m_activeBagDefrostDate;

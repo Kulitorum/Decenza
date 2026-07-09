@@ -15,6 +15,7 @@
 #include "history/shothistorystorage.h"
 #include "history/coffeebagstorage.h"
 #include "history/equipmentstorage.h"
+#include "history/recipestorage.h"
 #include "history/unifiedbeansearchmodel.h"
 #include "core/settings_dye.h"
 #include "core/settings_visualizer.h"
@@ -116,7 +117,6 @@ private:
     // still hold a QSqlQuery — Qt warns (harmless, ignored) and the thread
     // MUST be drained before the storage destructs or it SIGSEGVs.
     bool initAndClose(const QString& path, ShotHistoryStorage& storage) {
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         if (!storage.initialize(path))
             return false;
         storage.close();
@@ -723,7 +723,7 @@ private slots:
             QCOMPARE(q.value(0).toInt(), 0);  // existing rows default to 0
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 24);
+            QCOMPARE(q.value(0).toInt(), 26);  // chain runs on to the latest (add-recipes)
         });
     }
 
@@ -776,7 +776,47 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 24);
+            QCOMPARE(q.value(0).toInt(), 26);  // chain runs on to the latest (add-recipes)
+        });
+    }
+
+    // Migration 26 (add-recipes) repairs branch-dev DBs that stamped version 25
+    // with the OLD recipes table (no rpm_pinned). The fresh-DB path gets the
+    // column from ensureTableStatic, so exercising the ALTER branch needs a
+    // staged v25 DB with the column dropped — otherwise the "hasColumn" assert
+    // passes on migration 25's work, not 26's.
+    void migration26AddsRpmPinnedColumn() {
+        const QString path = freshDb();
+        // Stand the schema up fully, then rewind to a v25-without-rpm_pinned DB.
+        {
+            ShotHistoryStorage storage;
+            QVERIFY(initAndClose(path, storage));
+        }
+        withRawDb(path, "m26_strip", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(hasColumn(db, "recipes", "rpm_pinned"));  // fresh path had it
+            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN rpm_pinned"));
+            QVERIFY(!hasColumn(db, "recipes", "rpm_pinned"));
+            QVERIFY(q.exec("DELETE FROM schema_version"));
+            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (25)"));
+        });
+        {
+            ShotHistoryStorage storage;
+            QVERIFY(initAndClose(path, storage));  // runs migration 26's ALTER
+        }
+        withRawDb(path, "m26_check", [&](QSqlDatabase& db) {
+            QVERIFY(hasColumn(db, "recipes", "rpm_pinned"));
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT version FROM schema_version"));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 26);
+            // The repaired table is writable — insertRecipeStatic binds
+            // rpm_pinned unconditionally, so it would fail wholesale if the
+            // ALTER hadn't landed.
+            Recipe r; r.name = "R"; r.rpmPinned = 1350;
+            const qint64 id = RecipeStorage::insertRecipeStatic(db, r);
+            QVERIFY(id > 0);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).rpmPinned, (qint64)1350);
         });
     }
 
@@ -1301,6 +1341,72 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(bagRpm(), static_cast<qint64>(1350), 15000);
         QTRY_COMPARE_WITH_TIMEOUT(pkgRpm(), static_cast<qint64>(1350), 15000);
 
+        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
+        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+    }
+
+    // Pinned-grind routing (add-recipes): while the active recipe PINS its
+    // grind, SettingsDye suspends the bag write-through — the pin is the
+    // recipe's private dial, and sibling recipes (which inherit the bag's
+    // value) must not follow it. MainController sets/clears the suspension;
+    // here we drive the flag directly and assert the bag row stays put.
+    void settingsDyeGrindPinSuspendsBagWriteThrough() {
+        { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
+
+        const QString path = freshDb();
+        withRawDb(path, "pin_tables", [&](QSqlDatabase& db) {
+            CoffeeBagStorage::ensureTableStatic(db);
+        });
+        qint64 bagId = -1;
+        withRawDb(path, "pin_seed", [&](QSqlDatabase& db) {
+            CoffeeBag b; b.roasterName = "R"; b.coffeeName = "Pin"; b.grinderSetting = "1.0";
+            bagId = CoffeeBagStorage::insertBagStatic(db, b);
+        });
+        QVERIFY(bagId > 0);
+
+        CoffeeBagStorage bagStorage; bagStorage.initialize(path);
+        SettingsVisualizer viz; SettingsDye dye(&viz);
+        dye.setBagStorage(&bagStorage);
+
+        dye.setActiveBagId(static_cast<int>(bagId));
+        QTRY_COMPARE_WITH_TIMEOUT(dye.dyeGrinderSetting(), QString("1.0"), 15000);
+
+        auto bagGrind = [&]() { QString v; withRawDb(path, "pin_bg",
+            [&](QSqlDatabase& db) { v = CoffeeBagStorage::loadBagStatic(db, bagId).grinderSetting; }); return v; };
+
+        // Unsuspended: the edit writes through to the bag row.
+        dye.setDyeGrinderSetting("2.0");
+        QTRY_COMPARE_WITH_TIMEOUT(bagGrind(), QString("2.0"), 15000);
+
+        // Suspended (recipe pin active): the edit stays on the dye cache; the
+        // bag keeps its value. Drain the worker before the negative read so a
+        // wrongly-issued write would have landed by the time we assert.
+        dye.setGrindBagWriteThroughSuspended(true);
+        dye.setDyeGrinderSetting("3.0");
+        QCOMPARE(dye.dyeGrinderSetting(), QString("3.0"));
+        for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
+        QCOMPARE(bagGrind(), QString("2.0"));  // unchanged — the pin never landed
+
+        // Lifting the suspension resumes normal bean-dial write-through.
+        dye.setGrindBagWriteThroughSuspended(false);
+        dye.setDyeGrinderSetting("4.0");
+        QTRY_COMPARE_WITH_TIMEOUT(bagGrind(), QString("4.0"), 15000);
+
+        // RPM is pinned WITH grind: the same suspension gates its bag
+        // write-through independently (an rpm-only leak would silently pollute
+        // the bean's dial). Establish a baseline, then set rpm while suspended.
+        auto bagRpm = [&]() { qint64 v = -1; withRawDb(path, "pin_br",
+            [&](QSqlDatabase& db) { v = CoffeeBagStorage::loadBagStatic(db, bagId).rpm; }); return v; };
+        dye.setDyeGrinderRpm(1200);
+        QTRY_COMPARE_WITH_TIMEOUT(bagRpm(), static_cast<qint64>(1200), 15000);
+        dye.setGrindBagWriteThroughSuspended(true);
+        dye.setDyeGrinderRpm(1400);
+        QCOMPARE(dye.dyeGrinderRpm(), 1400);
+        for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
+        QCOMPARE(bagRpm(), static_cast<qint64>(1200));  // pinned rpm never landed on the bag
+
+        // Drain before stack teardown (see settingsDyeYieldOverridePath).
+        dye.setGrindBagWriteThroughSuspended(false);
         for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
     }

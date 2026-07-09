@@ -857,6 +857,38 @@ Page {
                         }
                     }
 
+                    // Create-recipe button (promote this shot to a recipe —
+                    // opens the composer prefilled from the shot, add-recipes)
+                    Rectangle {
+                        width: recipeButtonText.implicitWidth + Theme.scaled(20)
+                        height: Theme.scaled(40)
+                        radius: Theme.scaled(20)
+                        color: Theme.primaryColor
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("shothistory.accessible.recipe", "Create recipe from this shot")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: recipeArea.clicked(null)
+
+                        Text {
+                            id: recipeButtonText
+                            anchors.centerIn: parent
+                            text: TranslationManager.translate("shotHistory.button.recipe", "Recipe")
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                            color: Theme.primaryContrastColor
+                            Accessible.ignored: true
+                        }
+
+                        MouseArea {
+                            id: recipeArea
+                            anchors.fill: parent
+                            onClicked: {
+                                pageStack.push(Qt.resolvedUrl("RecipeComposerPage.qml"),
+                                               { mode: "create", promoteShotId: model.id })
+                            }
+                        }
+                    }
+
                     // Edit button (green circle with E)
                     Rectangle {
                         width: Theme.scaled(40)

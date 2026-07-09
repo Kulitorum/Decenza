@@ -89,6 +89,12 @@ struct ShotRecord {
     QString frozenDate;
     QString defrostDate;
 
+    // Recipe provenance (add-recipes, migration 25): the recipe active at
+    // shot start (<= 0 = none / pre-recipe shot) and the steam-spec snapshot
+    // in effect, so promote-from-shot round-trips the whole drink.
+    qint64 recipeId = -1;
+    QString steamJson;
+
     // Time-series data (lazily loaded)
     QVector<QPointF> pressure;
     QVector<QPointF> flow;
@@ -274,6 +280,10 @@ struct ShotSaveData {
     qint64 bagId = -1;
     QString frozenDate;
     QString defrostDate;
+
+    // Recipe provenance (add-recipes): see ShotRecord. <= 0 = none.
+    qint64 recipeId = -1;
+    QString steamJson;
 
     // AI knowledge base ID (e.g. "d-flow", "blooming espresso") — computed at save time
     QString profileKbId;

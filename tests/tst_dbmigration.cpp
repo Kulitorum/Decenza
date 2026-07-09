@@ -148,10 +148,8 @@ private:
     // background thread. We must let that thread complete its callback before
     // the ShotHistoryStorage is destroyed, otherwise SIGSEGV.
     void initAndClose(const QString& path, ShotHistoryStorage& storage) {
-        // ShotHistoryStorage::close() removes its DB connection while a background
-        // thread may still hold a QSqlQuery reference. Qt warns about this but
-        // it's harmless — the connection is cleaned up when the thread finishes.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
+        // close() resets its m_db handle before removeDatabase, so there is no
+        // "connection still in use" warning to ignore here.
         QVERIFY(storage.initialize(path));
         storage.close();
         // Give background thread time to finish SQL + deliver callback
@@ -163,12 +161,9 @@ private:
 
     // Like initAndClose(), but for an initialize() that is expected to emit a
     // single migration-failure qWarning (a gated migration that did NOT bump).
-    // The migration warning is registered before the close-time "connection
-    // still in use" warning so the FIFO ignore queue matches emission order.
     void initExpectingMigrationWarning(const QString& path, const QString& warnRegex) {
         ShotHistoryStorage storage;
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(warnRegex));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         QVERIFY(storage.initialize(path));
         storage.close();
         for (int i = 0; i < 20; i++) {
@@ -203,7 +198,8 @@ private slots:
             QVERIFY(hasTable(db, "shot_samples"));
             QVERIFY(hasTable(db, "shot_phases"));
             QVERIFY(hasTable(db, "schema_version"));
-            QCOMPARE(getSchemaVersion(db), 24);
+            QVERIFY(hasTable(db, "recipes"));  // migration 25 (add-recipes)
+            QCOMPARE(getSchemaVersion(db), 26);
         });
     }
 
@@ -237,6 +233,9 @@ private slots:
             QVERIFY(hasColumn(db, "shots", "pour_truncated_detected"));
             QVERIFY(hasColumn(db, "shots", "stopped_by"));  // migration 17 (#1161)
             QVERIFY(hasColumn(db, "shots", "beanbase_json"));  // migration 18 (bean base)
+            QVERIFY(hasColumn(db, "shots", "recipe_id"));      // migration 25 (add-recipes)
+            QVERIFY(hasColumn(db, "shots", "steam_json"));     // migration 25 (add-recipes)
+            QVERIFY(hasColumn(db, "recipes", "rpm_pinned"));   // migration 26 (add-recipes)
             QVERIFY(hasColumn(db, "shot_phases", "transition_reason"));
         });
     }
@@ -278,7 +277,7 @@ private slots:
         initAndClose(path, storage);
 
         withRawDb(path, "v1_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 24);
+            QCOMPARE(getSchemaVersion(db), 26);
             QVERIFY(hasColumn(db, "shots", "temperature_override"));
             QVERIFY(hasColumn(db, "shots", "yield_override"));
             QVERIFY(hasColumn(db, "shots", "beverage_type"));
@@ -297,6 +296,9 @@ private slots:
             QVERIFY(hasColumn(db, "shots", "pour_truncated_detected"));
             QVERIFY(hasColumn(db, "shots", "stopped_by"));  // migration 17 (#1161)
             QVERIFY(hasColumn(db, "shots", "beanbase_json"));  // migration 18 (bean base)
+            QVERIFY(hasColumn(db, "shots", "recipe_id"));      // migration 25 (add-recipes)
+            QVERIFY(hasColumn(db, "shots", "steam_json"));     // migration 25 (add-recipes)
+            QVERIFY(hasColumn(db, "recipes", "rpm_pinned"));   // migration 26 (add-recipes)
             QVERIFY(hasColumn(db, "shot_phases", "transition_reason"));
         });
     }
@@ -393,7 +395,7 @@ private slots:
         withRawDb(path, "v9_verify", [](QSqlDatabase& db) {
             QVERIFY(hasColumn(db, "shots", "profile_kb_id"));
             QVERIFY(hasIndex(db, "idx_shots_profile_kb_id"));
-            QCOMPARE(getSchemaVersion(db), 24);
+            QCOMPARE(getSchemaVersion(db), 26);
         });
     }
 
@@ -407,7 +409,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "idempotent", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 24);
+            QCOMPARE(getSchemaVersion(db), 26);
         });
     }
 
@@ -419,7 +421,6 @@ private slots:
         QString path = freshDbPath();
         withRawDb(path, "empty_create", [](QSqlDatabase& db) { createV1Schema(db); });
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(path));
         QCOMPARE(storage.totalShots(), 0);
@@ -427,7 +428,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "empty_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 24);
+            QCOMPARE(getSchemaVersion(db), 26);
         });
     }
 
@@ -442,7 +443,6 @@ private slots:
             QSqlQuery(db).exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) VALUES ('test-null', 1000, 'NullTest', 30.0)");
         });
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(path));
         QCOMPARE(storage.totalShots(), 1);
@@ -450,7 +450,7 @@ private slots:
         QCoreApplication::processEvents();
 
         withRawDb(path, "null_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 24);
+            QCOMPARE(getSchemaVersion(db), 26);
             QSqlQuery q(db);
             // grinder_brand was dropped in migration 23; grinder_setting (the
             // surviving per-shot dial-in) exercises the same NULL-tolerance path.
@@ -517,7 +517,6 @@ private slots:
             q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, final_weight, bean_brand, grinder_model) VALUES ('p2', 2000, 'D-Flow', 32.0, 40.0, 'SEY', 'DF64')");
         });
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(path));
         QCOMPARE(storage.totalShots(), 2);
@@ -631,7 +630,7 @@ private slots:
                 }
             }
         });
-        QCOMPARE(versionFound, 24);
+        QCOMPARE(versionFound, 26);
         QVERIFY2(!hasEnjoymentSource,
                  "enjoyment_source column must be absent after migration 16");
     }
@@ -734,7 +733,7 @@ private slots:
             }
         });
 
-        QCOMPARE(versionFound, 24);
+        QCOMPARE(versionFound, 26);
         QVERIFY2(columnGone, "enjoyment_source column must be dropped");
         QCOMPARE(enjoy1, 50);
         QCOMPARE(enjoy2, 50);
@@ -999,7 +998,6 @@ private slots:
         // conversion the code comment promises).
         {
             ShotHistoryStorage s;
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
             QVERIFY(s.initialize(path));
             QCOMPARE(s.lastSavedShotId(), qint64(0));
             s.close();
@@ -1023,7 +1021,6 @@ private slots:
         });
         {
             ShotHistoryStorage s;
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
             QVERIFY(s.initialize(path));
             QCOMPARE(s.lastSavedShotId(), newestId);
             s.close();
@@ -1039,7 +1036,6 @@ private slots:
         });
         {
             ShotHistoryStorage s;
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
             QVERIFY(s.initialize(path));
             QCOMPARE(s.lastSavedShotId(), newestId - 1);
             s.close();
@@ -1074,7 +1070,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "v21_verify", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 24);
+            QCOMPARE(getSchemaVersion(db), 26);
             QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
             QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
             QSqlQuery q(db);
@@ -1151,7 +1147,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "v20_after_retry", [&](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 24);
+            QCOMPARE(getSchemaVersion(db), 26);
             // The retry ran the WHOLE deferred chain, not just migration 20:
             // migration 21's rename landed too (post-condition column present).
             QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
@@ -1197,7 +1193,7 @@ private slots:
         { ShotHistoryStorage s; initAndClose(path, s); }
 
         withRawDb(path, "v21_after_retry", [](QSqlDatabase& db) {
-            QCOMPARE(getSchemaVersion(db), 24);
+            QCOMPARE(getSchemaVersion(db), 26);
             QVERIFY(hasColumn(db, "coffee_bags", "yield_override_g"));
             QVERIFY(!hasColumn(db, "coffee_bags", "yield_target_g"));
             QSqlQuery q(db);
@@ -1264,7 +1260,7 @@ private slots:
         };
 
         { ShotHistoryStorage s; initAndClose(path, s); }
-        withRawDb(path, "v22_ver", [](QSqlDatabase& db) { QCOMPARE(getSchemaVersion(db), 24); });
+        withRawDb(path, "v22_ver", [](QSqlDatabase& db) { QCOMPARE(getSchemaVersion(db), 26); });
         QCOMPARE(packageCount(), 1);             // default package created from current settings
         { ShotHistoryStorage s; initAndClose(path, s); }
         QCOMPARE(packageCount(), 1);             // gate prevented a duplicate on re-init
@@ -1414,7 +1410,6 @@ private slots:
         qint64 shotId = -1;
         {
             ShotHistoryStorage s;
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
             QVERIFY(s.initialize(path));
             ShotRecord rec;
             rec.summary.uuid = QStringLiteral("import-grinder-1");
@@ -1448,7 +1443,6 @@ private slots:
     void v23_grinderFreeTextSearchResolvesViaPointer() {
         const QString path = freshDbPath();
         ShotHistoryStorage s;
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         QVERIFY(s.initialize(path));
 
         // One shot whose ONLY association with "niche" is its grinder package

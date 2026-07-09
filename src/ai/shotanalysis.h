@@ -1,4 +1,12 @@
 #pragma once
+// Belt-and-suspenders macro guard alongside #pragma once: pragma-once dedupes
+// by file identity, which clangd can defeat when the same header resolves via
+// two aliased paths (e.g. sibling git worktrees on one machine), parsing this
+// file twice and flagging a spurious "redefinition of ExpertBand". A name-
+// keyed guard dedupes path-independently, silencing that clangd false positive
+// (the real compiler was always fine).
+#ifndef DECENZA_SHOTANALYSIS_H
+#define DECENZA_SHOTANALYSIS_H
 
 #include <optional>
 #include <QVector>
@@ -669,3 +677,5 @@ public:
                                          const std::optional<ExpertBand>& expertBand = std::nullopt,
                                          bool profileKbResolved = true);
 };
+
+#endif // DECENZA_SHOTANALYSIS_H

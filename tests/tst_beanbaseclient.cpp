@@ -714,7 +714,10 @@ private slots:
         QVERIFY(ready.last().at(1).toString().contains(QString(200, 'a')));
 
         // Under 100 readable chars = the Visualizer "blocked or empty" gate:
-        // a bot wall must be a visible failure, not AI input.
+        // a bot wall must be a visible failure, not AI input. Each failure
+        // path below intentionally logs a qWarning from the code under test;
+        // ignoreMessage consumes them so the suite stays warning-clean.
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("fetchPageText got no readable text"));
         client.fetchPageText(server.baseUrl() + "/short");
         QVERIFY(failed.wait(5000));
         QCOMPARE(failed.last().at(1).toString(), QString("emptyPage"));
@@ -722,6 +725,7 @@ private slots:
         // Non-text content (a PDF/image link) is a FORMAT failure, not a
         // confident "nothing found on the page".
         server.setContentType("application/pdf");
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("fetchPageText got non-text content"));
         client.fetchPageText(pageUrl);
         QVERIFY(failed.wait(5000));
         QCOMPARE(failed.last().at(1).toString(), QString("notAWebPage"));
@@ -729,6 +733,7 @@ private slots:
 
         // HTTP errors surface Qt's error string (reply->error() covers 4xx).
         server.respondWith("404 Not Found", "gone");
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("fetchPageText failed for"));
         client.fetchPageText(server.baseUrl() + "/nothing-here");
         QVERIFY(failed.wait(5000));
         QVERIFY(!failed.last().at(1).toString().isEmpty());
@@ -736,9 +741,11 @@ private slots:
         // http(s)-only gate: the URL is user-entered and the text is shipped
         // to a third-party AI — file:// must never be read. No server hit.
         const int requestsBefore = server.requestCount();
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("fetchPageText rejected non-http url"));
         client.fetchPageText("file:///etc/hosts");
         QVERIFY(failed.wait(1000));
         QCOMPARE(failed.last().at(1).toString(), QString("invalidUrl"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("fetchPageText rejected non-http url"));
         client.fetchPageText("not a url");
         QVERIFY(failed.wait(1000));
         QCOMPARE(failed.last().at(1).toString(), QString("invalidUrl"));
