@@ -7,6 +7,7 @@
 #include <QSqlDatabase>
 #include <QSqlRecord>
 #include <QDateTime>
+#include <QSet>
 #include <QThread>
 #include <QDebug>
 
@@ -30,8 +31,9 @@ QVariant nullIfZero(double v) {
 // INSERT list + binds, camelCase->column update map, and QVariantMap
 // round-trip are all derived from this one ordered table. The physical
 // schema (CREATE TABLE in ensureTableStatic + migration 25, plus migration 26
-// for rpm_pinned) is the only thing not generated from it — adding a column is
-// a row here PLUS a schema/migration edit there.
+// for rpm_pinned and migration 27 for hot_water_json) is the only thing not
+// generated from it — adding a column is a row here PLUS a schema/migration
+// edit there.
 //
 // `shotCount` is intentionally NOT here (see InventoryRecipe): it is a
 // per-query aggregate injected by requestInventory only.
@@ -99,6 +101,7 @@ const RecipeCol kCols[] = {
     COL_STR  ("grind_pinned",          grindPinned),
     COL_EPOCH("rpm_pinned",            rpmPinned),
     COL_STR  ("steam_json",            steamJson),
+    COL_STR  ("hot_water_json",        hotWaterJson),
     COL_BOOL ("archived",              archived),
     COL_EPOCH("created_from_shot_id",  createdFromShotId),
     COL_EPOCH("cloned_from_recipe_id", clonedFromRecipeId),
@@ -450,6 +453,7 @@ bool RecipeStorage::ensureTableStatic(QSqlDatabase& db)
             grind_pinned TEXT,
             rpm_pinned INTEGER,
             steam_json TEXT,
+            hot_water_json TEXT,
             archived INTEGER NOT NULL DEFAULT 0,
             created_from_shot_id INTEGER,
             cloned_from_recipe_id INTEGER,
@@ -603,4 +607,111 @@ qint64 RecipeStorage::resolveOpenBagStatic(QSqlDatabase& db, const Recipe& recip
             return query.value(0).toLongLong();
     }
     return -1;
+}
+
+bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
+                                        QHash<qint64, qint64>& outIdMap,
+                                        const QHash<qint64, qint64>& packageIdMap)
+{
+    // Pre-migration-25 source: no recipes table, nothing to import.
+    {
+        QSqlQuery srcCheck(srcDb);
+        if (!srcCheck.exec("SELECT COUNT(*) FROM recipes"))
+            return true;
+    }
+
+    if (!merge) {
+        QSqlQuery clearQuery(destDb);
+        if (!clearQuery.exec("DELETE FROM recipes")) {
+            qWarning() << "RecipeStorage: failed to clear recipes for replace import:"
+                       << clearQuery.lastError().text();
+            return false;
+        }
+    }
+
+    // Build the source SELECT tolerantly: a backup from an older version lacks
+    // newer columns (rpm_pinned pre-26, hot_water_json pre-27), and naming a
+    // missing column fails the whole SELECT — so missing ones are substituted
+    // with NULL, keeping recipeFromQueryRow's positional read aligned with
+    // kCols while absent fields land on the struct defaults. Mirrors
+    // CoffeeBagStorage::importBagsStatic.
+    QSet<QString> srcColumns;
+    {
+        QSqlQuery info(srcDb);
+        if (!info.exec("PRAGMA table_info(recipes)")) {
+            // Fatal: an empty column set would substitute NULL for EVERY column,
+            // repopulating a cleared table with nameless all-NULL recipes while
+            // reporting success.
+            qWarning() << "RecipeStorage: failed to read source recipe schema:"
+                       << info.lastError().text();
+            return false;
+        }
+        while (info.next())
+            srcColumns.insert(info.value(1).toString());
+    }
+    if (!srcColumns.contains(QStringLiteral("id"))) {
+        qWarning() << "RecipeStorage: source recipes schema has no id column - aborting import";
+        return false;
+    }
+    QStringList selectCols;
+    for (const QString& col : recipeColumnList().split(QStringLiteral(", ")))
+        selectCols << (srcColumns.contains(col)
+                           ? col
+                           : QStringLiteral("NULL AS %1").arg(col));
+
+    QSqlQuery srcRecipes(srcDb);
+    if (!srcRecipes.exec(QString("SELECT %1 FROM recipes").arg(selectCols.join(QStringLiteral(", "))))) {
+        qWarning() << "RecipeStorage: failed to query source recipes:" << srcRecipes.lastError().text();
+        return false;
+    }
+
+    int imported = 0, matched = 0;
+    while (srcRecipes.next()) {
+        Recipe recipe = recipeFromQueryRow(srcRecipes);
+        // Remap the source equipment_id to the imported package's new dest id
+        // (EquipmentStorage::importEquipmentStatic ran first). A source id
+        // absent from the map (older source with no equipment tables, or an
+        // unmatched package) becomes 0 -> NULL, same as bags. The bean link is
+        // bean-level, not a bag id, so it carries verbatim and resolves at
+        // activation.
+        recipe.equipmentId = packageIdMap.value(recipe.equipmentId, 0);
+
+        qint64 destId = -1;
+        if (merge) {
+            // Identity: case-insensitive name + profile_title + bean link
+            // (canonical id when present, else roaster+coffee). A bean-less
+            // recipe matches on empty bean fields.
+            // COALESCE the bound params too: an empty QString can bind as SQL
+            // NULL, and `COALESCE(col,'') = NULL` is never true — that would
+            // stop bean-less recipes (all-empty bean fields) from ever deduping.
+            QSqlQuery dupQuery(destDb);
+            dupQuery.prepare(
+                "SELECT id FROM recipes WHERE "
+                "LOWER(COALESCE(name,'')) = LOWER(COALESCE(:name,'')) AND "
+                "LOWER(COALESCE(profile_title,'')) = LOWER(COALESCE(:profile,'')) AND "
+                "COALESCE(beanbase_id,'') = COALESCE(:beanbase,'') AND "
+                "LOWER(COALESCE(roaster_name,'')) = LOWER(COALESCE(:roaster,'')) AND "
+                "LOWER(COALESCE(coffee_name,'')) = LOWER(COALESCE(:coffee,'')) LIMIT 1");
+            dupQuery.bindValue(":name", recipe.name);
+            dupQuery.bindValue(":profile", recipe.profileTitle);
+            dupQuery.bindValue(":beanbase", recipe.beanBaseId);
+            dupQuery.bindValue(":roaster", recipe.roasterName);
+            dupQuery.bindValue(":coffee", recipe.coffeeName);
+            if (dupQuery.exec() && dupQuery.next()) {
+                destId = dupQuery.value(0).toLongLong();
+                matched++;
+            }
+        }
+
+        if (destId < 0) {
+            destId = insertRecipeStatic(destDb, recipe);
+            if (destId < 0)
+                return false;
+            imported++;
+        }
+        outIdMap.insert(recipe.id, destId);
+    }
+
+    qDebug() << "RecipeStorage: recipe import -" << imported << "imported," << matched << "matched existing";
+    return true;
 }

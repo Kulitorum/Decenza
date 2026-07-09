@@ -27,8 +27,9 @@ Transfer profiles, shots, settings, media, and AI conversations between devices 
 8. User selects device and imports desired data types
 
 ### REST Endpoints (on ShotServer)
-- `GET /api/backup/manifest` - List available data (counts, sizes)
-- `GET /api/backup/settings` - Export settings JSON
+- `GET /api/backup/manifest` - List available data (counts, sizes; incl. `recipeCount`/`bagCount`/`equipmentCount`)
+- `GET /api/backup/settings` - Export settings JSON (includes SAW learning; excludes machine flow calibration + mqttPassword on import)
+- `GET /api/backup/extra-settings` - Export extra QSettings (shot-map location, accessibility, language) — LAN parity with the full archive's `extra_settings.json`
 - `GET /api/backup/profiles` - List profile filenames
 - `GET /api/backup/profile/{category}/{filename}` - Download single profile
 - `GET /api/backup/shots` - List shot IDs
@@ -41,3 +42,13 @@ Transfer profiles, shots, settings, media, and AI conversations between devices 
 ### Import Options
 - **Import All**: Settings, profiles, shots, media, AI conversations
 - **Individual**: Import only specific data types (Settings, Profiles, Shots, Media, AI Conversations buttons)
+
+### Coverage parity (finish-recipes-first-class)
+Every durable store is now both exported and imported on **both** paths (LAN device-to-device and `.dcbackup` full archive):
+- **SAW learning** (`saw/*` keys) rides `SettingsSerializer` (`sawLearningExport`/`sawLearningImport`), so it lands in the LAN settings **and** the archive `settings.json`. Scale+profile specific and portable — deliberately NOT excluded like the machine-specific flow calibration.
+- **Extra settings** (shot-map location, accessibility, language): the LAN client now fetches `/api/backup/extra-settings` (chained after the settings import), matching what the archive already bundled.
+- **Recipes** are import-side only — they already exported inside `shots.db`; the fix was the missing merge (`importRecipesStatic`).
+- **Flow calibration** and **mqttPassword** remain intentionally excluded on import (machine/broker specific).
+
+### What rides inside "Shots"
+The Shots import ships the whole `shots.db` file, so several tables travel and are row-remapped during the merge (`ShotHistoryStorage::importDatabaseStatic`), in order: **equipment** (`importEquipmentStatic`) → **coffee bags** (`importBagsStatic`, remaps `equipment_id`) → **recipes** (`importRecipesStatic`, remaps `equipment_id`; finish-recipes-first-class) → **shots** (remaps `equipment_id`, `bag_id`, `recipe_id`, and carries `steam_json`/`hot_water_json`). These are not separate UI buttons — they fold into "Shots". A backup with **zero shots** skips the whole merge (early-return), so bags/equipment/recipes only transfer alongside shots.

@@ -47,11 +47,12 @@ struct ShotMetadata {
     QString defrostDate;  // ISO yyyy-MM-dd, "" = not defrosted
 
     // Recipe provenance (add-recipes): the recipe active at shot start
-    // (<= 0 = none) and a compact-JSON snapshot of the steam spec in effect,
-    // so promote-from-shot round-trips the whole drink. Local history only —
-    // not part of the Visualizer upload payload.
+    // (<= 0 = none) and compact-JSON snapshots of the steam and hot-water specs
+    // in effect, so promote-from-shot round-trips the whole drink. Local history
+    // only — not part of the Visualizer upload payload.
     qint64 recipeId = -1;
     QString steamJson;
+    QString hotWaterJson;
 };
 
 class VisualizerUploader : public QObject {

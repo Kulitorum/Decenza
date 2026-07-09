@@ -376,6 +376,14 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     }
     root["machineTuning"] = machineTuning;
 
+    // SAW (stop-at-weight) learning — its own top-level section, NOT under
+    // machineTuning: unlike flow calibration (machine-specific, excluded on
+    // import) SAW learning is scale+profile specific and portable, so it must
+    // survive device transfer / backup (finish-recipes-first-class).
+    const QJsonObject sawLearning = settings->calibration()->sawLearningExport();
+    if (!sawLearning.isEmpty())
+        root["sawLearning"] = sawLearning;
+
     // Daily backup hour
     root["dailyBackupHour"] = settings->app()->dailyBackupHour();
 
@@ -881,6 +889,13 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
                            << imported << "imported," << rejected << "rejected";
             }
         }
+    }
+
+    // SAW learning (scale+profile specific, portable) — imported on LAN too;
+    // NOT gated by the flowCalibration excludeKey (that guards machine-specific
+    // tuning). A dedicated "sawLearning" excludeKey can still opt out.
+    if (json.contains("sawLearning") && !excludeKeys.contains("sawLearning")) {
+        settings->calibration()->sawLearningImport(json["sawLearning"].toObject());
     }
 
     // Daily backup hour

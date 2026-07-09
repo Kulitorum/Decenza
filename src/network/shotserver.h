@@ -173,6 +173,10 @@ private:
     // Data migration backup API
     void handleBackupManifest(QTcpSocket* socket);
     void handleBackupSettings(QTcpSocket* socket, bool includeSensitive);
+    // Extra QSettings (shot-map location, accessibility, language) not covered
+    // by SettingsSerializer — served for LAN parity with the full archive.
+    static QJsonObject buildExtraSettingsObject();
+    void handleBackupExtraSettings(QTcpSocket* socket);
     void handleBackupProfilesList(QTcpSocket* socket);
     void handleBackupProfileFile(QTcpSocket* socket, const QString& category, const QString& filename);
     void handleBackupMediaList(QTcpSocket* socket);

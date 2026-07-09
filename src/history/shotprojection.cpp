@@ -68,6 +68,8 @@ QVariantMap ShotProjection::toVariantMap() const
         m["recipeId"] = recipeId;
     if (!steamJson.isEmpty())
         m["steamJson"] = steamJson;
+    if (!hotWaterJson.isEmpty())
+        m["hotWaterJson"] = hotWaterJson;
 
     m["pressure"] = pressure;
     m["flow"] = flow;
@@ -160,6 +162,7 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.defrostDate = m.value("defrostDate").toString();
     p.recipeId = m.value("recipeId", -1).toLongLong();
     p.steamJson = m.value("steamJson").toString();
+    p.hotWaterJson = m.value("hotWaterJson").toString();
 
     p.channelingDetected = m.value("channelingDetected").toBool();
     p.grindIssueDetected = m.value("grindIssueDetected").toBool();
