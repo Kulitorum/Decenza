@@ -266,6 +266,7 @@ QString SettingsNetwork::defaultLayoutJson() const {
     // readouts to this zone if they want the larger center display.
     zones["centerStatus"] = QJsonArray();
     zones["centerTop"] = QJsonArray({
+        QJsonObject({{"type", "recipes"}, {"id", "recipes1"}}),
         QJsonObject({{"type", "espresso"}, {"id", "espresso1"}}),
         QJsonObject({{"type", "steam"}, {"id", "steam1"}}),
         QJsonObject({{"type", "hotwater"}, {"id", "hotwater1"}}),
@@ -432,7 +433,51 @@ QJsonObject SettingsNetwork::getLayoutObject() const {
         }
     }
 
-    if (textMigrated || equipmentInjected || connMigrated) {
+    // Migration: ensure a Recipes idle button exists (add-recipes). Default
+    // home is immediately LEFT of the espresso button; if espresso was removed
+    // from the layout, fall back to sitting beside equipment in the bottom
+    // row, then to appending to bottomRight. Idempotent + persisted once.
+    bool recipesInjected = false;
+    {
+        bool hasRecipes = false;
+        for (const QString& zoneName : zones.keys()) {
+            const QJsonArray items = zones[zoneName].toArray();
+            for (const QJsonValue& v : items) {
+                if (v.toObject()["type"].toString() == "recipes") {
+                    hasRecipes = true;
+                    break;
+                }
+            }
+            if (hasRecipes)
+                break;
+        }
+        if (!hasRecipes) {
+            const QJsonObject recipesItem{{"type", "recipes"}, {"id", "recipes1"}};
+            auto insertRelativeTo = [&zones, &recipesItem](const QString& anchorType,
+                                                           int offsetFromAnchor) {
+                for (const QString& zoneName : zones.keys()) {
+                    QJsonArray items = zones[zoneName].toArray();
+                    for (qsizetype i = 0; i < items.size(); ++i) {
+                        if (items[i].toObject()["type"].toString() == anchorType) {
+                            items.insert(i + offsetFromAnchor, recipesItem);
+                            zones[zoneName] = items;
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            };
+            if (!insertRelativeTo(QStringLiteral("espresso"), 0)        // left of espresso
+                && !insertRelativeTo(QStringLiteral("equipment"), 1)) { // beside equipment
+                QJsonArray br = zones.value("bottomRight").toArray();
+                br.append(recipesItem);
+                zones["bottomRight"] = br;
+            }
+            recipesInjected = true;
+        }
+    }
+
+    if (textMigrated || equipmentInjected || connMigrated || recipesInjected) {
         layout["zones"] = zones;
         // Persist the migration so it only runs once
         const_cast<SettingsNetwork*>(this)->saveLayoutObject(layout);
@@ -688,6 +733,7 @@ const QVector<WidgetCatalogEntry>& widgetCatalogTable() {
         { "quit",          0, "layoutEditor.widgetQuit",      "Quit",      "layoutEditor.chipQuit",      "Quit",      "special", true },
         { "history",       0, "layoutEditor.widgetHistory",   "History",   "layoutEditor.chipHistory",   "History",   "", true },
         { "beans",         0, "layoutEditor.widgetBeans",     "Beans",     "layoutEditor.chipBeans",     "Beans",     "", true },
+        { "recipes",       0, "layoutEditor.widgetRecipes",   "Recipes",   "layoutEditor.chipRecipes",   "Recipes",   "", true },
         { "equipment",     0, "layoutEditor.widgetEquipment", "Equipment", "layoutEditor.chipEquipment", "Equipment", "", true },
         { "autofavorites", 0, "layoutEditor.widgetFavorites", "Favorites", "layoutEditor.chipFavorites", "Favorites", "", true },
         { "discuss",       0, "layoutEditor.widgetDiscuss",   "Discuss",   "layoutEditor.chipDiscuss",   "Discuss",   "", true },

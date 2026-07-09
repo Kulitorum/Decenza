@@ -325,6 +325,7 @@ add_decenza_test(tst_aimanager
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
     ${PROFILE_SOURCES}
     ${CORE_SOURCES}
     ${CODEC_SOURCES}
@@ -458,6 +459,7 @@ set(HISTORY_SOURCES
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
@@ -514,6 +516,18 @@ add_decenza_test(tst_equipment
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
 target_include_directories(tst_equipment PRIVATE ${CMAKE_BINARY_DIR})
+
+# --- tst_recipestorage: recipe storage statics + lifecycle (add-recipes) —
+# variant-map round-trip, CRUD, inventory MRU/shot-count aggregate,
+# delete-vs-archive guard, clone provenance, bean-link open-bag resolution.
+# CoffeeBagStorage rides along for the bag-resolution cases. ---
+add_decenza_test(tst_recipestorage
+    tst_recipestorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_include_directories(tst_recipestorage PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_dialing_blocks: DB-backed coverage for the four shared
 # block builders that drive both `dialing_get_context` (MCP) and the
@@ -761,6 +775,7 @@ add_decenza_test(tst_mcptools_write
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
@@ -794,6 +809,7 @@ add_decenza_test(tst_mcptools_presets
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
@@ -825,6 +841,7 @@ add_decenza_test(tst_mcpserver_session
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
@@ -857,6 +874,7 @@ add_decenza_test(tst_mcpserver_protocol
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
     ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp

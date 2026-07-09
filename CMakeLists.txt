@@ -311,6 +311,7 @@ set(SOURCES
     src/history/shothistorystorage_queries.cpp
     src/history/coffeebagstorage.cpp
     src/history/equipmentstorage.cpp
+    src/history/recipestorage.cpp
     src/history/unifiedbeansearchmodel.cpp
     src/history/shotprojection.cpp
     src/history/shotdebuglogger.cpp
@@ -320,6 +321,9 @@ set(SOURCES
     src/models/shotcomparisonmodel.cpp
     src/models/flowcalibrationmodel.cpp
     src/network/shotserver.cpp
+    src/network/shotserver_recipes.cpp
+    src/network/shotserver_bags.cpp
+    src/network/shotserver_equipment.cpp
     src/network/shotserver_shots.cpp
     src/network/shotserver_upload.cpp
     src/network/shotserver_backup.cpp
@@ -334,6 +338,7 @@ set(SOURCES
     src/mcp/mcptools_profiles.cpp
     src/mcp/mcptools_settings.cpp
     src/mcp/mcptools_presets.cpp
+    src/mcp/mcptools_recipes.cpp
     src/mcp/mcptools_beansearch.cpp
     src/mcp/mcptools_dialing.cpp
     src/ai/dialing_blocks.cpp
@@ -498,6 +503,7 @@ set(HEADERS
     src/history/shothistorystorage_internal.h
     src/history/coffeebagstorage.h
     src/history/equipmentstorage.h
+    src/history/recipestorage.h
     src/history/unifiedbeansearchmodel.h
     src/history/shotprojection.h
     src/history/shotdebuglogger.h
@@ -699,6 +705,8 @@ set(QML_FILES
     qml/pages/VisualizerMultiImportPage.qml
     qml/pages/BeanInfoPage.qml
     qml/pages/EquipmentPage.qml
+    qml/pages/RecipesPage.qml
+    qml/pages/RecipeComposerPage.qml
     qml/pages/PostShotReviewPage.qml
     qml/pages/AISettingsPage.qml
     qml/pages/DialingAssistantPage.qml
@@ -828,6 +836,7 @@ set(QML_FILES
     qml/components/layout/items/HotWaterItem.qml
     qml/components/layout/items/FlushItem.qml
     qml/components/layout/items/BeansItem.qml
+    qml/components/layout/items/RecipesItem.qml
     qml/components/layout/items/EquipmentItem.qml
     qml/components/layout/items/HistoryItem.qml
     qml/components/layout/items/DiscussItem.qml

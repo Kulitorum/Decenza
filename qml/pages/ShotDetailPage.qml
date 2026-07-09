@@ -305,6 +305,45 @@ Page {
                     }
                 }
 
+                // Create-recipe button (promote this shot to a recipe —
+                // opens the composer prefilled from it, add-recipes)
+                Rectangle {
+                    Layout.preferredWidth: Theme.scaled(36)
+                    Layout.preferredHeight: Theme.scaled(36)
+                    Layout.alignment: Qt.AlignVCenter
+                    radius: Theme.scaled(18)
+                    color: Theme.surfaceColor
+                    border.color: Theme.borderColor
+                    border.width: Theme.scaled(1)
+
+                    Accessible.ignored: true
+
+                    Image {
+                        anchors.centerIn: parent
+                        source: "qrc:/icons/pin.svg"
+                        sourceSize.width: Theme.scaled(18)
+                        sourceSize.height: Theme.scaled(18)
+                        Accessible.ignored: true
+
+                        layer.enabled: true
+                        layer.smooth: true
+                        layer.effect: MultiEffect {
+                            colorization: 1.0
+                            colorizationColor: Theme.textColor
+                        }
+                    }
+
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: TranslationManager.translate("shotdetail.button.recipe", "Create recipe from this shot")
+                        accessibleItem: parent
+                        onAccessibleClicked: {
+                            pageStack.push(Qt.resolvedUrl("RecipeComposerPage.qml"),
+                                { mode: "create", promoteShotId: shotDetailPage.shotId })
+                        }
+                    }
+                }
+
                 // Edit shot button
                 Rectangle {
                     Layout.preferredWidth: Theme.scaled(36)

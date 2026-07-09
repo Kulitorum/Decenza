@@ -41,6 +41,8 @@ void registerMachineTools(McpToolRegistry*, DE1Device*, MachineState*, MainContr
 void registerShotTools(McpToolRegistry*, ShotHistoryStorage*) {}
 void registerProfileTools(McpToolRegistry*, ProfileManager*, Settings*) {}
 void registerPresetsTools(McpToolRegistry*, Settings*, MainController*, MachineState*) {}
+class RecipeStorage;
+void registerRecipeTools(McpToolRegistry*, ShotHistoryStorage*, RecipeStorage*, MainController*, Settings*) {}
 void registerSettingsReadTools(McpToolRegistry*, Settings*, AccessibilityManager*, ScreensaverVideoManager*, TranslationManager*, BatteryManager*, AIManager*) {}
 void registerDialingTools(McpToolRegistry*, MainController*, ProfileManager*, ShotHistoryStorage*, Settings*) {}
 void registerControlTools(McpToolRegistry*, DE1Device*, MachineState*, ProfileManager*, MainController*, Settings*) {}

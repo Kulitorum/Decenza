@@ -90,6 +90,11 @@ class ShotProjection {
     Q_PROPERTY(qint64 bagId MEMBER bagId)
     Q_PROPERTY(QString frozenDate MEMBER frozenDate)
     Q_PROPERTY(QString defrostDate MEMBER defrostDate)
+    // Recipe provenance (add-recipes): the recipe active at shot time
+    // (<= 0 = none) and the steam-spec snapshot — the composer's
+    // promote-from-shot prefill reads these.
+    Q_PROPERTY(qint64 recipeId MEMBER recipeId)
+    Q_PROPERTY(QString steamJson MEMBER steamJson)
 
     Q_PROPERTY(bool channelingDetected MEMBER channelingDetected)
     Q_PROPERTY(bool grindIssueDetected MEMBER grindIssueDetected)
@@ -168,6 +173,8 @@ public:
     QString beanBaseJson;
     qint64 bagId = -1;
     QString frozenDate;
+    qint64 recipeId = -1;
+    QString steamJson;
     QString defrostDate;
 
     bool channelingDetected = false;

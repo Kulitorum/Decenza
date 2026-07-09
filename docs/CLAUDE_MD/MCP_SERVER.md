@@ -86,9 +86,9 @@ Each tool has a `category` that determines the minimum access level required:
 
 | Category | Min Access Level | Tools |
 |----------|-----------------|-------|
-| `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, profiles_get_auto_load, settings_get, dialing_get_context, dialing_get_grinder_calibration, bag_list, equipment_list, steam_pitcher_list, water_vessel_list |
+| `read` | 0 (Monitor) | machine_get_state, app_get_info, machine_get_telemetry, shots_list, shots_get_detail, shots_get_debug_log, shots_compare, profiles_list, profiles_get_active, profiles_get_detail, profiles_get_params, profiles_get_auto_load, settings_get, dialing_get_context, dialing_get_grinder_calibration, bag_list, equipment_list, recipe_list, recipe_get, steam_pitcher_list, water_vessel_list |
 | `control` | 1 (Control) | machine_wake, machine_sleep, machine_start_espresso, machine_start_steam, machine_start_hot_water, machine_start_flush, machine_stop, machine_skip_frame, shots_update, shots_upload_to_visualizer, backup_now, mqtt_connect, mqtt_disconnect, mqtt_publish_discovery, devices_connect_de1, devices_disconnect_scale, devices_reset_scale_priority, bag_select, equipment_select, steam_pitcher_select, water_vessel_select |
-| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, profiles_rename, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, apply_theme, bag_update, equipment_update, steam_pitcher_add, steam_pitcher_update, steam_pitcher_delete, water_vessel_add, water_vessel_update, water_vessel_delete |
+| `settings` | 2 (Full) | profiles_set_active, profiles_edit_params, profiles_save, profiles_delete, profiles_create, profiles_rename, shots_delete, settings_set, reset_saw_learning, clear_flow_calibration, apply_theme, bag_update, equipment_update, recipe_create, recipe_update, recipe_create_from_shot, recipe_clone, recipe_archive, steam_pitcher_add, steam_pitcher_update, steam_pitcher_delete, water_vessel_add, water_vessel_update, water_vessel_delete |
 
 ### Tool → Confirmation Level Mapping
 
@@ -198,6 +198,19 @@ The grinder is a first-class, switchable **equipment package** (the active bag p
 | `equipment_update` | Edit a package's grinder identity (`grinderBrand/Model/Burrs`) and/or `name`. Partial; re-derives `rpmAdjustable`. Reference semantics (applies to all referencing bags/shots). | settings |
 
 The `de1://dialing` resource's grinder block also exposes `packageId`, `rpmAdjustable`, and `rpm`.
+
+### Recipes (add-recipes)
+A recipe is the whole drink: profile + bean link + equipment + dose/yield/temp + grind routing + steam block. Grind is explicit in responses — `{"mode": "inherited"|"pinned", "value": <text>}` — so a client never guesses where the grind lives; `recipe_get` also resolves the effective grind and open bag. Mutations run through the app's RecipeStorage so the UI refreshes like a local edit; `recipe_activate` uses MainController's single activation path (identical to the idle pill tap).
+| Tool | Description | Category |
+|------|-------------|----------|
+| `recipe_list` | List recipes (MRU order, `isActive` marks the machine's current setup; `includeArchived=true` adds archived ones). | read |
+| `recipe_get` | One recipe fully resolved: effective grind, the open bag it would select, steam block. | read |
+| `recipe_create` | Create from explicit fields; only `name` + `profileTitle` required (optionality ladder applies inside the recipe). | settings |
+| `recipe_update` | Partial update; `grindPinned: ""` returns the recipe to inheriting grind from its bean's bag. | settings |
+| `recipe_create_from_shot` | The promotion path: prefills from a shot record + its steam snapshot (fallback: current steam settings). | settings |
+| `recipe_clone` | Copy + rename (family-variant workflow); provenance points at the source recipe. | settings |
+| `recipe_archive` | Archive (used recipes can never be hard-deleted — same rule as bags); `restore=true` unarchives, `delete=true` hard-deletes an unused recipe. | settings |
+| `recipe_activate` | Apply the whole drink: profile, resolved open bag, equipment, dose/yield/temp, grind routing, steam (+ heater warm-up when `hasMilk`). | control |
 
 ### Profile Management
 | Tool | Description | Category |

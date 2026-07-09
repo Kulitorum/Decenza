@@ -109,6 +109,7 @@ Page {
         root.currentPageTitle = TranslationManager.translate("idle.pageTitle", "Idle")
         MainController.bagStorage.requestInventory()
         MainController.equipmentStorage.requestInventory()
+        MainController.recipeStorage.requestInventory()
         _publishOperationMode()
     }
 
@@ -157,8 +158,24 @@ Page {
         }
     }
 
+    // Recipes for the recipe pill row (add-recipes): pills are recipes,
+    // selection is activeRecipeId, activation runs through MainController's
+    // single path. Capped to the 5 most recently used (inventoryReady is
+    // MRU-ordered); the full list lives on the Recipes page.
+    property var inventoryRecipes: []
+
+    Connections {
+        target: MainController.recipeStorage
+        function onInventoryReady(recipes) {
+            idlePage.inventoryRecipes = recipes.slice(0, 5)
+        }
+        function onRecipesChanged() {
+            MainController.recipeStorage.requestInventory()
+        }
+    }
+
     // Track which function's presets are showing (used by center-zone action items)
-    property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush", "beans", "equipment"
+    property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush", "beans", "equipment", "recipes"
 
     // Idle bean auto-capture: tracks a virtual zero off the empty scale, then when
     // the dose cup (with beans) rests stable it sets the dose (dyeBeanWeight) and
@@ -462,6 +479,15 @@ Page {
                         }
                     }
                     break
+                case "recipes":
+                    presets = idlePage.inventoryRecipes.map(function(r) { return { name: r.name } })
+                    for (var ri = 0; ri < idlePage.inventoryRecipes.length; ++ri) {
+                        if (idlePage.inventoryRecipes[ri].id === Settings.dye.activeRecipeId) {
+                            selectedName = idlePage.inventoryRecipes[ri].name
+                            break
+                        }
+                    }
+                    break
             }
 
             if (presets.length > 0) {
@@ -568,6 +594,7 @@ Page {
                     case "flush": return flushPresetLoader
                     case "beans": return beanPresetLoader
                     case "equipment": return equipmentPresetLoader
+                    case "recipes": return recipePresetLoader
                     default: return steamPresetLoader
                 }
             }
@@ -990,6 +1017,31 @@ Page {
                         var pkg = idlePage.inventoryEquipment[index]
                         if (!pkg) return
                         Settings.dye.switchToEquipment(pkg)
+                    }
+                }
+            }
+
+            Loader {
+                id: recipePresetLoader
+                width: parent.width
+                anchors.horizontalCenter: parent.horizontalCenter
+                active: activePresetFunction === "recipes"
+                visible: active
+                sourceComponent: PresetPillRow {
+                    maxWidth: recipePresetLoader.width
+                    presets: idlePage.inventoryRecipes.map(function(r) { return { name: r.name } })
+                    selectedIndex: {
+                        var list = idlePage.inventoryRecipes
+                        for (var i = 0; i < list.length; ++i) {
+                            if (list[i].id === Settings.dye.activeRecipeId) return i
+                        }
+                        return -1
+                    }
+
+                    onPresetSelected: function(index) {
+                        var recipe = idlePage.inventoryRecipes[index]
+                        if (!recipe) return
+                        MainController.activateRecipe(recipe.id)
                     }
                 }
             }

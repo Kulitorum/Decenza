@@ -28,6 +28,7 @@ class ShotHistoryStorage;
 struct ShotRecord;
 class DE1Device;
 class MachineState;
+class MainController;
 class ScreensaverVideoManager;
 class Settings;
 class ProfileStorage;
@@ -87,6 +88,10 @@ public:
 
     // Machine state for home automation API
     void setMachineState(MachineState* machineState) { m_machineState = machineState; }
+
+    // MainController for the recipes/bags/equipment surfaces (add-recipes):
+    // storages + the single recipe-activation path. Non-owning.
+    void setMainController(MainController* mainController) { m_mainController = mainController; }
 
     // AI manager for layout AI assistant
     void setAIManager(AIManager* aiManager) { m_aiManager = aiManager; }
@@ -189,6 +194,18 @@ private:
     void handleThemeApi(QTcpSocket* socket, const QString& method, const QString& path, const QByteArray& body);
     QJsonObject buildThemeJson() const;
 
+    // Recipes web UI (add-recipes) — shotserver_recipes.cpp
+    QString generateRecipesPage() const;
+    void handleRecipesApi(QTcpSocket* socket, const QString& method, const QString& path, const QByteArray& body);
+
+    // Bags web UI (add-recipes) — shotserver_bags.cpp
+    QString generateBeansPage() const;
+    void handleBagsApi(QTcpSocket* socket, const QString& method, const QString& path, const QByteArray& body);
+
+    // Equipment web UI (add-recipes) — shotserver_equipment.cpp
+    QString generateEquipmentPage() const;
+    void handleEquipmentApi(QTcpSocket* socket, const QString& method, const QString& path, const QByteArray& body);
+
     // Settings web UI
     QString generateSettingsPage() const;
     void handleGetSettings(QTcpSocket* socket);
@@ -259,6 +276,7 @@ private:
     Settings* m_settings = nullptr;
     ProfileStorage* m_profileStorage = nullptr;
     MachineState* m_machineState = nullptr;
+    MainController* m_mainController = nullptr;
     AIManager* m_aiManager = nullptr;
     MqttClient* m_mqttClient = nullptr;
     QNetworkAccessManager* m_testNetworkManager = nullptr;

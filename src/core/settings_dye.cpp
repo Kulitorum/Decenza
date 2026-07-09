@@ -289,7 +289,11 @@ void SettingsDye::setDyeGrinderSetting(const QString& value) {
     if (dyeGrinderSetting() != value) {
         m_dyeGrinderSettingCache = value;
         m_settings.setValue("dye/grinderSetting", value);
-        writeThroughToBag("grinderSetting", value);
+        // Suspended while the active recipe pins its grind (add-recipes):
+        // the pin is the recipe's private dial, so the bean's shared value
+        // must not follow it. MainController stamps the pin instead.
+        if (!m_grindBagWriteThroughSuspended)
+            writeThroughToBag("grinderSetting", value);
         // Dual write-through: the grind setting is grinder-scoped too, so keep
         // the active package's last dial current (add-equipment-packages).
         writeThroughToActivePackage("lastGrindSetting", value);
@@ -306,7 +310,10 @@ void SettingsDye::setDyeGrinderRpm(int value) {
     if (dyeGrinderRpm() != value) {
         m_dyeGrinderRpmCache = value;
         m_settings.setValue("dye/grinderRpm", value);
-        writeThroughToBag("rpm", value > 0 ? QVariant(value) : QVariant());
+        // The grind override pins grind AND rpm together (add-recipes): while
+        // suspended, rpm edits belong to the recipe's pin, not the bean.
+        if (!m_grindBagWriteThroughSuspended)
+            writeThroughToBag("rpm", value > 0 ? QVariant(value) : QVariant());
         writeThroughToActivePackage("lastRpm", value > 0 ? QVariant(value) : QVariant());
         emit dyeGrinderRpmChanged();
     }
@@ -541,6 +548,17 @@ void SettingsDye::clearBeanBaseLink() {
 }
 
 // Active bag
+
+int SettingsDye::activeRecipeId() const {
+    return m_settings.value("dye/activeRecipeId", -1).toInt();
+}
+
+void SettingsDye::setActiveRecipeId(int recipeId) {
+    if (activeRecipeId() == recipeId)
+        return;
+    m_settings.setValue("dye/activeRecipeId", recipeId);
+    emit activeRecipeIdChanged();
+}
 
 int SettingsDye::activeBagId() const {
     return m_settings.value("dye/activeBagId", -1).toInt();

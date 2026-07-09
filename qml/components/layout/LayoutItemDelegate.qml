@@ -36,6 +36,7 @@ Item {
             case "hotwater":
             case "flush":
             case "beans":
+            case "recipes":
             case "equipment":
             case "history":
             case "settings":
@@ -97,6 +98,16 @@ Item {
                 longPressAction: "navigate:beaninfo",
                 doubleclickAction: "navigate:beaninfo",
                 backgroundColor: Settings.dye.activeBagId <= 0 ? Theme.highlightColor : Theme.primaryColor
+            }
+            case "recipes": return {
+                emoji: "qrc:/icons/pin.svg",
+                content: TranslationManager.translate("idle.button.recipes", "Recipes"),
+                action: "togglePreset:recipes",
+                // "recipeList" (drink recipes) — the bare "recipes" navigate
+                // target is the pre-existing profile Recipe Editor.
+                longPressAction: "navigate:recipeList",
+                doubleclickAction: "navigate:recipeList",
+                backgroundColor: Theme.primaryColor
             }
             case "equipment": return {
                 emoji: "qrc:/icons/grind.svg",
@@ -179,6 +190,7 @@ Item {
                 case "hotwater":         src = "items/HotWaterItem.qml"; break
                 case "flush":            src = "items/FlushItem.qml"; break
                 case "beans":            src = "items/BeansItem.qml"; break
+                case "recipes":          src = "items/RecipesItem.qml"; break
                 case "equipment":        src = "items/EquipmentItem.qml"; break
                 case "history":          src = "items/HistoryItem.qml"; break
                 case "autofavorites":    src = "items/AutoFavoritesItem.qml"; break

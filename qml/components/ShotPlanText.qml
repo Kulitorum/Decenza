@@ -55,13 +55,17 @@ Item {
     property double dose: Settings.dye.dyeBeanWeight
     property double profileYield: ProfileManager.profileTargetWeight
     property double targetWeight: ProfileManager.targetWeight
+    // Override flags, parameterizable so non-live consumers (recipe cards)
+    // can render THEIR overrides; defaults preserve the live-widget behavior.
+    property bool yieldOverridden: Settings.brew.hasBrewYieldOverride
+    property bool tempOverridden: Settings.brew.hasTemperatureOverride
 
     // Highlight (espresso-button yellow) on a brew TEMPERATURE override only.
     // Yield is intentionally excluded: the target output is dose × ratio and the
     // measured dose never exactly equals the profile's listed dose, so yield would
     // almost always differ — leaving the plan permanently highlighted.
     readonly property bool _tempOverride:
-        Settings.brew.hasTemperatureOverride && Math.abs(overrideTemp - profileTemp) > 0.1
+        tempOverridden && Math.abs(overrideTemp - profileTemp) > 0.1
 
     // --- Per-item segments (empty string = hidden). ---
     // Dose & yield: the shot's target output, plus dose-in (e.g. "18.0g in"). A DELIBERATE yield
@@ -71,7 +75,7 @@ Item {
     // shows only the effective target ("40.0g"); with no active override it's a visible no-op.
     readonly property string _yieldStr: {
         if (!(_has("doseYield") && targetWeight > 0)) return ""
-        if (!yieldTargetOnly && Settings.brew.hasBrewYieldOverride && profileYield > 0
+        if (!yieldTargetOnly && yieldOverridden && profileYield > 0
                 && Math.abs(targetWeight - profileYield) > 0.1)
             return profileYield.toFixed(1) + " → " + targetWeight.toFixed(1) + "g"
         return targetWeight.toFixed(1) + "g"

@@ -179,7 +179,6 @@ private:
     void initAndClose(const QString& path)
     {
         ShotHistoryStorage storage;
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(QStringLiteral("connection.*still in use")));
         QVERIFY(storage.initialize(path));
         storage.close();
         for (int i = 0; i < 20; ++i) {
