@@ -59,7 +59,7 @@
 
 ## 8. Docs and finalization
 
-- [ ] 8.1 Update RECIPES.md (wizard, drink_type, profile-less activation), BEAN_BASE.md (two-stage extraction, tea prompt, imageUrl), MCP_SERVER.md (tool field changes), SETTINGS/QML docs only if touched
-- [ ] 8.2 Update wiki Manual pages (Recipes, Bag Inventory) for the wizard and Add Tea
+- [x] 8.1 Update RECIPES.md (wizard, drink_type, profile-less activation), BEAN_BASE.md (two-stage extraction, tea prompt, imageUrl), MCP_SERVER.md (tool field changes), SETTINGS/QML docs only if touched
+- [ ] 8.2 Update wiki Manual pages (Recipes, Bag Inventory) for the wizard and Add Tea. NOTE: deferred to merge time — the wiki is live user documentation and must not describe unreleased UI
 - [ ] 8.3 Full test suite + app-log QML TypeError check (clear-warnings bar); Jeff launches the app for manual verification
 - [ ] 8.4 Archive this OpenSpec change on the feature branch before merge (/opsx:archive)

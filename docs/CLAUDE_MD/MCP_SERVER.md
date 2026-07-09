@@ -185,9 +185,9 @@ This avoids holding HTTP connections and works naturally with the conversational
 ### Coffee Bags (bean-bag-inventory)
 | Tool | Description | Category |
 |------|-------------|----------|
-| `bag_list` | List coffee bags (inventory by default; `includeEmpty=true` adds bags marked empty). Each bag carries identity, freeze lifecycle, last-used grinder/dose, a parsed `beanBase` snapshot, and `isActive`. | read |
+| `bag_list` | List coffee bags (inventory by default; `includeEmpty=true` adds bags marked empty). Each bag carries identity, `kind` ("coffee"/"tea", creation-time), freeze lifecycle, last-used grinder/dose, a parsed `beanBase` snapshot, `isActive`, and — tea bags — the structured brewing fields (teaType, brewTemperatureC, leafGramsPer100Ml, steepTime). | read |
 | `bag_select` | Set the active bag — what the next shot is pulled with (applies bean identity + last-used grinder/dose). `bagId: 0` clears the selection. | control |
-| `bag_update` | Update bag fields (metadata + freeze lifecycle). Partial: only provided keys change; `""` clears a text/date field. `inInventory=false` = "Bag finished" (marks the bag empty); setting `defrostDate` records a thaw. | settings |
+| `bag_update` | Update bag fields (metadata + freeze lifecycle + bean/tea details). Partial: only provided keys change; `""` clears a text/date field. `inInventory=false` = "Bag finished" (marks the bag empty); setting `defrostDate` records a thaw. `kind` is NOT editable (creation-time identity). | settings |
 
 ### Equipment Packages (add-equipment-packages)
 The grinder is a first-class, switchable **equipment package** (the active bag points at one via `equipment_id`). The grind setting + `rpm` stay as per-bag dial-in.
@@ -203,10 +203,10 @@ The `de1://dialing` resource's grinder block also exposes `packageId`, `rpmAdjus
 A recipe is the whole drink: profile + bean link + equipment + dose/yield/temp + grind routing + steam block. Grind is explicit in responses — `{"mode": "inherited"|"pinned", "value": <text>}` — so a client never guesses where the grind lives; `recipe_get` also resolves the effective grind and open bag. Mutations run through the app's RecipeStorage so the UI refreshes like a local edit; `recipe_activate` uses MainController's single activation path (identical to the idle pill tap).
 | Tool | Description | Category |
 |------|-------------|----------|
-| `recipe_list` | List recipes (MRU order, `isActive` marks the machine's current setup; `includeArchived=true` adds archived ones). | read |
+| `recipe_list` | List recipes (MRU order, `isActive` marks the machine's current setup; `includeArchived=true` adds archived ones). Each recipe carries `drinkType` (stored, or derived for legacy rows). | read |
 | `recipe_get` | One recipe fully resolved: effective grind, the open bag it would select, steam block. | read |
-| `recipe_create` | Create from explicit fields; only `name` + `profileTitle` required (optionality ladder applies inside the recipe). | settings |
-| `recipe_update` | Partial update; `grindPinned: ""` returns the recipe to inheriting grind from its bean's bag. | settings |
+| `recipe_create` | Create from explicit fields; only `name` always required — `profileTitle` is required unless the payload carries a hot-water block with `hasWater` true (profile-less hot-water tea). Accepts `drinkType` (derived from blocks when omitted). | settings |
+| `recipe_update` | Partial update; `grindPinned: ""` returns the recipe to inheriting grind from its bean's bag. Block/profile changes re-derive `drinkType` unless set in the same call; clearing `profileTitle` requires an active hot-water block in the same call. | settings |
 | `recipe_create_from_shot` | The promotion path: prefills from a shot record + its steam snapshot (fallback: current steam settings). | settings |
 | `recipe_clone` | Copy + rename (family-variant workflow); provenance points at the source recipe. | settings |
 | `recipe_archive` | Archive (used recipes can never be hard-deleted — same rule as bags); `restore=true` unarchives, `delete=true` hard-deletes an unused recipe. | settings |
