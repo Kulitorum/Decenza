@@ -174,6 +174,11 @@ void ShotSummarizer::loadProfileKnowledge()
             if (!flag.isEmpty()) pk.analysisFlags << flag;
         }
 
+        for (const QJsonValue& r : po.value(QStringLiteral("roastAffinity")).toArray()) {
+            const QString level = r.toString().trimmed();
+            if (!level.isEmpty()) pk.roastAffinity << level;
+        }
+
         const QJsonValue ugsv = po.value(QStringLiteral("ugs"));
         if (ugsv.isObject()) {
             const QJsonObject u = ugsv.toObject();
@@ -417,6 +422,14 @@ QString ShotSummarizer::findProfileSection(const QString& profileTitle, const QS
     loadProfileKnowledge();
     const QString id = matchProfileKey(s_profileKnowledge, profileTitle, profileType);
     return id.isEmpty() ? QString() : s_profileKnowledge.value(id).content;
+}
+
+QStringList ShotSummarizer::roastAffinityForTitle(const QString& profileTitle)
+{
+    if (profileTitle.isEmpty()) return {};
+    loadProfileKnowledge();
+    const QString id = matchProfileKey(s_profileKnowledge, profileTitle, QString());
+    return id.isEmpty() ? QStringList() : s_profileKnowledge.value(id).roastAffinity;
 }
 
 QString ShotSummarizer::profileKnowledgeForKbId(const QString& profileKbId)

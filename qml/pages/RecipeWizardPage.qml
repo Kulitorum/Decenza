@@ -467,6 +467,7 @@ Page {
             }
             fBeanBaseId = ""; fRoaster = ""; fCoffee = ""; fBagBlob = ""
             fInheritedGrind = ""; fInheritedRpm = 0
+            _selectedBagRoastLevel = ""
         } else {
             fBeanBaseId = bag.beanBaseId || ""
             fRoaster = bag.roasterName || ""
@@ -474,6 +475,7 @@ Page {
             fBagBlob = bag.beanBaseData || ""
             fInheritedGrind = bag.grinderSetting || ""
             fInheritedRpm = bag.rpm || 0
+            _selectedBagRoastLevel = bag.roastLevel || ""
             if (hadBean && !fGrindOverride)
                 bagSwapHint = TranslationManager.translate(
                     "recipes.wizard.grindFollowsHint", "Grind now follows %1: %2")
@@ -616,8 +618,11 @@ Page {
                 "recipes.wizard.profiles.withBean", "Used with this bean") })
             model = model.concat(tier1)
         }
-        // Tier ②: type-matched tea profiles (no history needed) first, then
-        // similar-bean history.
+        // Tier ②: knowledge-driven recommendations (no history needed) first,
+        // then similar-bean history. Tea: profiles whose stock title matches
+        // the bag's tea type. Coffee: profiles the knowledge base states
+        // shine with the bag's roast level (KB roastAffinity — authored from
+        // each profile's own dial-in docs).
         var tier2 = []
         var teaType = ""
         if (isTeaDrink && _teaBrewingTypeForRanking() !== "")
@@ -629,6 +634,18 @@ Page {
                     tier2.push({ isHeader: false, title: inSet[i].title, name: inSet[i].name,
                                  reason: TranslationManager.translate(
                                      "recipes.wizard.profiles.matchesType", "matches %1").arg(teaType) })
+                    used[inSet[i].title] = true
+                }
+            }
+        }
+        if (!isTeaDrink && _selectedBagRoastLevel !== "") {
+            for (i = 0; i < inSet.length; ++i) {
+                if (used[inSet[i].title]) continue
+                if (ProfileManager.kbProfileSuitsRoast(inSet[i].title, _selectedBagRoastLevel)) {
+                    tier2.push({ isHeader: false, title: inSet[i].title, name: inSet[i].name,
+                                 reason: TranslationManager.translate(
+                                     "recipes.wizard.profiles.suitsRoast", "suits %1 roasts")
+                                     .arg(_selectedBagRoastLevel.toLowerCase()) })
                     used[inSet[i].title] = true
                 }
             }

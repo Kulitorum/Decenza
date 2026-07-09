@@ -56,6 +56,7 @@
     },
     {
       "id": "damians-lr-v2-v3",
+      "roastAffinity": ["dark"],
       "displayName": "Damian's LRv2 / LRv3",
       "alsoMatches": ["Damian's LRv2", "Damian's LRv3"],
       "ugs": { "value": 0.0, "inferred": false, "note": "Londinium / LRv3 chart position; LRv2 trends slightly coarser than LRv3." },
@@ -83,6 +84,7 @@
     },
     {
       "id": "adaptive-v2",
+      "roastAffinity": ["light", "medium-light"],
       "displayName": "Adaptive v2",
       "ugs": { "value": 1.25, "inferred": false, "note": "Slightly coarser to favor flow-driven clarity." },
       "family": "flow-adaptive",
@@ -100,6 +102,7 @@
     },
     {
       "id": "blooming-espresso",
+      "roastAffinity": ["light", "medium-light", "medium"],
       "displayName": "Blooming Espresso",
       "ugs": { "value": -0.5, "inferred": false, "note": "Finer than Cremina — survives the 30s soak without premature gushing." },
       "analysisFlags": ["flow_trend_ok", "channeling_expected"],
@@ -108,6 +111,7 @@
     },
     {
       "id": "blooming-allonge",
+      "roastAffinity": ["light"],
       "displayName": "Blooming Allonge",
       "ugs": { "value": -0.5, "inferred": false, "note": "Original at -0.5; an ultralight hybrid variant sits near UGS 7." },
       "analysisFlags": ["flow_trend_ok", "grind_check_skip", "channeling_expected"],
@@ -116,6 +120,7 @@
     },
     {
       "id": "allonge",
+      "roastAffinity": ["light"],
       "displayName": "Allonge",
       "alsoMatches": ["Rao Allongé"],
       "ugs": { "value": 8.0, "inferred": false, "note": "Rao Allongé — the coarse anchor of the UGS chart." },
@@ -135,6 +140,7 @@
     },
     {
       "id": "default",
+      "roastAffinity": ["medium", "medium-dark", "dark"],
       "displayName": "Default",
       "ugs": { "value": 0.75, "inferred": false, "note": "Standard espresso starting point." },
       "analysisFlags": ["flow_trend_ok"],
@@ -143,6 +149,7 @@
     },
     {
       "id": "londinium",
+      "roastAffinity": ["medium-dark", "dark"],
       "displayName": "Londinium",
       "alsoMatches": ["Londonium", "Londinium / LRv3"],
       "ugs": { "value": 0.0, "inferred": false, "note": "Londinium / LRv3 — same fine grind as Cremina." },
@@ -162,6 +169,7 @@
     },
     {
       "id": "turbo-shot",
+      "roastAffinity": ["light", "medium-light", "medium"],
       "displayName": "Turbo Shot",
       "alsoMatches": ["Hendon Turbo", "Hendon Turbo 6b Pressure Decline", "Hendon Turbo Bloom", "Hendon Turbo Flow"],
       "ugs": { "value": 5.0, "inferred": false, "note": "The \"clarity jump\" — ~15s with a 6-bar ceiling." },
@@ -179,6 +187,7 @@
     },
     {
       "id": "filter3",
+      "roastAffinity": ["light", "medium-light", "medium"],
       "displayName": "Filter3",
       "analysisFlags": ["flow_trend_ok"],
       "family": "filter",
@@ -192,6 +201,7 @@
     },
     {
       "id": "gentle-and-sweet",
+      "roastAffinity": ["light"],
       "displayName": "Gentle & Sweet",
       "ugs": { "value": 2.0, "inferred": false, "note": "Constant 6 bar, 2–3 ml/s flow." },
       "analysisFlags": ["flow_trend_ok"],
@@ -200,6 +210,7 @@
     },
     {
       "id": "extractamundo-dos",
+      "roastAffinity": ["light"],
       "displayName": "Extractamundo Dos",
       "alsoMatches": ["Extractamundo Dos!"],
       "ugs": { "value": 1.5, "inferred": false, "note": "6-bar low pressure allows a coarser, \"juicier\" window." },
@@ -216,6 +227,7 @@
     },
     {
       "id": "cremina-lever-machine",
+      "roastAffinity": ["dark"],
       "displayName": "Cremina lever machine",
       "alsoMatches": ["Cremina"],
       "ugs": { "value": 0.0, "inferred": false, "note": "Cremina — the fine anchor of the UGS chart." },
@@ -225,6 +237,7 @@
     },
     {
       "id": "idans-strega-plus",
+      "roastAffinity": ["medium-light", "medium"],
       "displayName": "Idan's Strega Plus",
       "alsoMatches": ["Strega Plus", "Strega Plus medium", "Strega Plus dark", "Idan Strega"],
       "analysisFlags": ["flow_trend_ok", "channeling_expected"],
@@ -233,6 +246,7 @@
     },
     {
       "id": "80s-espresso",
+      "roastAffinity": ["dark"],
       "displayName": "80's Espresso",
       "ugs": { "value": -0.5, "inferred": true, "note": "Extreme low-temp regime requires a much finer grind than any temperature-normal lever profile; empirically ~3–4 steps finer than D-Flow on the same grinder." },
       "analysisFlags": ["flow_trend_ok"],
@@ -241,6 +255,7 @@
     },
     {
       "id": "best-overall",
+      "roastAffinity": ["medium", "medium-dark", "dark"],
       "displayName": "Best Overall",
       "alsoMatches": ["Best overall pressure profile"],
       "ugs": { "value": 0.75, "inferred": false, "note": "Rise to ~8.6 bar, declining to ~6 bar." },
@@ -250,6 +265,7 @@
     },
     {
       "id": "e61",
+      "roastAffinity": ["dark"],
       "displayName": "E61",
       "alsoMatches": ["E61 espresso machine", "E61 classic gently up to 10 bar", "E61 rocketing up to 10 bar", "E61 with fast preinfusion to 9 bar"],
       "ugs": { "value": 1.25, "inferred": false, "note": "Constant 9 bar, no pre-infusion (classic variant)." },
@@ -259,6 +275,7 @@
     },
     {
       "id": "classic-italian-traditional-flat-pressure",
+      "roastAffinity": ["medium", "medium-dark", "dark"],
       "displayName": "Classic Italian / Traditional Flat Pressure",
       "alsoMatches": ["Classic Italian espresso", "Gentler but still traditional 8.4 bar", "Italian Australian espresso"],
       "ugs": { "value": 1.25, "inferred": true, "note": "Constant-pressure family, behaves like Flat 9 Bar." },
@@ -268,6 +285,7 @@
     },
     {
       "id": "traditional-spring-lever-machine",
+      "roastAffinity": ["medium", "medium-dark", "dark"],
       "displayName": "Traditional / Spring Lever Machine",
       "alsoMatches": ["Traditional lever machine", "Low pressure lever machine at 6 bar", "Two spring lever machine to 9 bar"],
       "analysisFlags": ["flow_trend_ok"],
@@ -284,6 +302,7 @@
     },
     {
       "id": "best-practice-light-roast",
+      "roastAffinity": ["light"],
       "displayName": "Best Practice Light Roast",
       "alsoMatches": ["Best practice (light roast)"],
       "analysisFlags": ["flow_trend_ok", "channeling_expected"],
@@ -292,6 +311,7 @@
     },
     {
       "id": "easy-blooming-active-pressure-decline",
+      "roastAffinity": ["light"],
       "displayName": "Easy Blooming Active Pressure Decline",
       "alsoMatches": ["Easy blooming - active pressure decline"],
       "analysisFlags": ["flow_trend_ok", "channeling_expected"],
@@ -300,6 +320,7 @@
     },
     {
       "id": "gagne-adaptive",
+      "roastAffinity": ["light"],
       "displayName": "Gagné Adaptive",
       "alsoMatches": ["Gagné/Adaptive Shot 92C v1.0", "Gagné/Adaptive Allongé 94C v1.0", "Gagne Adaptive Shot", "Gagne Adaptive Allonge"],
       "ugs": { "value": 1.25, "inferred": true, "note": "Adaptive/flow family; behaves near the Adaptive v2 grind window." },
@@ -332,6 +353,7 @@
     },
     {
       "id": "nu-skool",
+      "roastAffinity": ["light"],
       "displayName": "Nu Skool",
       "alsoMatches": ["Nu Skool 14g", "Nu Skool 18g", "Nu Skool 20g", "Nu Skool large basket"],
       "ugs": { "value": 6.0, "inferred": true, "note": "High-flow new-wave light-roast territory, similar to Turbo-style." },
@@ -340,6 +362,7 @@
     },
     {
       "id": "gentle-flat-long-preinfusion-family",
+      "roastAffinity": ["light"],
       "displayName": "Gentle Flat / Long Preinfusion Family",
       "alsoMatches": ["Gentle flat 2.5 ml per second", "Gentle preinfusion flow profile", "Hybrid pour over espresso", "Innovative long preinfusion"],
       "family": "gentle-long-preinfusion",
@@ -369,6 +392,7 @@
     },
     {
       "id": "pour-over-basket",
+      "roastAffinity": ["light", "medium-light", "medium"],
       "displayName": "Pour Over Basket",
       "alsoMatches": ["Pour over basket/Decent pour over", "Pour over basket/Kalita 20g in, 340ml out", "Pour over basket/V60 15g in, 250g out", "Pour over basket/V60 20g in, 340g out", "Pour over basket/V60 22g in, 375g out", "Pour over basket/Cold brew 22g in, 375ml out"],
       "ugs": { "value": 7.5, "inferred": true, "note": "High-flow filter/pour-over territory." },
@@ -378,6 +402,7 @@
     },
     {
       "id": "trendy-6-bar-low-pressure",
+      "roastAffinity": ["light"],
       "displayName": "Trendy 6 Bar Low Pressure",
       "alsoMatches": ["Trendy 6 bar low pressure shot"],
       "analysisFlags": ["flow_trend_ok"],

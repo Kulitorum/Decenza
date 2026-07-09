@@ -37,9 +37,12 @@ PROVENANCE_ENUM = {"cited", "author-stated", "inferred"}
 CONFIDENCE_ENUM = {"high", "medium", "low"}
 INTRINSIC_SRC = {"profile-notes"}
 
+ROAST_ENUM = {"light", "medium-light", "medium", "medium-dark", "dark"}
+
 ENTRY_KEYS = {
     "id", "displayName", "alsoMatches", "defaultForEditorType", "ugs",
     "analysisFlags", "skipCatalog", "family", "expertBand", "prose",
+    "roastAffinity",
 }
 BAND_KEYS = {"axis", "lo", "hi", "src", "srcArchive", "provenance",
              "confidence", "rationale", "proseRestatesBand"}
@@ -108,6 +111,21 @@ def validate(kb_path: Path):
         am = p.get("alsoMatches", [])
         if not isinstance(am, list) or any(not isinstance(x, str) or not x for x in am):
             errors.append(f"{pid}: alsoMatches must be a list of non-empty strings")
+
+        # roastAffinity (add-recipe-wizard-tea): OPTIONAL controlled-vocabulary
+        # list — the roast levels the entry's own prose/source states the
+        # profile shines with. Consumed by the recipe wizard's ranking, so a
+        # typo would silently drop the recommendation: enum-gate it here.
+        ra = p.get("roastAffinity")
+        if ra is not None:
+            if (not isinstance(ra, list) or not ra
+                    or any(x not in ROAST_ENUM for x in ra)):
+                errors.append(f"{pid}: roastAffinity must be a non-empty list from "
+                              f"{sorted(ROAST_ENUM)}")
+            elif len(set(ra)) != len(ra):
+                errors.append(f"{pid}: roastAffinity has duplicates")
+            if skip:
+                errors.append(f"{pid}: roastAffinity is meaningless on skipCatalog entries")
         ded = p.get("defaultForEditorType")
         if ded not in (None, "dflow", "aflow"):
             errors.append(f"{pid}: defaultForEditorType {ded!r} invalid")

@@ -2456,6 +2456,34 @@ private slots:
     }
 
     // -------------------------------------------------------------------
+    // KB roastAffinity (add-recipe-wizard-tea): the wizard's "suits your
+    // roast" tier resolves through the same title/alias matching as every
+    // other KB lookup. Pins a dark-affinity entry (Londinium), a
+    // light-affinity entry resolved via alias (Blooming Espresso), a
+    // no-claim entry staying empty, and the unresolved-title fallback.
+    // -------------------------------------------------------------------
+    void shippedKb_roastAffinityResolution()
+    {
+        const QStringList londinium =
+            ShotSummarizer::roastAffinityForTitle(QStringLiteral("Londinium"));
+        QVERIFY(londinium.contains(QStringLiteral("dark")));
+        QVERIFY(londinium.contains(QStringLiteral("medium-dark")));
+        QVERIFY(!londinium.contains(QStringLiteral("light")));
+
+        const QStringList blooming =
+            ShotSummarizer::roastAffinityForTitle(QStringLiteral("Blooming Espresso"));
+        QVERIFY(blooming.contains(QStringLiteral("light")));
+        QVERIFY(!blooming.contains(QStringLiteral("dark")));
+
+        // Entries with no stated affinity make NO claim (never guessed).
+        QVERIFY(ShotSummarizer::roastAffinityForTitle(
+                    QStringLiteral("Filter 2.0")).isEmpty());
+        // Unresolved titles fall to empty, not a fabricated affinity.
+        QVERIFY(ShotSummarizer::roastAffinityForTitle(
+                    QStringLiteral("No Such Profile XYZ")).isEmpty());
+    }
+
+    // -------------------------------------------------------------------
     // restructure-kb-as-validated-json (task 5.2 / 6.6): KB-COVERAGE GATE.
     // Every shipped built-in profile (resources/profiles/*.json) MUST
     // resolve to a KB entry via the production resolver. A NEW built-in

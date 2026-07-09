@@ -1044,6 +1044,13 @@ double ProfileManager::defaultTeaTempC(const QString& teaType) const {
     return DrinkTypes::defaultTeaTempC(teaType);
 }
 
+bool ProfileManager::kbProfileSuitsRoast(const QString& profileTitle, const QString& roastLevel) const {
+    const QString normalized = roastLevel.trimmed().toLower().replace(QLatin1Char(' '), QLatin1Char('-'));
+    if (normalized.isEmpty())
+        return false;
+    return ShotSummarizer::roastAffinityForTitle(profileTitle).contains(normalized);
+}
+
 
 // === Profile loading ===
 

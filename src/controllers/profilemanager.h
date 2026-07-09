@@ -154,6 +154,13 @@ public:
     // the keyword table and per-type default temps).
     Q_INVOKABLE bool teaProfileMatchesType(const QString& profileTitle, const QString& teaType) const;
     Q_INVOKABLE double defaultTeaTempC(const QString& teaType) const;
+    // Does the profile-knowledge base state this profile shines with the
+    // given roast level? (KB roastAffinity, resolved through the same
+    // title/alias matching as the advisor's KB lookups.) The bag's roast
+    // level is normalized ("Medium-Light" → "medium-light"); a localized
+    // roast string simply never matches — graceful degradation, the tier
+    // just loses its KB chips. Drives the wizard's recommended tier.
+    Q_INVOKABLE bool kbProfileSuitsRoast(const QString& profileTitle, const QString& roastLevel) const;
 
     // === Read-only protection ===
     Q_INVOKABLE bool isCurrentProfileReadOnly() const;
