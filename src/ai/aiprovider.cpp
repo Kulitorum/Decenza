@@ -157,6 +157,11 @@ QList<AIProvider::ModelOption> OpenAIProvider::availableModels() const
     };
 }
 
+QString OpenAIProvider::modelHint() const
+{
+    return QStringLiteral("GPT-5.4 is more capable. GPT-5.4 mini is cheaper and faster.");
+}
+
 void OpenAIProvider::setModel(const QString& modelId)
 {
     if (modelId.isEmpty())
@@ -403,6 +408,11 @@ QList<AIProvider::ModelOption> AnthropicProvider::availableModels() const
         { "claude-sonnet-4-6", "Sonnet 4.6" },
         { "claude-sonnet-5", "Sonnet 5" },
     };
+}
+
+QString AnthropicProvider::modelHint() const
+{
+    return QStringLiteral("Sonnet 5 is the most capable. Sonnet 4.6 is the established default.");
 }
 
 void AnthropicProvider::setModel(const QString& modelId)
@@ -718,6 +728,11 @@ QList<AIProvider::ModelOption> GeminiProvider::availableModels() const
         { "gemini-2.5-flash", "2.5 Flash" },
         { "gemini-3.5-flash", "3.5 Flash" },
     };
+}
+
+QString GeminiProvider::modelHint() const
+{
+    return QStringLiteral("3.5 Flash is the most capable. 2.5 Flash is more available (fewer busy errors).");
 }
 
 void GeminiProvider::setModel(const QString& modelId)

@@ -74,6 +74,9 @@ public:
     // order (first = recommended default). Empty when the provider has a single
     // fixed model — the UI hides the model picker in that case.
     Q_INVOKABLE QVariantList availableModels(const QString& providerId) const;
+    // One-line guidance comparing the provider's catalog models (see
+    // AIProvider::modelHint). Empty when the provider has no hint.
+    Q_INVOKABLE QString modelHint(const QString& providerId) const;
     AIConversation* conversation() const { return m_conversation; }
     bool hasAnyConversation() const { return !m_conversationIndex.isEmpty(); }
     QList<ConversationEntry> conversationIndex() const { return m_conversationIndex; }

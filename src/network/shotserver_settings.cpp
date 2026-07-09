@@ -67,6 +67,15 @@ static void applyAiSettings(Settings* s, const QJsonObject& obj)
         a->setOllamaEndpoint(obj["ollamaEndpoint"].toString());
     if (obj.contains("ollamaModel"))
         a->setOllamaModel(obj["ollamaModel"].toString());
+    // Per-provider selected model for fixed-catalog providers (see
+    // SettingsAI::setProviderModel). Shape: {"gemini": "gemini-2.5-flash"}.
+    // Unknown ids are harmless: each provider's setModel() ignores ids not in
+    // its availableModels() catalog.
+    if (obj["providerModels"].isObject()) {
+        const QJsonObject models = obj["providerModels"].toObject();
+        for (auto it = models.begin(); it != models.end(); ++it)
+            a->setProviderModel(it.key(), it.value().toString());
+    }
 }
 
 // Apply MQTT-related fields from a JSON object to Settings. Only keys present
@@ -399,15 +408,15 @@ QString ShotServer::generateSettingsPage() const
                     <div class="provider-row" id="providerRow">
                         <button type="button" class="provider-btn" data-provider="openai" onclick="selectProvider('openai')">
                             <div class="provider-name">OpenAI</div>
-                            <div class="provider-model">GPT-4.1</div>
+                            <div class="provider-model" id="openaiBtnModel">GPT</div>
                         </button>
                         <button type="button" class="provider-btn" data-provider="anthropic" onclick="selectProvider('anthropic')">
                             <div class="provider-name">Anthropic</div>
-                            <div class="provider-model">Claude</div>
+                            <div class="provider-model" id="anthropicBtnModel">Claude</div>
                         </button>
                         <button type="button" class="provider-btn" data-provider="gemini" onclick="selectProvider('gemini')">
                             <div class="provider-name">Gemini</div>
-                            <div class="provider-model">Gemini</div>
+                            <div class="provider-model" id="geminiBtnModel">Gemini</div>
                         </button>
                         <button type="button" class="provider-btn" data-provider="openrouter" onclick="selectProvider('openrouter')">
                             <div class="provider-name">OpenRouter</div>
@@ -442,6 +451,13 @@ QString ShotServer::generateSettingsPage() const
                         <button type="button" class="password-toggle" onclick="togglePassword('geminiApiKey')">&#128065;</button>
                     </div>
                     <div class="help-text">Get your API key from <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--accent)">aistudio.google.com</a></div>
+                </div>
+                <!-- Model picker for providers exposing a fixed catalog of >1 model
+                     (mirrors the in-app AI settings tab; OpenAI/Anthropic/Gemini today). -->
+                <div class="form-group" id="modelGroup" style="display:none;">
+                    <label class="form-label">Model</label>
+                    <select class="form-input" id="providerModelSelect" onchange="onModelSelected()"></select>
+                    <div class="help-text" id="modelHint" style="display:none;"></div>
                 </div>
                 <div id="openrouterGroup" style="display:none;">
                     <div class="form-group">
@@ -558,6 +574,10 @@ QString ShotServer::generateSettingsPage() const
     <script>
         let mqttPollTimer = null;
         let selectedProvider = '';
+        let modelCatalogs = {};      // providerId -> [{id, name}] (multi-model providers only)
+        let selectedModels = {};     // providerId -> selected model id ('' = provider default)
+        let modelDisplayNames = {};  // providerId -> current model short label
+        let modelHints = {};         // providerId -> guidance line under the model picker
 
         async function loadSettings() {
             try {
@@ -575,6 +595,10 @@ QString ShotServer::generateSettingsPage() const
                 document.getElementById('openrouterModel').value = data.openrouterModel || '';
                 document.getElementById('ollamaEndpoint').value = data.ollamaEndpoint || '';
                 document.getElementById('ollamaModel').value = data.ollamaModel || '';
+                modelCatalogs = data.providerModelCatalogs || {};
+                selectedModels = data.providerModels || {};
+                modelDisplayNames = data.providerModelNames || {};
+                modelHints = data.providerModelHints || {};
                 selectProvider(data.aiProvider || '');
 
                 document.getElementById('mqttEnabled').checked = data.mqttEnabled || false;
@@ -606,7 +630,48 @@ QString ShotServer::generateSettingsPage() const
             document.getElementById('openrouterGroup').style.display = id === 'openrouter' ? 'block' : 'none';
             document.getElementById('ollamaGroup').style.display = id === 'ollama' ? 'block' : 'none';
             document.getElementById('aiTestBtn').disabled = !id;
+            updateModelGroup();
             updateProviderButtons();
+        }
+
+        // Show the generic model dropdown when the selected provider has a
+        // fixed catalog of >1 model. Unset/stale selection falls back to the
+        // catalog's first entry (the recommended default), matching the app.
+        function updateModelGroup() {
+            const catalog = modelCatalogs[selectedProvider] || [];
+            document.getElementById('modelGroup').style.display = catalog.length > 1 ? 'block' : 'none';
+            const hint = document.getElementById('modelHint');
+            hint.textContent = modelHints[selectedProvider] || '';
+            hint.style.display = hint.textContent ? 'block' : 'none';
+            if (catalog.length <= 1) return;
+            const sel = document.getElementById('providerModelSelect');
+            sel.innerHTML = '';
+            const stored = selectedModels[selectedProvider];
+            const current = catalog.some(m => m.id === stored) ? stored : catalog[0].id;
+            catalog.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.name;
+                opt.selected = m.id === current;
+                sel.appendChild(opt);
+            });
+        }
+
+        function onModelSelected() {
+            selectedModels[selectedProvider] = document.getElementById('providerModelSelect').value;
+            updateProviderButtons();
+        }
+
+        // Sublabel under a provider button: the catalog display name of the
+        // (possibly unsaved) selection when a catalog exists, else the current
+        // model name reported by the app.
+        function providerModelLabel(id, fallback) {
+            const catalog = modelCatalogs[id] || [];
+            if (catalog.length) {
+                const opt = catalog.find(m => m.id === selectedModels[id]) || catalog[0];
+                return opt.name;
+            }
+            return modelDisplayNames[id] || fallback;
         }
 
         function isProviderConfigured(id) {
@@ -631,6 +696,9 @@ QString ShotServer::generateSettingsPage() const
                 }
             });
             // Update dynamic model labels
+            document.getElementById('openaiBtnModel').textContent = providerModelLabel('openai', 'GPT');
+            document.getElementById('anthropicBtnModel').textContent = providerModelLabel('anthropic', 'Claude');
+            document.getElementById('geminiBtnModel').textContent = providerModelLabel('gemini', 'Gemini');
             const orModel = document.getElementById('openrouterModel').value;
             document.getElementById('openrouterBtnModel').textContent = orModel || 'Multi';
             const olModel = document.getElementById('ollamaModel').value;
@@ -709,7 +777,8 @@ QString ShotServer::generateSettingsPage() const
                         openrouterApiKey: document.getElementById('openrouterApiKey').value,
                         openrouterModel: document.getElementById('openrouterModel').value,
                         ollamaEndpoint: document.getElementById('ollamaEndpoint').value,
-                        ollamaModel: document.getElementById('ollamaModel').value
+                        ollamaModel: document.getElementById('ollamaModel').value,
+                        providerModels: selectedModels
                     })
                 });
                 if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
@@ -734,7 +803,8 @@ QString ShotServer::generateSettingsPage() const
                         openrouterApiKey: document.getElementById('openrouterApiKey').value,
                         openrouterModel: document.getElementById('openrouterModel').value,
                         ollamaEndpoint: document.getElementById('ollamaEndpoint').value,
-                        ollamaModel: document.getElementById('ollamaModel').value
+                        ollamaModel: document.getElementById('ollamaModel').value,
+                        providerModels: selectedModels
                     })
                 });
                 if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
@@ -907,6 +977,33 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
         obj["openrouterModel"] = a->openrouterModel();
         obj["ollamaEndpoint"] = a->ollamaEndpoint();
         obj["ollamaModel"] = a->ollamaModel();
+
+        // Per-provider model catalogs, stored selections, current display
+        // names, and guidance hints, so the web page can offer the same model
+        // picker as the in-app AI settings tab. Catalogs/hints only include
+        // providers with a fixed multi-model catalog (OpenAI/Anthropic/Gemini
+        // today); providerModels round-trips through POST /api/settings.
+        if (m_aiManager) {
+            QJsonObject catalogs;
+            QJsonObject selections;
+            QJsonObject names;
+            QJsonObject hints;
+            const QStringList providers = m_aiManager->availableProviders();
+            for (const QString& p : providers) {
+                const QVariantList models = m_aiManager->availableModels(p);
+                if (!models.isEmpty())
+                    catalogs[p] = QJsonArray::fromVariantList(models);
+                const QString hint = m_aiManager->modelHint(p);
+                if (!hint.isEmpty())
+                    hints[p] = hint;
+                selections[p] = a->providerModel(p);
+                names[p] = m_aiManager->modelDisplayName(p);
+            }
+            obj["providerModelCatalogs"] = catalogs;
+            obj["providerModels"] = selections;
+            obj["providerModelNames"] = names;
+            obj["providerModelHints"] = hints;
+        }
     }
 
     // MQTT

@@ -178,6 +178,12 @@ QVariantList AIManager::availableModels(const QString& providerId) const
     return out;
 }
 
+QString AIManager::modelHint(const QString& providerId) const
+{
+    AIProvider* provider = providerById(providerId);
+    return provider ? provider->modelHint() : QString();
+}
+
 void AIManager::setSelectedProvider(const QString& provider)
 {
     if (selectedProvider() != provider) {
