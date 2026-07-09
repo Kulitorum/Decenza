@@ -1299,7 +1299,8 @@ void AIManager::extractCoffeeBagDetailsFromUrl(const QString& requestToken, cons
     const QString systemPrompt = base + QStringLiteral(
         " Retrieve the product page URL in the user message yourself with your web tool first. "
         "Additionally include the key imageUrl (the MAIN product photo's absolute URL from the "
-        "fetched page, when one is shown - never a logo or banner).");
+        "fetched page, when one is shown - an image file URL, never the page URL itself, and "
+        "never a logo or banner).");
     const QString userPrompt = QStringLiteral(
         "Fetch this product page and extract the details: %1").arg(url);
 

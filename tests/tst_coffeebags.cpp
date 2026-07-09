@@ -1020,6 +1020,13 @@ private slots:
         QCOMPARE(full.leafGramsPer100Ml, 0.85);
         QCOMPARE(full.steepTime, QString("3-5 minutes"));
 
+        // String-encoded numerics (the extraction fill + blob merge write
+        // strings — live-caught): parse identically to native numbers.
+        const TeaBrewingData strings = CoffeeBag::teaBrewingFromBlob(
+            "{\"teaType\":\"black\",\"brewTempC\":\"100\",\"leafGramsPer100Ml\":\"0.84\"}");
+        QCOMPARE(strings.brewTempC, 100.0);
+        QCOMPARE(strings.leafGramsPer100Ml, 0.84);
+
         // Vendor stated nothing (Yunnan Sourcing case): defaults, no guesses.
         const TeaBrewingData sparse = CoffeeBag::teaBrewingFromBlob(
             "{\"teaType\":\"black\",\"origin\":\"Yunnan\"}");
