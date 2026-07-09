@@ -11,6 +11,7 @@
 
 #include "shotserver.h"
 #include "../controllers/maincontroller.h"
+#include "../controllers/profilemanager.h"
 #include "../core/dbutils.h"
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
@@ -37,7 +38,8 @@
 namespace {
 
 QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
-                          qint64 shotCount = -1)
+                          qint64 shotCount = -1,
+                          const QHash<QString, QString>& bevByTitle = {})
 {
     QJsonObject o;
     o["id"] = r.id;
@@ -52,6 +54,10 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
         if (!r.profileJson.isEmpty())
             bev = QJsonDocument::fromJson(r.profileJson.toUtf8())
                       .object().value(QStringLiteral("beverage_type")).toString();
+        // Installed profiles embed no JSON — the main-thread-captured catalog
+        // snapshot supplies their beverage_type (else tea derives as espresso).
+        if (bev.isEmpty())
+            bev = bevByTitle.value(r.profileTitle.trimmed().toLower());
         o["drinkType"] = Recipe::deriveDrinkType(r, bev);
     }
     o["beanBaseId"] = r.beanBaseId;
@@ -155,13 +161,17 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
 
     // GET /api/recipes — list (query ?archived=1 to include archived)
     if (path == "/api/recipes" && method == "GET") {
-        QThread* t = QThread::create([dbPath, activeRecipeId, respondJson]() {
+        const QHash<QString, QString> bevByTitle =
+            (m_mainController && m_mainController->profileManager())
+                ? m_mainController->profileManager()->beverageTypeByTitleSnapshot()
+                : QHash<QString, QString>();
+        QThread* t = QThread::create([dbPath, activeRecipeId, respondJson, bevByTitle]() {
             QJsonArray recipes;
             const bool opened = withTempDb(dbPath, "web_recipes", [&](QSqlDatabase& db) {
                 for (const InventoryRecipe& e : RecipeStorage::loadInventoryStatic(db, false))
-                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount));
+                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount, bevByTitle));
                 for (const InventoryRecipe& e : RecipeStorage::loadInventoryStatic(db, true))
-                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount));
+                    recipes.append(webRecipeJson(e.recipe, activeRecipeId, &db, e.shotCount, bevByTitle));
             });
             QMetaObject::invokeMethod(qApp, [opened, recipes, respondJson]() {
                 if (!opened)
@@ -194,6 +204,8 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
             if (!shaped.profileJson.isEmpty())
                 bev = QJsonDocument::fromJson(shaped.profileJson.toUtf8())
                           .object().value(QStringLiteral("beverage_type")).toString();
+            if (bev.isEmpty() && m_mainController && m_mainController->profileManager())
+                bev = m_mainController->profileManager()->beverageTypeForTitle(shaped.profileTitle);
             fields.insert("drinkType", Recipe::deriveDrinkType(shaped, bev));
         }
         auto conn = std::make_shared<QMetaObject::Connection>();
@@ -323,7 +335,7 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
 
         // POST /api/recipe/<id> — update
         if (action.isEmpty()) {
-            const QVariantMap fields = recipeFieldsFromBody(bodyJson);
+            QVariantMap fields = recipeFieldsFromBody(bodyJson);
             if (fields.isEmpty()) {
                 respondJson(QJsonObject{{"error", "No editable fields provided"}}, 400);
                 return;
@@ -339,6 +351,17 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                     else
                         respondJson(QJsonObject{{"error", "Recipe not found or update failed"}}, 404);
                 });
+            // Installed profiles embed no JSON: resolve the new title's
+            // beverage_type (main thread) for the storage-side drink-type
+            // re-derivation. Transient hint — RecipeStorage strips it.
+            if (!fields.value("profileTitle").toString().trimmed().isEmpty()
+                && fields.value("drinkType").toString().isEmpty()
+                && m_mainController && m_mainController->profileManager()) {
+                const QString bev = m_mainController->profileManager()->beverageTypeForTitle(
+                    fields.value("profileTitle").toString());
+                if (!bev.isEmpty())
+                    fields.insert("profileBeverageType", bev);
+            }
             recipeStorage->requestUpdateRecipe(recipeId, fields);
             return;
         }

@@ -4,6 +4,7 @@
 #include <QTimer>
 #include <QVariantList>
 #include <QMap>
+#include <QHash>
 #include "../profile/profile.h"
 
 class Settings;
@@ -166,6 +167,15 @@ public:
     // only — never a click count (the KB's own cross-profile rule).
     Q_INVOKABLE QString grindDirectionBetween(const QString& sourceProfileTitle,
                                               const QString& targetProfileTitle) const;
+    // Installed-catalog lookup: profile title → normalized beverage_type
+    // ("" when the title isn't installed). MCP/web recipe surfaces resolve
+    // drink-type derivation through this — recipes referencing INSTALLED
+    // profiles carry no embedded profile JSON, so without the catalog a tea
+    // profile would derive as espresso. The snapshot variant is for
+    // background-thread closures (recipe list/get JSON): capture on the main
+    // thread, pass by value — ProfileManager itself is main-thread-only.
+    QString beverageTypeForTitle(const QString& profileTitle) const;
+    QHash<QString, QString> beverageTypeByTitleSnapshot() const;
 
     // === Read-only protection ===
     Q_INVOKABLE bool isCurrentProfileReadOnly() const;

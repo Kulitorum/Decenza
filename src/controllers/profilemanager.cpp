@@ -1049,6 +1049,25 @@ QString ProfileManager::grindDirectionBetween(const QString& sourceProfileTitle,
     return ShotSummarizer::grindDirectionBetween(sourceProfileTitle, targetProfileTitle);
 }
 
+QString ProfileManager::beverageTypeForTitle(const QString& profileTitle) const {
+    const QString needle = profileTitle.trimmed().toLower();
+    if (needle.isEmpty())
+        return {};
+    for (const ProfileInfo& info : m_allProfiles) {
+        if (info.title.trimmed().toLower() == needle)
+            return info.beverageType.trimmed().toLower();
+    }
+    return {};
+}
+
+QHash<QString, QString> ProfileManager::beverageTypeByTitleSnapshot() const {
+    QHash<QString, QString> map;
+    map.reserve(m_allProfiles.size());
+    for (const ProfileInfo& info : m_allProfiles)
+        map.insert(info.title.trimmed().toLower(), info.beverageType.trimmed().toLower());
+    return map;
+}
+
 bool ProfileManager::kbProfileSuitsRoast(const QString& profileTitle, const QString& roastLevel) const {
     const QString normalized = roastLevel.trimmed().toLower().replace(QLatin1Char(' '), QLatin1Char('-'));
     if (normalized.isEmpty())

@@ -399,8 +399,14 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
         return;
     }
     auto success = std::make_shared<bool>(false);
+    // Transient hint, not a column: the surface's resolved beverage_type for
+    // an installed profileTitle in this patch (installed profiles embed no
+    // JSON, and the profile catalog isn't reachable on the DB thread).
+    // Stripped here; consumed by the drink-type re-derivation below.
+    QVariantMap patch = fields;
+    const QString hintedBev = patch.take(QStringLiteral("profileBeverageType")).toString();
     runAsync("recipes_update",
-        [recipeId, fields, success](QSqlDatabase& db) {
+        [recipeId, fields = std::move(patch), hintedBev, success](QSqlDatabase& db) {
             *success = updateRecipeFieldsStatic(db, recipeId, fields);
             // drink_type follows the blocks when the caller changed them
             // without setting it explicitly (MCP/web edits must not strand a
@@ -415,8 +421,8 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
             if (*success && touchesBlocks && !fields.contains(QStringLiteral("drinkType"))) {
                 const Recipe updated = loadRecipeStatic(db, recipeId);
                 if (updated.isValid()) {
-                    QString bev;
-                    if (!updated.profileJson.isEmpty())
+                    QString bev = hintedBev;
+                    if (bev.isEmpty() && !updated.profileJson.isEmpty())
                         bev = QJsonDocument::fromJson(updated.profileJson.toUtf8())
                                   .object().value(QStringLiteral("beverage_type")).toString();
                     // When the profile didn't change, the stored type already

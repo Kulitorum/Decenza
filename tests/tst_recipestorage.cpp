@@ -454,6 +454,45 @@ private slots:
         });
     }
 
+    void updateRederivesDrinkTypeWithBeverageHint() {
+        // The MCP/web update path attaches a transient profileBeverageType
+        // hint (installed profiles embed no JSON; the catalog is main-thread
+        // only). requestUpdateRecipe strips the hint before the column write
+        // and uses it for the drink-type re-derivation — live-caught bug:
+        // without it, switching a recipe to an installed tea profile derived
+        // "espresso".
+        const QString path = freshDbPath();
+        qint64 id = 0;
+        withRawDb(path, "hint_setup", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe r;
+            r.name = "Becomes tea";
+            r.profileTitle = "Default";
+            r.drinkType = "espresso";
+            id = RecipeStorage::insertRecipeStatic(db, r);
+        });
+        QVERIFY(id > 0);
+
+        RecipeStorage storage;
+        storage.initialize(path);
+
+        QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+        storage.requestUpdateRecipe(id, {
+            {"profileTitle", "Tea portafilter/black tea"},
+            {"profileBeverageType", "tea_portafilter"}});
+        QTRY_COMPARE(spy.count(), 1);
+        QVERIFY(spy.at(0).at(1).toBool());
+
+        withRawDb(path, "hint_verify", [&](QSqlDatabase& db) {
+            const Recipe updated = RecipeStorage::loadRecipeStatic(db, id);
+            QCOMPARE(updated.profileTitle, QString("Tea portafilter/black tea"));
+            QCOMPARE(updated.drinkType, QString("tea"));
+            // The hint is transient — updateRecipeFieldsStatic never saw it
+            // as a column (an unknown key would have been warned + skipped;
+            // storage round-trip proves no such column landed).
+        });
+    }
+
     void requestRecipeForActivation() {
         const QString path = freshDbPath();
         qint64 recipeId = 0, bareId = 0, openBagId = 0;

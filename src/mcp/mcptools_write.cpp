@@ -1779,20 +1779,43 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // Read the current blob, merge, then run the normal update.
             QThread* mergeThread = QThread::create([dbPath, bagId, fields, blobEdits, proceed, respondWithBag, respond]() {
                 bool found = false;
+                bool isTea = false;
                 QString currentBlob, curRoaster, curCoffee, curLevel;
                 withTempDb(dbPath, "mcp_bagupd_blob", [&](QSqlDatabase& db) {
                     const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(db, bagId);
                     found = bag.isValid();
+                    isTea = bag.isTea();
                     currentBlob = bag.beanBaseData;
                     curRoaster = bag.roasterName;
                     curCoffee = bag.coffeeName;
                     curLevel = bag.roastLevel;
                 });
-                QMetaObject::invokeMethod(qApp, [found, currentBlob, curRoaster, curCoffee, curLevel,
+                QMetaObject::invokeMethod(qApp, [found, isTea, currentBlob, curRoaster, curCoffee, curLevel,
                                                  bagId, fields, blobEdits, proceed, respondWithBag, respond]() {
                     if (!found) {
                         respond(QJsonObject{{"error", "Bag not found: " + QString::number(bagId)}});
                         return;
+                    }
+                    // Tea vocabulary is kind-gated: writing teaType/brewTempC/…
+                    // onto a coffee bag would plant tea keys the wizard and bag
+                    // surfaces then trust (live-caught: a coffee bag accepted
+                    // teaType). Kind itself stays immutable, so the error names
+                    // the rule instead of silently dropping the keys.
+                    if (!isTea) {
+                        static const QStringList kTeaOnly = {
+                            "teaType", "garden", "cultivar", "flush", "brewTempC",
+                            "leafGramsPer100Ml", "steepTime"};
+                        QStringList offending;
+                        for (const QString& key : kTeaOnly)
+                            if (blobEdits.contains(key))
+                                offending << key;
+                        if (!offending.isEmpty()) {
+                            respond(QJsonObject{{"error",
+                                QString("%1 only apply to tea bags; bag %2 is a coffee bag "
+                                        "(kind is set at creation and immutable)")
+                                    .arg(offending.join(", ")).arg(bagId)}});
+                            return;
+                        }
                     }
                     // Identity mirrors into the blob's working keys when a
                     // blob exists OR this update introduces one (a non-empty
