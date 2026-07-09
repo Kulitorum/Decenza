@@ -60,8 +60,8 @@ Item {
 
         switch (type) {
             case "espresso": return {
-                emoji: "qrc:/icons/espresso.svg",
-                content: TranslationManager.translate("idle.button.espresso", "Espresso"),
+                emoji: "qrc:/icons/profile.svg",
+                content: TranslationManager.translate("idle.button.profiles", "Profiles"),
                 action: "togglePreset:espresso",
                 longPressAction: "navigate:profiles",
                 doubleclickAction: "navigate:profiles",
@@ -100,7 +100,7 @@ Item {
                 backgroundColor: Settings.dye.activeBagId <= 0 ? Theme.highlightColor : Theme.primaryColor
             }
             case "recipes": return {
-                emoji: "qrc:/icons/pin.svg",
+                emoji: "qrc:/icons/espresso.svg",
                 content: TranslationManager.translate("idle.button.recipes", "Recipes"),
                 action: "togglePreset:recipes",
                 // "recipeList" (drink recipes) — the bare "recipes" navigate

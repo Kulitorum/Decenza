@@ -724,7 +724,7 @@ struct WidgetCatalogEntry {
 const QVector<WidgetCatalogEntry>& widgetCatalogTable() {
     static const QVector<WidgetCatalogEntry> kCatalog = {
         // Actions (0)
-        { "espresso",      0, "layoutEditor.widgetEspresso",  "Espresso",  "layoutEditor.chipEspresso",  "Espresso",  "", true },
+        { "espresso",      0, "layoutEditor.widgetProfiles",  "Profiles",  "layoutEditor.chipProfiles",  "Profiles",  "", true },
         { "steam",         0, "layoutEditor.widgetSteam",     "Steam",     "layoutEditor.chipSteam",     "Steam",     "", true },
         { "hotwater",      0, "layoutEditor.widgetHotWater",  "Hot Water", "layoutEditor.chipHotWater",  "Hot Water", "", true },
         { "flush",         0, "layoutEditor.widgetFlush",     "Flush",     "layoutEditor.chipFlush",     "Flush",     "", true },
