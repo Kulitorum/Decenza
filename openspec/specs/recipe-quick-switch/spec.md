@@ -32,3 +32,10 @@ The Recipes management page SHALL list all non-archived recipes with create, edi
 - **WHEN** the user archives a used recipe
 - **THEN** it disappears from the list default view and the MRU pills, and remains visible in shot history provenance
 
+### Requirement: Recipe pills show a drink-type icon
+Recipe pills in the idle widget and recipe lists SHALL show a small icon for the recipe's drink type (stored value, derived from blocks when absent), rendered as an SVG image (never a Unicode glyph per QML conventions).
+
+#### Scenario: Mixed pill row is scannable
+- **WHEN** the idle widget shows an espresso, a latte, and a tea recipe
+- **THEN** each pill carries its distinct drink-type icon
+
