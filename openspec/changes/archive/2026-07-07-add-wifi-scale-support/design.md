@@ -120,7 +120,7 @@ The `(WiFi)` suffix on the row label is still the only visible marker that trans
 | iOS | mDNSResponder, **requires Info.plist entries** | Yes, with plist work |
 | Windows 10+ | Native mDNS resolver | Yes |
 | Linux (most distros) | Avahi via NSS | Yes if Avahi running |
-| Android | Not via libc resolver — needs `NsdManager` | **Spike** |
+| Android | Not via libc resolver — resolved via a direct mDNS A-record query (`MdnsResolver`, `mjansson/mdns`), not `NsdManager` (see resolution below) | Yes, confirmed 2026-07-09 |
 
 iOS Info.plist needs:
 
