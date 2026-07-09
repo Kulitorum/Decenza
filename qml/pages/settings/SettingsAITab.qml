@@ -306,6 +306,9 @@ KeyboardAwareContainer {
                             case "anthropic":
                                 return TranslationManager.translate("settings.ai.modelHint.anthropic",
                                     "Sonnet 5 is the most capable. Sonnet 4.6 is the established default.")
+                            case "openai":
+                                return TranslationManager.translate("settings.ai.modelHint.openai",
+                                    "GPT-5.4 is more capable. GPT-5.4 mini is cheaper and faster.")
                             default:
                                 return ""
                             }

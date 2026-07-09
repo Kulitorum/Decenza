@@ -4,12 +4,17 @@
 
 Each AI Advisor provider SHALL expose a catalog of one or more selectable models, where every entry has a stable model id (sent to the provider API) and a human-readable display name (shown in the UI). A provider with a single fixed model exposes a one-entry catalog.
 
-The Anthropic provider SHALL offer at least two models in its catalog: Claude Sonnet 4.6 and Claude Sonnet 5.
+The Anthropic provider SHALL offer at least two models in its catalog: Claude Sonnet 4.6 and Claude Sonnet 5. The OpenAI provider SHALL offer at least two models in its catalog: GPT-5.4 mini and GPT-5.4.
 
 #### Scenario: Anthropic catalog lists multiple Sonnet models
 
 - **WHEN** the AI settings UI queries the available models for the Anthropic provider
 - **THEN** the returned catalog includes both a Sonnet 4.6 entry and a Sonnet 5 entry, each with a distinct model id and display name
+
+#### Scenario: OpenAI catalog lists multiple GPT-5.4 models
+
+- **WHEN** the AI settings UI queries the available models for the OpenAI provider
+- **THEN** the returned catalog includes both a GPT-5.4 mini entry and a GPT-5.4 entry, each with a distinct model id and display name
 
 #### Scenario: Provider with one model
 

@@ -25,8 +25,22 @@
 
 - [x] 5.1 Update `docs/CLAUDE_MD/AI_ADVISOR.md` to state that the Anthropic provider now offers a model choice (Sonnet 4.6 and Sonnet 5) rather than a single fixed model.
 
-## 6. Verification
+## 6. OpenAIProvider model catalog (`src/ai/aiprovider.h` / `.cpp`)
 
-- [ ] 6.1 Quick compile check via Qt Creator MCP (build the worktree project). BLOCKED: Qt Creator's active project is the main checkout, not this worktree, and both projects are named "Decenza" so the build tool can't target the worktree. Switch the active project to the worktree, then build.
-- [ ] 6.2 Confirm `MainController.aiManager.availableModels("anthropic")` returns two entries and the picker renders; have Jeff launch the app to verify selecting Sonnet 5 persists across restart and that the next advisor request uses Sonnet 5.
-- [x] 6.3 Confirm the Anthropic Messages API model id string for Sonnet 5 is correct (resolve the Open Question in design.md) before merge. Resolved: canonical id is `claude-sonnet-5` (Sonnet 5 in the Claude 5 family); kept Sonnet 4.6 as the default first catalog entry, so upgrading users are unaffected until they opt in.
+- [x] 6.1 In the `OpenAIProvider` class declaration (`:90-118`), add the same overrides used for Anthropic: `QList<ModelOption> availableModels() const override;`, `void setModel(const QString& modelId);`, declare `QString shortModelName() const override;` (drop the inline `return MODEL_DISPLAY;`), change `modelName()` to `return m_model;`, and add a `QString m_model;` member. Remove the now-unused `MODEL`/`MODEL_DISPLAY` constants (keep `API_URL`).
+- [x] 6.2 Implement `availableModels()` returning `{{ "gpt-5.4-mini", "GPT-5.4 mini" }, { "gpt-5.4", "GPT-5.4" }}` (mini first = default), plus `setModel()` (validate against catalog, ignore unknown ids) and `shortModelName()` (id → display), mirroring the Anthropic/Gemini implementations.
+- [x] 6.3 Default `m_model = availableModels().first().id` in the `OpenAIProvider` constructor.
+- [x] 6.4 Replace the request-site uses of `QString::fromLatin1(MODEL)` in `OpenAIProvider` (`:170`, `:198`, and any test-connection site) with `m_model`.
+
+## 7. OpenAI wiring, hint, and docs
+
+- [x] 7.1 In `AIManager::createProviders()`, after the OpenAI provider is constructed (~`:100-106`), call `openai->setModel(m_settings->ai()->providerModel("openai"))`.
+- [x] 7.2 In `AIManager::onSettingsChanged()`, extend the OpenAI block (~`:1384-1387`) to also call `openai->setModel(m_settings->ai()->providerModel("openai"))`.
+- [x] 7.3 Add an OpenAI branch to the per-provider model hint in `SettingsAITab.qml` (the switch added for Anthropic), e.g. "GPT-5.4 is more capable. GPT-5.4 mini is cheaper and faster."
+- [x] 7.4 Update `docs/CLAUDE_MD/AI_ADVISOR.md` provider table so the OpenAI row reads "User-selected (GPT-5.4 mini default, or GPT-5.4)".
+
+## 8. Verification
+
+- [ ] 8.1 Quick compile check via Qt Creator MCP (build the worktree project). BLOCKED: Qt Creator's active project is the main checkout, not this worktree, and both projects are named "Decenza" so the build tool can't target the worktree. Switch the active project to the worktree, then build.
+- [ ] 8.2 Confirm `MainController.aiManager.availableModels("anthropic")` and `availableModels("openai")` each return two entries and both pickers render; have Jeff launch the app to verify selecting Sonnet 5 / GPT-5.4 persists across restart and that the next advisor request uses the chosen model.
+- [x] 8.3 Confirm the Anthropic Messages API model id for Sonnet 5 and the OpenAI Chat Completions model id for GPT-5.4 are correct. Resolved: `claude-sonnet-5` (Claude 5 family) and `gpt-5.4` ($2.50/$15 per 1M in/out per OpenAI's official pricing/models docs). Cheaper model kept first as the default in each catalog, so upgrading users are unaffected until they opt in.

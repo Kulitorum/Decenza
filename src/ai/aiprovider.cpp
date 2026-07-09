@@ -135,6 +135,49 @@ OpenAIProvider::OpenAIProvider(QNetworkAccessManager* networkManager,
     : AIProvider(networkManager, parent)
     , m_apiKey(apiKey)
 {
+    // Default to the recommended model = first catalog entry. Keeps the default
+    // a single source of truth (no parallel DEFAULT_MODEL constant to keep in
+    // sync with the list order). availableModels() dispatches to this class
+    // since the object under construction is an OpenAIProvider.
+    const QList<ModelOption> models = availableModels();
+    if (!models.isEmpty())
+        m_model = models.first().id;
+}
+
+QList<AIProvider::ModelOption> OpenAIProvider::availableModels() const
+{
+    // Order = UI order; first entry is the recommended default. GPT-5.4 mini
+    // leads as the low-cost default for shot analysis ($0.75/$4.50 per 1M
+    // in/out); GPT-5.4 is the same-family mid-tier opt-in — more capable at
+    // ~3.3x the cost, softened by automatic prompt caching. GPT-5.5 (frontier,
+    // ~7x cost) and GPT-5.4 nano (weaker than the default) are intentionally
+    // omitted. Revisit as new models / pricing land.
+    return {
+        { "gpt-5.4-mini", "GPT-5.4 mini" },
+        { "gpt-5.4", "GPT-5.4" },
+    };
+}
+
+void OpenAIProvider::setModel(const QString& modelId)
+{
+    if (modelId.isEmpty())
+        return;  // unset → keep the current default
+    for (const ModelOption& opt : availableModels()) {
+        if (opt.id == modelId) {
+            m_model = modelId;
+            return;
+        }
+    }
+    qWarning() << "OpenAIProvider::setModel ignoring unknown model id:" << modelId;
+}
+
+QString OpenAIProvider::shortModelName() const
+{
+    for (const ModelOption& opt : availableModels()) {
+        if (opt.id == m_model)
+            return opt.displayName;
+    }
+    return m_model;
 }
 
 void OpenAIProvider::sendRequest(const QJsonObject& requestBody)
@@ -167,7 +210,7 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     ++m_reqGen;
 
     QJsonObject requestBody;
-    requestBody["model"] = QString::fromLatin1(MODEL);
+    requestBody["model"] = m_model;
     QJsonArray messages;
     QJsonObject sysMsg;
     sysMsg["role"] = QString("system");
@@ -195,7 +238,7 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     ++m_reqGen;
 
     QJsonObject requestBody;
-    requestBody["model"] = QString::fromLatin1(MODEL);
+    requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
     requestBody["max_tokens"] = 1024;
 

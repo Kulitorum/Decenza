@@ -8,22 +8,22 @@ The AI Advisor supports five providers (OpenAI, Anthropic, Gemini, OpenRouter, O
 - The QML picker in `qml/pages/settings/SettingsAITab.qml:240-308` is populated from `MainController.aiManager.availableModels(provider)` and is `visible: options.length > 1`, writing back through `Settings.ai.setProviderModel(...)`.
 - `AIManager::createProviders()` and `onSettingsChanged()` call `setModel(providerModel(id))` for Gemini but not for Anthropic.
 
-`AnthropicProvider` is the odd one out: it hard-codes a single model via `static constexpr MODEL = "claude-sonnet-4-6"` / `MODEL_DISPLAY = "Sonnet 4.6"` (`src/ai/aiprovider.h:158-159`) and uses `QString::fromLatin1(MODEL)` at three request sites (`aiprovider.cpp:375`, `:400`, `:522`). Because it has no `availableModels()` override, no picker appears and the model is uneditable.
+`AnthropicProvider` and `OpenAIProvider` are the odd ones out: each hard-codes a single model via `static constexpr MODEL` / `MODEL_DISPLAY` (Anthropic `src/ai/aiprovider.h:158-159` = `claude-sonnet-4-6`; OpenAI `:116-117` = `gpt-5.4-mini`) and uses `QString::fromLatin1(MODEL)` at its request sites. Because neither overrides `availableModels()`, no picker appears and the model is uneditable.
 
-The task is to make `AnthropicProvider` follow the Gemini pattern so Sonnet 5 becomes selectable.
+The task is to make both `AnthropicProvider` and `OpenAIProvider` follow the Gemini pattern so Sonnet 5 and GPT-5.4 become selectable.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Add Sonnet 5 (`claude-sonnet-5`) as a selectable Anthropic model alongside Sonnet 4.6.
-- Reuse the existing generic catalog/settings/UI/MCP machinery; the change is confined to the Anthropic provider plus two `AIManager` wiring points.
-- Preserve current default behavior for existing users (default stays Sonnet 4.6 until they pick otherwise).
+- Add Sonnet 5 (`claude-sonnet-5`) as a selectable Anthropic model alongside Sonnet 4.6, and GPT-5.4 (`gpt-5.4`) as a selectable OpenAI model alongside GPT-5.4 mini.
+- Reuse the existing generic catalog/settings/UI/MCP machinery; the change is confined to the Anthropic and OpenAI providers plus their `AIManager` wiring points.
+- Preserve current default behavior for existing users (defaults stay Sonnet 4.6 / GPT-5.4 mini until they pick otherwise).
 
 **Non-Goals:**
 - No new `Settings.ai` property or new QML file (storage and picker are already generic).
-- No changes to the OpenAI/OpenRouter/Ollama providers.
-- No change to the Anthropic API endpoint, auth headers, or prompt-cache logic — only the `model` field value varies.
-- Not verifying/altering the exact Sonnet 5 API model id string beyond wiring it in (see Open Questions).
+- No changes to the OpenRouter/Ollama providers (already user-selectable models).
+- No change to the Anthropic Messages / OpenAI Chat Completions endpoints, auth headers, or caching behavior — only the `model` field value varies.
+- Not adding GPT-5.5 (frontier, ~7× the mini's input cost, aimed at complex reasoning this task doesn't need) or GPT-5.4 nano (a step down from the current default).
 
 ## Decisions
 
@@ -32,17 +32,22 @@ Give `AnthropicProvider` an `availableModels()` override returning `{{ "claude-s
 - *Rationale*: This is the exact contract the generic UI, settings, and MCP surfaces already consume. Copying Gemini keeps behavior uniform and requires zero changes outside the provider (plus manager wiring). The `MODEL`/`MODEL_DISPLAY` constants can be dropped or repurposed as the catalog's default.
 - *Alternative considered*: Add a second constant and a boolean toggle — rejected; it duplicates the catalog concept, doesn't generalize to future models, and wouldn't drive the existing picker.
 
-**Decision: Keep Sonnet 4.6 as the default (first catalog entry).**
-List Sonnet 4.6 first so `availableModels().first()` remains the default for users who never open the picker.
-- *Rationale*: No behavior change on upgrade; opting into Sonnet 5 is an explicit user action. Honors the "smarter defaults, no surprise regressions" preference.
-- *Alternative considered*: Default to Sonnet 5 — deferred to the user; can be a one-line reorder later if desired.
+**Decision: Add GPT-5.4 as the OpenAI "more capable" opt-in; keep GPT-5.4 mini the default.**
+Give `OpenAIProvider` the same catalog `{{ "gpt-5.4-mini", "GPT-5.4 mini" }, { "gpt-5.4", "GPT-5.4" }}` (mini first = default). GPT-5.4 mini is $0.75/$4.50 per 1M in/out; GPT-5.4 is $2.50/$15 — the same-family mid-tier, ~3.3× the cost for a real capability step up, and OpenAI's automatic prompt caching (~90% off the >1024-token system-prompt prefix) softens the effective per-request cost.
+- *Rationale*: Mirrors the two-tier shape of the other providers (cheap default + one opt-in step up). GPT-5.4 is the natural step up for shot-dialing analysis with the structured `nextShot` JSON.
+- *Alternatives considered*: **GPT-5.5** — frontier, ~7× the mini's input cost, aimed at complex reasoning/coding this task doesn't need; rejected as a default-adjacent choice. **GPT-5.4 nano** ($0.20/$1.25) — cheaper but weaker than the current default; no reason to offer something worse than what users already get.
 
-**Decision: Wire Anthropic `setModel()` into `AIManager` in both the construction and live-sync paths.**
-Add `anthropic->setModel(m_settings->ai()->providerModel("anthropic"))` in `createProviders()` (after the Anthropic provider is built, ~`aimanager.cpp:110`) and in `onSettingsChanged()`'s Anthropic block (~`aimanager.cpp:1391`), matching Gemini's `:119` and `:1394-1398`.
+**Decision: Keep Sonnet 4.6 and GPT-5.4 mini as the defaults (first catalog entry each).**
+List the cheaper model first in each catalog so `availableModels().first()` remains the default for users who never open the picker.
+- *Rationale*: No behavior change on upgrade; opting into Sonnet 5 / GPT-5.4 is an explicit user action. Honors the "smarter defaults, no surprise regressions" preference.
+- *Alternative considered*: Default to the more capable model — deferred to the user; can be a one-line reorder later if desired.
+
+**Decision: Wire each provider's `setModel()` into `AIManager` in both the construction and live-sync paths.**
+Add `provider->setModel(m_settings->ai()->providerModel("<id>"))` for Anthropic (~`aimanager.cpp:110` and its `onSettingsChanged()` block ~`:1391`) and for OpenAI (its `createProviders()` construction and `onSettingsChanged()` block ~`:1385`), matching Gemini's `:119` and `:1394-1398`.
 - *Rationale*: Without this, the persisted choice is never applied and live changes won't take effect until restart. `setModel()` ignores unknown ids, so an empty/legacy stored value harmlessly leaves the default.
 
-**Decision: Optionally add an Anthropic model hint in the settings tab.**
-The hint text at `SettingsAITab.qml:297-307` is hard-gated to `currentProvider === "gemini"`. Optionally generalize or add an Anthropic branch. Low priority; the picker itself works without it.
+**Decision: Optionally add Anthropic and OpenAI model hints in the settings tab.**
+The hint text at `SettingsAITab.qml:297-307` is hard-gated to `currentProvider === "gemini"`. Generalize it to a per-provider switch so Anthropic and OpenAI each get their own hint. Low priority; the picker itself works without it.
 
 ## Risks / Trade-offs
 
