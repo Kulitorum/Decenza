@@ -220,7 +220,11 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     userMsg["content"] = userPrompt;
     messages.append(userMsg);
     requestBody["messages"] = messages;
-    requestBody["max_tokens"] = 1024;
+    // gpt-5-family reasoning models REJECT the legacy max_tokens parameter on
+    // chat/completions ("Unsupported parameter") — max_completion_tokens is
+    // the accepted cap. Live-caught July 2026: stage-1 extraction and the
+    // advisor both 400'd on gpt-5.4/gpt-5.4-mini.
+    requestBody["max_completion_tokens"] = 1024;
     // GPT-5 family are reasoning models; keep reasoning minimal so hidden
     // reasoning tokens don't count against the 1024-token output cap (which would
     // risk truncating the trailing nextShot JSON block) and to keep latency/cost
@@ -356,7 +360,7 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     QJsonObject requestBody;
     requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
-    requestBody["max_tokens"] = 1024;
+    requestBody["max_completion_tokens"] = 1024;
     requestBody["reasoning_effort"] = "minimal";  // see analyze(): keep reasoning minimal
 
     sendRequest(requestBody);
