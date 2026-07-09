@@ -22,6 +22,15 @@
 | OpenRouter | User-selected | Passes through to underlying provider | Cloud |
 | Ollama | User-selected | N/A — local, no cost | Local/free |
 
+#### Model-selection rationale (Anthropic / OpenAI catalogs)
+
+Each provider's `availableModels()` catalog lists the cheaper model first (the recommended default; existing users keep it until they explicitly opt into the more capable one). The catalogs are deliberately two entries — a low-cost default plus one "more capable" opt-in — matching Gemini's shape.
+
+- **OpenAI**: `gpt-5.4-mini` ($0.75/$4.50 per 1M in/out) default → `gpt-5.4` ($2.50/$15, ~3.3× the cost) opt-in. **GPT-5.5** (frontier, ~7× the mini's input cost, aimed at complex reasoning this task doesn't need) and **GPT-5.4 nano** (weaker than the current default) are intentionally omitted. GPT-5 models are reasoning models, so both request paths send `reasoning_effort: "minimal"` — dial-in advice needs little chain-of-thought, and it keeps hidden reasoning tokens from eating the shared `max_tokens` (1024) output cap (which would risk truncating the trailing `nextShot` JSON). This assumes every catalog model is a reasoning model that accepts `reasoning_effort`; revisit if a non-reasoning model is ever added.
+- **Anthropic**: `claude-sonnet-4-6` default → `claude-sonnet-5` opt-in. No `thinking` field is sent, so extended thinking stays off by default (the Messages API opt-in behavior).
+
+Pricing figures are current as of the change that added these catalogs and will drift — treat them as guidance, not a live source of truth.
+
 ### What the AI Receives Today
 
 **System prompt** (~3-4K tokens base + ~150-300 tokens per-profile section): Espresso or filter-specific guidance covering DE1 machine behavior, pressure/flow interpretation, common shot patterns, roast considerations, grinder/burr geometry, and response guidelines. When the shot's profile matches a curated entry in the profile knowledge base (`resources/ai/profile_knowledge.md`), a profile-specific section is appended describing expected curve behavior, intentional design choices, and what NOT to flag as problems.

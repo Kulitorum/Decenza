@@ -147,11 +147,10 @@ OpenAIProvider::OpenAIProvider(QNetworkAccessManager* networkManager,
 QList<AIProvider::ModelOption> OpenAIProvider::availableModels() const
 {
     // Order = UI order; first entry is the recommended default. GPT-5.4 mini
-    // leads as the low-cost default for shot analysis ($0.75/$4.50 per 1M
-    // in/out); GPT-5.4 is the same-family mid-tier opt-in — more capable at
-    // ~3.3x the cost, softened by automatic prompt caching. GPT-5.5 (frontier,
-    // ~7x cost) and GPT-5.4 nano (weaker than the default) are intentionally
-    // omitted. Revisit as new models / pricing land.
+    // leads as the low-cost default for shot analysis; GPT-5.4 is the same-family
+    // mid-tier opt-in (more capable, higher cost). Pricing figures and why the
+    // other tiers (GPT-5.5, GPT-5.4 nano) are omitted live in
+    // docs/CLAUDE_MD/AI_ADVISOR.md so they don't rot in code. Revisit as models land.
     return {
         { "gpt-5.4-mini", "GPT-5.4 mini" },
         { "gpt-5.4", "GPT-5.4" },
@@ -223,9 +222,12 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     requestBody["messages"] = messages;
     requestBody["max_tokens"] = 1024;
     // GPT-5 family are reasoning models; keep reasoning minimal so hidden
-    // reasoning tokens don't eat the 1024 completion budget (which would risk
-    // truncating the trailing nextShot JSON block) and to keep latency/cost low.
-    // Dial-in advice needs little chain-of-thought. Mirrors Gemini's thinking=off.
+    // reasoning tokens don't count against the 1024-token output cap (which would
+    // risk truncating the trailing nextShot JSON block) and to keep latency/cost
+    // low. Dial-in advice needs little chain-of-thought. Mirrors Gemini's
+    // thinking=off. INVARIANT: assumes every availableModels() entry is a
+    // reasoning model that accepts reasoning_effort — a non-reasoning model would
+    // 400 on this field, so guard/branch here if the catalog ever gains one.
     requestBody["reasoning_effort"] = "minimal";
 
     sendRequest(requestBody);

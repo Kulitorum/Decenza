@@ -40,8 +40,12 @@
 - [x] 7.4 Update `docs/CLAUDE_MD/AI_ADVISOR.md` provider table so the OpenAI row reads "User-selected (GPT-5.4 mini default, or GPT-5.4)".
 - [x] 7.5 Send `reasoning_effort: "minimal"` on both `OpenAIProvider` request paths (`analyze` / `analyzeConversation`) so GPT-5 reasoning tokens don't eat the 1024 completion budget (risking `nextShot` truncation) and to keep latency/cost low. OpenAIProvider only — not OpenRouter (pass-through models) or `testConnection()`.
 
-## 8. Verification
+## 8. Review follow-ups & verification
 
-- [ ] 8.1 Quick compile check via Qt Creator MCP (build the worktree project). BLOCKED: Qt Creator's active project is the main checkout, not this worktree, and both projects are named "Decenza" so the build tool can't target the worktree. Switch the active project to the worktree, then build.
+- [x] 8.4 (comment rot) Move the pricing figures + omitted-tier rationale out of the `OpenAIProvider::availableModels()` code comment into `docs/CLAUDE_MD/AI_ADVISOR.md`; leave a code-local "why" + doc pointer.
+- [x] 8.5 (footgun) Document the "every catalog model is a reasoning model that accepts `reasoning_effort`" invariant at the OpenAI request site; soften "completion budget" wording to "1024-token output cap".
+- [x] 8.6 (coverage) Add `tests/tst_aiproviders.cpp` (+ CMake target) pinning availableModels()/setModel()/shortModelName()/modelName() for OpenAI, Anthropic, and Gemini: catalog order, constructor default, and the empty/unknown/valid setModel branches. Pure logic; target compiles only `aiprovider.cpp`.
+
+- [ ] 8.1 Quick compile check + run `ctest -R tst_aiproviders` in a worktree test build (`-DBUILD_TESTS=ON`). BLOCKED for Qt Creator MCP: the active project is the main checkout, not this worktree (both named "Decenza"), and the active config isn't a tests build. Build in the worktree with tests enabled, then run.
 - [ ] 8.2 Confirm `MainController.aiManager.availableModels("anthropic")` and `availableModels("openai")` each return two entries and both pickers render; have Jeff launch the app to verify selecting Sonnet 5 / GPT-5.4 persists across restart and that the next advisor request uses the chosen model.
 - [x] 8.3 Confirm the Anthropic Messages API model id for Sonnet 5 and the OpenAI Chat Completions model id for GPT-5.4 are correct. Resolved: `claude-sonnet-5` (Claude 5 family) and `gpt-5.4` ($2.50/$15 per 1M in/out per OpenAI's official pricing/models docs). Cheaper model kept first as the default in each catalog, so upgrading users are unaffected until they opt in.
