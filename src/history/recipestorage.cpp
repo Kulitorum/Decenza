@@ -243,6 +243,16 @@ void RecipeStorage::requestRecipe(qint64 recipeId)
 
 void RecipeStorage::requestRecipeForActivation(qint64 recipeId)
 {
+    // Terminal emit even when uninitialized — runAsync drops the job on an
+    // empty dbPath, which would leave MainController's activation caller (and
+    // the MCP/web one-shot listeners waiting on recipeActivated) hanging. An
+    // empty recipe map is the not-found contract applyActivatedRecipe already
+    // handles → recipeActivated(id, false).
+    if (m_dbPath.isEmpty()) {
+        qWarning() << "RecipeStorage: requestRecipeForActivation on uninitialized storage, recipe" << recipeId;
+        emit recipeActivationReady(recipeId, QVariantMap(), -1, QVariantMap());
+        return;
+    }
     auto recipe = std::make_shared<QVariantMap>();
     auto bagId = std::make_shared<qint64>(-1);
     auto bag = std::make_shared<QVariantMap>();
