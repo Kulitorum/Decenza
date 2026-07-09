@@ -1854,6 +1854,133 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         },
         "settings");
 
+    // bag_create — new inventory bag (add-recipe-wizard-tea). The MCP
+    // counterpart of the Add Coffee / Add Tea entry points: kind is stamped
+    // at creation and immutable after (same rule as the UI). The created bag
+    // is NOT made active — a remote client must not silently switch what the
+    // next shot is pulled with; call bag_select to activate it.
+    registry->registerAsyncTool(
+        "bag_create",
+        "Create a new bag in the inventory. kind='coffee' (default) or 'tea' — set at creation "
+        "and immutable after, exactly like the in-app Add Coffee / Add Tea buttons. Tea bags "
+        "take the tea vocabulary (teaType/garden/cultivar/flush/brewTempC/leafGramsPer100Ml/"
+        "steepTime) and reject roastLevel/grinderSetting; coffee bags reject the tea vocabulary. "
+        "The new bag is NOT selected as active — call bag_select to start using it.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"kind", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"coffee", "tea"}},
+                    {"description", "Bag kind, set once at creation. Default coffee."}}},
+                {"roasterName", QJsonObject{{"type", "string"},
+                    {"description", "Roaster (coffee) / brand (tea)"}}},
+                {"coffeeName", QJsonObject{{"type", "string"},
+                    {"description", "Coffee name (coffee) / tea name (tea)"}}},
+                {"roastDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD"}}},
+                {"roastLevel", QJsonObject{{"type", "string"}, {"description", "Coffee bags only"}}},
+                {"grinderSetting", QJsonObject{{"type", "string"}, {"description", "Coffee bags only: bean-scoped dial"}}},
+                {"doseWeightG", QJsonObject{{"type", "number"}}},
+                {"notes", QJsonObject{{"type", "string"}}},
+                {"origin", QJsonObject{{"type", "string"}}},
+                {"region", QJsonObject{{"type", "string"}}},
+                {"producer", QJsonObject{{"type", "string"}}},
+                {"variety", QJsonObject{{"type", "string"}, {"description", "Coffee variety / tea cultivar goes in cultivar for tea"}}},
+                {"process", QJsonObject{{"type", "string"}}},
+                {"harvest", QJsonObject{{"type", "string"}}},
+                {"tastingNotes", QJsonObject{{"type", "string"}}},
+                {"link", QJsonObject{{"type", "string"}, {"description", "Product-page URL"}}},
+                {"teaType", QJsonObject{{"type", "string"},
+                    {"description", "Tea bags only: black/green/oolong/white/herbal/pu-erh"}}},
+                {"garden", QJsonObject{{"type", "string"}, {"description", "Tea bags only: estate/garden"}}},
+                {"cultivar", QJsonObject{{"type", "string"}, {"description", "Tea bags only"}}},
+                {"flush", QJsonObject{{"type", "string"}, {"description", "Tea bags only: harvest/flush"}}},
+                {"brewTempC", QJsonObject{{"type", "number"},
+                    {"description", "Tea bags only: vendor brew temperature, Celsius"}}},
+                {"leafGramsPer100Ml", QJsonObject{{"type", "number"},
+                    {"description", "Tea bags only: leaf dose per 100 ml water"}}},
+                {"steepTime", QJsonObject{{"type", "string"},
+                    {"description", "Tea bags only: display string, e.g. '3-5 minutes'"}}}
+            }}
+        },
+        [bagToJson, bagStorage](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            if (!bagStorage) {
+                respond(QJsonObject{{"error", "Bag storage not available"}});
+                return;
+            }
+            const QString kind = args.value("kind").toString().isEmpty()
+                ? QStringLiteral("coffee") : args["kind"].toString();
+            if (kind != QLatin1String("coffee") && kind != QLatin1String("tea")) {
+                respond(QJsonObject{{"error", "kind must be 'coffee' or 'tea'"}});
+                return;
+            }
+            const QString roaster = args["roasterName"].toString().trimmed();
+            const QString coffee = args["coffeeName"].toString().trimmed();
+            if (roaster.isEmpty() && coffee.isEmpty()) {
+                respond(QJsonObject{{"error", "at least one of roasterName / coffeeName is required"}});
+                return;
+            }
+
+            // Kind-gate both directions, mirroring bag_update's rule.
+            static const QStringList kTeaOnly = {
+                "teaType", "garden", "cultivar", "flush", "brewTempC",
+                "leafGramsPer100Ml", "steepTime"};
+            static const QStringList kCoffeeOnly = {"roastLevel", "grinderSetting"};
+            QStringList offending;
+            if (kind == QLatin1String("coffee")) {
+                for (const QString& key : kTeaOnly)
+                    if (args.contains(key)) offending << key;
+                if (!offending.isEmpty()) {
+                    respond(QJsonObject{{"error", offending.join(", ")
+                        + " only apply to tea bags (this create has kind coffee)"}});
+                    return;
+                }
+            } else {
+                for (const QString& key : kCoffeeOnly)
+                    if (args.contains(key)) offending << key;
+                if (!offending.isEmpty()) {
+                    respond(QJsonObject{{"error", offending.join(", ")
+                        + " do not apply to tea bags"}});
+                    return;
+                }
+            }
+
+            // Columns.
+            QVariantMap bag;
+            bag.insert("kind", kind);
+            if (!roaster.isEmpty()) bag.insert("roasterName", roaster);
+            if (!coffee.isEmpty()) bag.insert("coffeeName", coffee);
+            for (const QString& key : {QStringLiteral("roastDate"), QStringLiteral("roastLevel"),
+                                       QStringLiteral("grinderSetting"), QStringLiteral("notes")})
+                if (args.contains(key)) bag.insert(key, args[key].toString());
+            if (args.contains("doseWeightG")) bag.insert("doseWeightG", args["doseWeightG"].toDouble());
+            bag.insert("inInventory", true);
+
+            // Details land in the blob (same vocabulary as bag_update).
+            static const QStringList kBlobKeys = {
+                "origin", "region", "producer", "variety", "process", "harvest",
+                "tastingNotes", "link",
+                "teaType", "garden", "cultivar", "flush", "brewTempC",
+                "leafGramsPer100Ml", "steepTime"};
+            QVariantMap blobEdits;
+            for (const QString& key : kBlobKeys)
+                if (args.contains(key)) blobEdits.insert(key, args[key].toVariant());
+            if (!blobEdits.isEmpty())
+                bag.insert("beanBaseData", BeanBaseBlob::mergeBeanDetails(QString(), blobEdits));
+
+            auto conn = std::make_shared<QMetaObject::Connection>();
+            *conn = QObject::connect(bagStorage, &CoffeeBagStorage::bagCreated, qApp,
+                [conn, bagToJson, respond](qint64 bagId, const QVariantMap& created) {
+                    QObject::disconnect(*conn);
+                    if (bagId <= 0) {
+                        respond(QJsonObject{{"error", "Could not create the bag"}});
+                        return;
+                    }
+                    respond(QJsonObject{{"success", true},
+                                        {"bag", bagToJson(CoffeeBag::fromVariantMap(created))}});
+                });
+            bagStorage->requestCreateBag(bag);
+        },
+        "settings");
+
     // bag_select — set the active bag (what the next shot is pulled with).
     registry->registerAsyncTool(
         "bag_select",

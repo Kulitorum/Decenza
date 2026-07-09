@@ -23,3 +23,14 @@ The recipe tool family SHALL expose `drinkType` (human-readable string per the d
 #### Scenario: Kind is immutable via MCP
 - **WHEN** an MCP client calls `bag_update` attempting to change kind
 - **THEN** the update is rejected or the field ignored with the response noting kind is creation-time only
+
+### Requirement: Bags are creatable via MCP with kind stamped at creation
+The MCP server SHALL provide `bag_create` (write access level): kind `coffee` (default) or `tea`, at least one of roasterName/coffeeName required, kind-gated vocabularies in both directions (tea fields rejected on coffee creates; roastLevel/grinderSetting rejected on tea creates), details landing in the bag blob via the shared merge helper. The created bag SHALL enter the inventory but SHALL NOT become the active bag (a remote client must not silently switch what the next shot is pulled with; `bag_select` activates).
+
+#### Scenario: Create a tea bag with brewing data
+- **WHEN** an MCP client calls `bag_create` with kind "tea", a brand/name, teaType, and brewTempC
+- **THEN** the bag appears in `bag_list` with kind "tea" and its brewing fields, and the active bag is unchanged
+
+#### Scenario: Kind-gated create
+- **WHEN** an MCP client calls `bag_create` with kind "coffee" and a teaType
+- **THEN** the create is rejected with an error naming the tea-only fields
