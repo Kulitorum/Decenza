@@ -117,7 +117,6 @@ private:
     // still hold a QSqlQuery — Qt warns (harmless, ignored) and the thread
     // MUST be drained before the storage destructs or it SIGSEGVs.
     bool initAndClose(const QString& path, ShotHistoryStorage& storage) {
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         if (!storage.initialize(path))
             return false;
         storage.close();

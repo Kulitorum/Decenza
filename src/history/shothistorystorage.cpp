@@ -77,6 +77,12 @@ void ShotHistoryStorage::close()
     if (m_db.isOpen()) {
         m_db.close();
     }
+    // Drop THIS object's handle to the named connection BEFORE removing it.
+    // removeDatabase() warns ("connection is still in use, all queries will
+    // cease to work") when a live QSqlDatabase still references the connection
+    // — and the member m_db is exactly such a reference. Reset it to an
+    // invalid database first so removeDatabase runs cleanly.
+    m_db = QSqlDatabase();
     if (QSqlDatabase::contains(DB_CONNECTION_NAME)) {
         QSqlDatabase::removeDatabase(DB_CONNECTION_NAME);
     }
@@ -93,10 +99,10 @@ bool ShotHistoryStorage::initialize(const QString& dbPath)
 
     qDebug() << "ShotHistoryStorage: Initializing database at" << m_dbPath;
 
-    // Remove existing connection if any
-    if (QSqlDatabase::contains(DB_CONNECTION_NAME)) {
-        QSqlDatabase::removeDatabase(DB_CONNECTION_NAME);
-    }
+    // Drop any existing connection (a re-initialize) cleanly first — close()
+    // resets m_db before removing so removeDatabase doesn't warn about a
+    // still-referenced connection.
+    close();
 
     m_db = QSqlDatabase::addDatabase("QSQLITE", DB_CONNECTION_NAME);
     m_db.setDatabaseName(m_dbPath);

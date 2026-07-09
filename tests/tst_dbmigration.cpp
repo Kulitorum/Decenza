@@ -148,10 +148,8 @@ private:
     // background thread. We must let that thread complete its callback before
     // the ShotHistoryStorage is destroyed, otherwise SIGSEGV.
     void initAndClose(const QString& path, ShotHistoryStorage& storage) {
-        // ShotHistoryStorage::close() removes its DB connection while a background
-        // thread may still hold a QSqlQuery reference. Qt warns about this but
-        // it's harmless — the connection is cleaned up when the thread finishes.
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
+        // close() resets its m_db handle before removeDatabase, so there is no
+        // "connection still in use" warning to ignore here.
         QVERIFY(storage.initialize(path));
         storage.close();
         // Give background thread time to finish SQL + deliver callback
@@ -163,12 +161,9 @@ private:
 
     // Like initAndClose(), but for an initialize() that is expected to emit a
     // single migration-failure qWarning (a gated migration that did NOT bump).
-    // The migration warning is registered before the close-time "connection
-    // still in use" warning so the FIFO ignore queue matches emission order.
     void initExpectingMigrationWarning(const QString& path, const QString& warnRegex) {
         ShotHistoryStorage storage;
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(warnRegex));
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         QVERIFY(storage.initialize(path));
         storage.close();
         for (int i = 0; i < 20; i++) {
@@ -426,7 +421,6 @@ private slots:
         QString path = freshDbPath();
         withRawDb(path, "empty_create", [](QSqlDatabase& db) { createV1Schema(db); });
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(path));
         QCOMPARE(storage.totalShots(), 0);
@@ -449,7 +443,6 @@ private slots:
             QSqlQuery(db).exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) VALUES ('test-null', 1000, 'NullTest', 30.0)");
         });
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(path));
         QCOMPARE(storage.totalShots(), 1);
@@ -524,7 +517,6 @@ private slots:
             q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, final_weight, bean_brand, grinder_model) VALUES ('p2', 2000, 'D-Flow', 32.0, 40.0, 'SEY', 'DF64')");
         });
 
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         ShotHistoryStorage storage;
         QVERIFY(storage.initialize(path));
         QCOMPARE(storage.totalShots(), 2);
@@ -1006,7 +998,6 @@ private slots:
         // conversion the code comment promises).
         {
             ShotHistoryStorage s;
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
             QVERIFY(s.initialize(path));
             QCOMPARE(s.lastSavedShotId(), qint64(0));
             s.close();
@@ -1030,7 +1021,6 @@ private slots:
         });
         {
             ShotHistoryStorage s;
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
             QVERIFY(s.initialize(path));
             QCOMPARE(s.lastSavedShotId(), newestId);
             s.close();
@@ -1046,7 +1036,6 @@ private slots:
         });
         {
             ShotHistoryStorage s;
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
             QVERIFY(s.initialize(path));
             QCOMPARE(s.lastSavedShotId(), newestId - 1);
             s.close();
@@ -1421,7 +1410,6 @@ private slots:
         qint64 shotId = -1;
         {
             ShotHistoryStorage s;
-            QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
             QVERIFY(s.initialize(path));
             ShotRecord rec;
             rec.summary.uuid = QStringLiteral("import-grinder-1");
@@ -1455,7 +1443,6 @@ private slots:
     void v23_grinderFreeTextSearchResolvesViaPointer() {
         const QString path = freshDbPath();
         ShotHistoryStorage s;
-        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("connection.*still in use"));
         QVERIFY(s.initialize(path));
 
         // One shot whose ONLY association with "niche" is its grinder package
