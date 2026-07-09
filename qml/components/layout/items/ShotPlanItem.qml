@@ -126,8 +126,8 @@ Item {
             // Stacked spends a line on the detail tail — give the sentence +
             // wrapped tail room before eliding. Gated on sentence so a stale
             // stacked flag (saved on, Sentence later turned off) doesn't widen
-            // fragment mode's budget. (The profile-anchor fragment fallback
-            // still gets the extra line — harmless, just a wider wrap budget.)
+            // fragment mode's budget. (The profile-less recipe sentence needs
+            // this extra line too — its detail tail stacks the same way.)
             maxLines: root.stacked && root.sentence ? 3 : 2
             onClicked: root.openBrewSettings()
         }
