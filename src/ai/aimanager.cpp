@@ -108,6 +108,7 @@ void AIManager::createProviders()
     // Create Anthropic provider
     QString anthropicKey = m_settings->ai()->anthropicApiKey();
     auto* anthropic = new AnthropicProvider(m_networkManager, anthropicKey, this);
+    anthropic->setModel(m_settings->ai()->providerModel("anthropic"));  // empty → keeps default
     connect(anthropic, &AIProvider::analysisComplete, this, &AIManager::onAnalysisComplete);
     connect(anthropic, &AIProvider::analysisFailed, this, &AIManager::onAnalysisFailed);
     connect(anthropic, &AIProvider::testResult, this, &AIManager::onTestResult);
@@ -1389,6 +1390,7 @@ void AIManager::onSettingsChanged()
     auto* anthropic = dynamic_cast<AnthropicProvider*>(m_anthropicProvider.get());
     if (anthropic) {
         anthropic->setApiKey(m_settings->ai()->anthropicApiKey());
+        anthropic->setModel(m_settings->ai()->providerModel("anthropic"));  // empty → keeps default
     }
 
     auto* gemini = dynamic_cast<GeminiProvider*>(m_geminiProvider.get());

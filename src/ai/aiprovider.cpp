@@ -334,6 +334,46 @@ AnthropicProvider::AnthropicProvider(QNetworkAccessManager* networkManager,
     : AIProvider(networkManager, parent)
     , m_apiKey(apiKey)
 {
+    // Default to the recommended model = first catalog entry. Keeps the default
+    // a single source of truth (no parallel DEFAULT_MODEL constant to keep in
+    // sync with the list order). availableModels() dispatches to this class
+    // since the object under construction is an AnthropicProvider.
+    const QList<ModelOption> models = availableModels();
+    if (!models.isEmpty())
+        m_model = models.first().id;
+}
+
+QList<AIProvider::ModelOption> AnthropicProvider::availableModels() const
+{
+    // Order = UI order; first entry is the recommended default. Sonnet 4.6 leads
+    // as the established default so upgrading users keep their current behavior;
+    // Sonnet 5 is the opt-in "more capable" choice. Revisit as new models land.
+    return {
+        { "claude-sonnet-4-6", "Sonnet 4.6" },
+        { "claude-sonnet-5", "Sonnet 5" },
+    };
+}
+
+void AnthropicProvider::setModel(const QString& modelId)
+{
+    if (modelId.isEmpty())
+        return;  // unset → keep the current default
+    for (const ModelOption& opt : availableModels()) {
+        if (opt.id == modelId) {
+            m_model = modelId;
+            return;
+        }
+    }
+    qWarning() << "AnthropicProvider::setModel ignoring unknown model id:" << modelId;
+}
+
+QString AnthropicProvider::shortModelName() const
+{
+    for (const ModelOption& opt : availableModels()) {
+        if (opt.id == m_model)
+            return opt.displayName;
+    }
+    return m_model;
 }
 
 void AnthropicProvider::sendRequest(const QJsonObject& requestBody)
@@ -372,7 +412,7 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
     ++m_reqGen;
 
     QJsonObject requestBody;
-    requestBody["model"] = QString::fromLatin1(MODEL);
+    requestBody["model"] = m_model;
     requestBody["max_tokens"] = 1024;
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     QJsonArray messages;
@@ -397,7 +437,7 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
     ++m_reqGen;
 
     QJsonObject requestBody;
-    requestBody["model"] = QString::fromLatin1(MODEL);
+    requestBody["model"] = m_model;
     requestBody["max_tokens"] = 1024;
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     requestBody["messages"] = messagesWithCachedFirstUser(messages);
@@ -519,7 +559,7 @@ void AnthropicProvider::testConnection()
 
     // Send a minimal request to test the API key
     QJsonObject requestBody;
-    requestBody["model"] = QString::fromLatin1(MODEL);
+    requestBody["model"] = m_model;
     requestBody["max_tokens"] = 10;
     QJsonArray messages;
     QJsonObject userMsg;

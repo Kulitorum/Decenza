@@ -128,11 +128,16 @@ public:
 
     QString name() const override { return "Anthropic"; }
     QString id() const override { return "anthropic"; }
-    QString modelName() const override { return MODEL; }
-    QString shortModelName() const override { return MODEL_DISPLAY; }
+    QString modelName() const override { return m_model; }
+    QString shortModelName() const override;  // catalog display for m_model
     bool isConfigured() const override { return !m_apiKey.isEmpty(); }
+    QList<ModelOption> availableModels() const override;
 
     void setApiKey(const QString& key) { m_apiKey = key; }
+    // Select the wire model. Ignores empty (keeps current default) and any id
+    // not in availableModels(), so a stale/unknown stored value can't break the
+    // request.
+    void setModel(const QString& modelId);
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
@@ -154,9 +159,11 @@ private:
     static QJsonArray messagesWithCachedFirstUser(const QJsonArray& messages);
 
     QString m_apiKey;
+    // Selected wire model. Defaulted in the constructor to the first
+    // availableModels() entry (the recommended default), so the C++ default and
+    // the UI's "unset → index 0" fallback reference the same fact and can't drift.
+    QString m_model;
     static constexpr const char* API_URL = "https://api.anthropic.com/v1/messages";
-    static constexpr const char* MODEL = "claude-sonnet-4-6";
-    static constexpr const char* MODEL_DISPLAY = "Sonnet 4.6";
 };
 
 // Google Gemini provider
