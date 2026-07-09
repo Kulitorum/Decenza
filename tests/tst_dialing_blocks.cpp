@@ -16,6 +16,7 @@
 // directly to expected JSON literals.
 
 #include <QtTest>
+#include <QSet>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -2553,11 +2554,19 @@ private slots:
                  qPrintable(QStringLiteral("expected the full shot corpus, found %1")
                      .arg(files.size())));
 
-        // Deliberately-unresolvable fixture, documented in
+        // Deliberately-unresolvable fixtures — synthetic regression-guard
+        // shots with no corresponding real profile, not a KB coverage gap.
+        // "Gagné/Adaptive Shot 92C vME 7 bar" is documented in
         // tests/data/shots/manifest.json's gagne_adaptive_clean.json entry
-        // (grep for "vME" there for the full rationale).
-        static const QString kKnownUnresolvable =
-            QStringLiteral("Gagné/Adaptive Shot 92C vME 7 bar");
+        // (grep for "vME" there). "Synthetic / Puck Failure Gusher"
+        // (synthetic_puck_failure_gusher.json) is a hand-authored
+        // pourTruncated/grindIssue cascade fixture (grinder_model:
+        // "synthetic", barista: "regression-fixture") — see that file's
+        // own espresso_notes / the manifest entry for the cascade it pins.
+        static const QSet<QString> kKnownUnresolvable = {
+            QStringLiteral("Gagné/Adaptive Shot 92C vME 7 bar"),
+            QStringLiteral("Synthetic / Puck Failure Gusher"),
+        };
 
         QStringList unresolved;
         int resolved = 0, checked = 0;
@@ -2570,7 +2579,7 @@ private slots:
             pf.close();
             const QString title = po.value(QStringLiteral("profile_title")).toString();
             if (title.isEmpty()) continue;  // synthetic curve-only fixture, no profile identity
-            if (title == kKnownUnresolvable) continue;  // documented exception, see comment above
+            if (kKnownUnresolvable.contains(title)) continue;  // documented exception, see comment above
             ++checked;
 
             QString t = title;
