@@ -40,6 +40,10 @@ Page {
     // FROM the summary returns to it on selection instead of advancing.
     property string currentStep: "drink"
     property bool _fromSummary: false
+    // True when the wizard OPENED on the summary (edit / promote / clone):
+    // back from the summary then exits; in a creation walk it steps back
+    // to details instead.
+    property bool _enteredAtSummary: false
 
     function openStep(step) {
         _fromSummary = (currentStep === "summary")
@@ -59,6 +63,48 @@ Page {
             MainController.bagStorage.requestInventory()
         else if (step === "profile")
             requestProfileRanking()
+    }
+
+    // The bottom-bar back arrow steps BACK through the wizard; it exits only
+    // from the first step (or from the summary when the wizard opened there —
+    // edit/promote/clone). A step opened from the summary returns to it.
+    function goBackOneStep() {
+        if (_fromSummary) {
+            _fromSummary = false
+            _enterStep("summary")
+            return
+        }
+        switch (currentStep) {
+        case "drink":
+            root.goBack()
+            break
+        case "bean":
+            _enterStep("drink")
+            break
+        case "profile":
+            _enterStep("bean")
+            break
+        case "details":
+            if (isHotWaterTea) {
+                // "Just hot water" was picked ON the profile step — return
+                // there with the tea profile list restored (and undo the
+                // row's hot-water pre-seed; picking it again re-applies).
+                fDrinkType = "tea"
+                fHasWater = false
+                _enterStep("profile")
+            } else {
+                _enterStep("profile")
+            }
+            break
+        case "summary":
+            if (_enteredAtSummary)
+                root.goBack()
+            else
+                _enterStep("details")
+            break
+        default:
+            root.goBack()
+        }
     }
 
     // --- drink-type templates ---------------------------------------------
@@ -172,12 +218,15 @@ Page {
             : TranslationManager.translate("recipes.wizard.createTitle", "New Recipe")
         if (mode === "edit" && editRecipeId > 0) {
             currentStep = "summary"
+            _enteredAtSummary = true
             MainController.recipeStorage.requestRecipe(editRecipeId)
         } else if (promoteShotId > 0) {
             currentStep = "summary"
+            _enteredAtSummary = true
             MainController.shotHistory.requestShot(promoteShotId)
         } else if (prefill && Object.keys(prefill).length > 0) {
             currentStep = "summary"
+            _enteredAtSummary = true
             applyRecipeMap(prefill)
             nameField.forceActiveFocus()
             nameField.selectAll()
@@ -1100,7 +1149,7 @@ Page {
                         Layout.fillWidth: true
                         spacing: Theme.spacingMedium
                         Repeater {
-                            model: ["espresso", "filter", "americano", "long_black", "latte", "tea"]
+                            model: ["espresso", "latte", "filter", "americano", "long_black", "tea"]
                             delegate: Rectangle {
                                 radius: Theme.cardRadius
                                 color: Theme.surfaceColor
@@ -1790,6 +1839,6 @@ Page {
 
     BottomBar {
         barColor: "transparent"
-        onBackClicked: root.goBack()
+        onBackClicked: wizardPage.goBackOneStep()
     }
 }
