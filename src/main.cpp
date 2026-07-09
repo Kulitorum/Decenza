@@ -1014,6 +1014,17 @@ int main(int argc, char *argv[])
     AIManager aiManager(&sharedNetworkManager, &settings);
     mainController.setAiManager(&aiManager);
 
+    // Register the per-provider model-hint strings with the translation
+    // registry. SettingsAITab.qml builds these keys dynamically
+    // ("settings.ai.modelHint." + provider), which the QML string scanner
+    // cannot see; registering here keeps the batch-translation registry
+    // complete while the English copy stays in AIProvider::modelHint().
+    for (const QString& providerId : aiManager.availableProviders()) {
+        const QString hint = aiManager.modelHint(providerId);
+        if (!hint.isEmpty())
+            translationManager.translate("settings.ai.modelHint." + providerId, hint);
+    }
+
     // Connect FlowScale to graph initially (will be disconnected if physical scale found)
     QObject::connect(&flowScale, &ScaleDevice::weightChanged,
                      &mainController, &MainController::onScaleWeightChanged);

@@ -298,6 +298,9 @@ KeyboardAwareContainer {
                     // AIProvider::modelHint() (next to the model catalog) so the
                     // app and the ShotServer web settings page share one source;
                     // the per-provider translation key keeps it translatable.
+                    // The key is built dynamically, which the QML string scanner
+                    // cannot see -- main.cpp registers these keys at startup so
+                    // the batch-translation registry stays complete.
                     Text {
                         visible: text.length > 0
                         text: {

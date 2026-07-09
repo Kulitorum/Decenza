@@ -48,8 +48,14 @@
 
 // Apply AI-related fields from a JSON object to Settings. Only keys present
 // in obj are updated; missing keys leave the current setting unchanged.
-static void applyAiSettings(Settings* s, const QJsonObject& obj)
+// providerModels entries are validated against aiManager's provider list and
+// per-provider model catalogs before being persisted — without this, a stale
+// web tab (or a typo'd API client) could save an id the provider silently
+// discards, and the page would still report "Saved". Invalid entries are
+// skipped and reported in the returned error list (empty = all applied).
+static QStringList applyAiSettings(Settings* s, AIManager* aiManager, const QJsonObject& obj)
 {
+    QStringList errors;
     auto* a = s->ai();
     if (obj.contains("aiProvider"))
         a->setAiProvider(obj["aiProvider"].toString());
@@ -69,13 +75,43 @@ static void applyAiSettings(Settings* s, const QJsonObject& obj)
         a->setOllamaModel(obj["ollamaModel"].toString());
     // Per-provider selected model for fixed-catalog providers (see
     // SettingsAI::setProviderModel). Shape: {"gemini": "gemini-2.5-flash"}.
-    // Unknown ids are harmless: each provider's setModel() ignores ids not in
-    // its availableModels() catalog.
     if (obj["providerModels"].isObject()) {
         const QJsonObject models = obj["providerModels"].toObject();
-        for (auto it = models.begin(); it != models.end(); ++it)
-            a->setProviderModel(it.key(), it.value().toString());
+        for (auto it = models.begin(); it != models.end(); ++it) {
+            const QString providerId = it.key();
+            if (!aiManager) {
+                errors << QStringLiteral("AI manager not available; model selection not applied");
+                break;
+            }
+            if (!it.value().isString()) {
+                errors << QStringLiteral("Model for provider '%1' must be a string").arg(providerId);
+                continue;
+            }
+            const QString modelId = it.value().toString();
+            if (!aiManager->availableProviders().contains(providerId)) {
+                errors << QStringLiteral("Unknown AI provider '%1'").arg(providerId);
+                continue;
+            }
+            // Empty = "use the provider default" and is always legal.
+            if (!modelId.isEmpty()) {
+                const QVariantList catalog = aiManager->availableModels(providerId);
+                bool known = false;
+                for (const QVariant& entry : catalog) {
+                    if (entry.toMap().value("id").toString() == modelId) {
+                        known = true;
+                        break;
+                    }
+                }
+                if (!known) {
+                    errors << QStringLiteral("Unknown model '%1' for provider '%2'")
+                                  .arg(modelId, providerId);
+                    continue;
+                }
+            }
+            a->setProviderModel(providerId, modelId);
+        }
     }
+    return errors;
 }
 
 // Apply MQTT-related fields from a JSON object to Settings. Only keys present
@@ -636,7 +672,9 @@ QString ShotServer::generateSettingsPage() const
 
         // Show the generic model dropdown when the selected provider has a
         // fixed catalog of >1 model. Unset/stale selection falls back to the
-        // catalog's first entry (the recommended default), matching the app.
+        // catalog's first entry (the recommended default), matching the app --
+        // and matching the wire model, since every provider's constructor
+        // defaults m_model to its catalog's first entry.
         function updateModelGroup() {
             const catalog = modelCatalogs[selectedProvider] || [];
             document.getElementById('modelGroup').style.display = catalog.length > 1 ? 'block' : 'none';
@@ -981,8 +1019,9 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
         // Per-provider model catalogs, stored selections, current display
         // names, and guidance hints, so the web page can offer the same model
         // picker as the in-app AI settings tab. Catalogs/hints only include
-        // providers with a fixed multi-model catalog (OpenAI/Anthropic/Gemini
-        // today); providerModels round-trips through POST /api/settings.
+        // providers with a non-empty catalog (OpenAI/Anthropic/Gemini today;
+        // the page shows the picker only for catalogs with >1 entry);
+        // providerModels round-trips through POST /api/settings.
         if (m_aiManager) {
             QJsonObject catalogs;
             QJsonObject selections;
@@ -1003,6 +1042,11 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
             obj["providerModels"] = selections;
             obj["providerModelNames"] = names;
             obj["providerModelHints"] = hints;
+        } else {
+            // Unreachable with the current main.cpp wiring order, but if that
+            // ever regresses the model picker vanishes from the web page with
+            // no other symptom -- leave a breadcrumb.
+            qWarning() << "ShotServer: /api/settings served without AIManager -- model picker suppressed";
         }
     }
 
@@ -1045,10 +1089,21 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
         m_settings->visualizer()->setVisualizerPassword(obj["visualizerPassword"].toString());
 
     // AI
-    applyAiSettings(m_settings, obj);
+    const QStringList aiErrors = applyAiSettings(m_settings, m_aiManager, obj);
 
     // MQTT
     applyMqttSettings(m_settings, obj);
+
+    // Valid fields (including valid providerModels entries) are applied even
+    // when some entries were rejected; the error tells the client which
+    // selections did not take.
+    if (!aiErrors.isEmpty()) {
+        QJsonObject resp;
+        resp["success"] = false;
+        resp["error"] = aiErrors.join(QStringLiteral("; "));
+        sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
+        return;
+    }
 
     sendJson(socket, R"({"success": true})");
 }
@@ -1156,7 +1211,16 @@ void ShotServer::handleAiTest(QTcpSocket* socket, const QByteArray& body)
     // creates a provider from current Settings values, so these must be
     // written first for the test to use the web form's credentials.
     // Note: this means "Test" also persists settings as a side effect.
-    applyAiSettings(m_settings, obj);
+    const QStringList aiErrors = applyAiSettings(m_settings, m_aiManager, obj);
+    if (!aiErrors.isEmpty()) {
+        // Don't run the test: it would exercise the provider default and
+        // report "works" for a selection that was never applied.
+        QJsonObject resp;
+        resp["success"] = false;
+        resp["message"] = aiErrors.join(QStringLiteral("; "));
+        sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
+        return;
+    }
 
     m_aiTestInFlight = true;
 
