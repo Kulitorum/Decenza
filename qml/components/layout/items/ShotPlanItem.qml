@@ -27,6 +27,8 @@ Item {
     // line(s) below the sentence. Compact bar placements ignore it — a bar is
     // a single-line context.
     readonly property bool stacked: modelData.shotPlanStacked === true
+    // Yield: show only the effective target (drop the "profileDefault →" arrow).
+    readonly property bool yieldTargetOnly: modelData.shotPlanYieldTargetOnly === true
     readonly property bool showSteamPlan: modelData.shotPlanShowSteamPlan !== false
 
     // Steam context = steam selected on the idle screen, OR the full steam page, OR the
@@ -90,6 +92,7 @@ Item {
             visible: !root._steamMode && text !== ""
             itemOrder: root.itemOrder
             sentence: root.sentence
+            yieldTargetOnly: root.yieldTargetOnly
             maxLines: 1
             onClicked: root.openBrewSettings()
         }
@@ -118,6 +121,7 @@ Item {
             visible: !root._steamMode && text !== ""
             itemOrder: root.itemOrder
             sentence: root.sentence
+            yieldTargetOnly: root.yieldTargetOnly
             stacked: root.stacked
             // Stacked spends a line on the detail tail — give the sentence +
             // wrapped tail room before eliding. Gated on sentence so a stale

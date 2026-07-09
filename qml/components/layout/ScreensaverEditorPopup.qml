@@ -25,6 +25,7 @@ Dialog {
     property var shotPlanItems: []
     property bool shotPlanSentence: true
     property bool shotPlanStacked: false
+    property bool shotPlanYieldTargetOnly: false
     property bool shotPlanShowSteamPlan: true
     // Screen-reader-only reorder fallback (drag has no assistive-tech equivalent).
     readonly property bool _a11yEnabled: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
@@ -100,6 +101,7 @@ Dialog {
         shotPlanItems = ShotPlanConfig.itemsFor(props)
         shotPlanSentence = typeof props.shotPlanSentence === "boolean" ? props.shotPlanSentence : true
         shotPlanStacked = props.shotPlanStacked === true
+        shotPlanYieldTargetOnly = props.shotPlanYieldTargetOnly === true
         shotPlanShowSteamPlan = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true
         open()
     }
@@ -146,6 +148,7 @@ Dialog {
             var ok = Settings.network.setItemPropertyList(itemId, "shotPlanItems", shotPlanItems)
             ok = Settings.network.setItemProperty(itemId, "shotPlanSentence", shotPlanSentence) && ok
             ok = Settings.network.setItemProperty(itemId, "shotPlanStacked", shotPlanStacked) && ok
+            ok = Settings.network.setItemProperty(itemId, "shotPlanYieldTargetOnly", shotPlanYieldTargetOnly) && ok
             ok = Settings.network.setItemProperty(itemId, "shotPlanShowSteamPlan", shotPlanShowSteamPlan) && ok
             if (!ok)
                 console.warn("ScreensaverEditorPopup: shot plan save failed (item deleted?)", itemId)
@@ -678,6 +681,16 @@ Dialog {
                         onToggled: popup.shotPlanStacked = checked
                     }
                     StyledSwitch {
+                        // Yield display: ON shows only the effective target yield (e.g. "40.0g");
+                        // OFF keeps the "profileDefault → target" arrow (e.g. "36.0 → 40.0g").
+                        // Only affects the Dose & yield item, so disabled when it isn't shown —
+                        // and only visibly differs while a deliberate yield override is active.
+                        text: TranslationManager.translate("shotPlanEditor.yieldTargetOnly", "Final yield only (hide profile default)")
+                        enabled: popup.shotPlanItems.indexOf("doseYield") !== -1
+                        checked: popup.shotPlanYieldTargetOnly
+                        onToggled: popup.shotPlanYieldTargetOnly = checked
+                    }
+                    StyledSwitch {
                         // Page-aware mode: while steaming (or steam selected) the widget swaps to the
                         // steam sentence. The steam side has no further options.
                         text: TranslationManager.translate("shotPlanEditor.showSteamPlan", "Steam plan (while steaming)")
@@ -711,6 +724,7 @@ Dialog {
                             width: Math.min(implicitWidth, parent.width - Theme.spacingSmall * 2)
                             itemOrder: popup.shotPlanItems
                             sentence: popup.shotPlanSentence
+                            yieldTargetOnly: popup.shotPlanYieldTargetOnly
                             stacked: popup.shotPlanStacked
                             // Same sentence gating as ShotPlanItem: no 3-line budget
                             // for fragment mode with a stale stacked flag.

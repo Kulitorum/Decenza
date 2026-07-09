@@ -37,6 +37,9 @@ Item {
     // Sentence mode only: render the detail tail on its own line(s) below the
     // sentence (display path — the a11y text stays one joined sentence).
     property bool stacked: false
+    // Yield rendering: when true, suppress the "profileDefault → target" arrow
+    // and show only the effective target — see _yieldStr for the full rule.
+    property bool yieldTargetOnly: false
     // Wrap budget before eliding: 2 in the full-size widget, 1 in compact bars.
     property int maxLines: 2
 
@@ -67,10 +70,12 @@ Item {
     // --- Per-item segments (empty string = hidden). ---
     // Dose & yield: the shot's target output, plus dose-in (e.g. "18.0g in"). A DELIBERATE yield
     // override (the hasBrewYieldOverride flag, not raw drift — measured dose never exactly matches
-    // the profile's) renders as "36.0 → 40.0g", mirroring the temperature-override treatment.
+    // the profile's) renders as "36.0 → 40.0g" — the yield counterpart of the temperature-override
+    // call-out (which uses a delta tag, not an arrow). yieldTargetOnly suppresses the arrow and
+    // shows only the effective target ("40.0g"); with no active override it's a visible no-op.
     readonly property string _yieldStr: {
         if (!(_has("doseYield") && targetWeight > 0)) return ""
-        if (yieldOverridden && profileYield > 0
+        if (!yieldTargetOnly && yieldOverridden && profileYield > 0
                 && Math.abs(targetWeight - profileYield) > 0.1)
             return profileYield.toFixed(1) + " → " + targetWeight.toFixed(1) + "g"
         return targetWeight.toFixed(1) + "g"
