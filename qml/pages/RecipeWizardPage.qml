@@ -1219,9 +1219,9 @@ Page {
                         Layout.fillWidth: true
                         text: wizardPage.isTeaDrink
                             ? TranslationManager.translate("recipes.wizard.noTeaBags",
-                                  "No bags of tea in your inventory yet — add one with “Add Tea” on the Beans page. You can also continue without one.")
+                                  "No bags of tea in your inventory yet — add one below, or continue without one.")
                             : TranslationManager.translate("recipes.wizard.noCoffeeBags",
-                                  "No open bags in your inventory yet — add one on the Beans page. You can also continue without one.")
+                                  "No open bags in your inventory yet — add one below, or continue without one.")
                         font: Theme.bodyFont
                         color: Theme.textSecondaryColor
                         wrapMode: Text.WordWrap
@@ -1233,20 +1233,38 @@ Page {
                         Layout.fillHeight: true
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
-                        model: parent.kindBags.concat([{ isNone: true }])
+                        model: parent.kindBags.concat([{ isAddNew: true }, { isNone: true }])
                         delegate: ItemDelegate {
                             width: ListView.view.width
                             contentItem: Label {
-                                text: modelData.isNone
-                                    ? (wizardPage.isTeaDrink ? trNoTea.text : trNoBean.text)
-                                    : ((modelData.roasterName || "") + " " + (modelData.coffeeName || "")).trim()
+                                text: modelData.isAddNew
+                                    ? (wizardPage.isTeaDrink
+                                        ? TranslationManager.translate("recipes.wizard.addNewTea", "Add a new tea…")
+                                        : TranslationManager.translate("recipes.wizard.addNewCoffee", "Add a new coffee…"))
+                                    : modelData.isNone
+                                        ? (wizardPage.isTeaDrink ? trNoTea.text : trNoBean.text)
+                                        : ((modelData.roasterName || "") + " " + (modelData.coffeeName || "")).trim()
                                 font: Theme.bodyFont
-                                color: Theme.textColor
+                                color: modelData.isAddNew ? Theme.primaryColor : Theme.textColor
                                 elide: Text.ElideRight
                             }
                             Accessible.role: Accessible.Button
                             Accessible.name: contentItem.text
-                            onClicked: wizardPage.selectBean(modelData.isNone ? null : modelData)
+                            onClicked: {
+                                if (modelData.isAddNew) {
+                                    // Coffee: the search-first flow (the one they
+                                    // want may be in Bean Base / history). Tea:
+                                    // the tea entry (form-first when none exist).
+                                    if (wizardPage.isTeaDrink)
+                                        wizardBeansDialog.openTeaEntry(ListView.view.count > 2)
+                                    else {
+                                        wizardBeansDialog.bagKind = "coffee"
+                                        wizardBeansDialog.open()
+                                    }
+                                    return
+                                }
+                                wizardPage.selectBean(modelData.isNone ? null : modelData)
+                            }
                         }
                     }
                 }
@@ -1731,6 +1749,20 @@ Page {
                     }
                 }
             }
+        }
+    }
+
+    // Create-a-bag entry point ON the bean step (add-recipe-wizard-tea):
+    // the full Change Beans dialog in the right kind mode — coffee gets the
+    // search-first flow, tea the tea form. The created bag becomes the
+    // active bag (inventory-context semantics, same as the Beans page) and
+    // is immediately selected as this recipe's bean, advancing the wizard.
+    ChangeBeansDialog {
+        id: wizardBeansDialog
+        context: "inventory"
+        onBagSelected: function(bagId, bag) {
+            if (wizardPage.currentStep === "bean")
+                wizardPage.selectBean(bag)
         }
     }
 
