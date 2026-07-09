@@ -34,6 +34,7 @@
 #include "ai/aiconversation.h"
 #include "core/settings.h"
 #include "core/settings_dye.h"
+#include "core/settings_ai.h"  // settings.ai()->set*: full type for the extraction-routing tests
 #include "history/shotprojection.h"
 #include "history/shothistory_types.h"
 #include "ai/dialing_blocks.h"
