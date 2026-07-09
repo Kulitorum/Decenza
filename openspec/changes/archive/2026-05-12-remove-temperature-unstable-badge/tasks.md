@@ -76,7 +76,7 @@
 - [x] 10.2 Run the full Qt Test suite via `mcp__qtcreator__run_tests` (per project policy). Zero failures, zero WARN lines.
 - [ ] 10.3 Open at least three historical shots that previously had the badge — confirm the chip is gone, dialog has no "Temperature drifted" line, MCP `shots_get_detail` returns no `temperature` block.
 - [ ] 10.4 Pull a fresh espresso shot live: confirm post-shot review page renders correctly (no chip, no orphan layout space).
-- [ ] 10.5 Trigger the schema migration on a copy of the production DB. Verify `PRAGMA table_info(shots)` shows the column dropped and existing shot reads still work.
+- [x] 10.5 Trigger the schema migration on a copy of the production DB. Verify `PRAGMA table_info(shots)` shows the column dropped and existing shot reads still work. — **Confirmed 2026-07-09 by Jeff: done.**
 - [x] 10.6 Run shot_eval against `/tmp/issue1128/*.json` and `tests/data/shots/*.json` — verdicts on the corpus should be unchanged for everything except temp-related assertions.
 
 ## 11. PR & archive
