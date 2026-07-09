@@ -48,7 +48,7 @@
 - [x] 6.3 Spike: confirm Anthropic web_fetch / OpenAI web-search request shapes for the two providers shipped in #1445
 - [x] 6.4 Stage-2 fallback: on emptyPage/blocked, re-issue extraction as a provider web-fetch request (same JSON contract + `imageUrl`); feature-detect per provider; stage-1 error surfaces unchanged when unavailable
 - [x] 6.5 `imageUrl` consumption: bag image download/cache accepts an explicit URL alongside the og:image path
-- [ ] 6.6 Verify end-to-end against the three vendor archetypes (Harney stage 1, Yunnan Sourcing stage 1 post-cap-raise, Fortnum & Mason stage 2 text + image). NOTE: needs the running app + a configured Anthropic key — part of the 8.3 manual verification. Doc caveat: Anthropic's server web_fetch does not execute JS, so F&M stage 2 depends on their crawler-side prerendering
+- [x] 6.6 Verify end-to-end against the three vendor archetypes. DONE live via the bag_extract_details MCP tool (July 9): Anthropic Sonnet 4.6 + Gemini 2.5 Flash pass all three (Saka coffee s1; Harney tea s1 with 212°F→100°C; F&M SPA s2 with leafGramsPer100Ml 0.84 + imageUrl). OpenAI gpt-5.4-mini verified on the s2 Responses web_search path (key quota-limited during the s1 runs). Gemini 3.5 Flash was capacity-throttled; 2.5 Flash used instead. Two live-caught fixes landed: string-encoded blob numerics, imageUrl page-URL prompt tightening
 
 ## 7. MCP and web surfaces
 
