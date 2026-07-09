@@ -91,9 +91,11 @@ struct ShotRecord {
 
     // Recipe provenance (add-recipes, migration 25): the recipe active at
     // shot start (<= 0 = none / pre-recipe shot) and the steam-spec snapshot
-    // in effect, so promote-from-shot round-trips the whole drink.
+    // in effect, so promote-from-shot round-trips the whole drink. hotWaterJson
+    // (migration 27) is the added-hot-water snapshot for the same reason.
     qint64 recipeId = -1;
     QString steamJson;
+    QString hotWaterJson;
 
     // Time-series data (lazily loaded)
     QVector<QPointF> pressure;
@@ -284,6 +286,7 @@ struct ShotSaveData {
     // Recipe provenance (add-recipes): see ShotRecord. <= 0 = none.
     qint64 recipeId = -1;
     QString steamJson;
+    QString hotWaterJson;
 
     // AI knowledge base ID (e.g. "d-flow", "blooming espresso") — computed at save time
     QString profileKbId;

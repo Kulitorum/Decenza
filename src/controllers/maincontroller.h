@@ -174,6 +174,12 @@ public:
     // MCP, and web prefill.
     QString currentSteamSpecJson() const;
 
+    // Compact-JSON snapshot of the hot-water spec currently in effect (recipe's
+    // hasWater when a hot-water recipe is active, plus the selected water
+    // vessel's values). Empty unless a hot-water recipe is active. Stamped onto
+    // every saved shot and used by the composer to prefill promote-from-shot.
+    QString currentHotWaterSpecJson() const;
+
     // Clipboard
     Q_INVOKABLE void copyToClipboard(const QString& text);
     Q_INVOKABLE QString pasteFromClipboard() const;
@@ -428,6 +434,9 @@ private:
     void stampActiveRecipe(const QString& field, const QVariant& value);
     // Rebuild + stamp the active recipe's steam block from live settings.
     void stampActiveRecipeSteam();
+    // Rebuild + stamp the active recipe's hot-water block from live settings
+    // (selected water vessel). No-op unless a hot-water recipe is active.
+    void stampActiveRecipeHotWater();
     // True when the active recipe's steam block declares a milk drink.
     // sendMachineSettings treats this like keepSteamHeaterOn — the steam
     // heater takes 5-9 minutes to warm, so a milk recipe holds it on for

@@ -74,6 +74,24 @@ private slots:
         QVERIFY2(lagB > 1.8, qPrintable(QString("B lag %1 not isolated").arg(lagB)));
     }
 
+    // Device transfer / backup (finish-recipes-first-class): the whole SAW
+    // learning state exports and re-imports losslessly, so learned per-(profile,
+    // scale) lag survives a device change.
+    void exportImportRoundTripsLearning() {
+        commitBatch(kProfileA, 0.6, 1.5);   // graduate a per-pair lag
+        commitBatch(kProfileA, 0.6, 1.5);
+        const double lagBefore = m_settings.calibration()->sawLearnedLagFor(kProfileA, kScale);
+        QVERIFY2(lagBefore < 0.5, "precondition: A graduated to its own lag");
+
+        const QJsonObject exported = m_settings.calibration()->sawLearningExport();
+        QVERIFY(!exported.isEmpty());
+
+        m_settings.calibration()->resetSawLearning();
+        m_settings.calibration()->sawLearningImport(exported);
+
+        QCOMPARE(m_settings.calibration()->sawLearnedLagFor(kProfileA, kScale), lagBefore);
+    }
+
     // ===== Batch commit at N=3 =====
 
     void batchAccumulatesUntilThreeThenCommits() {

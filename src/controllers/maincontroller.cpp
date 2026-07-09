@@ -779,6 +779,25 @@ QJsonObject parseSteamBlock(const QString& json) {
     return QJsonDocument::fromJson(json.toUtf8()).object();
 }
 
+// The recipe hot-water block's JSON shape, shared by activation, the shot-save
+// snapshot, the composer prefill, MCP, and the web UI. Hot water is opt-in and
+// the selected water vessel carries the values (there is no separate per-recipe
+// amount), so the block is a by-value vessel snapshot plus the on/off flag and
+// a pour-order flag:
+//   { "hasWater": bool, "vesselName": s, "volume": n, "mode": "weight"|"volume",
+//     "flowRate": n, "temperatureC": n, "order": "before"|"after" }
+// order is the drink intent: "before" = water first (a long black), "after" =
+// water last (an Americano, the default). Field names mirror the steam block
+// (name->vesselName, temperature->temperatureC) while keeping the vessel's native
+// volume/mode/flowRate so a snapshot round-trips straight through SettingsBrew's
+// water-vessel preset API. The order is guidance (surfaced in the UI), not a
+// scripted two-stage pour.
+QJsonObject parseHotWaterBlock(const QString& json) {
+    if (json.isEmpty())
+        return QJsonObject();
+    return QJsonDocument::fromJson(json.toUtf8()).object();
+}
+
 QString compactJson(const QJsonObject& o) {
     return o.isEmpty() ? QString()
                        : QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
@@ -898,6 +917,15 @@ void MainController::setupRecipeConnections() {
             [this]() { stampActiveRecipeSteam(); });
     connect(m_settings->brew(), &SettingsBrew::lastSteamMilkGChanged, this,
             [this]() { stampActiveRecipeSteam(); });
+
+    // Hot-water tweaks (vessel selection/edits) refresh the block the same way.
+    // Only fires for a hot-water recipe: stampActiveRecipeHotWater re-snapshots
+    // the selected vessel, and stampActiveRecipe's equality guard means
+    // re-selecting the same vessel is a no-op (never deactivates).
+    connect(m_settings->brew(), &SettingsBrew::selectedWaterVesselChanged, this,
+            [this]() { stampActiveRecipeHotWater(); });
+    connect(m_settings->brew(), &SettingsBrew::waterVesselPresetsChanged, this,
+            [this]() { stampActiveRecipeHotWater(); });
 
     // Startup restore: the persisted selection survives a restart (the live
     // settings already persist on their own — nothing is re-applied; this
@@ -1075,6 +1103,66 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         else
             applySteamSettings();
 
+        // Hot-water block (Americano): opt-in, vessel-carried. Re-select the
+        // snapshotted vessel by name so its values become the live hot-water
+        // settings; recreate the preset from the snapshot if it was deleted
+        // (snapshot-not-reference, mirroring the pitcher path above). Unlike
+        // steam there is NO heater hold — hot water needs no multi-minute
+        // pre-warm — so a milk-less hot-water recipe never lit the steam heater
+        // (the branch above already ran applySteamSettings for it).
+        const QJsonObject water = parseHotWaterBlock(recipe.value("hotWaterJson").toString());
+        // Require a vessel: hasWater with no vessel is an incomplete block (the
+        // user toggled it on but never picked one) — applying it would push a
+        // 0-volume hot-water target. Leave the live settings at the user's
+        // baseline instead.
+        if (water.value("hasWater").toBool() && !water.value("vesselName").toString().isEmpty()) {
+            auto* brew = m_settings->brew();
+            const QString vesselName = water.value("vesselName").toString();
+            // Block values are the snapshot (composer). A name-only block (the
+            // web form stores just the name, mirroring the steam pitcher form)
+            // has no positive volume — resolve those from the live vessel below.
+            int volume = water.value("volume").toInt();
+            QString mode = water.value("mode").toString(QStringLiteral("weight"));
+            int flowRate = water.value("flowRate").toInt(40);
+            double tempC = water.value("temperatureC").toDouble(brew->waterTemperature());
+            const bool blockHasValues = volume > 0;
+            if (!vesselName.isEmpty()) {
+                const QVariantList vessels = brew->waterVesselPresets();
+                int index = -1;
+                for (int i = 0; i < vessels.size(); ++i) {
+                    if (vessels.at(i).toMap().value("name").toString()
+                            .compare(vesselName, Qt::CaseInsensitive) == 0) {
+                        index = i;
+                        break;
+                    }
+                }
+                if (index < 0) {
+                    // The snapshotted vessel was deleted — resurrect it from the
+                    // block's own values so the drink pours as saved
+                    // (snapshot-not-reference; visible, not silent).
+                    brew->addWaterVesselPreset(vesselName, volume, mode, flowRate, tempC);
+                    index = static_cast<int>(brew->waterVesselPresets().size()) - 1;
+                    qDebug() << "applyActivatedRecipe: recreated deleted water vessel" << vesselName;
+                } else if (!blockHasValues) {
+                    // Name-only block (web): adopt the live vessel's values.
+                    const QVariantMap p = brew->getWaterVesselPreset(index);
+                    volume = p.value("volume").toInt();
+                    const QString pMode = p.value("mode").toString();
+                    if (!pMode.isEmpty()) mode = pMode;
+                    flowRate = p.value("flowRate").toInt();
+                    tempC = p.value("temperature").toDouble();
+                }
+                brew->setSelectedWaterCup(index);
+            }
+            // Push the vessel's values into the live hot-water settings and send
+            // (the non-UI equivalent of selecting the vessel on the brew screen).
+            brew->setWaterVolume(volume);
+            brew->setWaterVolumeMode(mode);
+            m_settings->hardware()->setHotWaterFlowRate(flowRate);
+            brew->setWaterTemperature(tempC);
+            applyHotWaterSettings();
+        }
+
         // Selection state last, so the watchers above never see a half-
         // applied recipe.
         dye->setActiveRecipeId(static_cast<int>(recipeId));
@@ -1162,6 +1250,51 @@ QString MainController::currentSteamSpecJson() const {
     }
     if (brew->lastSteamMilkG() > 0)
         o.insert("milkWeightG", brew->lastSteamMilkG());
+    return compactJson(o);
+}
+
+void MainController::stampActiveRecipeHotWater() {
+    if (m_applyingRecipe || m_activeRecipe.isEmpty())
+        return;
+    // Only write through for a recipe that actually uses hot water. Otherwise a
+    // brew-screen vessel change (unrelated to this recipe) would stamp an empty
+    // block over a dormant hasWater:false recipe, erasing its remembered vessel
+    // and pour order. currentHotWaterSpecJson() returns "" when hasWater is
+    // false, so without this guard the equality check would persist that "".
+    if (!parseHotWaterBlock(m_activeRecipe.value(QStringLiteral("hotWaterJson")).toString())
+             .value(QStringLiteral("hasWater")).toBool())
+        return;
+    stampActiveRecipe(QStringLiteral("hotWaterJson"), currentHotWaterSpecJson());
+}
+
+QString MainController::currentHotWaterSpecJson() const {
+    if (!m_settings)
+        return QString();
+    auto* brew = m_settings->brew();
+    QJsonObject o;
+    // hasWater is declared intent (a recipe field), not derivable from live
+    // settings — carry it over from the active recipe when one is set. Without
+    // an active hot-water recipe there is nothing to snapshot.
+    if (m_activeRecipe.isEmpty())
+        return QString();
+    const QJsonObject active = parseHotWaterBlock(m_activeRecipe.value("hotWaterJson").toString());
+    if (!active.value("hasWater").toBool())
+        return QString();
+    o.insert("hasWater", true);
+    // order (before/after) is declared intent, not derivable from live settings
+    // — carry it over from the active recipe's block (default "after").
+    const QString order = active.value("order").toString();
+    o.insert("order", order.isEmpty() ? QStringLiteral("after") : order);
+    // The selected water vessel IS the values — snapshot it by value.
+    const QVariantMap vessel = brew->getWaterVesselPreset(brew->selectedWaterVessel());
+    if (!vessel.isEmpty()) {
+        const QString mode = vessel.value("mode").toString();
+        o.insert("vesselName", vessel.value("name").toString());
+        o.insert("volume", vessel.value("volume").toInt());
+        o.insert("mode", mode.isEmpty() ? QStringLiteral("weight") : mode);
+        o.insert("flowRate", vessel.value("flowRate").toInt());
+        o.insert("temperatureC", vessel.value("temperature").toDouble());
+    }
     return compactJson(o);
 }
 
@@ -2501,6 +2634,7 @@ void MainController::onShotEnded() {
     // the steam spec in effect, so promote-from-shot round-trips the drink.
     metadata.recipeId = m_settings->dye()->activeRecipeId();
     metadata.steamJson = currentSteamSpecJson();
+    metadata.hotWaterJson = currentHotWaterSpecJson();
 
     // For volume/timer-based profiles (targetWeight=0), use the actual final weight
     // so favorites can restore a meaningful yield target
@@ -2757,6 +2891,7 @@ void MainController::uploadPendingShot() {
     // the steam spec in effect, so promote-from-shot round-trips the drink.
     metadata.recipeId = m_settings->dye()->activeRecipeId();
     metadata.steamJson = currentSteamSpecJson();
+    metadata.hotWaterJson = currentHotWaterSpecJson();
 
     // Build notes: user notes + AI recommendation (if any)
     QString notes = m_settings->dye()->dyeShotNotes();
@@ -2916,6 +3051,7 @@ void MainController::generateFakeShotData() {
             metadata.defrostDate = m_settings->dye()->activeBagDefrostDate();
             metadata.recipeId = m_settings->dye()->activeRecipeId();
             metadata.steamJson = currentSteamSpecJson();
+            metadata.hotWaterJson = currentHotWaterSpecJson();
 
             // Use current profile's temperature and target weight as overrides
             double temperatureOverride = m_profileManager->currentProfile().espressoTemperature();

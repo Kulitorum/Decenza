@@ -73,6 +73,13 @@ public:
     Q_INVOKABLE void resetSawLearning();
     Q_INVOKABLE void resetSawLearningForProfile(const QString& profileFilename, const QString& scaleType);
 
+    // Export/import the whole SAW learning state (all four saw/* keys) for
+    // device transfer / backup — SAW learning is scale+profile specific and
+    // portable across devices, unlike the machine-specific flow calibration.
+    // Empty object = nothing learned.
+    QJsonObject sawLearningExport() const;
+    void sawLearningImport(const QJsonObject& o);
+
     // Per-pair committed history (storage helpers; mostly for tests + bootstrap recompute).
     QJsonArray perProfileSawHistory(const QString& profileFilename, const QString& scaleType) const;
     QJsonObject allPerProfileSawHistory() const;

@@ -2460,6 +2460,9 @@ btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000);
         bool includeSensitive = path.contains("includeSensitive=true");
         handleBackupSettings(socket, includeSensitive);
     }
+    else if (path == "/api/backup/extra-settings") {
+        handleBackupExtraSettings(socket);
+    }
     else if (path == "/api/backup/profiles") {
         handleBackupProfilesList(socket);
     }

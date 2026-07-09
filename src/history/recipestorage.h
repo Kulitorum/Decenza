@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QHash>
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
@@ -29,6 +30,15 @@ class SerialDbWorker;
 // {hasMilk, milkWeightG, pitcherName, durationSec, flow, temperatureC}. The
 // pitcher is snapshotted BY VALUE (name + duration/flow/temperature) — never a
 // preset-list reference — per the Bean Base snapshot-not-reference rule.
+//
+// Hot water: hotWaterJson holds the drink's added-hot-water block (for an
+// Americano), serialized as {hasWater, vesselName, volume, mode, flowRate,
+// temperatureC, order}. order is "after" (americano, default) or "before"
+// (long black). Hot water is opt-in — hasWater toggles it on and the user
+// selects a water vessel; the vessel's own values ride the recipe. Like
+// the steam pitcher the vessel is snapshotted BY VALUE (never a preset-list
+// reference); activation re-selects it by name and recreates it from the
+// snapshot if the preset was deleted. There is no separate per-recipe amount.
 struct Recipe {
     qint64 id = 0;
 
@@ -52,6 +62,7 @@ struct Recipe {
     QString grindPinned;      // empty = inherit from bean's current bag
     qint64 rpmPinned = 0;     // grinder rpm override; only meaningful with a pin (0 = unset)
     QString steamJson;        // steam block, empty = none saved
+    QString hotWaterJson;     // hot-water block (opt-in water-vessel snapshot), empty = none
 
     bool archived = false;
 
@@ -135,6 +146,23 @@ public:
     // bean link or no open bag of that bean exists ("no open bag" is a
     // display state, never an error).
     static qint64 resolveOpenBagStatic(QSqlDatabase& db, const Recipe& recipe);
+
+    // Copy recipes rows from srcDb into destDb (device transfer / backup
+    // restore), mirroring CoffeeBagStorage::importBagsStatic. Row ids change on
+    // insert — outIdMap records old->new so the caller can remap shots.recipe_id.
+    // Merge mode maps a source recipe matching an existing dest recipe
+    // (case-insensitive name + profile_title + bean identity) to the existing
+    // row instead of inserting a duplicate; replace mode clears dest recipes
+    // first. Source DBs from before migration 25 have no recipes table —
+    // returns true with an empty map. Runs inside the caller's destDb
+    // transaction. packageIdMap remaps each source recipe's equipment_id to the
+    // imported package's new dest id (EquipmentStorage::importEquipmentStatic
+    // runs first); a source equipment_id absent from the map becomes NULL. The
+    // bean link is bean-level (not a bag id) so it carries verbatim and resolves
+    // at activation. archived state is preserved so shot provenance never dangles.
+    static bool importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
+                                    QHash<qint64, qint64>& outIdMap,
+                                    const QHash<qint64, qint64>& packageIdMap);
 
 signals:
     void inventoryReady(const QVariantList& recipes);

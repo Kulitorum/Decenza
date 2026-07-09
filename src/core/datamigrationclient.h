@@ -111,6 +111,7 @@ signals:
 private slots:
     void onManifestReply();
     void onSettingsReply();
+    void onExtraSettingsReply();
     void onProfileListReply();
     void onProfileFileReply();
     void onShotsReply();
@@ -150,6 +151,10 @@ private:
 
     // Internal import methods (used by queue)
     void doImportSettings();
+    // Chained after settings: fetch /api/backup/extra-settings (shot-map
+    // location, accessibility, language) so LAN migration matches the full
+    // archive. Older servers lack the endpoint → fetch fails → skipped cleanly.
+    void doImportExtraSettings();
     void doImportProfiles();
     void doImportShots();
     void doImportMedia();

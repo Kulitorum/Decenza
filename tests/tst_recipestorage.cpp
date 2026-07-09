@@ -144,6 +144,36 @@ private slots:
         });
     }
 
+    // Hot-water block (finish-recipes-first-class): the opt-in water-vessel
+    // snapshot that makes an Americano possible round-trips through the kCols
+    // column set exactly like the steam block.
+    void hotWaterBlockRoundTrip() {
+        withRawDb(freshDbPath(), "hw", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            // Fresh-DB schema converges: ensureTableStatic includes the column.
+            bool hasHotWaterCol = false;
+            QSqlQuery info(db);
+            QVERIFY(info.exec("PRAGMA table_info(recipes)"));
+            while (info.next()) {
+                if (info.value(1).toString() == "hot_water_json") { hasHotWaterCol = true; break; }
+            }
+            QVERIFY(hasHotWaterCol);
+
+            Recipe r;
+            r.name = "Americano";
+            r.profileTitle = "Filter 2.0";
+            r.hotWaterJson = "{\"hasWater\":true,\"vesselName\":\"Cup\",\"volume\":120,"
+                             "\"mode\":\"volume\",\"flowRate\":40,\"temperatureC\":90,\"order\":\"after\"}";
+            const qint64 id = RecipeStorage::insertRecipeStatic(db, r);
+            QVERIFY(id > 0);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, id).hotWaterJson, r.hotWaterJson);
+
+            // Update round-trips through the kCols update map; empty clears to NULL.
+            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"hotWaterJson", QString()}}));
+            QVERIFY(RecipeStorage::loadRecipeStatic(db, id).hotWaterJson.isEmpty());
+        });
+    }
+
     void updateFields() {
         withRawDb(freshDbPath(), "upd", [](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));

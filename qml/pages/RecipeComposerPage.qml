@@ -70,6 +70,16 @@ Page {
     property int fPitcherDurationSec: 0
     property int fPitcherFlow: 0
     property real fPitcherTemperatureC: 0
+    // Hot water (Americano): opt-in, vessel-carried. The picked vessel is
+    // snapshotted BY VALUE (like the pitcher); order = "after" (americano,
+    // default) or "before" (long black).
+    property bool fHasWater: false
+    property string fVesselName: ""
+    property int fVesselVolume: 0
+    property string fVesselMode: "weight"
+    property int fVesselFlowRate: 40
+    property real fVesselTemperatureC: 0
+    property string fWaterOrder: "after"
     property string errorMessage: ""
     property string bagSwapHint: ""
     // Auto-suggested name ("<bean> <profile>"): applied while the field is
@@ -129,6 +139,7 @@ Page {
         grindField.text = r.grindPinned || ""
         rpmField.text = (r.rpmPinned || 0) > 0 ? String(r.rpmPinned) : ""
         applySteamJson(r.steamJson || "")
+        applyHotWaterJson(r.hotWaterJson || "")
         if (fEquipmentId > 0)
             MainController.equipmentStorage.requestInventory()
         refreshInheritedGrind()
@@ -164,6 +175,40 @@ Page {
             s.temperatureC = fPitcherTemperatureC
         }
         return JSON.stringify(s)
+    }
+
+    function applyHotWaterJson(json) {
+        fHasWater = false; fVesselName = ""; fVesselVolume = 0
+        fVesselMode = "weight"; fVesselFlowRate = 40; fVesselTemperatureC = 0
+        fWaterOrder = "after"
+        if (!json || json === "")
+            return
+        try {
+            var w = JSON.parse(json)
+            fHasWater = !!w.hasWater
+            fVesselName = w.vesselName || ""
+            fVesselVolume = w.volume || 0
+            fVesselMode = w.mode || "weight"
+            fVesselFlowRate = w.flowRate || 40
+            fVesselTemperatureC = w.temperatureC || 0
+            fWaterOrder = w.order === "before" ? "before" : "after"
+        } catch (e) {
+            console.warn("RecipeComposer: bad hot water JSON:", e)
+        }
+    }
+
+    function buildHotWaterJson() {
+        if (!fHasWater && fVesselName === "")
+            return ""
+        var w = { hasWater: fHasWater, order: fWaterOrder }
+        if (fVesselName !== "") {
+            w.vesselName = fVesselName
+            w.volume = fVesselVolume
+            w.mode = fVesselMode
+            w.flowRate = fVesselFlowRate
+            w.temperatureC = fVesselTemperatureC
+        }
+        return JSON.stringify(w)
     }
 
     // Build the current steam settings as a snapshot (promote fallback when
@@ -211,6 +256,9 @@ Page {
             rpmPinned: hasBeanData ? 0 : (shot.rpm || 0),
             steamJson: shot.steamJson && shot.steamJson !== "" ? shot.steamJson
                                                                : currentSteamSnapshot(),
+            // Only carry a real hot-water snapshot — no current-settings
+            // fallback (that would force every promoted shot into an americano).
+            hotWaterJson: shot.hotWaterJson || "",
             createdFromShotId: promoteShotId
         })
         applyRecipeMap(prefill)
@@ -278,7 +326,8 @@ Page {
             rpmPinned: ((!hasBean || fGrindOverride)
                         && (fEquipmentRpmCapable || (parseInt(rpmField.text) || 0) > 0))
                 ? (parseInt(rpmField.text) || 0) : 0,
-            steamJson: buildSteamJson()
+            steamJson: buildSteamJson(),
+            hotWaterJson: buildHotWaterJson()
         }
         if (prefill && prefill.createdFromShotId)
             map.createdFromShotId = prefill.createdFromShotId
@@ -790,6 +839,59 @@ Page {
                                 }
                             }
                         }
+
+                        // ------ Hot water (Americano / long black) ------
+                        SectionCard {
+                            title: TranslationManager.translate("recipes.composer.sectionHotWater", "Hot water")
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingMedium
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: TranslationManager.translate("recipes.composer.addHotWater", "Add hot water")
+                                    font: Theme.bodyFont
+                                    color: Theme.textColor
+                                    Accessible.ignored: true
+                                }
+                                StyledSwitch {
+                                    checked: composerPage.fHasWater
+                                    Accessible.name: TranslationManager.translate("recipes.composer.addHotWater", "Add hot water")
+                                    onToggled: composerPage.fHasWater = checked
+                                }
+                            }
+                            PickerField {
+                                visible: composerPage.fHasWater
+                                Layout.fillWidth: true
+                                label: TranslationManager.translate("recipes.composer.waterVessel", "Water vessel")
+                                value: composerPage.fVesselName
+                                placeholder: TranslationManager.translate("recipes.composer.chooseVessel", "Choose vessel…")
+                                onActivated: vesselPicker.open()
+                            }
+                            ColumnLayout {
+                                visible: composerPage.fHasWater
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingSmall
+                                Label {
+                                    text: TranslationManager.translate("recipes.composer.waterOrder", "When to add the water")
+                                    font: Theme.captionFont
+                                    color: Theme.textSecondaryColor
+                                    Accessible.ignored: true
+                                }
+                                StyledComboBox {
+                                    Layout.fillWidth: true
+                                    accessibleLabel: TranslationManager.translate("recipes.composer.waterOrder", "When to add the water")
+                                    model: [
+                                        TranslationManager.translate("recipes.composer.waterAfter", "After espresso (Americano)"),
+                                        TranslationManager.translate("recipes.composer.waterBefore", "Before espresso (long black)")
+                                    ]
+                                    currentIndex: composerPage.fWaterOrder === "before" ? 1 : 0
+                                    onActivated: function(index) {
+                                        composerPage.fWaterOrder = index === 1 ? "before" : "after"
+                                    }
+                                }
+                            }
+                        }
                     }
 
                 }
@@ -988,6 +1090,36 @@ Page {
                     composerPage.fPitcherFlow = modelData.flow || 0
                     composerPage.fPitcherTemperatureC = modelData.temperature || 0
                     pitcherPicker.close()
+                }
+            }
+        }
+    }
+
+    PickerDialog {
+        id: vesselPicker
+        height: Math.min(Theme.scaled(420), parent.height - Theme.scaled(80))
+        contentItem: ListView {
+            clip: true
+            model: Settings.brew.waterVesselPresets
+            delegate: ItemDelegate {
+                width: ListView.view.width
+                contentItem: Label {
+                    text: modelData.name || ""
+                    font: Theme.bodyFont
+                    color: Theme.textColor
+                    elide: Text.ElideRight
+                }
+                Accessible.role: Accessible.Button
+                Accessible.name: modelData.name || ""
+                onClicked: {
+                    // Snapshot BY VALUE (never a preset index): the recipe keeps
+                    // pouring as saved even if the vessel presets change later.
+                    composerPage.fVesselName = modelData.name || ""
+                    composerPage.fVesselVolume = modelData.volume || 0
+                    composerPage.fVesselMode = modelData.mode || "weight"
+                    composerPage.fVesselFlowRate = modelData.flowRate || 40
+                    composerPage.fVesselTemperatureC = modelData.temperature || 0
+                    vesselPicker.close()
                 }
             }
         }

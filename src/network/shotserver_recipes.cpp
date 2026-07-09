@@ -54,6 +54,8 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
     o["rpmPinned"] = r.rpmPinned;
     if (!r.steamJson.isEmpty())
         o["steam"] = QJsonDocument::fromJson(r.steamJson.toUtf8()).object();
+    if (!r.hotWaterJson.isEmpty())
+        o["hotWater"] = QJsonDocument::fromJson(r.hotWaterJson.toUtf8()).object();
     o["archived"] = r.archived;
     o["createdFromShotId"] = r.createdFromShotId;
     o["clonedFromRecipeId"] = r.clonedFromRecipeId;
@@ -104,6 +106,9 @@ QVariantMap recipeFieldsFromBody(const QJsonObject& body)
     if (body.contains("steam"))
         fields.insert("steamJson", QString::fromUtf8(
             QJsonDocument(body["steam"].toObject()).toJson(QJsonDocument::Compact)));
+    if (body.contains("hotWater"))
+        fields.insert("hotWaterJson", QString::fromUtf8(
+            QJsonDocument(body["hotWater"].toObject()).toJson(QJsonDocument::Compact)));
     if (body.contains("createdFromShotId"))
         fields.insert("createdFromShotId", body["createdFromShotId"].toInteger());
     return fields;
@@ -230,6 +235,9 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                     {"tempOverrideC", record.temperatureOverride},
                     {"grindPinned", hasBean ? QString() : record.grinderSetting},
                     {"steamJson", steamJson},
+                    // Hot water carries verbatim from the shot snapshot only —
+                    // no current-settings fallback (mirrors the composer).
+                    {"hotWaterJson", record.hotWaterJson},
                     {"createdFromShotId", shotId}};
                 auto conn = std::make_shared<QMetaObject::Connection>();
                 *conn = QObject::connect(recipeStorage, &RecipeStorage::recipeCreated, qApp,
@@ -468,6 +476,13 @@ QString ShotServer::generateRecipesPage() const
         <label><input id="fHasMilk" type="checkbox" style="width:auto"> Milk drink</label>
         <label>Milk (g)</label><input id="fMilk" type="number" step="1">
         <label>Pitcher name</label><input id="fPitcher">
+        <label><input id="fHasWater" type="checkbox" style="width:auto"> Add hot water (Americano)</label>
+        <label>Water vessel name</label><input id="fVessel">
+        <label>Water order</label>
+        <select id="fWaterOrder">
+            <option value="after">After espresso (Americano)</option>
+            <option value="before">Before espresso (long black)</option>
+        </select>
         <div class="row">
             <button onclick="document.getElementById('editor').close()">Cancel</button>
             <button class="primary" onclick="saveEditor()">Save</button>
@@ -499,6 +514,7 @@ QString ShotServer::generateRecipesPage() const
             if (r.doseG > 0 && r.yieldG > 0) parts.push(r.doseG.toFixed(1) + 'g &rarr; ' + r.yieldG.toFixed(1) + 'g');
             if (r.effectiveGrind) parts.push('grind ' + esc(r.effectiveGrind) + (r.grindPinned ? ' (pinned)' : ''));
             if (r.steam && r.steam.hasMilk) parts.push('milk' + (r.steam.milkWeightG ? ' ' + r.steam.milkWeightG + 'g' : ''));
+            if (r.hotWater && r.hotWater.hasWater) parts.push('+water' + (r.hotWater.order === 'before' ? ' (long black)' : ' (americano)'));
             if (r.shotCount > 0) parts.push(r.shotCount + ' shots');
             return parts.join(' &middot; ');
         }
@@ -570,6 +586,10 @@ QString ShotServer::generateRecipesPage() const
             document.getElementById('fHasMilk').checked = !!steam.hasMilk;
             document.getElementById('fMilk').value = steam.milkWeightG || '';
             document.getElementById('fPitcher').value = steam.pitcherName || '';
+            const water = r.hotWater || {};
+            document.getElementById('fHasWater').checked = !!water.hasWater;
+            document.getElementById('fVessel').value = water.vesselName || '';
+            document.getElementById('fWaterOrder').value = water.order === 'before' ? 'before' : 'after';
             document.getElementById('editor').showModal();
         }
 
@@ -583,6 +603,11 @@ QString ShotServer::generateRecipesPage() const
             if (milk > 0) steam.milkWeightG = milk;
             const pitcher = document.getElementById('fPitcher').value.trim();
             if (pitcher) steam.pitcherName = pitcher;
+            const hotWater = {};
+            if (document.getElementById('fHasWater').checked) hotWater.hasWater = true;
+            const vessel = document.getElementById('fVessel').value.trim();
+            if (vessel) hotWater.vesselName = vessel;
+            hotWater.order = document.getElementById('fWaterOrder').value === 'before' ? 'before' : 'after';
             const bodyData = {
                 name: name,
                 profileTitle: profileTitle,
@@ -592,7 +617,8 @@ QString ShotServer::generateRecipesPage() const
                 yieldG: parseFloat(document.getElementById('fYield').value) || 0,
                 temperatureOverrideC: parseFloat(document.getElementById('fTemp').value) || 0,
                 grindPinned: document.getElementById('fGrind').value.trim(),
-                steam: steam
+                steam: steam,
+                hotWater: hotWater
             };
             const req = editingId ? post('/api/recipe/' + editingId, bodyData)
                                   : post('/api/recipes', bodyData);

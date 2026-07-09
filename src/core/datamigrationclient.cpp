@@ -544,6 +544,73 @@ void DataMigrationClient::onSettingsReply()
 
     reply->deleteLater();
     m_currentReply = nullptr;
+    // Chain the extra-settings fetch (shot-map location, accessibility,
+    // language) so LAN migration reaches parity with the full archive — the
+    // gap this closes. It advances the queue itself when done.
+    doImportExtraSettings();
+}
+
+void DataMigrationClient::doImportExtraSettings()
+{
+    QUrl url(m_serverUrl + "/api/backup/extra-settings");
+    QNetworkRequest request(url);
+    addSessionCookie(request);
+
+    m_currentReply = m_networkManager->get(request);
+    setupSslHandling(m_currentReply);
+    connect(m_currentReply, &QNetworkReply::finished, this, &DataMigrationClient::onExtraSettingsReply);
+}
+
+void DataMigrationClient::onExtraSettingsReply()
+{
+    QNetworkReply* reply = qobject_cast<QNetworkReply*>(sender());
+    if (!reply) return;
+    if (m_cancelled || reply != m_currentReply) {
+        reply->deleteLater();
+        return;
+    }
+
+    if (reply->error() != QNetworkReply::NoError) {
+        // Older server without the endpoint (404) or a transient error — the
+        // extra settings simply don't transfer; continue with the import.
+        qDebug() << "DataMigrationClient: extra-settings not available:" << reply->errorString();
+    } else {
+        const QByteArray data = reply->readAll();
+        m_receivedBytes += data.size();
+        const QJsonObject extra = QJsonDocument::fromJson(data).object();
+        if (!extra.isEmpty()) {
+            // Apply to the LOCAL stores, mirroring handleBackupRestore's
+            // extra_settings.json path.
+            QSettings settings;
+            if (extra.contains("shotMap")) {
+                const QJsonObject sm = extra["shotMap"].toObject();
+                settings.setValue("shotMap/manualCity", sm["manualCity"].toString());
+                settings.setValue("shotMap/manualLat", sm["manualLat"].toDouble());
+                settings.setValue("shotMap/manualLon", sm["manualLon"].toDouble());
+                settings.setValue("shotMap/manualCountryCode", sm["manualCountryCode"].toString());
+                settings.setValue("shotMap/manualGeocoded", sm["manualGeocoded"].toBool());
+            }
+            if (extra.contains("accessibility")) {
+                // Accessibility lives in the primary DecentEspresso/DE1Qt store.
+                QSettings accessStore(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
+                const QJsonObject a = extra["accessibility"].toObject();
+                if (a.contains("enabled")) accessStore.setValue("accessibility/enabled", a["enabled"].toBool());
+                if (a.contains("ttsEnabled")) accessStore.setValue("accessibility/ttsEnabled", a["ttsEnabled"].toBool());
+                if (a.contains("tickEnabled")) accessStore.setValue("accessibility/tickEnabled", a["tickEnabled"].toBool());
+                if (a.contains("tickSoundIndex")) accessStore.setValue("accessibility/tickSoundIndex", a["tickSoundIndex"].toInt());
+                if (a.contains("tickVolume")) accessStore.setValue("accessibility/tickVolume", a["tickVolume"].toInt());
+                if (a.contains("extractionAnnouncementsEnabled")) accessStore.setValue("accessibility/extractionAnnouncementsEnabled", a["extractionAnnouncementsEnabled"].toBool());
+                if (a.contains("extractionAnnouncementInterval")) accessStore.setValue("accessibility/extractionAnnouncementInterval", a["extractionAnnouncementInterval"].toInt());
+                if (a.contains("extractionAnnouncementMode")) accessStore.setValue("accessibility/extractionAnnouncementMode", a["extractionAnnouncementMode"].toString());
+            }
+            if (extra.contains("language"))
+                settings.setValue("localization/language", extra["language"].toString());
+            qDebug() << "DataMigrationClient: extra settings imported (location, accessibility, language)";
+        }
+    }
+
+    reply->deleteLater();
+    m_currentReply = nullptr;
     startNextImport();
 }
 

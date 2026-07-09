@@ -546,6 +546,36 @@ void SettingsCalibration::addSawLearningPoint(double drip, double flowRate, QStr
     emit sawLearnedLagChanged();
 }
 
+QJsonObject SettingsCalibration::sawLearningExport() const {
+    QJsonObject o;
+    const QByteArray lh = m_settings.value("saw/learningHistory").toByteArray();
+    if (!lh.isEmpty()) o["learningHistory"] = QJsonDocument::fromJson(lh).array();
+    const QByteArray ph = m_settings.value("saw/perProfileHistory").toByteArray();
+    if (!ph.isEmpty()) o["perProfileHistory"] = QJsonDocument::fromJson(ph).object();
+    const QByteArray pb = m_settings.value("saw/perProfileBatch").toByteArray();
+    if (!pb.isEmpty()) o["perProfileBatch"] = QJsonDocument::fromJson(pb).object();
+    if (m_settings.contains("saw/globalBootstrapLag"))
+        o["globalBootstrapLag"] = m_settings.value("saw/globalBootstrapLag").toDouble();
+    return o;
+}
+
+void SettingsCalibration::sawLearningImport(const QJsonObject& o) {
+    if (o.contains("learningHistory"))
+        m_settings.setValue("saw/learningHistory", QJsonDocument(o["learningHistory"].toArray()).toJson());
+    if (o.contains("perProfileHistory"))
+        m_settings.setValue("saw/perProfileHistory", QJsonDocument(o["perProfileHistory"].toObject()).toJson());
+    if (o.contains("perProfileBatch"))
+        m_settings.setValue("saw/perProfileBatch", QJsonDocument(o["perProfileBatch"].toObject()).toJson());
+    if (o.contains("globalBootstrapLag"))
+        m_settings.setValue("saw/globalBootstrapLag", o["globalBootstrapLag"].toDouble());
+    // Invalidate the read caches so the imported data takes effect immediately.
+    m_sawHistoryCacheDirty = true;
+    m_sawConvergedCache = -1;
+    m_perProfileSawHistoryCacheValid = false;
+    m_perProfileSawBatchCacheValid = false;
+    emit sawLearnedLagChanged();
+}
+
 void SettingsCalibration::resetSawLearning() {
     m_settings.remove("saw/learningHistory");
     m_settings.remove("saw/perProfileHistory");

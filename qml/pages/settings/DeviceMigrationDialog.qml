@@ -477,6 +477,23 @@ Dialog {
                     font.pixelSize: Theme.scaled(11)
                     wrapMode: Text.WordWrap
                 }
+
+                // Recipes, bags, and equipment ride inside the Shots import —
+                // surface them so they aren't invisible (finish-recipes-first-class).
+                Text {
+                    Layout.fillWidth: true
+                    property int recipeCount: MainController.dataMigration.manifest.recipeCount || 0
+                    property int bagCount: MainController.dataMigration.manifest.bagCount || 0
+                    property int equipmentCount: MainController.dataMigration.manifest.equipmentCount || 0
+                    visible: recipeCount > 0 || bagCount > 0 || equipmentCount > 0
+                    text: TranslationManager.translate("settings.data.withShots", "With shots") + ": " +
+                          TranslationManager.translate("settings.data.recipes", "Recipes") + ": " + recipeCount + " • " +
+                          TranslationManager.translate("settings.data.bags", "Bags") + ": " + bagCount + " • " +
+                          TranslationManager.translate("settings.data.equipment", "Equipment") + ": " + equipmentCount
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(11)
+                    wrapMode: Text.WordWrap
+                }
             }
         }
 

@@ -35,12 +35,47 @@
 
 namespace {
 
+// Water preset "flowRate" is stored in tenths of mL/s; the MCP surface uses
+// mL/s (flowMlPerSec), matching the water_vessel_* tools (mcptools_presets.cpp).
+constexpr double kWaterFlowScale = 10.0;
+
 QString isoFromEpoch(qint64 epochSecs)
 {
     if (epochSecs <= 0)
         return QString();
     QDateTime dt = QDateTime::fromSecsSinceEpoch(epochSecs);
     return dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate);
+}
+
+// The recipe hot-water block is stored with the water vessel's NATIVE field
+// names (volume, flowRate) so it round-trips straight through the vessel preset
+// API. The MCP surface, however, uses the house conventions the sibling
+// water_vessel_* tools expose (volumeMl, flowMlPerSec = flowRate / 10) so an LLM
+// can carry values between the two surfaces without a 10x flow error.
+QJsonObject hotWaterBlockToMcp(const QJsonObject& native)
+{
+    QJsonObject o;
+    if (native.contains("hasWater"))    o["hasWater"]    = native["hasWater"];
+    if (native.contains("vesselName"))  o["vesselName"]  = native["vesselName"];
+    if (native.contains("volume"))      o["volumeMl"]    = native["volume"];
+    if (native.contains("mode"))        o["mode"]        = native["mode"];
+    if (native.contains("flowRate"))    o["flowMlPerSec"] = native["flowRate"].toDouble() / kWaterFlowScale;
+    if (native.contains("temperatureC")) o["temperatureC"] = native["temperatureC"];
+    if (native.contains("order"))       o["order"]       = native["order"];
+    return o;
+}
+
+QJsonObject hotWaterBlockFromMcp(const QJsonObject& mcp)
+{
+    QJsonObject o;
+    if (mcp.contains("hasWater"))     o["hasWater"]   = mcp["hasWater"];
+    if (mcp.contains("vesselName"))   o["vesselName"] = mcp["vesselName"];
+    if (mcp.contains("volumeMl"))     o["volume"]     = mcp["volumeMl"].toInt();
+    if (mcp.contains("mode"))         o["mode"]       = mcp["mode"];
+    if (mcp.contains("flowMlPerSec")) o["flowRate"]   = qRound(mcp["flowMlPerSec"].toDouble() * kWaterFlowScale);
+    if (mcp.contains("temperatureC")) o["temperatureC"] = mcp["temperatureC"];
+    if (mcp.contains("order"))        o["order"]      = mcp["order"];
+    return o;
 }
 
 // Full recipe JSON. `db` (optional) enables the resolved fields: effective
@@ -96,6 +131,11 @@ QJsonObject recipeToJson(const Recipe& r, Settings* settings, QSqlDatabase* db,
         if (!steam.isEmpty())
             o["steam"] = steam;
     }
+    if (!r.hotWaterJson.isEmpty()) {
+        const QJsonObject water = QJsonDocument::fromJson(r.hotWaterJson.toUtf8()).object();
+        if (!water.isEmpty())
+            o["hotWater"] = hotWaterBlockToMcp(water);
+    }
     if (r.archived)
         o["archived"] = true;
     if (r.createdFromShotId > 0)
@@ -137,6 +177,9 @@ QVariantMap recipeFieldsFromArgs(const QJsonObject& args)
     if (args.contains("steam"))
         fields.insert("steamJson", QString::fromUtf8(
             QJsonDocument(args["steam"].toObject()).toJson(QJsonDocument::Compact)));
+    if (args.contains("hotWater"))
+        fields.insert("hotWaterJson", QString::fromUtf8(QJsonDocument(
+            hotWaterBlockFromMcp(args["hotWater"].toObject())).toJson(QJsonDocument::Compact)));
     return fields;
 }
 
@@ -157,6 +200,36 @@ QJsonObject steamBlockSchema()
                 {"description", "Steam flow in the machine's stored unit (hundredths of mL/s), "
                                 "matching the pitcher preset's flow field"}}},
             {"temperatureC", QJsonObject{{"type", "number"}}}
+        }}
+    };
+}
+
+// The hot-water block's schema, shared by recipe_create and recipe_update.
+// Hot water is opt-in and the selected water vessel carries the values (there is
+// no separate amount) — the block is a by-value vessel snapshot plus the on/off
+// flag and a pour order. Stored and returned verbatim, mirroring the steam block.
+QJsonObject hotWaterBlockSchema()
+{
+    return QJsonObject{
+        {"type", "object"},
+        {"description", "The drink's added-hot-water block (for an Americano or long black). "
+                        "hasWater turns it on; the water vessel is snapshotted by value (name + "
+                        "parameters), never referenced by preset index. order is the pour intent: "
+                        "'before' the espresso (a long black) or 'after' it (an Americano)."},
+        {"properties", QJsonObject{
+            {"hasWater", QJsonObject{{"type", "boolean"}}},
+            {"vesselName", QJsonObject{{"type", "string"}}},
+            {"volumeMl", QJsonObject{{"type", "integer"},
+                {"description", "Water amount — mL when mode='volume', grams when mode='weight' "
+                                "(matches the water_vessel_* tools' volumeMl)"}}},
+            {"mode", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"weight", "volume"}}}},
+            {"flowMlPerSec", QJsonObject{{"type", "number"},
+                {"description", "Hot-water flow in mL/s, matching the water_vessel_* tools' "
+                                "flowMlPerSec field"}}},
+            {"temperatureC", QJsonObject{{"type", "number"}}},
+            {"order", QJsonObject{{"type", "string"}, {"enum", QJsonArray{"before", "after"}},
+                {"description", "'before' = water first (long black), 'after' = water last "
+                                "(Americano). Defaults to 'after'."}}}
         }}
     };
 }
@@ -282,7 +355,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                     {"description", "Pin a recipe-private grind; empty/omitted = inherit from the bean's bag"}}},
                 {"rpmPinned", QJsonObject{{"type", "integer"},
                     {"description", "Grinder rpm for the pin (only meaningful with grindPinned; 0 = unset)"}}},
-                {"steam", steamBlockSchema()}
+                {"steam", steamBlockSchema()},
+                {"hotWater", hotWaterBlockSchema()}
             }},
             {"required", QJsonArray{"name", "profileTitle"}}
         },
@@ -332,7 +406,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 {"temperatureOverrideC", QJsonObject{{"type", "number"}}},
                 {"grindPinned", QJsonObject{{"type", "string"}}},
                 {"rpmPinned", QJsonObject{{"type", "integer"}}},
-                {"steam", steamBlockSchema()}
+                {"steam", steamBlockSchema()},
+                {"hotWater", hotWaterBlockSchema()}
             }},
             {"required", QJsonArray{"recipeId"}}
         },
@@ -441,6 +516,11 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                     fields.insert("tempOverrideC", record.temperatureOverride);
                     fields.insert("grindPinned", hasBean ? QString() : record.grinderSetting);
                     fields.insert("steamJson", steamJson);
+                    // Hot water carries verbatim from the shot snapshot only —
+                    // NO current-settings fallback (that would force a shot
+                    // pulled while an Americano recipe is active into an
+                    // Americano, mirroring the composer's deliberate choice).
+                    fields.insert("hotWaterJson", record.hotWaterJson);
                     fields.insert("createdFromShotId", shotId);
 
                     auto conn = std::make_shared<QMetaObject::Connection>();

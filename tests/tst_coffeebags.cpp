@@ -687,6 +687,101 @@ private slots:
         });
     }
 
+    // Recipe transfer (finish-recipes-first-class): recipes ride in shots.db and
+    // must merge with equipment_id remapped and shots.recipe_id remapped — the
+    // provenance that used to dangle after transfer.
+    void importDatabaseRemapsRecipeIdsAndEquipment() {
+        const QString srcPath = freshDb();
+        const QString destPath = freshDb();
+
+        qint64 srcPkgId = -1, srcRecipeId = -1;
+        withRawDb(srcPath, "rec_imp_src", [&](QSqlDatabase& db) {
+            EquipmentPackage pkg;
+            srcPkgId = EquipmentStorage::createPackageWithGrinderStatic(db, pkg, "Niche", "Zero", "63mm");
+            QVERIFY(srcPkgId > 0);
+
+            Recipe r;
+            r.name = "Americano";
+            r.profileTitle = "Filter 2.0";
+            r.equipmentId = srcPkgId;
+            r.hotWaterJson = "{\"hasWater\":true,\"vesselName\":\"Cup\",\"volume\":120,"
+                             "\"mode\":\"volume\",\"flowRate\":40,\"temperatureC\":90,\"order\":\"after\"}";
+            srcRecipeId = RecipeStorage::insertRecipeStatic(db, r);
+            QVERIFY(srcRecipeId > 0);
+
+            QSqlQuery q(db);
+            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, recipe_id) "
+                      "VALUES ('rec-uuid-1', 5000, 'Filter 2.0', 30, :rid)");
+            q.bindValue(":rid", srcRecipeId);
+            QVERIFY(q.exec());
+        });
+
+        // Occupy dest row ids so both remaps are observable (src ids must NOT
+        // map to the same dest ids).
+        withRawDb(destPath, "rec_imp_dest_prep", [&](QSqlDatabase& db) {
+            EquipmentPackage filler;
+            QVERIFY(EquipmentStorage::createPackageWithGrinderStatic(db, filler, "Filler", "Grinder", "40mm") > 0);
+            Recipe fillerR;
+            fillerR.name = "Filler";
+            fillerR.profileTitle = "X";
+            QVERIFY(RecipeStorage::insertRecipeStatic(db, fillerR) > 0);
+        });
+
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/true));
+
+        withRawDb(destPath, "rec_imp_check", [&](QSqlDatabase& db) {
+            QCOMPARE(RecipeStorage::loadInventoryStatic(db).size(), 2);  // filler + imported
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT s.recipe_id, r.name, r.equipment_id, r.hot_water_json "
+                           "FROM shots s JOIN recipes r ON r.id = s.recipe_id "
+                           "JOIN equipment_packages p ON p.id = r.equipment_id "
+                           "WHERE s.uuid = 'rec-uuid-1'"));
+            QVERIFY(q.next());                                     // JOINs matched → no dangling refs
+            QVERIFY(q.value(0).toLongLong() != srcRecipeId);      // recipe_id remapped
+            QCOMPARE(q.value(1).toString(), QString("Americano"));
+            QVERIFY(q.value(2).toLongLong() != srcPkgId);         // equipment_id remapped to a real package
+            QVERIFY(q.value(3).toString().contains("hasWater"));  // hot-water block carried verbatim
+        });
+    }
+
+    void importDatabaseMergeDedupesRecipes() {
+        const QString srcPath = freshDb();
+        const QString destPath = freshDb();
+        withRawDb(srcPath, "rec_dedup_src", [&](QSqlDatabase& db) {
+            Recipe r;
+            r.name = "Morning";
+            r.profileTitle = "D-Flow";
+            const qint64 rid = RecipeStorage::insertRecipeStatic(db, r);
+            QVERIFY(rid > 0);
+            // A shot must exist or importDatabaseStatic treats the source as an
+            // empty backup and skips the recipe merge entirely (same guard the
+            // bag dedup test satisfies). Link it so the remap is exercised too.
+            QSqlQuery q(db);
+            q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, recipe_id) "
+                      "VALUES ('rec-dedup-uuid', 3000, 'D-Flow', 30, :rid)");
+            q.bindValue(":rid", rid);
+            QVERIFY(q.exec());
+        });
+        qint64 destRecipeId = -1;
+        withRawDb(destPath, "rec_dedup_dest", [&](QSqlDatabase& db) {
+            Recipe r;
+            r.name = "morning";      // case-insensitive identity
+            r.profileTitle = "d-flow";
+            destRecipeId = RecipeStorage::insertRecipeStatic(db, r);
+            QVERIFY(destRecipeId > 0);
+        });
+
+        QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/true));
+
+        withRawDb(destPath, "rec_dedup_check", [&](QSqlDatabase& db) {
+            QCOMPARE(RecipeStorage::loadInventoryStatic(db).size(), 1);  // no duplicate
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT recipe_id FROM shots WHERE uuid = 'rec-dedup-uuid'"));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toLongLong(), destRecipeId);  // remapped to the existing recipe
+        });
+    }
+
     void migration24AddsSyncPendingColumn() {
         // Fresh DB: the column exists (CREATE TABLE path) with default 0.
         const QString path = freshDb();
@@ -723,7 +818,7 @@ private slots:
             QCOMPARE(q.value(0).toInt(), 0);  // existing rows default to 0
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 26);  // chain runs on to the latest (add-recipes)
+            QCOMPARE(q.value(0).toInt(), 27);  // chain runs on to the latest (hot_water_json)
         });
     }
 
@@ -776,7 +871,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 26);  // chain runs on to the latest (add-recipes)
+            QCOMPARE(q.value(0).toInt(), 27);  // chain runs on to the latest (hot_water_json)
         });
     }
 
@@ -809,7 +904,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 26);
+            QCOMPARE(q.value(0).toInt(), 27);  // chain runs on to the latest (hot_water_json)
             // The repaired table is writable — insertRecipeStatic binds
             // rpm_pinned unconditionally, so it would fail wholesale if the
             // ALTER hadn't landed.
