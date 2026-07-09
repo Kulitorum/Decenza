@@ -9,6 +9,7 @@
 #include "../network/beanbaseclient.h"
 #include "../core/dbutils.h"
 #include "../history/shothistorystorage.h"
+#include "../history/coffeebagstorage.h"
 #include "../history/shotprojection.h"
 #include "../profile/profile.h"
 
@@ -397,6 +398,145 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
 
             QObject::connect(thread, &QThread::finished, thread, &QObject::deleteLater);
             thread->start();
+        },
+        "control");
+
+    // bag_extract_details — drive the "Get info from page" pipeline remotely
+    // (add-recipe-wizard-tea): stage 1 = local page fetch -> provider
+    // extraction; stage 2 fallback = the provider fetches the URL itself via
+    // its web tool (JS-rendered shops). Read-only diagnostics: returns the
+    // extracted fields plus which stage/provider ran — it never writes the
+    // bag (apply the fields with bag_update). Lives here (not
+    // mcptools_write.cpp) because it invokes the AI like ai_advisor_invoke:
+    // same control tier, and the lean write-tools test binary must not need
+    // AIManager/BeanBaseClient moc symbols.
+    registry->registerAsyncTool(
+        "bag_extract_details",
+        "Run the AI page extraction for a bag's product URL and return the extracted fields "
+        "WITHOUT writing them (use bag_update to apply). Uses the bag's kind to pick the "
+        "coffee or tea vocabulary. Response reports which stage ran (1 = local page fetch, "
+        "2 = provider-side web fetch fallback for JS-rendered shops) and the provider/model. "
+        "Requires a configured AI provider; consumes provider tokens.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"bagId", QJsonObject{{"type", "integer"}, {"description", "Bag ID (from bag_list); its link is the page"}}},
+                {"url", QJsonObject{{"type", "string"}, {"description", "Override URL (defaults to the bag's link)"}}}
+            }},
+            {"required", QJsonArray{"bagId"}}
+        },
+        [mainController](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
+            AIManager* aiManager = mainController ? mainController->aiManager() : nullptr;
+            BeanBaseClient* beanbase = mainController ? mainController->beanbase() : nullptr;
+            CoffeeBagStorage* bagStorage = mainController ? mainController->bagStorage() : nullptr;
+            if (!bagStorage || !aiManager || !beanbase) {
+                respond(QJsonObject{{"error", "Extraction dependencies not available"}});
+                return;
+            }
+            if (!aiManager->isConfigured()) {
+                respond(QJsonObject{{"error", "No AI provider configured"}});
+                return;
+            }
+            const qint64 bagId = args["bagId"].toInteger();
+            if (bagId <= 0) {
+                respond(QJsonObject{{"error", "Valid bagId is required"}});
+                return;
+            }
+            const QString urlOverride = args["url"].toString().trimmed();
+
+            // One-shot chain state. Every connection is severed on the first
+            // terminal outcome so a concurrent in-app extraction (different
+            // token/url) never cross-talks.
+            struct ExtractState {
+                QList<QMetaObject::Connection> conns;
+                QString url;
+                QString kind;
+                int stage = 1;
+                QString stage1Error;
+                qsizetype textChars = 0;
+                bool done = false;
+            };
+            auto st = std::make_shared<ExtractState>();
+            auto finish = [st](std::function<void()> reply) {
+                if (st->done) return;
+                st->done = true;
+                for (const auto& c : st->conns)
+                    QObject::disconnect(c);
+                reply();
+            };
+
+            // Step 1: resolve the bag (link + kind) via the storage instance.
+            st->conns << QObject::connect(bagStorage, &CoffeeBagStorage::bagReady, qApp,
+                [st, aiManager, beanbase, bagId, urlOverride, finish, respond](qint64 readyId, const QVariantMap& bagMap) {
+                    if (st->done || readyId != bagId) return;
+                    const CoffeeBag bag = CoffeeBag::fromVariantMap(bagMap);
+                    if (!bag.isValid()) {
+                        finish([respond]() { respond(QJsonObject{{"error", "Bag not found"}}); });
+                        return;
+                    }
+                    QString link = urlOverride;
+                    if (link.isEmpty()) {
+                        const QJsonObject blob = QJsonDocument::fromJson(bag.beanBaseData.toUtf8()).object();
+                        link = blob.value(QStringLiteral("link")).toString();
+                    }
+                    if (link.isEmpty()) {
+                        finish([respond]() { respond(QJsonObject{{"error",
+                            "Bag has no product URL (set one with bag_update link=...)"}}); });
+                        return;
+                    }
+                    st->url = link;
+                    st->kind = bag.isTea() ? QStringLiteral("tea") : QStringLiteral("coffee");
+                    beanbase->fetchPageText(st->url);
+                });
+
+            // Step 2a: local fetch succeeded -> stage-1 extraction.
+            st->conns << QObject::connect(beanbase, &BeanBaseClient::pageTextReady, qApp,
+                [st, aiManager](const QString& url, const QString& text) {
+                    if (st->done || url != st->url) return;
+                    st->textChars = text.size();
+                    aiManager->extractCoffeeBagDetails(st->url, text, st->kind);
+                });
+
+            // Step 2b: local fetch failed -> provider-side web fetch when the
+            // provider has a web tool, else surface the stage-1 error.
+            st->conns << QObject::connect(beanbase, &BeanBaseClient::pageTextFailed, qApp,
+                [st, aiManager, finish, respond](const QString& url, const QString& error) {
+                    if (st->done || url != st->url) return;
+                    st->stage1Error = error;
+                    if (aiManager->supportsUrlExtraction()) {
+                        st->stage = 2;
+                        aiManager->extractCoffeeBagDetailsFromUrl(st->url, st->url, st->kind);
+                    } else {
+                        finish([respond, error]() { respond(QJsonObject{{"error",
+                            QString("Page fetch failed (%1) and the configured provider has "
+                                    "no web-fetch tool for the stage-2 fallback").arg(error)}}); });
+                    }
+                });
+
+            // Terminal: extraction completed / failed (token = the URL).
+            st->conns << QObject::connect(aiManager, &AIManager::bagDetailsExtracted, qApp,
+                [st, aiManager, finish, respond](const QString& token, const QVariantMap& fields) {
+                    if (st->done || token != st->url) return;
+                    const QJsonObject result{
+                        {"stage", st->stage},
+                        {"provider", aiManager->selectedProvider()},
+                        {"model", aiManager->currentModelName()},
+                        {"kind", st->kind},
+                        {"url", st->url},
+                        {"stage1Error", st->stage1Error.isEmpty() ? QJsonValue() : QJsonValue(st->stage1Error)},
+                        {"pageTextChars", static_cast<qint64>(st->textChars)},
+                        {"fields", QJsonObject::fromVariantMap(fields)}};
+                    finish([respond, result]() { respond(result); });
+                });
+            st->conns << QObject::connect(aiManager, &AIManager::bagDetailsExtractionFailed, qApp,
+                [st, finish, respond](const QString& token, const QString& error) {
+                    if (st->done || token != st->url) return;
+                    const int stage = st->stage;
+                    finish([respond, error, stage]() { respond(QJsonObject{
+                        {"error", QString("Extraction failed at stage %1: %2").arg(stage).arg(error)}}); });
+                });
+
+            bagStorage->requestBag(bagId);
         },
         "control");
 

@@ -34,3 +34,10 @@ The MCP server SHALL provide `bag_create` (write access level): kind `coffee` (d
 #### Scenario: Kind-gated create
 - **WHEN** an MCP client calls `bag_create` with kind "coffee" and a teaType
 - **THEN** the create is rejected with an error naming the tea-only fields
+
+### Requirement: Page extraction is drivable and diagnosable via MCP
+The MCP server SHALL provide `bag_extract_details` (control tier): runs the exact in-app two-stage extraction for a bag's product URL (kind selects the coffee/tea vocabulary) and returns the extracted fields WITHOUT writing them, plus diagnostics — which stage ran, the stage-1 failure when the fallback fired, the provider and model, and the fetched text size. Applying fields is the caller's explicit `bag_update`.
+
+#### Scenario: Stage-2 diagnosis on a JS-rendered shop
+- **WHEN** an MCP client calls `bag_extract_details` for a bag whose page is a JS-rendered SPA
+- **THEN** the response shows stage 2, the stage-1 emptyPage error, and the extracted fields including imageUrl when present
