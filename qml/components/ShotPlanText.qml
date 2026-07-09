@@ -9,10 +9,11 @@ import "../"
 //    (wherever they sit in the order; sentence word order belongs to the
 //    translated template), and everything else — including doseYield's dose-in
 //    fragment — trails after it in list order.
-//  - sentence ON, profile NOT shown: the profile-less "recipe" sentence —
-//    "Brew 40.0g of Espresso at 92°C from 18.0g of <Roaster> <Bean>" — anchored
-//    on the beverage word. Dose, roaster and coffee are consumed into it; only
-//    grind/roastDate trail. Driven by the same chips (drop Profile to get it).
+//  - sentence ON, no profile anchor (item removed, or no profile name
+//    available): the profile-less "recipe" sentence — "Brew 40.0g of Espresso
+//    at 92°C from 18.0g of <Roaster> <Bean>" — anchored on the beverage word.
+//    Dose, temperature, roaster and coffee are consumed into it; only
+//    grind/roastDate trail.
 //  - sentence OFF: every item renders as a separator-joined fragment, in list
 //    order.
 //  - stacked ON (sentence mode only, display path only): the detail tail
@@ -172,16 +173,18 @@ Item {
             return tail.length > 0 ? (s + blockSep + tail.join(sep)) : s
         }
 
-        // Recipe sentence — the profile-less anchor. When Sentence is on but the
-        // profile item isn't shown, the plan reads as the recipe itself:
-        // "Brew 40.0g of Espresso at 92°C from 18.0g of <Roaster> <Bean>". Dose,
-        // roaster and coffee are CONSUMED into the sentence (they don't also trail
-        // as fragments); only grind/roastDate trail after. Each piece stays gated
-        // by its item's presence via the _xStr getters, so the chips still drive
-        // what shows. The beverage word is always present, so this never degrades
-        // to a fragment list while Sentence is on. Built by appending translatable
-        // clauses (at %/from %) onto the head — English word order; the a11y and
-        // rich paths share this builder so they can't drift.
+        // Recipe sentence — the profile-less anchor. Reached when Sentence is on
+        // but there's no profile anchor (item removed, or no profile name
+        // available), so the plan reads as the recipe itself: "Brew 40.0g of
+        // Espresso at 92°C from 18.0g of <Roaster> <Bean>". Dose, temperature,
+        // roaster and coffee are CONSUMED into the sentence (they don't also
+        // trail as fragments); only grind/roastDate trail after. Each piece
+        // stays gated by its item's presence via the _xStr getters, so the
+        // chips still drive what shows. The beverage word is always present,
+        // so this never degrades to a fragment list while Sentence is on.
+        // Built by appending translatable clauses (at %/from %) onto the head —
+        // English word order; the a11y and rich paths share this builder so
+        // they can't drift.
         if (sentence) {
             var beans = ""
             if (_roasterStr !== "" && _coffeeStr !== "")

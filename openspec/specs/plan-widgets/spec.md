@@ -25,7 +25,13 @@ The seven display items are: Profile (`profile`), Temperature (`temperature`), R
 - profile + temperature, no yield → "Brew {beverage}, using {profile} at {temperature}"
 - yield + profile, Temperature item absent → "Brew {yield} of {beverage}, using {profile}"
 - profile only → "Brew {beverage}, using {profile}"
-- Profile item absent (or no profile name available) → the sentence has no anchor; the text SHALL render in fragment format regardless of the Sentence style option.
+
+Profile item absent (or no profile name available) → the sentence has no profile anchor, so it falls back to the profile-less "recipe" sentence: the scaffold instead consumes the Dose & yield, Temperature, Roaster, and Coffee items (wherever they sit in the list) together with the beverage word, and only the Grind and Roast date items SHALL trail after it as a separator-joined tail in item-list order. The beverage word SHALL always anchor this sentence, so Sentence style SHALL NOT degrade to fragment format while it is ON — regardless of which other items are present:
+
+- yield + temperature + dose + roaster + coffee → "Brew {yield} of {beverage} at {temperature} from {dose} of {roaster} {coffee}"
+- yield only, no temperature/dose/roaster/coffee → "Brew {yield} of {beverage}"
+- no yield, dose present, no roaster/coffee → "Brew {beverage} from {dose}"
+- no yield, no dose, roaster + coffee only → "Brew {beverage} from {roaster} {coffee}"
 
 The beverage word SHALL follow the current profile's `beverage_type`: "Espresso" for espresso (and unset), "tea" for tea types, and "coffee" for any other coffee beverage (filter, pourover, …). A cleaning or descale profile SHALL replace the plan entirely — in both formats — with a cleaning notice carrying a do-not-load-coffee warning, rendered bold in the error (red) color with no item segments.
 
@@ -51,10 +57,15 @@ The plain (accessibility) text and the rich (displayed) text SHALL be produced b
 - **WHEN** Sentence style is ON and the item list contains `profile` and `doseYield` but not `temperature`
 - **THEN** the sentence reads "Brew {yield} of {beverage}, using {profile}" with no temperature anywhere
 
-#### Scenario: Profile chip removed falls back to fragments
+#### Scenario: Profile chip removed renders the profile-less recipe sentence
 
-- **WHEN** Sentence style is ON and the item list is `["doseYield", "temperature", "coffee"]` (no `profile`)
-- **THEN** the plan renders as separator-joined fragments in list order, with no sentence scaffolding
+- **WHEN** Sentence style is ON and the item list is `["temperature", "coffee"]` (no `profile`, no `doseYield`)
+- **THEN** the plan renders "Brew {beverage} at {temperature} from {coffee}" — a sentence anchored on the beverage word, not a fragment list
+
+#### Scenario: No profile loaded renders the profile-less recipe sentence even with the Profile chip shown
+
+- **WHEN** Sentence style is ON, the item list includes `profile`, but no profile is currently loaded (no profile name available)
+- **THEN** the plan renders the profile-less recipe sentence, exactly as if the Profile chip had been removed
 
 #### Scenario: Filter profile says coffee, not espresso
 
