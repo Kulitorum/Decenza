@@ -120,6 +120,9 @@ Dialog {
     // an AI provider being configured (the button hides otherwise).
     property bool fetchingInfo: false
     property string infoStatus: ""
+    // Stage-2 product photo URL for a bag being CREATED — the cache key is
+    // the row id, which doesn't exist until onBagCreated.
+    property string _extractedImageUrl: ""
     // URL captured at click time — completion signals are gated on THIS, not
     // the live field: editing the URL mid-fetch must neither wedge the busy
     // flag nor let a stale extraction (an LLM call is slow) fill a form it
@@ -130,6 +133,9 @@ Dialog {
     // strings (Qt transport errors, provider errors) pass through verbatim.
     function infoErrorText(error) {
         switch (error) {
+        case "urlFetchUnsupported":
+            return TranslationManager.translate("changebeans.form.getInfo.urlFetchUnsupported",
+                "This page needs the AI to fetch it, which the configured provider can't do")
         case "invalidUrl":
             return TranslationManager.translate("changebeans.form.getInfo.invalidUrl", "Not a valid web address")
         case "notAWebPage":
@@ -349,6 +355,7 @@ Dialog {
         fetchingInfo = false
         infoStatus = ""
         _fetchUrl = ""
+        _extractedImageUrl = ""
         errorMessage = ""
     }
 
@@ -633,8 +640,11 @@ Dialog {
             }
             // A manual bag created with a product URL: warm its image now
             // that the row id (= its cache key) exists. Linked bags were
-            // warmed at entry pick under their canonical id.
-            if (root.fBeanBaseId.length === 0 && root.fLink.trim().length > 0)
+            // warmed at entry pick under their canonical id. A stage-2
+            // extraction photo URL (SPA page, no og:image) wins directly.
+            if (root._extractedImageUrl.length > 0)
+                MainController.beanbase.cacheBagImageFromUrl("bag-" + bagId, root._extractedImageUrl)
+            else if (root.fBeanBaseId.length === 0 && root.fLink.trim().length > 0)
                 MainController.beanbase.ensureBagImage(
                     "bag-" + bagId, root.fCoffee.trim(), root.fLink.trim())
             root.applySelection(bagId, bag)
@@ -1103,6 +1113,16 @@ Dialog {
                         }
                         function onPageTextFailed(url, error) {
                             if (!root.fetchingInfo || url !== root._fetchUrl) return
+                            // Stage 2 (add-recipe-wizard-tea): an empty page is
+                            // the JS-rendered-shop signature — let the provider
+                            // fetch the URL itself via its web-fetch tool. Other
+                            // failures (bad URL, site down) would fail there too.
+                            if (error === "emptyPage" && MainController.aiManager.supportsUrlExtraction()) {
+                                root.infoStatus = TranslationManager.translate(
+                                    "changebeans.form.getInfo.stage2", "Page is script-rendered — asking the AI to fetch it…")
+                                MainController.aiManager.extractCoffeeBagDetailsFromUrl(url, url, root.bagKind)
+                                return
+                            }
                             root.fetchingInfo = false
                             root.infoStatus = TranslationManager.translate(
                                 "changebeans.form.getInfo.pageFailed", "Couldn't read the page: %1")
@@ -1146,6 +1166,19 @@ Dialog {
                             take("brewTempC", root.fBrewTempC, function(v) { root.fBrewTempC = v })
                             take("leafGramsPer100Ml", root.fLeafRatio, function(v) { root.fLeafRatio = v })
                             take("steepTime", root.fSteepTime, function(v) { root.fSteepTime = v })
+                            // Stage-2 photo: the model returned the product
+                            // image URL directly (no og:image on SPA pages).
+                            // Edit mode caches it now; create mode stashes it
+                            // until the row id (= cache key) exists.
+                            if (fields["imageUrl"]) {
+                                var imgKey = root.fBeanBaseId.length > 0 ? root.fBeanBaseId
+                                    : (root.formMode === "edit" && root.editBagId > 0
+                                        ? "bag-" + root.editBagId : "")
+                                if (imgKey.length > 0)
+                                    MainController.beanbase.cacheBagImageFromUrl(imgKey, String(fields["imageUrl"]))
+                                else
+                                    root._extractedImageUrl = String(fields["imageUrl"])
+                            }
                             root.detailsExpanded = true
                             root.infoStatus = applied > 0
                                 ? TranslationManager.translate("changebeans.form.getInfo.applied",

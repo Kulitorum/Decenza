@@ -476,6 +476,41 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
     sendRequest(requestBody);
 }
 
+void AnthropicProvider::analyzeUrl(const QString& systemPrompt, const QString& userPrompt)
+{
+    if (!isConfigured()) {
+        emit analysisFailed("Anthropic API key not configured");
+        return;
+    }
+
+    setStatus(Status::Busy);
+    m_retryCount = 0;
+    ++m_reqGen;
+
+    QJsonObject requestBody;
+    requestBody["model"] = m_model;
+    requestBody["max_tokens"] = 1024;
+    requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
+    QJsonArray messages;
+    QJsonObject userMsg;
+    userMsg["role"] = QString("user");
+    userMsg["content"] = userPrompt;
+    messages.append(userMsg);
+    requestBody["messages"] = messages;
+    // The web_fetch server tool (add-recipe-wizard-tea stage-2 extraction):
+    // the API fetches the URL named in the user prompt during the request.
+    // max_uses 2 allows one retry; max_content_tokens bounds the token cost
+    // of a huge page (fetched content is billed as input tokens).
+    QJsonObject fetchTool;
+    fetchTool["type"] = QString("web_fetch_20250910");
+    fetchTool["name"] = QString("web_fetch");
+    fetchTool["max_uses"] = 2;
+    fetchTool["max_content_tokens"] = 20000;
+    requestBody["tools"] = QJsonArray{fetchTool};
+
+    sendRequest(requestBody);
+}
+
 void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
 {
     if (!isConfigured()) {
@@ -593,7 +628,16 @@ void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
         return;
     }
 
-    QString text = content[0].toObject()["text"].toString();
+    // Join every text block: plain replies have exactly one, but a server-
+    // tool response (analyzeUrl's web_fetch) interleaves server_tool_use and
+    // web_fetch_tool_result blocks with the text — content[0] alone would
+    // miss the answer.
+    QString text;
+    for (const QJsonValue& block : content) {
+        const QJsonObject obj = block.toObject();
+        if (obj["type"].toString() == QLatin1String("text"))
+            text += obj["text"].toString();
+    }
     if (text.isEmpty()) {
         emit analysisFailed("Anthropic returned empty response content");
         return;

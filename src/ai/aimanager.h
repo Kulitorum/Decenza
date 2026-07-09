@@ -163,6 +163,15 @@ public:
     // leafGramsPer100Ml normalized from per-cup wordings, steepTime).
     Q_INVOKABLE void extractCoffeeBagDetails(const QString& requestToken, const QString& pageText,
                                              const QString& kind = QStringLiteral("coffee"));
+    // Stage-2 extraction fallback: the local page fetch got nothing (a
+    // JS-rendered shop), so the provider fetches the URL itself via its
+    // server-side web-fetch tool (Anthropic web_fetch; other providers report
+    // "urlFetchUnsupported"). Same signals + JSON contract as stage 1, plus
+    // an imageUrl key (SPA pages have no og:image for the photo pipeline).
+    // Gate calls on supportsUrlExtraction().
+    Q_INVOKABLE bool supportsUrlExtraction() const;
+    Q_INVOKABLE void extractCoffeeBagDetailsFromUrl(const QString& requestToken, const QString& url,
+                                                    const QString& kind = QStringLiteral("coffee"));
     // Response JSON -> whitelisted blob-vocabulary fields (coffee: origin,
     // region, farm, producer, variety, elevation, process, harvest,
     // roastLevel, tastingNotes; tea adds teaType, garden, cultivar, flush,

@@ -45,10 +45,10 @@
 
 - [x] 6.1 Tea extraction system prompt in AIManager, selected by bag kind; parse whitelist for tea keys; unit tests assert tea keys + numeric values survive the parser. NOTE: the °F/g-per-cup normalization is the model's job (prompt contract) — not unit-testable without an LLM; verified live at 6.6
 - [x] 6.2 Raise fetchPageText cap 20k → 48k
-- [ ] 6.3 Spike: confirm Anthropic web_fetch / OpenAI web-search request shapes for the two providers shipped in #1445
-- [ ] 6.4 Stage-2 fallback: on emptyPage/blocked, re-issue extraction as a provider web-fetch request (same JSON contract + `imageUrl`); feature-detect per provider; stage-1 error surfaces unchanged when unavailable
-- [ ] 6.5 `imageUrl` consumption: bag image download/cache accepts an explicit URL alongside the og:image path
-- [ ] 6.6 Verify end-to-end against the three vendor archetypes (Harney stage 1, Yunnan Sourcing stage 1 post-cap-raise, Fortnum & Mason stage 2 text + image)
+- [x] 6.3 Spike: confirm Anthropic web_fetch / OpenAI web-search request shapes for the two providers shipped in #1445
+- [x] 6.4 Stage-2 fallback: on emptyPage/blocked, re-issue extraction as a provider web-fetch request (same JSON contract + `imageUrl`); feature-detect per provider; stage-1 error surfaces unchanged when unavailable
+- [x] 6.5 `imageUrl` consumption: bag image download/cache accepts an explicit URL alongside the og:image path
+- [ ] 6.6 Verify end-to-end against the three vendor archetypes (Harney stage 1, Yunnan Sourcing stage 1 post-cap-raise, Fortnum & Mason stage 2 text + image). NOTE: needs the running app + a configured Anthropic key — part of the 8.3 manual verification. Doc caveat: Anthropic's server web_fetch does not execute JS, so F&M stage 2 depends on their crawler-side prerendering
 
 ## 7. MCP and web surfaces
 

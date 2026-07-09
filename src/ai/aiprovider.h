@@ -47,6 +47,19 @@ public:
     // Multi-turn conversation method (messages = array of {role, content} objects)
     virtual void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages);
 
+    // Server-side URL retrieval (add-recipe-wizard-tea, stage-2 extraction):
+    // analyze() with the provider's web-fetch tool enabled, so the PROVIDER
+    // fetches a URL named in the user prompt — the fallback when the local
+    // page fetch got nothing (JS-rendered shops). Providers without a
+    // server-side fetch tool keep the default (unsupported): OpenAI's
+    // chat/completions API has web search only on dedicated -search-preview
+    // models, and Gemini/Ollama have no equivalent here.
+    virtual bool supportsUrlAnalysis() const { return false; }
+    virtual void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) {
+        Q_UNUSED(systemPrompt); Q_UNUSED(userPrompt);
+        emit analysisFailed(QStringLiteral("URL analysis not supported by this provider"));
+    }
+
     // Test connection
     virtual void testConnection() = 0;
 
@@ -148,6 +161,12 @@ public:
 
     void analyze(const QString& systemPrompt, const QString& userPrompt) override;
     void analyzeConversation(const QString& systemPrompt, const QJsonArray& messages) override;
+    // Anthropic web_fetch server tool (web_fetch_20250910): the API fetches
+    // the URL named in the user prompt during the request — no client-side
+    // round trip. URL validation requires the URL to appear in the message,
+    // which the extraction prompt guarantees.
+    bool supportsUrlAnalysis() const override { return true; }
+    void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) override;
     void testConnection() override;
 
 private slots:

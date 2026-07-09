@@ -263,6 +263,19 @@ void BeanBaseClient::ensureBagImage(const QString& canonicalId,
     recoverBagLink(canonicalId, roastName);
 }
 
+void BeanBaseClient::cacheBagImageFromUrl(const QString& imageKey, const QString& imageUrl) {
+    // Stage-2 extraction returned the product photo's URL directly (SPA pages
+    // have no og:image for fetchProductPage to find) — download it into the
+    // cache under the key, exactly like an og:image hit. Cache hits win; the
+    // attempt guard is set so a failed download doesn't retry all session.
+    if (!isSafeCacheFilename(imageKey) || imageUrl.trimmed().isEmpty())
+        return;
+    if (!bagImagePath(imageKey).isEmpty())
+        return;
+    m_imageAttempted.insert(imageKey);
+    downloadBagImage(imageKey, imageUrl.trimmed());
+}
+
 void BeanBaseClient::refreshBagImage(const QString& canonicalId,
                                      const QString& roastName,
                                      const QString& productUrl) {
