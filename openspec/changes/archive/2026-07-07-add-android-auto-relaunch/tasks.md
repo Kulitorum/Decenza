@@ -63,7 +63,7 @@
 
 ## 9. Manual verification
 
-- [x] 9.1 Build and install on Jeff's Samsung dev tablet via `adb` — done (implied by the on-device confirmation below)
+- [ ] 9.1 Build and install on Jeff's Samsung dev tablet via `adb` — not separately confirmed; logically implied by 9.4 (can't observe on-device relaunch behavior without installing) but left unchecked since only the outcome, not this specific step, was reported
 - [ ] 9.2 Without granting the permission, perform a self-update; confirm "exits to home screen" behavior is unchanged — not separately confirmed; see note below
 - [ ] 9.3 Open the in-app prompt; grant `SYSTEM_ALERT_WINDOW`; confirm toggle reflects the granted state — not separately confirmed; see note below
 - [x] 9.4 Perform another self-update; observe whether the app auto-relaunches. Record outcome. — **Confirmed 2026-07-09 by Jeff: "add-android-auto-relaunch works great."** A brief real-device confirmation of the core outcome, not a detailed step-by-step log — 9.2/9.3/9.5-9.7's granular sub-checks were not individually reported and stay unchecked rather than being inferred.
@@ -74,6 +74,6 @@
 
 ## 10. Release / followup
 
-- [x] 10.1 Update release notes only if the auto-relaunch is empirically confirmed working — do not advertise a feature that may not work for the user (per the "release notes: only proven user-visible" memory) — now empirically confirmed (2026-07-09); release notes may be updated on request, not done automatically here
+- [ ] 10.1 Update release notes only if the auto-relaunch is empirically confirmed working — do not advertise a feature that may not work for the user (per the "release notes: only proven user-visible" memory) — precondition met (empirically confirmed 2026-07-09), but the release notes themselves have not been updated; left unchecked until that action is actually taken
 - [x] 10.2 If empirical results are negative on Jeff's tablet, decide whether to: (a) ship anyway and let other tablets try, (b) revert the manifest and Java pieces but keep the diagnostic logging, (c) revert entirely — moot: result is positive, ship as-is
 - [x] 10.3 Per project workflow: open a PR (do not push to main), tag for `/pr-review-toolkit:review-pr` between open-PR and merge, then squash-merge via the `merge-pr` skill — done (change is archived, meaning this already happened)
