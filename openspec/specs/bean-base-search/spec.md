@@ -1,7 +1,7 @@
 # bean-base-search Specification
 
 ## Purpose
-TBD - created by archiving change add-bean-base-integration. Update Purpose after archive.
+Defines the keyless, always-available Bean Base search on the BeanInfoPage: searching Visualizer's canonical bean database, applying a fixed field mapping to populate DYE fields (locking the fields Bean Base supplies), keeping the link always correctable (replace/clear/fix), preserving field values on unlink, surfacing cached attributes across bean surfaces, and respecting the free-tier rate budget.
 ## Requirements
 ### Requirement: Search is keyless and always available (REVISED: canonical-search switch, June 2026)
 

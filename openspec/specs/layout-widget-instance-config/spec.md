@@ -1,7 +1,7 @@
 # layout-widget-instance-config Specification
 
 ## Purpose
-TBD - created by archiving change composable-brew-bar. Update Purpose after archive.
+Defines how individual layout widget instances hold their own persistent, per-instance configuration — opened via an explicit visible affordance (plus long-press) in the in-app and web editors — covering the Scale Weight data mode, readout display mode, Sleep widget's quit/icon options, the Shot Plan display-item list and its sentence/stacked/steam-plan toggles, and the visible has-options indicator that marks which widget types are configurable.
 ## Requirements
 ### Requirement: Per-instance widget configuration in the editors
 

@@ -1,7 +1,8 @@
 # advisor-user-prompt Specification
 
 ## Purpose
-TBD - created by archiving change migrate-advisor-user-prompt-to-json. Update Purpose after archive.
+The single source of truth for the JSON-shaped user prompt `ShotSummarizer` and `AIManager` send the AI Advisor: the `currentBean`/`currentProfile`/`tastingFeedback`/`shotAnalysis` envelope, the DB-scoped enrichment blocks (`dialInSessions`, `bestRecentShot`, `sawPrediction`, `grinderContext`, `recentAdvice`, `grinderCalibration`) shared with `dialing_get_context`, and the byte-stability and Anthropic prompt-caching rules that make repeated calls cache-hit identically across the in-app advisor and `ai_advisor_invoke`.
+
 ## Requirements
 ### Requirement: AI advisor user prompt SHALL be JSON-shaped
 

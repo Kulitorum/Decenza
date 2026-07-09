@@ -67,13 +67,10 @@
 
 ## 6. Android mDNS spike
 
-- [ ] 6.1 Build a minimal test that calls `QHostInfo::lookupHost("hds.local", ...)` on a known-good Android device (Galaxy Tab S9, the maintainer's main test rig) and a known-poor device if available.
-- [ ] 6.2 If `QHostInfo` resolves: do nothing, mark spike complete.
-- [ ] 6.3 If `QHostInfo` does NOT resolve, build a JNI bridge:
-  - [ ] 6.3.1 Add a Kotlin helper in `android/src/.../NsdHelper.kt` wrapping `android.net.nsd.NsdManager.resolveService`.
-  - [ ] 6.3.2 Bridge to C++ via `QJniObject` (existing pattern in the codebase — see `screencaptureservice.cpp` for a JNI-bridge precedent).
-  - [ ] 6.3.3 Route `WifiScaleDiscovery::probe()` through the JNI path on `Q_OS_ANDROID` and through `QHostInfo` everywhere else.
-- [ ] 6.4 Update this tasks.md and design.md to reflect the chosen path.
+- [x] 6.1 Build a minimal test that calls `QHostInfo::lookupHost("hds.local", ...)` on a known-good Android device (Galaxy Tab S9, the maintainer's main test rig) and a known-poor device if available. — **Confirmed 2026-07-09 by Jeff (on-device): done.**
+- [x] 6.2 If `QHostInfo` resolves: do nothing, mark spike complete. — Answered NO: `QHostInfo` does NOT resolve `.local` names on Android (`getaddrinfo` returns NXDOMAIN — see the header comment on `src/network/mdnsresolver.h`).
+- [x] 6.3 If `QHostInfo` does NOT resolve, build a JNI bridge: — **Superseded by a different, better-reasoned solution actually shipped**, not the NsdManager JNI bridge this task planned. `src/network/mdnsresolver.h`/`.cpp` (`MdnsResolver::resolveHostname`) sends a direct mDNS A-record query via the `mjansson/mdns` library instead: the HDS publishes a plain `.local` hostname, not a discoverable `_http._tcp` service record, so `NsdManager` (a service-*discovery* API) was identified as the wrong primitive — a direct hostname *resolution* query is what's needed, the same operation `QHostInfo` performs on platforms where the OS resolver speaks mDNS (nss-mdns/Bonjour). `WifiScaleDiscovery::probe()` (`src/network/wifiscalediscovery.cpp`) is `Q_OS_ANDROID`-gated to run this resolver on a `QThreadPool` worker thread (it blocks) and post the result back to the Qt event loop, relying on the process-wide `WifiManager.MulticastLock` `ShotServer` already holds. No `NsdHelper.kt` was added; 6.3.1-6.3.3 as originally planned were not needed.
+- [x] 6.4 Update this tasks.md and design.md to reflect the chosen path. — done (2026-07-09): this file, `design.md`'s "Three outcomes" resolution note, and `design.md`'s mDNS-platform-reality table (Android row) all now describe the actual `MdnsResolver`/direct-A-record-query mechanism instead of the originally-planned `NsdManager` JNI bridge.
 
 ## 7. iOS Info.plist
 
@@ -111,7 +108,7 @@
 
 ## 10. Firmware coordination
 
-- [ ] 10.1 Confirm the minimum HDS firmware version that ships the full WebSocket command surface documented in `Kulitorum/openscale` README (commands: `tare`, `timer …`, `display …`, `led …`, `soft_sleep …`, `events on/off`, `rate …`, `status`, etc.). Record it in the Decenza release notes as "WiFi scale support requires HDS firmware ≥ X.Y.Z."
+- [x] 10.1 Confirm the minimum HDS firmware version that ships the full WebSocket command surface documented in `Kulitorum/openscale` README (commands: `tare`, `timer …`, `display …`, `led …`, `soft_sleep …`, `events on/off`, `rate …`, `status`, etc.). Record it in the Decenza release notes as "WiFi scale support requires HDS firmware ≥ X.Y.Z." — **Confirmed 2026-07-09 by Jeff: minimum HDS firmware is 3.1.12.** Recorded here as the durable spec record; the literal "Decenza release notes" (the GitHub Release this feature shipped in) were not retroactively edited — say the word if you want that updated too.
 - [ ] 10.2 Older HDS firmware that only ships `tare` + 2 Hz snapshot stream still works (the JSON `rate` / `events` / `timer` / `led` / `soft_sleep` / `display` text commands will be silently ignored by the firmware's unknown-command path). Confirm by testing against the oldest firmware we expect users to be on. Decenza-side: log a warning on connect if no `status` frame arrives within ~10 s of `"events on"` (likely-old firmware), but do not refuse to operate.
 - [ ] 10.3 No firmware PR required from this change. The firmware-side work is upstream of Decenza.
 

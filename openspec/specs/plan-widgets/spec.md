@@ -1,7 +1,7 @@
 # plan-widgets Specification
 
 ## Purpose
-TBD - created by archiving change plan-widget-review-fixes. Update Purpose after archive.
+Defines the text-rendering rules for the `shotPlan` widget's shot-plan and steam-plan sentences: how the configured display-item list maps to sentence and fragment formats, override indicators for temperature and yield, the cleaning-profile warning, page-aware switching between shot and steam plans, and the wrap-before-elide overflow behavior.
 ## Requirements
 ### Requirement: Shot plan sentence content follows the display toggles
 

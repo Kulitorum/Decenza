@@ -1,7 +1,8 @@
 # equipment-package-model Specification
 
 ## Purpose
-TBD - created by archiving change add-equipment-packages. Update Purpose after archive.
+The single source of truth for the `EquipmentPackage`/`EquipmentItem` data model: the underlying `equipment_packages`/`equipment_items` tables, how bags and shots reference a package by id with soft-delete reference semantics, and how each optional component (grinder, basket, puck prep) contributes to package identity, copy-on-write forking, and derived fields (`rpmCapable`, basket specs, distribution rollup). Also covers migration 22, `SettingsDye`'s bridging of the active package, and equipment's survival across backup restore and device-to-device transfer.
+
 ## Requirements
 ### Requirement: EquipmentPackage and EquipmentItem data model
 The system SHALL define an `EquipmentPackage` value type (a container) and an `EquipmentItem` value type (a typed component), where one package owns one or more items.

@@ -1,7 +1,8 @@
 # bag-detail-editing Specification
 
 ## Purpose
-TBD - created by archiving change add-bag-detail-editing. Update Purpose after archive.
+Governs the bag editor's "Bean details" section: every bag field stays editable regardless of Bean Base canonical link state, edits merge into the `beanBaseData` blob without breaking the link, a pristine canonical snapshot enables a "Revert to Bean Base data" action, manual bags resolve a photo from their product URL, and an AI-powered "Get info from page" action fills empty fields only.
+
 ## Requirements
 ### Requirement: All bag fields are editable in the bag editor, linked or not
 

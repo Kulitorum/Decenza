@@ -1,7 +1,8 @@
 # equipment-inventory-view Specification
 
 ## Purpose
-TBD - created by archiving change add-equipment-packages. Update Purpose after archive.
+Defines the user-facing Equipment window and idle-page entry point for browsing, adding, and removing-from-inventory the equipment packages a user owns, including how each package's basket and puck-prep components are summarized on its card and info dialog. Covers the idempotent layout migration that injects the Equipment button into existing users' saved layouts.
+
 ## Requirements
 ### Requirement: Equipment window
 The system SHALL provide an `EquipmentPage.qml` that lists equipment packages with `inInventory = true` as cards, mirroring `BeanInfoPage.qml`. When no packages exist it SHALL show an empty state plus an "Add Equipment" button.

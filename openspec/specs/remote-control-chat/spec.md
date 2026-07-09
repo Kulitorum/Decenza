@@ -1,7 +1,8 @@
 # remote-control-chat Specification
 
 ## Purpose
-TBD - created by archiving change poc-remote-control-chat. Update Purpose after archive.
+Defines the "Claude Desktop" Discuss mode, a proof-of-concept that connects Decenza to a user-managed `claude remote-control` session via a pasted session URL rather than any Decenza-spawned process. Covers the `/mcp/setup` instructions, the MCP resources/tools that ground the session in live dialing context (`decenza://dialing/current_context`, `get_agent_file`), and the self-updating `CLAUDE.md` and per-bean conversation logs that give the session continuity across restarts.
+
 ## Requirements
 ### Requirement: Claude Desktop Discuss Mode
 The app SHALL provide a "Claude Desktop" option in the Discuss app selector that opens a user-managed Claude Code Remote Control session via a stored session URL.

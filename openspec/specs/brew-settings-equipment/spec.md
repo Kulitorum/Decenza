@@ -1,7 +1,7 @@
 # brew-settings-equipment Specification
 
 ## Purpose
-TBD - created by archiving change add-equipment-packages. Update Purpose after archive.
+Defines how `BrewDialog.qml` presents grinder equipment once equipment packages exist: the editable grinder brand/model/burrs text inputs are replaced with a read-only equipment summary resolved from the active bag's `equipment_id` plus a "Switch Equipment" button, while the grind setting and (for RPM-capable grinders) an RPM field remain editable dial-in fields that write through to both the active bag and package.
 ## Requirements
 ### Requirement: Brew Settings shows a read-only Equipment summary with a Switch button
 `BrewDialog.qml` SHALL replace the editable grinder brand/model/burrs text inputs with a read-only "Equipment: {grinder identity}" summary and a "Switch Equipment" button that opens the Switch Equipment dialog. The grinder identity SHALL be resolved through the active bag's `equipment_id`.

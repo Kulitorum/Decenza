@@ -1,7 +1,8 @@
 # shot-detail-metrics Specification
 
 ## Purpose
-TBD - created by archiving change improve-grind-visibility-shot-review. Update Purpose after archive.
+Defines the shot detail page's top-level Grind metric cell — its position in the metrics row, its RPM-suffix formatting, and its combined accessible name — and clarifies that it supplements rather than replaces the Equipment card's existing grind dial-in line.
+
 ## Requirements
 ### Requirement: Shot detail metrics row shows grind setting
 The shot detail page SHALL display the shot's grind setting as a top-level cell in the metrics row above the graph, positioned between Dose and Output, using the same caption-label-over-value style as the existing metric cells.

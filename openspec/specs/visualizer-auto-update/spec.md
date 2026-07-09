@@ -1,7 +1,7 @@
 # visualizer-auto-update Specification
 
 ## Purpose
-TBD - created by archiving change auto-update-visualizer-shots. Update Purpose after archive.
+Governs the `visualizerAutoUpdate` setting that automatically re-PATCHes an already-uploaded shot's metadata (notes, rating, TDS, etc.) to visualizer.coffee whenever it changes — either from `PostShotReviewPage` closing after an edit or an MCP metadata write — without requiring a manual re-upload action.
 ## Requirements
 ### Requirement: Auto-Update setting controls automatic PATCH of edited shots to visualizer.coffee
 

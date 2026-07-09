@@ -1,7 +1,8 @@
 # step-exit-arbitration Specification
 
 ## Purpose
-TBD - created by archiving change add-step-exit-arbiter. Update Purpose after archive.
+Defines the arbiter that decides, on profile frames carrying both a tablet-owned weight exit and a firmware-owned sensor exit, whether to send `SkipToNext` immediately or defer to the firmware based on the live sensor reading's proximity to and trend toward its threshold — so a mixed-exit frame advances exactly once instead of racing the two mechanisms. Weight-only and firmware-only frames are unaffected, and arbiter deferral state resets per shot and per frame.
+
 ## Requirements
 ### Requirement: Arbitrate tablet weight-exit against firmware exit on mixed frames
 

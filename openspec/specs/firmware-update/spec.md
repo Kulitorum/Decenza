@@ -1,7 +1,8 @@
 # firmware-update Specification
 
 ## Purpose
-TBD - created by archiving change add-firmware-update. Update Purpose after archive.
+Decenza checks Decent's update CDN for newer DE1 firmware, downloads and validates the firmware header before any BLE write, and drives the three-phase erase/upload/verify flash procedure over BLE. Covers availability detection and dismissal on stable/nightly channels, download resumption, failure classification and retry, and exclusion of the update flow when the DE1 simulator is active.
+
 ## Requirements
 ### Requirement: Firmware availability detection
 

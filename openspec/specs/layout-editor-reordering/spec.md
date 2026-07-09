@@ -1,7 +1,8 @@
 # layout-editor-reordering Specification
 
 ## Purpose
-TBD - created by archiving change improve-layout-editor-usability. Update Purpose after archive.
+Defines how widgets are reordered within a zone in the in-app and web layout editors: drag-and-drop as the primary interaction (persisted through the existing reorder mechanism), removal of the prior arrow-button controls, and an accessible move-toward-start/move-toward-end fallback for screen-reader and keyboard users who cannot perform drag gestures.
+
 ## Requirements
 ### Requirement: Drag-and-drop reordering of widgets within a zone
 

@@ -1,5 +1,7 @@
 # Tasks: Migrate Charting to Qt Graphs
 
+**Status note (added during 2026-07 archive audit):** the migration shipped and is complete in code — verified `grep -rl "QtCharts" src/ qml/ CMakeLists.txt` returns zero matches, `CMakeLists.txt` links only `Qt6::Graphs`, and all six graph components (`ShotGraph`, `HistoryShotGraph`, `ComparisonGraph`, `ProfileGraph`, `SteamGraph`, `FlowCalibrationPage`) use `GraphsView`/`QtGraphs`. Execution didn't follow this file's one-PR-per-stage/sub-stage plan: it landed in four PRs — `#1144` (Stage 0 build wiring + bridge components + the Stage 1 `FlowCalibrationPage` pilot, combined), `#1146` (Stages 2–4: SteamGraph, ShotGraph, HistoryShotGraph, ComparisonGraph, ProfileGraph, and Qt Charts removal, combined), `#1148` (CI fix for the Linux ARM64 `qtquick3d` dependency), `#1148`'s follow-up `#1149` (this change's archive commit). Below, boxes describing code/file state that could be directly re-verified against the current tree are checked. Boxes describing on-device FPS measurements, screenshot comparisons, or a specific per-stage/sub-stage PR that was folded into a combined PR are left unchecked — not because the work is outstanding, but because no record of that specific artifact (a measurement, a screenshot, a standalone PR under that title) exists to check against. Treat those as a tracking gap, not a functional one; the Qt 6.12 follow-up items in the "Items deferred to Qt 6.12" section below are the only genuinely open work.
+
 Each stage below is independently shippable as its own PR. Do not start a stage until the previous stage has been merged, tested on hardware, and its performance measurements recorded.
 
 **Stage 0 is currently GATED on upstream Qt work.** Complete the monitoring tasks in the "Pre-Stage 0 — Upstream Monitoring" section below before beginning any implementation work.
@@ -58,7 +60,7 @@ This section's tasks run until the gate conditions in `proposal.md` are satisfie
 - [x] Register each component in `CMakeLists.txt` `qt_add_qml_module` file list
 
 ### 0.4 Performance baseline
-- [ ] Create `docs/CLAUDE_MD/PERFORMANCE_BASELINE.md` documenting the measurement protocol
+- [x] Create `docs/CLAUDE_MD/PERFORMANCE_BASELINE.md` documenting the measurement protocol — file exists with full protocol + result template
 - [ ] Record baseline metrics on Decent tablet (Samsung SM-X210):
   - Live shot FPS during a 30-second pour (`QSG_RENDER_TIMING=1`)
   - Shot history scroll FPS with 200+ entries
@@ -95,16 +97,16 @@ This section's tasks run until the gate conditions in `proposal.md` are satisfie
 ## Stage 2 — Steam Graph
 
 ### 2.1 Migrate C++ model
-- [ ] `src/models/steamdatamodel.h`: change `#include <QtCharts/QLineSeries>` to `#include <QtGraphs/QLineSeries>`
-- [ ] Update any `QtCharts::` namespace qualifications to `QtGraphs::`
-- [ ] Adjust `registerGoalSeries()` / `registerSeries()` to use the Graphs `replace()` API confirmed in Stage 0.2
-- [ ] Verify `FastLineRenderer` (live series) still registers and renders — it bypasses Charts anyway
+- [x] `src/models/steamdatamodel.h`: no `QtCharts`/`QtGraphs` includes remain — `registerFastSeries()` takes `FastLineRenderer*` params directly, superseding the planned include-swap
+- [x] Update any `QtCharts::` namespace qualifications to `QtGraphs::` — zero `QtCharts` references remain in `src/`
+- [x] Adjust `registerGoalSeries()` / `registerSeries()` to use the Graphs `replace()` API confirmed in Stage 0.2 — superseded by the `FastLineRenderer`-based registration above
+- [x] Verify `FastLineRenderer` (live series) still registers and renders — `registerFastSeries()` present and wired in `steamdatamodel.h`/`.cpp`
 
 ### 2.2 Migrate QML
-- [ ] `qml/components/SteamGraph.qml`: `import QtCharts` → `import QtGraphs`, `ChartView` → `GraphsView`
-- [ ] Replace axes with `AutoRangingAxis` or explicit ranges
-- [ ] Replace legend with `CustomLegend`
-- [ ] Convert dashed goal-temperature overlay to `DashedLineSeries`
+- [x] `qml/components/SteamGraph.qml`: `import QtCharts` → `import QtGraphs`, `ChartView` → `GraphsView` — confirmed `import QtGraphs` + `GraphsView` in file
+- [x] Replace axes with `AutoRangingAxis` or explicit ranges — confirmed explicit `ValueAxis { min/max }` ranges in file
+- [x] Replace legend with `CustomLegend` — confirmed `CustomLegend {}` instance in file
+- [x] Convert dashed goal-temperature overlay to `DashedLineSeries` — confirmed `DashedLineSeries {}` instance in file
 
 ### 2.3 Validate
 - [ ] Live steam session on hardware — goal curve aligned, live temperature/pressure traces smooth
@@ -120,51 +122,51 @@ This section's tasks run until the gate conditions in `proposal.md` are satisfie
 Stage 3 is the largest. Split into sub-stages 3a–3d to keep PRs reviewable (one graph family per PR).
 
 ### 3.1 Stage 3a — `ShotGraph.qml` + `ShotDataModel` (live extraction view)
-- [ ] C++: migrate `ShotDataModel` includes + namespaces; update series-registration API
-- [ ] QML: migrate `ShotGraph.qml` — GraphsView, AutoRangingAxis, CustomLegend, DashedLineSeries for goal curves, DashedLineSeries for frame markers
-- [ ] Preserve `FastLineRenderer` integration (live pressure/flow/temperature/weight traces)
+- [x] C++: migrate `ShotDataModel` includes + namespaces; update series-registration API — confirmed no `QtCharts` includes, `registerFastSeries(FastLineRenderer* ...)` present in `shotdatamodel.h`
+- [x] QML: migrate `ShotGraph.qml` — GraphsView, AutoRangingAxis, CustomLegend, DashedLineSeries for goal curves, DashedLineSeries for frame markers — confirmed `import QtGraphs`, `GraphsView {}`, `DashedLineSeries` delegates in file
+- [x] Preserve `FastLineRenderer` integration (live pressure/flow/temperature/weight traces) — confirmed in `shotdatamodel.h`
 - [ ] Validate crosshair + inspect-point feature still works
 - [ ] Validate series visibility toggling via legend
-- [ ] Stage 3a PR: `feat: migrate ShotGraph to Qt Graphs (migration Stage 3a)`
+- [ ] Stage 3a PR: `feat: migrate ShotGraph to Qt Graphs (migration Stage 3a)` *(folded into combined PR #1146, not a standalone PR)*
 
 ### 3.2 Stage 3b — `HistoryShotGraph.qml` (history detail view)
-- [ ] QML migration following Stage 3a pattern
+- [x] QML migration following Stage 3a pattern — confirmed `import QtGraphs`, `GraphsView {}`, `DashedLineSeries` delegates in file
 - [ ] Ensure scroll performance of the history list is not degraded (each list row contains a HistoryShotGraph)
-- [ ] Stage 3b PR: `feat: migrate HistoryShotGraph to Qt Graphs (migration Stage 3b)`
+- [ ] Stage 3b PR: `feat: migrate HistoryShotGraph to Qt Graphs (migration Stage 3b)` *(folded into combined PR #1146, not a standalone PR)*
 
 ### 3.3 Stage 3c — `ComparisonGraph.qml` + `ShotComparisonModel`
-- [ ] C++: migrate `ShotComparisonModel` includes + namespaces
-- [ ] QML: migrate; pay special attention to Canvas-based phase markers — these are Charts-independent and must continue to overlay correctly on GraphsView
+- [x] C++: migrate `ShotComparisonModel` includes + namespaces — confirmed no `QtCharts` references remain under `src/models/`
+- [x] QML: migrate; pay special attention to Canvas-based phase markers — these are Charts-independent and must continue to overlay correctly on GraphsView — confirmed `import QtGraphs`, `GraphsView {}` in file
 - [ ] Validate 2-shot and 3-shot comparisons render identically
-- [ ] Stage 3c PR: `feat: migrate ComparisonGraph to Qt Graphs (migration Stage 3c)`
+- [ ] Stage 3c PR: `feat: migrate ComparisonGraph to Qt Graphs (migration Stage 3c)` *(folded into combined PR #1146, not a standalone PR)*
 
 ### 3.4 Stage 3d — `ProfileGraph.qml` (profile editor preview)
-- [ ] QML migration; the graph previews simulated extraction from profile frames
+- [x] QML migration; the graph previews simulated extraction from profile frames — confirmed `import QtGraphs`, `GraphsView {}` in file
 - [ ] Verify profile-editing responsiveness (graph re-renders on frame edit)
 - [ ] Stage 3d PR: `feat: migrate ProfileGraph to Qt Graphs (migration Stage 3d)`
 
 ## Stage 4 — Cleanup
 
 ### 4.1 Remove Qt Charts
-- [ ] Audit codebase: `grep -r "QtCharts" src/ qml/` must return zero matches
-- [ ] Remove `Charts` from `find_package(Qt6 REQUIRED COMPONENTS ...)` in `CMakeLists.txt`
-- [ ] Remove any remaining `Qt6::Charts` link references
+- [x] Audit codebase: `grep -r "QtCharts" src/ qml/` must return zero matches — re-verified 2026-07, zero matches
+- [x] Remove `Charts` from `find_package(Qt6 REQUIRED COMPONENTS ...)` in `CMakeLists.txt` — `CMakeLists.txt` lists only `Graphs`
+- [x] Remove any remaining `Qt6::Charts` link references — `CMakeLists.txt` links only `Qt6::Graphs`
 - [ ] Build clean on all platforms; confirm app launches and all graphs render
 
 ### 4.2 Bridge-component retention decision
-- [ ] Decide whether `AutoRangingAxis`, `CustomLegend`, and `DashedLineSeries` stay as project-owned components (likely yes — they're useful and Qt Graphs' gaps are real)
+- [x] Decide whether `AutoRangingAxis`, `CustomLegend`, and `DashedLineSeries` stay as project-owned components (likely yes — they're useful and Qt Graphs' gaps are real) — confirmed all three (plus a bonus `DecenzaGraphsTheme.qml`) still live under `qml/components/graphs/` and are referenced by every graph component
 - [ ] Update `CLAUDE.md` graph/QML conventions section to mention the bridge components as canonical
 
 ### 4.3 Documentation and cleanup
-- [ ] Update `openspec/config.yaml` Tech Stack: remove `Charts`
-- [ ] Update `CLAUDE.md` if it mentions Qt Charts anywhere
+- [x] Update `openspec/config.yaml` Tech Stack: remove `Charts` — confirmed line 6 reads "Qt Graphs for charting", no `Charts` mention
+- [x] Update `CLAUDE.md` if it mentions Qt Charts anywhere — confirmed zero `Chart` matches in `CLAUDE.md`
 - [ ] Uninstall Qt Charts from dev machines' Qt installations
 - [ ] Uninstall Qt Data Visualization (unrelated to this migration but should be cleaned up at the same time — Decenza does not use it)
 
 ### 4.4 Final PR and archive
-- [ ] Open PR: `chore: remove Qt Charts dependency (migration Stage 4)`
-- [ ] After merge, archive this change: `openspec archive migrate-charting-to-qt-graphs --yes`
-- [ ] Update `openspec/specs/charting/spec.md` with the final capability definition
+- [ ] Open PR: `chore: remove Qt Charts dependency (migration Stage 4)` *(folded into combined PR #1146, not a standalone PR)*
+- [x] After merge, archive this change: `openspec archive migrate-charting-to-qt-graphs --yes` — done via PR #1149
+- [x] Update `openspec/specs/charting/spec.md` with the final capability definition — confirmed the live spec already describes the shipped Qt Graphs backend, bridge components, and `FastLineRenderer` path (not a stale placeholder)
 
 ## Cross-stage acceptance criteria
 

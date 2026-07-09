@@ -120,7 +120,7 @@ The `(WiFi)` suffix on the row label is still the only visible marker that trans
 | iOS | mDNSResponder, **requires Info.plist entries** | Yes, with plist work |
 | Windows 10+ | Native mDNS resolver | Yes |
 | Linux (most distros) | Avahi via NSS | Yes if Avahi running |
-| Android | Not via libc resolver — needs `NsdManager` | **Spike** |
+| Android | Not via libc resolver — resolved via a direct mDNS A-record query (`MdnsResolver`, `mjansson/mdns`), not `NsdManager` (see resolution below) | Yes, confirmed 2026-07-09 |
 
 iOS Info.plist needs:
 
@@ -142,6 +142,8 @@ The Android spike is the single largest unknown. Three outcomes:
 - **C. mDNS unreliable; fall back to user-typed IP** → would require a Settings UI for "WiFi scale address." Conflicts with project rule "prefer fewer settings." We'd push back on this outcome and try harder on option B before adding a setting.
 
 Spike result determines task 6.
+
+**Resolved (confirmed on-device 2026-07-09): neither A nor literal B.** `QHostInfo` does NOT resolve `.local` on Android (`getaddrinfo` → NXDOMAIN), ruling out plain outcome A. But outcome B's specific mechanism — a JNI bridge to `NsdManager` — turned out to be the wrong primitive: `NsdManager` is a service-*discovery* API, and the HDS publishes a plain `.local` hostname rather than a discoverable `_http._tcp` service record. The shipped fix instead sends a direct mDNS A-record query via the `mjansson/mdns` library (`src/network/mdnsresolver.h`/`.cpp`, `MdnsResolver::resolveHostname`), run on a `QThreadPool` worker thread and gated on `Q_OS_ANDROID` in `WifiScaleDiscovery::probe()`. No Kotlin/JNI glue was needed. Outcome C (user-typed IP setting) was never required.
 
 ### 9. WebSocket lifecycle
 

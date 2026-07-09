@@ -1,7 +1,8 @@
 # advisor-model-selection Specification
 
 ## Purpose
-TBD - created by archiving change add-sonnet-advisor-model. Update Purpose after archive.
+Governs how the AI Advisor exposes multiple selectable models per provider (e.g. Claude Sonnet 4.6 vs Sonnet 5, GPT-5.4 mini vs GPT-5.4): the per-provider catalog, persisted per-provider selection, immediate effect on the next request, the settings-screen model picker's visibility rule, and consistent reporting of the active model across the advisor and MCP surfaces.
+
 ## Requirements
 ### Requirement: Provider model catalog
 

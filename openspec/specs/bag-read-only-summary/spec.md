@@ -1,7 +1,7 @@
 # bag-read-only-summary Specification
 
 ## Purpose
-TBD - created by archiving change bean-bag-inventory. Update Purpose after archive.
+Replaces editable roaster/coffee/roast-date/roast-level text fields in brew settings, post-shot review, and shot detail pages with a single read-only `BeanSummary` component whose density adapts to how much is known about the active (or shot's) bag. Every shot context showing the summary also carries a "Change Beans" button for re-linking or reselecting beans.
 ## Requirements
 ### Requirement: Read-only bean summary replaces editable fields in shot contexts
 All editable bean fields SHALL be removed from brew settings, post-shot review, and shot detail pages. Each SHALL display a `BeanSummary` component showing the active (or shot's) bag state.

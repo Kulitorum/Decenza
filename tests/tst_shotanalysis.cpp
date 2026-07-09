@@ -3,53 +3,38 @@
 #include "ai/shotanalysis.h"
 #include "history/shothistorystorage.h"
 #include "history/shotbadgeprojection.h"
+#include "shotcurvefixtures.h"
 
 class tst_ShotAnalysis : public QObject {
     Q_OBJECT
 
 private:
+    // Thin forwarders to the shared fixtures in shotcurvefixtures.h — kept so
+    // the ~400 existing unqualified call sites below (phase(...),
+    // flatSeries(...), etc.) don't all need renaming to
+    // ShotCurveFixtures::phase(...) etc. The actual logic lives in the
+    // shared header so tst_dialing_blocks.cpp can reuse the same fixtures.
     static HistoryPhaseMarker phase(double time, const QString& label, int frameNumber,
                                      bool isFlowMode = false,
                                      const QString& transitionReason = QString())
     {
-        HistoryPhaseMarker marker;
-        marker.time = time;
-        marker.label = label;
-        marker.frameNumber = frameNumber;
-        marker.isFlowMode = isFlowMode;
-        marker.transitionReason = transitionReason;
-        return marker;
+        return ShotCurveFixtures::phase(time, label, frameNumber, isFlowMode, transitionReason);
     }
 
-    // Build a flat-value (time, value) series sampled at `rate` Hz across [t0, t1].
     static QVector<QPointF> flatSeries(double t0, double t1, double value, double rate = 10.0)
     {
-        QVector<QPointF> pts;
-        const double dt = 1.0 / rate;
-        for (double t = t0; t <= t1 + 1e-9; t += dt) pts.append(QPointF(t, value));
-        return pts;
+        return ShotCurveFixtures::flatSeries(t0, t1, value, rate);
     }
 
-    // Build a ramp (t0,v0) → (t1,v1) series at `rate` Hz.
     static QVector<QPointF> rampSeries(double t0, double t1, double v0, double v1,
                                          double rate = 10.0)
     {
-        QVector<QPointF> pts;
-        const double dt = 1.0 / rate;
-        const double span = t1 - t0;
-        for (double t = t0; t <= t1 + 1e-9; t += dt) {
-            const double alpha = span > 0 ? (t - t0) / span : 0.0;
-            pts.append(QPointF(t, v0 + alpha * (v1 - v0)));
-        }
-        return pts;
+        return ShotCurveFixtures::rampSeries(t0, t1, v0, v1, rate);
     }
 
-    // Concatenate contiguous series (assumes second starts after first ends).
     static QVector<QPointF> concat(QVector<QPointF> a, const QVector<QPointF>& b)
     {
-        a.reserve(a.size() + b.size());
-        a.append(b);
-        return a;
+        return ShotCurveFixtures::concat(std::move(a), b);
     }
 
     static void expectSkipDetection(const QList<HistoryPhaseMarker>& phases,
@@ -1967,9 +1952,6 @@ private slots:
 
     // ---- Expert-recommended operating band (change: flag-off-expert-band-in-shot-summary) ----
 
-    // Clean espresso shot with a configurable pressure peak; flow tracks
-    // goal (no grind fault), no channeling, on-target weight — isolates the
-    // expert-band check. peakBar sets the ramp/plateau height.
     static void bandFixture(double peakBar,
                             QList<HistoryPhaseMarker>& phases,
                             QVector<QPointF>& pressure, QVector<QPointF>& flow,
@@ -1977,17 +1959,8 @@ private slots:
                             QVector<QPointF>& pressureGoal,
                             QVector<QPointF>& flowGoal)
     {
-        phases = {
-            phase(0.0, "preinfusion start", 0, /*isFlowMode=*/true),
-            phase(8.0, "pour",              1, /*isFlowMode=*/false),
-        };
-        pressure = concat(rampSeries(0.0, 8.0, 1.0, peakBar),
-                          flatSeries(8.1, 30.0, peakBar));
-        flow = flatSeries(0.0, 30.0, 1.8);
-        flowGoal = flatSeries(0.0, 30.0, 1.8);
-        pressureGoal = pressure;
-        dCdt = flatSeries(0.0, 30.0, 0.0);
-        weight = rampSeries(0.0, 30.0, 0.0, 36.0);
+        ShotCurveFixtures::bandFixture(peakBar, phases, pressure, flow, weight, dCdt,
+                                        pressureGoal, flowGoal);
     }
 
     static ShotAnalysis::ExpertBand goldBand()

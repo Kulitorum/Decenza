@@ -1,7 +1,7 @@
 # post-shot-review-layout Specification
 
 ## Purpose
-TBD - created by archiving change improve-grind-visibility-shot-review. Update Purpose after archive.
+Defines the field ordering of the post-shot review page's grid — editable dial-in fields first, read-only shot metadata next, and the equipment identity card last — and requires the reorder to preserve existing editing, autosave, and screen-reader traversal behavior.
 ## Requirements
 ### Requirement: Equipment card appears last in the review field grid
 The post-shot review page's field grid SHALL order its children as: editable per-shot fields (Grind setting, RPM, Barista), then read-only shot metadata (Preset, Shot date), then the equipment identity card (grinder, basket, puck prep, with its Change Equipment button) as the final item.

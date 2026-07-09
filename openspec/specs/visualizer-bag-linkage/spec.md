@@ -1,7 +1,7 @@
 # visualizer-bag-linkage Specification
 
 ## Purpose
-TBD - created by archiving change add-bean-base-integration. Update Purpose after archive.
+Defines how a coffee_bag create/update payload sent to Visualizer carries Bean Base canonical identifiers (`canonical_coffee_bag_id`, `canonical_roaster_id`) and cached Bean Base attribute fields (origin, region, variety, process, producer, product URL, tasting notes) for presets linked to a Bean Base entry, leaving unlinked presets' free-text fields untouched.
 ## Requirements
 ### Requirement: Coffee bag upload includes canonical Bean Base identifiers when available
 

@@ -1,33 +1,26 @@
 # shot-analysis-pipeline Specification
 
 ## Purpose
-TBD - created by archiving change dedup-shot-summary-dialog. Update Purpose after archive.
+The single source of truth for post-shot analysis: `ShotAnalysis::analyzeShot` runs exactly once per shot across the save, recompute-on-load, and detail-load paths, producing the `DetectorResults` that the Shot Summary dialog's prose (`summaryLines`), the AI advisor's historical-shot summarization, the four quality-badge booleans, and the profile-aware expert-band deviation check all derive from via documented, single-place projections. Covers the caching/dedup contracts that keep those consumers from re-running the cascade, and the detector-specific gating (grind coverage, skip-first-frame, channeling severity) that feeds it.
+
 ## Requirements
-### Requirement: Shot Summary dialog SHALL prefer pre-computed `summaryLines` when present
+### Requirement: Shot Summary dialog SHALL render `shotData.summaryLines` with an empty fallback
 
-The in-app Shot Summary dialog (`ShotAnalysisDialog.qml`) SHALL render its observation list from the `summaryLines` field of its input `shotData` map when that field is a non-empty list. The dialog SHALL invoke the `MainController.shotHistory.generateShotSummary(shotData)` Q_INVOKABLE bridge ONLY as a fallback when `summaryLines` is absent or empty (e.g. for legacy callers whose `shotData` did not flow through `ShotHistoryStorage::convertShotRecord`).
+`ShotAnalysisDialog.qml` SHALL bind its `analysisLines` property to `shotData.summaryLines` directly when present, falling back to an empty list `[]` when absent. The dialog SHALL NOT invoke any C++ helper that recomputes prose from a serialized shot — the canonical computation site is `ShotHistoryStorage::convertShotRecord`'s `analyzeShot` pass. There is no Q_INVOKABLE fallback bridge; a shot whose `summaryLines` is absent (a hypothetical edge case for shots that didn't flow through `convertShotRecord`) renders with no observation lines rather than risk a divergent reconstruction.
 
-The dialog SHALL render identical prose lines (same text, same `type` values, same order) regardless of which path produced the list. The fallback exists for backwards compatibility with legacy entry points; it MUST NOT introduce visible differences.
+#### Scenario: Modern shotData renders directly
 
-#### Scenario: Modern shotData carries pre-computed summaryLines
-
-- **GIVEN** a shot record loaded via `ShotHistoryStorage::convertShotRecord` (so `shotData.summaryLines` is populated by the `analyzeShot` call inside `convertShotRecord`)
-- **WHEN** the user opens the Shot Summary dialog on that shot
-- **THEN** the dialog SHALL render the lines from `shotData.summaryLines` directly
-- **AND** the dialog SHALL NOT invoke `MainController.shotHistory.generateShotSummary(shotData)` (no second `analyzeShot` pass)
-
-#### Scenario: Legacy shotData without summaryLines falls back to the wrapper
-
-- **GIVEN** a `shotData` map whose `summaryLines` field is missing or an empty list
+- **GIVEN** a shotData QVariantMap produced by `convertShotRecord`, with `summaryLines` populated
 - **WHEN** the user opens the Shot Summary dialog
-- **THEN** the dialog SHALL invoke `MainController.shotHistory.generateShotSummary(shotData)`
-- **AND** SHALL render the returned line list with the same per-line dot colors as before this change
+- **THEN** the dialog SHALL render the prose lines from `shotData.summaryLines` directly
+- **AND** the dialog SHALL NOT invoke any Q_INVOKABLE method on `ShotHistoryStorage`
 
-#### Scenario: Identical rendering across paths
+#### Scenario: shotData without summaryLines renders empty
 
-- **GIVEN** two shotData maps `A` and `B` representing the same shot, where `A.summaryLines` is populated and `B.summaryLines` is empty
-- **WHEN** the dialog opens on each
-- **THEN** both renderings SHALL contain the same observation lines in the same order with the same `type` values
+- **GIVEN** a shotData QVariantMap whose `summaryLines` field is absent or not a non-empty list
+- **WHEN** the user opens the Shot Summary dialog
+- **THEN** the dialog SHALL render its "Shot Summary" header with no observation lines
+- **AND** the dialog SHALL NOT crash, fall back to recomputation, or display unrelated content
 
 ### Requirement: AI advisor's historical-shot path SHALL reuse pre-computed `summaryLines` when present
 

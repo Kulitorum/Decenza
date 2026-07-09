@@ -1,7 +1,8 @@
 # accessibility-announcements Specification
 
 ## Purpose
-TBD - created by archiving change add-platform-screen-reader-announcements. Update Purpose after archive.
+Governs how `AccessibilityManager.announce()` delivers spoken feedback: routing through the platform screen reader (TalkBack/VoiceOver/Narrator) via `QAccessibleAnnouncementEvent` when one is active, falling back to `QTextToSpeech` otherwise, and logging every delivery decision for debugging since there is no automated coverage.
+
 ## Requirements
 ### Requirement: Announcements SHALL route through the platform screen reader whenever one is active
 

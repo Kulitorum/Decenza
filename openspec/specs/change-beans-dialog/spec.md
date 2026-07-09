@@ -1,7 +1,7 @@
 # change-beans-dialog Specification
 
 ## Purpose
-TBD - created by archiving change bean-bag-inventory. Update Purpose after archive.
+Specifies the Change Beans dialog reachable from every shot context: it searches Bean Base and local shot history simultaneously and merges results into a single quality-ranked, source-labelled list, walks the user through a bag-details form (with roast date always user-entered, never inferred) after a pick, adds the resulting bag to inventory, and applies context-dependent selection semantics (active-bag vs. historical-shot re-link).
 ## Requirements
 ### Requirement: Unified search across Bean Base and shot history
 The Change Beans dialog SHALL search both the Visualizer canonical Bean Base autocomplete and the local shot history simultaneously as the user types. Results SHALL appear in a single ranked list.

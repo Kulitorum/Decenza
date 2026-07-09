@@ -1,7 +1,7 @@
 # visualizer-coffee-management Specification
 
 ## Purpose
-TBD - created by archiving change bean-bag-inventory. Update Purpose after archive.
+Defines how Decenza detects whether a user's Visualizer account has Coffee Management (CM) enabled via a probe PATCH, and — only while CM is active — find-or-creates the matching remote roaster and coffee bag, links each uploaded shot to it, and keeps local bag edits pushed to the linked Visualizer bag, all idempotently and without disturbing server-owned CM enable/disable lifecycle.
 ## Requirements
 ### Requirement: Coffee Management capability detection via probe PATCH
 The system SHALL detect the CM state with a single-field probe PATCH against the app's
