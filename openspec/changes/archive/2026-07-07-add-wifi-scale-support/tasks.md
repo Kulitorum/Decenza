@@ -108,7 +108,7 @@
 
 ## 10. Firmware coordination
 
-- [ ] 10.1 Confirm the minimum HDS firmware version that ships the full WebSocket command surface documented in `Kulitorum/openscale` README (commands: `tare`, `timer …`, `display …`, `led …`, `soft_sleep …`, `events on/off`, `rate …`, `status`, etc.). Record it in the Decenza release notes as "WiFi scale support requires HDS firmware ≥ X.Y.Z."
+- [x] 10.1 Confirm the minimum HDS firmware version that ships the full WebSocket command surface documented in `Kulitorum/openscale` README (commands: `tare`, `timer …`, `display …`, `led …`, `soft_sleep …`, `events on/off`, `rate …`, `status`, etc.). Record it in the Decenza release notes as "WiFi scale support requires HDS firmware ≥ X.Y.Z." — **Confirmed 2026-07-09 by Jeff: minimum HDS firmware is 3.1.12.** Recorded here as the durable spec record; the literal "Decenza release notes" (the GitHub Release this feature shipped in) were not retroactively edited — say the word if you want that updated too.
 - [ ] 10.2 Older HDS firmware that only ships `tare` + 2 Hz snapshot stream still works (the JSON `rate` / `events` / `timer` / `led` / `soft_sleep` / `display` text commands will be silently ignored by the firmware's unknown-command path). Confirm by testing against the oldest firmware we expect users to be on. Decenza-side: log a warning on connect if no `status` frame arrives within ~10 s of `"events on"` (likely-old firmware), but do not refuse to operate.
 - [ ] 10.3 No firmware PR required from this change. The firmware-side work is upstream of Decenza.
 
