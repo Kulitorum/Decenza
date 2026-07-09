@@ -335,6 +335,17 @@ add_decenza_test(tst_aimanager
 target_link_libraries(tst_aimanager PRIVATE Qt6::Quick Qt6::Graphs)
 target_include_directories(tst_aimanager PRIVATE ${CMAKE_BINARY_DIR})
 
+# --- tst_aiproviders: per-provider model catalog + setModel guard contract ---
+# Pins availableModels()/setModel()/shortModelName()/modelName() for the
+# user-selectable providers (OpenAI, Anthropic, Gemini): catalog order,
+# constructor default = first entry, and the empty/unknown/valid setModel
+# branches that AIManager drives from Settings.ai.providerModel(). Pure logic,
+# so the target only needs aiprovider.cpp (no network/mocking).
+add_decenza_test(tst_aiproviders
+    tst_aiproviders.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/aiprovider.cpp
+)
+
 # --- tst_shotcorpus: Qt Test wrapper around shot_eval --validate.
 # Runs the curated corpus under tests/data/shots/ as part of the regular
 # Qt Test suite so Qt Creator's Tests panel picks it up alongside the

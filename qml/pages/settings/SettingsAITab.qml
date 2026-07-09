@@ -294,12 +294,25 @@ KeyboardAwareContainer {
                         }
                     }
 
-                    // Provider-specific guidance. Gated to Gemini so it can't show
-                    // wrong copy for a future provider that gains multiple models.
+                    // Provider-specific guidance. Gated per provider so a future
+                    // provider that gains multiple models can't inherit wrong copy.
                     Text {
-                        visible: modelSelect.currentProvider === "gemini"
-                        text: TranslationManager.translate("settings.ai.modelHint.gemini",
-                            "3.5 Flash is the most capable. 2.5 Flash is more available (fewer busy errors).")
+                        visible: text.length > 0
+                        text: {
+                            switch (modelSelect.currentProvider) {
+                            case "gemini":
+                                return TranslationManager.translate("settings.ai.modelHint.gemini",
+                                    "3.5 Flash is the most capable. 2.5 Flash is more available (fewer busy errors).")
+                            case "anthropic":
+                                return TranslationManager.translate("settings.ai.modelHint.anthropic",
+                                    "Sonnet 5 is the most capable. Sonnet 4.6 is the established default.")
+                            case "openai":
+                                return TranslationManager.translate("settings.ai.modelHint.openai",
+                                    "GPT-5.4 is more capable. GPT-5.4 mini is cheaper and faster.")
+                            default:
+                                return ""
+                            }
+                        }
                         color: Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(11)
                         wrapMode: Text.Wrap

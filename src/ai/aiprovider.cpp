@@ -135,6 +135,48 @@ OpenAIProvider::OpenAIProvider(QNetworkAccessManager* networkManager,
     : AIProvider(networkManager, parent)
     , m_apiKey(apiKey)
 {
+    // Default to the recommended model = first catalog entry. Keeps the default
+    // a single source of truth (no parallel DEFAULT_MODEL constant to keep in
+    // sync with the list order). availableModels() dispatches to this class
+    // since the object under construction is an OpenAIProvider.
+    const QList<ModelOption> models = availableModels();
+    if (!models.isEmpty())
+        m_model = models.first().id;
+}
+
+QList<AIProvider::ModelOption> OpenAIProvider::availableModels() const
+{
+    // Order = UI order; first entry is the recommended default. GPT-5.4 mini
+    // leads as the low-cost default for shot analysis; GPT-5.4 is the same-family
+    // mid-tier opt-in (more capable, higher cost). Pricing figures and why the
+    // other tiers (GPT-5.5, GPT-5.4 nano) are omitted live in
+    // docs/CLAUDE_MD/AI_ADVISOR.md so they don't rot in code. Revisit as models land.
+    return {
+        { "gpt-5.4-mini", "GPT-5.4 mini" },
+        { "gpt-5.4", "GPT-5.4" },
+    };
+}
+
+void OpenAIProvider::setModel(const QString& modelId)
+{
+    if (modelId.isEmpty())
+        return;  // unset → keep the current default
+    for (const ModelOption& opt : availableModels()) {
+        if (opt.id == modelId) {
+            m_model = modelId;
+            return;
+        }
+    }
+    qWarning() << "OpenAIProvider::setModel ignoring unknown model id:" << modelId;
+}
+
+QString OpenAIProvider::shortModelName() const
+{
+    for (const ModelOption& opt : availableModels()) {
+        if (opt.id == m_model)
+            return opt.displayName;
+    }
+    return m_model;
 }
 
 void OpenAIProvider::sendRequest(const QJsonObject& requestBody)
@@ -167,7 +209,7 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     ++m_reqGen;
 
     QJsonObject requestBody;
-    requestBody["model"] = QString::fromLatin1(MODEL);
+    requestBody["model"] = m_model;
     QJsonArray messages;
     QJsonObject sysMsg;
     sysMsg["role"] = QString("system");
@@ -179,6 +221,14 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     messages.append(userMsg);
     requestBody["messages"] = messages;
     requestBody["max_tokens"] = 1024;
+    // GPT-5 family are reasoning models; keep reasoning minimal so hidden
+    // reasoning tokens don't count against the 1024-token output cap (which would
+    // risk truncating the trailing nextShot JSON block) and to keep latency/cost
+    // low. Dial-in advice needs little chain-of-thought. Mirrors Gemini's
+    // thinking=off. INVARIANT: assumes every availableModels() entry is a
+    // reasoning model that accepts reasoning_effort — a non-reasoning model would
+    // 400 on this field, so guard/branch here if the catalog ever gains one.
+    requestBody["reasoning_effort"] = "minimal";
 
     sendRequest(requestBody);
 }
@@ -195,9 +245,10 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     ++m_reqGen;
 
     QJsonObject requestBody;
-    requestBody["model"] = QString::fromLatin1(MODEL);
+    requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
     requestBody["max_tokens"] = 1024;
+    requestBody["reasoning_effort"] = "minimal";  // see analyze(): keep reasoning minimal
 
     sendRequest(requestBody);
 }
@@ -334,6 +385,46 @@ AnthropicProvider::AnthropicProvider(QNetworkAccessManager* networkManager,
     : AIProvider(networkManager, parent)
     , m_apiKey(apiKey)
 {
+    // Default to the recommended model = first catalog entry. Keeps the default
+    // a single source of truth (no parallel DEFAULT_MODEL constant to keep in
+    // sync with the list order). availableModels() dispatches to this class
+    // since the object under construction is an AnthropicProvider.
+    const QList<ModelOption> models = availableModels();
+    if (!models.isEmpty())
+        m_model = models.first().id;
+}
+
+QList<AIProvider::ModelOption> AnthropicProvider::availableModels() const
+{
+    // Order = UI order; first entry is the recommended default. Sonnet 4.6 leads
+    // as the established default so upgrading users keep their current behavior;
+    // Sonnet 5 is the opt-in "more capable" choice. Revisit as new models land.
+    return {
+        { "claude-sonnet-4-6", "Sonnet 4.6" },
+        { "claude-sonnet-5", "Sonnet 5" },
+    };
+}
+
+void AnthropicProvider::setModel(const QString& modelId)
+{
+    if (modelId.isEmpty())
+        return;  // unset → keep the current default
+    for (const ModelOption& opt : availableModels()) {
+        if (opt.id == modelId) {
+            m_model = modelId;
+            return;
+        }
+    }
+    qWarning() << "AnthropicProvider::setModel ignoring unknown model id:" << modelId;
+}
+
+QString AnthropicProvider::shortModelName() const
+{
+    for (const ModelOption& opt : availableModels()) {
+        if (opt.id == m_model)
+            return opt.displayName;
+    }
+    return m_model;
 }
 
 void AnthropicProvider::sendRequest(const QJsonObject& requestBody)
@@ -372,7 +463,7 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
     ++m_reqGen;
 
     QJsonObject requestBody;
-    requestBody["model"] = QString::fromLatin1(MODEL);
+    requestBody["model"] = m_model;
     requestBody["max_tokens"] = 1024;
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     QJsonArray messages;
@@ -397,7 +488,7 @@ void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const Q
     ++m_reqGen;
 
     QJsonObject requestBody;
-    requestBody["model"] = QString::fromLatin1(MODEL);
+    requestBody["model"] = m_model;
     requestBody["max_tokens"] = 1024;
     requestBody["system"] = buildCachedSystemPrompt(systemPrompt);
     requestBody["messages"] = messagesWithCachedFirstUser(messages);
@@ -519,7 +610,7 @@ void AnthropicProvider::testConnection()
 
     // Send a minimal request to test the API key
     QJsonObject requestBody;
-    requestBody["model"] = QString::fromLatin1(MODEL);
+    requestBody["model"] = m_model;
     requestBody["max_tokens"] = 10;
     QJsonArray messages;
     QJsonObject userMsg;
