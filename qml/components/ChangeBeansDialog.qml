@@ -36,6 +36,14 @@ Dialog {
     property string mode: "search"
     // "create" -> requestCreateBag on confirm; "edit" -> requestUpdateBag
     property string formMode: "create"
+    // Bag kind (add-recipe-wizard-tea): stamped by the entry point ("Add
+    // Coffee" / "Add Tea" / edit's bag row) and immutable after creation.
+    // Tea mode is SUBTRACTION over the coffee form: the Visualizer canonical
+    // lane is suppressed (coffee-only database), identity labels read
+    // Brand/Tea, and roast level + grind/rpm + canonical-link affordances
+    // are hidden. URL + Get info + photo + weight fields stay.
+    property string bagKind: "coffee"
+    readonly property bool isTea: bagKind === "tea"
     property int editBagId: -1
     property bool _awaitingCreate: false
     property bool _armedForm: false   // openForEdit pre-armed the form
@@ -90,6 +98,17 @@ Dialog {
     property string fPlaceOfPurchase: ""
     property string fTastingNotes: ""
     property string fLink: ""
+    // Tea detail keys (add-recipe-wizard-tea): the tea vocabulary of the same
+    // blob — shown instead of the coffee-only fields when isTea. brewTempC /
+    // leafGramsPer100Ml seed the recipe wizard, so they must land in the blob
+    // (string form; extraction normalizes to Celsius / per-100ml numbers).
+    property string fTeaType: ""
+    property string fGarden: ""
+    property string fCultivar: ""
+    property string fFlush: ""
+    property string fBrewTempC: ""
+    property string fLeafRatio: ""
+    property string fSteepTime: ""
     property bool detailsExpanded: false
     // Product URL when the form opened; a URL changed to a NON-EMPTY value on
     // save re-resolves the bag image (the cached og:image pixels describe the
@@ -159,6 +178,9 @@ Dialog {
         fProducer = s("producer"); fVariety = s("variety"); fElevation = s("elevation")
         fProcess = s("process"); fHarvest = s("harvest"); fQualityScore = s("qualityScore")
         fPlaceOfPurchase = s("placeOfPurchase"); fTastingNotes = s("tastingNotes"); fLink = s("link")
+        fTeaType = s("teaType"); fGarden = s("garden"); fCultivar = s("cultivar")
+        fFlush = s("flush"); fBrewTempC = s("brewTempC"); fLeafRatio = s("leafGramsPer100Ml")
+        fSteepTime = s("steepTime")
     }
 
     // The edits map handed to BeanBaseBlob::mergeBeanDetails. All detail keys
@@ -171,7 +193,10 @@ Dialog {
             "origin": fOrigin, "region": fRegion, "farm": fFarm,
             "producer": fProducer, "variety": fVariety, "elevation": fElevation,
             "process": fProcess, "harvest": fHarvest, "qualityScore": fQualityScore,
-            "placeOfPurchase": fPlaceOfPurchase, "tastingNotes": fTastingNotes, "link": fLink
+            "placeOfPurchase": fPlaceOfPurchase, "tastingNotes": fTastingNotes, "link": fLink,
+            "teaType": fTeaType, "garden": fGarden, "cultivar": fCultivar,
+            "flush": fFlush, "brewTempC": fBrewTempC, "leafGramsPer100Ml": fLeafRatio,
+            "steepTime": fSteepTime
         }
         var anyDetail = false
         for (var k in edits) {
@@ -215,6 +240,12 @@ Dialog {
     property int _distinctVersion: 0
 
     function requestFormCanonical(q) {
+        // Tea mode: no canonical autosuggest either (coffee-only database).
+        if (isTea) {
+            formCanonicalEntries = []
+            _formCanonicalQuery = ""
+            return
+        }
         q = q.trim()
         if (q.length < 2) {
             formCanonicalEntries = []
@@ -365,10 +396,26 @@ Dialog {
         mode = "form"
     }
 
+    // "Add Tea" entry point (add-recipe-wizard-tea): tea mode, opening on the
+    // past-tea-bags search when any exist (the re-buy flow) or straight on
+    // the form when none do. The caller decides via hasTeaBags — it has the
+    // inventory list; the dialog would only know it async.
+    function openTeaEntry(hasTeaBags) {
+        bagKind = "tea"
+        if (hasTeaBags) {
+            open()
+            return
+        }
+        openManualEntry()
+        _armedForm = true
+        open()
+    }
+
     // Edit mode: update the existing bag row in place (activeBagId untouched).
-    // Pre-filled INCLUDING the roast date.
+    // Pre-filled INCLUDING the roast date. The form follows the bag's kind.
     function openForEdit(bag) {
         resetForm()
+        bagKind = String(bag.kind || "") === "tea" ? "tea" : "coffee"
         formMode = "edit"
         editBagId = bag.id
         prefillFromBag(bag)
@@ -480,16 +527,21 @@ Dialog {
             "roasterName": fRoaster.trim(),
             "coffeeName": fCoffee.trim(),
             "roastDate": fRoastDate.length === 10 ? fRoastDate : "",
-            "roastLevel": fRoastLevel,
+            // Tea bags carry no roast level (teaType lives in the blob).
+            "roastLevel": isTea ? "" : fRoastLevel,
             "beanBaseId": fBeanBaseId,
             "beanBaseData": mergedBlob,
-            "grinderSetting": fGrinderSetting.trim(),
-            "rpm": parseInt(fRpm) || 0,
+            "grinderSetting": isTea ? "" : fGrinderSetting.trim(),
+            "rpm": isTea ? 0 : (parseInt(fRpm) || 0),
             "doseWeightG": parseWeight(fDose),
             "yieldOverrideG": parseWeight(fYield),
             "notes": fNotes,
             "frozenDate": fFreeze ? (fFrozenDate.length === 10 ? fFrozenDate : todayIso()) : ""
         }
+        // kind is stamped at creation only (immutable identity; the edit
+        // path never writes it).
+        if (formMode !== "edit")
+            fields["kind"] = bagKind
         if (formMode === "edit") {
             fields["defrostDate"] = fFreeze ? (fDefrostDate.length === 10 ? fDefrostDate : "") : ""
             // Re-point the bag's equipment package (<=0 -> NULL via the column hook).
@@ -620,6 +672,9 @@ Dialog {
     }
 
     onAboutToShow: {
+        // Scope the unified search to this entry's bag kind: tea mode drops
+        // the Visualizer canonical lane and keeps only known tea bags.
+        MainController.beanSearch.bagKind = isTea ? "tea" : ""
         if (!_armedForm) {
             mode = "search"
             errorMessage = ""
@@ -988,6 +1043,9 @@ Dialog {
                     // linkable in the same form, not save-then-"Find in Bean
                     // Base" from the card.
                     Item {
+                        // Tea bags never link canonically (Visualizer's
+                        // database is coffee-only) — the whole bar is hidden.
+                        visible: !root.isTea
                         Layout.fillWidth: true
                         Layout.leftMargin: Theme.scaled(20)
                         Layout.rightMargin: Theme.scaled(20)
@@ -1041,7 +1099,7 @@ Dialog {
                             if (!root.fetchingInfo || url !== root._fetchUrl) return
                             root.infoStatus = TranslationManager.translate(
                                 "changebeans.form.getInfo.extracting", "Extracting details…")
-                            MainController.aiManager.extractCoffeeBagDetails(url, text)
+                            MainController.aiManager.extractCoffeeBagDetails(url, text, root.bagKind)
                         }
                         function onPageTextFailed(url, error) {
                             if (!root.fetchingInfo || url !== root._fetchUrl) return
@@ -1078,6 +1136,16 @@ Dialog {
                             take("harvest", root.fHarvest, function(v) { root.fHarvest = v })
                             take("tastingNotes", root.fTastingNotes, function(v) { root.fTastingNotes = v })
                             take("roastLevel", root.fRoastLevel, function(v) { root.fRoastLevel = v })
+                            // Tea vocabulary (add-recipe-wizard-tea) — the tea
+                            // prompt's structured keys, incl. the brewing data
+                            // that seeds the recipe wizard.
+                            take("teaType", root.fTeaType, function(v) { root.fTeaType = v })
+                            take("garden", root.fGarden, function(v) { root.fGarden = v })
+                            take("cultivar", root.fCultivar, function(v) { root.fCultivar = v })
+                            take("flush", root.fFlush, function(v) { root.fFlush = v })
+                            take("brewTempC", root.fBrewTempC, function(v) { root.fBrewTempC = v })
+                            take("leafGramsPer100Ml", root.fLeafRatio, function(v) { root.fLeafRatio = v })
+                            take("steepTime", root.fSteepTime, function(v) { root.fSteepTime = v })
                             root.detailsExpanded = true
                             root.infoStatus = applied > 0
                                 ? TranslationManager.translate("changebeans.form.getInfo.applied",
@@ -1116,10 +1184,11 @@ Dialog {
                         }
                     }
 
-                    // --- Identity: always editable, linked or not ---
+                    // --- Identity: always editable, linked or not.
+                    // Tea mode relabels the same columns: Brand / Tea. ---
                     FieldRow {
-                        labelKey: "changebeans.form.roaster"
-                        labelFallback: "Roaster:"
+                        labelKey: root.isTea ? "changebeans.form.brand" : "changebeans.form.roaster"
+                        labelFallback: root.isTea ? "Brand:" : "Roaster:"
 
                         SuggestionField {
                             id: roasterInput
@@ -1135,8 +1204,8 @@ Dialog {
                     }
 
                     FieldRow {
-                        labelKey: "changebeans.form.coffee"
-                        labelFallback: "Coffee:"
+                        labelKey: root.isTea ? "changebeans.form.tea" : "changebeans.form.coffee"
+                        labelFallback: root.isTea ? "Tea:" : "Coffee:"
 
                         SuggestionField {
                             id: coffeeInput
@@ -1169,6 +1238,7 @@ Dialog {
                     // Medium-light") is shown as the display text until the
                     // user actively picks a level.
                     FieldRow {
+                        visible: !root.isTea
                         labelKey: "changebeans.form.roastLevel"
                         labelFallback: "Roast level:"
 
@@ -1310,6 +1380,8 @@ Dialog {
                                     root._fetchUrl = root.fLink.trim()
                                     root.infoStatus = TranslationManager.translate(
                                         "changebeans.form.getInfo.fetching", "Reading page…")
+                                    // The bag kind selects the extraction
+                                    // vocabulary (tea: teaType + brewing data).
                                     MainController.beanbase.fetchPageText(root._fetchUrl)
                                 }
                             }
@@ -1340,8 +1412,63 @@ Dialog {
                             value: root.fRegion
                             onEdited: function(t) { root.fRegion = t }
                         }
+                        // Tea details (add-recipe-wizard-tea): shown instead
+                        // of the coffee-only farm/producer/variety/process/
+                        // harvest rows. The brewing values seed the recipe
+                        // wizard (temp/dose), so they live here, not in notes.
+                        DetailField {
+                            visible: root.isTea
+                            labelKey: "changebeans.details.teaType"; labelFallback: "Type:"
+                            accessibleText: TranslationManager.translate("changebeans.details.teaType.accessible", "Tea type, e.g. black, green, oolong")
+                            value: root.fTeaType
+                            onEdited: function(t) { root.fTeaType = t }
+                        }
+                        DetailField {
+                            visible: root.isTea
+                            labelKey: "changebeans.details.garden"; labelFallback: "Garden:"
+                            accessibleText: TranslationManager.translate("changebeans.details.garden.accessible", "Estate or garden")
+                            value: root.fGarden
+                            onEdited: function(t) { root.fGarden = t }
+                        }
+                        DetailField {
+                            visible: root.isTea
+                            labelKey: "changebeans.details.cultivar"; labelFallback: "Cultivar:"
+                            accessibleText: TranslationManager.translate("changebeans.details.cultivar.accessible", "Cultivar")
+                            value: root.fCultivar
+                            onEdited: function(t) { root.fCultivar = t }
+                        }
+                        DetailField {
+                            visible: root.isTea
+                            labelKey: "changebeans.details.flush"; labelFallback: "Flush:"
+                            accessibleText: TranslationManager.translate("changebeans.details.flush.accessible", "Harvest or flush")
+                            value: root.fFlush
+                            onEdited: function(t) { root.fFlush = t }
+                        }
+                        DetailField {
+                            visible: root.isTea
+                            labelKey: "changebeans.details.brewTemp"; labelFallback: "Brew temp (°C):"
+                            accessibleText: TranslationManager.translate("changebeans.details.brewTemp.accessible", "Vendor brew temperature in Celsius")
+                            value: root.fBrewTempC
+                            onEdited: function(t) { root.fBrewTempC = t }
+                        }
+                        DetailField {
+                            visible: root.isTea
+                            labelKey: "changebeans.details.leafRatio"; labelFallback: "Leaf (g/100ml):"
+                            accessibleText: TranslationManager.translate("changebeans.details.leafRatio.accessible", "Leaf grams per 100 milliliters of water")
+                            value: root.fLeafRatio
+                            onEdited: function(t) { root.fLeafRatio = t }
+                        }
+                        DetailField {
+                            visible: root.isTea
+                            labelKey: "changebeans.details.steepTime"; labelFallback: "Steep time:"
+                            accessibleText: TranslationManager.translate("changebeans.details.steepTime.accessible", "Steep time, e.g. 3 to 5 minutes")
+                            value: root.fSteepTime
+                            onEdited: function(t) { root.fSteepTime = t }
+                        }
+
                         DetailField {
                             id: farmField
+                            visible: !root.isTea
                             labelKey: "beanbase.details.farm"; labelFallback: "Farm:"
                             accessibleText: TranslationManager.translate("beanbase.details.farm", "Farm")
                             value: root.fFarm
@@ -1349,6 +1476,7 @@ Dialog {
                         }
                         DetailField {
                             id: producerField
+                            visible: !root.isTea
                             labelKey: "beanbase.details.producer"; labelFallback: "Producer:"
                             accessibleText: TranslationManager.translate("beanbase.details.producer", "Producer")
                             value: root.fProducer
@@ -1356,6 +1484,7 @@ Dialog {
                         }
                         DetailField {
                             id: varietyField
+                            visible: !root.isTea
                             labelKey: "beanbase.details.variety"; labelFallback: "Variety:"
                             accessibleText: TranslationManager.translate("beanbase.details.variety", "Variety")
                             value: root.fVariety
@@ -1370,6 +1499,7 @@ Dialog {
                         }
                         DetailField {
                             id: processField
+                            visible: !root.isTea
                             labelKey: "beanbase.details.process"; labelFallback: "Process:"
                             accessibleText: TranslationManager.translate("beanbase.details.process", "Process")
                             value: root.fProcess
@@ -1377,6 +1507,7 @@ Dialog {
                         }
                         DetailField {
                             id: harvestField
+                            visible: !root.isTea
                             labelKey: "beanbase.details.harvest"; labelFallback: "Harvest:"
                             accessibleText: TranslationManager.translate("beanbase.details.harvest", "Harvest")
                             value: root.fHarvest
@@ -1469,8 +1600,10 @@ Dialog {
                         onValueEdited: function(dateString) { root.fDefrostDate = dateString }
                     }
 
-                    // --- Grinder setting + dose (the per-bag dial-in fields) ---
+                    // --- Grinder setting + dose (the per-bag dial-in fields).
+                    // Tea has nothing to grind: grind + rpm rows hidden. ---
                     FieldRow {
+                        visible: !root.isTea
                         labelKey: "changebeans.form.grindSetting"
                         labelFallback: "Grind:"
 
@@ -1487,7 +1620,7 @@ Dialog {
                     FieldRow {
                         labelKey: "changebeans.form.rpm"
                         labelFallback: "RPM:"
-                        visible: root.fEquipmentRpmCapable
+                        visible: root.fEquipmentRpmCapable && !root.isTea
 
                         StyledTextField {
                             Layout.fillWidth: true

@@ -35,10 +35,10 @@
 
 ## 5. Tea bags
 
-- [ ] 5.1 BeanInfoPage header: "Add Coffee" (primary) + "Add Tea" (secondary); narrow-width behavior
-- [ ] 5.2 ChangeBeansDialog tea mode: suppress Visualizer lane, past-tea-bags-only search, straight-to-form when none; tea form labels + hidden fields (roast level, grind/rpm, canonical link)
-- [ ] 5.3 BagCard + details popup: hide coffee-only rows for tea bags; show teaType/brewing fields
-- [ ] 5.4 Unified bean search model kind awareness (wizard bean-step filter)
+- [x] 5.1 BeanInfoPage header: "Add Coffee" (primary) + "Add Tea" (secondary); narrow-width behavior
+- [x] 5.2 ChangeBeansDialog tea mode: suppress Visualizer lane, past-tea-bags-only search, straight-to-form when none; tea form labels + hidden fields (roast level, grind/rpm, canonical link)
+- [x] 5.3 BagCard + details popup: hide coffee-only rows for tea bags; show teaType/brewing fields
+- [x] 5.4 Unified bean search model kind awareness (wizard bean-step filter)
 - [x] 5.5 Grinder-less packages: relax EquipmentStorage create precondition, display-name fallback to basket, audit `flattenPackage`/QML consumers for invalid grinder; unit test create/read of basket-only package
 
 ## 6. Extraction

@@ -88,8 +88,18 @@ Rectangle {
     // Canonical attribute line: origin · variety · process (only what exists).
     // Plain join for accessibility; joinWithBullet (styled bold dot, HTML-escaped)
     // for display.
+    readonly property bool isTea: !!(bag && String(bag.kind || "") === "tea")
     readonly property var _attrParts: {
         var parts = []
+        if (isTea) {
+            // Tea attribute line (add-recipe-wizard-tea): type · origin ·
+            // brewing summary — the fields that matter for a tea bag.
+            if (beanBase.teaType) parts.push(String(beanBase.teaType))
+            if (beanBase.origin) parts.push(String(beanBase.origin))
+            if (beanBase.brewTempC) parts.push(String(beanBase.brewTempC) + "°C")
+            if (beanBase.steepTime) parts.push(String(beanBase.steepTime))
+            return parts
+        }
         if (beanBase.origin) parts.push(String(beanBase.origin))
         if (beanBase.variety) parts.push(String(beanBase.variety))
         if (beanBase.process) parts.push(String(beanBase.process))

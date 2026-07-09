@@ -43,7 +43,10 @@ inline QString canonicalId(const QString& blob)
 // names, roast degree, and the descriptive detail fields. Everything else in
 // the blob (link ids, `canonical` snapshot, description, legacy image) is
 // preserved untouched by mergeBeanDetails. farm/qualityScore/placeOfPurchase
-// exist only as user input — the canonical DB has no such columns.
+// exist only as user input — the canonical DB has no such columns. The tea
+// vocabulary (add-recipe-wizard-tea: teaType…steepTime) is user/extraction
+// input on tea bags only — coffee edits carry them empty, which is a no-op
+// removal of keys coffee blobs never have.
 inline const QStringList& editableKeys()
 {
     static const QStringList keys{
@@ -55,6 +58,10 @@ inline const QStringList& editableKeys()
         QStringLiteral("harvest"),     QStringLiteral("qualityScore"),
         QStringLiteral("placeOfPurchase"), QStringLiteral("tastingNotes"),
         QStringLiteral("link"),
+        QStringLiteral("teaType"),     QStringLiteral("garden"),
+        QStringLiteral("cultivar"),    QStringLiteral("flush"),
+        QStringLiteral("brewTempC"),   QStringLiteral("leafGramsPer100Ml"),
+        QStringLiteral("steepTime"),
     };
     return keys;
 }
