@@ -225,14 +225,16 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     // the accepted cap. Live-caught July 2026: stage-1 extraction and the
     // advisor both 400'd on gpt-5.4/gpt-5.4-mini.
     requestBody["max_completion_tokens"] = 1024;
-    // GPT-5 family are reasoning models; keep reasoning minimal so hidden
+    // GPT-5 family are reasoning models; keep reasoning off so hidden
     // reasoning tokens don't count against the 1024-token output cap (which would
     // risk truncating the trailing nextShot JSON block) and to keep latency/cost
     // low. Dial-in advice needs little chain-of-thought. Mirrors Gemini's
-    // thinking=off. INVARIANT: assumes every availableModels() entry is a
-    // reasoning model that accepts reasoning_effort — a non-reasoning model would
-    // 400 on this field, so guard/branch here if the catalog ever gains one.
-    requestBody["reasoning_effort"] = "minimal";
+    // thinking=off. The 5.4 generation REPLACED the value "minimal" with "none"
+    // (live-caught 400: supported = none/low/medium/high). INVARIANT: assumes
+    // every availableModels() entry is a reasoning model that accepts
+    // reasoning_effort "none" — guard/branch here if the catalog ever gains
+    // one that doesn't.
+    requestBody["reasoning_effort"] = "none";
 
     sendRequest(requestBody);
 }
@@ -361,7 +363,7 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
     requestBody["max_completion_tokens"] = 1024;
-    requestBody["reasoning_effort"] = "minimal";  // see analyze(): keep reasoning minimal
+    requestBody["reasoning_effort"] = "none";  // see analyze(): 5.4 generation dropped "minimal"
 
     sendRequest(requestBody);
 }
