@@ -967,6 +967,49 @@ private slots:
         });
     }
 
+    void latestGrindForBean() {
+        const QString path = freshDb();
+        withRawDb(path, "beangrind", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            const auto shot = [&](qint64 ts, const QString& brand, const QString& type,
+                                  const QString& roast, const QString& grind,
+                                  const QString& profile) {
+                q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
+                          "bean_brand, bean_type, roast_level, grinder_setting, rpm) "
+                          "VALUES (?,?,?,30,?,?,?,?,90)");
+                q.addBindValue(QUuid::createUuid().toString(QUuid::WithoutBraces));
+                q.addBindValue(ts);
+                q.addBindValue(profile);
+                q.addBindValue(brand);
+                q.addBindValue(type);
+                q.addBindValue(roast);
+                q.addBindValue(grind.isEmpty() ? QVariant() : QVariant(grind));
+                QVERIFY(q.exec());
+            };
+            shot(100, "R", "Ethiopia", "Light", "14", "D-Flow / default");
+            shot(200, "R", "Ethiopia", "Light", "15", "Blooming Espresso");  // newest for the bean
+            shot(300, "R", "Ethiopia", "Light", "",   "Default");            // no grind: skipped
+            shot(400, "R", "Kenya",    "Light", "16", "Rao Allongé");        // similar roast, newer
+
+            // Exact bean wins over the newer similar-roast shot, and the
+            // grind-less newest row is skipped.
+            QVariantMap g = ShotHistoryStorage::loadLatestGrindForBeanStatic(
+                db, "R", "Ethiopia", "Light");
+            QCOMPARE(g.value("grinderSetting").toString(), QString("15"));
+            QCOMPARE(g.value("profileName").toString(), QString("Blooming Espresso"));
+            QCOMPARE(g.value("matchLevel").toString(), QString("bean"));
+
+            // Unknown bean falls back to the same-roast lane.
+            g = ShotHistoryStorage::loadLatestGrindForBeanStatic(db, "R", "Colombia", "Light");
+            QCOMPARE(g.value("grinderSetting").toString(), QString("16"));
+            QCOMPARE(g.value("matchLevel").toString(), QString("similarRoast"));
+
+            // Nothing matches: empty map.
+            QVERIFY(ShotHistoryStorage::loadLatestGrindForBeanStatic(
+                        db, "X", "Y", "Dark").isEmpty());
+        });
+    }
+
     void teaBrewingBlobParsing() {
         // Full tea blob: everything lands typed and normalized.
         const TeaBrewingData full = CoffeeBag::teaBrewingFromBlob(

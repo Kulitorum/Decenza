@@ -124,6 +124,22 @@ public:
                                                           const QString& beanType,
                                                           const QString& profileName);
 
+    // Async: the latest grind dialed for this bean regardless of profile —
+    // exact bean identity first, same roast level as fallback. Feeds the
+    // wizard's grind hint (the value plus WHICH profile it was dialed for,
+    // so a UGS direction can be shown when the picked profile differs).
+    // Emits latestGrindForBeanReady() with an empty map when nothing matches.
+    Q_INVOKABLE void requestLatestGrindForBean(const QString& beanBrand,
+                                               const QString& beanType,
+                                               const QString& roastLevel);
+
+    // Static version for background-thread use — caller provides the connection.
+    // Result keys: grinderSetting, rpm, profileName, matchLevel ("bean"|"similarRoast").
+    static QVariantMap loadLatestGrindForBeanStatic(QSqlDatabase& db,
+                                                    const QString& beanBrand,
+                                                    const QString& beanType,
+                                                    const QString& roastLevel);
+
     // Static version for background-thread use — caller provides their own connection.
     // Always recomputes the four quality badges from the loaded curve data and, when
     // any recomputed flag differs from the stored column, issues an UPDATE on the same
@@ -306,6 +322,7 @@ signals:
     void recentShotsByKbIdReady(const QString& kbId, const QVariantList& shots);
     void rankedProfilesForBeanReady(const QVariantMap& result);
     void latestShotForBeanProfileReady(const QVariantMap& shot);
+    void latestGrindForBeanReady(const QVariantMap& grind);
     void importDatabaseFinished(bool success);
     void shotMetadataUpdated(qint64 shotId, bool success);
     void autoFavoritesReady(const QVariantList& results);

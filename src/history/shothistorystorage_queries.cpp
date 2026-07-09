@@ -812,6 +812,87 @@ QVariantMap ShotHistoryStorage::loadLatestShotForBeanProfileStatic(QSqlDatabase&
     return shot;
 }
 
+void ShotHistoryStorage::requestLatestGrindForBean(const QString& beanBrand,
+                                                   const QString& beanType,
+                                                   const QString& roastLevel)
+{
+    if (!m_ready || (beanBrand.isEmpty() && beanType.isEmpty() && roastLevel.isEmpty())) {
+        emit latestGrindForBeanReady(QVariantMap());
+        return;
+    }
+
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    QThread* thread = QThread::create([this, dbPath, beanBrand, beanType, roastLevel, destroyed]() {
+        QVariantMap grind;
+        withTempDb(dbPath, "shs_beangrind", [&](QSqlDatabase& db) {
+            grind = loadLatestGrindForBeanStatic(db, beanBrand, beanType, roastLevel);
+        });
+
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [this, grind = std::move(grind), destroyed]() {
+            if (*destroyed) return;
+            emit latestGrindForBeanReady(grind);
+        }, Qt::QueuedConnection);
+    });
+
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
+QVariantMap ShotHistoryStorage::loadLatestGrindForBeanStatic(QSqlDatabase& db,
+                                                             const QString& beanBrand,
+                                                             const QString& beanType,
+                                                             const QString& roastLevel)
+{
+    // Exact bean identity first; same roast level as the similar-bean
+    // fallback. Only shots that actually recorded a grind qualify.
+    const auto tryQuery = [&db](const QString& where, const QVariantList& binds) -> QVariantMap {
+        QVariantMap grind;
+        QSqlQuery query(db);
+        if (!query.prepare(QStringLiteral(
+                "SELECT grinder_setting, rpm, profile_name FROM shots WHERE %1 "
+                "AND COALESCE(grinder_setting,'') != '' "
+                "ORDER BY timestamp DESC LIMIT 1").arg(where))) {
+            qWarning() << "ShotHistoryStorage::loadLatestGrindForBeanStatic: prepare failed:"
+                       << query.lastError().text();
+            return grind;
+        }
+        for (qsizetype i = 0; i < binds.size(); ++i)
+            query.bindValue(static_cast<int>(i), binds.at(i));
+        if (!query.exec()) {
+            qWarning() << "ShotHistoryStorage::loadLatestGrindForBeanStatic: query failed:"
+                       << query.lastError().text();
+            return grind;
+        }
+        if (!query.next())
+            return grind;
+        grind["grinderSetting"] = query.value(0).toString();
+        grind["rpm"] = query.value(1).toLongLong();
+        grind["profileName"] = query.value(2).toString();
+        return grind;
+    };
+
+    if (!beanBrand.isEmpty() || !beanType.isEmpty()) {
+        QVariantMap exact = tryQuery(QStringLiteral(
+            "COALESCE(bean_brand,'') = ? AND COALESCE(bean_type,'') = ?"),
+            {beanBrand, beanType});
+        if (!exact.isEmpty()) {
+            exact["matchLevel"] = QStringLiteral("bean");
+            return exact;
+        }
+    }
+    if (!roastLevel.isEmpty()) {
+        QVariantMap similar = tryQuery(QStringLiteral(
+            "COALESCE(roast_level,'') = ?"), {roastLevel});
+        if (!similar.isEmpty()) {
+            similar["matchLevel"] = QStringLiteral("similarRoast");
+            return similar;
+        }
+    }
+    return {};
+}
+
 // convertShotRecord (the QVariantMap projection consumed by requestShot,
 // ShotServer, and the AI advisor) lives in shothistorystorage_serialize.cpp.
 

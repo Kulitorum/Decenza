@@ -524,6 +524,11 @@ Page {
     // details step edits the absolute rather than an offset).
     property real fTeaTempC: 0
     property var _teaBrewing: ({})
+    // Grind hint under the grind field: the latest grind dialed for this
+    // bean (or similar-roast beans), plus a UGS DIRECTION when it was dialed
+    // for a different profile — never a computed click count (the KB's own
+    // cross-profile rule).
+    property string grindHint: ""
 
     function applyDetailsPrefill() {
         // Tier 2/3 seeds first (synchronous); the shot-history tier lands
@@ -561,6 +566,9 @@ Page {
         }
         if (hasBean && fProfileTitle !== "")
             MainController.shotHistory.requestLatestShotForBeanProfile(fRoaster, fCoffee, fProfileTitle)
+        grindHint = ""
+        if (activeTemplate.grind && (hasBean || _selectedBagRoastLevel !== ""))
+            MainController.shotHistory.requestLatestGrindForBean(fRoaster, fCoffee, _selectedBagRoastLevel)
     }
 
     // --- profile ranking ----------------------------------------------------
@@ -630,35 +638,41 @@ Page {
         if (teaType !== "") {
             for (i = 0; i < inSet.length; ++i) {
                 if (used[inSet[i].title]) continue
-                if (ProfileManager.teaProfileMatchesType(inSet[i].title, teaType)) {
+                if (ProfileManager.teaProfileMatchesType(inSet[i].title, teaType))
                     tier2.push({ isHeader: false, title: inSet[i].title, name: inSet[i].name,
                                  reason: TranslationManager.translate(
                                      "recipes.wizard.profiles.matchesType", "matches %1").arg(teaType) })
-                    used[inSet[i].title] = true
-                }
             }
         }
         if (!isTeaDrink && _selectedBagRoastLevel !== "") {
             for (i = 0; i < inSet.length; ++i) {
                 if (used[inSet[i].title]) continue
-                if (ProfileManager.kbProfileSuitsRoast(inSet[i].title, _selectedBagRoastLevel)) {
+                if (ProfileManager.kbProfileSuitsRoast(inSet[i].title, _selectedBagRoastLevel))
                     tier2.push({ isHeader: false, title: inSet[i].title, name: inSet[i].name,
                                  reason: TranslationManager.translate(
                                      "recipes.wizard.profiles.suitsRoast", "suits %1 roasts")
                                      .arg(_selectedBagRoastLevel.toLowerCase()) })
-                    used[inSet[i].title] = true
-                }
             }
         }
         for (i = 0; i < similar.length; ++i) {
             p = byTitle[String(similar[i].profileName).toLowerCase()]
             if (p && !used[p.title]) {
-                tier2.push({ isHeader: false, title: p.title, name: p.name,
-                             reason: TranslationManager.translate(
-                                 "recipes.wizard.profiles.similarBeans", "used with similar beans") })
-                used[p.title] = true
+                var already = false
+                for (var t = 0; t < tier2.length; ++t) {
+                    if (tier2[t].title === p.title) { already = true; break }
+                }
+                if (!already)
+                    tier2.push({ isHeader: false, title: p.title, name: p.name,
+                                 reason: TranslationManager.translate(
+                                     "recipes.wizard.profiles.similarBeans", "used with similar beans") })
             }
         }
+        // A HANDFUL of the best, not the whole matching set — candidates
+        // beyond the cap fall through to "All profiles" (only the kept rows
+        // are marked used).
+        tier2 = tier2.slice(0, 5)
+        for (i = 0; i < tier2.length; ++i)
+            used[tier2[i].title] = true
         if (tier2.length > 0) {
             model.push({ isHeader: true, title: TranslationManager.translate(
                 "recipes.wizard.profiles.recommended", "Recommended") })
@@ -714,6 +728,36 @@ Page {
         function onRankedProfilesForBeanReady(result) {
             wizardPage._ranked = result
             wizardPage.rebuildProfileModel()
+        }
+        function onLatestGrindForBeanReady(grind) {
+            if (!wizardPage.activeTemplate.grind) return
+            if (!grind || Object.keys(grind).length === 0) {
+                wizardPage.grindHint = ""
+                return
+            }
+            var g = String(grind.grinderSetting || "")
+            var src = String(grind.profileName || "")
+            if (g === "") { wizardPage.grindHint = ""; return }
+            var parts = []
+            if (grind.matchLevel === "bean")
+                parts.push(TranslationManager.translate("recipes.wizard.grindHint.bean",
+                    "Last grind for this bean: %1 (with %2).").arg(g).arg(src))
+            else
+                parts.push(TranslationManager.translate("recipes.wizard.grindHint.similar",
+                    "Similar beans (%1) last ground at %2 (with %3).")
+                    .arg(wizardPage._selectedBagRoastLevel).arg(g).arg(src))
+            // Direction only when the grind was dialed for a DIFFERENT
+            // profile and the KB knows both profiles' UGS ordering.
+            if (src !== "" && wizardPage.fProfileTitle !== "" && src !== wizardPage.fProfileTitle) {
+                var dir = ProfileManager.grindDirectionBetween(src, wizardPage.fProfileTitle)
+                if (dir === "finer")
+                    parts.push(TranslationManager.translate("recipes.wizard.grindHint.finer",
+                        "%1 typically grinds finer — start finer than that.").arg(wizardPage.fProfileTitle))
+                else if (dir === "coarser")
+                    parts.push(TranslationManager.translate("recipes.wizard.grindHint.coarser",
+                        "%1 typically grinds coarser — start coarser than that.").arg(wizardPage.fProfileTitle))
+            }
+            wizardPage.grindHint = parts.join(" ")
         }
         function onLatestShotForBeanProfileReady(shot) {
             if (!shot || Object.keys(shot).length === 0)
@@ -1318,6 +1362,16 @@ Page {
                         SectionCard {
                             visible: wizardPage.activeTemplate.grind
                             title: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
+                            Label {
+                                visible: wizardPage.grindHint !== ""
+                                Layout.fillWidth: true
+                                text: wizardPage.grindHint
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WordWrap
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: text
+                            }
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacingMedium

@@ -1044,6 +1044,11 @@ double ProfileManager::defaultTeaTempC(const QString& teaType) const {
     return DrinkTypes::defaultTeaTempC(teaType);
 }
 
+QString ProfileManager::grindDirectionBetween(const QString& sourceProfileTitle,
+                                              const QString& targetProfileTitle) const {
+    return ShotSummarizer::grindDirectionBetween(sourceProfileTitle, targetProfileTitle);
+}
+
 bool ProfileManager::kbProfileSuitsRoast(const QString& profileTitle, const QString& roastLevel) const {
     const QString normalized = roastLevel.trimmed().toLower().replace(QLatin1Char(' '), QLatin1Char('-'));
     if (normalized.isEmpty())

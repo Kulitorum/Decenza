@@ -432,6 +432,20 @@ QStringList ShotSummarizer::roastAffinityForTitle(const QString& profileTitle)
     return id.isEmpty() ? QStringList() : s_profileKnowledge.value(id).roastAffinity;
 }
 
+QString ShotSummarizer::grindDirectionBetween(const QString& sourceTitle, const QString& targetTitle)
+{
+    if (sourceTitle.isEmpty() || targetTitle.isEmpty()) return {};
+    loadProfileKnowledge();
+    const QString srcId = matchProfileKey(s_profileKnowledge, sourceTitle, QString());
+    const QString dstId = matchProfileKey(s_profileKnowledge, targetTitle, QString());
+    if (srcId.isEmpty() || dstId.isEmpty()) return {};
+    const double srcUgs = s_profileKnowledge.value(srcId).ugs;
+    const double dstUgs = s_profileKnowledge.value(dstId).ugs;
+    if (std::isnan(srcUgs) || std::isnan(dstUgs)) return {};
+    if (srcId == dstId || qFuzzyCompare(srcUgs, dstUgs)) return QStringLiteral("same");
+    return dstUgs > srcUgs ? QStringLiteral("coarser") : QStringLiteral("finer");
+}
+
 QString ShotSummarizer::profileKnowledgeForKbId(const QString& profileKbId)
 {
     if (profileKbId.isEmpty()) return QString();

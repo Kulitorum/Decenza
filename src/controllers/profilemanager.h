@@ -161,6 +161,11 @@ public:
     // roast string simply never matches — graceful degradation, the tier
     // just loses its KB chips. Drives the wizard's recommended tier.
     Q_INVOKABLE bool kbProfileSuitsRoast(const QString& profileTitle, const QString& roastLevel) const;
+    // Relative grind direction between two profiles per the KB's UGS ordering
+    // ("finer"/"coarser"/"same"; "" when either UGS is unknown). Direction
+    // only — never a click count (the KB's own cross-profile rule).
+    Q_INVOKABLE QString grindDirectionBetween(const QString& sourceProfileTitle,
+                                              const QString& targetProfileTitle) const;
 
     // === Read-only protection ===
     Q_INVOKABLE bool isCurrentProfileReadOnly() const;

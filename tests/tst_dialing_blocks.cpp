@@ -2484,6 +2484,31 @@ private slots:
     }
 
     // -------------------------------------------------------------------
+    // KB UGS grind direction (add-recipe-wizard-tea): the wizard's grind
+    // hint gives DIRECTION ONLY between two profiles' UGS positions — per
+    // the KB's own cross-profile rule, never a click count. Cremina anchors
+    // UGS 0 (finest); Rao Allongé anchors UGS 8 (coarsest).
+    // -------------------------------------------------------------------
+    void shippedKb_grindDirectionBetween()
+    {
+        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+                     QStringLiteral("Cremina lever machine"), QStringLiteral("Rao Allongé")),
+                 QStringLiteral("coarser"));
+        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+                     QStringLiteral("Rao Allongé"), QStringLiteral("Cremina lever machine")),
+                 QStringLiteral("finer"));
+        // Same profile (via alias resolution) → "same".
+        QCOMPARE(ShotSummarizer::grindDirectionBetween(
+                     QStringLiteral("D-Flow / default"), QStringLiteral("D-Flow / default")),
+                 QStringLiteral("same"));
+        // Either side unresolved or UGS-less → empty (no fabricated direction).
+        QVERIFY(ShotSummarizer::grindDirectionBetween(
+                    QStringLiteral("No Such Profile XYZ"), QStringLiteral("Rao Allongé")).isEmpty());
+        QVERIFY(ShotSummarizer::grindDirectionBetween(
+                    QString(), QStringLiteral("Rao Allongé")).isEmpty());
+    }
+
+    // -------------------------------------------------------------------
     // restructure-kb-as-validated-json (task 5.2 / 6.6): KB-COVERAGE GATE.
     // Every shipped built-in profile (resources/profiles/*.json) MUST
     // resolve to a KB entry via the production resolver. A NEW built-in
