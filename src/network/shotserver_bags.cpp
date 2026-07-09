@@ -89,12 +89,21 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
 
     // POST /api/bags — create
     if (path == "/api/bags" && method == "POST") {
-        const QVariantMap fields = bagFieldsFromBody(bodyJson);
+        QVariantMap fields = bagFieldsFromBody(bodyJson);
         if (fields.value("roasterName").toString().trimmed().isEmpty()
             && fields.value("coffeeName").toString().trimmed().isEmpty()) {
             respondJson(QJsonObject{{"error", "roasterName or coffeeName is required"}}, 400);
             return;
         }
+        // kind is creation-time only (deliberately NOT in kBagEditableKeys, so
+        // the update route can never touch it): accept it here, default coffee.
+        const QString kind = bodyJson.value("kind").toString();
+        if (!kind.isEmpty() && kind != QLatin1String("coffee") && kind != QLatin1String("tea")) {
+            respondJson(QJsonObject{{"error", "kind must be 'coffee' or 'tea'"}}, 400);
+            return;
+        }
+        if (!kind.isEmpty())
+            fields.insert("kind", kind);
         auto conn = std::make_shared<QMetaObject::Connection>();
         *conn = connect(bagStorage, &CoffeeBagStorage::bagCreated, this,
             [conn, respondJson](qint64 bagId, const QVariantMap& bag) {
