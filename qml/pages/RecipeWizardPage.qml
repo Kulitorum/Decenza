@@ -808,6 +808,7 @@ Page {
     Tr { id: trNone; key: "recipes.composer.none"; fallback: "None"; visible: false }
     Tr { id: trInherited; key: "recipes.composer.grindInherited"; fallback: "Follows the bag"; visible: false }
     Tr { id: trNoBean; key: "recipes.wizard.noBean"; fallback: "No bean"; visible: false }
+    Tr { id: trNoTea; key: "recipes.wizard.noTea"; fallback: "No tea"; visible: false }
     Tr { id: trJustHotWater; key: "recipes.wizard.justHotWater"; fallback: "Just hot water — no profile"; visible: false }
 
     // --- Reusable pieces (composer idiom) -----------------------------------
@@ -1078,6 +1079,18 @@ Page {
                 // ===== Step 2: bean (kind-filtered) =====
                 ColumnLayout {
                     spacing: Theme.spacingSmall
+                    // Kind-filtered open bags (tea drinks list tea bags only).
+                    readonly property var kindBags: {
+                        var kind = wizardPage.activeTemplate.bagKind
+                        var out = []
+                        for (var i = 0; i < wizardPage._bags.length; ++i) {
+                            var b = wizardPage._bags[i]
+                            var bKind = String(b.kind || "") === "tea" ? "tea" : "coffee"
+                            if (bKind === kind)
+                                out.push(b)
+                        }
+                        return out
+                    }
                     Label {
                         Layout.topMargin: Theme.spacingMedium
                         text: wizardPage.isTeaDrink
@@ -1088,27 +1101,34 @@ Page {
                         Accessible.role: Accessible.Heading
                         Accessible.name: text
                     }
+                    // Empty-inventory hint: the skip row alone reads like the
+                    // inventory vanished — say WHY the list is empty and where
+                    // bags of tea (or coffee) come from.
+                    Label {
+                        visible: parent.kindBags.length === 0
+                        Layout.fillWidth: true
+                        text: wizardPage.isTeaDrink
+                            ? TranslationManager.translate("recipes.wizard.noTeaBags",
+                                  "No bags of tea in your inventory yet — add one with “Add Tea” on the Beans page. You can also continue without one.")
+                            : TranslationManager.translate("recipes.wizard.noCoffeeBags",
+                                  "No open bags in your inventory yet — add one on the Beans page. You can also continue without one.")
+                        font: Theme.bodyFont
+                        color: Theme.textSecondaryColor
+                        wrapMode: Text.WordWrap
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: text
+                    }
                     ListView {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
-                        model: {
-                            var kind = wizardPage.activeTemplate.bagKind
-                            var out = []
-                            for (var i = 0; i < wizardPage._bags.length; ++i) {
-                                var b = wizardPage._bags[i]
-                                var bKind = String(b.kind || "") === "tea" ? "tea" : "coffee"
-                                if (bKind === kind)
-                                    out.push(b)
-                            }
-                            out.push({ isNone: true })
-                            return out
-                        }
+                        model: parent.kindBags.concat([{ isNone: true }])
                         delegate: ItemDelegate {
                             width: ListView.view.width
                             contentItem: Label {
-                                text: modelData.isNone ? trNoBean.text
+                                text: modelData.isNone
+                                    ? (wizardPage.isTeaDrink ? trNoTea.text : trNoBean.text)
                                     : ((modelData.roasterName || "") + " " + (modelData.coffeeName || "")).trim()
                                 font: Theme.bodyFont
                                 color: Theme.textColor
@@ -1509,7 +1529,8 @@ Page {
                                 ? TranslationManager.translate("recipes.wizard.rowTea", "Tea")
                                 : TranslationManager.translate("recipes.wizard.rowBean", "Bean")
                             value: wizardPage.hasBean
-                                ? (wizardPage.fRoaster + " " + wizardPage.fCoffee).trim() : trNoBean.text
+                                ? (wizardPage.fRoaster + " " + wizardPage.fCoffee).trim()
+                                : (wizardPage.isTeaDrink ? trNoTea.text : trNoBean.text)
                             step: "bean"
                         }
                         SummaryRow {
