@@ -4,12 +4,15 @@ import "../"
 
 // The brew summary for the home screen. Content is driven by an ordered item
 // list (`itemOrder`) and a `sentence` toggle:
-//  - sentence ON: "Brew 36.0g of Espresso, using <profile> at 92°C" — the
-//    scaffold consumes doseYield's yield, profile, and temperature (wherever
-//    they sit in the order; sentence word order belongs to the translated
-//    template), and everything else — including doseYield's dose-in fragment —
-//    trails after it in list order. Without the profile item (or a profile
-//    name) the sentence has no anchor and rendering falls back to fragments.
+//  - sentence ON, profile shown: "Brew 36.0g of Espresso, using <profile> at
+//    92°C" — the scaffold consumes doseYield's yield, profile, and temperature
+//    (wherever they sit in the order; sentence word order belongs to the
+//    translated template), and everything else — including doseYield's dose-in
+//    fragment — trails after it in list order.
+//  - sentence ON, profile NOT shown: the profile-less "recipe" sentence —
+//    "Brew 40.0g of Espresso at 92°C from 18.0g of <Roaster> <Bean>" — anchored
+//    on the beverage word. Dose, roaster and coffee are consumed into it; only
+//    grind/roastDate trail. Driven by the same chips (drop Profile to get it).
 //  - sentence OFF: every item renders as a separator-joined fragment, in list
 //    order.
 //  - stacked ON (sentence mode only, display path only): the detail tail
@@ -167,6 +170,53 @@ Item {
                 }
             }
             return tail.length > 0 ? (s + blockSep + tail.join(sep)) : s
+        }
+
+        // Recipe sentence — the profile-less anchor. When Sentence is on but the
+        // profile item isn't shown, the plan reads as the recipe itself:
+        // "Brew 40.0g of Espresso at 92°C from 18.0g of <Roaster> <Bean>". Dose,
+        // roaster and coffee are CONSUMED into the sentence (they don't also trail
+        // as fragments); only grind/roastDate trail after. Each piece stays gated
+        // by its item's presence via the _xStr getters, so the chips still drive
+        // what shows. The beverage word is always present, so this never degrades
+        // to a fragment list while Sentence is on. Built by appending translatable
+        // clauses (at %/from %) onto the head — English word order; the a11y and
+        // rich paths share this builder so they can't drift.
+        if (sentence) {
+            var beans = ""
+            if (_roasterStr !== "" && _coffeeStr !== "")
+                beans = fmt(_roasterStr, true) + " " + fmt(_coffeeStr, true)
+            else if (_roasterStr !== "")
+                beans = fmt(_roasterStr, true)
+            else if (_coffeeStr !== "")
+                beans = fmt(_coffeeStr, true)
+
+            var r = (_yieldStr !== "")
+                ? TranslationManager.translate("shotplan.recipe.head", "Brew %1 of %2")
+                    .arg(fmt(_yieldStr, true)).arg(fmt(_beverage, false))
+                : TranslationManager.translate("shotplan.recipe.headNoYield", "Brew %1")
+                    .arg(fmt(_beverage, false))
+            if (_tempStr !== "")
+                r = TranslationManager.translate("shotplan.recipe.atTemp", "%1 at %2")
+                    .arg(r).arg(fmt(_tempStr, true))
+            if (_doseStr !== "" && beans !== "")
+                r = TranslationManager.translate("shotplan.recipe.fromDoseBeans", "%1 from %2 of %3")
+                    .arg(r).arg(fmt(_doseStr, true)).arg(beans)
+            else if (_doseStr !== "")
+                r = TranslationManager.translate("shotplan.recipe.fromDose", "%1 from %2")
+                    .arg(r).arg(fmt(_doseStr, true))
+            else if (beans !== "")
+                r = TranslationManager.translate("shotplan.recipe.fromBeans", "%1 from %2")
+                    .arg(r).arg(beans)
+
+            var rtail = []
+            for (var k = 0; k < order.length; k++) {
+                switch (order[k]) {
+                case "grind":     if (grind !== "") rtail.push(grind); break
+                case "roastDate": if (roasted !== "") rtail.push(roasted); break
+                }
+            }
+            return rtail.length > 0 ? (r + blockSep + rtail.join(sep)) : r
         }
 
         // Fragment format: every present item, in list order.
