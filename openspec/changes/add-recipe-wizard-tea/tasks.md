@@ -48,7 +48,7 @@
 - [x] 6.3 Spike: confirm Anthropic web_fetch / OpenAI web-search request shapes for the two providers shipped in #1445
 - [x] 6.4 Stage-2 fallback: on emptyPage/blocked, re-issue extraction as a provider web-fetch request (same JSON contract + `imageUrl`); feature-detect per provider; stage-1 error surfaces unchanged when unavailable
 - [x] 6.5 `imageUrl` consumption: bag image download/cache accepts an explicit URL alongside the og:image path
-- [x] 6.6 Verify end-to-end against the three vendor archetypes. DONE live via the bag_extract_details MCP tool (July 9): Anthropic Sonnet 4.6 + Gemini 2.5 Flash pass all three (Saka coffee s1; Harney tea s1 with 212°F→100°C; F&M SPA s2 with leafGramsPer100Ml 0.84 + imageUrl). OpenAI gpt-5.4-mini verified on the s2 Responses web_search path (key quota-limited during the s1 runs). Gemini 3.5 Flash was capacity-throttled; 2.5 Flash used instead. Two live-caught fixes landed: string-encoded blob numerics, imageUrl page-URL prompt tightening
+- [x] 6.6 Verify end-to-end against the three vendor archetypes. DONE live via the bag_extract_details MCP tool (July 9), full 6-model matrix: Sonnet 4.6, Sonnet 5, Gemini 2.5 Flash, GPT-5.4 mini, GPT-5.4 all pass coffee s1 + tea s1 (212°F→100°C) + F&M SPA s2 (leaf 0.84 + imageUrl; OpenAI s2 via Responses web_search). Gemini 3.5 Flash passed tea s1; its other two cells hit Google-side 'high demand' load-shedding (identical request path as 2.5 Flash — code covered). Four live-caught fixes landed: string-encoded blob numerics, imageUrl page-URL prompt tightening, OpenAI max_completion_tokens, OpenAI reasoning_effort 'none' (5.4 dropped 'minimal') — the last two also un-broke the OpenAI advisor
 
 ## 7. MCP and web surfaces
 
