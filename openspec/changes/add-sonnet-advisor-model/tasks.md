@@ -38,6 +38,7 @@
 - [x] 7.2 In `AIManager::onSettingsChanged()`, extend the OpenAI block (~`:1384-1387`) to also call `openai->setModel(m_settings->ai()->providerModel("openai"))`.
 - [x] 7.3 Add an OpenAI branch to the per-provider model hint in `SettingsAITab.qml` (the switch added for Anthropic), e.g. "GPT-5.4 is more capable. GPT-5.4 mini is cheaper and faster."
 - [x] 7.4 Update `docs/CLAUDE_MD/AI_ADVISOR.md` provider table so the OpenAI row reads "User-selected (GPT-5.4 mini default, or GPT-5.4)".
+- [x] 7.5 Send `reasoning_effort: "minimal"` on both `OpenAIProvider` request paths (`analyze` / `analyzeConversation`) so GPT-5 reasoning tokens don't eat the 1024 completion budget (risking `nextShot` truncation) and to keep latency/cost low. OpenAIProvider only — not OpenRouter (pass-through models) or `testConnection()`.
 
 ## 8. Verification
 

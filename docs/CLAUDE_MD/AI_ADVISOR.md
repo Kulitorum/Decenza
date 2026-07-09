@@ -17,7 +17,7 @@
 | Provider | Model | Caching | Cost |
 |----------|-------|---------|------|
 | Anthropic | User-selected (Sonnet 4.6 default, or Sonnet 5) | Explicit `cache_control` on system prompt. 5-min TTL, ~90% discount on cached input | Cloud |
-| OpenAI | User-selected (GPT-5.4 mini default, or GPT-5.4) | Automatic for prefixes >1024 tokens. ~90% discount on cached input | Cloud |
+| OpenAI | User-selected (GPT-5.4 mini default, or GPT-5.4); `reasoning_effort: minimal` | Automatic for prefixes >1024 tokens. ~90% discount on cached input | Cloud |
 | Google Gemini | 3.5 Flash | Implicit caching automatic (stable system prompt sent first); explicit Context Caching not implemented | Cloud |
 | OpenRouter | User-selected | Passes through to underlying provider | Cloud |
 | Ollama | User-selected | N/A — local, no cost | Local/free |

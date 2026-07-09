@@ -222,6 +222,11 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
     messages.append(userMsg);
     requestBody["messages"] = messages;
     requestBody["max_tokens"] = 1024;
+    // GPT-5 family are reasoning models; keep reasoning minimal so hidden
+    // reasoning tokens don't eat the 1024 completion budget (which would risk
+    // truncating the trailing nextShot JSON block) and to keep latency/cost low.
+    // Dial-in advice needs little chain-of-thought. Mirrors Gemini's thinking=off.
+    requestBody["reasoning_effort"] = "minimal";
 
     sendRequest(requestBody);
 }
@@ -241,6 +246,7 @@ void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJso
     requestBody["model"] = m_model;
     requestBody["messages"] = buildOpenAIMessages(systemPrompt, messages);
     requestBody["max_tokens"] = 1024;
+    requestBody["reasoning_effort"] = "minimal";  // see analyze(): keep reasoning minimal
 
     sendRequest(requestBody);
 }
