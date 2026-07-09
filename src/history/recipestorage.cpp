@@ -402,6 +402,38 @@ void RecipeStorage::requestUpdateRecipe(qint64 recipeId, const QVariantMap& fiel
     runAsync("recipes_update",
         [recipeId, fields, success](QSqlDatabase& db) {
             *success = updateRecipeFieldsStatic(db, recipeId, fields);
+            // drink_type follows the blocks when the caller changed them
+            // without setting it explicitly (MCP/web edits must not strand a
+            // stale type — e.g. adding a hot-water block to an espresso).
+            // Derivation from the UPDATED row; profile beverage_type comes
+            // from the embedded JSON when present (installed-profile lookup
+            // isn't available on this thread — the wizard stores the exact
+            // type on its own saves anyway).
+            const bool touchesBlocks = fields.contains(QStringLiteral("steamJson"))
+                || fields.contains(QStringLiteral("hotWaterJson"))
+                || fields.contains(QStringLiteral("profileTitle"));
+            if (*success && touchesBlocks && !fields.contains(QStringLiteral("drinkType"))) {
+                const Recipe updated = loadRecipeStatic(db, recipeId);
+                if (updated.isValid()) {
+                    QString bev;
+                    if (!updated.profileJson.isEmpty())
+                        bev = QJsonDocument::fromJson(updated.profileJson.toUtf8())
+                                  .object().value(QStringLiteral("beverage_type")).toString();
+                    // When the profile didn't change, the stored type already
+                    // encodes its profile-derived category — without this, a
+                    // steam-settings stamp on an active TEA recipe would
+                    // re-derive it into "latte" (beverage_type unresolvable
+                    // on this thread for installed profiles).
+                    if (bev.isEmpty() && !fields.contains(QStringLiteral("profileTitle"))) {
+                        if (updated.drinkType == QLatin1String("tea"))
+                            bev = QStringLiteral("tea_portafilter");
+                        else if (updated.drinkType == QLatin1String("filter"))
+                            bev = QStringLiteral("filter");
+                    }
+                    updateRecipeFieldsStatic(db, recipeId,
+                        {{QStringLiteral("drinkType"), Recipe::deriveDrinkType(updated, bev)}});
+                }
+            }
         },
         // Write: emit regardless — *success is false on open failure, the
         // terminal status callers wait on.

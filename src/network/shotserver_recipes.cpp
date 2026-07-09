@@ -43,6 +43,17 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
     o["id"] = r.id;
     o["name"] = r.name;
     o["profileTitle"] = r.profileTitle;
+    // Stored drink type; legacy rows derive from the blocks (embedded profile
+    // JSON supplies beverage_type when present).
+    if (!r.drinkType.isEmpty()) {
+        o["drinkType"] = r.drinkType;
+    } else {
+        QString bev;
+        if (!r.profileJson.isEmpty())
+            bev = QJsonDocument::fromJson(r.profileJson.toUtf8())
+                      .object().value(QStringLiteral("beverage_type")).toString();
+        o["drinkType"] = Recipe::deriveDrinkType(r, bev);
+    }
     o["beanBaseId"] = r.beanBaseId;
     o["roasterName"] = r.roasterName;
     o["coffeeName"] = r.coffeeName;
@@ -88,7 +99,7 @@ QVariantMap recipeFieldsFromBody(const QJsonObject& body)
     QVariantMap fields;
     static const QStringList kStringKeys = {
         "name", "profileTitle", "profileJson", "beanBaseId", "roasterName", "coffeeName",
-        "grindPinned"};
+        "grindPinned", "drinkType"};
     for (const QString& key : kStringKeys) {
         if (body.contains(key))
             fields.insert(key, body[key].toString());
@@ -164,13 +175,26 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
         return;
     }
 
-    // POST /api/recipes — create
+    // POST /api/recipes — create. Profile required unless the recipe is
+    // hot-water-only (hasWater in the block) — the shared validation rule.
     if (path == "/api/recipes" && method == "POST") {
-        const QVariantMap fields = recipeFieldsFromBody(bodyJson);
-        if (fields.value("name").toString().trimmed().isEmpty()
-            || fields.value("profileTitle").toString().trimmed().isEmpty()) {
-            respondJson(QJsonObject{{"error", "name and profileTitle are required"}}, 400);
+        QVariantMap fields = recipeFieldsFromBody(bodyJson);
+        if (!Recipe::saveValidationPasses(fields.value("name").toString(),
+                                          fields.value("profileTitle").toString(),
+                                          fields.value("hotWaterJson").toString())) {
+            respondJson(QJsonObject{{"error", "name is required, and profileTitle is required "
+                                              "unless the recipe has a hot-water block with "
+                                              "hasWater true"}}, 400);
             return;
+        }
+        // Derive the drink type when the caller didn't state one.
+        if (fields.value("drinkType").toString().isEmpty()) {
+            const Recipe shaped = Recipe::fromVariantMap(fields);
+            QString bev;
+            if (!shaped.profileJson.isEmpty())
+                bev = QJsonDocument::fromJson(shaped.profileJson.toUtf8())
+                          .object().value(QStringLiteral("beverage_type")).toString();
+            fields.insert("drinkType", Recipe::deriveDrinkType(shaped, bev));
         }
         auto conn = std::make_shared<QMetaObject::Connection>();
         *conn = connect(recipeStorage, &RecipeStorage::recipeCreated, this,
@@ -473,6 +497,17 @@ QString ShotServer::generateRecipesPage() const
         <label>Yield (g)</label><input id="fYield" type="number" step="0.1">
         <label>Temp override (&deg;C)</label><input id="fTemp" type="number" step="0.1">
         <label>Pinned grind (empty = follow the bag)</label><input id="fGrind">
+        <label>Drink type</label>
+        <select id="fDrinkType">
+            <option value="">(automatic from blocks)</option>
+            <option value="espresso">Espresso</option>
+            <option value="filter">Filter</option>
+            <option value="americano">Americano</option>
+            <option value="long_black">Long black</option>
+            <option value="latte">Latte / Cappuccino</option>
+            <option value="tea">Tea (portafilter)</option>
+            <option value="tea_hotwater">Tea (hot water)</option>
+        </select>
         <label><input id="fHasMilk" type="checkbox" style="width:auto"> Milk drink</label>
         <label>Milk (g)</label><input id="fMilk" type="number" step="1">
         <label>Pitcher name</label><input id="fPitcher">
@@ -508,6 +543,7 @@ QString ShotServer::generateRecipesPage() const
 
         function subtitle(r) {
             const parts = [];
+            if (r.drinkType) parts.push(esc(r.drinkType.replace('_', ' ')));
             if (r.profileTitle) parts.push(esc(r.profileTitle));
             const bean = ((r.roasterName || '') + ' ' + (r.coffeeName || '')).trim();
             if (bean) parts.push(esc(bean));
@@ -575,6 +611,7 @@ QString ShotServer::generateRecipesPage() const
             const r = recipes.find(x => x.id === id) || {};
             document.getElementById('editorTitle').textContent = id ? 'Edit Recipe' : 'New Recipe';
             document.getElementById('fName').value = r.name || '';
+            document.getElementById('fDrinkType').value = r.drinkType || '';
             document.getElementById('fProfile').value = r.profileTitle || '';
             document.getElementById('fRoaster').value = r.roasterName || '';
             document.getElementById('fCoffee').value = r.coffeeName || '';
@@ -596,7 +633,12 @@ QString ShotServer::generateRecipesPage() const
         function saveEditor() {
             const name = document.getElementById('fName').value.trim();
             const profileTitle = document.getElementById('fProfile').value.trim();
-            if (!name || !profileTitle) { status('Name and profile title are required'); return; }
+            const hasWater = document.getElementById('fHasWater').checked;
+            if (!name) { status('Name is required'); return; }
+            // Profile-less recipes are valid only as hot-water drinks (tea).
+            if (!profileTitle && !hasWater) {
+                status('Profile title is required (unless the recipe adds hot water)'); return;
+            }
             const steam = {};
             if (document.getElementById('fHasMilk').checked) steam.hasMilk = true;
             const milk = parseFloat(document.getElementById('fMilk').value);
@@ -604,13 +646,14 @@ QString ShotServer::generateRecipesPage() const
             const pitcher = document.getElementById('fPitcher').value.trim();
             if (pitcher) steam.pitcherName = pitcher;
             const hotWater = {};
-            if (document.getElementById('fHasWater').checked) hotWater.hasWater = true;
+            if (hasWater) hotWater.hasWater = true;
             const vessel = document.getElementById('fVessel').value.trim();
             if (vessel) hotWater.vesselName = vessel;
             hotWater.order = document.getElementById('fWaterOrder').value === 'before' ? 'before' : 'after';
             const bodyData = {
                 name: name,
                 profileTitle: profileTitle,
+                drinkType: document.getElementById('fDrinkType').value,
                 roasterName: document.getElementById('fRoaster').value.trim(),
                 coffeeName: document.getElementById('fCoffee').value.trim(),
                 doseG: parseFloat(document.getElementById('fDose').value) || 0,

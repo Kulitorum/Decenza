@@ -52,10 +52,10 @@
 
 ## 7. MCP and web surfaces
 
-- [ ] 7.1 MCP recipe tools: drinkType on list/get/create/update; profile-less validation; update register stubs in tst_mcpserver_session/protocol + tst_mcptools_* externs; build --target all before pushing
-- [ ] 7.2 MCP bag tools: kind exposed (immutable), tea brewing fields per data conventions
-- [ ] 7.3 shotserver_recipes: drinkType round-trip + relaxed validation; web /recipes form drink-type field
-- [ ] 7.4 shotserver_bags / web bag surfaces: kind on bag payloads
+- [x] 7.1 MCP recipe tools: drinkType on list/get/create/update; profile-less validation; update register stubs in tst_mcpserver_session/protocol + tst_mcptools_* externs; build --target all before pushing
+- [x] 7.2 MCP bag tools: kind exposed (immutable), tea brewing fields per data conventions
+- [x] 7.3 shotserver_recipes: drinkType round-trip + relaxed validation; web /recipes form drink-type field
+- [x] 7.4 shotserver_bags / web bag surfaces: kind on bag payloads
 
 ## 8. Docs and finalization
 

@@ -403,6 +403,57 @@ private slots:
     // web). Its three documented contracts — happy path, missing recipe emits
     // an EMPTY map (activation must fail cleanly, NOT hang), and bean-less /
     // no-open-bag emits openBagId == -1 — are each load-bearing.
+    // drink_type follows the blocks on updates that change them without
+    // setting it (MCP/web edits, steam stamps) — and a stored profile-derived
+    // type (tea/filter) survives a block stamp when the profile didn't change.
+    void updateRederivesDrinkType() {
+        const QString path = freshDbPath();
+        qint64 espressoId = 0, teaId = 0;
+        withRawDb(path, "rederive_setup", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe e; e.name = "Straight"; e.profileTitle = "P"; e.drinkType = "espresso";
+            espressoId = RecipeStorage::insertRecipeStatic(db, e);
+            Recipe t; t.name = "Sencha"; t.profileTitle = "Tea portafilter/Sencha";
+            t.drinkType = "tea";
+            teaId = RecipeStorage::insertRecipeStatic(db, t);
+        });
+        QVERIFY(espressoId > 0 && teaId > 0);
+
+        RecipeStorage storage;
+        storage.initialize(path);
+
+        // Adding a hot-water block to an espresso re-derives to americano.
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            storage.requestUpdateRecipe(espressoId, {{"hotWaterJson",
+                "{\"hasWater\":true,\"vesselName\":\"Cup\",\"order\":\"after\"}"}});
+            QTRY_COMPARE(spy.count(), 1);
+            QVERIFY(spy.at(0).at(1).toBool());
+        }
+        // A steam stamp on a tea recipe must NOT turn it into a latte.
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            storage.requestUpdateRecipe(teaId, {{"steamJson",
+                "{\"hasMilk\":true,\"milkWeightG\":150}"}});
+            QTRY_COMPARE(spy.count(), 1);
+        }
+        // An explicit drinkType from the caller always wins (no re-derive).
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            storage.requestUpdateRecipe(espressoId, {
+                {"hotWaterJson", "{\"hasWater\":true,\"vesselName\":\"Cup\",\"order\":\"before\"}"},
+                {"drinkType", "americano"}});
+            QTRY_COMPARE(spy.count(), 1);
+        }
+        withRawDb(path, "rederive_check", [&](QSqlDatabase& db) {
+            // First update re-derived; third kept the caller's explicit value
+            // (americano, despite the order flipping to "before").
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, espressoId).drinkType,
+                     QString("americano"));
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, teaId).drinkType, QString("tea"));
+        });
+    }
+
     void requestRecipeForActivation() {
         const QString path = freshDbPath();
         qint64 recipeId = 0, bareId = 0, openBagId = 0;

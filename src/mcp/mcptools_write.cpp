@@ -1516,6 +1516,18 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         obj["bagId"] = bag.id;
         obj["roasterName"] = bag.roasterName;
         obj["coffeeName"] = bag.coffeeName;
+        // kind is creation-time identity ("coffee" | "tea"; empty rows read
+        // as coffee), never editable via bag_update.
+        obj["kind"] = bag.isTea() ? QStringLiteral("tea") : QStringLiteral("coffee");
+        if (bag.isTea()) {
+            // Structured brewing data from the blob, per the data conventions
+            // (units in names). Absent keys = the vendor stated nothing.
+            const TeaBrewingData tea = CoffeeBag::teaBrewingFromBlob(bag.beanBaseData);
+            if (!tea.teaType.isEmpty()) obj["teaType"] = tea.teaType;
+            if (tea.brewTempC > 0) obj["brewTemperatureC"] = tea.brewTempC;
+            if (tea.leafGramsPer100Ml > 0) obj["leafGramsPer100Ml"] = tea.leafGramsPer100Ml;
+            if (!tea.steepTime.isEmpty()) obj["steepTime"] = tea.steepTime;
+        }
         if (!bag.roastDate.isEmpty()) obj["roastDate"] = bag.roastDate;
         if (!bag.roastLevel.isEmpty()) obj["roastLevel"] = bag.roastLevel;
         if (!bag.frozenDate.isEmpty()) obj["frozenDate"] = bag.frozenDate;
@@ -1623,7 +1635,18 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"qualityScore", QJsonObject{{"type", "string"}}},
                 {"placeOfPurchase", QJsonObject{{"type", "string"}}},
                 {"tastingNotes", QJsonObject{{"type", "string"}}},
-                {"link", QJsonObject{{"type", "string"}, {"description", "Roaster product-page URL, '' to clear"}}}
+                {"link", QJsonObject{{"type", "string"}, {"description", "Roaster product-page URL, '' to clear"}}},
+                {"teaType", QJsonObject{{"type", "string"},
+                    {"description", "Tea bags only: black/green/oolong/white/herbal/pu-erh"}}},
+                {"garden", QJsonObject{{"type", "string"}, {"description", "Tea bags only: estate/garden"}}},
+                {"cultivar", QJsonObject{{"type", "string"}, {"description", "Tea bags only"}}},
+                {"flush", QJsonObject{{"type", "string"}, {"description", "Tea bags only: harvest/flush"}}},
+                {"brewTempC", QJsonObject{{"type", "number"},
+                    {"description", "Tea bags only: vendor brew temperature, Celsius"}}},
+                {"leafGramsPer100Ml", QJsonObject{{"type", "number"},
+                    {"description", "Tea bags only: leaf dose per 100 ml water"}}},
+                {"steepTime", QJsonObject{{"type", "string"},
+                    {"description", "Tea bags only: display string, e.g. '3-5 minutes'"}}}
             }},
             {"required", QJsonArray{"bagId"}}
         },
@@ -1654,7 +1677,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             static const QStringList kBlobKeys = {
                 "origin", "region", "farm", "producer", "variety", "elevation",
                 "process", "harvest", "qualityScore", "placeOfPurchase",
-                "tastingNotes", "link"};
+                "tastingNotes", "link",
+                // Tea vocabulary (kind stays immutable; these are blob keys
+                // like the coffee details above).
+                "teaType", "garden", "cultivar", "flush", "brewTempC",
+                "leafGramsPer100Ml", "steepTime"};
             QVariantMap blobEdits;
             for (const QString& key : kBlobKeys) {
                 if (args.contains(key))

@@ -87,6 +87,17 @@ QJsonObject recipeToJson(const Recipe& r, Settings* settings, QSqlDatabase* db,
     o["id"] = r.id;
     o["name"] = r.name;
     o["profileTitle"] = r.profileTitle;
+    // Stored drink type; legacy rows (pre-migration-28) derive from the
+    // blocks (embedded profile JSON supplies beverage_type when present).
+    if (!r.drinkType.isEmpty()) {
+        o["drinkType"] = r.drinkType;
+    } else {
+        QString bev;
+        if (!r.profileJson.isEmpty())
+            bev = QJsonDocument::fromJson(r.profileJson.toUtf8())
+                      .object().value(QStringLiteral("beverage_type")).toString();
+        o["drinkType"] = Recipe::deriveDrinkType(r, bev);
+    }
     if (!r.beanBaseId.isEmpty() || !r.roasterName.isEmpty() || !r.coffeeName.isEmpty()) {
         QJsonObject bean;
         if (!r.beanBaseId.isEmpty()) bean["beanBaseId"] = r.beanBaseId;
@@ -158,7 +169,8 @@ QVariantMap recipeFieldsFromArgs(const QJsonObject& args)
 {
     QVariantMap fields;
     static const QStringList kStringKeys = {
-        "name", "profileTitle", "beanBaseId", "roasterName", "coffeeName", "grindPinned"};
+        "name", "profileTitle", "beanBaseId", "roasterName", "coffeeName", "grindPinned",
+        "drinkType"};
     for (const QString& key : kStringKeys) {
         if (args.contains(key))
             fields.insert(key, args[key].toString());
@@ -333,16 +345,25 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
     // recipe_create — new recipe from explicit fields.
     registry->registerAsyncTool(
         "recipe_create",
-        "Create a recipe. Only name and profileTitle are required — bean link, equipment, and "
-        "every parameter are optional (a recipe works with whatever the user tracks). Leave "
-        "grindPinned empty to inherit grind from the linked bean's bag (recommended); set it "
-        "only when this recipe deliberately grinds differently from the bean's other drinks.",
+        "Create a recipe. Only name is always required; profileTitle is required unless the "
+        "recipe carries a hot-water block with hasWater true (a profile-less hot-water tea). "
+        "Bean link, equipment, and every parameter are optional (a recipe works with whatever "
+        "the user tracks). Leave grindPinned empty to inherit grind from the linked bean's bag "
+        "(recommended); set it only when this recipe deliberately grinds differently from the "
+        "bean's other drinks.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
                 {"name", QJsonObject{{"type", "string"}}},
                 {"profileTitle", QJsonObject{{"type", "string"},
-                    {"description", "Installed profile title (see profiles_list)"}}},
+                    {"description", "Installed profile title (see profiles_list). Omit only "
+                                    "for a hot-water-only recipe (hotWater.hasWater true)"}}},
+                {"drinkType", QJsonObject{{"type", "string"},
+                    {"enum", QJsonArray{"espresso", "filter", "americano", "long_black",
+                                        "latte", "tea", "tea_hotwater"}},
+                    {"description", "The drink this recipe makes (user intent; presentation "
+                                    "only — machine behavior follows the blocks). Derived "
+                                    "from the blocks when omitted"}}},
                 {"beanBaseId", QJsonObject{{"type", "string"},
                     {"description", "Canonical bean UUID (strongest bean link; survives bag replacement)"}}},
                 {"roasterName", QJsonObject{{"type", "string"}}},
@@ -358,18 +379,31 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 {"steam", steamBlockSchema()},
                 {"hotWater", hotWaterBlockSchema()}
             }},
-            {"required", QJsonArray{"name", "profileTitle"}}
+            {"required", QJsonArray{"name"}}
         },
         [recipeStorage, settings](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!recipeStorage) {
                 respond(QJsonObject{{"error", "Recipe storage not available"}});
                 return;
             }
-            const QVariantMap fields = recipeFieldsFromArgs(args);
-            if (fields.value("name").toString().trimmed().isEmpty()
-                || fields.value("profileTitle").toString().trimmed().isEmpty()) {
-                respond(QJsonObject{{"error", "name and profileTitle are required"}});
+            QVariantMap fields = recipeFieldsFromArgs(args);
+            if (!Recipe::saveValidationPasses(fields.value("name").toString(),
+                                              fields.value("profileTitle").toString(),
+                                              fields.value("hotWaterJson").toString())) {
+                respond(QJsonObject{{"error", "name is required, and profileTitle is required "
+                                              "unless the recipe has a hot-water block with "
+                                              "hasWater true"}});
                 return;
+            }
+            // Derive the drink type when the caller didn't state one (embedded
+            // profile JSON supplies beverage_type when present).
+            if (fields.value("drinkType").toString().isEmpty()) {
+                const Recipe shaped = Recipe::fromVariantMap(fields);
+                QString bev;
+                if (!shaped.profileJson.isEmpty())
+                    bev = QJsonDocument::fromJson(shaped.profileJson.toUtf8())
+                              .object().value(QStringLiteral("beverage_type")).toString();
+                fields.insert("drinkType", Recipe::deriveDrinkType(shaped, bev));
             }
             auto conn = std::make_shared<QMetaObject::Connection>();
             *conn = QObject::connect(recipeStorage, &RecipeStorage::recipeCreated, qApp,
@@ -390,13 +424,17 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
         "recipe_update",
         "Update fields on a recipe. Only provided fields change. Set grindPinned to '' to return "
         "the recipe to inheriting grind from its bean's bag. Pass a steam object to replace the "
-        "steam block.",
+        "steam block. Changing the steam/hot-water block or the profile re-derives drinkType "
+        "unless you set it explicitly in the same call.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
                 {"recipeId", QJsonObject{{"type", "integer"}}},
                 {"name", QJsonObject{{"type", "string"}}},
                 {"profileTitle", QJsonObject{{"type", "string"}}},
+                {"drinkType", QJsonObject{{"type", "string"},
+                    {"enum", QJsonArray{"espresso", "filter", "americano", "long_black",
+                                        "latte", "tea", "tea_hotwater"}}}},
                 {"beanBaseId", QJsonObject{{"type", "string"}}},
                 {"roasterName", QJsonObject{{"type", "string"}}},
                 {"coffeeName", QJsonObject{{"type", "string"}}},
@@ -420,6 +458,16 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
             const QVariantMap fields = recipeFieldsFromArgs(args);
             if (recipeId <= 0 || fields.isEmpty()) {
                 respond(QJsonObject{{"error", "recipeId plus at least one field is required"}});
+                return;
+            }
+            // Clearing the profile is only valid when this same call makes the
+            // recipe hot-water-only — otherwise it would strand an unactivatable
+            // recipe (profile required unless hot-water block present).
+            if (fields.contains("profileTitle")
+                && fields.value("profileTitle").toString().trimmed().isEmpty()
+                && !Recipe::hotWaterActive(fields.value("hotWaterJson").toString())) {
+                respond(QJsonObject{{"error", "profileTitle can only be cleared when the same "
+                                              "call sets a hot-water block with hasWater true"}});
                 return;
             }
             auto conn = std::make_shared<QMetaObject::Connection>();
