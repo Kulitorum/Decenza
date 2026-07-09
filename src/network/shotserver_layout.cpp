@@ -2029,7 +2029,7 @@ QString ShotServer::generateLayoutPage() const
                     </label>
                 </div>
                 <div class="ss-slider-row">
-                    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
+                    <label id="spYieldTargetOnlyLabel" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">
                         <input type="checkbox" id="spYieldTargetOnly" onchange="spConfigChanged()">
                         <span style="color:var(--text-secondary)">Final yield only (hide profile default, e.g. "40g" not "36 &#8594; 40g")</span>
                     </label>
@@ -3059,6 +3059,7 @@ QString ShotServer::generateLayoutPage() const
                     document.getElementById("spYieldTargetOnly").checked = props.shotPlanYieldTargetOnly === true;
                     document.getElementById("spShowSteamPlan").checked = typeof props.shotPlanShowSteamPlan === "boolean" ? props.shotPlanShowSteamPlan : true;
                     spSyncStacked();
+                    spSyncYieldTargetOnly();
                     document.getElementById("ssShotPlanSettings").style.display = "";
                 } else {
                     document.getElementById("ssNoSettings").style.display = "";
@@ -3195,12 +3196,14 @@ QString ShotServer::generateLayoutPage() const
     function spRemove(i) {
         spItems.splice(i, 1);
         spRender();
+        spSyncYieldTargetOnly();
         spConfigChanged();
     }
 
     function spAdd(key) {
         if (spItems.indexOf(key) === -1) spItems.push(key);
         spRender();
+        spSyncYieldTargetOnly();
         spConfigChanged();
     }
 
@@ -3222,6 +3225,16 @@ QString ShotServer::generateLayoutPage() const
     function spSentenceChanged() {
         spSyncStacked();
         spConfigChanged();
+    }
+
+    // "Final yield only" only affects the Dose & yield item — disable and dim
+    // it while that item isn't shown, mirroring the in-app editor.
+    function spSyncYieldTargetOnly() {
+        var on = spItems.indexOf("doseYield") !== -1;
+        document.getElementById("spYieldTargetOnly").disabled = !on;
+        var label = document.getElementById("spYieldTargetOnlyLabel");
+        label.style.opacity = on ? "" : "0.4";
+        label.style.cursor = on ? "pointer" : "default";
     }
 
     function ssSelectMapTexture(value) {

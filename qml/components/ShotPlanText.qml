@@ -37,9 +37,8 @@ Item {
     // Sentence mode only: render the detail tail on its own line(s) below the
     // sentence (display path — the a11y text stays one joined sentence).
     property bool stacked: false
-    // Yield rendering: when true, show only the effective target yield (e.g.
-    // "40.0g") and suppress the "profileDefault → target" arrow. The default
-    // (false) keeps the arrow, mirroring the temperature-override treatment.
+    // Yield rendering: when true, suppress the "profileDefault → target" arrow
+    // and show only the effective target — see _yieldStr for the full rule.
     property bool yieldTargetOnly: false
     // Wrap budget before eliding: 2 in the full-size widget, 1 in compact bars.
     property int maxLines: 2
@@ -67,8 +66,9 @@ Item {
     // --- Per-item segments (empty string = hidden). ---
     // Dose & yield: the shot's target output, plus dose-in (e.g. "18.0g in"). A DELIBERATE yield
     // override (the hasBrewYieldOverride flag, not raw drift — measured dose never exactly matches
-    // the profile's) renders as "36.0 → 40.0g", mirroring the temperature-override treatment —
-    // UNLESS yieldTargetOnly is set, in which case only the effective target ("40.0g") shows.
+    // the profile's) renders as "36.0 → 40.0g" — the yield counterpart of the temperature-override
+    // call-out (which uses a delta tag, not an arrow). yieldTargetOnly suppresses the arrow and
+    // shows only the effective target ("40.0g"); with no active override it's a visible no-op.
     readonly property string _yieldStr: {
         if (!(_has("doseYield") && targetWeight > 0)) return ""
         if (!yieldTargetOnly && Settings.brew.hasBrewYieldOverride && profileYield > 0

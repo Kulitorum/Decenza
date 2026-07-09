@@ -683,7 +683,8 @@ Dialog {
                     StyledSwitch {
                         // Yield display: ON shows only the effective target yield (e.g. "40.0g");
                         // OFF keeps the "profileDefault → target" arrow (e.g. "36.0 → 40.0g").
-                        // Only affects the Dose & yield item, so disabled when it isn't shown.
+                        // Only affects the Dose & yield item, so disabled when it isn't shown —
+                        // and only visibly differs while a deliberate yield override is active.
                         text: TranslationManager.translate("shotPlanEditor.yieldTargetOnly", "Final yield only (hide profile default)")
                         enabled: popup.shotPlanItems.indexOf("doseYield") !== -1
                         checked: popup.shotPlanYieldTargetOnly
