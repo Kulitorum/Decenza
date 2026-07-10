@@ -1727,14 +1727,10 @@ Page {
                     onInputBlurred: postShotReviewPage.autosave("rpm", true)
                 }
 
-                // === ROW 4: Beverage type, Barista, Preset, Shot Date ===
-                LabeledComboBox {
-                    Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.beveragetype", "Beverage type")
-                    model: ["espresso", "filter", "pourover", "tea_portafilter", "tea", "calibrate", "cleaning", "descale", "manual"]
-                    currentValue: editBeverageType
-                    onValueChanged: function(v) { editBeverageType = v; postShotReviewPage.autosave("beverageType", true) }
-                }
+                // Beverage type is captured from the profile at shot time and is
+                // not editable — we trust the profile, and the recipe now
+                // preserves the shot's context. (editBeverageType still carries
+                // the shot's captured value through save unchanged.)
 
                 SuggestionField {
                     id: baristaField
@@ -1750,94 +1746,9 @@ Page {
                     onInputBlurred: postShotReviewPage.autosave("barista", true)
                 }
 
-                // Preset (read-only display)
-                Item {
-                    Layout.fillWidth: true
-                    implicitHeight: presetLabel.height + presetValue.height + 2
-
-                    Text {
-                        id: presetLabel
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        text: TranslationManager.translate("postshotreview.label.preset", "Preset")
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(11)
-                        Accessible.ignored: true
-                    }
-
-                    Rectangle {
-                        id: presetValue
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: presetLabel.bottom
-                        anchors.topMargin: Theme.scaled(2)
-                        height: Theme.scaled(48)
-                        color: Theme.backgroundColor
-                        radius: Theme.scaled(4)
-                        border.color: Theme.textSecondaryColor
-                        border.width: 1
-
-                        Text {
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.scaled(12)
-                            anchors.rightMargin: Theme.scaled(12)
-                            textFormat: Text.RichText
-                            text: Theme.replaceEmojiWithImg(editShotData.profileName || "", Theme.scaled(14))
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                            verticalAlignment: Text.AlignVCenter
-                            elide: Text.ElideRight
-                            Accessible.ignored: true
-                        }
-
-                        Accessible.role: Accessible.StaticText
-                        Accessible.name: TranslationManager.translate("postshotreview.label.preset", "Preset") + ": " + (editShotData.profileName || "")
-                    }
-                }
-
-                // Shot date/time (read-only display)
-                Item {
-                    Layout.fillWidth: true
-                    implicitHeight: shotDateLabel.height + shotDateValue.height + 2
-
-                    Text {
-                        id: shotDateLabel
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        text: TranslationManager.translate("postshotreview.label.shotdate", "Shot date")
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(11)
-                        Accessible.ignored: true
-                    }
-
-                    Rectangle {
-                        id: shotDateValue
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: shotDateLabel.bottom
-                        anchors.topMargin: Theme.scaled(2)
-                        height: Theme.scaled(48)
-                        color: Theme.backgroundColor
-                        radius: Theme.scaled(4)
-                        border.color: Theme.textSecondaryColor
-                        border.width: 1
-
-                        Text {
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.scaled(12)
-                            anchors.rightMargin: Theme.scaled(12)
-                            text: editShotData.dateTime || ""
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                            verticalAlignment: Text.AlignVCenter
-                            elide: Text.ElideRight
-                            Accessible.ignored: true
-                        }
-
-                        Accessible.role: Accessible.StaticText
-                        Accessible.name: TranslationManager.translate("postshotreview.label.shotdate", "Shot date") + ": " + (editShotData.dateTime || "")
-                    }
-                }
+                // Preset (profile) and Shot date were removed here — both were
+                // read-only and already shown in the title, the Shot Plan
+                // snapshot line, and the recipe card, so they only added clutter.
 
                 // Recipe card (recipeId > 0): the recipe AND its editable
                 // components in one cohesive card, modelled on the recipe
