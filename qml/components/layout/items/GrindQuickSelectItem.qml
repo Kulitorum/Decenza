@@ -9,11 +9,18 @@ import "../.."
 // value writes it to Settings.dye.dyeGrinderSetting (the same path the Brew
 // Settings +/- controls use, which write-through to the active bag/package).
 //
+// RPM-capable grinders (Settings.dye.grinderRpmCapable(brand, model) — the same
+// check BrewDialog uses to reveal its dedicated RPM field) dial in via motor
+// RPM, not burr position. For those the pill instead steps Settings.dye
+// .dyeGrinderRpm (an int) by a fixed RPM increment, so the widget adjusts the
+// parameter the user actually turns. Non-RPM grinders step dyeGrinderSetting
+// exactly as before.
+//
 // Pure layout widget: no AI / feedback dependencies, so it can be
-// cherry-picked cleanly onto upstream/main. Works whether the grinder encodes
-// its setting as a NUMBER ("31"), a number embedded in text ("C4", "4F"), or
-// pure LETTERS ("F"); anything else falls back to the user's observed grind
-// settings for the active grinder from shot history.
+// cherry-picked cleanly onto upstream/main. In burr-setting mode it works
+// whether the grinder encodes its setting as a NUMBER ("31"), a number embedded
+// in text ("C4", "4F"), or pure LETTERS ("F"); anything else falls back to the
+// user's observed grind settings for the active grinder from shot history.
 Item {
     id: root
     property bool isCompact: false
@@ -22,15 +29,46 @@ Item {
     property color zoneTextColor: Theme.textColor
     property bool zoneValueBold: false
 
-    readonly property string labelText: TranslationManager.translate("grind.quickSelect.label", "Grind")
+    // Active grinder identity (both carry NOTIFY, so isRpmMode stays reactive
+    // when the user switches equipment — mirrors BrewDialog.equipmentRpmCapable).
+    readonly property string grinderBrand: String(Settings.dye.dyeGrinderBrand || "")
+    readonly property string grinderModel: String(Settings.dye.dyeGrinderModel || "")
+    // RPM-capable grinders dial in by motor RPM (BrewDialog shows a dedicated RPM
+    // field for exactly these). In that case the pill steps dyeGrinderRpm.
+    //
+    // Also require an RPM to be set: grinderRpmCapable() returns true for ANY
+    // grinder not in the registry (deriveRpmCapable: unknown -> true), so a
+    // burr-dialed custom grinder would otherwise be forced into RPM mode with a
+    // dead blank picker. Gating on dyeGrinderRpm > 0 keeps such grinders on burr
+    // stepping until the user actually sets an RPM (in BrewDialog); a genuine RPM
+    // grinder with rpm unset couldn't step from blank anyway, so nothing is lost.
+    // BrewDialog dodges this by showing BOTH fields; this pill is either/or.
+    readonly property bool isRpmMode: Settings.dye.grinderRpmCapable(grinderBrand, grinderModel)
+                                      && Settings.dye.dyeGrinderRpm > 0
 
-    // Current grinder setting (a STRING — may be numeric, letters, or mixed).
-    readonly property string currentSetting: String(Settings.dye.dyeGrinderSetting || "")
+    readonly property string labelText: isRpmMode
+        ? TranslationManager.translate("grind.quickSelect.rpmLabel", "RPM")
+        : TranslationManager.translate("grind.quickSelect.label", "Grind")
+
+    // Current dial-in as a STRING, mode-aware:
+    //   burr mode — dyeGrinderSetting (numeric, letters, or mixed).
+    //   rpm  mode — dyeGrinderRpm (an int; 0 = unset → empty).
+    readonly property string currentSetting: isRpmMode
+        ? (Settings.dye.dyeGrinderRpm > 0 ? String(Settings.dye.dyeGrinderRpm) : "")
+        : String(Settings.dye.dyeGrinderSetting || "")
     readonly property string valueText: currentSetting.length > 0
         ? currentSetting
         : TranslationManager.translate("grind.quickSelect.unset", "—")
 
-    // Global configurable step (numeric mode only), edited in Settings. Default 1.0.
+    // Fixed RPM step (rpm mode only). RPM-capable grinders (e.g. Turin DF83V/DF64V)
+    // run ~600–1400 RPM where ~50 RPM is a meaningful dial-in change, so ±5 steps
+    // span ~±250 RPM — a useful picker range. The global grindQuickSelectStep
+    // (default 1.0, range 0.1–5.0) is a BURR-POSITION step and would give a
+    // useless ~10 RPM span, so RPM mode deliberately ignores it. Tunable.
+    readonly property int rpmStep: 50
+
+    // Global configurable step (burr-setting numeric mode only), edited in
+    // Settings. Default 1.0.
     readonly property double grindStep: (Settings.brew.grindQuickSelectStep > 0)
         ? Settings.brew.grindQuickSelectStep : 1.0
 
@@ -141,11 +179,37 @@ Item {
         function onDistinctCacheReady() { root._distinctCacheVersion++ }
     }
 
+    // RPM rows: current ±5 * rpmStep, clamped at >= 0, de-duplicated. Pure
+    // integers (no history fallback — observed history is burr-setting-specific).
+    function _rpmRows() {
+        var base = Settings.dye.dyeGrinderRpm
+        if (base <= 0)
+            return [{ value: root.currentSetting, isCurrent: true }]  // unset -> just show "—"/current
+        var out = []
+        var seen = ({})
+        for (var n = -5; n <= 5; n++) {
+            var rpm = base + n * root.rpmStep
+            if (rpm < 0) continue
+            var v = String(rpm)
+            if (seen[v]) continue
+            seen[v] = true
+            out.push({ value: v, isCurrent: n === 0 })
+        }
+        return out
+    }
+
     readonly property var rows: {
         // Reference for reactivity across setting + translation changes and the
-        // async history cache (only consumed by the fallback path).
+        // async history cache (only consumed by the burr-mode fallback path).
         var _ = TranslationManager.translationVersion
         var __ = root._distinctCacheVersion
+        // Track the live dial-in so rows recompute on setting/RPM changes
+        // (currentSetting reflects dyeGrinderSetting or dyeGrinderRpm per mode).
+        var ___ = root.currentSetting
+
+        if (root.isRpmMode)
+            return root._rpmRows()
+
         var cur = root.currentSetting
         var step = root.grindStep
 
@@ -168,11 +232,21 @@ Item {
 
     function applyValue(v) {
         // Plain property write: the SettingsDye setter write-through keeps the
-        // active bag + package last-used grind current (coffee_bags), matching
+        // active bag + package last-used dial-in current (coffee_bags), matching
         // the Brew Settings and Post-Shot Review write path. No dose/target/temp
         // re-apply (that belongs to Brew Settings, not a grind-only widget).
-        if (v && v.length > 0)
+        if (!v || v.length === 0)
+            return
+        if (root.isRpmMode) {
+            // dyeGrinderRpm is an int property; parse the picked label. Plain
+            // assignment (NOT a setter call) so the write-through in the C++
+            // setter fires — the same rule as dyeGrinderSetting.
+            var rpm = parseInt(v)
+            if (rpm > 0)
+                Settings.dye.dyeGrinderRpm = rpm
+        } else {
             Settings.dye.dyeGrinderSetting = v
+        }
     }
 
     ColumnLayout {
@@ -230,7 +304,9 @@ Item {
     GrindPickerDialog {
         id: grindDialog
         rows: root.rows
-        finerHint: root.grindStep > 0 && root.currentSetting.length > 0
+        // Finer/Coarser annotation is burr-position semantics; RPM->grind
+        // direction is grinder-specific and ambiguous, so suppress it there.
+        finerHint: !root.isRpmMode && root.grindStep > 0 && root.currentSetting.length > 0
         onValuePicked: function(v) { root.applyValue(v) }
     }
 }
