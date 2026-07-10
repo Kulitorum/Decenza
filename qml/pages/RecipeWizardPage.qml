@@ -709,6 +709,32 @@ Page {
             + TranslationManager.translate("recipes.wizard.grindPinnedShort", "this recipe only")
     }
 
+    // Revert the numbers to the profile's own values (the card's "Reset to
+    // profile" action): recommended dose, target yield, no temp offset —
+    // tea falls back to the per-type default temperature when the profile
+    // states none. Marks the fields user-edited so the async history reply
+    // cannot overwrite a deliberate reset.
+    function resetNumbersToProfile() {
+        var dose = 0
+        if (fProfileTitle !== "") {
+            var fn = ProfileManager.findProfileByTitle(fProfileTitle)
+            if (fn && fn !== "") {
+                var d = ProfileManager.getProfileByFilename(fn)
+                dose = d.recommended_dose || 0
+                fProfileTempC = d.espresso_temperature || 0
+                fProfileYieldG = d.target_weight || 0
+            }
+        }
+        doseField.text = dose > 0 ? Number(dose).toFixed(1) : ""
+        yieldField.text = fProfileYieldG > 0 ? Number(fProfileYieldG).toFixed(1) : ""
+        fTempDeltaC = 0
+        if (isTeaDrink)
+            fTeaTempC = fProfileTempC > 0 ? fProfileTempC
+                : ProfileManager.defaultTeaTempC(String(_teaBrewing.teaType || ""))
+        _detailsUserEdited = true
+        _numbersSource = "profile"
+    }
+
     function applyDetailsPrefill() {
         // Prefilled = optional: the numbers and grind cards open COLLAPSED
         // to their summaries (they only need attention when nothing could be
@@ -1991,6 +2017,24 @@ Page {
                                         wizardPage._detailsUserEdited = true
                                     }
                                 }
+                                Item { Layout.fillWidth: true }
+                            }
+                            // The way back after editing: revert to the
+                            // profile's own numbers (no revert exists on the
+                            // other cards because they have no canonical
+                            // source — grind's revert is the Override toggle).
+                            AccessibleButton {
+                                visible: wizardPage.fProfileTitle !== ""
+                                Layout.alignment: Qt.AlignRight
+                                height: Theme.scaled(36)
+                                _customFontSize: Theme.captionFont.pixelSize
+                                leftPadding: Theme.scaled(10)
+                                rightPadding: Theme.scaled(10)
+                                text: TranslationManager.translate("recipes.wizard.resetToProfile", "Reset to profile")
+                                accessibleName: TranslationManager.translate(
+                                    "recipes.wizard.accessible.resetToProfile",
+                                    "Reset dose, yield, and temperature to the profile's values")
+                                onClicked: wizardPage.resetNumbersToProfile()
                             }
                         }
 
