@@ -83,6 +83,41 @@ Page {
         root.currentPageTitle = TranslationManager.translate("shotdetail.title", "Shot Detail")
     }
 
+    // One labeled component row inside the recipe card: a caption label over
+    // its value; hides itself when the value is empty (so absent components
+    // leave no gap).
+    component RecipeField: ColumnLayout {
+        id: rf
+        property string fieldLabel: ""
+        property string value: ""
+        Layout.fillWidth: true
+        spacing: 0
+        visible: rf.value !== ""
+        Text {
+            text: rf.fieldLabel
+            font: Theme.captionFont
+            color: Theme.textSecondaryColor
+            Accessible.ignored: true
+        }
+        Text {
+            Layout.fillWidth: true
+            text: rf.value
+            font: Theme.bodyFont
+            color: Theme.textColor
+            wrapMode: Text.WordWrap
+            Accessible.ignored: true
+        }
+    }
+
+    // Hidden Tr instances for the recipe-card component labels (reuse existing
+    // keys where they exist; "Dial-in" is new).
+    Tr { id: trRowProfile; key: "recipes.wizard.rowProfile"; fallback: "Profile"; visible: false }
+    Tr { id: trRowBeans; key: "shotdetail.beaninfo"; fallback: "Beans"; visible: false }
+    Tr { id: trRowDialIn; key: "shotdetail.recipe.dialIn"; fallback: "Dial-in"; visible: false }
+    Tr { id: trRowSteam; key: "recipes.wizard.rowSteam"; fallback: "Steam / milk"; visible: false }
+    Tr { id: trRowWater; key: "recipes.wizard.rowHotWater"; fallback: "Hot water"; visible: false }
+    Tr { id: trRowEquipment; key: "shotdetail.equipment"; fallback: "Equipment"; visible: false }
+
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("shotdetail.title", "Shot Detail")
         // Initialize currentIndex if shotIds provided
@@ -166,6 +201,56 @@ Page {
             return "1:" + (shotData.finalWeightG / shotData.doseWeightG).toFixed(1)
         }
         return "-"
+    }
+
+    // --- Recipe-component row text (all from THIS shot's frozen snapshot) ---
+    // Profile · effective brew temperature.
+    function recipeProfileText() {
+        var parts = []
+        if (shotData.profileName) parts.push(shotData.profileName)
+        var t = shotData.temperatureOverrideC || 0
+        if (t > 0) parts.push(Math.round(Theme.cToDisplay(t)) + Theme.tempUnitSuffix())
+        return parts.join(" · ")
+    }
+    // Dose → yield · grind · rpm (rpm only for rpm-capable grinders).
+    function recipeDialInText() {
+        var _ = TranslationManager.translationVersion
+        var parts = []
+        var dose = shotData.doseWeightG || 0
+        var yieldG = (shotData.targetWeightG || 0) > 0 ? shotData.targetWeightG : (shotData.finalWeightG || 0)
+        if (dose > 0 && yieldG > 0) parts.push(dose.toFixed(1) + "g → " + yieldG.toFixed(1) + "g")
+        else if (dose > 0) parts.push(dose.toFixed(1) + "g")
+        var g = shotData.grinderSetting || ""
+        if (g.length > 0) parts.push(TranslationManager.translate("equipment.card.lastGrind", "Grind %1").arg(g))
+        if ((shotData.rpm || 0) > 0 && shotDetailPage._shotRpmCapable)
+            parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(shotData.rpm))
+        return parts.join(" · ")
+    }
+    // Steam / milk (pitcher · Ng milk) — empty unless the recipe steams milk.
+    function recipeSteamText() {
+        if (!shotData.steamJson) return ""
+        try {
+            var s = JSON.parse(shotData.steamJson)
+            if (!s.hasMilk) return ""
+            var parts = []
+            if (s.pitcherName) parts.push(s.pitcherName)
+            if ((s.milkWeightG || 0) > 0)
+                parts.push(TranslationManager.translate("recipes.list.milkWeight", "%1g milk").arg(s.milkWeightG))
+            return parts.join(" · ")
+        } catch (e) { return "" }
+    }
+    // Hot water (vessel · volume · temp) — empty unless the recipe adds water.
+    function recipeWaterText() {
+        if (!shotData.hotWaterJson) return ""
+        try {
+            var w = JSON.parse(shotData.hotWaterJson)
+            if (!w.hasWater) return ""
+            var parts = []
+            if (w.vesselName) parts.push(w.vesselName)
+            if ((w.volume || 0) > 0) parts.push(w.volume + (w.mode === "volume" ? "ml" : "g"))
+            if ((w.temperatureC || 0) > 0) parts.push(Math.round(Theme.cToDisplay(w.temperatureC)) + Theme.tempUnitSuffix())
+            return parts.join(" · ")
+        } catch (e) { return "" }
     }
 
     function graphAccessibleDescription() {
@@ -858,44 +943,37 @@ Page {
             }
 
             // Recipe card — shown only when this shot was pulled with a recipe
-            // (recipeId > 0). Identity (name, drink type, profile) is live-
-            // resolved by id and follows renames; the grind/rpm it shows is
-            // this shot's own frozen snapshot, never the recipe's since-edited
-            // pin. Compact read-only block (design D5) rather than the full
-            // RecipeDrinkCard, whose bean thumbnail, bean line, stale re-point,
-            // and pinned-grind plan line don't fit the read-only shot context.
+            // (recipeId > 0). One cohesive card that presents the recipe AND its
+            // components (profile, beans, dial-in, steam/water, equipment),
+            // modelled on the recipe editor's summary — so it reads as a recipe,
+            // not scattered cards. Identity (name, drink type, profile) is live-
+            // resolved by id and follows renames; every value shown is this
+            // shot's own frozen snapshot, never the recipe's since-edited pins.
+            // When a recipe is used this replaces the standalone bean/equipment
+            // cards below (which gate to the no-recipe case).
             Rectangle {
                 id: recipeCard
                 Layout.fillWidth: true
                 Layout.preferredHeight: recipeColumn.height + Theme.spacingLarge
                 color: Theme.surfaceColor
                 radius: Theme.cardRadius
+                border.color: Theme.borderColor
+                border.width: Theme.scaled(1)
                 visible: (shotData.recipeId || -1) > 0
 
                 readonly property string recipeName: shotDetailPage.resolvedRecipe.name || ""
-                readonly property string recipeProfile: shotDetailPage.resolvedRecipe.profileTitle || ""
                 readonly property string recipeDrinkLabel:
                     DrinkType.shortLabel(DrinkType.fromRecipeMap(shotDetailPage.resolvedRecipe))
-                // Grind/rpm from the SHOT snapshot (grind's home when a recipe
-                // was used), never the recipe's current pin.
-                readonly property string recipeGrindLine: {
-                    var _ = TranslationManager.translationVersion
-                    var parts = []
-                    var g = shotData.grinderSetting || ""
-                    if (g.length > 0)
-                        parts.push(TranslationManager.translate("equipment.card.lastGrind", "Grind %1").arg(g))
-                    if ((shotData.rpm || 0) > 0 && shotDetailPage._shotRpmCapable)
-                        parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(shotData.rpm))
-                    return parts.join(" · ")
-                }
 
                 Accessible.role: Accessible.Grouping
                 Accessible.name: {
                     var parts = [TranslationManager.translate("shotdetail.recipe", "Recipe")]
                     if (recipeName !== "") parts.push(recipeName)
-                    var drinkBits = [recipeDrinkLabel, recipeProfile].filter(function(s) { return s !== "" })
-                    if (drinkBits.length > 0) parts.push(drinkBits.join(" · "))
-                    if (recipeGrindLine !== "") parts.push(recipeGrindLine)
+                    if (recipeDrinkLabel !== "") parts.push(recipeDrinkLabel)
+                    var p = shotDetailPage.recipeProfileText(); if (p !== "") parts.push(p)
+                    var b = detailRecipeBeanSummary.summaryText; if (b !== "") parts.push(b)
+                    var d = shotDetailPage.recipeDialInText(); if (d !== "") parts.push(d)
+                    var e = detailRecipeEquipment.accessibleSummary; if (e !== "") parts.push(e)
                     return parts.join(", ")
                 }
 
@@ -907,35 +985,30 @@ Page {
                     anchors.margins: Theme.spacingMedium
                     spacing: Theme.spacingSmall
 
+                    // --- Hero: eyebrow + recipe name + drink type ---
                     Tr {
                         key: "shotdetail.recipe"
                         fallback: "Recipe"
-                        font: Theme.subtitleFont
-                        color: Theme.textColor
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
                         Accessible.ignored: true
                     }
-
-                    // Recipe name.
                     Text {
                         Layout.fillWidth: true
                         visible: recipeCard.recipeName !== ""
                         textFormat: Text.RichText
-                        text: Theme.replaceEmojiWithImg(recipeCard.recipeName, Theme.subtitleFont.pixelSize)
-                        font: Theme.subtitleFont
+                        text: Theme.replaceEmojiWithImg(recipeCard.recipeName, Theme.titleFont.pixelSize)
+                        font: Theme.titleFont
                         color: Theme.textColor
                         wrapMode: Text.WordWrap
                         Accessible.ignored: true
                     }
-
-                    // Drink line: drink-type icon + short label + profile (always
-                    // shown so same-bean recipes stay distinguishable).
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(6)
-                        visible: recipeCard.recipeDrinkLabel !== "" || recipeCard.recipeProfile !== ""
+                        visible: recipeCard.recipeDrinkLabel !== ""
                         ColoredIcon {
-                            Layout.alignment: Qt.AlignTop
-                            Layout.topMargin: Theme.scaled(1)
+                            Layout.alignment: Qt.AlignVCenter
                             source: DrinkType.icon(DrinkType.fromRecipeMap(shotDetailPage.resolvedRecipe))
                             iconWidth: Theme.scaled(16)
                             iconHeight: Theme.scaled(16)
@@ -944,33 +1017,114 @@ Page {
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: [recipeCard.recipeDrinkLabel, recipeCard.recipeProfile]
-                                .filter(function(s) { return s !== "" }).join(" · ")
-                            font: Theme.captionFont
+                            text: recipeCard.recipeDrinkLabel
+                            font: Theme.bodyFont
                             color: Theme.textSecondaryColor
                             wrapMode: Text.WordWrap
                             Accessible.ignored: true
                         }
                     }
 
-                    // Grind/rpm — this shot's frozen dial-in (grind's home when a
-                    // recipe was used).
-                    Text {
+                    Rectangle {
                         Layout.fillWidth: true
-                        visible: recipeCard.recipeGrindLine !== ""
-                        text: recipeCard.recipeGrindLine
-                        font: Theme.captionFont
-                        color: Theme.textColor
-                        wrapMode: Text.WordWrap
+                        Layout.topMargin: Theme.scaled(2)
+                        Layout.bottomMargin: Theme.scaled(2)
+                        height: Theme.scaled(1)
+                        color: Theme.borderColor
                         Accessible.ignored: true
+                    }
+
+                    // --- Components (each from this shot's frozen values) ---
+                    RecipeField {
+                        fieldLabel: trRowProfile.text
+                        value: shotDetailPage.recipeProfileText()
+                    }
+
+                    // Beans — the shared BeanSummary + Bean Base details.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        Text {
+                            text: trRowBeans.text
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            Accessible.ignored: true
+                        }
+                        BeanSummary {
+                            id: detailRecipeBeanSummary
+                            Layout.fillWidth: true
+                            useShotData: true
+                            roasterName: shotData.beanBrand || ""
+                            coffeeName: shotData.beanType || ""
+                            roastDate: shotData.roastDate || ""
+                            roastLevel: shotData.roastLevel || ""
+                            beanBaseData: shotData.beanBaseJson || ""
+                        }
+                        BeanBaseDetailsRow {
+                            Layout.fillWidth: true
+                            beanBaseJson: shotData.beanBaseJson || ""
+                        }
+                    }
+
+                    RecipeField {
+                        fieldLabel: trRowDialIn.text
+                        value: shotDetailPage.recipeDialInText()
+                    }
+                    RecipeField {
+                        fieldLabel: trRowSteam.text
+                        value: shotDetailPage.recipeSteamText()
+                    }
+                    RecipeField {
+                        fieldLabel: trRowWater.text
+                        value: shotDetailPage.recipeWaterText()
+                    }
+
+                    // Equipment — the shared EquipmentSummary (grinder/basket/
+                    // puck only; grind/rpm live on the Dial-in row above).
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        visible: detailRecipeEquipment.accessibleSummary !== ""
+                        Text {
+                            text: trRowEquipment.text
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            Accessible.ignored: true
+                        }
+                        EquipmentSummary {
+                            id: detailRecipeEquipment
+                            Layout.fillWidth: true
+                            grinderName: shotData.equipmentName || ""
+                            grinderBrand: shotData.grinderBrand || ""
+                            grinderModel: shotData.grinderModel || ""
+                            grinderBurrs: shotData.grinderBurrs || ""
+                            basketBrand: shotData.basketBrand || ""
+                            basketModel: shotData.basketModel || ""
+                            puckPrepCanonical: shotData.puckPrep || ""
+                            equipmentState: shotData.equipmentState || ""
+                        }
+                    }
+
+                    // Re-link beans (historicalShot semantics — this shot only).
+                    AccessibleButton {
+                        Layout.preferredHeight: Theme.scaled(40)
+                        Layout.topMargin: Theme.scaled(2)
+                        text: detailRecipeBeanSummary.hasBeans
+                            ? TranslationManager.translate("shotdetail.changeBeans", "Re-link Beans")
+                            : TranslationManager.translate("beans.button.select", "Select Beans")
+                        accessibleName: TranslationManager.translate("shotdetail.accessible.changeBeans", "Change the beans recorded for this shot")
+                        onClicked: detailChangeBeansDialog.open()
                     }
                 }
             }
 
-            // Bean + Grinder info side by side
+            // Bean + Grinder info side by side — shown ONLY when the shot used
+            // no recipe. With a recipe, the beans and equipment are folded into
+            // the recipe card above so it reads as one cohesive recipe.
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spacingMedium
+                visible: (shotData.recipeId || -1) <= 0
 
                 // Bean info card: read-only summary of this shot's bean
                 // snapshot + a re-link action ("historicalShot" semantics:
@@ -1062,23 +1216,6 @@ Page {
                                 : TranslationManager.translate("beans.button.select", "Select Beans")
                             accessibleName: TranslationManager.translate("shotdetail.accessible.changeBeans", "Change the beans recorded for this shot")
                             onClicked: detailChangeBeansDialog.open()
-                        }
-
-                        ChangeBeansDialog {
-                            id: detailChangeBeansDialog
-                            context: "historicalShot"
-                            shotId: shotDetailPage.shotId
-                        }
-
-                        // Reload after the snapshot update lands so the
-                        // summary reflects the re-linked bean (event-based,
-                        // no race with the background write).
-                        Connections {
-                            target: MainController.shotHistory
-                            function onShotMetadataUpdated(id, success) {
-                                if (id === shotDetailPage.shotId && success)
-                                    shotDetailPage.loadShot()
-                            }
                         }
                     }
                 }
@@ -1426,6 +1563,25 @@ Page {
                     }
                 }
             }
+        }
+    }
+
+    // Re-link beans for this shot — shared by the recipe card and the
+    // standalone bean card (only one is visible at a time). Page-scoped so the
+    // owning card's visibility never affects it. "historicalShot" semantics:
+    // updates only this shot's snapshot, never the active bag.
+    ChangeBeansDialog {
+        id: detailChangeBeansDialog
+        context: "historicalShot"
+        shotId: shotDetailPage.shotId
+    }
+    // Reload after the snapshot update lands so the summary reflects the
+    // re-linked bean (event-based, no race with the background write).
+    Connections {
+        target: MainController.shotHistory
+        function onShotMetadataUpdated(id, success) {
+            if (id === shotDetailPage.shotId && success)
+                shotDetailPage.loadShot()
         }
     }
 
