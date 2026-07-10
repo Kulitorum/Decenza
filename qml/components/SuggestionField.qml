@@ -29,7 +29,7 @@ Item {
     readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
 
     implicitHeight: (root.label.length > 0 ? fieldLabel.height + Theme.scaled(2) : 0)
-                    + Theme.scaled(48)
+                    + Theme.scaled(40)   // matches textInput height + ValueInput
                     + (_accessibilityMode && (textInput.text.length > 0 || suggestions.length > 0)
                        ? Theme.scaled(44) + Theme.scaled(4) : 0)
 
