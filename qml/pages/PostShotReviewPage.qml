@@ -124,6 +124,19 @@ Page {
         if (dose > 0) return dose.toFixed(1) + "g"
         return ""
     }
+    // Read-only dial-in for the recipe card: dose → yield · grind · rpm (rpm
+    // only for rpm-capable grinders). Grind itself is edited in the field grid.
+    function recipeDialInText() {
+        var _ = TranslationManager.translationVersion
+        var parts = []
+        var dy = recipeDoseYieldText()
+        if (dy !== "") parts.push(dy)
+        if (editGrinderSetting.length > 0)
+            parts.push(TranslationManager.translate("equipment.card.lastGrind", "Grind %1").arg(editGrinderSetting))
+        if (editRpm > 0 && editRpmCapable)
+            parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(editRpm))
+        return parts.join(" · ")
+    }
     function recipeSteamText() {
         if (!editShotData.steamJson) return ""
         try {
@@ -936,7 +949,6 @@ Page {
         targetFlickable: flickable
         textFields: [
             settingField.textField, rpmField.textField, baristaField.textField,
-            recipeSettingField.textField, recipeRpmField.textField,
             notesExpandable.textField
         ]
 
@@ -1821,52 +1833,11 @@ Page {
                             }
                         }
 
-                        // Dial-in (editable grind + RPM; dose→yield is edited in
-                        // the metrics row above and echoed read-only here).
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(2)
-                            Text {
-                                text: trRowDialIn.text
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                Accessible.ignored: true
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                visible: postShotReviewPage.recipeDoseYieldText() !== ""
-                                text: postShotReviewPage.recipeDoseYieldText()
-                                font: Theme.bodyFont
-                                color: Theme.textColor
-                                Accessible.ignored: true
-                            }
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.scaled(8)
-                                SuggestionField {
-                                    id: recipeSettingField
-                                    Layout.fillWidth: true
-                                    label: TranslationManager.translate("postshotreview.label.grindSetting", "Grind setting")
-                                    text: editGrinderSetting
-                                    suggestions: {
-                                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel) : []
-                                        if (editGrinderSetting.length > 0 && list.indexOf(editGrinderSetting) === -1) list = [editGrinderSetting].concat(list)
-                                        return list
-                                    }
-                                    onTextEdited: function(t) { editGrinderSetting = t }
-                                    onInputBlurred: postShotReviewPage.autosave("grinderSetting", true)
-                                }
-                                SuggestionField {
-                                    id: recipeRpmField
-                                    visible: postShotReviewPage.editRpmCapable
-                                    Layout.fillWidth: true
-                                    label: TranslationManager.translate("postshotreview.label.rpm", "RPM")
-                                    text: editRpm > 0 ? String(editRpm) : ""
-                                    suggestions: []
-                                    onTextEdited: function(t) { editRpm = parseInt(t) || 0 }
-                                    onInputBlurred: postShotReviewPage.autosave("rpm", true)
-                                }
-                            }
+                        // Dial-in (read-only) — grind is edited in the field grid
+                        // below, echoed here as part of the recipe overview.
+                        RecipeField {
+                            fieldLabel: trRowDialIn.text
+                            value: postShotReviewPage.recipeDialInText()
                         }
 
                         // Steam / Hot water (read-only)
@@ -1916,11 +1887,10 @@ Page {
                     }
                 }
 
-                // Grind + RPM live here only for no-recipe shots; with a recipe
-                // they move into the recipe card's Dial-in row.
+                // Grind setting — the most-adjusted dial-in; always editable
+                // here (the recipe card above shows it read-only).
                 SuggestionField {
                     id: settingField
-                    visible: (editShotData.recipeId || -1) <= 0
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.grindSetting", "Grind setting")
                     text: editGrinderSetting
@@ -1936,7 +1906,7 @@ Page {
                 // RPM dial-in — only when the shot's grinder is rpm-adjustable.
                 SuggestionField {
                     id: rpmField
-                    visible: postShotReviewPage.editRpmCapable && (editShotData.recipeId || -1) <= 0
+                    visible: postShotReviewPage.editRpmCapable
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.rpm", "RPM")
                     text: editRpm > 0 ? String(editRpm) : ""
