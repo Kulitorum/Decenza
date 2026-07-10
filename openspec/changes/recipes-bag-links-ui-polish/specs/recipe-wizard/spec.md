@@ -75,12 +75,20 @@ The wizard SHALL suggest a recipe name composed from the bean (coffee/tea name) 
 ### Requirement: Details step fits one screen with right-sized controls
 The details step's controls SHALL be sized to their content, not stretched to fill the row (a temperature stepper or a numeric field SHALL NOT span the page width). On landscape tablet layouts the section cards SHALL arrange in a multi-column grid so the step fits without scrolling for the common drink types. The grind knowledge-base hint (last grind for this bean, cross-profile direction) SHALL render as a visually anchored callout (icon plus distinct background), not as muted caption text.
 
-### Requirement: Details step explains its prefills
-The details step SHALL tell the user where the prefilled numbers came from and why they might change them: the numbers card SHALL carry a caption naming the provenance tier that filled it (last shot with this bean+profile / the profile's recommended numbers / the tea bag's brewing instructions / the recipe's saved values) plus a short adjust-to-taste nudge (including what the temp offset means); the grind card SHALL explain the inherit-vs-override rule; the equipment card SHALL say the package was prefilled from the user's last use for this drink type. The steam card SHALL NOT capture a milk weight — milk is weighed each time the user steams; the recipe stores the pitcher (whose preset carries steam time/flow/temperature) and the milk intent that drives the heater hold. A milk weight already stored on a recipe (e.g. promoted from a shot's steam snapshot) SHALL still display on cards and the summary.
+### Requirement: Details step explains its prefills and reads as optional
+The details step SHALL present itself as optional: a step-level caption SHALL state that everything is prefilled and ready to save. The numbers and grind cards SHALL open COLLAPSED to a one-line summary of their current values (tap to expand and edit); they SHALL auto-expand only when nothing could be prefilled (no dose/yield from any tier, or no bag to inherit grind from). When expanded, the numbers card SHALL carry a caption naming the provenance tier that filled it (last shot with this bean+profile / the profile's recommended numbers / the tea bag's brewing instructions / the recipe's saved values) plus a short adjust-to-taste nudge (including what the temp offset means); the grind card SHALL explain the inherit-vs-override rule; the equipment card SHALL say the package was prefilled from the user's last use for this drink type. The steam card SHALL NOT capture a milk weight — milk is weighed each time the user steams; the recipe stores the pitcher (whose preset carries steam time/flow/temperature) and the milk intent that drives the heater hold. A milk weight already stored on a recipe (e.g. promoted from a shot's steam snapshot) SHALL still display on cards and the summary.
+
+#### Scenario: Prefilled step reads as done
+- **WHEN** the user reaches the details step for a latte with history prefills
+- **THEN** the numbers and grind cards show collapsed value summaries under an "everything here is optional" caption, and Continue proceeds without touching anything
 
 #### Scenario: History prefill is named
-- **WHEN** the details step is prefilled from the user's last shot with the chosen bean and profile
-- **THEN** the numbers card's caption says the values come from that shot and invites adjusting them deliberately
+- **WHEN** the user expands the numbers card after a history prefill
+- **THEN** its caption says the values come from the last shot with these beans and this profile and invites adjusting them deliberately
+
+#### Scenario: Blank state still guides
+- **WHEN** no dose or yield could be prefilled from any tier
+- **THEN** the numbers card opens expanded so the step is not a dead end
 
 #### Scenario: No milk weight field
 - **WHEN** the user reaches the details step for a latte

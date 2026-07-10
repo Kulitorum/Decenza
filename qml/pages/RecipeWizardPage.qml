@@ -673,7 +673,48 @@ Page {
         return origin === "" ? why : origin + " " + why
     }
 
+    // One-line summaries for the collapsed details cards ("prefilled and
+    // optional" — the values read at a glance, tap to adjust).
+    readonly property string numbersSummary: {
+        var parts = []
+        var dose = parseFloat(doseField.text) || 0
+        var yieldG = parseFloat(yieldField.text) || 0
+        if (dose > 0 && yieldG > 0 && !isHotWaterTea)
+            parts.push(dose.toFixed(1) + "g → " + yieldG.toFixed(1) + "g")
+        else if (dose > 0)
+            parts.push(dose.toFixed(1) + "g")
+        if (isTeaDrink && fTeaTempC > 0)
+            parts.push(Math.round(fTeaTempC) + "°C")
+        else if (Math.abs(fTempDeltaC) > 0.05)
+            parts.push((fTempDeltaC > 0 ? "+" : "")
+                       + Theme.cDeltaToDisplay(fTempDeltaC).toFixed(0) + "°")
+        return parts.length > 0 ? parts.join(" · ")
+            : TranslationManager.translate("recipes.wizard.summary.notSet", "Not set")
+    }
+    readonly property string grindSummary: {
+        if (hasBean && !fGrindOverride) {
+            var s = trInherited.text
+            if (fInheritedGrind !== "") {
+                s += ": " + fInheritedGrind
+                if (fEquipmentRpmCapable && fInheritedRpm > 0)
+                    s += " · " + fInheritedRpm + " rpm"
+            }
+            return s
+        }
+        var g = grindField.text.trim()
+        if (g === "")
+            return TranslationManager.translate("recipes.wizard.summary.notSet", "Not set")
+        var rpm = parseInt(rpmField.text) || 0
+        return g + (fEquipmentRpmCapable && rpm > 0 ? " · " + rpm + " rpm" : "") + " · "
+            + TranslationManager.translate("recipes.wizard.grindPinnedShort", "this recipe only")
+    }
+
     function applyDetailsPrefill() {
+        // Prefilled = optional: the numbers and grind cards open COLLAPSED
+        // to their summaries (they only need attention when nothing could be
+        // prefilled — no dose/yield anywhere, or no bag to inherit from).
+        numbersCard.expanded = false
+        grindCard.expanded = activeTemplate.grind && !hasBean
         // Profile/bag seeds run synchronously so the details step is never
         // blank; the shot-history tier lands async via
         // latestShotForBeanProfileReady and OVERWRITES them (history that
@@ -716,6 +757,10 @@ Page {
         grindHint = ""
         if (activeTemplate.grind && (hasBean || _selectedBagRoastLevel !== ""))
             MainController.shotHistory.requestLatestGrindForBean(fRoaster, fCoffee, _selectedBagRoastLevel)
+        // Nothing could be prefilled → open the numbers card so the step
+        // isn't a dead end (hot-water tea needs no numbers at all).
+        if (doseField.text === "" && yieldField.text === "" && !isHotWaterTea)
+            numbersCard.expanded = true
     }
 
     // --- profile ranking ----------------------------------------------------
@@ -1138,7 +1183,14 @@ Page {
     component SectionCard: Rectangle {
         id: sectionCard
         property string title: ""
-        default property alias content: cardColumn.data
+        // Collapse-to-summary (the "prefilled and optional" treatment): a
+        // collapsible card shows only its title + a one-line summary of the
+        // current values until tapped — the prefills are ready to save, so
+        // the fields stay out of the way unless the user wants them.
+        property bool collapsible: false
+        property bool expanded: true
+        property string summary: ""
+        default property alias content: contentColumn.data
         Layout.fillWidth: true
         Layout.alignment: Qt.AlignTop
         implicitHeight: cardColumn.implicitHeight + 2 * Theme.spacingMedium
@@ -1151,14 +1203,54 @@ Page {
             anchors.fill: parent
             anchors.margins: Theme.spacingMedium
             spacing: Theme.spacingSmall
-            Label {
-                visible: sectionCard.title !== ""
-                text: sectionCard.title
-                font: Theme.subtitleFont
-                color: Theme.textColor
-                Accessible.role: Accessible.Heading
-                Accessible.name: text
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+                Label {
+                    visible: sectionCard.title !== ""
+                    Layout.fillWidth: true
+                    text: sectionCard.title
+                    font: Theme.subtitleFont
+                    color: Theme.textColor
+                    Accessible.role: Accessible.Heading
+                    Accessible.name: text
+                }
+                // The single edit glyph, only while collapsed (matching the
+                // summary rows) — expanded cards edit in place.
+                ColoredIcon {
+                    visible: sectionCard.collapsible && !sectionCard.expanded
+                    source: "qrc:/icons/edit.svg"
+                    iconWidth: Theme.scaled(16)
+                    iconHeight: Theme.scaled(16)
+                    iconColor: Theme.textSecondaryColor
+                    Accessible.ignored: true
+                }
             }
+            Label {
+                visible: sectionCard.collapsible && !sectionCard.expanded
+                Layout.fillWidth: true
+                text: sectionCard.summary
+                font: Theme.bodyFont
+                color: Theme.textColor
+                wrapMode: Text.WordWrap
+                Accessible.ignored: true
+            }
+            ColumnLayout {
+                id: contentColumn
+                visible: !sectionCard.collapsible || sectionCard.expanded
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+            }
+        }
+        // Collapsed card: the whole card is the "open it" tap target.
+        AccessibleMouseArea {
+            anchors.fill: parent
+            enabled: sectionCard.collapsible && !sectionCard.expanded
+            visible: enabled
+            accessibleName: sectionCard.title + ", " + sectionCard.summary + ", "
+                + TranslationManager.translate("recipes.wizard.accessible.tapToAdjust", "tap to adjust")
+            accessibleItem: sectionCard
+            onAccessibleClicked: sectionCard.expanded = true
         }
     }
 
@@ -1770,7 +1862,28 @@ Page {
                         columnSpacing: Theme.spacingMedium
                         rowSpacing: Theme.spacingMedium
 
+                        // Everything on this step is OPTIONAL — say so up
+                        // front, so the prefills read as "ready to save",
+                        // not as a form waiting to be filled in.
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.columnSpan: detailsColumn.columns
+                            Layout.topMargin: Theme.spacingSmall
+                            text: TranslationManager.translate("recipes.wizard.detailsOptional",
+                                  "Everything here is optional — it's prefilled and ready to save. "
+                                  + "Tap a section to adjust it, then Continue.")
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            wrapMode: Text.WordWrap
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: text
+                        }
+
                         SectionCard {
+                            id: numbersCard
+                            collapsible: true
+                            expanded: false
+                            summary: wizardPage.numbersSummary
                             title: TranslationManager.translate("recipes.wizard.sectionNumbers", "The numbers")
                             // The wizard says where the prefills came from and
                             // why the user might change them — never a wall of
@@ -1853,7 +1966,11 @@ Page {
 
                         // Grind: coffee drinks only (tea has nothing to grind).
                         SectionCard {
+                            id: grindCard
                             visible: wizardPage.activeTemplate.grind
+                            collapsible: true
+                            expanded: false
+                            summary: wizardPage.grindSummary
                             title: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
                             Label {
                                 visible: wizardPage.hasBean
