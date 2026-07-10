@@ -1259,45 +1259,53 @@ Page {
         }
     }
 
-    // A tappable summary row: label, value, and ONE edit glyph (the pencil)
-    // — never an arrow that could read as something else beside the
-    // dose→yield arrow inside a value.
+    // A tappable summary CARD: the same look as a collapsed SectionCard on
+    // the details step (title + value summary + ONE pencil glyph), so the
+    // summary and details steps share one visual language. Tap anywhere to
+    // reopen the owning step.
     component SummaryRow: Rectangle {
         id: summaryRow
         property string label: ""
         property string value: ""
         property string step: ""
         Layout.fillWidth: true
-        implicitHeight: Theme.scaled(52)
-        radius: Theme.scaled(8)
+        Layout.alignment: Qt.AlignTop
+        implicitHeight: summaryRowColumn.implicitHeight + 2 * Theme.spacingMedium
+        radius: Theme.cardRadius
         color: Theme.surfaceColor
         border.color: Theme.borderColor
         border.width: 1
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: Theme.spacingMedium
-            anchors.rightMargin: Theme.spacingMedium
+        ColumnLayout {
+            id: summaryRowColumn
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: Theme.spacingMedium
             spacing: Theme.spacingSmall
-            Label {
-                text: summaryRow.label
-                font: Theme.captionFont
-                color: Theme.textSecondaryColor
-                Accessible.ignored: true
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSmall
+                Label {
+                    Layout.fillWidth: true
+                    text: summaryRow.label
+                    font: Theme.subtitleFont
+                    color: Theme.textColor
+                    Accessible.ignored: true
+                }
+                ColoredIcon {
+                    source: "qrc:/icons/edit.svg"
+                    iconWidth: Theme.scaled(16)
+                    iconHeight: Theme.scaled(16)
+                    iconColor: Theme.textSecondaryColor
+                    Accessible.ignored: true
+                }
             }
             Label {
                 Layout.fillWidth: true
-                horizontalAlignment: Text.AlignRight
                 text: summaryRow.value
                 font: Theme.bodyFont
                 color: Theme.textColor
-                elide: Text.ElideRight
-                Accessible.ignored: true
-            }
-            ColoredIcon {
-                source: "qrc:/icons/edit.svg"
-                iconWidth: Theme.scaled(16)
-                iconHeight: Theme.scaled(16)
-                iconColor: Theme.textSecondaryColor
+                wrapMode: Text.WordWrap
                 Accessible.ignored: true
             }
         }
@@ -2213,50 +2221,69 @@ Page {
                 }
 
                 // ===== Step 5: summary — the edit page =====
-                Flickable {
-                    contentHeight: summaryColumn.implicitHeight + Theme.scaled(24)
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
+                // Pinned header (name + Cancel/Save + errors) above the
+                // scrolling body, matching the details step; the component
+                // cards flow in the same responsive grid.
+                ColumnLayout {
+                    spacing: Theme.spacingSmall
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.spacingSmall
+                        spacing: Theme.spacingMedium
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(4)
+                            Label {
+                                text: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name") + " *"
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                Accessible.ignored: true
+                            }
+                            StyledTextField {
+                                id: nameField
+                                Layout.fillWidth: true
+                                placeholder: TranslationManager.translate("recipes.composer.namePlaceholder", "e.g. Morning cappuccino")
+                                accessibleName: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name")
+                            }
+                        }
+                        AccessibleButton {
+                            Layout.alignment: Qt.AlignBottom
+                            text: TranslationManager.translate("common.cancel", "Cancel")
+                            accessibleName: TranslationManager.translate("recipes.composer.accessible.cancel", "Cancel recipe editing")
+                            onClicked: pageStack.pop()
+                        }
+                        AccessibleButton {
+                            Layout.alignment: Qt.AlignBottom
+                            primary: true
+                            enabled: wizardPage.canSave
+                            text: TranslationManager.translate("common.save", "Save")
+                            accessibleName: TranslationManager.translate("recipes.composer.accessible.save", "Save the recipe")
+                            onClicked: wizardPage.save()
+                        }
+                    }
+
+                    // Pinned with the header so a save failure is never
+                    // hidden below the scroll.
+                    Label {
+                        visible: wizardPage.errorMessage !== ""
+                        Layout.fillWidth: true
+                        text: wizardPage.errorMessage
+                        font: Theme.bodyFont
+                        color: Theme.errorColor
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Flickable {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        contentHeight: summaryColumn.implicitHeight + Theme.scaled(24)
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
                     ColumnLayout {
                         id: summaryColumn
                         width: parent.width
-                        spacing: Theme.spacingSmall
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Layout.topMargin: Theme.spacingSmall
-                            spacing: Theme.spacingMedium
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.scaled(4)
-                                Label {
-                                    text: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name") + " *"
-                                    font: Theme.captionFont
-                                    color: Theme.textSecondaryColor
-                                    Accessible.ignored: true
-                                }
-                                StyledTextField {
-                                    id: nameField
-                                    Layout.fillWidth: true
-                                    placeholder: TranslationManager.translate("recipes.composer.namePlaceholder", "e.g. Morning cappuccino")
-                                    accessibleName: TranslationManager.translate("recipes.composer.nameLabel", "Recipe name")
-                                }
-                            }
-                            AccessibleButton {
-                                Layout.alignment: Qt.AlignBottom
-                                text: TranslationManager.translate("common.cancel", "Cancel")
-                                accessibleName: TranslationManager.translate("recipes.composer.accessible.cancel", "Cancel recipe editing")
-                                onClicked: pageStack.pop()
-                            }
-                            AccessibleButton {
-                                Layout.alignment: Qt.AlignBottom
-                                primary: true
-                                enabled: wizardPage.canSave
-                                text: TranslationManager.translate("common.save", "Save")
-                                accessibleName: TranslationManager.translate("recipes.composer.accessible.save", "Save the recipe")
-                                onClicked: wizardPage.save()
-                            }
-                        }
+                        spacing: Theme.spacingMedium
 
                         // WYSIWYG hero: the SAME card component the Recipes
                         // management page renders — what you build here is
@@ -2271,6 +2298,12 @@ Page {
                                 ? wizardPage.fBeanBaseId
                                 : (wizardPage.fBagId > 0 ? "bag-" + wizardPage.fBagId : "")
                         }
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: wizardPage.width >= Theme.scaled(720) ? 2 : 1
+                            columnSpacing: Theme.spacingMedium
+                            rowSpacing: Theme.spacingMedium
 
                         SummaryRow {
                             label: TranslationManager.translate("recipes.wizard.rowDrink", "Drink")
@@ -2351,6 +2384,7 @@ Page {
                             value: wizardPage.fEquipmentId > 0 ? wizardPage.fEquipmentName : trNone.text
                             step: "details"
                         }
+                        }
 
                         // Template escape hatches: any block combination the
                         // model allows stays expressible.
@@ -2382,15 +2416,7 @@ Page {
                             }
                             Item { Layout.fillWidth: true }
                         }
-
-                        Label {
-                            visible: wizardPage.errorMessage !== ""
-                            Layout.fillWidth: true
-                            text: wizardPage.errorMessage
-                            font: Theme.bodyFont
-                            color: Theme.errorColor
-                            wrapMode: Text.WordWrap
-                        }
+                    }
                     }
                 }
             }
