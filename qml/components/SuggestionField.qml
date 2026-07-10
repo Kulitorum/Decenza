@@ -19,6 +19,9 @@ Item {
     property var descriptions: ({})
     property string accessibleName: ""  // Explicit accessible name for screen readers (overrides label)
     property alias textField: textInput  // Expose internal text input for KeyboardAwareContainer registration
+    // Field fill — forwarded to the text input; raise to Theme.surfaceColor to
+    // match a ValueInput sitting beside it (e.g. the shot-review dial-in row).
+    property color fieldColor: Theme.backgroundColor
 
     signal textEdited(string text)
     signal suggestionSelected(string text)  // Emitted when user picks from dropdown (not on keystroke)
@@ -132,6 +135,7 @@ Item {
         anchors.topMargin: root.label.length > 0 ? Theme.scaled(2) : 0
         // Match ValueInput's field height so the two read as the same size.
         height: Theme.scaled(40)
+        fieldColor: root.fieldColor
         text: root.text
         placeholder: root.label
         EnterKey.type: Qt.EnterKeyDone
@@ -263,7 +267,9 @@ Item {
             width: Theme.scaled(28)
             height: Theme.scaled(28)
             radius: Theme.scaled(14)
-            color: clearArea.pressed ? Theme.surfaceColor : Theme.backgroundColor
+            // Transparent so the outlined circle reads the same on any field
+            // fill (page background or a surfaceColor dial-in field).
+            color: clearArea.pressed ? Theme.surfaceColor : "transparent"
             border.color: Theme.textSecondaryColor
             border.width: 1
             Accessible.ignored: true

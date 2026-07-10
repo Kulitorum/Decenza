@@ -1535,6 +1535,7 @@ Page {
                         SuggestionField {
                             id: settingField
                             Layout.fillWidth: true
+                            fieldColor: Theme.surfaceColor   // match the Dose/Out steppers
                             label: ""
                             text: editGrinderSetting
                             suggestions: {
@@ -1563,6 +1564,7 @@ Page {
                         SuggestionField {
                             id: rpmField
                             Layout.fillWidth: true
+                            fieldColor: Theme.surfaceColor   // match the Dose/Out steppers
                             label: ""
                             text: editRpm > 0 ? String(editRpm) : ""
                             suggestions: []

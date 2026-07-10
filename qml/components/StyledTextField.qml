@@ -10,6 +10,9 @@ TextField {
     property string placeholder: ""
     // Explicit accessible name (overrides placeholder for screen readers)
     property string accessibleName: ""
+    // Field fill — defaults to the page background; a consumer can raise it to
+    // Theme.surfaceColor to match a ValueInput sitting beside it.
+    property color fieldColor: Theme.backgroundColor
 
     // Track whether focus was granted via accessibility double-tap (onPressAction)
     property bool _a11yActivated: false
@@ -73,7 +76,7 @@ TextField {
     }
 
     background: Rectangle {
-        color: Theme.backgroundColor
+        color: control.fieldColor
         // Match ValueInput's rounding (sc(8)) so text fields and steppers read
         // as the same family across the app.
         radius: Theme.scaled(8)
