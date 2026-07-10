@@ -5,6 +5,7 @@ import QtQuick.Effects
 import Decenza
 import "../components"
 import "../components/DateUtils.js" as DateUtils
+import "../components/layout/ShotPlanConfig.js" as ShotPlanConfig
 
 Page {
     id: postShotReviewPage
@@ -71,6 +72,42 @@ Page {
     property int editShotId: 0  // Shot ID to edit (always use edit mode now)
     property var editShotData: ({})  // Loaded shot data when editing
     property bool isEditMode: editShotId > 0
+
+    // Field selection + order for the snapshot line, taken from the user's first
+    // idle-page Shot Plan widget so this line shows the fields they configured.
+    // Reactive on layout edits. Only the item list is used — the snapshot is
+    // always a plain fragment line (sentence/stacked toggles are ignored).
+    readonly property var _shotPlanItemOrder: {
+        var layout
+        try { layout = JSON.parse(Settings.network.layoutConfiguration) } catch (e) { layout = null }
+        return ShotPlanConfig.itemOrderFromLayout(layout)
+    }
+
+    // Recipe identity for the recipe card, live-resolved by editShotData.recipeId
+    // (a shot-linked recipe can only be archived, never deleted, so the row
+    // always resolves and follows renames). Grind/rpm on that card comes from
+    // this page's live edit state, never this map's pin. _resolvedRecipeId
+    // guards against re-requesting on the frequent editShotData reassigns.
+    property var resolvedRecipe: ({})
+    property int _resolvedRecipeId: -1
+    onEditShotDataChanged: {
+        var rid = editShotData.recipeId || -1
+        if (rid > 0 && rid !== _resolvedRecipeId) {
+            _resolvedRecipeId = rid
+            resolvedRecipe = ({})
+            MainController.recipeStorage.requestRecipe(rid)
+        } else if (rid <= 0) {
+            _resolvedRecipeId = -1
+            resolvedRecipe = ({})
+        }
+    }
+    Connections {
+        target: MainController.recipeStorage
+        function onRecipeReady(recipeId, recipe) {
+            if (recipeId === postShotReviewPage._resolvedRecipeId)
+                postShotReviewPage.resolvedRecipe = recipe
+        }
+    }
     property bool autoClose: true  // false when user opens manually (no auto-dismiss)
     property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
     property string uploadError: ""
@@ -1040,6 +1077,48 @@ Page {
                 }
             }
 
+            // Shot Plan snapshot line — this shot's dial-in rendered as a
+            // glanceable sentence beneath the title. Bound to the page's LIVE
+            // edit state (the source of truth here), so it updates as the user
+            // edits dose/grind/beans. Reuses the home-screen ShotPlanText
+            // renderer so the format can't drift. Non-interactive.
+            ShotPlanText {
+                id: shotPlanSnapshot
+                Layout.fillWidth: true
+                visible: text !== ""
+                sentence: false
+                maxLines: 2
+                // Fields + order come from the user's Shot Plan widget config.
+                itemOrder: postShotReviewPage._shotPlanItemOrder
+                singleTemp: true
+                profileName: editShotData.profileName || ""
+                dose: editDoseWeight || 0
+                // targetWeightG is the planned target (0 for volume/timer
+                // profiles) — fall back to the edited output so a yield still shows.
+                profileYield: editShotData.targetWeightG || 0
+                targetWeight: (editShotData.targetWeightG || 0) > 0
+                    ? editShotData.targetWeightG : (editDrinkWeight || 0)
+                yieldTargetOnly: true
+                // temperatureOverrideC always carries the effective brew temp
+                // (user override OR profile default); 0 only for legacy volume shots.
+                profileTemp: editShotData.temperatureOverrideC || 0
+                overrideTemp: editShotData.temperatureOverrideC || 0
+                tempOverridden: false
+                roasterBrand: editBeanBrand
+                coffeeName: editBeanType
+                roastDate: editRoastDate
+                grindSize: editGrinderSetting
+                grindRpm: editRpm
+                // Only show RPM for grinders that actually report it (a Niche
+                // Zero does not); a stale/spurious recorded RPM must not surface.
+                rpmCapable: editRpmCapable
+                beverageType: editBeverageType || "espresso"
+                isCleaning: false
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+                Accessible.focusable: true
+            }
+
             GraphInspectBar { graph: reviewGraph }
 
             // Resizable Graph (visible when we have shot data)
@@ -1724,6 +1803,112 @@ Page {
 
                         Accessible.role: Accessible.StaticText
                         Accessible.name: TranslationManager.translate("postshotreview.label.shotdate", "Shot date") + ": " + (editShotData.dateTime || "")
+                    }
+                }
+
+                // Recipe card — shown only when this shot was pulled with a
+                // recipe (recipeId > 0). Identity (name, drink type, profile) is
+                // live-resolved by id and follows renames; the grind/rpm it shows
+                // is this page's live edit state (the source of truth here),
+                // never the recipe's since-edited pin. Compact read-only block
+                // (design D5) — mirrors ShotDetailPage's recipe card.
+                Rectangle {
+                    id: recipeCard
+                    Layout.columnSpan: 3
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: recipeColumn.implicitHeight + Theme.scaled(24)
+                    color: Theme.surfaceColor
+                    radius: Theme.cardRadius
+                    border.width: 1
+                    border.color: Theme.borderColor
+                    visible: (editShotData.recipeId || -1) > 0
+
+                    readonly property string recipeName: postShotReviewPage.resolvedRecipe.name || ""
+                    readonly property string recipeProfile: postShotReviewPage.resolvedRecipe.profileTitle || ""
+                    readonly property string recipeDrinkLabel:
+                        DrinkType.shortLabel(DrinkType.fromRecipeMap(postShotReviewPage.resolvedRecipe))
+                    // Grind/rpm from this page's LIVE edit state (grind's home when
+                    // a recipe was used), never the recipe's current pin.
+                    readonly property string recipeGrindLine: {
+                        var _ = TranslationManager.translationVersion
+                        var parts = []
+                        if (editGrinderSetting.length > 0)
+                            parts.push(TranslationManager.translate("equipment.card.lastGrind", "Grind %1").arg(editGrinderSetting))
+                        if (editRpm > 0 && editRpmCapable)
+                            parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(editRpm))
+                        return parts.join(" · ")
+                    }
+
+                    Accessible.role: Accessible.Grouping
+                    Accessible.name: {
+                        var parts = [TranslationManager.translate("shotdetail.recipe", "Recipe")]
+                        if (recipeName !== "") parts.push(recipeName)
+                        var drinkBits = [recipeDrinkLabel, recipeProfile].filter(function(s) { return s !== "" })
+                        if (drinkBits.length > 0) parts.push(drinkBits.join(" · "))
+                        if (recipeGrindLine !== "") parts.push(recipeGrindLine)
+                        return parts.join(", ")
+                    }
+
+                    ColumnLayout {
+                        id: recipeColumn
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: Theme.scaled(12)
+                        spacing: Theme.scaled(6)
+
+                        Tr {
+                            key: "shotdetail.recipe"
+                            fallback: "Recipe"
+                            font: Theme.subtitleFont
+                            color: Theme.textColor
+                            Accessible.ignored: true
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            visible: recipeCard.recipeName !== ""
+                            textFormat: Text.RichText
+                            text: Theme.replaceEmojiWithImg(recipeCard.recipeName, Theme.subtitleFont.pixelSize)
+                            font: Theme.subtitleFont
+                            color: Theme.textColor
+                            wrapMode: Text.WordWrap
+                            Accessible.ignored: true
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(6)
+                            visible: recipeCard.recipeDrinkLabel !== "" || recipeCard.recipeProfile !== ""
+                            ColoredIcon {
+                                Layout.alignment: Qt.AlignTop
+                                Layout.topMargin: Theme.scaled(1)
+                                source: DrinkType.icon(DrinkType.fromRecipeMap(postShotReviewPage.resolvedRecipe))
+                                iconWidth: Theme.scaled(16)
+                                iconHeight: Theme.scaled(16)
+                                iconColor: Theme.textSecondaryColor
+                                Accessible.ignored: true
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: [recipeCard.recipeDrinkLabel, recipeCard.recipeProfile]
+                                    .filter(function(s) { return s !== "" }).join(" · ")
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WordWrap
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            visible: recipeCard.recipeGrindLine !== ""
+                            text: recipeCard.recipeGrindLine
+                            font: Theme.captionFont
+                            color: Theme.textColor
+                            wrapMode: Text.WordWrap
+                            Accessible.ignored: true
+                        }
                     }
                 }
 
