@@ -1649,12 +1649,19 @@ Page {
                                 font: Theme.labelFont
                                 visible: text.length > 0
                                 text: {
-                                    // Track preset changes via steamPitcherPresetsChanged
+                                    // Track preset + global-rate changes so the hint recomputes.
                                     var _ = Settings.brew.steamPitcherPresets
-                                    var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
+                                    var __ = Settings.brew.steamSecondsPerGram
+                                    var idx = Settings.brew.selectedSteamPitcher
+                                    var preset = Settings.brew.getSteamPitcherPreset(idx)
                                     var cal = preset ? (preset.calibMilkG ?? 0) : 0
-                                    if (cal > 0)
-                                        return TranslationManager.translate("steam.hint.weightTimed", "Weight-timed") + ": " + cal.toFixed(0) + "g → " + preset.duration + "s"
+                                    // Only show while weight-timing is actually active (auto-capture on
+                                    // AND a global rate calibrated). In that regime effectiveSteamDurationSec
+                                    // == the weight-scaled time, so the hint matches real behaviour. Gating
+                                    // this way avoids rendering pre-migration fixed-duration math driven by a
+                                    // vestigial per-preset calibMilkG (which has no UI left to clear).
+                                    if (cal > 0 && Settings.brew.milkAutoCaptureEnabled && Settings.brew.steamSecondsPerGram > 0)
+                                        return TranslationManager.translate("steam.hint.weightTimed", "Weight-timed") + ": " + cal.toFixed(0) + "g → " + Settings.brew.effectiveSteamDurationSec(idx, cal) + "s"
                                     return ""
                                 }
                                 Accessible.ignored: true
@@ -1881,6 +1888,18 @@ Page {
                                     Settings.brew.steamSecondsPerGram = newValue
                                 }
                             }
+                        }
+
+                        // Honest framing: one global rate across all pitchers is a
+                        // simplification, since presets still carry independent flow/temp.
+                        Tr {
+                            key: "steam.rate.note"
+                            fallback: "Simplification: the rate is calibrated once and applied to every pitcher. Presets can still carry their own flow and temperature, so this is a simpler mental model rather than an exact physical guarantee."
+                            Layout.fillWidth: true
+                            color: Theme.textSecondaryColor
+                            font: Theme.labelFont
+                            opacity: 0.85
+                            wrapMode: Text.WordWrap
                         }
 
                         // Calibrate from the last actual steam session (milk + time) —
