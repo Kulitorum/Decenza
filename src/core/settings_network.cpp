@@ -716,11 +716,8 @@ void SettingsNetwork::applyRecipesFirstUpgrade() {
     static const QSet<QString> kCenterZones = {
         QStringLiteral("centerTop"), QStringLiteral("centerMiddle"), QStringLiteral("centerStatus")
     };
-    static const QSet<QString> kBarZones = {
-        QStringLiteral("topLeft"), QStringLiteral("topRight"),
-        QStringLiteral("bottomLeft"), QStringLiteral("bottomRight")
-    };
 
+    // Does any zone in `zoneNames` hold a widget of `type`?
     auto zoneSetContainsType = [&zones](const QSet<QString>& zoneNames, const QLatin1String& type) {
         for (const QString& zoneName : zoneNames) {
             const QJsonArray items = zones.value(zoneName).toArray();
@@ -730,8 +727,18 @@ void SettingsNetwork::applyRecipesFirstUpgrade() {
         }
         return false;
     };
+    // Does ANY zone hold a widget of `type` — including the unclassified
+    // lowerMidBar/statusBar bands that are neither "center" nor "bar"?
+    auto layoutContainsType = [&zones](const QLatin1String& type) {
+        for (const QString& zoneName : zones.keys()) {
+            const QJsonArray items = zones.value(zoneName).toArray();
+            for (const QJsonValue& v : items)
+                if (v.toObject()["type"].toString() == type)
+                    return true;
+        }
+        return false;
+    };
 
-    const bool espressoInBar = zoneSetContainsType(kBarZones, QLatin1String("espresso"));
     const bool espressoInCenter = zoneSetContainsType(kCenterZones, QLatin1String("espresso"));
 
     // Swap Recipes into the Profiles (espresso) button's center slot and move
@@ -740,17 +747,21 @@ void SettingsNetwork::applyRecipesFirstUpgrade() {
     // their Recipes button) elsewhere, so both are left untouched.
     //
     // The swap RELOCATES the existing Recipes button into the Profiles slot
-    // rather than only inserting one when none exists. getLayoutObject() (called
-    // above) always leaves a Recipes button via the passive add-recipes
-    // injection — by default immediately left of Profiles — so the former
-    // "insert only if !hasRecipes" guard was dead code: a user whose Recipes
-    // button lived anywhere but the center (e.g. the bottom bar) had Profiles
-    // pulled out of the center with nothing put in its place.
+    // rather than only inserting one when none exists — the fix for the former
+    // "insert only if !hasRecipes" guard, which was dead code: by the time this
+    // ran, getLayoutObject() (called above) had already injected a Recipes
+    // button (by default immediately left of Profiles), so hasRecipes was always
+    // true. A user whose Recipes button lived anywhere but the center (e.g. the
+    // bottom bar) thus had Profiles pulled out with nothing put in its place.
+    // Correctness no longer depends on that injection: the recipesItem default
+    // below drops a Recipes button into the slot even if none is found; an
+    // existing button is reused only to carry its id/options across.
     if (espressoInCenter) {
         // Pull every existing Recipes item out (dedupe), remembering one to
         // reuse so its id and any per-instance options survive. Removing them
-        // first keeps the Profiles index we find next correct even when a
-        // Recipes item shared the same center zone.
+        // all first — rather than overwriting Profiles in place and leaving the
+        // others — is what guarantees exactly one Recipes button remains when a
+        // Recipes item already shares Profiles' center zone.
         QJsonObject recipesItem{{"type", "recipes"}, {"id", "recipes1"}};
         bool haveRecipesItem = false;
         for (const QString& zoneName : zones.keys()) {
@@ -786,9 +797,11 @@ void SettingsNetwork::applyRecipesFirstUpgrade() {
         }
 
         // Relocate Profiles to the bottom bar — after Equipment, falling back to
-        // before Settings, then to appending — unless it already exists in a bar
-        // zone (nothing to relocate, and no duplicate is created).
-        if (!espressoInBar) {
+        // before Settings, then to appending — but only if the swap left no
+        // Profiles button anywhere else: a bar copy, one the user parked in
+        // lowerMidBar/statusBar, or a second center zone all count, so a
+        // duplicate is never created.
+        if (!layoutContainsType(QLatin1String("espresso"))) {
             const QJsonObject espressoItem{{"type", "espresso"}, {"id", "espresso1"}};
             QJsonArray br = zones.value("bottomRight").toArray();
             int insertAt = -1;
