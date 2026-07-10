@@ -2792,7 +2792,14 @@ QString ShotServer::generateLayoutPage() const
         var from = dragState.from;
         dragState = null;
         if (from === idx) return;
-        reorder(zone, from, idx);
+        // reorder()/SettingsNetwork::reorderItem removes fromIndex then
+        // inserts at the raw toIndex it's given, so on a forward drag
+        // (from < idx) that index has already shifted left by one once the
+        // dragged chip is gone -- send idx-1 so the chip lands BEFORE the
+        // chip it was dropped on, matching spDrop's convention below (both
+        // must agree, or the same gesture lands on opposite sides of the
+        // target chip depending which list you're dragging in).
+        reorder(zone, from, idx > from ? idx - 1 : idx);
     }
 
     // --- Add-widget picker: live filter by typing ---
