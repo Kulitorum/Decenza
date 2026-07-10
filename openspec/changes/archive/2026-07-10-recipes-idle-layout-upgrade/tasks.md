@@ -25,4 +25,4 @@
 
 - [x] 5.1 Unit tests for the transform: pristine-old-default → full new default, customized-layout surgical cases (no-recipes, espresso-already-in-bar, customization preservation), idempotency (run via Qt Creator MCP; no WARN lines per TESTING.md)
 - [x] 5.2 Unit tests for the heuristic pre-selection + starter-recipe guards (milk snapshot, espresso snapshot, empty snapshot, no shots, recipes exist)
-- [ ] 5.3 Manual pass: fresh install shows new default and no dialog; existing-user upgrade accept/decline paths; reset-to-default from app and web editor
+- [x] 5.3 Manual pass: fresh install shows new default and no dialog; existing-user upgrade accept/decline paths; reset-to-default from app and web editor
