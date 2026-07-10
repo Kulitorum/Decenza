@@ -101,7 +101,8 @@ Item {
         if (!_has("grind")) return ""
         var parts = []
         if (grindSize.length > 0) parts.push(grindSize)
-        if (Settings.dye.dyeGrinderRpm > 0)
+        if (Settings.dye.dyeGrinderRpm > 0
+                && Settings.dye.grinderRpmCapable(Settings.dye.dyeGrinderBrand, Settings.dye.dyeGrinderModel))
             parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(Settings.dye.dyeGrinderRpm))
         return parts.join(" · ")
     }
