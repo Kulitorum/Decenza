@@ -5,6 +5,8 @@
 
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
+#include <QDebug>
 
 namespace RecipePromotion {
 
@@ -17,7 +19,14 @@ QVariantMap fieldsFromShotRecord(const ShotRecord& record, const QString& name,
 
     QString steamJson = !record.steamJson.isEmpty() ? record.steamJson : fallbackSteamJson;
     if (hasMilkOverride.has_value() && !steamJson.isEmpty()) {
-        QJsonObject steam = QJsonDocument::fromJson(steamJson.toUtf8()).object();
+        QJsonParseError parseError;
+        const QJsonDocument doc = QJsonDocument::fromJson(steamJson.toUtf8(), &parseError);
+        if (parseError.error != QJsonParseError::NoError) {
+            qWarning() << "RecipePromotion::fieldsFromShotRecord: malformed steamJson for shot"
+                       << record.summary.id << "-" << parseError.errorString()
+                       << "- other steam fields (e.g. milkWeightG) will be dropped";
+        }
+        QJsonObject steam = doc.object();
         steam["hasMilk"] = *hasMilkOverride;
         steamJson = QString::fromUtf8(QJsonDocument(steam).toJson(QJsonDocument::Compact));
     } else if (hasMilkOverride.has_value() && steamJson.isEmpty()) {
@@ -52,6 +61,11 @@ bool milkPreselectedFromSteamJson(const QString& steamJson) {
         return false;
     const QJsonObject steam = QJsonDocument::fromJson(steamJson.toUtf8()).object();
     return steam.value("hasMilk").toBool() || steam.value("milkWeightG").toDouble() > 0;
+}
+
+bool isEligibleForStarterRecipe(bool recipeCountOk, qint64 recipeCount,
+                                 qint64 latestShotId, qint64 loadedRecordId) {
+    return recipeCountOk && recipeCount == 0 && latestShotId > 0 && loadedRecordId > 0;
 }
 
 } // namespace RecipePromotion

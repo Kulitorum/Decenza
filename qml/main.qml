@@ -2815,7 +2815,8 @@ ApplicationWindow {
     // fresh installs already start on the new default and never see it. Accept
     // applies the layout transform (+ a starter recipe when the user has none)
     // via MainController; decline/dismiss just records that the offer was
-    // answered. Dismiss (escape) counts as decline per ACCESSIBILITY.md.
+    // answered. Dismiss (escape) counts as decline (recipes-idle-layout-upgrade
+    // design.md decision 8) — it must be dismissible, per ACCESSIBILITY.md.
     Dialog {
         id: recipesUpgradeDialog
         modal: true
@@ -2914,6 +2915,8 @@ ApplicationWindow {
                     AccessibleButton {
                         text: trUpgradeEspresso.text
                         accessibleName: trUpgradeEspressoA11y.text
+                            + (!recipesUpgradeDialog.hasMilkChoice
+                               ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                         primary: !recipesUpgradeDialog.hasMilkChoice
                         onClicked: recipesUpgradeDialog.hasMilkChoice = false
                     }
@@ -2921,6 +2924,8 @@ ApplicationWindow {
                     AccessibleButton {
                         text: trUpgradeMilk.text
                         accessibleName: trUpgradeMilkA11y.text
+                            + (recipesUpgradeDialog.hasMilkChoice
+                               ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                         primary: recipesUpgradeDialog.hasMilkChoice
                         onClicked: recipesUpgradeDialog.hasMilkChoice = true
                     }
@@ -2964,14 +2969,16 @@ ApplicationWindow {
             recipesUpgradeDialog.hasMilkChoice = milkPreselected
             recipesUpgradeDialog.open()
         }
-        function onRecipesUpgradeApplied(recipeName) {
-            recipesUpgradeToastText = recipeName.length > 0
-                ? trRecipesUpgradeToastWithRecipe.text.arg(recipeName)
-                : trRecipesUpgradeToastLayoutOnly.text
+        function onRecipesUpgradeApplied(recipeName, starterRecipeFailed) {
+            recipesUpgradeToastText = starterRecipeFailed
+                ? trRecipesUpgradeToastRecipeFailed.text
+                : (recipeName.length > 0
+                    ? trRecipesUpgradeToastWithRecipe.text.arg(recipeName)
+                    : trRecipesUpgradeToastLayoutOnly.text)
             recipesUpgradeToast.opacity = 1
             recipesUpgradeToastTimer.restart()
             if (AccessibilityManager.enabled) {
-                AccessibilityManager.announce(recipesUpgradeToastText)
+                AccessibilityManager.announce(recipesUpgradeToastText, starterRecipeFailed)
             }
         }
     }
@@ -2983,6 +2990,16 @@ ApplicationWindow {
         visible: false
     }
     Tr { id: trRecipesUpgradeToastLayoutOnly; key: "main.toast.recipesUpgradeLayoutOnly"; fallback: "Layout updated"; visible: false }
+    // The layout transform always succeeds by this point — only the
+    // starter-recipe creation can fail (RecipeStorage write error). Distinct
+    // from trRecipesUpgradeToastLayoutOnly so a real failure isn't mistaken
+    // for the normal "no starter recipe was eligible" case.
+    Tr {
+        id: trRecipesUpgradeToastRecipeFailed
+        key: "main.toast.recipesUpgradeRecipeFailed"
+        fallback: "Layout updated · Couldn't create starter recipe"
+        visible: false
+    }
     property string recipesUpgradeToastText: ""
 
     Rectangle {

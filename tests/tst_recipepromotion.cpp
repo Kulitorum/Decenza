@@ -66,6 +66,20 @@ private slots:
         QCOMPARE(noBeanFields.value("grindPinned").toString(), QStringLiteral("22"));
     }
 
+    // A bean link resolved purely through the Bean Base canonical id (no
+    // free-text brand/type on the shot) still counts as a bean link — the
+    // hasBean OR-condition's beanBaseId arm, otherwise untested.
+    void grindInheritsWhenOnlyBeanBaseIdLinked() {
+        ShotRecord record = sampleShotRecord();
+        record.summary.beanBrand.clear();
+        record.summary.beanType.clear();
+        record.beanBaseJson = "{\"visualizerCanonicalId\":\"bb-uuid-1\"}";
+        const QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
+            record, "n", std::nullopt, QString());
+        QVERIFY(fields.value("grindPinned").toString().isEmpty());
+        QCOMPARE(fields.value("beanBaseId").toString(), QStringLiteral("bb-uuid-1"));
+    }
+
     // hasMilkOverride stamps hasMilk onto an existing steam snapshot without
     // disturbing its other fields (e.g. milkWeightG).
     void hasMilkOverrideStampsExistingSteamJson() {
@@ -141,6 +155,44 @@ private slots:
         // A shot with no steam snapshot (predates the feature, or an
         // espresso-only shot) must not crash and defaults to espresso.
         QVERIFY(!RecipePromotion::milkPreselectedFromSteamJson(QString()));
+    }
+
+    // isEligibleForStarterRecipe: the recipes-idle-layout-upgrade offer's
+    // starter-recipe gate. recipeCountOk=false must always mean "not
+    // eligible" — an unreliable count must never be read as "zero recipes",
+    // which would create a spurious duplicate for a user who already has
+    // some (the bug this predicate was extracted to make impossible to
+    // reintroduce silently).
+
+    void eligibleWhenNoRecipesAndShotLoaded() {
+        QVERIFY(RecipePromotion::isEligibleForStarterRecipe(
+            /*recipeCountOk=*/true, /*recipeCount=*/0, /*latestShotId=*/42, /*loadedRecordId=*/42));
+    }
+
+    void ineligibleWhenRecipeCountUnreliable() {
+        // DB open/query failure — even though the (stale/default) count
+        // reads as zero and a shot was found, an unreliable count must fail
+        // closed, not be treated as "confirmed zero recipes".
+        QVERIFY(!RecipePromotion::isEligibleForStarterRecipe(
+            /*recipeCountOk=*/false, /*recipeCount=*/0, /*latestShotId=*/42, /*loadedRecordId=*/42));
+    }
+
+    void ineligibleWhenUserHasRecipes() {
+        QVERIFY(!RecipePromotion::isEligibleForStarterRecipe(
+            /*recipeCountOk=*/true, /*recipeCount=*/3, /*latestShotId=*/42, /*loadedRecordId=*/42));
+    }
+
+    void ineligibleWhenNoSavedShots() {
+        QVERIFY(!RecipePromotion::isEligibleForStarterRecipe(
+            /*recipeCountOk=*/true, /*recipeCount=*/0, /*latestShotId=*/-1, /*loadedRecordId=*/0));
+    }
+
+    void ineligibleWhenShotIdFoundButRecordFailedToLoad() {
+        // A shot id was found by the latest-shot query but loadShotRecordStatic
+        // came back empty (e.g. a race with a concurrent delete) — the found
+        // id alone isn't enough, the record must have actually loaded.
+        QVERIFY(!RecipePromotion::isEligibleForStarterRecipe(
+            /*recipeCountOk=*/true, /*recipeCount=*/0, /*latestShotId=*/42, /*loadedRecordId=*/0));
     }
 };
 

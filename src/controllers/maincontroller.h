@@ -193,7 +193,8 @@ public:
     // Accept path: applies the layout transform and, when eligible, creates
     // and activates a starter recipe from the last shot using `name` (already
     // translated by the caller) and the user's Espresso/Milk choice. Emits
-    // recipesUpgradeApplied() when finished (recipeName empty = none created).
+    // recipesUpgradeApplied() when finished — see its doc for the three
+    // possible outcomes.
     Q_INVOKABLE void acceptRecipesFirstUpgrade(const QString& name, bool hasMilk);
 
 public slots:
@@ -285,10 +286,16 @@ signals:
     void activeRecipeChanged();
 
     // Recipes-first layout upgrade offer (recipes-idle-layout-upgrade):
-    // willCreateStarterRecipe/milkPreselected answer checkRecipesUpgradeEligibility();
-    // recipeName is empty when acceptRecipesFirstUpgrade() created no recipe.
+    // willCreateStarterRecipe/milkPreselected answer checkRecipesUpgradeEligibility().
+    // recipesUpgradeApplied() answers acceptRecipesFirstUpgrade() — the layout
+    // transform has always already applied by the time it fires. Three
+    // outcomes: (recipeName, false) = starter recipe created; ("", false) =
+    // no starter recipe was requested (not eligible); ("", true) = a starter
+    // recipe WAS requested but creation failed — starterRecipeFailed
+    // distinguishes this from the "not requested" case so the UI can surface
+    // the failure instead of showing a silent success toast.
     void recipesUpgradeOfferReady(bool willCreateStarterRecipe, bool milkPreselected);
-    void recipesUpgradeApplied(const QString& recipeName);
+    void recipesUpgradeApplied(const QString& recipeName, bool starterRecipeFailed);
 
     // Auto-wake: emitted when scheduled wake time is reached
     void autoWakeTriggered();

@@ -1139,6 +1139,70 @@ private slots:
         net->setLayoutConfiguration(orig);
     }
 
+    // Espresso present in BOTH a center zone and a bar zone simultaneously
+    // (an unusual manually-constructed layout): the center instance is still
+    // removed (recipes-position logic still applies), but since a bar
+    // instance already exists no relocation happens — the bar instance is
+    // left alone and no duplicate is created.
+    void applyRecipesFirstUpgradeRemovesCenterEspressoWhenAlsoInBar() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerTop\":["
+            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
+            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"},"
+            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"}],"
+            "\"bottomLeft\":[{\"type\":\"espresso\",\"id\":\"espresso_bar1\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->applyRecipesFirstUpgrade();
+
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
+                 QStringList({"recipes", "steam", "hotwater"}));
+        QCOMPARE(typesOf(net->getZoneItems("bottomLeft")), QStringList({"espresso"}));
+        // No duplicate landed in bottomRight.
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "equipment", "settings"}));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    // Multiple Auto-Favorites instances in the same zone (also unusual, but
+    // the removal loop iterates in reverse specifically to survive this) —
+    // both must be removed, not just the first.
+    void applyRecipesFirstUpgradeRemovesEveryAutofavoritesInstance() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerTop\":["
+            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"autofavorites\",\"id\":\"autofavorites2\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->applyRecipesFirstUpgrade();
+
+        QVERIFY(!typesOf(net->getZoneItems("bottomRight")).contains("autofavorites"));
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "equipment", "settings"}));
+
+        net->setLayoutConfiguration(orig);
+    }
+
     void applyRecipesFirstUpgradeIsIdempotent() {
         SettingsNetwork* net = m_settings.network();
         const QString orig = net->layoutConfiguration();
