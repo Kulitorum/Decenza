@@ -721,84 +721,95 @@ void SettingsNetwork::applyRecipesFirstUpgrade() {
         QStringLiteral("bottomLeft"), QStringLiteral("bottomRight")
     };
 
-    bool espressoInBar = false;
-    for (const QString& zoneName : kBarZones) {
-        const QJsonArray items = zones.value(zoneName).toArray();
-        for (const QJsonValue& v : items) {
-            if (v.toObject()["type"].toString() == QLatin1String("espresso")) {
-                espressoInBar = true;
-                break;
-            }
-        }
-        if (espressoInBar) break;
-    }
-
-    bool espressoRemovedFromCenter = false;
-    QString espressoZone;
-    int espressoIndex = -1;
-    for (const QString& zoneName : kCenterZones) {
-        QJsonArray items = zones.value(zoneName).toArray();
-        for (qsizetype i = 0; i < items.size(); ++i) {
-            if (items[i].toObject()["type"].toString() == QLatin1String("espresso")) {
-                espressoZone = zoneName;
-                espressoIndex = static_cast<int>(i);
-                items.removeAt(i);
-                zones[zoneName] = items;
-                espressoRemovedFromCenter = true;
-                break;
-            }
-        }
-        if (espressoRemovedFromCenter) break;
-    }
-
-    // Insert Recipes at the espresso button's former center position, but only
-    // if it removed an espresso item from the center and no Recipes item
-    // exists anywhere yet (the pre-existing add-recipes injection may already
-    // have placed one).
-    if (espressoRemovedFromCenter) {
-        bool hasRecipes = false;
-        for (const QString& zoneName : zones.keys()) {
+    auto zoneSetContainsType = [&zones](const QSet<QString>& zoneNames, const QLatin1String& type) {
+        for (const QString& zoneName : zoneNames) {
             const QJsonArray items = zones.value(zoneName).toArray();
-            for (const QJsonValue& v : items) {
-                if (v.toObject()["type"].toString() == QLatin1String("recipes")) {
-                    hasRecipes = true;
-                    break;
-                }
-            }
-            if (hasRecipes) break;
+            for (const QJsonValue& v : items)
+                if (v.toObject()["type"].toString() == type)
+                    return true;
         }
-        if (!hasRecipes) {
-            QJsonArray items = zones.value(espressoZone).toArray();
-            const int insertAt = qBound(0, espressoIndex, static_cast<int>(items.size()));
-            items.insert(insertAt, QJsonObject{{"type", "recipes"}, {"id", "recipes1"}});
-            zones[espressoZone] = items;
-        }
-    }
+        return false;
+    };
 
-    // Relocate the espresso item to the bottom bar — after Equipment, falling
-    // back to before Settings, then to appending — unless it's already in a
-    // bar zone (nothing to relocate, and no duplicate is created).
-    if (espressoRemovedFromCenter && !espressoInBar) {
-        const QJsonObject espressoItem{{"type", "espresso"}, {"id", "espresso1"}};
-        QJsonArray br = zones.value("bottomRight").toArray();
-        int insertAt = -1;
-        for (qsizetype i = 0; i < br.size(); ++i) {
-            if (br[i].toObject()["type"].toString() == QLatin1String("equipment")) {
-                insertAt = static_cast<int>(i) + 1;
-                break;
+    const bool espressoInBar = zoneSetContainsType(kBarZones, QLatin1String("espresso"));
+    const bool espressoInCenter = zoneSetContainsType(kCenterZones, QLatin1String("espresso"));
+
+    // Swap Recipes into the Profiles (espresso) button's center slot and move
+    // Profiles down to the bottom bar. This runs only when Profiles actually
+    // sits in a center zone; otherwise the user has already placed it (and
+    // their Recipes button) elsewhere, so both are left untouched.
+    //
+    // The swap RELOCATES the existing Recipes button into the Profiles slot
+    // rather than only inserting one when none exists. getLayoutObject() (called
+    // above) always leaves a Recipes button via the passive add-recipes
+    // injection — by default immediately left of Profiles — so the former
+    // "insert only if !hasRecipes" guard was dead code: a user whose Recipes
+    // button lived anywhere but the center (e.g. the bottom bar) had Profiles
+    // pulled out of the center with nothing put in its place.
+    if (espressoInCenter) {
+        // Pull every existing Recipes item out (dedupe), remembering one to
+        // reuse so its id and any per-instance options survive. Removing them
+        // first keeps the Profiles index we find next correct even when a
+        // Recipes item shared the same center zone.
+        QJsonObject recipesItem{{"type", "recipes"}, {"id", "recipes1"}};
+        bool haveRecipesItem = false;
+        for (const QString& zoneName : zones.keys()) {
+            QJsonArray items = zones.value(zoneName).toArray();
+            bool changed = false;
+            for (qsizetype i = items.size() - 1; i >= 0; --i) {
+                if (items[i].toObject()["type"].toString() == QLatin1String("recipes")) {
+                    if (!haveRecipesItem) {
+                        recipesItem = items[i].toObject();
+                        haveRecipesItem = true;
+                    }
+                    items.removeAt(i);
+                    changed = true;
+                }
             }
+            if (changed) zones[zoneName] = items;
         }
-        if (insertAt < 0) {
-            for (qsizetype i = 0; i < br.size(); ++i) {
-                if (br[i].toObject()["type"].toString() == QLatin1String("settings")) {
-                    insertAt = static_cast<int>(i);
+
+        // Replace the (still-present) Profiles button in place with Recipes, so
+        // Recipes lands at Profiles' exact former center position.
+        for (const QString& zoneName : kCenterZones) {
+            QJsonArray items = zones.value(zoneName).toArray();
+            bool done = false;
+            for (qsizetype i = 0; i < items.size(); ++i) {
+                if (items[i].toObject()["type"].toString() == QLatin1String("espresso")) {
+                    items[i] = recipesItem;
+                    zones[zoneName] = items;
+                    done = true;
                     break;
                 }
             }
+            if (done) break;
         }
-        if (insertAt < 0) insertAt = static_cast<int>(br.size());
-        br.insert(insertAt, espressoItem);
-        zones["bottomRight"] = br;
+
+        // Relocate Profiles to the bottom bar — after Equipment, falling back to
+        // before Settings, then to appending — unless it already exists in a bar
+        // zone (nothing to relocate, and no duplicate is created).
+        if (!espressoInBar) {
+            const QJsonObject espressoItem{{"type", "espresso"}, {"id", "espresso1"}};
+            QJsonArray br = zones.value("bottomRight").toArray();
+            int insertAt = -1;
+            for (qsizetype i = 0; i < br.size(); ++i) {
+                if (br[i].toObject()["type"].toString() == QLatin1String("equipment")) {
+                    insertAt = static_cast<int>(i) + 1;
+                    break;
+                }
+            }
+            if (insertAt < 0) {
+                for (qsizetype i = 0; i < br.size(); ++i) {
+                    if (br[i].toObject()["type"].toString() == QLatin1String("settings")) {
+                        insertAt = static_cast<int>(i);
+                        break;
+                    }
+                }
+            }
+            if (insertAt < 0) insertAt = static_cast<int>(br.size());
+            br.insert(insertAt, espressoItem);
+            zones["bottomRight"] = br;
+        }
     }
 
     // Remove every Auto-Favorites item, wherever the user placed it.

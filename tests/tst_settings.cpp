@@ -1151,6 +1151,42 @@ private slots:
         net->setLayoutConfiguration(orig);
     }
 
+    // Regression: a customized user whose Recipes button already lives OUTSIDE
+    // the center (here, in the bottom bar) with Profiles (espresso) in the
+    // center. The upgrade must MOVE that existing Recipes button into the
+    // Profiles slot — not leave the center row short — and relocate Profiles to
+    // the bar. The old "insert Recipes only if none exists anywhere" guard
+    // wrongly skipped the center placement because a Recipes button was present
+    // (in the bar), so Profiles was pulled out with nothing put in its place.
+    void applyRecipesFirstUpgradeMovesExistingBarRecipesIntoEspressoSlot() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerTop\":["
+            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"},"
+            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->applyRecipesFirstUpgrade();
+
+        // Recipes moved from the bar into Profiles' former center slot; exactly
+        // one Recipes button exists; Profiles relocated after Equipment.
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
+                 QStringList({"recipes", "steam", "hotwater"}));
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "equipment", "espresso", "settings"}));
+
+        net->setLayoutConfiguration(orig);
+    }
+
     void applyRecipesFirstUpgradeLeavesEspressoAlreadyInBar() {
         SettingsNetwork* net = m_settings.network();
         const QString orig = net->layoutConfiguration();
