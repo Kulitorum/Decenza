@@ -812,7 +812,8 @@ Page {
         for (i = 0; i < withBean.length; ++i) {
             var p = byTitle[String(withBean[i].profileName).toLowerCase()]
             if (p) { tier1.push({ isHeader: false, tier: 1, title: p.title, name: p.name, reason: "",
-                                  tempC: p.espressoTemperature || 0, yieldG: p.targetWeight || 0 }); used[p.title] = true }
+                                  tempC: p.espressoTemperature || 0, yieldG: p.targetWeight || 0,
+                                  hasKb: p.hasKnowledgeBase === true }); used[p.title] = true }
         }
         if (tier1.length > 0) {
             model.push({ isHeader: true, title: TranslationManager.translate(
@@ -834,6 +835,7 @@ Page {
                 if (ProfileManager.teaProfileMatchesType(inSet[i].title, teaType))
                     tier2.push({ isHeader: false, tier: 2, title: inSet[i].title, name: inSet[i].name,
                                  tempC: inSet[i].espressoTemperature || 0, yieldG: inSet[i].targetWeight || 0,
+                                 hasKb: inSet[i].hasKnowledgeBase === true,
                                  reason: TranslationManager.translate(
                                      "recipes.wizard.profiles.matchesType", "matches %1").arg(teaType) })
             }
@@ -844,6 +846,7 @@ Page {
                 if (ProfileManager.kbProfileSuitsRoast(inSet[i].title, _selectedBagRoastLevel))
                     tier2.push({ isHeader: false, tier: 2, title: inSet[i].title, name: inSet[i].name,
                                  tempC: inSet[i].espressoTemperature || 0, yieldG: inSet[i].targetWeight || 0,
+                                 hasKb: inSet[i].hasKnowledgeBase === true,
                                  reason: TranslationManager.translate(
                                      "recipes.wizard.profiles.suitsRoast", "suits %1 roasts")
                                      .arg(_selectedBagRoastLevel.toLowerCase()) })
@@ -859,6 +862,7 @@ Page {
                 if (!already)
                     tier2.push({ isHeader: false, tier: 2, title: p.title, name: p.name,
                                  tempC: p.espressoTemperature || 0, yieldG: p.targetWeight || 0,
+                                 hasKb: p.hasKnowledgeBase === true,
                                  reason: TranslationManager.translate(
                                      "recipes.wizard.profiles.similarBeans", "used with similar beans") })
             }
@@ -899,7 +903,8 @@ Page {
                     "recipes.wizard.profiles.all", "All profiles") })
             for (i = 0; i < rest.length; ++i)
                 model.push({ isHeader: false, tier: 3, title: rest[i].title, name: rest[i].name, reason: "",
-                             tempC: rest[i].espressoTemperature || 0, yieldG: rest[i].targetWeight || 0 })
+                             tempC: rest[i].espressoTemperature || 0, yieldG: rest[i].targetWeight || 0,
+                             hasKb: rest[i].hasKnowledgeBase === true })
         }
         profileModel = model
     }
@@ -1757,7 +1762,7 @@ Page {
                                         Rectangle {
                                             id: tileRect
                                             width: profileGrid.tileWidth
-                                            height: Theme.scaled(112)
+                                            height: Theme.scaled(124)
                                             radius: Theme.cardRadius
                                             color: Theme.surfaceColor
                                             border.color: wizardPage.fProfileTitle === row.title
@@ -1793,31 +1798,72 @@ Page {
                                                     Accessible.ignored: true
                                                 }
                                                 Item { Layout.fillHeight: true }
-                                                // The recommendation reason rides its
-                                                // tile as a chip — never detached text.
-                                                Rectangle {
-                                                    visible: row.reason !== ""
-                                                    radius: height / 2
-                                                    color: Qt.alpha(Theme.primaryColor, 0.15)
-                                                    implicitHeight: reasonChip.implicitHeight + Theme.scaled(6)
-                                                    implicitWidth: Math.min(
-                                                        reasonChip.implicitWidth + Theme.scaled(14),
-                                                        tileRect.width - 2 * Theme.spacingSmall)
-                                                    Label {
-                                                        id: reasonChip
-                                                        anchors.centerIn: parent
-                                                        width: Math.min(implicitWidth,
-                                                            parent.width - Theme.scaled(10))
-                                                        text: row.reason
-                                                        font: Theme.captionFont
-                                                        color: Theme.primaryColor
-                                                        elide: Text.ElideRight
+                                                RowLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: Theme.spacingSmall
+                                                    // The recommendation reason rides its
+                                                    // tile as a chip — never detached text.
+                                                    Rectangle {
+                                                        visible: row.reason !== ""
+                                                        radius: height / 2
+                                                        color: Qt.alpha(Theme.primaryColor, 0.15)
+                                                        implicitHeight: reasonChip.implicitHeight + Theme.scaled(6)
+                                                        implicitWidth: Math.min(
+                                                            reasonChip.implicitWidth + Theme.scaled(14),
+                                                            tileRect.width - Theme.scaled(90))
+                                                        Label {
+                                                            id: reasonChip
+                                                            anchors.centerIn: parent
+                                                            width: Math.min(implicitWidth,
+                                                                parent.width - Theme.scaled(10))
+                                                            text: row.reason
+                                                            font: Theme.captionFont
+                                                            color: Theme.primaryColor
+                                                            elide: Text.ElideRight
+                                                            Accessible.ignored: true
+                                                        }
+                                                    }
+                                                    Item { Layout.fillWidth: true }
+                                                    // The same two info affordances the
+                                                    // profile page offers: the sparkle KB
+                                                    // popup and the Profile Info page.
+                                                    ColoredIcon {
+                                                        visible: row.hasKb === true
+                                                        source: "qrc:/icons/sparkle.svg"
+                                                        iconWidth: Theme.scaled(16)
+                                                        iconHeight: Theme.scaled(16)
+                                                        iconColor: Theme.textSecondaryColor
                                                         Accessible.ignored: true
+                                                        AccessibleMouseArea {
+                                                            anchors.fill: parent
+                                                            anchors.margins: Theme.scaled(-6)
+                                                            accessibleName: TranslationManager.translate(
+                                                                "profileselector.accessible.view_knowledge",
+                                                                "View AI knowledge base")
+                                                            accessibleItem: parent
+                                                            onAccessibleClicked:
+                                                                wizardKnowledgeDialog.openFor(row.title)
+                                                        }
+                                                    }
+                                                    ProfileInfoButton {
+                                                        Layout.preferredWidth: Theme.scaled(26)
+                                                        Layout.preferredHeight: Theme.scaled(26)
+                                                        buttonSize: Theme.scaled(26)
+                                                        profileFilename: row.name
+                                                        profileName: row.title
+                                                        onClicked: pageStack.push(
+                                                            Qt.resolvedUrl("ProfileInfoPage.qml"),
+                                                            { profileFilename: row.name,
+                                                              profileName: row.title })
                                                     }
                                                 }
                                             }
+                                            // The tile-wide select target sits UNDER the
+                                            // info buttons (z: -1) so their own tap areas
+                                            // win — same pattern as the recipe cards.
                                             AccessibleMouseArea {
                                                 anchors.fill: parent
+                                                z: -1
                                                 accessibleName: row.title
                                                     + (tileRect.metaLine !== "" ? ", " + tileRect.metaLine : "")
                                                     + (row.reason !== "" ? ", " + row.reason : "")
@@ -2395,6 +2441,12 @@ Page {
             if (wizardPage.currentStep === "bean")
                 wizardPage.selectBean(bag)
         }
+    }
+
+    // Shared KB popup (qml/components/ProfileKnowledgeDialog.qml), opened
+    // from the sparkle on a profile tile.
+    ProfileKnowledgeDialog {
+        id: wizardKnowledgeDialog
     }
 
     // --- Pickers (selection-only dialogs, composer idiom) -------------------

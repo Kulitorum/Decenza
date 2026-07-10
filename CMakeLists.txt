@@ -794,6 +794,7 @@ set(QML_FILES
     qml/components/RecipeRow.qml
     qml/components/RecipeDrinkCard.qml
     qml/components/DrinkType.qml
+    qml/components/ProfileKnowledgeDialog.qml
     qml/components/PresetButton.qml
     qml/components/AccessibleLabel.qml
     qml/components/ComparisonGraph.qml
