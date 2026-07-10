@@ -85,7 +85,7 @@ Item {
             spacing: Theme.spacingSmall
 
             Image {
-                source: "qrc:/icons/pin.svg"
+                source: "qrc:/icons/espresso.svg"
                 sourceSize.height: Theme.scaled(20)
                 fillMode: Image.PreserveAspectFit
                 Accessible.ignored: true

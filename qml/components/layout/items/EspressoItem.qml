@@ -68,7 +68,7 @@ Item {
             spacing: Theme.spacingSmall
 
             Image {
-                source: "qrc:/icons/espresso.svg"
+                source: "qrc:/icons/profile.svg"
                 sourceSize.height: Theme.scaled(20)
                 fillMode: Image.PreserveAspectFit
                 opacity: DE1Device.guiEnabled ? 1.0 : 0.5
@@ -81,8 +81,8 @@ Item {
                 }
             }
             Tr {
-                key: "idle.button.espresso"
-                fallback: "Espresso"
+                key: "idle.button.profiles"
+                fallback: "Profiles"
                 font: Theme.bodyFont
                 color: !DE1Device.guiEnabled ? Theme.textSecondaryColor
                        : (root.isActive ? Theme.accentColor : Theme.textColor)
@@ -95,7 +95,7 @@ Item {
             enabled: DE1Device.guiEnabled
             supportLongPress: true
             supportDoubleClick: true
-            accessibleName: TranslationManager.translate("idle.button.espresso", "Espresso")
+            accessibleName: TranslationManager.translate("idle.button.profiles", "Profiles")
                             + (root.isActive ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
             accessibleDescription: TranslationManager.translate("idle.accessible.espresso.hint", "Tap to toggle presets. Double-tap or long-press to select profile.")
             onAccessibleClicked: root.togglePresets()

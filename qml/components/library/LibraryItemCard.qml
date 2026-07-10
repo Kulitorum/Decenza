@@ -145,8 +145,8 @@ Rectangle {
     function compileActionType(type) {
         switch (type) {
             case "espresso": return {
-                emoji: "qrc:/icons/espresso.svg",
-                content: "Espresso",
+                emoji: "qrc:/icons/profile.svg",
+                content: "Profiles",
                 action: "togglePreset:espresso",
                 backgroundColor: String(Theme.primaryColor)
             }
