@@ -130,7 +130,8 @@ Item {
         anchors.right: parent.right
         anchors.top: root.label.length > 0 ? fieldLabel.bottom : parent.top
         anchors.topMargin: root.label.length > 0 ? Theme.scaled(2) : 0
-        height: Theme.scaled(48)
+        // Match ValueInput's field height so the two read as the same size.
+        height: Theme.scaled(40)
         text: root.text
         placeholder: root.label
         EnterKey.type: Qt.EnterKeyDone

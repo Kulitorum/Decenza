@@ -74,7 +74,9 @@ TextField {
 
     background: Rectangle {
         color: Theme.backgroundColor
-        radius: Theme.scaled(4)
+        // Match ValueInput's rounding (sc(8)) so text fields and steppers read
+        // as the same family across the app.
+        radius: Theme.scaled(8)
         border.color: control.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
         border.width: 1
 
