@@ -29,27 +29,20 @@ A recipe's steam block SHALL contain: `hasMilk` (bool), milk weight (g), a pitch
 - **WHEN** the user reorders, edits, or deletes entries in the global steam pitcher presets after a recipe was saved
 - **THEN** the recipe's steam behavior is unchanged, because the pitcher was snapshotted by value
 
-### Requirement: Bean linking resolves to the current open bag
-A recipe SHALL link to a bean (by Bean Base canonical id when available, otherwise by roaster/coffee identity), not to a specific bag. At activation the link SHALL resolve to the current open bag of that bean. When no open bag of the linked bean exists, the recipe SHALL remain usable and surfaces SHALL show a "no open bag of this bean" state rather than an error.
-
-#### Scenario: New bag of the same bean
-- **WHEN** a bag is marked finished and a new bag of the same bean is opened
-- **THEN** recipes linked to that bean resolve to the new bag without user action
-
-#### Scenario: No open bag
-- **WHEN** a recipe's linked bean has no open bag
-- **THEN** the recipe can still be activated (profile, dose, steam apply) and the UI indicates the bean is not currently stocked
-
 ### Requirement: Grind inherit-or-pin
-Grind SHALL remain a bag property by default: a recipe with no pinned grind inherits the linked bean's current bag grind (and rpm) at all times, and the composer SHALL display the inherited values read-only. A recipe MAY override with a pinned grind value (free-form text, stored opaquely) and an optional pinned rpm — the override covers grind and rpm together and SHALL be freely toggleable off (returning to inherit). A recipe with no linked bean SHALL store its grind/rpm locally on the recipe.
+Grind SHALL remain a bag property by default: a recipe with no pinned grind inherits its linked bag's grind (and rpm) at all times, and the wizard SHALL display the inherited values read-only. A recipe MAY override with a pinned grind value (free-form text, stored opaquely) and an optional pinned rpm — the override covers grind and rpm together and SHALL be freely toggleable off (returning to inherit). A recipe with no linked bag SHALL store its grind/rpm locally on the recipe.
 
 #### Scenario: Re-dial updates sibling recipes
 - **WHEN** the bag's grind is changed (with or without a recipe active)
-- **THEN** every recipe inheriting from that bean reflects the new grind
+- **THEN** every recipe inheriting from that bag reflects the new grind
 
 #### Scenario: Pinned recipe is isolated
 - **WHEN** a recipe has a pinned grind and the bag's grind changes
 - **THEN** the pinned recipe's grind is unchanged
+
+#### Scenario: Sibling bags are independent
+- **WHEN** two recipes inherit grind from two different bags of the same bean and one bag is re-dialed
+- **THEN** only the recipe linked to the re-dialed bag reflects the change
 
 ### Requirement: Recipe lifecycle mirrors bags
 A recipe with zero shots SHALL be hard-deletable. A recipe that any shot references SHALL only be archivable: archived recipes disappear from pickers and quick-select but remain readable so shot history provenance never dangles.
@@ -102,4 +95,26 @@ The `recipes` table SHALL gain a `drink_type` TEXT column (values: `espresso`, `
 #### Scenario: Drink type never gates activation
 - **WHEN** a recipe's blocks contradict its stored drink type
 - **THEN** activation applies the blocks exactly as stored
+
+### Requirement: Recipes link a specific bag
+A recipe SHALL link a specific bag via a `bag_id` column (kCols-registered, CREATE TABLE + migration step, riding transfer/backup import with id remapping like `equipment_id`). Bean identity fields (Bean Base canonical id, roaster, coffee) SHALL be retained on the recipe as a display fallback and as the matching key for automatic relinking (see `recipe-bag-lifecycle`). Activation SHALL use the linked bag directly — no most-recently-used resolution. A recipe MAY still have no bag at all (bean-less recipes per the optionality ladder).
+
+#### Scenario: Two open bags of the same bean
+- **WHEN** two recipes link two different open bags of the same bean and each is activated in turn
+- **THEN** each activation selects exactly its own linked bag and inherits that bag's grind
+
+#### Scenario: Bean-less recipe unaffected
+- **WHEN** a recipe with no bag link is activated
+- **THEN** the active bag is unchanged and recipe-local grind applies, exactly as before
+
+### Requirement: Existing recipes migrate to bag links
+A one-time forward migration SHALL populate `bag_id` for existing recipes by resolving each recipe's bean identity to the current open bag (canonical id first, else case-insensitive roaster+coffee, most recently used first — the previous resolver's logic, run once). Recipes whose bean has no open bag SHALL migrate with no bag link and present as stale.
+
+#### Scenario: Migration resolves the open bag
+- **WHEN** the database migrates with a recipe whose bean has one open bag
+- **THEN** the recipe's `bag_id` points at that bag and behavior is unchanged from the user's perspective
+
+#### Scenario: Migration with no open bag
+- **WHEN** the database migrates with a recipe whose bean has no open bag
+- **THEN** the recipe migrates without a bag link and shows the bag-finished state until relinked
 

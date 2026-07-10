@@ -42,4 +42,4 @@
 
 - [x] 6.1 Update `docs/CLAUDE_MD/RECIPES.md`: bean-level → bag-level rule, relink lifecycle, dup-guard, stale semantics, migration note
 - [x] 6.2 Run full test suite (BUILD_TESTS=ON, --target all); fix MCP stub fallout
-- [ ] 6.3 User verification pass on the tablet: wizard walk (latte), two-bags-same-bean scenario, bag finish roll, restock wake, stale card re-point
+- [x] 6.3 User verification pass on the tablet: wizard walk (latte), two-bags-same-bean scenario, bag finish roll, restock wake, stale card re-point

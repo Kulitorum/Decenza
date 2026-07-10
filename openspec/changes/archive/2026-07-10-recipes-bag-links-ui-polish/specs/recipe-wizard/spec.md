@@ -75,6 +75,14 @@ The wizard SHALL suggest a recipe name composed from the bean (coffee/tea name) 
 ### Requirement: Details step fits one screen with right-sized controls
 The details step's controls SHALL be sized to their content, not stretched to fill the row (a temperature stepper or a numeric field SHALL NOT span the page width). On landscape tablet layouts the section cards SHALL arrange in a multi-column grid so the step fits without scrolling for the common drink types. The grind knowledge-base hint (last grind for this bean, cross-profile direction) SHALL render as a visually anchored callout (icon plus distinct background), not as muted caption text.
 
+#### Scenario: Latte details on a tablet
+- **WHEN** the user reaches the details step for a latte on a landscape tablet
+- **THEN** all sections (numbers, grind, steam, equipment) are visible without scrolling and no input control spans the full page width
+
+#### Scenario: Grind hint is prominent
+- **WHEN** a grind hint is available for the chosen bean and profile
+- **THEN** it renders as a callout with an icon, visually distinct from field labels
+
 ### Requirement: Details step explains its prefills and reads as optional
 The details step SHALL present itself as optional: a step-level caption SHALL state that everything is prefilled and ready to save. The numbers and grind cards SHALL open COLLAPSED to a one-line summary of their current values (tap to expand and edit); they SHALL auto-expand only when nothing could be prefilled (no dose/yield from any tier, or no bag to inherit grind from). When expanded, the numbers card SHALL carry a caption naming the provenance tier that filled it (last shot with this bean+profile / the profile's recommended numbers / the tea bag's brewing instructions / the recipe's saved values) plus a short adjust-to-taste nudge (including what the temp offset means); the grind card SHALL explain the inherit-vs-override rule; the equipment card SHALL say the package was prefilled from the user's last use for this drink type. The steam card SHALL NOT capture a milk weight — milk is weighed each time the user steams; the recipe stores the pitcher (whose preset carries steam time/flow/temperature) and the milk intent that drives the heater hold. A milk weight already stored on a recipe (e.g. promoted from a shot's steam snapshot) SHALL still display on cards and the summary.
 
@@ -93,14 +101,6 @@ The details step SHALL present itself as optional: a step-level caption SHALL st
 #### Scenario: No milk weight field
 - **WHEN** the user reaches the details step for a latte
 - **THEN** the steam card offers the pitcher picker and explains milk is weighed at steam time — there is no milk-weight input
-
-#### Scenario: Latte details on a tablet
-- **WHEN** the user reaches the details step for a latte on a landscape tablet
-- **THEN** all sections (numbers, grind, steam, equipment) are visible without scrolling and no input control spans the full page width
-
-#### Scenario: Grind hint is prominent
-- **WHEN** a grind hint is available for the chosen bean and profile
-- **THEN** it renders as a callout with an icon, visually distinct from field labels
 
 ### Requirement: Sub-pickers show preset metadata
 The pitcher, water-vessel, and equipment picker dialogs SHALL show each entry's stored data on its row — pitcher: name with milk weight/temperature where stored; vessel: name with amount (per its mode) and temperature; equipment: package name with grinder and basket. Rows SHALL NOT be name-only.
