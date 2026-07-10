@@ -1756,8 +1756,10 @@ Page {
                 // preserves the shot's context. (editBeverageType still carries
                 // the shot's captured value through save unchanged.)
 
+                // Barista — advanced-only (most users are the sole barista).
                 SuggestionField {
                     id: baristaField
+                    visible: postShotReviewPage.advancedMode
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.barista", "Barista")
                     text: editBarista
