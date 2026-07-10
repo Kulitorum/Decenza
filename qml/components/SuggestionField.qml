@@ -142,8 +142,9 @@ Item {
         // fires on every preedit change.
         inputMethodHints: Qt.ImhNoPredictiveText
 
-        // Make room for buttons on the right (only in normal mode)
-        rightPadding: root._accessibilityMode ? Theme.scaled(12) : Theme.scaled(84)
+        // Make room for the clear + dropdown buttons on the right (28px each +
+        // spacing) in normal mode.
+        rightPadding: root._accessibilityMode ? Theme.scaled(12) : Theme.scaled(68)
 
         onTextEdited: {
             // Committed text reached `text` (desktop keystroke, or IME commit on
@@ -259,9 +260,9 @@ Item {
         // Clear button (X in circle) - only when there's text
         Rectangle {
             visible: textInput.text.length > 0
-            width: Theme.scaled(36)
-            height: Theme.scaled(36)
-            radius: Theme.scaled(18)
+            width: Theme.scaled(28)
+            height: Theme.scaled(28)
+            radius: Theme.scaled(14)
             color: clearArea.pressed ? Theme.surfaceColor : Theme.backgroundColor
             border.color: Theme.textSecondaryColor
             border.width: 1
@@ -271,7 +272,7 @@ Item {
                 anchors.centerIn: parent
                 text: "\u00D7"  // multiplication sign
                 color: Theme.textSecondaryColor
-                font.pixelSize: Theme.scaled(21)
+                font.pixelSize: Theme.scaled(17)
                 Accessible.ignored: true
             }
 
@@ -294,9 +295,9 @@ Item {
 
         // Dropdown arrow button
         Rectangle {
-            width: Theme.scaled(36)
-            height: Theme.scaled(36)
-            radius: Theme.scaled(18)
+            width: Theme.scaled(28)
+            height: Theme.scaled(28)
+            radius: Theme.scaled(14)
             color: arrowArea.pressed ? Theme.surfaceColor : "transparent"
             Accessible.ignored: true
 
