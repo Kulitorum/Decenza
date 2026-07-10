@@ -1,0 +1,53 @@
+# recipe-quick-switch Delta
+
+## MODIFIED Requirements
+
+### Requirement: Bean button coherence
+Activating a recipe SHALL set the active bag (the recipe's linked bag), so the Beans widget's pill selection reflects the recipe's bag without additional wiring. Deactivation by ingredient swap SHALL deselect the recipe pill while leaving bag selection as the user set it.
+
+#### Scenario: Bag pill follows recipe
+- **WHEN** a recipe linked to bag X is activated
+- **THEN** the Beans widget shows bag X as selected
+
+### Requirement: Management page
+The Recipes management page SHALL list all non-archived recipes with create, edit, clone, and archive/delete actions (delete only for recipes with no shots), and provide access to archived recipes for reference. Each recipe card SHALL present, in order: the recipe name as the top-line anchor (with the Active badge); a drink line with the drink-type icon, its short label, the profile title (always shown, including for same-bean twins), and the milk weight when stored (the bare word "milk" SHALL NOT appear without the weight); a bean line with the bag name and shot count; and the shot-plan line. Card text lines SHALL wrap rather than elide so the profile is never truncated away — added card height is acceptable. Profile-less hot-water tea cards SHALL show "Tea · Hot water" on the drink line and the vessel snapshot (amount and temperature) in place of the shot-plan line. When zero recipes exist the page SHALL show two large starter tiles — one opening shot history (promote a good shot) and one opening the wizard — in place of a text-only hint.
+
+#### Scenario: Archive from management page
+- **WHEN** the user archives a used recipe
+- **THEN** it disappears from the list default view and the MRU pills, and remains visible in shot history provenance
+
+#### Scenario: Same-bean twins are distinguishable
+- **WHEN** two recipes share a bean but differ by profile
+- **THEN** each card shows its profile on the drink line without truncation
+
+#### Scenario: Latte card carries its milk
+- **WHEN** a latte recipe stores 200g of milk
+- **THEN** its card's drink line includes "200g milk" and no bare "milk" token
+
+#### Scenario: Hot-water tea card degrades deliberately
+- **WHEN** a profile-less hot-water tea recipe is listed
+- **THEN** its card shows "Tea · Hot water" and the vessel's amount and temperature instead of an empty shot plan
+
+#### Scenario: First-run empty state teaches both paths
+- **WHEN** the management page opens with zero recipes
+- **THEN** the user sees a "start from a good shot" tile opening shot history and a "build from scratch" tile opening the wizard
+
+### Requirement: Recipe pills show a drink-type icon
+Recipe pills in the idle widget and recipe lists SHALL show a small icon for the recipe's drink type (stored value, derived from blocks when absent), rendered as an SVG image (never a Unicode glyph per QML conventions). Wherever the drink type appears as text (cards, wizard summary, auto-names), surfaces SHALL use short labels — "Latte", "Tea", "Americano", "Long black" — reserving the long picker labels ("Latte / Cappuccino", "Tea (hot water)") for the wizard's drink-type step.
+
+#### Scenario: Mixed pill row is scannable
+- **WHEN** the idle widget shows an espresso, a latte, and a tea recipe
+- **THEN** each pill carries its distinct drink-type icon
+
+#### Scenario: Americano and long black stay distinct
+- **WHEN** an americano recipe and a long-black recipe appear on cards or the summary
+- **THEN** each pairs the shared water icon with its own short text label
+
+## ADDED Requirements
+
+### Requirement: Stale recipes are visibly indicated
+Surfaces listing recipes SHALL indicate a stale recipe (linked bag finished): the management card SHALL show a "bag finished" state with the one-tap re-point affordance (see `recipe-bag-lifecycle`), and the idle pill SHALL be dimmed or badged. Indication SHALL NOT block activation.
+
+#### Scenario: Stale pill still works
+- **WHEN** the idle pill row contains a stale recipe
+- **THEN** the pill is visually distinct, and tapping it still activates the recipe

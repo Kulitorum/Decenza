@@ -20,8 +20,8 @@ class SerialDbWorker;
 // bean and equipment links are optional and a recipe works with whatever
 // rungs exist.
 //
-// Grind: a recipe with an empty grindPinned INHERITS the linked bean's
-// current bag grind (resolution happens at activation, not here); a non-empty
+// Grind: a recipe with an empty grindPinned INHERITS the linked bag's
+// grind (applied at activation, not here); a non-empty
 // grindPinned is this recipe's own opaque grind text. The pin covers rpm as
 // well (rpmPinned) — grind and rpm are pinned together. Bean-less recipes keep
 // grind/rpm on the recipe by construction (there is nothing to inherit from).
@@ -53,9 +53,17 @@ struct Recipe {
     // the blocks, never this. Empty (legacy rows) = derive via deriveDrinkType.
     QString drinkType;
 
-    // Bean link (bean-level, NOT bag-level): canonical Bean Base id when
-    // available, else roaster+coffee identity. Resolves to the current open
-    // bag at activation; empty = no bean linked.
+    // Bag link (recipes-bag-links-ui-polish): the SPECIFIC bag this recipe
+    // is made with; 0 = no bag (bean-less recipes per the optionality
+    // ladder). Activation applies this bag directly — no MRU resolution.
+    // The bean identity fields below are the display fallback and the
+    // matching key for the automatic relink lifecycle (roll-on-finish,
+    // wake-on-restock), never an activation-time resolver input.
+    qint64 bagId = 0;
+
+    // Bean identity: canonical Bean Base id when available, else
+    // roaster+coffee identity. Kept in sync with the linked bag; empty = no
+    // bean linked.
     QString beanBaseId;
     QString roasterName;
     QString coffeeName;
@@ -132,6 +140,11 @@ struct Recipe {
 struct InventoryRecipe {
     Recipe recipe;
     qint64 shotCount = 0;
+    // Stale = the recipe has a bean and its linked bag is not in inventory
+    // (finished, deleted, or never resolved by the migration). A display
+    // state computed by the inventory query — never stored, never a gate:
+    // stale recipes list, activate, and pull shots normally.
+    bool stale = false;
 };
 
 // SQLite-backed recipe storage in the shot history database (recipes table,
@@ -167,11 +180,27 @@ public:
     Q_INVOKABLE void requestLastEquipmentForDrinkType(const QString& drinkType);
     static qint64 lastEquipmentForDrinkTypeStatic(QSqlDatabase& db, const QString& drinkType);
     Q_INVOKABLE void requestRecipe(qint64 recipeId);       // recipeReady()
-    // Activation bundle: the recipe row, its resolved open bag id, and that
-    // bag's full map, loaded in ONE background pass so activation applies a
-    // consistent snapshot. openBagId is -1 (and openBag empty) when the
-    // recipe has no bean link or no open bag of the bean exists.
+    // Activation bundle: the recipe row, its LINKED bag id, and that bag's
+    // full map, loaded in ONE background pass so activation applies a
+    // consistent snapshot. The linked bag is applied whether or not it is
+    // still in inventory (a stale recipe activates fully with the finished
+    // bag's data). bagId is -1 (and bag empty) when the recipe has no bag
+    // link or the linked bag row was deleted.
     Q_INVOKABLE void requestRecipeForActivation(qint64 recipeId);  // recipeActivationReady()
+
+    // Relink lifecycle (recipe-bag-lifecycle): silent, event-driven, no
+    // options. Both emit recipesRelinked when at least one recipe moved.
+    // Roll-on-finish: relink the finished bag's recipes to the newest open
+    // bag of the same bean identity (dup-guard: skip when the target bag
+    // already has a recipe with the same profile title + drink type).
+    Q_INVOKABLE void requestRelinkForFinishedBag(qint64 finishedBagId);
+    // Wake-on-restock: relink stale recipes matching the new bag's bean
+    // identity onto it, MRU-first, same dup-guard.
+    Q_INVOKABLE void requestRelinkForRestockedBag(qint64 newBagId);
+    // Manual re-point (stale card / wizard bag row): link `recipeId` to
+    // `bagId`, adopting the bag's bean identity fields. Grind pin/inherit is
+    // untouched. Emits recipeUpdated + recipesChanged like any update.
+    Q_INVOKABLE void requestRelinkRecipeToBag(qint64 recipeId, qint64 bagId);
 
     // Async writes — all emit recipesChanged() on success.
     Q_INVOKABLE void requestCreateRecipe(const QVariantMap& recipe);        // recipeCreated()
@@ -198,12 +227,34 @@ public:
     // Update only the columns named in `fields` (camelCase Recipe keys).
     static bool updateRecipeFieldsStatic(QSqlDatabase& db, qint64 recipeId, const QVariantMap& fields);
 
-    // Resolve the recipe's bean link to the current open bag: beanbase_id
+    // Resolve the recipe's bean identity to the current open bag: beanbase_id
     // match first, else case-insensitive roaster+coffee identity; in-inventory
     // bags only, most recently used first. Returns -1 when the recipe has no
-    // bean link or no open bag of that bean exists ("no open bag" is a
-    // display state, never an error).
+    // bean identity or no open bag of that bean exists. NOT an activation
+    // input anymore (activation uses the hard bag link) — this survives as
+    // the relink matching helper and the one-time migration-29 data pass.
     static qint64 resolveOpenBagStatic(QSqlDatabase& db, const Recipe& recipe);
+
+    // Migration 29 data pass: populate bag_id for every recipe that has a
+    // bean identity but no bag link yet, using resolveOpenBagStatic (the old
+    // activation resolver's logic, run once). Recipes whose bean has no open
+    // bag keep bag_id NULL and present as stale. Idempotent (only touches
+    // NULL bag_id rows).
+    static void migrateBagLinksStatic(QSqlDatabase& db);
+
+    // Roll-on-finish (synchronous core): relink the finished bag's
+    // non-archived recipes to the newest open bag of the same bean identity,
+    // skipping dup-guard collisions. Returns the moved recipe ids (empty when
+    // no successor bag exists or everything collided); *outTargetBagId names
+    // the successor when one was found.
+    static QVector<qint64> relinkForFinishedBagStatic(QSqlDatabase& db, qint64 finishedBagId,
+                                                      qint64* outTargetBagId = nullptr);
+
+    // Wake-on-restock (synchronous core): relink stale non-archived recipes
+    // matching the new bag's bean identity onto it, most recently used
+    // first, same dup-guard (so twin recipes wake one at a time). Returns
+    // the moved recipe ids.
+    static QVector<qint64> relinkForRestockedBagStatic(QSqlDatabase& db, qint64 newBagId);
 
     // Copy recipes rows from srcDb into destDb (device transfer / backup
     // restore), mirroring CoffeeBagStorage::importBagsStatic. Row ids change on
@@ -215,12 +266,17 @@ public:
     // returns true with an empty map. Runs inside the caller's destDb
     // transaction. packageIdMap remaps each source recipe's equipment_id to the
     // imported package's new dest id (EquipmentStorage::importEquipmentStatic
-    // runs first); a source equipment_id absent from the map becomes NULL. The
-    // bean link is bean-level (not a bag id) so it carries verbatim and resolves
-    // at activation. archived state is preserved so shot provenance never dangles.
+    // runs first); a source equipment_id absent from the map becomes NULL.
+    // bagIdMap likewise remaps the source recipe's bag_id to the imported
+    // bag's new dest id (CoffeeBagStorage::importBagsStatic runs first); a
+    // source bag_id absent from the map becomes NULL → the stale display
+    // state, exactly like a finished-and-gone bag. The bean identity fields
+    // carry verbatim (they are the relink matching key). archived state is
+    // preserved so shot provenance never dangles.
     static bool importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destDb, bool merge,
                                     QHash<qint64, qint64>& outIdMap,
-                                    const QHash<qint64, qint64>& packageIdMap);
+                                    const QHash<qint64, qint64>& packageIdMap,
+                                    const QHash<qint64, qint64>& bagIdMap);
 
 signals:
     void inventoryReady(const QVariantList& recipes);
@@ -233,6 +289,13 @@ signals:
     void recipeCreated(qint64 recipeId, const QVariantMap& recipe); // recipeId -1 on failure
     void recipeUpdated(qint64 recipeId, bool success);
     void recipeDeleted(qint64 recipeId, bool success);
+    // An automatic relink moved `movedRecipeIds` onto bag `targetBagId`
+    // (roll-on-finish or wake-on-restock). Drives the courtesy toast —
+    // count + target bag name — and lets MainController refresh the active
+    // recipe cache when it was among the moved. Only emitted when at least
+    // one recipe actually moved.
+    void recipesRelinked(const QVariantList& movedRecipeIds, qint64 targetBagId,
+                         const QString& targetBagName);
     // Coarse "something changed" signal so views can re-request the inventory.
     void recipesChanged();
 

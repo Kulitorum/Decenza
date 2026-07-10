@@ -813,6 +813,34 @@ void MainController::setupRecipeConnections() {
     connect(m_recipeStorage, &RecipeStorage::recipeActivationReady, this,
             &MainController::applyActivatedRecipe);
 
+    // --- Relink lifecycle (recipe-bag-lifecycle): recipes follow bag
+    // inventory events, silently and dup-guarded — roll-on-finish when a
+    // bag leaves inventory, wake-on-restock when a new bag arrives. Pure
+    // event hooks on the storage signals (no polling, no timers); the
+    // courtesy toast lives in main.qml on recipesRelinked.
+    connect(m_bagStorage, &CoffeeBagStorage::bagFinished, this, [this](qint64 bagId) {
+        m_recipeStorage->requestRelinkForFinishedBag(bagId);
+    });
+    connect(m_bagStorage, &CoffeeBagStorage::bagCreated, this,
+            [this](qint64 bagId, const QVariantMap&) {
+        if (bagId > 0)
+            m_recipeStorage->requestRelinkForRestockedBag(bagId);
+    });
+    // When an automatic relink moved the ACTIVE recipe, refresh its cache so
+    // grind routing and the deactivate watchers see the new bag link.
+    connect(m_recipeStorage, &RecipeStorage::recipesRelinked, this,
+            [this](const QVariantList& movedRecipeIds, qint64, const QString&) {
+        const qint64 activeId = m_settings->dye()->activeRecipeId();
+        if (activeId <= 0)
+            return;
+        for (const QVariant& moved : movedRecipeIds) {
+            if (moved.toLongLong() == activeId) {
+                m_recipeStorage->requestRecipe(activeId);
+                break;
+            }
+        }
+    });
+
     // Keep the active-recipe cache fresh after edits (composer, MCP, web,
     // our own stamps). recipeUpdated fires for every update, success or not.
     connect(m_recipeStorage, &RecipeStorage::recipeUpdated, this,
@@ -867,7 +895,8 @@ void MainController::setupRecipeConnections() {
     connect(m_settings->dye(), &SettingsDye::activeBagIdChanged, this, [this]() {
         if (m_applyingRecipe || m_activeRecipe.isEmpty())
             return;
-        const bool hasBeanLink = !m_activeRecipe.value("beanBaseId").toString().isEmpty()
+        const bool hasBeanLink = m_activeRecipe.value("bagId").toLongLong() > 0
+            || !m_activeRecipe.value("beanBaseId").toString().isEmpty()
             || !m_activeRecipe.value("roasterName").toString().isEmpty()
             || !m_activeRecipe.value("coffeeName").toString().isEmpty();
         if (!hasBeanLink)

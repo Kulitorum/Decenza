@@ -60,6 +60,7 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
             bev = bevByTitle.value(r.profileTitle.trimmed().toLower());
         o["drinkType"] = Recipe::deriveDrinkType(r, bev);
     }
+    o["bagId"] = r.bagId;
     o["beanBaseId"] = r.beanBaseId;
     o["roasterName"] = r.roasterName;
     o["coffeeName"] = r.coffeeName;
@@ -84,16 +85,28 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
         o["shotCount"] = shotCount;
     o["isActive"] = r.id == activeRecipeId;
     if (db) {
-        // Effective grind for the inherited case (the linked bean's open bag).
-        if (r.grindPinned.isEmpty()) {
-            const qint64 openBagId = RecipeStorage::resolveOpenBagStatic(*db, r);
-            if (openBagId > 0) {
-                const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(*db, openBagId);
-                o["effectiveGrind"] = bag.grinderSetting;
+        // The linked bag: staleness flag (bag finished / gone — display
+        // state, never a gate) and the effective grind for the inherited
+        // case, which resolves from the linked bag whether or not it is
+        // still in inventory.
+        if (r.bagId > 0) {
+            const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(*db, r.bagId);
+            if (bag.isValid()) {
+                if (!bag.inInventory)
+                    o["bagStale"] = true;
+                if (r.grindPinned.isEmpty() && !bag.grinderSetting.isEmpty())
+                    o["effectiveGrind"] = bag.grinderSetting;
+            } else {
+                o["bagStale"] = true;
             }
-        } else {
-            o["effectiveGrind"] = r.grindPinned;
+        } else if (!r.beanBaseId.isEmpty() || !r.roasterName.isEmpty()
+                   || !r.coffeeName.isEmpty()) {
+            // A bean identity with no linked bag (unresolved migration)
+            // presents as stale too — wake-on-restock will re-home it.
+            o["bagStale"] = true;
         }
+        if (!r.grindPinned.isEmpty())
+            o["effectiveGrind"] = r.grindPinned;
     }
     return o;
 }
@@ -110,6 +123,8 @@ QVariantMap recipeFieldsFromBody(const QJsonObject& body)
         if (body.contains(key))
             fields.insert(key, body[key].toString());
     }
+    if (body.contains("bagId"))
+        fields.insert("bagId", body["bagId"].toInteger());
     if (body.contains("equipmentId"))
         fields.insert("equipmentId", body["equipmentId"].toInteger());
     if (body.contains("rpmPinned"))
@@ -269,6 +284,10 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                     {"name", name},
                     {"profileTitle", record.summary.profileName},
                     {"profileJson", record.profileJson},
+                    // The shot's bag becomes the recipe's hard bag link; a
+                    // pre-bag shot (bagId <= 0) stores no link and the bean
+                    // identity below still carries.
+                    {"bagId", record.bagId > 0 ? record.bagId : 0},
                     {"beanBaseId", beanBaseId},
                     {"roasterName", record.summary.beanBrand},
                     {"coffeeName", record.summary.beanType},
@@ -538,6 +557,8 @@ QString ShotServer::generateRecipesPage() const
         <h2 id="editorTitle">Recipe</h2>
         <label>Name</label><input id="fName">
         <label>Profile title</label><input id="fProfile">
+        <label>Bag (grind follows it; roaster/coffee fill in automatically)</label>
+        <select id="fBag"><option value="0">(no bag)</option></select>
         <label>Roaster</label><input id="fRoaster">
         <label>Coffee</label><input id="fCoffee">
         <label>Dose (g)</label><input id="fDose" type="number" step="0.1">
@@ -580,6 +601,22 @@ QString ShotServer::generateRecipesPage() const
         const status = (m) => { document.getElementById('status').textContent = m || ''; };
         const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
+        let bags = [];
+        function loadBags() {
+            fetch('/api/bags')
+                .then(r => { if (!r.ok) throw new Error('Server error (' + r.status + ')'); return r.json(); })
+                .then(d => {
+                    bags = d.bags || [];
+                    const sel = document.getElementById('fBag');
+                    sel.innerHTML = '<option value="0">(no bag)</option>' + bags.map(b =>
+                        '<option value="' + b.id + '">'
+                        + esc(((b.roasterName || '') + ' ' + (b.coffeeName || '')).trim()
+                              + (b.roastDate ? ' · ' + b.roastDate : ''))
+                        + '</option>').join('');
+                })
+                .catch(() => {});  // bag list is a convenience; the editor still works without it
+        }
+
         function load() {
             status('Loading…');
             fetch('/api/recipes')
@@ -598,6 +635,7 @@ QString ShotServer::generateRecipesPage() const
             if (r.effectiveGrind) parts.push('grind ' + esc(r.effectiveGrind) + (r.grindPinned ? ' (pinned)' : ''));
             if (r.steam && r.steam.hasMilk) parts.push('milk' + (r.steam.milkWeightG ? ' ' + r.steam.milkWeightG + 'g' : ''));
             if (r.hotWater && r.hotWater.hasWater) parts.push('+water' + (r.hotWater.order === 'before' ? ' (long black)' : ' (americano)'));
+            if (r.bagStale) parts.push('bag finished');
             if (r.shotCount > 0) parts.push(r.shotCount + ' shots');
             return parts.join(' &middot; ');
         }
@@ -660,6 +698,16 @@ QString ShotServer::generateRecipesPage() const
             document.getElementById('fName').value = r.name || '';
             document.getElementById('fDrinkType').value = r.drinkType || '';
             document.getElementById('fProfile').value = r.profileTitle || '';
+            const bagSel = document.getElementById('fBag');
+            // A finished linked bag is not in the open-bag list — add it so
+            // editing another field doesn't silently drop the link.
+            if (r.bagId > 0 && !bags.some(b => b.id === r.bagId)) {
+                const opt = document.createElement('option');
+                opt.value = r.bagId;
+                opt.textContent = ((r.roasterName || '') + ' ' + (r.coffeeName || '')).trim() + ' (finished)';
+                bagSel.appendChild(opt);
+            }
+            bagSel.value = String(r.bagId > 0 ? r.bagId : 0);
             document.getElementById('fRoaster').value = r.roasterName || '';
             document.getElementById('fCoffee').value = r.coffeeName || '';
             document.getElementById('fDose').value = r.doseG > 0 ? r.doseG : '';
@@ -701,6 +749,7 @@ QString ShotServer::generateRecipesPage() const
                 name: name,
                 profileTitle: profileTitle,
                 drinkType: document.getElementById('fDrinkType').value,
+                bagId: parseInt(document.getElementById('fBag').value, 10) || 0,
                 roasterName: document.getElementById('fRoaster').value.trim(),
                 coffeeName: document.getElementById('fCoffee').value.trim(),
                 doseG: parseFloat(document.getElementById('fDose').value) || 0,
@@ -717,6 +766,7 @@ QString ShotServer::generateRecipesPage() const
         }
 
         load();
+        loadBags();
     </script>
 </body>
 </html>)HTML";

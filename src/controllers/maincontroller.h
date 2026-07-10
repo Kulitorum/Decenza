@@ -159,7 +159,8 @@ public:
     Q_INVOKABLE void loadShotWithMetadata(qint64 shotId, double doseOverride = 0);
 
     // --- Recipes (add-recipes) ---
-    // Activate a recipe: apply its profile, resolved open bag, equipment,
+    // Activate a recipe: apply its profile, linked bag (whether or not it is
+    // still in inventory — stale recipes activate fully), equipment,
     // dose/yield/temp, grind routing, and steam block (the single activation
     // path shared by QML pill taps, MCP recipe_activate, and the web
     // /activate route). Async; terminal status via recipeActivated().

@@ -133,27 +133,11 @@ Page {
     readonly property bool isTeaDrink: activeTemplate.isTea === true
     readonly property bool isHotWaterTea: fDrinkType === "tea_hotwater"
 
-    function drinkTypeLabel(t) {
-        switch (t) {
-        case "espresso": return TranslationManager.translate("recipes.wizard.type.espresso", "Espresso")
-        case "filter": return TranslationManager.translate("recipes.wizard.type.filter", "Filter")
-        case "americano": return TranslationManager.translate("recipes.wizard.type.americano", "Americano")
-        case "long_black": return TranslationManager.translate("recipes.wizard.type.longBlack", "Long black")
-        case "latte": return TranslationManager.translate("recipes.wizard.type.latte", "Latte / Cappuccino")
-        case "tea": return TranslationManager.translate("recipes.wizard.type.tea", "Tea")
-        case "tea_hotwater": return TranslationManager.translate("recipes.wizard.type.teaHotWater", "Tea (hot water)")
-        }
-        return t
-    }
-    function drinkTypeIcon(t) {
-        switch (t) {
-        case "filter": return "qrc:/icons/filter.svg"
-        case "americano": case "long_black": return "qrc:/icons/water.svg"
-        case "latte": return "qrc:/icons/steam.svg"
-        case "tea": case "tea_hotwater": return "qrc:/icons/tea.svg"
-        }
-        return "qrc:/icons/espresso.svg"
-    }
+    // Labels/icons live in the DrinkType singleton (shared with the cards,
+    // pills, and auto-naming). The wizard's own picker keeps the LONG forms
+    // ("Latte / Cappuccino"); everything downstream uses the short ones.
+    function drinkTypeLabel(t) { return DrinkType.longLabel(t) }
+    function drinkTypeIcon(t) { return DrinkType.icon(t) }
 
     // --- form state (same vocabulary as the old composer) ------------------
     property string fDrinkType: ""
@@ -163,6 +147,10 @@ Page {
     property real fTempDeltaC: 0
     property real fLoadedTempOverrideC: 0
     property bool _submitting: false
+    // The hard bag link (recipes-bag-links-ui-polish): the SPECIFIC bag this
+    // recipe is made with — selection on the bag step links exactly that
+    // bag; two open bags of one bean are distinct choices. 0 = no bag.
+    property real fBagId: 0
     property string fBeanBaseId: ""
     property string fRoaster: ""
     property string fCoffee: ""
@@ -194,13 +182,48 @@ Page {
     readonly property bool canSave: MainController.recipeStorage.isSaveValid(
         nameField.text, fProfileTitle, buildHotWaterJson())
 
+    // What the summary hero renders: the wizard state shaped exactly like a
+    // stored recipe map, so the shared RecipeDrinkCard shows the card the
+    // management page will show after save (WYSIWYG). An object-literal
+    // binding — re-evaluates as the fields change.
+    readonly property var previewMap: ({
+        name: nameField.text,
+        drinkType: fDrinkType,
+        profileTitle: fProfileTitle,
+        bagId: fBagId,
+        beanBaseId: fBeanBaseId,
+        roasterName: fRoaster,
+        coffeeName: fCoffee,
+        doseG: parseFloat(doseField.text) || 0,
+        yieldG: parseFloat(yieldField.text) || 0,
+        tempOverrideC: isTeaDrink
+            ? (fTeaTempC > 0 && Math.abs(fTeaTempC - fProfileTempC) > 0.05 ? fTeaTempC : 0)
+            : (fProfileTempC > 0
+                ? (Math.abs(fTempDeltaC) > 0.05 ? fProfileTempC + fTempDeltaC : 0)
+                : fLoadedTempOverrideC),
+        grindPinned: (!activeTemplate.grind) ? ""
+            : ((!hasBean || fGrindOverride) ? grindField.text.trim() : ""),
+        steamJson: buildSteamJson(),
+        hotWaterJson: buildHotWaterJson()
+    })
+
     // Auto-suggested name ("<Bean> <DrinkType>"): applied while the field is
     // empty or still holds the previous suggestion — never over a user edit.
+    // SHORT type labels only ("Gran Bar Latte", never "… Latte / Cappuccino"),
+    // and the type word is skipped when the bean name already ends with it
+    // ("Milk Blend Espresso", not "Milk Blend Espresso Espresso").
     function suggestName() {
         var bean = (fCoffee !== "" ? fCoffee : fRoaster).trim()
         var parts = []
         if (bean !== "") parts.push(bean)
-        if (fDrinkType !== "") parts.push(drinkTypeLabel(fDrinkType))
+        if (fDrinkType !== "") {
+            var typeWord = DrinkType.shortLabel(fDrinkType)
+            var stutter = bean !== ""
+                && bean.toLowerCase().endsWith(" " + typeWord.toLowerCase())
+            if (bean.toLowerCase() === typeWord.toLowerCase())
+                stutter = true
+            if (!stutter) parts.push(typeWord)
+        }
         var suggestion = parts.join(" ")
         if (suggestion === "" || (nameField.text !== "" && nameField.text !== _autoName))
             return
@@ -241,6 +264,7 @@ Page {
         nameField.text = r.name || ""
         fProfileTitle = r.profileTitle || ""
         fProfileJson = r.profileJson || ""
+        fBagId = r.bagId || 0
         fBeanBaseId = r.beanBaseId || ""
         fRoaster = r.roasterName || ""
         fCoffee = r.coffeeName || ""
@@ -389,6 +413,9 @@ Page {
             name: "",
             profileTitle: shot.profileName || "",
             profileJson: shot.profileJson || "",
+            // The shot's own bag becomes the recipe's hard bag link (a
+            // pre-bag shot carries no link; the bean identity still does).
+            bagId: shot.bagId > 0 ? shot.bagId : 0,
             beanBaseId: beanBaseId,
             roasterName: shot.beanBrand || "",
             coffeeName: shot.beanType || "",
@@ -409,15 +436,19 @@ Page {
         nameField.selectAll()
     }
 
-    // Resolve the selected profile's base temperature (for the offset control).
+    // Resolve the selected profile's base temperature (for the offset
+    // control) and target yield (for the summary hero's plan line).
+    property real fProfileYieldG: 0
     function refreshProfileTemp() {
         fProfileTempC = 0
+        fProfileYieldG = 0
         if (fProfileTitle === "")
             return
         var fn = ProfileManager.findProfileByTitle(fProfileTitle)
         if (fn && fn !== "") {
             var d = ProfileManager.getProfileByFilename(fn)
             fProfileTempC = d.espresso_temperature || 0
+            fProfileYieldG = d.target_weight || 0
         }
     }
 
@@ -445,6 +476,7 @@ Page {
             drinkType: fDrinkType !== "" ? fDrinkType : deriveDrinkType(),
             profileTitle: fProfileTitle,
             profileJson: fProfileJson,
+            bagId: fBagId,
             beanBaseId: fBeanBaseId,
             roasterName: fRoaster,
             coffeeName: fCoffee,
@@ -498,16 +530,16 @@ Page {
             } else {
                 fHasWater = false
             }
-            // Crossing the coffee/tea boundary invalidates the bean choice.
+            // Crossing the coffee/tea boundary invalidates the bag choice.
             if (was !== "" && (templates[was] || {}).bagKind !== t.bagKind) {
-                fBeanBaseId = ""; fRoaster = ""; fCoffee = ""; fBagBlob = ""
+                fBagId = 0; fBeanBaseId = ""; fRoaster = ""; fCoffee = ""; fBagBlob = ""
                 fInheritedGrind = ""; fInheritedRpm = 0
             }
             // Tea → hot-water tea keeps no profile; other switches keep it
             // only when it still fits the new filter set (checked lazily by
             // the profile step; clearing here keeps the walk honest).
             if (type === "tea_hotwater")
-                { fProfileTitle = ""; fProfileJson = ""; fProfileTempC = 0 }
+                { fProfileTitle = ""; fProfileJson = ""; fProfileTempC = 0; fProfileYieldG = 0 }
             // Per-drink-type equipment default (last recipe of this type).
             MainController.recipeStorage.requestLastEquipmentForDrinkType(type)
         }
@@ -524,10 +556,14 @@ Page {
                 grindField.text = fInheritedGrind
                 rpmField.text = fInheritedRpm > 0 ? String(fInheritedRpm) : ""
             }
+            fBagId = 0
             fBeanBaseId = ""; fRoaster = ""; fCoffee = ""; fBagBlob = ""
             fInheritedGrind = ""; fInheritedRpm = 0
             _selectedBagRoastLevel = ""
         } else {
+            // The tile IS the bag: link exactly this one (two open bags of
+            // the same bean are distinct choices — no identity resolution).
+            fBagId = bag.id || 0
             fBeanBaseId = bag.beanBaseId || ""
             fRoaster = bag.roasterName || ""
             fCoffee = bag.coffeeName || ""
@@ -560,6 +596,7 @@ Page {
         if (detail.target_weight > 0 && yieldField.text === "")
             yieldField.text = Number(detail.target_weight).toFixed(1)
         fProfileTempC = detail.espresso_temperature || 0
+        fProfileYieldG = detail.target_weight || 0
         // Tea temp is resolved entirely by applyDetailsPrefill (bag vendor
         // temp with the type-match correction, then profile default, then
         // history overwrite) — pre-seeding it here would make that whole
@@ -571,7 +608,7 @@ Page {
 
     function selectJustHotWater() {
         fDrinkType = "tea_hotwater"
-        fProfileTitle = ""; fProfileJson = ""; fProfileTempC = 0
+        fProfileTitle = ""; fProfileJson = ""; fProfileTempC = 0; fProfileYieldG = 0
         fHasWater = true
         fWaterOrder = "after"
         suggestName()
@@ -688,7 +725,7 @@ Page {
         var tier1 = []
         for (i = 0; i < withBean.length; ++i) {
             var p = byTitle[String(withBean[i].profileName).toLowerCase()]
-            if (p) { tier1.push({ isHeader: false, title: p.title, name: p.name, reason: "" }); used[p.title] = true }
+            if (p) { tier1.push({ isHeader: false, tier: 1, title: p.title, name: p.name, reason: "" }); used[p.title] = true }
         }
         if (tier1.length > 0) {
             model.push({ isHeader: true, title: TranslationManager.translate(
@@ -708,7 +745,7 @@ Page {
             for (i = 0; i < inSet.length; ++i) {
                 if (used[inSet[i].title]) continue
                 if (ProfileManager.teaProfileMatchesType(inSet[i].title, teaType))
-                    tier2.push({ isHeader: false, title: inSet[i].title, name: inSet[i].name,
+                    tier2.push({ isHeader: false, tier: 2, title: inSet[i].title, name: inSet[i].name,
                                  reason: TranslationManager.translate(
                                      "recipes.wizard.profiles.matchesType", "matches %1").arg(teaType) })
             }
@@ -717,7 +754,7 @@ Page {
             for (i = 0; i < inSet.length; ++i) {
                 if (used[inSet[i].title]) continue
                 if (ProfileManager.kbProfileSuitsRoast(inSet[i].title, _selectedBagRoastLevel))
-                    tier2.push({ isHeader: false, title: inSet[i].title, name: inSet[i].name,
+                    tier2.push({ isHeader: false, tier: 2, title: inSet[i].title, name: inSet[i].name,
                                  reason: TranslationManager.translate(
                                      "recipes.wizard.profiles.suitsRoast", "suits %1 roasts")
                                      .arg(_selectedBagRoastLevel.toLowerCase()) })
@@ -731,7 +768,7 @@ Page {
                     if (tier2[t].title === p.title) { already = true; break }
                 }
                 if (!already)
-                    tier2.push({ isHeader: false, title: p.title, name: p.name,
+                    tier2.push({ isHeader: false, tier: 2, title: p.title, name: p.name,
                                  reason: TranslationManager.translate(
                                      "recipes.wizard.profiles.similarBeans", "used with similar beans") })
             }
@@ -772,7 +809,7 @@ Page {
                 model.push({ isHeader: true, title: TranslationManager.translate(
                     "recipes.wizard.profiles.all", "All profiles") })
             for (i = 0; i < rest.length; ++i)
-                model.push({ isHeader: false, title: rest[i].title, name: rest[i].name, reason: "" })
+                model.push({ isHeader: false, tier: 3, title: rest[i].title, name: rest[i].name, reason: "" })
         }
         profileModel = model
     }
@@ -930,10 +967,14 @@ Page {
             if (wizardPage.hasBean) {
                 for (var i = 0; i < bags.length; ++i) {
                     var b = bags[i]
-                    var match = wizardPage.fBeanBaseId !== ""
-                        ? b.beanBaseId === wizardPage.fBeanBaseId
-                        : (String(b.roasterName).toLowerCase() === wizardPage.fRoaster.toLowerCase()
-                           && String(b.coffeeName).toLowerCase() === wizardPage.fCoffee.toLowerCase())
+                    // The hard bag link first; bean identity only as a
+                    // fallback for link-less recipes (e.g. stale imports).
+                    var match = wizardPage.fBagId > 0
+                        ? b.id === wizardPage.fBagId
+                        : (wizardPage.fBeanBaseId !== ""
+                            ? b.beanBaseId === wizardPage.fBeanBaseId
+                            : (String(b.roasterName).toLowerCase() === wizardPage.fRoaster.toLowerCase()
+                               && String(b.coffeeName).toLowerCase() === wizardPage.fCoffee.toLowerCase()))
                     if (match) {
                         wizardPage.fInheritedGrind = b.grinderSetting || ""
                         wizardPage.fInheritedRpm = b.rpm || 0
@@ -1075,7 +1116,9 @@ Page {
         }
     }
 
-    // A tappable summary row: label, value, chevron → reopens a step.
+    // A tappable summary row: label, value, and ONE edit glyph (the pencil)
+    // — never an arrow that could read as something else beside the
+    // dose→yield arrow inside a value.
     component SummaryRow: Rectangle {
         id: summaryRow
         property string label: ""
@@ -1107,10 +1150,11 @@ Page {
                 elide: Text.ElideRight
                 Accessible.ignored: true
             }
-            Label {
-                text: "→"
-                font: Theme.bodyFont
-                color: Theme.textSecondaryColor
+            ColoredIcon {
+                source: "qrc:/icons/edit.svg"
+                iconWidth: Theme.scaled(16)
+                iconHeight: Theme.scaled(16)
+                iconColor: Theme.textSecondaryColor
                 Accessible.ignored: true
             }
         }
@@ -1281,42 +1325,226 @@ Page {
                         Accessible.role: Accessible.StaticText
                         Accessible.name: text
                     }
-                    ListView {
+                    // Bag TILE grid (recipes-bag-links-ui-polish): one tile per
+                    // open bag — photo, roaster caption, coffee name, roast
+                    // date/age — so two bags of the same bean are visibly
+                    // distinct choices (no dedup; the tile IS the bag). "Add a
+                    // new coffee…" and "No bean" render as ghost tiles at the
+                    // end of the grid.
+                    Flickable {
+                        id: bagGridFlick
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        contentHeight: bagGrid.implicitHeight + Theme.scaled(16)
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
-                        model: parent.kindBags.concat([{ isAddNew: true }, { isNone: true }])
-                        delegate: ItemDelegate {
-                            width: ListView.view.width
-                            contentItem: Label {
-                                text: modelData.isAddNew
-                                    ? (wizardPage.isTeaDrink
-                                        ? TranslationManager.translate("recipes.wizard.addNewTea", "Add a new tea…")
-                                        : TranslationManager.translate("recipes.wizard.addNewCoffee", "Add a new coffee…"))
-                                    : modelData.isNone
-                                        ? (wizardPage.isTeaDrink ? trNoTea.text : trNoBean.text)
-                                        : ((modelData.roasterName || "") + " " + (modelData.coffeeName || "")).trim()
-                                font: Theme.bodyFont
-                                color: modelData.isAddNew ? Theme.primaryColor : Theme.textColor
-                                elide: Text.ElideRight
+                        readonly property var gridModel:
+                            parent.kindBags.concat([{ isAddNew: true }, { isNone: true }])
+
+                        // A bag tile's photo, from the same on-disk cache the
+                        // bag cards use (canonical id key, else "bag-<id>").
+                        component BagTileImage: Rectangle {
+                            id: tileImage
+                            property var bag: null
+                            readonly property string imageKey: {
+                                if (!bag) return ""
+                                return bag.beanBaseId && String(bag.beanBaseId).length > 0
+                                    ? String(bag.beanBaseId) : "bag-" + bag.id
                             }
-                            Accessible.role: Accessible.Button
-                            Accessible.name: contentItem.text
-                            onClicked: {
-                                if (modelData.isAddNew) {
-                                    // Coffee: the search-first flow (the one they
-                                    // want may be in Bean Base / history). Tea:
-                                    // the tea entry (form-first when none exist).
-                                    if (wizardPage.isTeaDrink)
-                                        wizardBeansDialog.openTeaEntry(ListView.view.count > 2)
-                                    else {
-                                        wizardBeansDialog.bagKind = "coffee"
-                                        wizardBeansDialog.open()
+                            property string cachedImagePath: ""
+                            function refreshImage() {
+                                cachedImagePath = imageKey.length > 0
+                                    ? MainController.beanbase.bagImagePath(imageKey) : ""
+                                if (imageKey.length > 0 && cachedImagePath.length === 0) {
+                                    var link = ""
+                                    if (bag && bag.beanBaseData && String(bag.beanBaseData).length > 0) {
+                                        try { link = JSON.parse(bag.beanBaseData).link || "" } catch (e) {}
                                     }
-                                    return
+                                    MainController.beanbase.ensureBagImage(
+                                        imageKey, bag ? (bag.coffeeName || "") : "", link)
                                 }
-                                wizardPage.selectBean(modelData.isNone ? null : modelData)
+                            }
+                            onImageKeyChanged: refreshImage()
+                            Component.onCompleted: refreshImage()
+                            Connections {
+                                target: MainController.beanbase
+                                function onBagImageReady(key, path) {
+                                    if (key === tileImage.imageKey)
+                                        tileImage.cachedImagePath = path
+                                }
+                            }
+                            radius: Theme.scaled(6)
+                            color: Theme.backgroundColor
+                            border.color: Theme.borderColor
+                            border.width: 1
+                            ColoredIcon {
+                                anchors.centerIn: parent
+                                visible: bagTileThumb.status !== Image.Ready
+                                source: wizardPage.isTeaDrink ? "qrc:/icons/tea.svg" : "qrc:/icons/coffeebeans.svg"
+                                iconWidth: Theme.scaled(28)
+                                iconHeight: Theme.scaled(28)
+                                iconColor: Theme.textSecondaryColor
+                                opacity: 0.5
+                                Accessible.ignored: true
+                            }
+                            Image {
+                                id: bagTileThumb
+                                anchors.fill: parent
+                                anchors.margins: 1
+                                visible: status === Image.Ready
+                                source: tileImage.cachedImagePath.length > 0
+                                    ? "file:///" + tileImage.cachedImagePath : ""
+                                sourceSize.width: Theme.scaled(180)
+                                sourceSize.height: Theme.scaled(180)
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        // Roast date plus age ("2026-06-12 · 28d"); empty when
+                        // the bag states no roast date.
+                        function roastAgeLine(bag) {
+                            var date = String(bag.roastDate || "")
+                            if (date === "") return ""
+                            var parsed = Date.fromLocaleString(Qt.locale("C"), date, "yyyy-MM-dd")
+                            if (isNaN(parsed.getTime())) return date
+                            var days = Math.floor((Date.now() - parsed.getTime()) / 86400000)
+                            return days >= 0 ? date + " · " + days + "d" : date
+                        }
+
+                        Flow {
+                            id: bagGrid
+                            width: bagGridFlick.width
+                            spacing: Theme.spacingMedium
+
+                            Repeater {
+                                model: bagGridFlick.gridModel
+                                delegate: Rectangle {
+                                    id: bagTile
+                                    readonly property bool isGhost: modelData.isAddNew === true || modelData.isNone === true
+                                    readonly property bool isSelected: !isGhost && wizardPage.fBagId > 0
+                                        && modelData.id === wizardPage.fBagId
+                                    readonly property string tileTitle: modelData.isAddNew
+                                        ? (wizardPage.isTeaDrink
+                                            ? TranslationManager.translate("recipes.wizard.addNewTea", "Add a new tea…")
+                                            : TranslationManager.translate("recipes.wizard.addNewCoffee", "Add a new coffee…"))
+                                        : modelData.isNone
+                                            ? (wizardPage.isTeaDrink ? trNoTea.text : trNoBean.text)
+                                            : (modelData.coffeeName || modelData.roasterName || "")
+                                    width: Theme.scaled(170)
+                                    height: Theme.scaled(190)
+                                    radius: Theme.cardRadius
+                                    color: isGhost ? "transparent" : Theme.surfaceColor
+                                    border.color: isSelected ? Theme.primaryColor : "transparent"
+                                    border.width: isSelected ? 2 : 0
+
+                                    // Ghost tiles: dashed border, same size.
+                                    Canvas {
+                                        anchors.fill: parent
+                                        visible: bagTile.isGhost
+                                        onPaint: {
+                                            var ctx = getContext("2d")
+                                            ctx.reset()
+                                            ctx.strokeStyle = Theme.borderColor
+                                            ctx.lineWidth = 1
+                                            ctx.setLineDash([6, 5])
+                                            var r = Theme.cardRadius
+                                            ctx.beginPath()
+                                            ctx.roundedRect(0.5, 0.5, width - 1, height - 1, r, r)
+                                            ctx.stroke()
+                                        }
+                                        Accessible.ignored: true
+                                    }
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        visible: !bagTile.isGhost && !bagTile.isSelected
+                                        color: "transparent"
+                                        radius: parent.radius
+                                        border.color: Theme.borderColor
+                                        border.width: 1
+                                    }
+
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: Theme.spacingSmall
+                                        spacing: Theme.scaled(4)
+
+                                        BagTileImage {
+                                            visible: !bagTile.isGhost
+                                            bag: bagTile.isGhost ? null : modelData
+                                            Layout.fillWidth: true
+                                            Layout.preferredHeight: Theme.scaled(90)
+                                        }
+                                        ColoredIcon {
+                                            visible: bagTile.isGhost
+                                            Layout.alignment: Qt.AlignHCenter
+                                            Layout.topMargin: Theme.scaled(30)
+                                            source: modelData.isAddNew ? "qrc:/icons/plus.svg"
+                                                : (wizardPage.isTeaDrink ? "qrc:/icons/tea.svg" : "qrc:/icons/coffeebeans.svg")
+                                            iconWidth: Theme.scaled(32)
+                                            iconHeight: Theme.scaled(32)
+                                            iconColor: modelData.isAddNew ? Theme.primaryColor : Theme.textSecondaryColor
+                                            Accessible.ignored: true
+                                        }
+                                        Label {
+                                            visible: !bagTile.isGhost && (modelData.roasterName || "") !== ""
+                                            Layout.fillWidth: true
+                                            text: modelData.roasterName || ""
+                                            font: Theme.captionFont
+                                            color: Theme.textSecondaryColor
+                                            elide: Text.ElideRight
+                                            Accessible.ignored: true
+                                        }
+                                        Label {
+                                            Layout.fillWidth: true
+                                            Layout.alignment: bagTile.isGhost ? Qt.AlignHCenter : Qt.AlignLeft
+                                            horizontalAlignment: bagTile.isGhost ? Text.AlignHCenter : Text.AlignLeft
+                                            text: bagTile.tileTitle
+                                            font: Theme.bodyFont
+                                            color: modelData.isAddNew ? Theme.primaryColor : Theme.textColor
+                                            wrapMode: Text.WordWrap
+                                            maximumLineCount: 2
+                                            elide: Text.ElideRight
+                                            Accessible.ignored: true
+                                        }
+                                        Label {
+                                            visible: !bagTile.isGhost && bagGridFlick.roastAgeLine(modelData) !== ""
+                                            Layout.fillWidth: true
+                                            text: bagTile.isGhost ? "" : bagGridFlick.roastAgeLine(modelData)
+                                            font: Theme.captionFont
+                                            color: Theme.textSecondaryColor
+                                            elide: Text.ElideRight
+                                            Accessible.ignored: true
+                                        }
+                                        Item { Layout.fillHeight: true }
+                                    }
+
+                                    AccessibleMouseArea {
+                                        anchors.fill: parent
+                                        accessibleName: bagTile.isGhost ? bagTile.tileTitle
+                                            : (((modelData.roasterName || "") + " " + (modelData.coffeeName || "")).trim()
+                                               + (bagGridFlick.roastAgeLine(modelData) !== ""
+                                                   ? ", " + bagGridFlick.roastAgeLine(modelData) : ""))
+                                        accessibleItem: bagTile
+                                        onAccessibleClicked: {
+                                            if (modelData.isAddNew) {
+                                                // Coffee: the search-first flow (the one
+                                                // they want may be in Bean Base /
+                                                // history). Tea: the tea entry (form-
+                                                // first when none exist).
+                                                if (wizardPage.isTeaDrink)
+                                                    wizardBeansDialog.openTeaEntry(bagGridFlick.gridModel.length > 2)
+                                                else {
+                                                    wizardBeansDialog.bagKind = "coffee"
+                                                    wizardBeansDialog.open()
+                                                }
+                                                return
+                                            }
+                                            wizardPage.selectBean(modelData.isNone ? null : modelData)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1351,7 +1579,11 @@ Page {
                         model: wizardPage.profileModel
                         delegate: Loader {
                             width: ListView.view.width
-                            sourceComponent: modelData.isHeader ? headerRow : profileRow
+                            // Ranked tiers ①/② render as metadata TILES (real
+                            // profile numbers, the reason as an on-tile chip);
+                            // tier ③ stays a compact list under the search.
+                            sourceComponent: modelData.isHeader ? headerRow
+                                : ((modelData.tier || 3) < 3 ? profileTile : profileRow)
                             property var row: modelData
                             Component {
                                 id: headerRow
@@ -1366,27 +1598,96 @@ Page {
                                 }
                             }
                             Component {
+                                id: profileTile
+                                Item {
+                                    implicitHeight: tileRect.implicitHeight + Theme.scaled(6)
+                                    Rectangle {
+                                        id: tileRect
+                                        width: parent.width
+                                        implicitHeight: tileColumn.implicitHeight + 2 * Theme.spacingMedium
+                                        radius: Theme.cardRadius
+                                        color: Theme.surfaceColor
+                                        border.color: Theme.borderColor
+                                        border.width: 1
+                                        // One profile read per tile — same pattern
+                                        // the recipe cards use; the tiers are small.
+                                        readonly property var detail: ProfileManager.getProfileByFilename(row.name)
+                                        readonly property string metaLine: {
+                                            var parts = []
+                                            var t = detail.espresso_temperature || 0
+                                            if (t > 0) parts.push(Theme.formatTemperature(t, 0))
+                                            var y = detail.target_weight || 0
+                                            if (y > 0) parts.push("→ " + Number(y).toFixed(0) + "g")
+                                            return parts.join(" · ")
+                                        }
+                                        ColumnLayout {
+                                            id: tileColumn
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.top: parent.top
+                                            anchors.margins: Theme.spacingMedium
+                                            spacing: Theme.scaled(4)
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: Theme.spacingSmall
+                                                Label {
+                                                    Layout.fillWidth: true
+                                                    text: row.title
+                                                    font: Theme.bodyFont
+                                                    color: Theme.textColor
+                                                    wrapMode: Text.WordWrap
+                                                    Accessible.ignored: true
+                                                }
+                                                // The recommendation reason rides its
+                                                // tile as a chip — never detached text.
+                                                Rectangle {
+                                                    visible: row.reason !== ""
+                                                    Layout.alignment: Qt.AlignTop
+                                                    radius: height / 2
+                                                    color: Qt.alpha(Theme.primaryColor, 0.15)
+                                                    implicitHeight: reasonChip.implicitHeight + Theme.scaled(8)
+                                                    implicitWidth: reasonChip.implicitWidth + Theme.scaled(16)
+                                                    Label {
+                                                        id: reasonChip
+                                                        anchors.centerIn: parent
+                                                        text: row.reason
+                                                        font: Theme.captionFont
+                                                        color: Theme.primaryColor
+                                                        Accessible.ignored: true
+                                                    }
+                                                }
+                                            }
+                                            Label {
+                                                visible: tileRect.metaLine !== ""
+                                                text: tileRect.metaLine
+                                                font: Theme.captionFont
+                                                color: Theme.textSecondaryColor
+                                                Accessible.ignored: true
+                                            }
+                                        }
+                                        AccessibleMouseArea {
+                                            anchors.fill: parent
+                                            accessibleName: row.title
+                                                + (tileRect.metaLine !== "" ? ", " + tileRect.metaLine : "")
+                                                + (row.reason !== "" ? ", " + row.reason : "")
+                                            accessibleItem: tileRect
+                                            onAccessibleClicked: wizardPage.selectProfile(row)
+                                        }
+                                    }
+                                }
+                            }
+                            Component {
                                 id: profileRow
                                 ItemDelegate {
                                     width: parent ? parent.width : 0
-                                    contentItem: RowLayout {
-                                        spacing: Theme.spacingSmall
-                                        Label {
-                                            Layout.fillWidth: true
-                                            text: row.title
-                                            font: Theme.bodyFont
-                                            color: Theme.textColor
-                                            elide: Text.ElideRight
-                                        }
-                                        Label {
-                                            visible: row.reason !== ""
-                                            text: row.reason
-                                            font: Theme.captionFont
-                                            color: Theme.textSecondaryColor
-                                        }
+                                    contentItem: Label {
+                                        text: row.title
+                                        font: Theme.bodyFont
+                                        color: Theme.textColor
+                                        elide: Text.ElideRight
                                     }
                                     Accessible.role: Accessible.Button
-                                    Accessible.name: row.title + (row.reason !== "" ? ", " + row.reason : "")
+                                    Accessible.name: row.title
                                     onClicked: wizardPage.selectProfile(row)
                                 }
                             }
@@ -1408,14 +1709,21 @@ Page {
                 }
 
                 // ===== Step 4: details (drink-type specific) =====
+                // Section cards flow into two columns on landscape widths so
+                // the step fits one screen for the common drink types; below
+                // the threshold they stack (today's portrait scroll). Input
+                // controls are sized to their content, never stretched to
+                // the page width.
                 Flickable {
                     contentHeight: detailsColumn.implicitHeight + Theme.scaled(24)
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
-                    ColumnLayout {
+                    GridLayout {
                         id: detailsColumn
                         width: parent.width
-                        spacing: Theme.spacingMedium
+                        columns: wizardPage.width >= Theme.scaled(720) ? 2 : 1
+                        columnSpacing: Theme.spacingMedium
+                        rowSpacing: Theme.spacingMedium
 
                         SectionCard {
                             title: TranslationManager.translate("recipes.wizard.sectionNumbers", "The numbers")
@@ -1424,7 +1732,7 @@ Page {
                                 spacing: Theme.spacingMedium
                                 NumberField {
                                     id: doseField
-                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: Theme.scaled(120)
                                     label: wizardPage.isTeaDrink
                                         ? TranslationManager.translate("recipes.wizard.leafDose", "Leaf (g)")
                                         : TranslationManager.translate("recipes.composer.doseLabel", "Dose (g)")
@@ -1433,7 +1741,7 @@ Page {
                                 NumberField {
                                     id: yieldField
                                     visible: !wizardPage.isHotWaterTea
-                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: Theme.scaled(120)
                                     label: TranslationManager.translate("recipes.composer.yieldLabel", "Yield (g)")
                                     onEdited: wizardPage._detailsUserEdited = true
                                 }
@@ -1450,7 +1758,9 @@ Page {
                                         Accessible.ignored: true
                                     }
                                     ValueInput {
-                                        Layout.fillWidth: true
+                                        // Sized to content — a temp stepper must
+                                        // never span the page width.
+                                        Layout.preferredWidth: Theme.scaled(190)
                                         enabled: wizardPage.fProfileTempC > 0
                                         readonly property real displayDelta: Theme.cDeltaToDisplay(wizardPage.fTempDeltaC)
                                         value: displayDelta
@@ -1473,7 +1783,7 @@ Page {
                                 }
                                 NumberField {
                                     visible: wizardPage.isTeaDrink
-                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: Theme.scaled(120)
                                     label: TranslationManager.translate("recipes.wizard.teaTemp", "Temp (°C)")
                                     text: wizardPage.fTeaTempC > 0 ? String(Math.round(wizardPage.fTeaTempC)) : ""
                                     onEdited: function(newText) {
@@ -1488,15 +1798,41 @@ Page {
                         SectionCard {
                             visible: wizardPage.activeTemplate.grind
                             title: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
-                            Label {
+                            // The knowledge-base grind hint as an anchored
+                            // callout (icon + tinted background), not muted
+                            // caption text.
+                            Rectangle {
                                 visible: wizardPage.grindHint !== ""
                                 Layout.fillWidth: true
-                                text: wizardPage.grindHint
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                wrapMode: Text.WordWrap
-                                Accessible.role: Accessible.StaticText
-                                Accessible.name: text
+                                implicitHeight: grindHintRow.implicitHeight + 2 * Theme.spacingSmall
+                                radius: Theme.scaled(8)
+                                color: Qt.alpha(Theme.primaryColor, 0.10)
+                                RowLayout {
+                                    id: grindHintRow
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.leftMargin: Theme.spacingSmall
+                                    anchors.rightMargin: Theme.spacingSmall
+                                    spacing: Theme.spacingSmall
+                                    ColoredIcon {
+                                        Layout.alignment: Qt.AlignTop
+                                        source: "qrc:/icons/info.svg"
+                                        iconWidth: Theme.scaled(18)
+                                        iconHeight: Theme.scaled(18)
+                                        iconColor: Theme.primaryColor
+                                        Accessible.ignored: true
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: wizardPage.grindHint
+                                        font: Theme.captionFont
+                                        color: Theme.textColor
+                                        wrapMode: Text.WordWrap
+                                        Accessible.role: Accessible.StaticText
+                                        Accessible.name: text
+                                    }
+                                }
                             }
                             RowLayout {
                                 Layout.fillWidth: true
@@ -1654,6 +1990,7 @@ Page {
                         Label {
                             visible: wizardPage.bagSwapHint !== ""
                             Layout.fillWidth: true
+                            Layout.columnSpan: detailsColumn.columns
                             text: wizardPage.bagSwapHint
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor
@@ -1662,6 +1999,7 @@ Page {
 
                         AccessibleButton {
                             Layout.alignment: Qt.AlignRight
+                            Layout.columnSpan: detailsColumn.columns
                             primary: true
                             text: TranslationManager.translate("recipes.wizard.continue", "Continue")
                             accessibleName: TranslationManager.translate("recipes.wizard.accessible.continue", "Continue to the summary")
@@ -1716,6 +2054,20 @@ Page {
                             }
                         }
 
+                        // WYSIWYG hero: the SAME card component the Recipes
+                        // management page renders — what you build here is
+                        // what the list will show (design D4).
+                        RecipeDrinkCard {
+                            Layout.fillWidth: true
+                            recipe: wizardPage.previewMap
+                            active: false
+                            profileTempC: wizardPage.fProfileTempC
+                            profileYieldG: wizardPage.fProfileYieldG
+                            imageKey: wizardPage.fBeanBaseId !== ""
+                                ? wizardPage.fBeanBaseId
+                                : (wizardPage.fBagId > 0 ? "bag-" + wizardPage.fBagId : "")
+                        }
+
                         SummaryRow {
                             label: TranslationManager.translate("recipes.wizard.rowDrink", "Drink")
                             value: wizardPage.fDrinkType !== ""
@@ -1752,11 +2104,40 @@ Page {
                                 else if (Math.abs(wizardPage.fTempDeltaC) > 0.05)
                                     parts.push((wizardPage.fTempDeltaC > 0 ? "+" : "")
                                                + Theme.cDeltaToDisplay(wizardPage.fTempDeltaC).toFixed(0) + "°")
-                                if (wizardPage.fHasMilk && wizardPage.fMilkWeightG > 0)
-                                    parts.push(wizardPage.fMilkWeightG + "g "
-                                        + TranslationManager.translate("recipes.list.milk", "milk"))
-                                if (wizardPage.fHasWater && wizardPage.fVesselName !== "")
+                                return parts.length > 0 ? parts.join(" · ") : "—"
+                            }
+                            step: "details"
+                        }
+                        // Every stored block gets a visible row: a latte's
+                        // milk shows ON the summary, not only behind an edit.
+                        SummaryRow {
+                            visible: wizardPage.fHasMilk
+                            label: TranslationManager.translate("recipes.wizard.rowSteam", "Steam / milk")
+                            value: {
+                                var parts = []
+                                if (wizardPage.fPitcherName !== "")
+                                    parts.push(wizardPage.fPitcherName)
+                                if (wizardPage.fMilkWeightG > 0)
+                                    parts.push(TranslationManager.translate(
+                                        "recipes.list.milkWeight", "%1g milk").arg(wizardPage.fMilkWeightG))
+                                return parts.length > 0 ? parts.join(" · ") : "—"
+                            }
+                            step: "details"
+                        }
+                        SummaryRow {
+                            visible: wizardPage.fHasWater
+                            label: TranslationManager.translate("recipes.wizard.rowHotWater", "Hot water")
+                            value: {
+                                var parts = []
+                                if (wizardPage.fVesselName !== "")
                                     parts.push(wizardPage.fVesselName)
+                                if (wizardPage.fVesselVolume > 0)
+                                    parts.push(wizardPage.fVesselVolume
+                                        + (wizardPage.fVesselMode === "volume" ? "ml" : "g"))
+                                if (!wizardPage.isHotWaterTea)
+                                    parts.push(wizardPage.fWaterOrder === "before"
+                                        ? TranslationManager.translate("recipes.wizard.waterBeforeShort", "before the espresso")
+                                        : TranslationManager.translate("recipes.wizard.waterAfterShort", "after the espresso"))
                                 return parts.length > 0 ? parts.join(" · ") : "—"
                             }
                             step: "details"
@@ -1843,17 +2224,41 @@ Page {
             model: [{ isNone: true }].concat(wizardPage._packages)
             delegate: ItemDelegate {
                 width: ListView.view.width
-                contentItem: Label {
-                    text: modelData.isNone ? trNone.text
-                        : (modelData.name
-                           || ((modelData.grinderBrand || "") + " " + (modelData.grinderModel || "")).trim()
-                           || ((modelData.basketBrand || "") + " " + (modelData.basketModel || "")).trim())
-                    font: Theme.bodyFont
-                    color: Theme.textColor
-                    elide: Text.ElideRight
+                // Preset metadata rides the row: package name plus its
+                // grinder and basket — never name-only.
+                readonly property string rowTitle: modelData.isNone ? trNone.text
+                    : (modelData.name
+                       || ((modelData.grinderBrand || "") + " " + (modelData.grinderModel || "")).trim()
+                       || ((modelData.basketBrand || "") + " " + (modelData.basketModel || "")).trim())
+                readonly property string rowMeta: {
+                    if (modelData.isNone) return ""
+                    var parts = []
+                    var grinder = ((modelData.grinderBrand || "") + " " + (modelData.grinderModel || "")).trim()
+                    var basket = ((modelData.basketBrand || "") + " " + (modelData.basketModel || "")).trim()
+                    if (grinder !== "" && grinder !== rowTitle) parts.push(grinder)
+                    if (basket !== "" && basket !== rowTitle) parts.push(basket)
+                    return parts.join(" · ")
+                }
+                contentItem: ColumnLayout {
+                    spacing: 0
+                    Label {
+                        Layout.fillWidth: true
+                        text: rowTitle
+                        font: Theme.bodyFont
+                        color: Theme.textColor
+                        elide: Text.ElideRight
+                    }
+                    Label {
+                        visible: rowMeta !== ""
+                        Layout.fillWidth: true
+                        text: rowMeta
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                        elide: Text.ElideRight
+                    }
                 }
                 Accessible.role: Accessible.Button
-                Accessible.name: contentItem.text
+                Accessible.name: rowTitle + (rowMeta !== "" ? ", " + rowMeta : "")
                 onClicked: {
                     if (modelData.isNone) {
                         wizardPage.fEquipmentId = 0
@@ -1861,7 +2266,7 @@ Page {
                         wizardPage.fEquipmentRpmCapable = false
                     } else {
                         wizardPage.fEquipmentId = modelData.id
-                        wizardPage.fEquipmentName = contentItem.text
+                        wizardPage.fEquipmentName = rowTitle
                         wizardPage.fEquipmentRpmCapable = !!modelData.rpmCapable
                     }
                     equipmentPicker.close()
@@ -1880,14 +2285,34 @@ Page {
                 width: ListView.view.width
                 visible: !modelData.disabled
                 height: modelData.disabled ? 0 : implicitHeight
-                contentItem: Label {
-                    text: modelData.name || ""
-                    font: Theme.bodyFont
-                    color: Theme.textColor
-                    elide: Text.ElideRight
+                // Preset metadata on the row: steam duration and temperature.
+                readonly property string rowMeta: {
+                    var parts = []
+                    if ((modelData.duration || 0) > 0) parts.push(modelData.duration + "s")
+                    if ((modelData.temperature || 0) > 0)
+                        parts.push(Theme.formatTemperature(modelData.temperature, 0))
+                    return parts.join(" · ")
+                }
+                contentItem: ColumnLayout {
+                    spacing: 0
+                    Label {
+                        Layout.fillWidth: true
+                        text: modelData.name || ""
+                        font: Theme.bodyFont
+                        color: Theme.textColor
+                        elide: Text.ElideRight
+                    }
+                    Label {
+                        visible: rowMeta !== ""
+                        Layout.fillWidth: true
+                        text: rowMeta
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                        elide: Text.ElideRight
+                    }
                 }
                 Accessible.role: Accessible.Button
-                Accessible.name: modelData.name || ""
+                Accessible.name: (modelData.name || "") + (rowMeta !== "" ? ", " + rowMeta : "")
                 onClicked: {
                     // Snapshot BY VALUE (never a preset index).
                     wizardPage.fPitcherName = modelData.name || ""
@@ -1908,14 +2333,36 @@ Page {
             model: Settings.brew.waterVesselPresets
             delegate: ItemDelegate {
                 width: ListView.view.width
-                contentItem: Label {
-                    text: modelData.name || ""
-                    font: Theme.bodyFont
-                    color: Theme.textColor
-                    elide: Text.ElideRight
+                // Preset metadata on the row: amount (per its mode) and
+                // temperature — "220ml · 96°C", never name-only.
+                readonly property string rowMeta: {
+                    var parts = []
+                    if ((modelData.volume || 0) > 0)
+                        parts.push(modelData.volume + (modelData.mode === "volume" ? "ml" : "g"))
+                    if ((modelData.temperature || 0) > 0)
+                        parts.push(Theme.formatTemperature(modelData.temperature, 0))
+                    return parts.join(" · ")
+                }
+                contentItem: ColumnLayout {
+                    spacing: 0
+                    Label {
+                        Layout.fillWidth: true
+                        text: modelData.name || ""
+                        font: Theme.bodyFont
+                        color: Theme.textColor
+                        elide: Text.ElideRight
+                    }
+                    Label {
+                        visible: rowMeta !== ""
+                        Layout.fillWidth: true
+                        text: rowMeta
+                        font: Theme.captionFont
+                        color: Theme.textSecondaryColor
+                        elide: Text.ElideRight
+                    }
                 }
                 Accessible.role: Accessible.Button
-                Accessible.name: modelData.name || ""
+                Accessible.name: (modelData.name || "") + (rowMeta !== "" ? ", " + rowMeta : "")
                 onClicked: {
                     // Snapshot BY VALUE (never a preset index).
                     wizardPage.fVesselName = modelData.name || ""

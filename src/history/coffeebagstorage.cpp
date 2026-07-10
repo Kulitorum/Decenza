@@ -371,6 +371,13 @@ void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
                 emit bagsChanged();
                 if (touchesVisualizerFields(fields))
                     emit bagVisualizerFieldsChanged(bagId);
+                // "Bag finished" is an inventory-exit event, whichever
+                // surface wrote it (the card's Bag Finished button funnels
+                // through requestMarkEmpty; MCP and web updates land here
+                // too) — the recipe roll-on-finish relink listens for this.
+                if (fields.contains(QStringLiteral("inInventory"))
+                    && !fields.value(QStringLiteral("inInventory")).toBool())
+                    emit bagFinished(bagId);
             }
         });
 }

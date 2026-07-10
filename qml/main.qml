@@ -3036,6 +3036,70 @@ ApplicationWindow {
         onTriggered: recipesUpgradeToast.opacity = 0
     }
 
+    // Recipe relink toast (recipe-bag-lifecycle): every automatic recipe
+    // move — roll-on-finish or wake-on-restock — is silent (no dialog, no
+    // setting) but announced with a courtesy toast naming the count and the
+    // target bag. Cards and pills always show the current bag afterwards.
+    Connections {
+        target: MainController.recipeStorage
+        function onRecipesRelinked(movedRecipeIds, targetBagId, targetBagName) {
+            recipesRelinkToastText = movedRecipeIds.length === 1
+                ? trRecipesRelinkOne.text.arg(targetBagName)
+                : trRecipesRelinkMany.text.arg(movedRecipeIds.length).arg(targetBagName)
+            recipesRelinkToast.opacity = 1
+            recipesRelinkToastTimer.restart()
+            if (AccessibilityManager.enabled)
+                AccessibilityManager.announce(recipesRelinkToastText)
+        }
+    }
+    Tr {
+        id: trRecipesRelinkOne
+        key: "main.toast.recipeRelinkedOne"
+        fallback: "1 recipe moved to %1"
+        visible: false
+    }
+    Tr {
+        id: trRecipesRelinkMany
+        key: "main.toast.recipeRelinkedMany"
+        fallback: "%1 recipes moved to %2"
+        visible: false
+    }
+    property string recipesRelinkToastText: ""
+
+    Rectangle {
+        id: recipesRelinkToast
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.scaled(40)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: recipesRelinkToastLabel.implicitWidth + Theme.scaled(32)
+        height: recipesRelinkToastLabel.implicitHeight + Theme.scaled(16)
+        radius: Theme.cardRadius
+        color: Theme.surfaceColor
+        opacity: 0
+        visible: opacity > 0
+        z: 600
+        Accessible.ignored: true
+
+        Behavior on opacity {
+            NumberAnimation { duration: 300 }
+        }
+
+        Text {
+            id: recipesRelinkToastLabel
+            anchors.centerIn: parent
+            text: recipesRelinkToastText
+            color: Theme.textColor
+            font.pixelSize: Theme.scaled(13)
+            Accessible.ignored: true
+        }
+    }
+
+    Timer {
+        id: recipesRelinkToastTimer
+        interval: 4000
+        onTriggered: recipesRelinkToast.opacity = 0
+    }
+
     function maybeShowAutoRelaunchPrompt() {
         if (!MainController.updateChecker.shouldShowAutoRelaunchPrompt) return
         // Defer until any pre-empting modals resolve themselves, so we don't

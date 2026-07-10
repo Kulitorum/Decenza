@@ -683,6 +683,7 @@ endif()
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/SettingsTabs.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/layout/WidgetColor.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/components/DrinkType.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 # Define QML files list for dependency tracking
 set(QML_FILES
@@ -791,6 +792,8 @@ set(QML_FILES
     qml/components/Tr.qml
     qml/components/RecipeSection.qml
     qml/components/RecipeRow.qml
+    qml/components/RecipeDrinkCard.qml
+    qml/components/DrinkType.qml
     qml/components/PresetButton.qml
     qml/components/AccessibleLabel.qml
     qml/components/ComparisonGraph.qml

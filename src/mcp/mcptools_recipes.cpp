@@ -81,8 +81,8 @@ QJsonObject hotWaterBlockFromMcp(const QJsonObject& mcp)
     return o;
 }
 
-// Full recipe JSON. `db` (optional) enables the resolved fields: effective
-// grind and the current open bag of the linked bean.
+// Full recipe JSON. `db` (optional) enables the resolved fields: the linked
+// bag's display identity + staleness, and the effective (inherited) grind.
 QJsonObject recipeToJson(const Recipe& r, Settings* settings, QSqlDatabase* db,
                          qint64 shotCount = -1,
                          const QHash<QString, QString>& bevByTitle = {})
@@ -113,6 +113,8 @@ QJsonObject recipeToJson(const Recipe& r, Settings* settings, QSqlDatabase* db,
         if (!r.coffeeName.isEmpty()) bean["coffeeName"] = r.coffeeName;
         o["bean"] = bean;
     }
+    if (r.bagId > 0)
+        o["bagId"] = r.bagId;
     if (r.equipmentId > 0)
         o["equipmentId"] = r.equipmentId;
     if (r.doseG > 0) o["doseG"] = r.doseG;
@@ -129,18 +131,39 @@ QJsonObject recipeToJson(const Recipe& r, Settings* settings, QSqlDatabase* db,
             grind["rpm"] = r.rpmPinned;
     }
     if (db) {
-        const qint64 openBagId = RecipeStorage::resolveOpenBagStatic(*db, r);
-        if (openBagId > 0) {
-            o["openBagId"] = openBagId;
-            if (r.grindPinned.isEmpty()) {
-                const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(*db, openBagId);
-                if (!bag.grinderSetting.isEmpty())
-                    grind["value"] = bag.grinderSetting;
-                if (bag.rpm > 0)
-                    grind["rpm"] = bag.rpm;
+        // The linked bag (hard link — no MRU resolution): display identity,
+        // staleness as a human-readable indication, and the inherited grind,
+        // which resolves from this bag whether or not it is still open.
+        bool bagLoaded = false;
+        if (r.bagId > 0) {
+            const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(*db, r.bagId);
+            if (bag.isValid()) {
+                bagLoaded = true;
+                QJsonObject bagO;
+                if (!bag.roasterName.isEmpty()) bagO["roasterName"] = bag.roasterName;
+                if (!bag.coffeeName.isEmpty()) bagO["coffeeName"] = bag.coffeeName;
+                if (!bag.roastDate.isEmpty()) bagO["roastDate"] = bag.roastDate;
+                bagO["status"] = bag.inInventory ? QStringLiteral("open")
+                                                 : QStringLiteral("finished");
+                o["bag"] = bagO;
+                if (!bag.inInventory)
+                    o["bagStale"] = QStringLiteral(
+                        "The linked bag is finished (no longer in inventory). The recipe "
+                        "still activates fully; inherited grind resolves from this bag.");
+                if (r.grindPinned.isEmpty()) {
+                    if (!bag.grinderSetting.isEmpty())
+                        grind["value"] = bag.grinderSetting;
+                    if (bag.rpm > 0)
+                        grind["rpm"] = bag.rpm;
+                }
             }
-        } else if (!r.beanBaseId.isEmpty() || !r.roasterName.isEmpty() || !r.coffeeName.isEmpty()) {
-            o["noOpenBagOfBean"] = true;  // display state, never an error
+        }
+        if (!bagLoaded
+            && (!r.beanBaseId.isEmpty() || !r.roasterName.isEmpty() || !r.coffeeName.isEmpty())) {
+            o["bagStale"] = QStringLiteral(
+                "No bag is linked for this bean (the linked bag was deleted, or no open bag "
+                "existed at migration). Adding a bag of this bean relinks the recipe "
+                "automatically; the recipe still activates.");
         }
     }
     o["grind"] = grind;
@@ -183,6 +206,8 @@ QVariantMap recipeFieldsFromArgs(const QJsonObject& args)
         if (args.contains(key))
             fields.insert(key, args[key].toString());
     }
+    if (args.contains("bagId"))
+        fields.insert("bagId", args["bagId"].toInteger());
     if (args.contains("equipmentId"))
         fields.insert("equipmentId", args["equipmentId"].toInteger());
     if (args.contains("rpmPinned"))
@@ -263,10 +288,11 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
     // recipe_list — the recipe inventory (MRU order, like the idle pills).
     registry->registerAsyncTool(
         "recipe_list",
-        "List the user's recipes. A recipe is the whole drink: profile, bean link, equipment, "
-        "dose/yield/temperature, grind routing (inherited from the bean's bag or pinned), and "
+        "List the user's recipes. A recipe is the whole drink: profile, linked bag, equipment, "
+        "dose/yield/temperature, grind routing (inherited from the linked bag or pinned), and "
         "steam block. MRU-ordered; the recipe with isActive=true is what the machine is set up "
-        "for right now. Pass includeArchived=true to also list archived recipes.",
+        "for right now. A bagStale field flags recipes whose linked bag is finished (they still "
+        "activate). Pass includeArchived=true to also list archived recipes.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -315,8 +341,9 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
     registry->registerAsyncTool(
         "recipe_get",
         "Get one recipe by id, including its resolved state: effective grind (the pinned value, "
-        "or the linked bean's current bag grind when inherited), the open bag it would select, "
-        "and the steam block.",
+        "or the linked bag's grind when inherited), the linked bag's identity and status "
+        "(open / finished — a finished link is flagged via bagStale but never blocks "
+        "activation), and the steam block.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -364,10 +391,11 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
         "recipe_create",
         "Create a recipe. Only name is always required; profileTitle is required unless the "
         "recipe carries a hot-water block with hasWater true (a profile-less hot-water tea). "
-        "Bean link, equipment, and every parameter are optional (a recipe works with whatever "
-        "the user tracks). Leave grindPinned empty to inherit grind from the linked bean's bag "
-        "(recommended); set it only when this recipe deliberately grinds differently from the "
-        "bean's other drinks.",
+        "Bag link, equipment, and every parameter are optional (a recipe works with whatever "
+        "the user tracks). Link the specific bag with bagId (from bag_list); passing only bean "
+        "identity fields resolves them to that bean's open bag once, at save time. Leave "
+        "grindPinned empty to inherit grind from the linked bag (recommended); set it only when "
+        "this recipe deliberately grinds differently from the bag's other drinks.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -381,8 +409,13 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                     {"description", "The drink this recipe makes (user intent; presentation "
                                     "only — machine behavior follows the blocks). Derived "
                                     "from the blocks when omitted"}}},
+                {"bagId", QJsonObject{{"type", "integer"},
+                    {"description", "The specific coffee bag this recipe is made with (from "
+                                    "bag_list). Inherited grind resolves from this bag. The "
+                                    "bag's bean identity is adopted automatically."}}},
                 {"beanBaseId", QJsonObject{{"type", "string"},
-                    {"description", "Canonical bean UUID (strongest bean link; survives bag replacement)"}}},
+                    {"description", "Canonical bean UUID (display fallback + relink matching "
+                                    "key; resolved to the bean's open bag when bagId is omitted)"}}},
                 {"roasterName", QJsonObject{{"type", "string"}}},
                 {"coffeeName", QJsonObject{{"type", "string"}}},
                 {"equipmentId", QJsonObject{{"type", "integer"}, {"description", "Equipment package id (equipment_list)"}}},
@@ -390,7 +423,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 {"yieldG", QJsonObject{{"type", "number"}}},
                 {"temperatureOverrideC", QJsonObject{{"type", "number"}}},
                 {"grindPinned", QJsonObject{{"type", "string"},
-                    {"description", "Pin a recipe-private grind; empty/omitted = inherit from the bean's bag"}}},
+                    {"description", "Pin a recipe-private grind; empty/omitted = inherit from the linked bag"}}},
                 {"rpmPinned", QJsonObject{{"type", "integer"},
                     {"description", "Grinder rpm for the pin (only meaningful with grindPinned; 0 = unset)"}}},
                 {"steam", steamBlockSchema()},
@@ -450,9 +483,10 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
     registry->registerAsyncTool(
         "recipe_update",
         "Update fields on a recipe. Only provided fields change. Set grindPinned to '' to return "
-        "the recipe to inheriting grind from its bean's bag. Pass a steam object to replace the "
-        "steam block. Changing the steam/hot-water block or the profile re-derives drinkType "
-        "unless you set it explicitly in the same call.",
+        "the recipe to inheriting grind from its linked bag. Pass bagId to re-point the recipe "
+        "at a different bag (its bean identity follows automatically). Pass a steam object to "
+        "replace the steam block. Changing the steam/hot-water block or the profile re-derives "
+        "drinkType unless you set it explicitly in the same call.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -462,6 +496,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 {"drinkType", QJsonObject{{"type", "string"},
                     {"enum", QJsonArray{"espresso", "filter", "americano", "long_black",
                                         "latte", "tea", "tea_hotwater"}}}},
+                {"bagId", QJsonObject{{"type", "integer"},
+                    {"description", "Re-point the recipe at this coffee bag (from bag_list)"}}},
                 {"beanBaseId", QJsonObject{{"type", "string"}}},
                 {"roasterName", QJsonObject{{"type", "string"}}},
                 {"coffeeName", QJsonObject{{"type", "string"}}},
@@ -534,10 +570,11 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
     registry->registerAsyncTool(
         "recipe_create_from_shot",
         "Create a recipe from a shot in history (the promotion path: 'that shot was great — save "
-        "it as a drink'). Prefills profile, bean link, equipment, dose, yield, and temperature "
-        "from the shot record, and the steam block from the shot's steam snapshot (falling back "
-        "to the current steam settings for older shots). Grind inherits from the bean's bag when "
-        "the shot has a bean; otherwise the shot's grind is pinned on the recipe.",
+        "it as a drink'). Prefills profile, the shot's bag as the recipe's linked bag, "
+        "equipment, dose, yield, and temperature from the shot record, and the steam block from "
+        "the shot's steam snapshot (falling back to the current steam settings for older "
+        "shots). Grind inherits from the linked bag when the shot has a bean; otherwise the "
+        "shot's grind is pinned on the recipe.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -720,8 +757,9 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
     // recipe_activate — the pill-tap equivalent (single shared path).
     registry->registerAsyncTool(
         "recipe_activate",
-        "Activate a recipe: loads its profile, selects the linked bean's current open bag and "
-        "the equipment package, applies dose/yield/temperature, routes grind (pin or inherit), "
+        "Activate a recipe: loads its profile, selects the linked bag (even when that bag is "
+        "finished — a stale recipe activates fully with the finished bag's grind) and the "
+        "equipment package, applies dose/yield/temperature, routes grind (pin or inherit), "
         "applies the steam block, and warms the steam heater when the drink has milk. Exactly "
         "what tapping the recipe's pill on the idle screen does.",
         QJsonObject{

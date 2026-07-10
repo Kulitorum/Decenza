@@ -260,10 +260,15 @@ FocusScope {
                         // that stops heating instead of setting a temp/time). Render it
                         // muted so it's visibly distinct from real time/temp presets.
                         property bool isDisabled: modelData && modelData.preset && modelData.preset.disabled === true
+                        // A preset may mark itself dimmed (e.g. a stale recipe whose
+                        // linked bag is finished): rendered faded but fully tappable —
+                        // an indication, never a lock (recipe-bag-lifecycle).
+                        property bool isDimmed: modelData && modelData.preset && modelData.preset.dimmed === true
 
                         width: pillText.implicitWidth + root.pillPadding
                         height: Theme.scaled(50)
                         radius: Theme.scaled(10)
+                        opacity: isDimmed ? 0.55 : 1.0
 
                         color: isSelected
                             ? (isDisabled ? Theme.textSecondaryColor : Theme.primaryColor)

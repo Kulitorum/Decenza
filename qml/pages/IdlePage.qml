@@ -1029,7 +1029,13 @@ Page {
                 visible: active
                 sourceComponent: PresetPillRow {
                     maxWidth: recipePresetLoader.width
-                    presets: idlePage.inventoryRecipes.map(function(r) { return { name: r.name } })
+                    // Drink-type icon per pill; a stale recipe (linked bag
+                    // finished) dims but still activates.
+                    presets: idlePage.inventoryRecipes.map(function(r) {
+                        return { name: r.name,
+                                 icon: DrinkType.icon(DrinkType.fromRecipeMap(r)),
+                                 dimmed: r.stale === true }
+                    })
                     selectedIndex: {
                         var list = idlePage.inventoryRecipes
                         for (var i = 0; i < list.length; ++i) {

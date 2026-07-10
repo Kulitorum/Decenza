@@ -38,6 +38,11 @@ QVariantMap fieldsFromShotRecord(const ShotRecord& record, const QString& name,
     fields.insert("name", name);
     fields.insert("profileTitle", record.summary.profileName);
     fields.insert("profileJson", record.profileJson);
+    // The shot's own bag becomes the recipe's hard bag link (recipes link a
+    // specific bag, not a bean). A pre-bag shot (bagId <= 0) yields 0 = no
+    // link; the bean identity fields below still carry, so wake-on-restock
+    // can home the recipe onto a future bag of that bean.
+    fields.insert("bagId", record.bagId > 0 ? record.bagId : 0);
     fields.insert("beanBaseId", beanBaseId);
     fields.insert("roasterName", record.summary.beanBrand);
     fields.insert("coffeeName", record.summary.beanType);
