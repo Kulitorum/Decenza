@@ -312,6 +312,7 @@ set(SOURCES
     src/history/coffeebagstorage.cpp
     src/history/equipmentstorage.cpp
     src/history/recipestorage.cpp
+    src/history/recipepromotion.cpp
     src/history/unifiedbeansearchmodel.cpp
     src/history/shotprojection.cpp
     src/history/shotdebuglogger.cpp
@@ -504,6 +505,7 @@ set(HEADERS
     src/history/coffeebagstorage.h
     src/history/equipmentstorage.h
     src/history/recipestorage.h
+    src/history/recipepromotion.h
     src/history/unifiedbeansearchmodel.h
     src/history/shotprojection.h
     src/history/shotdebuglogger.h

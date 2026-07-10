@@ -546,6 +546,15 @@ add_decenza_test(tst_recipestorage
 )
 target_include_directories(tst_recipestorage PRIVATE ${CMAKE_BINARY_DIR})
 
+# --- tst_recipepromotion: RecipePromotion::fieldsFromShotRecord — the shared
+# promotion field-builder behind recipe_create_from_shot (MCP) and the
+# recipes-idle-layout-upgrade starter-recipe hook. Header-only dependency
+# (beanbase_blob.h's canonicalId is inline), no DB needed. ---
+add_decenza_test(tst_recipepromotion
+    tst_recipepromotion.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/recipepromotion.cpp
+)
+
 # --- tst_dialing_blocks: DB-backed coverage for the four shared
 # block builders that drive both `dialing_get_context` (MCP) and the
 # in-app advisor's user-prompt enrichment (issue #1044). Stands up a

@@ -74,6 +74,47 @@ ShotProjection makeShot(qint64 id, qint64 timestamp,
     return p;
 }
 
+// RAII guard for tests that need a guaranteed-unconfigured AI provider.
+// Settings reads/writes the REAL on-disk QSettings store ("DecentEspresso",
+// "DE1Qt"), so a bare `Settings settings;` does NOT mean "no provider
+// configured" on a machine that has actually set one up (e.g. dev use) —
+// it means "whatever this machine's real AI settings currently are". Snapshot
+// + clear on construction, restore on destruction (runs even if a QVERIFY
+// fails mid-test and returns early).
+struct AiSettingsGuard {
+    explicit AiSettingsGuard(Settings* s) : m_settings(s) {
+        SettingsAI* ai = s->ai();
+        m_provider = ai->aiProvider();
+        m_openaiKey = ai->openaiApiKey();
+        m_anthropicKey = ai->anthropicApiKey();
+        m_geminiKey = ai->geminiApiKey();
+        m_openrouterKey = ai->openrouterApiKey();
+        m_ollamaEndpoint = ai->ollamaEndpoint();
+        m_ollamaModel = ai->ollamaModel();
+
+        ai->setAiProvider(QString());
+        ai->setOpenaiApiKey(QString());
+        ai->setAnthropicApiKey(QString());
+        ai->setGeminiApiKey(QString());
+        ai->setOpenrouterApiKey(QString());
+        ai->setOllamaEndpoint(QString());
+        ai->setOllamaModel(QString());
+    }
+    ~AiSettingsGuard() {
+        SettingsAI* ai = m_settings->ai();
+        ai->setAiProvider(m_provider);
+        ai->setOpenaiApiKey(m_openaiKey);
+        ai->setAnthropicApiKey(m_anthropicKey);
+        ai->setGeminiApiKey(m_geminiKey);
+        ai->setOpenrouterApiKey(m_openrouterKey);
+        ai->setOllamaEndpoint(m_ollamaEndpoint);
+        ai->setOllamaModel(m_ollamaModel);
+    }
+    Settings* m_settings;
+    QString m_provider, m_openaiKey, m_anthropicKey, m_geminiKey, m_openrouterKey,
+            m_ollamaEndpoint, m_ollamaModel;
+};
+
 } // namespace
 
 class tst_AIManager : public QObject {
@@ -188,7 +229,8 @@ private slots:
     void urlExtractionGuardCodes()
     {
         QNetworkAccessManager nam;
-        Settings settings;  // no provider configured
+        Settings settings;
+        AiSettingsGuard guard(&settings);  // guarantee no provider configured
         AIManager mgr(&nam, &settings);
         QSignalSpy failed(&mgr, &AIManager::bagDetailsExtractionFailed);
 

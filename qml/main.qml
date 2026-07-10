@@ -883,6 +883,11 @@ ApplicationWindow {
             // auto-relaunch. Safe to call unconditionally — the function
             // checks shouldShowAutoRelaunchPrompt and does nothing otherwise.
             maybeShowAutoRelaunchPrompt()
+
+            // One-time offer to modernize the idle layout to recipes-first
+            // (recipes-idle-layout-upgrade). Safe to call unconditionally —
+            // the function checks the offered flag and does nothing otherwise.
+            maybeShowRecipesUpgradeDialog()
         }
 
         // Initialize sleep countdown (fresh app start). The scheduled
@@ -2607,6 +2612,9 @@ ApplicationWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 onClicked: {
                     Settings.setValue("firstRunComplete", true)
+                    // Fresh installs already get the recipes-first default
+                    // layout — never show the upgrade offer to them.
+                    Settings.network.recipesUpgradeOffered = true
                     firstRunDialog.close()
                     checkStorageSetup()
                     maybeShowLinuxBleCapabilityDialog()
@@ -2802,6 +2810,215 @@ ApplicationWindow {
         }
     }
 
+    // One-time recipes-first layout upgrade offer (recipes-idle-layout-upgrade).
+    // Shown once per install to existing users (maybeShowRecipesUpgradeDialog);
+    // fresh installs already start on the new default and never see it. Accept
+    // applies the layout transform (+ a starter recipe when the user has none)
+    // via MainController; decline/dismiss just records that the offer was
+    // answered. Dismiss (escape) counts as decline per ACCESSIBILITY.md.
+    Dialog {
+        id: recipesUpgradeDialog
+        modal: true
+        dim: true
+        anchors.centerIn: parent
+        width: Theme.dialogWidth + 2 * padding
+        closePolicy: Dialog.CloseOnEscape
+        padding: Theme.dialogPadding
+
+        property bool willCreateStarterRecipe: false
+        property bool hasMilkChoice: false
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.cardRadius
+            border.width: 2
+            border.color: Theme.primaryContrastColor
+        }
+
+        Tr { id: trUpgradeTitle; key: "main.dialog.recipesUpgrade.title"; fallback: "Try the recipes-first layout?"; visible: false }
+        Tr {
+            id: trUpgradeMessage
+            key: "main.dialog.recipesUpgrade.message"
+            fallback: "Decenza now leads with Recipes on the idle screen. This one-time update:\n\n• Puts Recipes front and center\n• Moves Profiles to the bottom bar — it still works exactly as before\n• Removes the Auto-Favorites button (still reachable via the layout editor)\n\nEverything else about your layout stays exactly as you left it."
+            visible: false
+        }
+        Tr { id: trUpgradeStarterLine; key: "main.dialog.recipesUpgrade.starterLine"; fallback: "We'll also create a starter recipe from your last shot:"; visible: false }
+        Tr { id: trUpgradeEspresso; key: "main.dialog.recipesUpgrade.espresso"; fallback: "Espresso"; visible: false }
+        Tr { id: trUpgradeMilk; key: "main.dialog.recipesUpgrade.milk"; fallback: "Milk drink"; visible: false }
+        Tr { id: trUpgradeAccept; key: "main.dialog.recipesUpgrade.accept"; fallback: "Upgrade layout"; visible: false }
+        Tr { id: trUpgradeDecline; key: "main.dialog.recipesUpgrade.decline"; fallback: "Keep my layout"; visible: false }
+        Tr { id: trStarterEspressoName; key: "upgrade.recipe.espressoName"; fallback: "My espresso"; visible: false }
+        Tr { id: trStarterMilkName; key: "upgrade.recipe.milkName"; fallback: "My milk drink"; visible: false }
+        Tr { id: trUpgradeAcceptA11y; key: "main.accessibility.acceptRecipesUpgrade"; fallback: "Upgrade to the recipes-first layout"; visible: false }
+        Tr { id: trUpgradeDeclineA11y; key: "main.accessibility.declineRecipesUpgrade"; fallback: "Keep the current layout"; visible: false }
+        Tr { id: trUpgradeEspressoA11y; key: "main.accessibility.recipesUpgradeEspresso"; fallback: "Starter recipe: Espresso"; visible: false }
+        Tr { id: trUpgradeMilkA11y; key: "main.accessibility.recipesUpgradeMilk"; fallback: "Starter recipe: Milk drink"; visible: false }
+
+        onOpened: {
+            // Park focus on the safe default (Accept, but "Keep my layout" is
+            // equally one tab away) — mirrors autoRelaunchPromptDialog.
+            // ACCESSIBILITY.md Rule 3: Component.onCompleted is unreliable
+            // for focus, onOpened is the correct hook.
+            recipesUpgradeAcceptButton.forceActiveFocus()
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(trUpgradeTitle.text + ". " + trUpgradeMessage.text, true)
+            }
+        }
+
+        onClosed: {
+            // Any close (button or escape) means the offer was answered —
+            // the accept path already sets this itself, so this is a
+            // harmless no-op there and the decline path for everything else.
+            Settings.network.recipesUpgradeOffered = true
+        }
+
+        contentItem: Column {
+            spacing: Theme.spacingLarge
+            width: parent.width
+
+            Text {
+                text: trUpgradeTitle.text
+                font: Theme.subtitleFont
+                color: Theme.textColor
+                anchors.horizontalCenter: parent.horizontalCenter
+                wrapMode: Text.Wrap
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            Text {
+                text: trUpgradeMessage.text
+                wrapMode: Text.Wrap
+                width: parent.width
+                font: Theme.bodyFont
+                color: Theme.textColor
+            }
+
+            Column {
+                visible: recipesUpgradeDialog.willCreateStarterRecipe
+                width: parent.width
+                spacing: Theme.spacingMedium
+
+                Text {
+                    text: trUpgradeStarterLine.text
+                    wrapMode: Text.Wrap
+                    width: parent.width
+                    font: Theme.bodyFont
+                    color: Theme.textColor
+                }
+
+                Row {
+                    spacing: Theme.spacingMedium
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    AccessibleButton {
+                        text: trUpgradeEspresso.text
+                        accessibleName: trUpgradeEspressoA11y.text
+                        primary: !recipesUpgradeDialog.hasMilkChoice
+                        onClicked: recipesUpgradeDialog.hasMilkChoice = false
+                    }
+
+                    AccessibleButton {
+                        text: trUpgradeMilk.text
+                        accessibleName: trUpgradeMilkA11y.text
+                        primary: recipesUpgradeDialog.hasMilkChoice
+                        onClicked: recipesUpgradeDialog.hasMilkChoice = true
+                    }
+                }
+            }
+
+            Row {
+                spacing: Theme.spacingLarge
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                AccessibleButton {
+                    text: trUpgradeDecline.text
+                    accessibleName: trUpgradeDeclineA11y.text
+                    onClicked: recipesUpgradeDialog.close()
+                }
+
+                AccessibleButton {
+                    id: recipesUpgradeAcceptButton
+                    text: trUpgradeAccept.text
+                    accessibleName: trUpgradeAcceptA11y.text
+                    primary: true
+                    onClicked: {
+                        var starterName = recipesUpgradeDialog.hasMilkChoice
+                            ? trStarterMilkName.text : trStarterEspressoName.text
+                        MainController.acceptRecipesFirstUpgrade(starterName, recipesUpgradeDialog.hasMilkChoice)
+                        recipesUpgradeDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
+    Connections {
+        target: MainController
+        function onRecipesUpgradeOfferReady(willCreateStarterRecipe, milkPreselected) {
+            // Don't stack on top of another modal that might still be
+            // resolving (crash report, storage setup, auto-relaunch prompt).
+            if (PreviousCrashLog && PreviousCrashLog.length > 0) return
+            if (storageSetupDialog.opened || autoRelaunchPromptDialog.opened) return
+            recipesUpgradeDialog.willCreateStarterRecipe = willCreateStarterRecipe
+            recipesUpgradeDialog.hasMilkChoice = milkPreselected
+            recipesUpgradeDialog.open()
+        }
+        function onRecipesUpgradeApplied(recipeName) {
+            recipesUpgradeToastText = recipeName.length > 0
+                ? trRecipesUpgradeToastWithRecipe.text.arg(recipeName)
+                : trRecipesUpgradeToastLayoutOnly.text
+            recipesUpgradeToast.opacity = 1
+            recipesUpgradeToastTimer.restart()
+            if (AccessibilityManager.enabled) {
+                AccessibilityManager.announce(recipesUpgradeToastText)
+            }
+        }
+    }
+
+    Tr {
+        id: trRecipesUpgradeToastWithRecipe
+        key: "main.toast.recipesUpgradeWithRecipe"
+        fallback: "Layout updated · Created '%1'"
+        visible: false
+    }
+    Tr { id: trRecipesUpgradeToastLayoutOnly; key: "main.toast.recipesUpgradeLayoutOnly"; fallback: "Layout updated"; visible: false }
+    property string recipesUpgradeToastText: ""
+
+    Rectangle {
+        id: recipesUpgradeToast
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.scaled(40)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: recipesUpgradeToastLabel.implicitWidth + Theme.scaled(32)
+        height: recipesUpgradeToastLabel.implicitHeight + Theme.scaled(16)
+        radius: Theme.cardRadius
+        color: Theme.surfaceColor
+        opacity: 0
+        visible: opacity > 0
+        z: 600
+        Accessible.ignored: true
+
+        Behavior on opacity {
+            NumberAnimation { duration: 300 }
+        }
+
+        Text {
+            id: recipesUpgradeToastLabel
+            anchors.centerIn: parent
+            text: recipesUpgradeToastText
+            color: Theme.textColor
+            font.pixelSize: Theme.scaled(13)
+            Accessible.ignored: true
+        }
+    }
+
+    Timer {
+        id: recipesUpgradeToastTimer
+        interval: 4000
+        onTriggered: recipesUpgradeToast.opacity = 0
+    }
+
     function maybeShowAutoRelaunchPrompt() {
         if (!MainController.updateChecker.shouldShowAutoRelaunchPrompt) return
         // Defer until any pre-empting modals resolve themselves, so we don't
@@ -2811,6 +3028,16 @@ ApplicationWindow {
         if (PreviousCrashLog && PreviousCrashLog.length > 0) return
         if (storageSetupDialog.opened) return
         autoRelaunchPromptDialog.open()
+    }
+
+    // One-time recipes-first layout upgrade offer (recipes-idle-layout-upgrade).
+    // "Existing user" = the offered flag hasn't been set yet (fresh installs
+    // set it the moment first-run completes, so they never reach here). The
+    // eligibility check runs in the background; the dialog opens once
+    // recipesUpgradeOfferReady arrives (see the Connections block below).
+    function maybeShowRecipesUpgradeDialog() {
+        if (Settings.network.recipesUpgradeOffered) return
+        MainController.checkRecipesUpgradeEligibility()
     }
 
     // Handle permission result

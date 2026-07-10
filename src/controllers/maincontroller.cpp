@@ -23,6 +23,7 @@
 #include "../history/shothistorystorage.h"
 #include "../history/shotimporter.h"
 #include "../history/shotdebuglogger.h"
+#include "../history/recipepromotion.h"
 #include "../network/shotserver.h"
 #include "../network/locationprovider.h"
 #include "../core/crashhandler.h"
@@ -48,6 +49,8 @@
 #include <QJsonObject>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QSqlQuery>
+#include <optional>
 #include <QVariantMap>
 #include <QRandomGenerator>
 #include <algorithm>
@@ -941,6 +944,72 @@ void MainController::activateRecipe(qint64 recipeId) {
         return;
     }
     m_recipeStorage->requestRecipeForActivation(recipeId);
+}
+
+void MainController::checkRecipesUpgradeEligibility() {
+    if (!m_shotHistory) {
+        m_recipesUpgradeWillCreate = false;
+        m_recipesUpgradeShotRecord = ShotRecord();
+        emit recipesUpgradeOfferReady(false, false);
+        return;
+    }
+    const QString dbPath = m_shotHistory->databasePath();
+    auto record = std::make_shared<ShotRecord>();
+    auto recipeCount = std::make_shared<qint64>(0);
+    auto shotId = std::make_shared<qint64>(-1);
+    QThread* thread = QThread::create([dbPath, record, recipeCount, shotId]() {
+        withTempDb(dbPath, "recipes_upgrade_offer", [&](QSqlDatabase& db) {
+            QSqlQuery countQuery(db);
+            if (countQuery.exec(QStringLiteral("SELECT COUNT(*) FROM recipes")) && countQuery.next())
+                *recipeCount = countQuery.value(0).toLongLong();
+
+            QSqlQuery latestQuery(db);
+            if (latestQuery.exec(QStringLiteral("SELECT id FROM shots ORDER BY timestamp DESC LIMIT 1"))
+                && latestQuery.next())
+                *shotId = latestQuery.value(0).toLongLong();
+
+            if (*shotId > 0)
+                *record = ShotHistoryStorage::loadShotRecordStatic(db, *shotId);
+        });
+    });
+    connect(thread, &QThread::finished, this, [this, record, recipeCount, shotId]() {
+        m_recipesUpgradeWillCreate = *recipeCount == 0 && *shotId > 0 && record->summary.id > 0;
+        m_recipesUpgradeShotRecord = m_recipesUpgradeWillCreate ? *record : ShotRecord();
+
+        const bool milkPreselected = m_recipesUpgradeWillCreate
+            && RecipePromotion::milkPreselectedFromSteamJson(m_recipesUpgradeShotRecord.steamJson);
+        emit recipesUpgradeOfferReady(m_recipesUpgradeWillCreate, milkPreselected);
+    });
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    thread->start();
+}
+
+void MainController::acceptRecipesFirstUpgrade(const QString& name, bool hasMilk) {
+    if (m_settings && m_settings->network()) {
+        m_settings->network()->applyRecipesFirstUpgrade();
+        m_settings->network()->setRecipesUpgradeOffered(true);
+    }
+
+    if (!m_recipesUpgradeWillCreate || !m_recipeStorage) {
+        emit recipesUpgradeApplied(QString());
+        return;
+    }
+
+    const QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
+        m_recipesUpgradeShotRecord, name, std::optional<bool>(hasMilk), currentSteamSpecJson());
+
+    auto conn = std::make_shared<QMetaObject::Connection>();
+    *conn = connect(m_recipeStorage, &RecipeStorage::recipeCreated, this,
+        [this, conn, name](qint64 recipeId, const QVariantMap&) {
+            QObject::disconnect(*conn);
+            if (recipeId > 0) {
+                activateRecipe(recipeId);
+                emit recipesUpgradeApplied(name);
+            } else {
+                emit recipesUpgradeApplied(QString());
+            }
+        });
+    m_recipeStorage->requestCreateRecipe(fields);
 }
 
 void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& recipe,

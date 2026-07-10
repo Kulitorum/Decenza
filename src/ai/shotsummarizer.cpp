@@ -2,8 +2,6 @@
 #include "shotanalysis.h"
 #include "../history/shothistory_types.h"  // HistoryPhaseMarker — passed to ShotAnalysis::analyzeShot
 #include "../profile/profile.h"
-#include "../core/grinderaliases.h"
-#include "dialing_helpers.h"  // shared buildBeanFreshness — same shape on both surfaces
 #include "dialing_blocks.h"   // shared buildCurrentBeanBlock — single source of truth for currentBean
 
 #include <cmath>

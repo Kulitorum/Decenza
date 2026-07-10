@@ -184,6 +184,18 @@ public:
     Q_INVOKABLE void copyToClipboard(const QString& text);
     Q_INVOKABLE QString pasteFromClipboard() const;
 
+    // --- Recipes-first layout upgrade offer (recipes-idle-layout-upgrade) ---
+    // Background check for the one-time upgrade dialog: whether accepting
+    // will create a starter recipe (user has zero recipes and at least one
+    // saved shot), plus the drink-type heuristic pre-selection from that
+    // shot's steam snapshot. Emits recipesUpgradeOfferReady() when done.
+    Q_INVOKABLE void checkRecipesUpgradeEligibility();
+    // Accept path: applies the layout transform and, when eligible, creates
+    // and activates a starter recipe from the last shot using `name` (already
+    // translated by the caller) and the user's Espresso/Milk choice. Emits
+    // recipesUpgradeApplied() when finished (recipeName empty = none created).
+    Q_INVOKABLE void acceptRecipesFirstUpgrade(const QString& name, bool hasMilk);
+
 public slots:
     void applySteamSettings();
     void applyHotWaterSettings();
@@ -271,6 +283,12 @@ signals:
     // pill taps, MCP recipe_activate, and the web /activate route.
     void recipeActivated(qint64 recipeId, bool success);
     void activeRecipeChanged();
+
+    // Recipes-first layout upgrade offer (recipes-idle-layout-upgrade):
+    // willCreateStarterRecipe/milkPreselected answer checkRecipesUpgradeEligibility();
+    // recipeName is empty when acceptRecipesFirstUpgrade() created no recipe.
+    void recipesUpgradeOfferReady(bool willCreateStarterRecipe, bool milkPreselected);
+    void recipesUpgradeApplied(const QString& recipeName);
 
     // Auto-wake: emitted when scheduled wake time is reached
     void autoWakeTriggered();
@@ -432,6 +450,11 @@ private:
     // Stamp a tweak onto the active recipe row (no-op when none is active
     // or activation is applying).
     void stampActiveRecipe(const QString& field, const QVariant& value);
+    // Recipes-first layout upgrade offer (recipes-idle-layout-upgrade):
+    // cached result of the last checkRecipesUpgradeEligibility() background
+    // pass, consumed by acceptRecipesFirstUpgrade().
+    bool m_recipesUpgradeWillCreate = false;
+    ShotRecord m_recipesUpgradeShotRecord;
     // Rebuild + stamp the active recipe's steam block from live settings.
     void stampActiveRecipeSteam();
     // Rebuild + stamp the active recipe's hot-water block from live settings

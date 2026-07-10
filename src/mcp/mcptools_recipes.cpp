@@ -23,6 +23,7 @@
 #include "../history/shothistorystorage.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/recipestorage.h"
+#include "../history/recipepromotion.h"
 #include "../network/beanbase_blob.h"
 
 #include <QCoreApplication>
@@ -33,6 +34,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QThread>
+#include <optional>
 
 namespace {
 
@@ -580,39 +582,10 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                         respond(QJsonObject{{"error", QString("Shot %1 not found").arg(shotId)}});
                         return;
                     }
-                    const QString beanBaseId = BeanBaseBlob::canonicalId(record.beanBaseJson);
-                    const bool hasBean = !beanBaseId.isEmpty()
-                        || !record.summary.beanBrand.isEmpty() || !record.summary.beanType.isEmpty();
-
-                    QString steamJson = !record.steamJson.isEmpty() ? record.steamJson : fallbackSteam;
-                    if (hasMilkProvided && !steamJson.isEmpty()) {
-                        QJsonObject steam = QJsonDocument::fromJson(steamJson.toUtf8()).object();
-                        steam["hasMilk"] = hasMilk;
-                        steamJson = QString::fromUtf8(QJsonDocument(steam).toJson(QJsonDocument::Compact));
-                    } else if (hasMilkProvided && steamJson.isEmpty()) {
-                        steamJson = QString::fromUtf8(QJsonDocument(
-                            QJsonObject{{"hasMilk", hasMilk}}).toJson(QJsonDocument::Compact));
-                    }
-
-                    QVariantMap fields;
-                    fields.insert("name", name);
-                    fields.insert("profileTitle", record.summary.profileName);
-                    fields.insert("profileJson", record.profileJson);
-                    fields.insert("beanBaseId", beanBaseId);
-                    fields.insert("roasterName", record.summary.beanBrand);
-                    fields.insert("coffeeName", record.summary.beanType);
-                    fields.insert("equipmentId", record.equipmentId);
-                    fields.insert("doseG", record.summary.doseWeight);
-                    fields.insert("yieldG", record.targetWeight);
-                    fields.insert("tempOverrideC", record.temperatureOverride);
-                    fields.insert("grindPinned", hasBean ? QString() : record.grinderSetting);
-                    fields.insert("steamJson", steamJson);
-                    // Hot water carries verbatim from the shot snapshot only —
-                    // NO current-settings fallback (that would force a shot
-                    // pulled while an Americano recipe is active into an
-                    // Americano, mirroring the composer's deliberate choice).
-                    fields.insert("hotWaterJson", record.hotWaterJson);
-                    fields.insert("createdFromShotId", shotId);
+                    const std::optional<bool> hasMilkOverride =
+                        hasMilkProvided ? std::optional<bool>(hasMilk) : std::nullopt;
+                    QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
+                        record, name, hasMilkOverride, fallbackSteam);
 
                     auto conn = std::make_shared<QMetaObject::Connection>();
                     *conn = QObject::connect(recipeStorage, &RecipeStorage::recipeCreated, qApp,
