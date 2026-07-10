@@ -1003,6 +1003,49 @@ private slots:
         net->setLayoutConfiguration(orig);
     }
 
+    // A user who installed before #1372 ("Layout editor: drag-reorder...
+    // default cleanups") and never customized still carries the legacy
+    // centerStatus readouts {temperature, waterLevel, machineStatus} —
+    // nothing ever migrated that zone to empty. That's still pristine (never
+    // customized), so accepting the offer must give them the full new
+    // default too, not the surgical transform.
+    void applyRecipesFirstUpgradePristineDetectsLegacyCenterStatus() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerStatus\":["
+            "{\"type\":\"temperature\",\"id\":\"temp1\"},"
+            "{\"type\":\"waterLevel\",\"id\":\"water1\"},"
+            "{\"type\":\"machineStatus\",\"id\":\"conn1\"}],"
+            "\"centerTop\":["
+            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
+            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"},"
+            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"},"
+            "{\"type\":\"flush\",\"id\":\"flush1\"}],"
+            "\"centerMiddle\":[{\"type\":\"shotPlan\",\"id\":\"plan1\"}],"
+            "\"bottomLeft\":[{\"type\":\"sleep\",\"id\":\"sleep1\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"spacer\",\"id\":\"spacer2\"},"
+            "{\"type\":\"beans\",\"id\":\"beans1\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->applyRecipesFirstUpgrade();
+
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
+                 QStringList({"recipes", "beans", "steam", "hotwater"}));
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"flush", "history", "equipment", "espresso", "settings"}));
+
+        net->setLayoutConfiguration(orig);
+    }
+
     void applyRecipesFirstUpgradeSurgicalTransformPreservesCustomizations() {
         SettingsNetwork* net = m_settings.network();
         const QString orig = net->layoutConfiguration();

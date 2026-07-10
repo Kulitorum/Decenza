@@ -652,17 +652,38 @@ namespace {
 // layout, used only to detect whether an upgrading user's current layout is
 // still pristine. defaultLayoutJson() itself changes in this release, so this
 // snapshot must not be derived from it.
+//
+// Every zone here except centerStatus has been structurally invariant across
+// every past default (verified against git history back to the layout
+// system's introduction in #855): the pre-existing equipment/recipes
+// injection migrations and the connectionStatus->machineStatus rename
+// unconditionally normalize any older stored layout to this exact
+// centerTop/bottomRight composition by the time getLayoutObject() returns
+// it, regardless of which release the user first installed on. centerStatus
+// is the one exception — it shipped as {temperature, waterLevel,
+// machineStatus} from #855 through #1372, then as empty from #1372 ("Layout
+// editor: drag-reorder... default cleanups") onward, and nothing ever
+// migrates an existing stored centerStatus between those two forms. Both are
+// pristine (never-customized), so isPristineOldDefault() accepts either.
 QJsonObject oldDefaultTypeSequences() {
     QJsonObject seq;
     seq["topLeft"] = QJsonArray();
     seq["topRight"] = QJsonArray();
-    seq["centerStatus"] = QJsonArray();
     seq["centerTop"] = QJsonArray({"recipes", "espresso", "steam", "hotwater", "flush"});
     seq["centerMiddle"] = QJsonArray({"shotPlan"});
     seq["bottomLeft"] = QJsonArray({"sleep"});
     seq["bottomRight"] = QJsonArray({"history", "spacer", "beans", "equipment", "autofavorites", "settings"});
     seq["lowerMidBar"] = QJsonArray();
     return seq;
+}
+
+// The historical centerStatus variants that count as pristine (see comment
+// above oldDefaultTypeSequences).
+QVector<QJsonArray> oldDefaultCenterStatusVariants() {
+    return {
+        QJsonArray(),                                              // #1372 onward
+        QJsonArray({"temperature", "waterLevel", "machineStatus"}), // #855 through #1372
+    };
 }
 
 QJsonArray typeSequenceForZone(const QJsonArray& items) {
@@ -678,7 +699,8 @@ bool isPristineOldDefault(const QJsonObject& zones) {
         if (typeSequenceForZone(zones.value(it.key()).toArray()) != it.value().toArray())
             return false;
     }
-    return true;
+    const QJsonArray centerStatus = typeSequenceForZone(zones.value("centerStatus").toArray());
+    return oldDefaultCenterStatusVariants().contains(centerStatus);
 }
 } // namespace
 
