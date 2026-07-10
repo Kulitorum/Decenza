@@ -1849,29 +1849,22 @@ Page {
                 }
 
                 // ===== Step 4: details (drink-type specific) =====
-                // Section cards flow into two columns on landscape widths so
-                // the step fits one screen for the common drink types; below
-                // the threshold they stack (today's portrait scroll). Input
+                // A PINNED header row (the "everything is optional" caption
+                // + the Continue button) sits above the scrolling cards, so
+                // Continue is always visible — expanding a card never pushes
+                // it off screen. Section cards flow into two columns on
+                // landscape widths; below the threshold they stack. Input
                 // controls are sized to their content, never stretched to
                 // the page width.
-                Flickable {
-                    contentHeight: detailsColumn.implicitHeight + Theme.scaled(24)
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
-                    GridLayout {
-                        id: detailsColumn
-                        width: parent.width
-                        columns: wizardPage.width >= Theme.scaled(720) ? 2 : 1
-                        columnSpacing: Theme.spacingMedium
-                        rowSpacing: Theme.spacingMedium
+                ColumnLayout {
+                    spacing: Theme.spacingSmall
 
-                        // Everything on this step is OPTIONAL — say so up
-                        // front, so the prefills read as "ready to save",
-                        // not as a form waiting to be filled in.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.spacingSmall
+                        spacing: Theme.spacingMedium
                         Label {
                             Layout.fillWidth: true
-                            Layout.columnSpan: detailsColumn.columns
-                            Layout.topMargin: Theme.spacingSmall
                             text: TranslationManager.translate("recipes.wizard.detailsOptional",
                                   "Everything here is optional — it's prefilled and ready to save. "
                                   + "Tap a section to adjust it, then Continue.")
@@ -1881,6 +1874,27 @@ Page {
                             Accessible.role: Accessible.StaticText
                             Accessible.name: text
                         }
+                        AccessibleButton {
+                            Layout.alignment: Qt.AlignVCenter
+                            primary: true
+                            text: TranslationManager.translate("recipes.wizard.continue", "Continue")
+                            accessibleName: TranslationManager.translate("recipes.wizard.accessible.continue", "Continue to the summary")
+                            onClicked: { wizardPage._fromSummary = false; wizardPage.currentStep = "summary" }
+                        }
+                    }
+
+                    Flickable {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    contentHeight: detailsColumn.implicitHeight + Theme.scaled(24)
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    GridLayout {
+                        id: detailsColumn
+                        width: parent.width
+                        columns: wizardPage.width >= Theme.scaled(720) ? 2 : 1
+                        columnSpacing: Theme.spacingMedium
+                        rowSpacing: Theme.spacingMedium
 
                         SectionCard {
                             id: numbersCard
@@ -2194,15 +2208,7 @@ Page {
                             color: Theme.textSecondaryColor
                             wrapMode: Text.WordWrap
                         }
-
-                        AccessibleButton {
-                            Layout.alignment: Qt.AlignRight
-                            Layout.columnSpan: detailsColumn.columns
-                            primary: true
-                            text: TranslationManager.translate("recipes.wizard.continue", "Continue")
-                            accessibleName: TranslationManager.translate("recipes.wizard.accessible.continue", "Continue to the summary")
-                            onClicked: { wizardPage._fromSummary = false; wizardPage.currentStep = "summary" }
-                        }
+                    }
                     }
                 }
 
