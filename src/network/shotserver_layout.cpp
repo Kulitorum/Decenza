@@ -740,7 +740,21 @@ QString ShotServer::generateLayoutPage() const
             padding: 0 0 1.5rem;
         }
         .zones-panel { min-width: 0; }
-        .editor-panel { }
+        /* Custom/screensaver/readout-options editors (D2/D3) are centered
+           modal overlays, not inline content appended after the zones list —
+           the gear can be clicked from anywhere on a tall page and the
+           editor must be immediately visible, not scrolled off-screen. */
+        .editor-panel {
+            display: flex;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 210;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            overflow-y: auto;
+        }
         .zone-card {
             background: var(--surface);
             border: 2px solid var(--border);
@@ -827,6 +841,14 @@ QString ShotServer::generateLayoutPage() const
             opacity: 0.7;
             margin-left: 0.1rem;
             cursor: pointer;
+            /* Chips are always rendered with this focusable child now (D2 — the
+               gear is a real button on every chip, not just the selected one).
+               WebKit/Safari can swallow a native HTML5 dragstart when the
+               mousedown lands on a focusable/interactive descendant of a
+               draggable element, so opt this (and .chip-remove below) out of
+               being a drag source in its own right. */
+            -webkit-user-drag: none;
+            user-drag: none;
         }
         .chip-opts:hover { opacity: 1; }
         .chip-opts-ico { width: 11px; height: 11px; }
@@ -842,6 +864,8 @@ QString ShotServer::generateLayoutPage() const
             margin-left: 0.25rem;
             opacity: 0.4;
             transition: opacity 0.15s;
+            -webkit-user-drag: none;
+            user-drag: none;
         }
         .chip:hover .chip-remove, .chip.selected .chip-remove { opacity: 1; }
         .add-btn {
@@ -923,18 +947,31 @@ QString ShotServer::generateLayoutPage() const
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 1.25rem;
+            width: 100%;
+            /* Wide enough that .editor-content-row's side-by-side columns (which
+               only stack via the @media(max-width:700px) viewport query, not a
+               container query) don't get cramped inside the modal on desktop. */
+            max-width: 900px;
+            max-height: 85vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
         }
         .editor-card h3 {
             font-size: 0.9rem;
             margin-bottom: 1rem;
             color: var(--accent);
         }
-        .editor-hidden { display: none; }
+        .editor-hidden { display: none !important; }
         .ss-editor-card {
             background: var(--surface);
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 1.25rem;
+            width: 100%;
+            max-width: 480px;
+            max-height: 85vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
         }
         .ss-editor-card h3 {
             margin: 0 0 1rem;
@@ -1518,7 +1555,10 @@ QString ShotServer::generateLayoutPage() const
         .action-dialog-item.selected { background: var(--accent); color: #000; }
 
         .chip-emoji { margin-right: 2px; font-size: 0.8rem; }
-        .chip-emoji img { width: 14px; height: 14px; vertical-align: middle; filter: brightness(0) invert(1); }
+        /* <img> is a native drag source in every browser by default, which
+           would hijack a chip-reorder drag started on a custom widget's emoji
+           icon — opt it out the same way as the gear/remove icons above. */
+        .chip-emoji img { width: 14px; height: 14px; vertical-align: middle; filter: brightness(0) invert(1); -webkit-user-drag: none; user-drag: none; }
 
         @media (max-width: 700px) {
             .editor-content-row { flex-direction: column; }
@@ -1927,7 +1967,7 @@ QString ShotServer::generateLayoutPage() const
     <p class="main-instructions">Click + to add widgets. Drag a widget to reorder it. Click a widget to select it, then click its gear icon to change options.</p>
     <div class="main-layout">
         <div class="zones-panel" id="zonesPanel"></div>
-        <div class="editor-panel editor-hidden" id="editorPanel">
+        <div class="editor-panel editor-hidden" id="editorPanel" onclick="if(event.target===this)closeEditor()">
             <div class="editor-card">
                 <h3>Edit Custom Widget</h3>
 
@@ -2047,7 +2087,7 @@ QString ShotServer::generateLayoutPage() const
         </div>
 
     <!-- Screensaver Editor Panel -->
-    <div class="editor-panel editor-hidden" id="ssEditorPanel">
+    <div class="editor-panel editor-hidden" id="ssEditorPanel" onclick="if(event.target===this)closeScreensaverEditor()">
         <div class="ss-editor-card">
             <h3 id="ssEditorTitle">Screensaver Settings</h3>
 
@@ -2151,7 +2191,7 @@ QString ShotServer::generateLayoutPage() const
 
     <!-- Readout Options Editor Panel (D3) — mirrors qml/components/layout/ReadoutOptionsPopup.qml.
          Keep section headers/choice labels in sync with that file. -->
-    <div class="editor-panel editor-hidden" id="roEditorPanel">
+    <div class="editor-panel editor-hidden" id="roEditorPanel" onclick="if(event.target===this)closeReadoutOptions()">
         <div class="ss-editor-card">
             <h3 id="roEditorTitle">Readout Options</h3>
             <div id="roSections"></div>
@@ -2830,7 +2870,7 @@ QString ShotServer::generateLayoutPage() const
                 if (item.type === "custom" && props) {
                     if (props.emoji) {
                         if (props.emoji.indexOf("qrc:") === 0) {
-                            html += '<span class="chip-emoji"><img src="' + props.emoji.replace("qrc:","") + '"></span>';
+                            html += '<span class="chip-emoji"><img draggable="false" src="' + props.emoji.replace("qrc:","") + '"></span>';
                         } else {
                             html += '<span class="chip-emoji">' + props.emoji + '</span>';
                         }
@@ -2850,13 +2890,16 @@ QString ShotServer::generateLayoutPage() const
                 // selection state. Inline per-option <select>s were removed; see
                 // openReadoutOptions() / the "Readout Options Editor" block below.
                 if (typeHasOptions(item.type)) {
-                    html += '<span class="chip-opts" title="Options" role="button" tabindex="0" aria-label="Widget options"'
+                    html += '<span class="chip-opts" title="Options" role="button" tabindex="0" aria-label="Widget options" draggable="false"'
                          + ' onclick="event.stopPropagation();gearClick(\'' + item.id + '\',\'' + zone.key + '\',\'' + item.type + '\')">' + GEAR_SVG + '</span>';
                 }
                 // Remove control (D5/D7): always present, faint until hover/selection
                 // (see .chip-remove CSS), so chip content/size is stable across
                 // selection state. Configured items get a confirmation prompt.
-                html += '<span class="chip-remove" title="Remove widget" aria-label="Remove widget"'
+                // draggable="false" (+ -webkit-user-drag:none in CSS) keeps these
+                // always-present interactive children from hijacking the chip's
+                // own drag-to-reorder gesture in Safari/WebKit.
+                html += '<span class="chip-remove" title="Remove widget" aria-label="Remove widget" draggable="false"'
                      + ' onclick="event.stopPropagation();confirmRemoveItem(\'' + item.id + '\',\'' + zone.key + '\',' + (item.configured ? 'true' : 'false') + ')">&times;</span>';
                 html += '</span>';
             }
