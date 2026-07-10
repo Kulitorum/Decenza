@@ -516,9 +516,12 @@ private slots:
         storage.initialize(path);
 
         // Clearing the profile on a non-hot-water recipe is rejected — the row
-        // is untouched.
+        // is untouched. The rejection logs a qWarning naming the recipe; that's
+        // the behaviour under test, so mark it expected (TESTING.md).
         {
             QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+                QString("RecipeStorage: rejecting update that would strand recipe %1 .*").arg(espId)));
             storage.requestUpdateRecipe(espId, {{"profileTitle", QString()}});
             QTRY_COMPARE(spy.count(), 1);
             QVERIFY(!spy.at(0).at(1).toBool());  // failed
@@ -527,6 +530,8 @@ private slots:
         // too (the case the per-surface profileTitle guard misses entirely).
         {
             QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+                QString("RecipeStorage: rejecting update that would strand recipe %1 .*").arg(hwId)));
             storage.requestUpdateRecipe(hwId, {{"hotWaterJson", QString()}});
             QTRY_COMPARE(spy.count(), 1);
             QVERIFY(!spy.at(0).at(1).toBool());
@@ -534,6 +539,8 @@ private slots:
         // A hint-only patch (nothing persistable) fails cleanly, not silently.
         {
             QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(
+                QString("RecipeStorage: update for recipe %1 carried no persistable fields").arg(espId)));
             storage.requestUpdateRecipe(espId, {{"profileBeverageType", "espresso"}});
             QTRY_COMPARE(spy.count(), 1);
             QVERIFY(!spy.at(0).at(1).toBool());

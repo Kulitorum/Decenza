@@ -20,6 +20,15 @@
 // the system settings store. Tests save originals in init() and restore in
 // cleanup() (guaranteed to run even if assertions fail mid-test).
 
+// File-scope helper: the ordered list of "type" values in a getZoneItems()
+// result, for compact layout-composition assertions.
+static QStringList typesOf(const QVariantList& items) {
+    QStringList result;
+    for (const QVariant& v : items)
+        result << v.toMap().value("type").toString();
+    return result;
+}
+
 // File-scope helper (Q_OBJECT moc rejects nested structs in test classes).
 // Snapshot + clear the Known Devices store so a test owns it for the
 // duration, and restore on scope exit. Settings exposes addKnownScale /
@@ -949,6 +958,339 @@ private slots:
                  QStringList{QStringLiteral("grind")});
 
         net->setLayoutConfiguration(orig);
+    }
+
+    // ==========================================
+    // Recipes-first default layout + upgrade transform
+    // (recipes-idle-layout-upgrade)
+    // ==========================================
+
+    // The frozen composition of the old (pre-upgrade) default, used as the
+    // pristine-detection baseline and as a stand-in for "an untouched
+    // migrated-old-default layout" in the pristine-upgrade test below.
+    static QString oldDefaultLayoutJson() {
+        return QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerTop\":["
+            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
+            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"},"
+            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"},"
+            "{\"type\":\"flush\",\"id\":\"flush1\"}],"
+            "\"centerMiddle\":[{\"type\":\"shotPlan\",\"id\":\"plan1\"}],"
+            "\"bottomLeft\":[{\"type\":\"sleep\",\"id\":\"sleep1\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"spacer\",\"id\":\"spacer2\"},"
+            "{\"type\":\"beans\",\"id\":\"beans1\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}");
+    }
+
+    void defaultLayoutIsRecipesFirst() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->resetLayoutToDefault();
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
+                 QStringList({"recipes", "beans", "steam", "hotwater"}));
+        QCOMPARE(typesOf(net->getZoneItems("bottomLeft")), QStringList({"sleep"}));
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"flush", "history", "equipment", "espresso", "settings"}));
+        // No Auto-Favorites anywhere in the default.
+        for (const QString& zone : {"centerTop", "centerMiddle", "centerStatus", "bottomLeft",
+                                     "bottomRight", "topLeft", "topRight", "lowerMidBar"})
+            QVERIFY(!typesOf(net->getZoneItems(zone)).contains("autofavorites"));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    // The equipment/recipes injection migrations must be no-ops on the new
+    // default: reset, then force a fresh read (reload from storage) and
+    // confirm the composition is unchanged (no injected duplicates).
+    void resetToDefaultSurvivesReloadUnchanged() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->resetLayoutToDefault();
+        const QStringList centerTopBefore = typesOf(net->getZoneItems("centerTop"));
+        const QStringList bottomRightBefore = typesOf(net->getZoneItems("bottomRight"));
+
+        // A second, independent Settings instance reads the same on-disk
+        // store fresh (mirrors a fresh app start) — the migrations must be
+        // no-ops rather than injecting duplicates on this independent load.
+        Settings reloaded;
+        SettingsNetwork* reloadedNet = reloaded.network();
+        QCOMPARE(typesOf(reloadedNet->getZoneItems("centerTop")), centerTopBefore);
+        QCOMPARE(typesOf(reloadedNet->getZoneItems("bottomRight")), bottomRightBefore);
+        QCOMPARE(centerTopBefore.count("recipes"), 1);
+        QCOMPARE(bottomRightBefore.count("equipment"), 1);
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    void applyRecipesFirstUpgradePristineGetsFullNewDefault() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(oldDefaultLayoutJson());
+        net->applyRecipesFirstUpgrade();
+
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
+                 QStringList({"recipes", "beans", "steam", "hotwater"}));
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"flush", "history", "equipment", "espresso", "settings"}));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    // A user who installed before #1372 ("Layout editor: drag-reorder...
+    // default cleanups") and never customized still carries the legacy
+    // centerStatus readouts {temperature, waterLevel, machineStatus} —
+    // nothing ever migrated that zone to empty. That's still pristine (never
+    // customized), so accepting the offer must give them the full new
+    // default too, not the surgical transform.
+    void applyRecipesFirstUpgradePristineDetectsLegacyCenterStatus() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerStatus\":["
+            "{\"type\":\"temperature\",\"id\":\"temp1\"},"
+            "{\"type\":\"waterLevel\",\"id\":\"water1\"},"
+            "{\"type\":\"machineStatus\",\"id\":\"conn1\"}],"
+            "\"centerTop\":["
+            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
+            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"},"
+            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"},"
+            "{\"type\":\"flush\",\"id\":\"flush1\"}],"
+            "\"centerMiddle\":[{\"type\":\"shotPlan\",\"id\":\"plan1\"}],"
+            "\"bottomLeft\":[{\"type\":\"sleep\",\"id\":\"sleep1\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"spacer\",\"id\":\"spacer2\"},"
+            "{\"type\":\"beans\",\"id\":\"beans1\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->applyRecipesFirstUpgrade();
+
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
+                 QStringList({"recipes", "beans", "steam", "hotwater"}));
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"flush", "history", "equipment", "espresso", "settings"}));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    void applyRecipesFirstUpgradeSurgicalTransformPreservesCustomizations() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        // Customized: an extra custom widget in the center row (differs from
+        // the pristine old default, so the surgical path applies).
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerTop\":["
+            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
+            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"},"
+            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"},"
+            "{\"type\":\"flush\",\"id\":\"flush1\"},"
+            "{\"type\":\"custom\",\"id\":\"custom1\",\"text\":\"Hi\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"beans\",\"id\":\"beans1\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->applyRecipesFirstUpgrade();
+
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
+                 QStringList({"recipes", "steam", "hotwater", "flush", "custom"}));
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "beans", "equipment", "espresso", "settings"}));
+        // Customization (the custom widget's text) survives untouched.
+        QCOMPARE(net->getItemProperties("custom1").value("text").toString(), QStringLiteral("Hi"));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    void applyRecipesFirstUpgradeInsertsRecipesAtEspressoPosition() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerTop\":["
+            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"},"
+            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->applyRecipesFirstUpgrade();
+
+        // Recipes lands at the espresso button's former (index-0) position.
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
+                 QStringList({"recipes", "steam", "hotwater"}));
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "equipment", "espresso", "settings"}));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    void applyRecipesFirstUpgradeLeavesEspressoAlreadyInBar() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerTop\":["
+            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"},"
+            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"}],"
+            "\"bottomLeft\":[{\"type\":\"espresso\",\"id\":\"espresso1\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->applyRecipesFirstUpgrade();
+
+        // Unchanged — the item is left exactly where the user put it, no duplicate.
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
+                 QStringList({"recipes", "steam", "hotwater"}));
+        QCOMPARE(typesOf(net->getZoneItems("bottomLeft")), QStringList({"espresso"}));
+        // Auto-Favorites still removed.
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "equipment", "settings"}));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    // Espresso present in BOTH a center zone and a bar zone simultaneously
+    // (an unusual manually-constructed layout): the center instance is still
+    // removed (recipes-position logic still applies), but since a bar
+    // instance already exists no relocation happens — the bar instance is
+    // left alone and no duplicate is created.
+    void applyRecipesFirstUpgradeRemovesCenterEspressoWhenAlsoInBar() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerTop\":["
+            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
+            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"},"
+            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"}],"
+            "\"bottomLeft\":[{\"type\":\"espresso\",\"id\":\"espresso_bar1\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->applyRecipesFirstUpgrade();
+
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
+                 QStringList({"recipes", "steam", "hotwater"}));
+        QCOMPARE(typesOf(net->getZoneItems("bottomLeft")), QStringList({"espresso"}));
+        // No duplicate landed in bottomRight.
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "equipment", "settings"}));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    // Multiple Auto-Favorites instances in the same zone (also unusual, but
+    // the removal loop iterates in reverse specifically to survive this) —
+    // both must be removed, not just the first.
+    void applyRecipesFirstUpgradeRemovesEveryAutofavoritesInstance() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerTop\":["
+            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"autofavorites\",\"id\":\"autofavorites2\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->applyRecipesFirstUpgrade();
+
+        QVERIFY(!typesOf(net->getZoneItems("bottomRight")).contains("autofavorites"));
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "equipment", "settings"}));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    void applyRecipesFirstUpgradeIsIdempotent() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerTop\":["
+            "{\"type\":\"recipes\",\"id\":\"recipes1\"},"
+            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"},"
+            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"},"
+            "{\"type\":\"flush\",\"id\":\"flush1\"},"
+            "{\"type\":\"custom\",\"id\":\"custom1\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"beans\",\"id\":\"beans1\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"autofavorites\",\"id\":\"autofavorites1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->applyRecipesFirstUpgrade();
+        const QStringList centerTopOnce = typesOf(net->getZoneItems("centerTop"));
+        const QStringList bottomRightOnce = typesOf(net->getZoneItems("bottomRight"));
+
+        net->applyRecipesFirstUpgrade();
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")), centerTopOnce);
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")), bottomRightOnce);
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    void recipesUpgradeOfferedRoundTrip() {
+        SettingsNetwork* net = m_settings.network();
+        const bool orig = net->recipesUpgradeOffered();
+
+        net->setRecipesUpgradeOffered(false);
+        QSignalSpy spy(net, &SettingsNetwork::recipesUpgradeOfferedChanged);
+        net->setRecipesUpgradeOffered(true);
+        QVERIFY(net->recipesUpgradeOffered());
+        QCOMPARE(spy.count(), 1);
+        net->setRecipesUpgradeOffered(true);  // same value: no signal
+        QCOMPARE(spy.count(), 1);
+
+        net->setRecipesUpgradeOffered(orig);
     }
 
     // ==========================================
