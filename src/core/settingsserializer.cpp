@@ -251,8 +251,11 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Visualizer settings
     QJsonObject visualizer;
-    visualizer["username"] = settings->visualizer()->visualizerUsername();
     if (includeSensitive) {
+        // Username is a credential too — keep it behind includeSensitive so the LAN
+        // web-backup endpoint (which forces includeSensitive=false) never emits it,
+        // consistent with how /api/settings redacts it.
+        visualizer["username"] = settings->visualizer()->visualizerUsername();
         visualizer["password"] = settings->visualizer()->visualizerPassword();
     }
     visualizer["autoUpload"] = settings->visualizer()->visualizerAutoUpload();
@@ -341,8 +344,9 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     mqtt["enabled"] = mqttSettings->mqttEnabled();
     mqtt["brokerHost"] = mqttSettings->mqttBrokerHost();
     mqtt["brokerPort"] = mqttSettings->mqttBrokerPort();
-    mqtt["username"] = mqttSettings->mqttUsername();
     if (includeSensitive) {
+        // Username is a credential too — gated with the password (see visualizer above).
+        mqtt["username"] = mqttSettings->mqttUsername();
         mqtt["password"] = mqttSettings->mqttPassword();
     }
     mqtt["baseTopic"] = mqttSettings->mqttBaseTopic();

@@ -203,7 +203,14 @@ void ShotServer::handleBackupSettings(QTcpSocket* socket, bool includeSensitive)
         return;
     }
 
-    QJsonObject settingsJson = SettingsSerializer::exportToJson(m_settings, includeSensitive);
+    // Privacy: never emit raw secret VALUES (API keys / passwords) over the LAN
+    // web server, even when includeSensitive=true is requested. The parameter is
+    // ignored here and secrets are always excluded from the served backup JSON.
+    // Trade-off: a settings backup taken via the web endpoint will NOT restore
+    // these secret fields (they must be re-entered or restored from the native
+    // app's own backup path, which is unaffected).
+    Q_UNUSED(includeSensitive);
+    QJsonObject settingsJson = SettingsSerializer::exportToJson(m_settings, /*includeSensitive=*/false);
     sendJson(socket, QJsonDocument(settingsJson).toJson(QJsonDocument::Compact));
 }
 
