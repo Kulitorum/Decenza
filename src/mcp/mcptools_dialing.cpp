@@ -250,9 +250,28 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                         profileKnowledge = ShotSummarizer::shotAnalysisSystemPrompt(
                             bevType, profileTitle, profileType, dbResult.profileKbId);
                     } else {
-                        profileKnowledge = ShotSummarizer::profileKnowledgeForKbId(dbResult.profileKbId);
-                        if (profileKnowledge.isEmpty())
-                            profileKnowledge = ShotSummarizer::findProfileSection(profileTitle, profileType);
+                        // Resolve the KB id once so the content and its name label
+                        // stay attached to the same entry (issue #1459: unlabeled KB
+                        // prose let the model attribute another catalog profile's
+                        // name to this shot's actual profile).
+                        QString resolvedKbId = dbResult.profileKbId;
+                        profileKnowledge = ShotSummarizer::profileKnowledgeForKbId(resolvedKbId);
+                        if (profileKnowledge.isEmpty()) {
+                            resolvedKbId = ShotSummarizer::computeProfileKbId(profileTitle, profileType);
+                            profileKnowledge = ShotSummarizer::profileKnowledgeForKbId(resolvedKbId);
+                        }
+                        if (!profileKnowledge.isEmpty()) {
+                            const QString kbName = ShotSummarizer::canonicalNameForKbId(resolvedKbId);
+                            if (!kbName.isEmpty()) {
+                                profileKnowledge = QStringLiteral("## Current Profile Knowledge: ") + kbName
+                                    + QStringLiteral("\n\n"
+                                        "Family label, not necessarily this shot's own profile name — see "
+                                        "`result.profile.title` for the shot's actual title and refer to the "
+                                        "shot by that title when talking to the user, never by this KB family "
+                                        "name.\n\n")
+                                    + profileKnowledge;
+                            }
+                        }
 
                         // Compact guardrail only (espresso-only — the full
                         // catalog is espresso-centric, so filter/pour-over
