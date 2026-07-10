@@ -71,13 +71,6 @@ Item {
     property bool rpmCapable: Settings.dye.grinderRpmCapable(Settings.dye.dyeGrinderBrand, Settings.dye.dyeGrinderModel)
     property string beverageType: ProfileManager.currentProfileBeverageType
     property bool isCleaning: ProfileManager.currentProfileIsMaintenance
-    // When true, format temperature from this consumer's single recorded value
-    // (overrideTemp when tempOverridden, else profileTemp) instead of the LIVE
-    // profile's per-frame trajectory. Per-shot snapshots need this: the shot
-    // froze one effective brew temperature and must not borrow the currently
-    // loaded profile's step temps (ProfileManager.temperatureDisplay reads the
-    // live profile's steps()). Defaults false so the home widget is unchanged.
-    property bool singleTemp: false
 
     // Highlight (espresso-button yellow) on a brew TEMPERATURE override only.
     // Yield is intentionally excluded: the target output is dose × ratio and the
@@ -106,10 +99,6 @@ Item {
     readonly property string _tempStr: {
         void(Settings.app.temperatureUnit)
         if (!(_has("temperature") && profileTemp > 0)) return ""
-        if (singleTemp) {
-            var t = tempOverridden ? overrideTemp : profileTemp
-            return Math.round(Theme.cToDisplay(t)) + Theme.tempUnitSuffix()
-        }
         return ProfileManager.temperatureDisplay(profileTemp, tempOverridden, overrideTemp)
     }
     // Roaster = brand only; Coffee = bean name only; Grind = grinder setting + RPM when recorded.

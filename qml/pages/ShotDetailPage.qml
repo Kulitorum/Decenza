@@ -26,11 +26,8 @@ Page {
     // idle-page Shot Plan widget so this line shows the fields they configured.
     // Reactive on layout edits. Only the item list is used — the snapshot is
     // always a plain fragment line (sentence/stacked toggles are ignored).
-    readonly property var _shotPlanItemOrder: {
-        var layout
-        try { layout = JSON.parse(Settings.network.layoutConfiguration) } catch (e) { layout = null }
-        return ShotPlanConfig.itemOrderFromLayout(layout)
-    }
+    readonly property var _shotPlanItemOrder:
+        ShotPlanConfig.itemOrderFromLayoutJson(Settings.network.layoutConfiguration)
 
     // Whether THIS shot's grinder reports RPM (a Niche Zero does not). Gates
     // every RPM display on the page so a stale/spurious recorded RPM never shows
@@ -83,31 +80,8 @@ Page {
         root.currentPageTitle = TranslationManager.translate("shotdetail.title", "Shot Detail")
     }
 
-    // One labeled component row inside the recipe card: a caption label over
-    // its value; hides itself when the value is empty (so absent components
-    // leave no gap).
-    component RecipeField: ColumnLayout {
-        id: rf
-        property string fieldLabel: ""
-        property string value: ""
-        Layout.fillWidth: true
-        spacing: 0
-        visible: rf.value !== ""
-        Text {
-            text: rf.fieldLabel
-            font: Theme.captionFont
-            color: Theme.textSecondaryColor
-            Accessible.ignored: true
-        }
-        Text {
-            Layout.fillWidth: true
-            text: rf.value
-            font: Theme.bodyFont
-            color: Theme.textColor
-            wrapMode: Text.WordWrap
-            Accessible.ignored: true
-        }
-    }
+    // RecipeField (labeled component row) is a shared component in
+    // qml/components/RecipeField.qml.
 
     // Hidden Tr instances for the recipe-card component labels (reuse existing
     // keys where they exist; "Dial-in" is new).
@@ -570,9 +544,10 @@ Page {
                 visible: text !== ""
                 sentence: false
                 maxLines: 2
-                // Fields + order come from the user's Shot Plan widget config.
+                // Fields + order come from the user's Shot Plan widget config;
+                // profile + temperature are filtered out (already in the title),
+                // so no temperature bindings are needed here.
                 itemOrder: shotDetailPage._shotPlanItemOrder
-                singleTemp: true
                 profileName: shotData.profileName || ""
                 dose: shotData.doseWeightG || 0
                 // targetWeightG is the planned target (0 for volume/timer
@@ -581,11 +556,6 @@ Page {
                 targetWeight: (shotData.targetWeightG || 0) > 0
                     ? shotData.targetWeightG : (shotData.finalWeightG || 0)
                 yieldTargetOnly: true
-                // temperatureOverrideC always carries the effective brew temp
-                // (user override OR profile default); 0 only for legacy volume shots.
-                profileTemp: shotData.temperatureOverrideC || 0
-                overrideTemp: shotData.temperatureOverrideC || 0
-                tempOverridden: false
                 roasterBrand: shotData.beanBrand || ""
                 coffeeName: shotData.beanType || ""
                 roastDate: shotData.roastDate || ""
@@ -1129,10 +1099,10 @@ Page {
                     color: Theme.surfaceColor
                     radius: Theme.cardRadius
 
-                    // Grind is bag-scoped without a recipe, so it lives here ONLY
-                    // when the shot used no recipe (recipeId <= 0); with a recipe
-                    // it lives on the recipe card instead.
-                    readonly property bool showGrind: (shotData.recipeId || -1) <= 0
+                    // Grind is bag-scoped without a recipe, so it lives on this
+                    // card — which is only shown for no-recipe shots (the parent
+                    // RowLayout gates on recipeId <= 0). With a recipe it's on the
+                    // recipe card instead.
                     readonly property string beanGrindLine: {
                         var _ = TranslationManager.translationVersion
                         var parts = []
@@ -1147,7 +1117,7 @@ Page {
                     Accessible.role: Accessible.Grouping
                     Accessible.name: {
                         var name = TranslationManager.translate("shotdetail.beaninfo", "Beans")
-                        if (showGrind && beanGrindLine !== "")
+                        if (beanGrindLine !== "")
                             name += ", " + beanGrindLine
                         return name
                     }
@@ -1173,7 +1143,7 @@ Page {
                         // when no recipe was used).
                         Text {
                             Layout.fillWidth: true
-                            visible: beanCard.showGrind && beanCard.beanGrindLine !== ""
+                            visible: beanCard.beanGrindLine !== ""
                             text: beanCard.beanGrindLine
                             font: Theme.captionFont
                             color: Theme.textColor

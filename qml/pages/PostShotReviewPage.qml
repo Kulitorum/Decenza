@@ -77,11 +77,8 @@ Page {
     // idle-page Shot Plan widget so this line shows the fields they configured.
     // Reactive on layout edits. Only the item list is used — the snapshot is
     // always a plain fragment line (sentence/stacked toggles are ignored).
-    readonly property var _shotPlanItemOrder: {
-        var layout
-        try { layout = JSON.parse(Settings.network.layoutConfiguration) } catch (e) { layout = null }
-        return ShotPlanConfig.itemOrderFromLayout(layout)
-    }
+    readonly property var _shotPlanItemOrder:
+        ShotPlanConfig.itemOrderFromLayoutJson(Settings.network.layoutConfiguration)
 
     // Recipe identity for the recipe card, live-resolved by editShotData.recipeId
     // (a shot-linked recipe can only be archived, never deleted, so the row
@@ -162,30 +159,8 @@ Page {
         } catch (e) { console.warn("PostShotReviewPage: bad hotWaterJson on shot", editShotData.id, e); return "" }
     }
 
-    // One labeled read-only component row inside the recipe card (caption over
-    // value); hides when empty.
-    component RecipeField: ColumnLayout {
-        id: rf
-        property string fieldLabel: ""
-        property string value: ""
-        Layout.fillWidth: true
-        spacing: 0
-        visible: rf.value !== ""
-        Text {
-            text: rf.fieldLabel
-            font: Theme.captionFont
-            color: Theme.textSecondaryColor
-            Accessible.ignored: true
-        }
-        Text {
-            Layout.fillWidth: true
-            text: rf.value
-            font: Theme.bodyFont
-            color: Theme.textColor
-            wrapMode: Text.WordWrap
-            Accessible.ignored: true
-        }
-    }
+    // RecipeField (labeled component row) is a shared component in
+    // qml/components/RecipeField.qml.
 
     Tr { id: trRowProfile; key: "recipes.wizard.rowProfile"; fallback: "Profile"; visible: false }
     Tr { id: trRowBeans; key: "shotdetail.beaninfo"; fallback: "Beans"; visible: false }
@@ -1174,9 +1149,10 @@ Page {
                 visible: text !== ""
                 sentence: false
                 maxLines: 2
-                // Fields + order come from the user's Shot Plan widget config.
+                // Fields + order come from the user's Shot Plan widget config;
+                // profile + temperature are filtered out (already in the title),
+                // so no temperature bindings are needed here.
                 itemOrder: postShotReviewPage._shotPlanItemOrder
-                singleTemp: true
                 profileName: editShotData.profileName || ""
                 dose: editDoseWeight || 0
                 // targetWeightG is the planned target (0 for volume/timer
@@ -1185,11 +1161,6 @@ Page {
                 targetWeight: (editShotData.targetWeightG || 0) > 0
                     ? editShotData.targetWeightG : (editDrinkWeight || 0)
                 yieldTargetOnly: true
-                // temperatureOverrideC always carries the effective brew temp
-                // (user override OR profile default); 0 only for legacy volume shots.
-                profileTemp: editShotData.temperatureOverrideC || 0
-                overrideTemp: editShotData.temperatureOverrideC || 0
-                tempOverridden: false
                 roasterBrand: editBeanBrand
                 coffeeName: editBeanType
                 roastDate: editRoastDate

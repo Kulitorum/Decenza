@@ -80,3 +80,12 @@ function itemOrderFromLayout(layoutObj) {
     return itemsFor(firstShotPlanItem(layoutObj))
         .filter(function(k) { return k !== "profile" && k !== "temperature" })
 }
+
+// Same as itemOrderFromLayout, but parses the raw layout JSON string first
+// (the form the pages hold it in) — a malformed/empty string falls back to the
+// canonical defaults. Keeps the parse+guard next to the resolver it feeds.
+function itemOrderFromLayoutJson(jsonStr) {
+    var layout
+    try { layout = JSON.parse(jsonStr) } catch (e) { layout = null }
+    return itemOrderFromLayout(layout)
+}
