@@ -885,6 +885,36 @@ private slots:
                  "system prompt must point at currentBean as canonical bean/grinder identity surface");
     }
 
+    // Issue #1459: the "Current Profile Knowledge" section used to inject
+    // the matched KB entry's prose with no name attached, so the model
+    // sometimes attributed a DIFFERENT catalog profile's name to the
+    // shot's actual profile (e.g. calling a Rao Allongé shot "TurboTurbo"
+    // because the two profiles' curated descriptions read similarly). The
+    // section header must now name the matched entry explicitly, and the
+    // resolved name must come from the SAME entry as the injected content.
+    void shotAnalysisSystemPrompt_labelsCurrentProfileKnowledgeWithMatchedName()
+    {
+        const QString prompt = ShotSummarizer::shotAnalysisSystemPrompt(
+            QStringLiteral("espresso"), QStringLiteral("Rao Allongé"),
+            QString(), QString());
+        QVERIFY2(prompt.contains(QStringLiteral("## Current Profile Knowledge: Allonge")),
+                 "section header must carry the matched KB entry's own display name");
+        QVERIFY2(!prompt.contains(QStringLiteral("## Current Profile Knowledge: TurboTurbo")),
+                 "an Allongé-matched shot's section must not be headed with an unrelated profile's name");
+        // "TurboTurbo" legitimately appears elsewhere (the cross-profile
+        // catalog lists every KB profile by name) — only the section
+        // header identifying THIS shot's matched entry is under test here.
+
+        // A custom/renamed title (bean-prefixed, no exact/prefix alias match)
+        // must not silently fall back to an unlabeled or mismatched section —
+        // it should simply carry no KB section, never someone else's name.
+        const QString unmatchedPrompt = ShotSummarizer::shotAnalysisSystemPrompt(
+            QStringLiteral("espresso"), QStringLiteral("Yirgacheffe G2 - My Custom Blend"),
+            QString(), QString());
+        QVERIFY2(!unmatchedPrompt.contains(QStringLiteral("## Current Profile Knowledge:")),
+                 "an unresolvable custom title must not fabricate a KB name label");
+    }
+
     // Openspec optimize-dialing-context-payload, task 10.5: Standalone vs
     // HistoryBlock render modes differ ONLY in the two top-level header
     // lines (`## Shot Summary` and `## Detector Observations`). Body

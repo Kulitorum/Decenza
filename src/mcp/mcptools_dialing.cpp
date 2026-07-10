@@ -251,9 +251,9 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             bevType, profileTitle, profileType, dbResult.profileKbId);
                     } else {
                         // Resolve the KB id once so the content and its name label
-                        // stay attached to the same entry (issue #1459: unlabeled KB
-                        // prose let the model attribute another catalog profile's
-                        // name to this shot's actual profile).
+                        // stay attached to the same entry — see shotAnalysisSystemPrompt's
+                        // "## Current Profile Knowledge" block above for why the label
+                        // is required (issue #1459).
                         QString resolvedKbId = dbResult.profileKbId;
                         profileKnowledge = ShotSummarizer::profileKnowledgeForKbId(resolvedKbId);
                         if (profileKnowledge.isEmpty()) {
@@ -265,10 +265,10 @@ void registerDialingTools(McpToolRegistry* registry, MainController* mainControl
                             if (!kbName.isEmpty()) {
                                 profileKnowledge = QStringLiteral("## Current Profile Knowledge: ") + kbName
                                     + QStringLiteral("\n\n"
-                                        "Family label, not necessarily this shot's own profile name — see "
-                                        "`result.profile.title` for the shot's actual title and refer to the "
-                                        "shot by that title when talking to the user, never by this KB family "
-                                        "name.\n\n")
+                                        "This heading is the matched KB entry's canonical name, not "
+                                        "necessarily this shot's own profile name — see `result.profile.title` "
+                                        "for the shot's actual title and refer to the shot by that title when "
+                                        "talking to the user, never by this KB entry's name.\n\n")
                                     + profileKnowledge;
                             }
                         }
