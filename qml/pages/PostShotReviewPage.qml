@@ -1434,6 +1434,7 @@ Page {
                     // Dose (bean weight)
                     ColumnLayout {
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 1   // equal share of the row
                         spacing: Theme.scaled(2)
                         Tr {
                             key: "postshotreview.label.dose"
@@ -1477,6 +1478,7 @@ Page {
                     // Out (drink weight)
                     ColumnLayout {
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         spacing: Theme.scaled(2)
                         Tr {
                             key: "postshotreview.label.out"
@@ -1521,6 +1523,7 @@ Page {
                     // dial-in, now beside Dose/Out).
                     ColumnLayout {
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         spacing: Theme.scaled(2)
                         Tr {
                             key: "shotdetail.grind"
@@ -1548,6 +1551,7 @@ Page {
                     ColumnLayout {
                         visible: postShotReviewPage.editRpmCapable
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         spacing: Theme.scaled(2)
                         Tr {
                             key: "postshotreview.label.rpm"
@@ -1571,6 +1575,7 @@ Page {
                     ColumnLayout {
                         visible: postShotReviewPage.advancedMode
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         spacing: Theme.scaled(2)
                         RowLayout {
                             spacing: Theme.scaled(4)
@@ -1634,6 +1639,7 @@ Page {
                     ColumnLayout {
                         visible: postShotReviewPage.advancedMode
                         Layout.fillWidth: true
+                        Layout.preferredWidth: 1
                         spacing: Theme.scaled(2)
                         Tr {
                             key: "postshotreview.label.ey"
