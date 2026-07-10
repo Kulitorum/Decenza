@@ -98,6 +98,7 @@ private:
     QByteArray m_origVesselPresets;
     QByteArray m_origPitcherPresets;
     bool m_origMilkAutoCapture;
+    double m_origSteamSecPerGram;
     int m_origActiveRecipeId;
 
 private slots:
@@ -123,6 +124,8 @@ private slots:
         // Mutated directly by the effectiveSteamDurationSec tests AND as a side effect of
         // setSteamPitcherCalibration (calibrating re-enables weight-timed steaming).
         m_origMilkAutoCapture = m_settings.brew()->milkAutoCaptureEnabled();
+        // Weight-timed scaling is now driven by a GLOBAL seconds-per-gram rate.
+        m_origSteamSecPerGram = m_settings.brew()->steamSecondsPerGram();
         { QSettings raw("DecentEspresso", "DE1Qt");
           m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();
           m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray(); }
@@ -148,6 +151,7 @@ private slots:
         m_settings.brew()->setWaterTemperature(m_origWaterTemperature);
         m_settings.app()->setTemperatureUnit(m_origTemperatureUnit);
         m_settings.brew()->setMilkAutoCaptureEnabled(m_origMilkAutoCapture);
+        m_settings.brew()->setSteamSecondsPerGram(m_origSteamSecPerGram);
         { QSettings raw("DecentEspresso", "DE1Qt");
           raw.setValue("water/vesselPresets", m_origVesselPresets);
           raw.setValue("steam/pitcherPresets", m_origPitcherPresets);
@@ -566,15 +570,16 @@ private slots:
     }
 
     void effectiveSteamDurationSecClampsScaledTime() {
-        // The scaled path is clamped to [5,120]s; a huge milk-to-calibration ratio
-        // must cap at 120, not program a multi-minute steam.
+        // The scaled path is clamped to [5,120]s; a large rate × milk product
+        // must cap at 120, not program a multi-minute steam. Scaling is now the
+        // GLOBAL seconds-per-gram rate, not per-pitcher reference milk.
         m_settings.brew()->addSteamPitcherPreset("Jug", 30, 150, 135.0);
         const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
-        m_settings.brew()->setSteamPitcherCalibration(idx, 100.0);  // also enables the toggle
+        m_settings.brew()->calibrateSteamFromReference(100.0, 30.0);  // 0.30 s/g; also enables the toggle
 
-        // Unclamped: 30 * (600/100) = 180 → clamped to 120.
+        // Unclamped: 0.30 * 600 = 180 → clamped to 120.
         QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 600.0), 120);
-        // Floor: 30 * (10/100) = 3 → clamped to 5, not a blink-and-miss 3s steam.
+        // Floor: 0.30 * 10 = 3 → clamped to 5, not a blink-and-miss 3s steam.
         QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 10.0), 5);
     }
 
@@ -591,14 +596,13 @@ private slots:
     }
 
     void effectiveSteamDurationSecUsesScaledTimeWhenAvailable() {
-        // Weight-timed steaming ON + calibrated preset + positive milk: the scaled
+        // Weight-timed steaming ON + a global rate + positive milk: the scaled
         // value wins over the base duration (the PR's core new behavior).
-        m_settings.brew()->setMilkAutoCaptureEnabled(true);
         m_settings.brew()->addSteamPitcherPreset("Latte", 30, 150, 135.0);
         const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
-        m_settings.brew()->setSteamPitcherCalibration(idx, 200.0);
+        m_settings.brew()->calibrateSteamFromReference(200.0, 30.0);  // 0.15 s/g; also enables the toggle
 
-        // duration * (milk / calibMilk) = 30 * (400/200) = 60
+        // secPerGram * milk = 0.15 * 400 = 60 (pitcher-agnostic; base 30s is ignored).
         QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 400.0), 60);
     }
 

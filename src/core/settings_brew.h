@@ -39,6 +39,10 @@ class SettingsBrew : public QObject {
     // setup can adopt them as a new reference baseline.
     Q_PROPERTY(double lastSteamMilkG READ lastSteamMilkG WRITE setLastSteamMilkG NOTIFY lastSteamMilkGChanged)
     Q_PROPERTY(double lastSteamTimeS READ lastSteamTimeS WRITE setLastSteamTimeS NOTIFY lastSteamTimeSChanged)
+    // Global weight-timed steam rate (seconds of steam per gram of milk). One
+    // calibration for every pitcher (same steam flow), replacing per-pitcher
+    // reference-milk scaling. 0 = uncalibrated. Clamped >= 0.
+    Q_PROPERTY(double steamSecondsPerGram READ steamSecondsPerGram WRITE setSteamSecondsPerGram NOTIFY steamSecondsPerGramChanged)
 
     // Steam
     Q_PROPERTY(double steamTemperature READ steamTemperature WRITE setSteamTemperature NOTIFY steamTemperatureChanged)
@@ -118,6 +122,13 @@ public:
     void setLastSteamMilkG(double g);
     double lastSteamTimeS() const;
     void setLastSteamTimeS(double s);
+
+    double steamSecondsPerGram() const;
+    void setSteamSecondsPerGram(double secPerGram);
+    // Calibrate the global steam rate from one observed steam: secPerGram =
+    // timeSec / milkG. Guarded (both > 0). Turns weight-timed steaming on, matching
+    // the old per-pitcher calibrate opt-in.
+    Q_INVOKABLE void calibrateSteamFromReference(double milkG, double timeSec);
 
     // Steam
     double steamTemperature() const;
@@ -253,6 +264,7 @@ signals:
     void doseCaptureSoundEnabledChanged();
     void lastSteamMilkGChanged();
     void lastSteamTimeSChanged();
+    void steamSecondsPerGramChanged();
     void steamTemperatureChanged();
     void steamTimeoutChanged();
     void steamFlowChanged();

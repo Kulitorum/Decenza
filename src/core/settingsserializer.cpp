@@ -74,6 +74,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     steam["twoTapStop"] = settings->hardware()->steamTwoTapStop();
     steam["selectedPitcher"] = settings->brew()->selectedSteamPitcher();
     steam["milkAutoCaptureEnabled"] = settings->brew()->milkAutoCaptureEnabled();
+    steam["steamSecondsPerGram"] = settings->brew()->steamSecondsPerGram();
 
     // Steam pitcher presets
     QJsonArray pitcherPresets;
@@ -488,6 +489,7 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         // calibrated preset clobber a backup where the user had the feature OFF.
         // The serialized value must win.
         if (steam.contains("milkAutoCaptureEnabled")) settings->brew()->setMilkAutoCaptureEnabled(steam["milkAutoCaptureEnabled"].toBool());
+        if (steam.contains("steamSecondsPerGram")) settings->brew()->setSteamSecondsPerGram(steam["steamSecondsPerGram"].toDouble());
         // Apply the selected pitcher AFTER any preset rebuild (and regardless of
         // whether this JSON carried a presets array) — setting it mid-rebuild would
         // leave it clamped to a stale index. Out-of-range is dropped with a log.

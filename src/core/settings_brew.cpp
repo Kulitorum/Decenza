@@ -68,6 +68,34 @@ SettingsBrew::SettingsBrew(QObject* parent)
         m_settings.setValue("flush/presets", QJsonDocument(defaults).toJson());
     }
 
+    // One-time migration: weight-timed steaming is now a GLOBAL seconds-per-gram
+    // rate (same steam flow on every pitcher) instead of per-pitcher reference milk.
+    // Existing calibrated users had (calibMilkG, duration) stored per preset; seed
+    // the global rate from the first preset that has both so they aren't reset. Runs
+    // after the preset-seeding block above so the presets are present. Done in the
+    // ctor (not the getter) to avoid a const getter mutating QSettings mid-read.
+    //
+    // Gated by a run-once SENTINEL, not by "rate <= 0" — legacy calibMilkG is left in
+    // place (other readers still use it), so a bare "rate <= 0" guard would re-seed the
+    // old rate every launch and silently undo a user who deliberately uncalibrated
+    // (the new ± control allows 0).
+    if (!m_settings.value("steam/steamRateMigrated", false).toBool()) {
+        if (m_settings.value("steam/steamSecondsPerGram", 0.0).toDouble() <= 0.0) {
+            QByteArray data = m_settings.value("steam/pitcherPresets").toByteArray();
+            QJsonArray arr = QJsonDocument::fromJson(data).array();
+            for (const QJsonValue& v : arr) {
+                QJsonObject preset = v.toObject();
+                double calibMilk = preset.value("calibMilkG").toDouble(0.0);
+                double duration  = preset.value("duration").toDouble(0.0);
+                if (calibMilk > 0.0 && duration > 0.0) {
+                    m_settings.setValue("steam/steamSecondsPerGram", duration / calibMilk);
+                    break;  // first calibrated preset wins
+                }
+            }
+        }
+        m_settings.setValue("steam/steamRateMigrated", true);
+    }
+
     // Load persistent brew overrides into the cache (Settings used to do this).
     m_hasTemperatureOverride = m_settings.value("brew/hasTemperatureOverride", false).toBool();
     if (m_hasTemperatureOverride) {
@@ -202,6 +230,25 @@ void SettingsBrew::setLastSteamTimeS(double s) {
         m_settings.setValue("steam/lastSteamTimeS", s);
         emit lastSteamTimeSChanged();
     }
+}
+
+double SettingsBrew::steamSecondsPerGram() const {
+    return m_settings.value("steam/steamSecondsPerGram", 0.0).toDouble();
+}
+void SettingsBrew::setSteamSecondsPerGram(double secPerGram) {
+    if (secPerGram < 0) secPerGram = 0;  // 0 = uncalibrated; never negative
+    if (!qFuzzyCompare(1.0 + steamSecondsPerGram(), 1.0 + secPerGram)) {
+        m_settings.setValue("steam/steamSecondsPerGram", secPerGram);
+        emit steamSecondsPerGramChanged();
+    }
+}
+
+void SettingsBrew::calibrateSteamFromReference(double milkG, double timeSec) {
+    if (milkG <= 0.0 || timeSec <= 0.0) return;  // guarded — need both to derive a rate
+    setSteamSecondsPerGram(timeSec / milkG);
+    // Weight-timed steaming is off by default; calibrating is the explicit opt-in,
+    // mirroring the old per-pitcher setSteamPitcherCalibration behaviour.
+    setMilkAutoCaptureEnabled(true);
 }
 
 bool SettingsBrew::doseCaptureSoundEnabled() const {
@@ -448,10 +495,12 @@ int SettingsBrew::scaledSteamTime(int index, double milkG) const {
     if (!milkAutoCaptureEnabled()) return 0;  // toggle gates ALL weight scaling, not just auto-capture
     QVariantMap p = getSteamPitcherPreset(index);
     if (p.isEmpty() || p.value("disabled").toBool()) return 0;
-    double calibMilk = p.value("calibMilkG", 0.0).toDouble();
-    double duration  = p.value("duration", 0.0).toDouble();
-    if (calibMilk <= 0.0 || duration <= 0.0 || milkG <= 0.0) return 0;
-    return qBound(5, qRound(duration * (milkG / calibMilk)), 120);
+    if (milkG <= 0.0) return 0;
+    // Pitcher-agnostic: one global seconds-per-gram rate for every pitcher (same
+    // steam flow), no longer reads the per-preset calibMilkG/duration for scaling.
+    double secPerGram = steamSecondsPerGram();
+    if (secPerGram <= 0.0) return 0;  // uncalibrated
+    return qBound(5, qRound(secPerGram * milkG), 120);
 }
 
 int SettingsBrew::effectiveSteamDurationSec(int index, double milkG) const {

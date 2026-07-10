@@ -273,13 +273,6 @@ Page {
         return Settings.brew.scaledSteamTime(Settings.brew.selectedSteamPitcher, milk)
     }
 
-    // Selected preset's reference milk weight (the baseline paired with its duration).
-    function getCurrentPitcherCalibMilk() {
-        var _ = Settings.brew.steamPitcherPresets  // track changes so the field refreshes after Weigh
-        var preset = Settings.brew.getSteamPitcherPreset(Settings.brew.selectedSteamPitcher)
-        return (preset && !preset.disabled) ? (preset.calibMilkG ?? 0) : 0
-    }
-
     // True once a milk capture has scaled steamTimeout for the CURRENT pitcher
     // selection. syncSteamTimeout() preserves that scaled value while the pitcher
     // is lifted to the wand, but a stale value (e.g. after switching pitcher) is
@@ -345,10 +338,11 @@ Page {
         if (milk <= 0) milk = capturedMilkForScaling()   // pitcher lifted: use the captured milk
         var scaled = steamTimeForMilk(milk)
         if (scaled > 0) steamPage.steamTimeoutScaled = true
-        // Write the shared scaled-or-base resolution — UNLESS this selection was
-        // already scaled from measured milk and the pitcher is merely lifted
-        // (calibrated preset, nothing on the scale): keep that value.
-        if (scaled > 0 || getCurrentPitcherCalibMilk() <= 0 || !steamPage.steamTimeoutScaled) {
+        // Write the shared scaled-or-base resolution — UNLESS steaming is weight-
+        // calibrated (global rate > 0) and this selection was already scaled from
+        // measured milk and the pitcher is merely lifted (nothing on the scale):
+        // keep that value.
+        if (scaled > 0 || Settings.brew.steamSecondsPerGram <= 0 || !steamPage.steamTimeoutScaled) {
             Settings.brew.steamTimeout = Settings.brew.effectiveSteamDurationSec(
                 Settings.brew.selectedSteamPitcher, milk)
         }
@@ -1687,9 +1681,9 @@ Page {
                             valueColor: Theme.weightColor
                             accessibleName: TranslationManager.translate("steam.label.pitcherWeight", "Milk pitcher weight")
                             // tareBtn lives in the scale-gated sub-row; skip straight to
-                            // the reference-milk field when no scale is connected so Tab
+                            // the steam-rate field when no scale is connected so Tab
                             // never lands on a hidden element.
-                            KeyNavigation.tab: (steamPage.realScaleConnected) ? tareBtn : refMilkInput
+                            KeyNavigation.tab: (steamPage.realScaleConnected) ? tareBtn : steamRateInput
                             KeyNavigation.backtab: steamTempSlider
                             onValueModified: function(newValue) {
                                 Settings.brew.setSteamPitcherWeight(Settings.brew.selectedSteamPitcher, newValue)
@@ -1765,7 +1759,7 @@ Page {
                                 Accessible.onPressAction: savePitcherWtMa.clicked(null)
                                 Keys.onReturnPressed: { savePitcherWtMa.clicked(null); event.accepted = true }
                                 Keys.onSpacePressed:  { savePitcherWtMa.clicked(null); event.accepted = true }
-                                KeyNavigation.tab: refMilkInput
+                                KeyNavigation.tab: steamRateInput
                                 KeyNavigation.backtab: tareBtn
 
                                 Text {
@@ -1834,127 +1828,87 @@ Page {
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
 
-                    // Reference milk weight: the baseline paired with this preset's
-                    // duration for weight-timed steaming. steamTime = duration ×
-                    // (measuredMilk / referenceMilk). 0 disables weight scaling.
-                    RowLayout {
+                    // ── Steam rate calibration (GLOBAL — applies to every pitcher).
+                    // One "seconds per gram of milk" replaces the old per-pitcher
+                    // reference-milk scaling: calibrate once, every pitcher (same steam
+                    // flow) finishes at the same temperature. Shows the current rate,
+                    // a "Calibrate from last steam" button, and a manual ± adjust. ──
+                    ColumnLayout {
+                        id: steamRateSection
                         Layout.fillWidth: true
-                        spacing: Theme.scaled(16)
+                        spacing: Theme.scaled(8)
                         visible: !steamPage.currentPitcherDisabled
-
-                        Column {
-                            Tr {
-                                key: "steam.label.referenceMilk"
-                                fallback: "Reference milk"
-                                color: Theme.textColor
-                                font.pixelSize: Theme.scaled(24)
-                            }
-                            Tr {
-                                key: "steam.hint.referenceMilk"
-                                fallback: "The milk weight the duration above is tuned for. Other amounts scale from it. 0 = off."
-                                color: Theme.textSecondaryColor
-                                font: Theme.labelFont
-                            }
-                        }
-
-                        Item { Layout.fillWidth: true }
-
-                        ValueInput {
-                            id: refMilkInput
-                            Layout.preferredWidth: Theme.scaled(150)
-                            from: 0
-                            to: 1500
-                            stepSize: 0.1
-                            decimals: 1
-                            suffix: " g"
-                            value: getCurrentPitcherCalibMilk()
-                            valueColor: Theme.primaryColor
-                            accessibleName: TranslationManager.translate("steam.label.referenceMilk", "Reference milk weight")
-                            KeyNavigation.tab: pitcherRepeater.count > 0 ? pitcherRepeater.itemAt(0).focusTarget : addPitcherButton
-                            // savePitcherWeightBtn is in the scale-gated sub-row; fall back
-                            // to the always-visible field when no scale is connected.
-                            KeyNavigation.backtab: (steamPage.realScaleConnected) ? savePitcherWeightBtn : pitcherWeightInput
-                            onValueModified: function(newValue) {
-                                // Don't reassign value here — it would break the declarative
-                                // binding to getCurrentPitcherCalibMilk(), so a later "Use as
-                                // baseline"/Weigh update wouldn't refresh the field. The setter
-                                // writes through and the reactive getter re-evaluates the binding.
-                                Settings.brew.setSteamPitcherCalibration(Settings.brew.selectedSteamPitcher, newValue)
-                            }
-                        }
-
-                        // Weigh the milk now on the scale and use it as the reference.
-                        // Requires a saved empty-pitcher weight (net milk = scale - pitcher).
-                        Rectangle {
-                            id: refMilkWeighBtn
-                            visible: steamPage.realScaleConnected
-                            readonly property bool btnEnabled: steamPage.currentMeasuredMilk() > 0
-                            opacity: btnEnabled ? 1.0 : 0.4
-                            width: Theme.scaled(84); height: Theme.scaled(44)
-                            radius: Theme.cardRadius
-                            color: refMilkWeighMa.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                            Accessible.role: Accessible.Button
-                            Accessible.name: TranslationManager.translate("steam.accessible.setRefMilk", "Set reference milk from the scale")
-                            Accessible.focusable: true
-                            Accessible.onPressAction: refMilkWeighMa.clicked(null)
-                            Tr {
-                                anchors.centerIn: parent
-                                key: "steam.label.weigh"; fallback: "Weigh"
-                                color: Theme.primaryContrastColor; font: Theme.bodyFont
-                                Accessible.ignored: true
-                            }
-                            MouseArea {
-                                id: refMilkWeighMa
-                                anchors.fill: parent
-                                enabled: refMilkWeighBtn.btnEnabled
-                                onClicked: Settings.brew.setSteamPitcherCalibration(
-                                    Settings.brew.selectedSteamPitcher, steamPage.currentMeasuredMilk())
-                            }
-                        }
-                    }
-
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.textSecondaryColor; opacity: 0.3; visible: !steamPage.currentPitcherDisabled }
-
-                    // Adopt the last actual steam session (milk + time) as this
-                    // pitcher's reference baseline — sets reference milk AND duration.
-                    RowLayout {
-                        id: useLastSteamRow
-                        Layout.fillWidth: true
-                        visible: !steamPage.currentPitcherDisabled
-                        spacing: Theme.scaled(12)
+                        readonly property bool calibrated: Settings.brew.steamSecondsPerGram > 0
                         readonly property bool hasLast: Settings.brew.lastSteamMilkG > 0 && Settings.brew.lastSteamTimeS > 0
 
-                        Column {
-                            Tr {
-                                key: "steam.lastSteam.title"
-                                fallback: "Calibrate from your last steam"
-                                color: Theme.textColor
-                                font.pixelSize: Theme.scaled(20)
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(16)
+
+                            Column {
+                                Tr {
+                                    key: "steam.rate.title"
+                                    fallback: "Steam rate"
+                                    color: Theme.textColor
+                                    font.pixelSize: Theme.scaled(24)
+                                }
+                                Text {
+                                    text: steamRateSection.calibrated
+                                          ? TranslationManager.translate("steam.rate.value", "%1 sec per gram of milk")
+                                                .arg(Settings.brew.steamSecondsPerGram.toFixed(2))
+                                          : TranslationManager.translate("steam.rate.uncalibrated", "Not yet calibrated — weight-timed steaming is off until you calibrate.")
+                                    color: Theme.textSecondaryColor
+                                    font: Theme.labelFont
+                                }
                             }
+
+                            Item { Layout.fillWidth: true }
+
+                            ValueInput {
+                                id: steamRateInput
+                                Layout.preferredWidth: Theme.scaled(170)
+                                from: 0
+                                to: 2.0
+                                stepSize: 0.01
+                                decimals: 2
+                                suffix: TranslationManager.translate("steam.rate.suffix", " s/g")
+                                value: Settings.brew.steamSecondsPerGram
+                                valueColor: Theme.primaryColor
+                                accessibleName: TranslationManager.translate("steam.rate.title", "Steam rate seconds per gram")
+                                KeyNavigation.tab: pitcherRepeater.count > 0 ? pitcherRepeater.itemAt(0).focusTarget : addPitcherButton
+                                KeyNavigation.backtab: (steamPage.realScaleConnected) ? savePitcherWeightBtn : pitcherWeightInput
+                                onValueModified: function(newValue) {
+                                    Settings.brew.steamSecondsPerGram = newValue
+                                }
+                            }
+                        }
+
+                        // Calibrate from the last actual steam session (milk + time) —
+                        // derives the global seconds-per-gram and turns weight-timing on.
+                        RowLayout {
+                            id: useLastSteamRow
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(12)
+
                             Text {
-                                text: useLastSteamRow.hasLast
-                                      ? TranslationManager.translate("steam.lastSteam.values", "Last steam: %1 g milk → %2 s — sets duration + reference")
+                                Layout.fillWidth: true
+                                text: steamRateSection.hasLast
+                                      ? TranslationManager.translate("steam.lastSteam.valuesGlobal", "Last steam: %1 g milk → %2 s")
                                             .arg(Settings.brew.lastSteamMilkG.toFixed(0)).arg(Math.round(Settings.brew.lastSteamTimeS))
                                       : TranslationManager.translate("steam.lastSteam.none", "Steam a weighed pitcher to your liking first, then come back here.")
                                 color: Theme.textSecondaryColor
                                 font: Theme.labelFont
+                                wrapMode: Text.WordWrap
                             }
-                        }
 
-                        Item { Layout.fillWidth: true }
-
-                        AccessibleButton {
-                            Layout.preferredHeight: Theme.scaled(44)
-                            text: TranslationManager.translate("steam.lastSteam.use", "Use last steam")
-                            accessibleName: TranslationManager.translate("steam.lastSteam.useAccessible", "Use last steam session as this pitcher's duration and reference milk")
-                            primary: true
-                            enabled: useLastSteamRow.hasLast
-                            onClicked: {
-                                var idx = Settings.brew.selectedSteamPitcher
-                                var p = Settings.brew.getSteamPitcherPreset(idx)
-                                if (!p || p.disabled) return
-                                Settings.brew.updateSteamPitcherPreset(idx, p.name, Math.round(Settings.brew.lastSteamTimeS), p.flow ?? 150)
-                                Settings.brew.setSteamPitcherCalibration(idx, Settings.brew.lastSteamMilkG)
+                            AccessibleButton {
+                                Layout.preferredHeight: Theme.scaled(44)
+                                text: TranslationManager.translate("steam.lastSteam.use", "Use last steam")
+                                accessibleName: TranslationManager.translate("steam.lastSteam.useAccessibleGlobal", "Calibrate the global steam rate from your last steam session")
+                                primary: true
+                                enabled: steamRateSection.hasLast
+                                onClicked: Settings.brew.calibrateSteamFromReference(
+                                    Settings.brew.lastSteamMilkG, Settings.brew.lastSteamTimeS)
                             }
                         }
                     }
@@ -2145,6 +2099,9 @@ Page {
             font: Theme.bodyFont
         }
     }
+
+    // (During-steam coaching banner is provided by upstream's LiveCoachingBanner
+    // near the top of this page, gated on Settings.app.steamCoachVisualEnabled.)
 
     // Small flashing reminder while the milk pitcher is settling on the scale
     // (something is on the scale but the capture hasn't fired yet). Disappears
