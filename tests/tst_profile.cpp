@@ -93,6 +93,20 @@ private slots:
     // JSON Round-Trip Tests
     // ==========================================
 
+    // The shared tolerant number parse (profileJsonToDouble): de1app /
+    // Visualizer JSON encodes numbers as strings — a raw toDouble() yields 0
+    // for them. The ProfileManager catalog scan (wizard profile tiles)
+    // shares this exact function, so its contract is pinned here.
+    void profileJsonToDoubleTolerance() {
+        QCOMPARE(profileJsonToDouble(QJsonValue(92.5)), 92.5);
+        QCOMPARE(profileJsonToDouble(QJsonValue(QStringLiteral("92.00"))), 92.0);
+        QCOMPARE(profileJsonToDouble(QJsonValue(QStringLiteral("36"))), 36.0);
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("failed to parse string"));
+        QCOMPARE(profileJsonToDouble(QJsonValue(QStringLiteral("garbage")), 7.0), 7.0);
+        QCOMPARE(profileJsonToDouble(QJsonValue(), 3.0), 3.0);
+    }
+
     void jsonRoundTripAdvanced() {
         QJsonObject obj = makeAdvancedProfileJson();
         QJsonDocument doc(obj);

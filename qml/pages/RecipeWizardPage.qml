@@ -509,11 +509,18 @@ Page {
         if (prefill && prefill.clonedFromRecipeId)
             map.clonedFromRecipeId = prefill.clonedFromRecipeId
         _submitting = true
-        if (mode === "edit" && editRecipeId > 0)
+        if (mode === "edit" && editRecipeId > 0) {
             MainController.recipeStorage.requestUpdateRecipe(editRecipeId, map)
-        else
+        } else {
+            // Correlation token: recipeCreated is a broadcast (MCP/web
+            // creates race this one) — the handler below must only pop on
+            // OUR create's result.
+            _createToken = "wizard-" + Date.now() + "-" + Math.floor(Math.random() * 1e9)
+            map.requestToken = _createToken
             MainController.recipeStorage.requestCreateRecipe(map)
+        }
     }
+    property string _createToken: ""
 
     // --- wizard step actions -----------------------------------------------
 
@@ -1046,8 +1053,14 @@ Page {
             }
         }
         function onRecipeCreated(recipeId, recipe) {
+            // Only OUR create: a concurrent MCP/web create must neither pop
+            // this page nor show a phantom save error.
+            if (wizardPage._createToken === ""
+                || (recipe.requestToken || "") !== wizardPage._createToken)
+                return
             if (wizardPage.mode !== "edit" && wizardPage._submitting) {
                 wizardPage._submitting = false
+                wizardPage._createToken = ""
                 if (recipeId > 0)
                     pageStack.pop()
                 else

@@ -34,6 +34,7 @@
 #include <QSqlQuery>
 #include <QTcpSocket>
 #include <QThread>
+#include <QUuid>
 #include <optional>
 
 namespace {
@@ -231,14 +232,24 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                 bev = m_mainController->profileManager()->beverageTypeForTitle(shaped.profileTitle);
             fields.insert("drinkType", Recipe::deriveDrinkType(shaped, bev));
         }
+        // Correlate on a request token: recipeCreated is a broadcast and a
+        // concurrent create from another surface must not satisfy (or steal)
+        // this listener.
+        const QString createToken = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        fields.insert(QStringLiteral("requestToken"), createToken);
         auto conn = std::make_shared<QMetaObject::Connection>();
         *conn = connect(recipeStorage, &RecipeStorage::recipeCreated, this,
-            [conn, respondJson](qint64 recipeId, const QVariantMap& recipe) {
+            [conn, respondJson, createToken](qint64 recipeId, const QVariantMap& recipe) {
+                if (recipe.value(QStringLiteral("requestToken")).toString() != createToken)
+                    return;  // another surface's create
                 disconnect(*conn);
-                if (recipeId <= 0)
+                if (recipeId <= 0) {
                     respondJson(QJsonObject{{"error", "Create failed"}}, 500);
-                else
-                    respondJson(QJsonObject::fromVariantMap(recipe));
+                } else {
+                    QVariantMap clean = recipe;
+                    clean.remove(QStringLiteral("requestToken"));
+                    respondJson(QJsonObject::fromVariantMap(clean));
+                }
             });
         recipeStorage->requestCreateRecipe(fields);
         return;
@@ -277,16 +288,23 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                 // the MCP recipe_create_from_shot tool builds.
                 const std::optional<bool> hasMilkOverride =
                     hasMilkProvided ? std::optional<bool>(hasMilk) : std::nullopt;
-                const QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
+                QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
                     record, name, hasMilkOverride, fallbackSteam);
+                const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                fields.insert(QStringLiteral("requestToken"), token);
                 auto conn = std::make_shared<QMetaObject::Connection>();
                 *conn = QObject::connect(recipeStorage, &RecipeStorage::recipeCreated, qApp,
-                    [conn, respondJson](qint64 recipeId, const QVariantMap& recipe) {
+                    [conn, respondJson, token](qint64 recipeId, const QVariantMap& recipe) {
+                        if (recipe.value(QStringLiteral("requestToken")).toString() != token)
+                            return;  // another surface's create
                         QObject::disconnect(*conn);
-                        if (recipeId <= 0)
+                        if (recipeId <= 0) {
                             respondJson(QJsonObject{{"error", "Create failed"}}, 500);
-                        else
-                            respondJson(QJsonObject::fromVariantMap(recipe));
+                        } else {
+                            QVariantMap clean = recipe;
+                            clean.remove(QStringLiteral("requestToken"));
+                            respondJson(QJsonObject::fromVariantMap(clean));
+                        }
                     });
                 recipeStorage->requestCreateRecipe(fields);
             }, Qt::QueuedConnection);
@@ -394,16 +412,22 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                 respondJson(QJsonObject{{"error", "name is required"}}, 400);
                 return;
             }
+            const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
             auto conn = std::make_shared<QMetaObject::Connection>();
             *conn = connect(recipeStorage, &RecipeStorage::recipeCreated, this,
-                [conn, respondJson](qint64 newId, const QVariantMap& recipe) {
+                [conn, respondJson, token](qint64 newId, const QVariantMap& recipe) {
+                    if (recipe.value(QStringLiteral("requestToken")).toString() != token)
+                        return;  // another surface's create
                     disconnect(*conn);
-                    if (newId <= 0)
+                    if (newId <= 0) {
                         respondJson(QJsonObject{{"error", "Clone failed"}}, 500);
-                    else
-                        respondJson(QJsonObject::fromVariantMap(recipe));
+                    } else {
+                        QVariantMap clean = recipe;
+                        clean.remove(QStringLiteral("requestToken"));
+                        respondJson(QJsonObject::fromVariantMap(clean));
+                    }
                 });
-            recipeStorage->requestCloneRecipe(recipeId, name);
+            recipeStorage->requestCloneRecipe(recipeId, name, token);
             return;
         }
 
@@ -580,11 +604,13 @@ QString ShotServer::generateRecipesPage() const
         const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
         let bags = [];
+        let bagsLoaded = false;
         function loadBags() {
             fetch('/api/bags')
                 .then(r => { if (!r.ok) throw new Error('Server error (' + r.status + ')'); return r.json(); })
                 .then(d => {
                     bags = d.bags || [];
+                    bagsLoaded = true;
                     const sel = document.getElementById('fBag');
                     sel.innerHTML = '<option value="0">(no bag)</option>' + bags.map(b =>
                         '<option value="' + b.id + '">'
@@ -592,7 +618,27 @@ QString ShotServer::generateRecipesPage() const
                               + (b.roastDate ? ' · ' + b.roastDate : ''))
                         + '</option>').join('');
                 })
-                .catch(() => {});  // bag list is a convenience; the editor still works without it
+                .catch(e => {
+                    // Say so — a silently empty select reads as "no bags exist".
+                    console.warn('Could not load bags:', e);
+                    const sel = document.getElementById('fBag');
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.disabled = true;
+                    opt.textContent = '(bags unavailable)';
+                    sel.appendChild(opt);
+                });
+        }
+
+        // Keep the roaster/coffee fields in lockstep with the chosen bag —
+        // the label promises "roaster/coffee fill in automatically", and the
+        // backend adopts identity only for fields the form does NOT send.
+        function onBagChanged() {
+            const id = parseInt(document.getElementById('fBag').value, 10) || 0;
+            const b = bags.find(x => x.id === id);
+            if (!b) return;  // "(no bag)" or the fallback option: leave the fields as typed
+            document.getElementById('fRoaster').value = b.roasterName || '';
+            document.getElementById('fCoffee').value = b.coffeeName || '';
         }
 
         function load() {
@@ -677,12 +723,16 @@ QString ShotServer::generateRecipesPage() const
             document.getElementById('fDrinkType').value = r.drinkType || '';
             document.getElementById('fProfile').value = r.profileTitle || '';
             const bagSel = document.getElementById('fBag');
+            bagSel.onchange = onBagChanged;
             // A finished linked bag is not in the open-bag list — add it so
-            // editing another field doesn't silently drop the link.
+            // editing another field doesn't silently drop the link. When the
+            // bag fetch failed we don't KNOW the bag is finished — label it
+            // neutrally.
             if (r.bagId > 0 && !bags.some(b => b.id === r.bagId)) {
                 const opt = document.createElement('option');
                 opt.value = r.bagId;
-                opt.textContent = ((r.roasterName || '') + ' ' + (r.coffeeName || '')).trim() + ' (finished)';
+                opt.textContent = ((r.roasterName || '') + ' ' + (r.coffeeName || '')).trim()
+                    + (bagsLoaded ? ' (finished)' : ' (current bag)');
                 bagSel.appendChild(opt);
             }
             bagSel.value = String(r.bagId > 0 ? r.bagId : 0);

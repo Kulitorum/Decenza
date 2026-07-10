@@ -3043,9 +3043,12 @@ ApplicationWindow {
     Connections {
         target: MainController.recipeStorage
         function onRecipesRelinked(movedRecipeIds, targetBagId, targetBagName) {
+            // A bag with no roaster/coffee text would leave a dangling
+            // "moved to " — fall back to a generic phrase.
+            var bagName = targetBagName !== "" ? targetBagName : trRecipesRelinkBagFallback.text
             recipesRelinkToastText = movedRecipeIds.length === 1
-                ? trRecipesRelinkOne.text.arg(targetBagName)
-                : trRecipesRelinkMany.text.arg(movedRecipeIds.length).arg(targetBagName)
+                ? trRecipesRelinkOne.text.arg(bagName)
+                : trRecipesRelinkMany.text.arg(movedRecipeIds.length).arg(bagName)
             recipesRelinkToast.opacity = 1
             recipesRelinkToastTimer.restart()
             if (AccessibilityManager.enabled)
@@ -3062,6 +3065,12 @@ ApplicationWindow {
         id: trRecipesRelinkMany
         key: "main.toast.recipeRelinkedMany"
         fallback: "%1 recipes moved to %2"
+        visible: false
+    }
+    Tr {
+        id: trRecipesRelinkBagFallback
+        key: "main.toast.recipeRelinkedBagFallback"
+        fallback: "another bag"
         visible: false
     }
     property string recipesRelinkToastText: ""

@@ -200,7 +200,9 @@ Item {
             presets: root.inventoryRecipes.map(function(r) {
                 return { name: r.name,
                          icon: DrinkType.icon(DrinkType.fromRecipeMap(r)),
-                         dimmed: r.stale === true }
+                         dimmed: r.stale === true,
+                         stateHint: r.stale === true ? TranslationManager.translate(
+                             "recipes.pill.bagFinished", "bag finished") : "" }
             })
             selectedIndex: {
                 var list = root.inventoryRecipes

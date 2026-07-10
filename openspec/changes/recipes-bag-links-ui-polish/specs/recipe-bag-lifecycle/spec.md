@@ -22,7 +22,7 @@ When a bag is marked finished and a newer open bag of the same bean exists (matc
 - **THEN** its recipes keep the finished bag link and show the bag-finished state
 
 ### Requirement: Wake-on-restock relinks stale recipes to the new bag
-When a new bag is added, the system SHALL automatically relink stale recipes (recipes whose linked bag is no longer in inventory) matching the new bag's bean identity, applying the same dup-guard. When multiple stale twins (same profile and drink type) match, they SHALL wake one at a time in most-recently-used order — the first relinks, the rest stay stale. The relink SHALL be silent and announced with a toast.
+When a new bag is added — or an existing bag returns to inventory — the system SHALL automatically relink stale recipes (recipes whose linked bag is no longer in inventory) matching that bag's bean identity, applying the same dup-guard. When multiple stale twins (same profile and drink type) match, they SHALL wake one at a time in most-recently-used order — the first relinks, the rest stay stale. The relink SHALL be silent and announced with a toast.
 
 #### Scenario: Restock wakes a sleeping recipe
 - **WHEN** the user adds a new bag of a bean whose only recipe is stale

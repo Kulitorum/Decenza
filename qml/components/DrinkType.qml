@@ -56,16 +56,19 @@ QtObject {
         if (t !== "")
             return t
         var milk = false, water = false, order = ""
+        // Parse failures are WARNED: the derived type feeds behavior (the
+        // stale card's re-point picker chooses tea vs coffee bags on it),
+        // not just display.
         try {
             if (r && r.steamJson) milk = !!JSON.parse(r.steamJson).hasMilk
-        } catch (e) {}
+        } catch (e) { console.warn("DrinkType: bad steam JSON on recipe", (r && r.name) || "?", e) }
         try {
             if (r && r.hotWaterJson) {
                 var w = JSON.parse(r.hotWaterJson)
                 water = !!w.hasWater
                 order = w.order || ""
             }
-        } catch (e) {}
+        } catch (e) { console.warn("DrinkType: bad hot-water JSON on recipe", (r && r.name) || "?", e) }
         if ((!r || !r.profileTitle || String(r.profileTitle).trim() === "") && water)
             return "tea_hotwater"
         if (milk)

@@ -34,6 +34,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QThread>
+#include <QUuid>
 #include <optional>
 
 namespace {
@@ -162,7 +163,7 @@ QJsonObject recipeToJson(const Recipe& r, Settings* settings, QSqlDatabase* db,
             && (!r.beanBaseId.isEmpty() || !r.roasterName.isEmpty() || !r.coffeeName.isEmpty())) {
             o["bagStale"] = QStringLiteral(
                 "No bag is linked for this bean (the linked bag was deleted, or no open bag "
-                "existed at migration). Adding a bag of this bean relinks the recipe "
+                "existed at migration). Adding a NEW bag of this bean relinks the recipe "
                 "automatically; the recipe still activates.");
         }
     }
@@ -465,9 +466,16 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                     bev = mainController->profileManager()->beverageTypeForTitle(shaped.profileTitle);
                 fields.insert("drinkType", Recipe::deriveDrinkType(shaped, bev));
             }
+            // Correlate on a request token: recipeCreated is a broadcast and
+            // a concurrent create from another surface must not satisfy (or
+            // steal) this listener.
+            const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            fields.insert(QStringLiteral("requestToken"), token);
             auto conn = std::make_shared<QMetaObject::Connection>();
             *conn = QObject::connect(recipeStorage, &RecipeStorage::recipeCreated, qApp,
-                [conn, settings, respond](qint64 recipeId, const QVariantMap& recipe) {
+                [conn, settings, respond, token](qint64 recipeId, const QVariantMap& recipe) {
+                    if (recipe.value(QStringLiteral("requestToken")).toString() != token)
+                        return;  // another surface's create
                     QObject::disconnect(*conn);
                     if (recipeId <= 0) {
                         respond(QJsonObject{{"error", "Could not create the recipe"}});
@@ -623,10 +631,14 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                         hasMilkProvided ? std::optional<bool>(hasMilk) : std::nullopt;
                     QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
                         record, name, hasMilkOverride, fallbackSteam);
+                    const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                    fields.insert(QStringLiteral("requestToken"), token);
 
                     auto conn = std::make_shared<QMetaObject::Connection>();
                     *conn = QObject::connect(recipeStorage, &RecipeStorage::recipeCreated, qApp,
-                        [conn, settings, respond](qint64 recipeId, const QVariantMap& recipe) {
+                        [conn, settings, respond, token](qint64 recipeId, const QVariantMap& recipe) {
+                            if (recipe.value(QStringLiteral("requestToken")).toString() != token)
+                                return;  // another surface's create
                             QObject::disconnect(*conn);
                             if (recipeId <= 0) {
                                 respond(QJsonObject{{"error", "Could not create the recipe"}});
@@ -668,9 +680,12 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 respond(QJsonObject{{"error", "recipeId and a non-empty name are required"}});
                 return;
             }
+            const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
             auto conn = std::make_shared<QMetaObject::Connection>();
             *conn = QObject::connect(recipeStorage, &RecipeStorage::recipeCreated, qApp,
-                [conn, settings, respond](qint64 recipeId, const QVariantMap& recipe) {
+                [conn, settings, respond, token](qint64 recipeId, const QVariantMap& recipe) {
+                    if (recipe.value(QStringLiteral("requestToken")).toString() != token)
+                        return;  // another surface's create
                     QObject::disconnect(*conn);
                     if (recipeId <= 0) {
                         respond(QJsonObject{{"error", "Clone failed (source recipe not found?)"}});
@@ -678,7 +693,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                     }
                     respond(recipeToJson(Recipe::fromVariantMap(recipe), settings, nullptr));
                 });
-            recipeStorage->requestCloneRecipe(sourceId, name);
+            recipeStorage->requestCloneRecipe(sourceId, name, token);
         },
         "settings");
 

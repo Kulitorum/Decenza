@@ -52,6 +52,57 @@ Page {
             MainController.recipeStorage.requestInventory()
             MainController.recipeStorage.requestArchived()
         }
+        // The stale card's re-point is fire-and-forget from the picker — a
+        // failure (bag deleted between snapshot and tap, DB error) must not
+        // look like the tap was ignored.
+        function onRecipeUpdated(recipeId, success) {
+            if (recipeId !== recipesPage._repointPendingId)
+                return
+            recipesPage._repointPendingId = -1
+            if (!success) {
+                repointFailedToast.opacity = 1
+                repointFailedToastTimer.restart()
+                if (AccessibilityManager.enabled)
+                    AccessibilityManager.announce(trRepointFailed.text, true)
+            }
+        }
+    }
+    property int _repointPendingId: -1
+    Tr {
+        id: trRepointFailed
+        key: "recipes.repoint.failed"
+        fallback: "Couldn't move the recipe to that bag"
+        visible: false
+    }
+    Rectangle {
+        id: repointFailedToast
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.bottomBarHeight + Theme.scaled(12)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: repointFailedLabel.implicitWidth + Theme.scaled(32)
+        height: repointFailedLabel.implicitHeight + Theme.scaled(16)
+        radius: Theme.cardRadius
+        color: Theme.surfaceColor
+        border.color: Theme.borderColor
+        border.width: 1
+        opacity: 0
+        visible: opacity > 0
+        z: 600
+        Accessible.ignored: true
+        Behavior on opacity { NumberAnimation { duration: 300 } }
+        Text {
+            id: repointFailedLabel
+            anchors.centerIn: parent
+            text: trRepointFailed.text
+            color: Theme.textColor
+            font.pixelSize: Theme.scaled(13)
+            Accessible.ignored: true
+        }
+    }
+    Timer {
+        id: repointFailedToastTimer
+        interval: 4000
+        onTriggered: repointFailedToast.opacity = 0
     }
 
     Tr { id: trCopyOf; key: "recipes.list.copyOf"; fallback: "Copy of %1"; visible: false }
@@ -131,9 +182,11 @@ Page {
                     Accessible.role: Accessible.Button
                     Accessible.name: ((modelData.roasterName || "") + " " + (modelData.coffeeName || "")).trim()
                     onClicked: {
-                        if (recipesPage._repointRecipe)
+                        if (recipesPage._repointRecipe) {
+                            recipesPage._repointPendingId = recipesPage._repointRecipe.id
                             MainController.recipeStorage.requestRelinkRecipeToBag(
                                 recipesPage._repointRecipe.id, modelData.id)
+                        }
                         repointPicker.close()
                     }
                 }

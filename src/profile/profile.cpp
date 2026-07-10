@@ -9,17 +9,22 @@
 #include <QRegularExpression>
 #include <QDebug>
 
-// Convert a JSON value that may be string or number to double (de1app encodes numbers as strings)
-static double jsonToDouble(const QJsonValue& val, double defaultVal = 0.0) {
+// Convert a JSON value that may be string or number to double (de1app encodes
+// numbers as strings). Public — the ProfileManager catalog scan shares it.
+double profileJsonToDouble(const QJsonValue& val, double defaultVal) {
     if (val.isString()) {
         bool ok;
         double d = val.toString().toDouble(&ok);
         if (!ok) {
-            qWarning() << "jsonToDouble: failed to parse string" << val.toString() << "- using default" << defaultVal;
+            qWarning() << "profileJsonToDouble: failed to parse string" << val.toString() << "- using default" << defaultVal;
         }
         return ok ? d : defaultVal;
     }
     return val.toDouble(defaultVal);
+}
+
+static double jsonToDouble(const QJsonValue& val, double defaultVal = 0.0) {
+    return profileJsonToDouble(val, defaultVal);
 }
 
 // Generate frames for simple pressure profile (settings_2a)

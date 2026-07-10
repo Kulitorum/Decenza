@@ -1,5 +1,6 @@
 #include "core/settings_app.h"
 #include "maincontroller.h"
+#include <QUuid>
 #include "shottimingcontroller.h"
 #include "autoflowcalclassifier.h"
 #include "abortedshotclassifier.h"
@@ -826,6 +827,11 @@ void MainController::setupRecipeConnections() {
         if (bagId > 0)
             m_recipeStorage->requestRelinkForRestockedBag(bagId);
     });
+    // A bag RETURNING to inventory (un-finished via MCP/web update) wakes
+    // stale siblings exactly like a new bag — idempotent + dup-guarded.
+    connect(m_bagStorage, &CoffeeBagStorage::bagRestocked, this, [this](qint64 bagId) {
+        m_recipeStorage->requestRelinkForRestockedBag(bagId);
+    });
     // When an automatic relink moved the ACTIVE recipe, refresh its cache so
     // grind routing and the deactivate watchers see the new bag link.
     connect(m_recipeStorage, &RecipeStorage::recipesRelinked, this,
@@ -1040,19 +1046,17 @@ void MainController::acceptRecipesFirstUpgrade(const QString& name, bool hasMilk
         return;
     }
 
-    const qint64 expectedShotId = m_recipesUpgradeShotRecord.summary.id;
-    const QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
+    QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
         m_recipesUpgradeShotRecord, name, std::optional<bool>(hasMilk), currentSteamSpecJson());
+    // Correlation token: recipeCreated is a broadcast — a concurrent MCP/web
+    // create (or its failure) must not be mistaken for the starter recipe.
+    const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    fields.insert(QStringLiteral("requestToken"), token);
 
     auto conn = std::make_shared<QMetaObject::Connection>();
     *conn = connect(m_recipeStorage, &RecipeStorage::recipeCreated, this,
-        [this, conn, name, expectedShotId](qint64 recipeId, const QVariantMap& recipe) {
-            // recipeCreated is a global signal — a concurrent MCP/web
-            // recipe_create firing while this one-shot listener is armed
-            // must not be mistaken for the upgrade's own starter recipe.
-            // A failure (recipeId <= 0) carries no id to correlate against,
-            // so it's still treated as terminal for this request.
-            if (recipeId > 0 && recipe.value("createdFromShotId").toLongLong() != expectedShotId)
+        [this, conn, name, token](qint64 recipeId, const QVariantMap& recipe) {
+            if (recipe.value(QStringLiteral("requestToken")).toString() != token)
                 return;
             QObject::disconnect(*conn);
             if (recipeId > 0) {

@@ -30,6 +30,19 @@ class tst_RecipePromotion : public QObject {
     Q_OBJECT
 
 private slots:
+
+    // The shot's bag becomes the recipe's hard bag link (recipes link a
+    // specific bag); a pre-bag shot (bagId <= 0) stores no link — the bean
+    // identity fields still carry as the relink matching key.
+    void carriesShotBagId() {
+        ShotRecord record = sampleShotRecord();
+        record.bagId = 5;
+        QCOMPARE(RecipePromotion::fieldsFromShotRecord(record, "R", std::nullopt, QString())
+                     .value("bagId").toLongLong(), (qint64)5);
+        record.bagId = -1;  // pre-bag shot
+        QCOMPARE(RecipePromotion::fieldsFromShotRecord(record, "R", std::nullopt, QString())
+                     .value("bagId").toLongLong(), (qint64)0);
+    }
     // No hasMilk override: the shot's own steam snapshot carries through
     // verbatim (the MCP tool's default behavior).
     void fieldsCarryShotDataVerbatimWithoutOverride() {

@@ -1476,8 +1476,11 @@ bool ShotHistoryStorage::runMigrations()
             qWarning() << "ShotHistoryStorage: migration 29 add recipes.bag_id failed -"
                        << query.lastError().text();
 
-        if (hasColumn("recipes", "bag_id")) {
-            RecipeStorage::migrateBagLinksStatic(m_db);
+        // The version bump gates on the DATA pass too: the pass is
+        // idempotent (NULL bag_id rows only), so a transient failure —
+        // locked DB at upgrade time — simply retries next launch instead
+        // of permanently stranding every recipe stale.
+        if (hasColumn("recipes", "bag_id") && RecipeStorage::migrateBagLinksStatic(m_db)) {
             query.exec ("DELETE FROM schema_version");
             query.exec ("INSERT INTO schema_version (version) VALUES (29)");
             currentVersion = 29;

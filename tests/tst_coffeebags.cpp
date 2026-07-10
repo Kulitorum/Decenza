@@ -782,6 +782,53 @@ private slots:
         });
     }
 
+    // Inventory lifecycle signals (recipe-bag-lifecycle triggers): any
+    // update carrying inInventory=false emits bagFinished (roll-on-finish
+    // hook); inInventory=true emits bagRestocked (wake-on-restock hook);
+    // updates not touching inventory — and failed updates — emit neither.
+    void inventoryLifecycleSignals() {
+        const QString path = freshDb();
+        qint64 bagId = 0;
+        withRawDb(path, "lifecycle_setup", [&](QSqlDatabase& db) {
+            CoffeeBag bag; bag.roasterName = "R"; bag.coffeeName = "C";
+            bagId = CoffeeBagStorage::insertBagStatic(db, bag);
+        });
+        QVERIFY(bagId > 0);
+
+        CoffeeBagStorage storage;
+        storage.initialize(path);
+        QSignalSpy finished(&storage, &CoffeeBagStorage::bagFinished);
+        QSignalSpy restocked(&storage, &CoffeeBagStorage::bagRestocked);
+        QSignalSpy updated(&storage, &CoffeeBagStorage::bagUpdated);
+
+        // Mark empty (the card's Bag Finished button) → bagFinished.
+        storage.requestMarkEmpty(bagId);
+        QTRY_COMPARE(updated.count(), 1);
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished.at(0).at(0).toLongLong(), bagId);
+        QCOMPARE(restocked.count(), 0);
+
+        // Return to inventory (MCP/web-style update) → bagRestocked.
+        storage.requestUpdateBag(bagId, {{"inInventory", true}});
+        QTRY_COMPARE(updated.count(), 2);
+        QCOMPARE(restocked.count(), 1);
+        QCOMPARE(restocked.at(0).at(0).toLongLong(), bagId);
+        QCOMPARE(finished.count(), 1);
+
+        // An update that doesn't touch inventory → neither.
+        storage.requestUpdateBag(bagId, {{"notes", "tasty"}});
+        QTRY_COMPARE(updated.count(), 3);
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(restocked.count(), 1);
+
+        // A FAILED update (missing row) → neither.
+        storage.requestUpdateBag(999999, {{"inInventory", false}});
+        QTRY_COMPARE(updated.count(), 4);
+        QCOMPARE(updated.at(3).at(1).toBool(), false);
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(restocked.count(), 1);
+    }
+
     void migration24AddsSyncPendingColumn() {
         // Fresh DB: the column exists (CREATE TABLE path) with default 0.
         const QString path = freshDb();

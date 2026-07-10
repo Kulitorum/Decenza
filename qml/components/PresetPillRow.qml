@@ -72,7 +72,9 @@ FocusScope {
             var name = pillLayoutName(focusedIndex)
             var modifiedText = (root.modified && focusedIndex === selectedIndex) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
             var status = focusedIndex === selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
-            AccessibilityManager.announce(name + modifiedText + status)
+            var hint = (presets[focusedIndex] && presets[focusedIndex].stateHint)
+                ? ", " + presets[focusedIndex].stateHint : ""
+            AccessibilityManager.announce(name + modifiedText + status + hint)
         }
     }
 
@@ -262,8 +264,11 @@ FocusScope {
                         property bool isDisabled: modelData && modelData.preset && modelData.preset.disabled === true
                         // A preset may mark itself dimmed (e.g. a stale recipe whose
                         // linked bag is finished): rendered faded but fully tappable —
-                        // an indication, never a lock (recipe-bag-lifecycle).
+                        // an indication, never a lock (recipe-bag-lifecycle). An
+                        // optional `stateHint` string carries the reason to screen
+                        // readers (the dimming alone is invisible to them).
                         property bool isDimmed: modelData && modelData.preset && modelData.preset.dimmed === true
+                        property string stateHint: (modelData && modelData.preset && modelData.preset.stateHint) || ""
 
                         width: pillText.implicitWidth + root.pillPadding
                         height: Theme.scaled(50)
@@ -346,7 +351,8 @@ FocusScope {
                                 var name = pillDisplayName(modelData.index)
                                 var modifiedText = (root.modified && modelData.index === root.selectedIndex) ? ", " + TranslationManager.translate("presets.unsaved", "unsaved changes") : ""
                                 var status = modelData.index === root.selectedIndex ? ", " + TranslationManager.translate("presets.selected", "selected") : ""
-                                return name + modifiedText + status
+                                var hint = pill.stateHint !== "" ? ", " + pill.stateHint : ""
+                                return name + modifiedText + status + hint
                             }
                             accessibleItem: pill
 

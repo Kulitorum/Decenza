@@ -207,8 +207,10 @@ public:
     Q_INVOKABLE void requestUpdateRecipe(qint64 recipeId, const QVariantMap& fields); // recipeUpdated()
     // Clone: copies every field except id, provenance (clonedFromRecipeId =
     // source id, createdFromShotId cleared) and lastUsed; the copy is named
-    // by the caller. Emits recipeCreated() with the new row.
-    Q_INVOKABLE void requestCloneRecipe(qint64 sourceId, const QString& newName);
+    // by the caller. Emits recipeCreated() with the new row. requestToken
+    // (optional) is echoed in the emitted map — see recipeCreated.
+    Q_INVOKABLE void requestCloneRecipe(qint64 sourceId, const QString& newName,
+                                        const QString& requestToken = QString());
     Q_INVOKABLE void requestArchiveRecipe(qint64 recipeId);                 // recipeUpdated()
     Q_INVOKABLE void requestUnarchiveRecipe(qint64 recipeId);               // recipeUpdated()
     Q_INVOKABLE void requestTouchLastUsed(qint64 recipeId);                 // bump MRU (no signal)
@@ -239,8 +241,11 @@ public:
     // bean identity but no bag link yet, using resolveOpenBagStatic (the old
     // activation resolver's logic, run once). Recipes whose bean has no open
     // bag keep bag_id NULL and present as stale. Idempotent (only touches
-    // NULL bag_id rows).
-    static void migrateBagLinksStatic(QSqlDatabase& db);
+    // NULL bag_id rows). Returns false when the pass could not run to
+    // completion (query/update failure) — the caller must NOT bump the
+    // schema version then, so the idempotent pass retries next launch
+    // instead of silently stranding every recipe stale forever.
+    static bool migrateBagLinksStatic(QSqlDatabase& db);
 
     // Roll-on-finish (synchronous core): relink the finished bag's
     // non-archived recipes to the newest open bag of the same bean identity,
@@ -286,7 +291,12 @@ signals:
     // recipe empty when the id was not found (activation must fail cleanly).
     void recipeActivationReady(qint64 recipeId, const QVariantMap& recipe,
                                qint64 linkedBagId, const QVariantMap& linkedBag);
-    void recipeCreated(qint64 recipeId, const QVariantMap& recipe); // recipeId -1 on failure
+    // recipeId -1 on failure. recipeCreated is a BROADCAST — creates arrive
+    // from four surfaces concurrently, so one-shot listeners MUST correlate:
+    // pass a unique "requestToken" in the create map (or clone arg) and
+    // filter on recipe["requestToken"]; the token is echoed on failure too
+    // (transient — never stored on the row).
+    void recipeCreated(qint64 recipeId, const QVariantMap& recipe);
     void recipeUpdated(qint64 recipeId, bool success);
     void recipeDeleted(qint64 recipeId, bool success);
     // An automatic relink moved `movedRecipeIds` onto bag `targetBagId`

@@ -1373,8 +1373,11 @@ void ProfileManager::refreshProfiles() {
 
         bool hasKb = !ShotSummarizer::computeProfileKbId(title, editorType).isEmpty();
         bool readOnly = (obj["read_only"].toInt(0) == 1);
+        // Tolerant parse: Visualizer-format profile JSON stores these as
+        // STRINGS — a raw toDouble() would cache 0 ("unstated") for them.
         return {title, obj["beverage_type"].toString(), hasKb, editorType, readOnly,
-                obj["espresso_temperature"].toDouble(), obj["target_weight"].toDouble()};
+                profileJsonToDouble(obj["espresso_temperature"]),
+                profileJsonToDouble(obj["target_weight"])};
     };
 
     // Helper to load profile metadata from file path
@@ -1443,8 +1446,8 @@ void ProfileManager::refreshProfiles() {
             info.title = title.isEmpty() ? name : title;
             info.beverageType = beverageType;
             info.editorType = editorType;
-        info.espressoTemperature = espressoTemperature;
-        info.targetWeight = targetWeight;
+            info.espressoTemperature = espressoTemperature;
+            info.targetWeight = targetWeight;
             info.source = ProfileSource::UserCreated;
     
             info.hasKnowledgeBase = hasKnowledgeBase;
