@@ -143,7 +143,6 @@ Item {
     // Ensure there's always a way to reach Settings from the home screen.
     // Delegates to the shared C++ implementation (SettingsNetwork::ensureSettingsAccessible)
     // so the in-app editor and the web layout editor scan/repair identically.
-    // Keep in sync with src/core/settings_network.cpp::ensureSettingsAccessible().
     function ensureSettingsAccessible() {
         Settings.network.ensureSettingsAccessible()
     }

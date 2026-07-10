@@ -131,9 +131,9 @@ public:
     // or a "custom" item whose action is "navigate:settings"); if none is found
     // across the standard zones, adds a settings widget to bottomRight. Shared
     // by the in-app layout editor and the web layout editor so both mutation
-    // paths keep Settings reachable from the home screen. Port of the QML
-    // SettingsLayoutTab.ensureSettingsAccessible() scan (see keep-in-sync note
-    // there).
+    // paths keep Settings reachable from the home screen. The scan used to
+    // live in QML (SettingsLayoutTab.ensureSettingsAccessible); that function
+    // now just delegates here so there is a single implementation.
     Q_INVOKABLE void ensureSettingsAccessible();
     // Both setters return false when the write was refused (unstorable value)
     // or no item with itemId exists (e.g. deleted from another device while an

@@ -51,8 +51,10 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
     // GET /api/layout — return current layout configuration, with a per-item
     // "configured" flag (task 4.2 / D5) computed at GET time — not stored —
     // from SettingsNetwork::itemIsConfigured(), so the web remove-confirm
-    // gate (confirmRemoveItem() in generateLayoutPage()) can prompt only for
-    // widgets carrying non-default settings.
+    // gate (confirmRemoveItem() in generateLayoutPage()) can prompt for
+    // widgets whose type has any options at all (or which carry a stored
+    // property beyond the bare type/id) — not just ones actually changed
+    // from their defaults; see itemIsConfigured()'s own doc comment.
     if (method == "GET" && (path == "/api/layout" || path == "/api/layout/")) {
         QString json = m_settings->network()->layoutConfiguration();
         QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
@@ -2966,7 +2968,6 @@ QString ShotServer::generateLayoutPage() const
     function renderPreview() {
         var box = document.getElementById("layoutPreview");
         if (!box) return;
-        var statusItems = (layoutData && layoutData.zones && layoutData.zones.statusBar) || [];
         var centerStatusItems = (layoutData && layoutData.zones && layoutData.zones.centerStatus) || [];
         var centerMiddleItems = (layoutData && layoutData.zones && layoutData.zones.centerMiddle) || [];
         var lowerMidItems = (layoutData && layoutData.zones && layoutData.zones.lowerMidBar) || [];
@@ -3120,9 +3121,10 @@ QString ShotServer::generateLayoutPage() const
         });
     }
 
-    // Remove confirmation (D5): configured widgets (has non-default settings,
-    // per SettingsNetwork::itemIsConfigured — see the "configured" field added
-    // to GET /api/layout) prompt first; bare widgets remove directly.
+    // Remove confirmation (D5): configured widgets (type has any options, or
+    // carries a stored property beyond the bare type/id — see
+    // SettingsNetwork::itemIsConfigured and the "configured" field added to
+    // GET /api/layout) prompt first; bare widgets remove directly.
     function confirmRemoveItem(itemId, zone, configured) {
         if (configured && !confirm("Remove this widget and its settings?")) return;
         removeItem(itemId, zone);
@@ -3177,7 +3179,9 @@ QString ShotServer::generateLayoutPage() const
     // new option key shows up here without a separate web-side type list.
     // Sleep's allowQuit/showIcon pair is special-cased the same way the QML
     // side special-cases type === "sleep" in openCustomEditor (sleep is a
-    // bespoke-editor type with no capability-schema entries).
+    // bespoke-editor type with no capability-schema entries). Its labels/
+    // hints mirror qml/components/layout/SleepEditorPopup.qml, not
+    // ReadoutOptionsPopup.qml — keep this block in sync with that file.
     var roEditingItem = null;   // {id, zone}
     var roEditingType = "";
     var roEditingProps = {};
@@ -3225,8 +3229,8 @@ QString ShotServer::generateLayoutPage() const
         if (type === "sleep") {
             var aq = (props.allowQuit === undefined) ? true : props.allowQuit;
             var si = (props.showIcon === undefined) ? true : props.showIcon;
-            return roCheckboxRow("allowQuit", "Quit on long-press", "", aq)
-                 + roCheckboxRow("showIcon", "Show icon", "", si);
+            return roCheckboxRow("allowQuit", "Long-press to quit", "Off = sleep on tap only, no hidden exit", aq)
+                 + roCheckboxRow("showIcon", "Show icon", "Off = label only", si);
         }
         var keys = typeOptionKeys(type);
         var html = "";
