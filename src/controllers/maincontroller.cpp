@@ -764,7 +764,7 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
 // ---------------------------------------------------------------------------
 // Recipes (add-recipes)
 //
-// A recipe is the whole drink: profile + bean link + equipment + dose/yield/
+// A recipe is the whole drink: profile + linked bag + equipment + dose/yield/
 // temp + grind routing + steam block. This is the SINGLE activation path —
 // QML pill taps, MCP recipe_activate, and the web /activate route all land
 // here, so activation semantics cannot drift between surfaces.
@@ -1068,7 +1068,7 @@ void MainController::acceptRecipesFirstUpgrade(const QString& name, bool hasMilk
 }
 
 void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& recipe,
-                                          qint64 openBagId, const QVariantMap& openBag) {
+                                          qint64 linkedBagId, const QVariantMap& linkedBag) {
     if (recipe.isEmpty()) {
         qWarning() << "applyActivatedRecipe: recipe" << recipeId << "not found";
         emit recipeActivated(recipeId, false);
@@ -1125,22 +1125,22 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         // Bag: select keep-fields (deterministic — no async applyActiveBag
         // racing our values below), then apply the bag's OWN bean fields from
         // the bundle's snapshot. Write-throughs write the bag's values back
-        // into it: no-ops. A bean-less recipe (openBagId <= 0) leaves the
+        // into it: no-ops. A bean-less recipe (linkedBagId <= 0) leaves the
         // current bag untouched — the ladder says it doesn't own that choice.
-        if (openBagId > 0) {
-            dye->setActiveBagKeepFields(static_cast<int>(openBagId));
-            dye->setDyeBeanBrand(openBag.value("roasterName").toString());
-            dye->setDyeBeanType(openBag.value("coffeeName").toString());
-            dye->setDyeRoastDate(openBag.value("roastDate").toString());
-            dye->setDyeRoastLevel(openBag.value("roastLevel").toString());
-            dye->setDyeBeanBaseData(openBag.value("beanBaseData").toString());
-            dye->setDyeBeanBaseId(openBag.value("beanBaseId").toString());
+        if (linkedBagId > 0) {
+            dye->setActiveBagKeepFields(static_cast<int>(linkedBagId));
+            dye->setDyeBeanBrand(linkedBag.value("roasterName").toString());
+            dye->setDyeBeanType(linkedBag.value("coffeeName").toString());
+            dye->setDyeRoastDate(linkedBag.value("roastDate").toString());
+            dye->setDyeRoastLevel(linkedBag.value("roastLevel").toString());
+            dye->setDyeBeanBaseData(linkedBag.value("beanBaseData").toString());
+            dye->setDyeBeanBaseId(linkedBag.value("beanBaseId").toString());
         }
 
         // Equipment: the recipe's own package, else the bag's.
         const qint64 equipmentId = recipe.value("equipmentId").toLongLong() > 0
             ? recipe.value("equipmentId").toLongLong()
-            : openBag.value("equipmentId").toLongLong();
+            : linkedBag.value("equipmentId").toLongLong();
         if (equipmentId > 0)
             dye->setActiveEquipmentId(equipmentId);
 
@@ -1155,11 +1155,11 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
             dye->setDyeGrinderSetting(pin);
             if (rpmPin > 0)
                 dye->setDyeGrinderRpm(static_cast<int>(rpmPin));
-        } else if (openBagId > 0) {
-            dye->setDyeGrinderSetting(openBag.value("grinderSetting").toString());
+        } else if (linkedBagId > 0) {
+            dye->setDyeGrinderSetting(linkedBag.value("grinderSetting").toString());
         }
-        if (pin.isEmpty() && openBagId > 0 && openBag.value("rpm").toLongLong() > 0)
-            dye->setDyeGrinderRpm(static_cast<int>(openBag.value("rpm").toLongLong()));
+        if (pin.isEmpty() && linkedBagId > 0 && linkedBag.value("rpm").toLongLong() > 0)
+            dye->setDyeGrinderRpm(static_cast<int>(linkedBag.value("rpm").toLongLong()));
 
         // Dose — queued so it wins over loadProfile's own deferred
         // setDyeBeanWeight(recommendedDose) (same trick as shot load).
@@ -1229,7 +1229,7 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         // reads activeRecipeHasMilk() from this cache. Safe — the watchers
         // are still behind the m_applyingRecipe guard.
         m_activeRecipe = recipe;
-        m_activeRecipe.insert(QStringLiteral("resolvedBagId"), openBagId);
+        m_activeRecipe.insert(QStringLiteral("resolvedBagId"), linkedBagId);
 
         // Heater intent derives from hasMilk — no new setting. The steam
         // heater takes 5-9 MINUTES to warm, so a milk recipe HOLDS the
@@ -1311,7 +1311,7 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         dye->setActiveRecipeId(static_cast<int>(recipeId));
     } else {
         m_activeRecipe = recipe;
-        m_activeRecipe.insert(QStringLiteral("resolvedBagId"), openBagId);
+        m_activeRecipe.insert(QStringLiteral("resolvedBagId"), linkedBagId);
     }
 
     emit activeRecipeChanged();

@@ -1,5 +1,5 @@
 // MCP tools for recipes (add-recipes): full CRUD + activation over the
-// whole-drink recipe objects (profile + bean link + equipment + dose/yield/
+// whole-drink recipe objects (profile + linked bag + equipment + dose/yield/
 // temp + grind routing + steam block).
 //
 // Conventions (docs/CLAUDE_MD/MCP_SERVER.md): unit-suffixed field names

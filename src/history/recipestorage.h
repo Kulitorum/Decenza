@@ -285,7 +285,7 @@ signals:
     void recipeReady(qint64 recipeId, const QVariantMap& recipe); // map empty if not found
     // recipe empty when the id was not found (activation must fail cleanly).
     void recipeActivationReady(qint64 recipeId, const QVariantMap& recipe,
-                               qint64 openBagId, const QVariantMap& openBag);
+                               qint64 linkedBagId, const QVariantMap& linkedBag);
     void recipeCreated(qint64 recipeId, const QVariantMap& recipe); // recipeId -1 on failure
     void recipeUpdated(qint64 recipeId, bool success);
     void recipeDeleted(qint64 recipeId, bool success);

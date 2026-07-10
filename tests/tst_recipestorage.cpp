@@ -676,7 +676,7 @@ private slots:
     // the terminus of every activation caller (idle pill, RecipesPage, MCP,
     // web). Its three documented contracts — happy path, missing recipe emits
     // an EMPTY map (activation must fail cleanly, NOT hang), and bean-less /
-    // no-open-bag emits openBagId == -1 — are each load-bearing.
+    // no-linked-bag emits linkedBagId == -1 — are each load-bearing.
     // drink_type follows the blocks on updates that change them without
     // setting it (MCP/web edits, steam stamps) — and a stored profile-derived
     // type (tea/filter) survives a block stamp when the profile didn't change.

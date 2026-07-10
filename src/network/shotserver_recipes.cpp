@@ -1,5 +1,5 @@
 // ShotServer recipes surface (add-recipes): REST API + /recipes management
-// page. A recipe is the whole drink (profile + bean link + equipment +
+// page. A recipe is the whole drink (profile + linked bag + equipment +
 // dose/yield/temp + grind routing + steam block).
 //
 // Routing conventions follow the other domains: reads run storage statics on

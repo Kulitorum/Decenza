@@ -34,9 +34,9 @@ Page {
         addRecipeButton.forceActiveFocus()
     }
 
-    // Open-bag inventory, used by the cards to resolve each recipe's bean to
-    // its bag — the bean photo of a non-canonical bag is cached under the
-    // BAG's image key ("bag-<id>"), not a Bean Base id.
+    // Open-bag inventory: feeds the stale card's re-point picker and the
+    // cards' product-link lookup for the photo cache (a non-canonical bag's
+    // photo is cached under the BAG's image key "bag-<id>").
     property var _bags: []
     Connections {
         target: MainController.bagStorage
