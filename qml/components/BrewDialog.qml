@@ -8,10 +8,7 @@ Dialog {
     id: root
     parent: Overlay.overlay
     anchors.centerIn: parent
-    // No down-scaling: render at standard, unscaled sizes so the fields match
-    // the app's 36px field standard (they were rendering at 36 x 0.75 = 27px).
-    property real dialogScale: 1.0
-    width: Theme.scaled(520) * dialogScale
+    width: Theme.scaled(520)
     modal: true
     closePolicy: Dialog.CloseOnEscape
     padding: 0
@@ -185,9 +182,9 @@ Dialog {
 
     contentItem: KeyboardAwareContainer {
         id: keyboardContainer
-        implicitHeight: Math.min(mainColumn.implicitHeight * root.dialogScale,
-                                 root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight * root.dialogScale)
-        implicitWidth: Theme.scaled(520) * root.dialogScale
+        implicitHeight: Math.min(mainColumn.implicitHeight,
+                                 root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight)
+        implicitWidth: Theme.scaled(520)
         inOverlay: true
         textFields: [
             profileInput.textField,
@@ -198,7 +195,7 @@ Dialog {
         Flickable {
             id: brewFlickable
             anchors.fill: parent
-            contentHeight: mainColumn.implicitHeight * root.dialogScale
+            contentHeight: mainColumn.implicitHeight
                            + keyboardContainer.estimatedKeyboardHeight
             contentWidth: parent.width
             clip: true
@@ -208,8 +205,6 @@ Dialog {
         ColumnLayout {
             id: mainColumn
             width: Theme.scaled(520)
-            scale: root.dialogScale
-            transformOrigin: Item.TopLeft
             spacing: 0
 
         // Header
