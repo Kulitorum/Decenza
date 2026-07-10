@@ -108,6 +108,79 @@ Page {
                 postShotReviewPage.resolvedRecipe = recipe
         }
     }
+
+    // --- Read-only recipe-component row text (from the page's live edit state) ---
+    function recipeProfileText() {
+        var parts = []
+        if (editShotData.profileName) parts.push(editShotData.profileName)
+        var t = editShotData.temperatureOverrideC || 0
+        if (t > 0) parts.push(Math.round(Theme.cToDisplay(t)) + Theme.tempUnitSuffix())
+        return parts.join(" · ")
+    }
+    function recipeDoseYieldText() {
+        var dose = editDoseWeight || 0
+        var yieldG = editDrinkWeight || 0
+        if (dose > 0 && yieldG > 0) return dose.toFixed(1) + "g → " + yieldG.toFixed(1) + "g"
+        if (dose > 0) return dose.toFixed(1) + "g"
+        return ""
+    }
+    function recipeSteamText() {
+        if (!editShotData.steamJson) return ""
+        try {
+            var s = JSON.parse(editShotData.steamJson)
+            if (!s.hasMilk) return ""
+            var parts = []
+            if (s.pitcherName) parts.push(s.pitcherName)
+            if ((s.milkWeightG || 0) > 0)
+                parts.push(TranslationManager.translate("recipes.list.milkWeight", "%1g milk").arg(s.milkWeightG))
+            return parts.join(" · ")
+        } catch (e) { return "" }
+    }
+    function recipeWaterText() {
+        if (!editShotData.hotWaterJson) return ""
+        try {
+            var w = JSON.parse(editShotData.hotWaterJson)
+            if (!w.hasWater) return ""
+            var parts = []
+            if (w.vesselName) parts.push(w.vesselName)
+            if ((w.volume || 0) > 0) parts.push(w.volume + (w.mode === "volume" ? "ml" : "g"))
+            if ((w.temperatureC || 0) > 0) parts.push(Math.round(Theme.cToDisplay(w.temperatureC)) + Theme.tempUnitSuffix())
+            return parts.join(" · ")
+        } catch (e) { return "" }
+    }
+
+    // One labeled read-only component row inside the recipe card (caption over
+    // value); hides when empty.
+    component RecipeField: ColumnLayout {
+        id: rf
+        property string fieldLabel: ""
+        property string value: ""
+        Layout.fillWidth: true
+        spacing: 0
+        visible: rf.value !== ""
+        Text {
+            text: rf.fieldLabel
+            font: Theme.captionFont
+            color: Theme.textSecondaryColor
+            Accessible.ignored: true
+        }
+        Text {
+            Layout.fillWidth: true
+            text: rf.value
+            font: Theme.bodyFont
+            color: Theme.textColor
+            wrapMode: Text.WordWrap
+            Accessible.ignored: true
+        }
+    }
+
+    Tr { id: trRowProfile; key: "recipes.wizard.rowProfile"; fallback: "Profile"; visible: false }
+    Tr { id: trRowBeans; key: "shotdetail.beaninfo"; fallback: "Beans"; visible: false }
+    Tr { id: trRowDialIn; key: "shotdetail.recipe.dialIn"; fallback: "Dial-in"; visible: false }
+    Tr { id: trRowSteam; key: "recipes.wizard.rowSteam"; fallback: "Steam / milk"; visible: false }
+    Tr { id: trRowWater; key: "recipes.wizard.rowHotWater"; fallback: "Hot water"; visible: false }
+    Tr { id: trRowEquipment; key: "shotdetail.equipment"; fallback: "Equipment"; visible: false }
+
     property bool autoClose: true  // false when user opens manually (no auto-dismiss)
     property bool advancedMode: Settings.boolValue("shotReview/advancedMode", false)
     property string uploadError: ""
@@ -863,6 +936,7 @@ Page {
         targetFlickable: flickable
         textFields: [
             settingField.textField, rpmField.textField, baristaField.textField,
+            recipeSettingField.textField, recipeRpmField.textField,
             notesExpandable.textField
         ]
 
@@ -1538,12 +1612,14 @@ Page {
                 }
             }
 
-            // Read-only bean summary for THIS shot's snapshot + Change Beans.
-            // Picking a bag rewrites the shot's snapshot (and, for the most
-            // recent shot, sets the active bag too — the "wrong bag" fix path).
+            // Standalone bean summary (+ Change Beans) — shown ONLY when the
+            // shot used no recipe. With a recipe these fold into the recipe card
+            // above, so it reads as one cohesive recipe. Bean dialog + equipment
+            // picker live at page scope (shared with the recipe card).
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)
+                visible: (editShotData.recipeId || -1) <= 0
 
                 BeanSummary {
                     id: reviewBeanSummary
@@ -1566,68 +1642,11 @@ Page {
                     accessibleName: TranslationManager.translate("beans.button.accessible.change", "Change the selected beans")
                     onClicked: reviewChangeBeansDialog.open()
                 }
-
-                ChangeBeansDialog {
-                    id: reviewChangeBeansDialog
-                    // Only the most recent shot is the "post-shot" fix path
-                    // (sets activeBagId too); older shots opened through this
-                    // page are historical — retag the shot only.
-                    context: editShotId === MainController.lastSavedShotId ? "postShot" : "historicalShot"
-                    shotId: postShotReviewPage.editShotId
-                    onBagSelected: function(bagId, bag) {
-                        // The dialog already wrote the snapshot to the DB —
-                        // mirror it into the edit fields and advance the
-                        // autosave baseline so a later autosave doesn't
-                        // clobber the new bag with stale values.
-                        editBeanBrand = bag.roasterName || ""
-                        editBeanType = bag.coffeeName || ""
-                        editRoastDate = bag.roastDate || ""
-                        editRoastLevel = bag.roastLevel || ""
-                        editBeanBaseJson = bag.beanBaseData || ""
-                        var nb = clonePersistedShot(editShotData)
-                        nb.beanBrand = editBeanBrand
-                        nb.beanType = editBeanType
-                        nb.roastDate = editRoastDate
-                        nb.roastLevel = editRoastLevel
-                        nb.beanBaseJson = editBeanBaseJson
-                        editShotData = nb
-                        _committedState = captureEditState()
-                        pendingVisualizerUpdate = true
-                    }
-                }
-
-                // Re-point this shot's grinder to a different/new package. The
-                // picker doesn't touch the active bag (applyToActiveBag:false);
-                // we resolve the chosen package and persist equipmentId here.
-                SwitchEquipmentDialog {
-                    id: shotEquipmentDialog
-                    applyToActiveBag: false
-                    onPackageSaved: function(packageId) {
-                        postShotReviewPage._pendingEquipmentId = packageId
-                        MainController.equipmentStorage.requestPackage(packageId)
-                    }
-                }
-                Connections {
-                    target: MainController.equipmentStorage
-                    function onPackageReady(packageId, pkg) {
-                        if (packageId !== postShotReviewPage._pendingEquipmentId) return
-                        postShotReviewPage._pendingEquipmentId = -1
-                        postShotReviewPage.editEquipmentId = packageId
-                        postShotReviewPage.editGrinderBrand = pkg.grinderBrand || ""
-                        postShotReviewPage.editGrinderModel = pkg.grinderModel || ""
-                        postShotReviewPage.editGrinderBurrs = pkg.grinderBurrs || ""
-                        postShotReviewPage.editBasketBrand = pkg.basketBrand || ""
-                        postShotReviewPage.editBasketModel = pkg.basketModel || ""
-                        postShotReviewPage.editPuckPrep = pkg.puckPrepCanonical || ""
-                        postShotReviewPage.editEquipmentName =
-                            (pkg.name && String(pkg.name).length > 0) ? String(pkg.name) : ""
-                        postShotReviewPage.autosave("equipment", true)
-                    }
-                }
             }
 
             BeanBaseDetailsRow {
                 Layout.fillWidth: true
+                visible: (editShotData.recipeId || -1) <= 0
                 beanBaseJson: postShotReviewPage.editBeanBaseJson
             }
 
@@ -1668,8 +1687,11 @@ Page {
                 // (Equipment identity card moved to the END of this grid — per-shot
                 // dial-in and shot metadata first, hardware context last.)
 
+                // Grind + RPM live here only for no-recipe shots; with a recipe
+                // they move into the recipe card's Dial-in row.
                 SuggestionField {
                     id: settingField
+                    visible: (editShotData.recipeId || -1) <= 0
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.grindSetting", "Grind setting")
                     text: editGrinderSetting
@@ -1685,7 +1707,7 @@ Page {
                 // RPM dial-in — only when the shot's grinder is rpm-adjustable.
                 SuggestionField {
                     id: rpmField
-                    visible: postShotReviewPage.editRpmCapable
+                    visible: postShotReviewPage.editRpmCapable && (editShotData.recipeId || -1) <= 0
                     Layout.fillWidth: true
                     label: TranslationManager.translate("postshotreview.label.rpm", "RPM")
                     text: editRpm > 0 ? String(editRpm) : ""
@@ -1806,12 +1828,14 @@ Page {
                     }
                 }
 
-                // Recipe card — shown only when this shot was pulled with a
-                // recipe (recipeId > 0). Identity (name, drink type, profile) is
-                // live-resolved by id and follows renames; the grind/rpm it shows
-                // is this page's live edit state (the source of truth here),
-                // never the recipe's since-edited pin. Compact read-only block
-                // (design D5) — mirrors ShotDetailPage's recipe card.
+                // Recipe card (recipeId > 0): the recipe AND its editable
+                // components in one cohesive card, modelled on the recipe
+                // editor's summary. Beans, dial-in (grind/RPM) and equipment are
+                // edited right here (the edit controls the user asked to keep in
+                // the card); profile/steam/water are read-only. Every value is
+                // this page's live edit state. When a recipe is used this
+                // replaces the standalone bean/grind/equipment controls (which
+                // gate to the no-recipe case).
                 Rectangle {
                     id: recipeCard
                     Layout.columnSpan: 3
@@ -1824,28 +1848,15 @@ Page {
                     visible: (editShotData.recipeId || -1) > 0
 
                     readonly property string recipeName: postShotReviewPage.resolvedRecipe.name || ""
-                    readonly property string recipeProfile: postShotReviewPage.resolvedRecipe.profileTitle || ""
                     readonly property string recipeDrinkLabel:
                         DrinkType.shortLabel(DrinkType.fromRecipeMap(postShotReviewPage.resolvedRecipe))
-                    // Grind/rpm from this page's LIVE edit state (grind's home when
-                    // a recipe was used), never the recipe's current pin.
-                    readonly property string recipeGrindLine: {
-                        var _ = TranslationManager.translationVersion
-                        var parts = []
-                        if (editGrinderSetting.length > 0)
-                            parts.push(TranslationManager.translate("equipment.card.lastGrind", "Grind %1").arg(editGrinderSetting))
-                        if (editRpm > 0 && editRpmCapable)
-                            parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(editRpm))
-                        return parts.join(" · ")
-                    }
 
                     Accessible.role: Accessible.Grouping
                     Accessible.name: {
                         var parts = [TranslationManager.translate("shotdetail.recipe", "Recipe")]
                         if (recipeName !== "") parts.push(recipeName)
-                        var drinkBits = [recipeDrinkLabel, recipeProfile].filter(function(s) { return s !== "" })
-                        if (drinkBits.length > 0) parts.push(drinkBits.join(" · "))
-                        if (recipeGrindLine !== "") parts.push(recipeGrindLine)
+                        if (recipeDrinkLabel !== "") parts.push(recipeDrinkLabel)
+                        var p = postShotReviewPage.recipeProfileText(); if (p !== "") parts.push(p)
                         return parts.join(", ")
                     }
 
@@ -1855,34 +1866,32 @@ Page {
                         anchors.right: parent.right
                         anchors.top: parent.top
                         anchors.margins: Theme.scaled(12)
-                        spacing: Theme.scaled(6)
+                        spacing: Theme.spacingSmall
 
+                        // --- Hero: eyebrow + recipe name + drink type ---
                         Tr {
                             key: "shotdetail.recipe"
                             fallback: "Recipe"
-                            font: Theme.subtitleFont
-                            color: Theme.textColor
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
                             Accessible.ignored: true
                         }
-
                         Text {
                             Layout.fillWidth: true
                             visible: recipeCard.recipeName !== ""
                             textFormat: Text.RichText
-                            text: Theme.replaceEmojiWithImg(recipeCard.recipeName, Theme.subtitleFont.pixelSize)
-                            font: Theme.subtitleFont
+                            text: Theme.replaceEmojiWithImg(recipeCard.recipeName, Theme.titleFont.pixelSize)
+                            font: Theme.titleFont
                             color: Theme.textColor
                             wrapMode: Text.WordWrap
                             Accessible.ignored: true
                         }
-
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: Theme.scaled(6)
-                            visible: recipeCard.recipeDrinkLabel !== "" || recipeCard.recipeProfile !== ""
+                            visible: recipeCard.recipeDrinkLabel !== ""
                             ColoredIcon {
-                                Layout.alignment: Qt.AlignTop
-                                Layout.topMargin: Theme.scaled(1)
+                                Layout.alignment: Qt.AlignVCenter
                                 source: DrinkType.icon(DrinkType.fromRecipeMap(postShotReviewPage.resolvedRecipe))
                                 iconWidth: Theme.scaled(16)
                                 iconHeight: Theme.scaled(16)
@@ -1891,23 +1900,159 @@ Page {
                             }
                             Text {
                                 Layout.fillWidth: true
-                                text: [recipeCard.recipeDrinkLabel, recipeCard.recipeProfile]
-                                    .filter(function(s) { return s !== "" }).join(" · ")
-                                font: Theme.captionFont
+                                text: recipeCard.recipeDrinkLabel
+                                font: Theme.bodyFont
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.WordWrap
                                 Accessible.ignored: true
                             }
                         }
-
-                        Text {
+                        Rectangle {
                             Layout.fillWidth: true
-                            visible: recipeCard.recipeGrindLine !== ""
-                            text: recipeCard.recipeGrindLine
-                            font: Theme.captionFont
-                            color: Theme.textColor
-                            wrapMode: Text.WordWrap
+                            Layout.topMargin: Theme.scaled(2)
+                            Layout.bottomMargin: Theme.scaled(2)
+                            height: Theme.scaled(1)
+                            color: Theme.borderColor
                             Accessible.ignored: true
+                        }
+
+                        // Profile (read-only)
+                        RecipeField {
+                            fieldLabel: trRowProfile.text
+                            value: postShotReviewPage.recipeProfileText()
+                        }
+
+                        // Beans (editable — Change Beans opens the shared dialog)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
+                            Text {
+                                text: trRowBeans.text
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                Accessible.ignored: true
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.scaled(8)
+                                BeanSummary {
+                                    id: reviewRecipeBeanSummary
+                                    Layout.fillWidth: true
+                                    Layout.alignment: Qt.AlignVCenter
+                                    useShotData: true
+                                    roasterName: editBeanBrand
+                                    coffeeName: editBeanType
+                                    roastDate: editRoastDate
+                                    roastLevel: editRoastLevel
+                                    beanBaseData: editBeanBaseJson
+                                }
+                                AccessibleButton {
+                                    Layout.preferredHeight: Theme.scaled(44)
+                                    Layout.alignment: Qt.AlignVCenter
+                                    text: reviewRecipeBeanSummary.hasBeans
+                                        ? TranslationManager.translate("beans.button.change", "Change Beans")
+                                        : TranslationManager.translate("beans.button.select", "Select Beans")
+                                    accessibleName: TranslationManager.translate("beans.button.accessible.change", "Change the selected beans")
+                                    onClicked: reviewChangeBeansDialog.open()
+                                }
+                            }
+                            BeanBaseDetailsRow {
+                                Layout.fillWidth: true
+                                beanBaseJson: postShotReviewPage.editBeanBaseJson
+                            }
+                        }
+
+                        // Dial-in (editable grind + RPM; dose→yield is edited in
+                        // the metrics row above and echoed read-only here).
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
+                            Text {
+                                text: trRowDialIn.text
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                Accessible.ignored: true
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                visible: postShotReviewPage.recipeDoseYieldText() !== ""
+                                text: postShotReviewPage.recipeDoseYieldText()
+                                font: Theme.bodyFont
+                                color: Theme.textColor
+                                Accessible.ignored: true
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.scaled(8)
+                                SuggestionField {
+                                    id: recipeSettingField
+                                    Layout.fillWidth: true
+                                    label: TranslationManager.translate("postshotreview.label.grindSetting", "Grind setting")
+                                    text: editGrinderSetting
+                                    suggestions: {
+                                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel) : []
+                                        if (editGrinderSetting.length > 0 && list.indexOf(editGrinderSetting) === -1) list = [editGrinderSetting].concat(list)
+                                        return list
+                                    }
+                                    onTextEdited: function(t) { editGrinderSetting = t }
+                                    onInputBlurred: postShotReviewPage.autosave("grinderSetting", true)
+                                }
+                                SuggestionField {
+                                    id: recipeRpmField
+                                    visible: postShotReviewPage.editRpmCapable
+                                    Layout.fillWidth: true
+                                    label: TranslationManager.translate("postshotreview.label.rpm", "RPM")
+                                    text: editRpm > 0 ? String(editRpm) : ""
+                                    suggestions: []
+                                    onTextEdited: function(t) { editRpm = parseInt(t) || 0 }
+                                    onInputBlurred: postShotReviewPage.autosave("rpm", true)
+                                }
+                            }
+                        }
+
+                        // Steam / Hot water (read-only)
+                        RecipeField {
+                            fieldLabel: trRowSteam.text
+                            value: postShotReviewPage.recipeSteamText()
+                        }
+                        RecipeField {
+                            fieldLabel: trRowWater.text
+                            value: postShotReviewPage.recipeWaterText()
+                        }
+
+                        // Equipment (editable — Change Equipment opens the picker)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
+                            Text {
+                                text: trRowEquipment.text
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                Accessible.ignored: true
+                            }
+                            EquipmentSummary {
+                                id: reviewRecipeEquipment
+                                Layout.fillWidth: true
+                                visible: reviewRecipeEquipment.accessibleSummary !== ""
+                                grinderName: editEquipmentName || ""
+                                grinderBrand: editGrinderBrand
+                                grinderModel: editGrinderModel
+                                grinderBurrs: editGrinderBurrs
+                                basketBrand: editBasketBrand
+                                basketModel: editBasketModel
+                                puckPrepCanonical: editPuckPrep
+                            }
+                            AccessibleButton {
+                                Layout.preferredHeight: Theme.scaled(36)
+                                _customFontSize: Theme.captionFont.pixelSize
+                                leftPadding: Theme.scaled(10)
+                                rightPadding: Theme.scaled(10)
+                                text: (editEquipmentName.length > 0 || editGrinderBrand.length > 0 || editGrinderModel.length > 0)
+                                      ? TranslationManager.translate("postshotreview.changeEquipment", "Change Equipment")
+                                      : TranslationManager.translate("postshotreview.addEquipment", "Add Equipment")
+                                accessibleName: text
+                                onClicked: shotEquipmentDialog.openPicker()
+                            }
                         }
                     }
                 }
@@ -1927,6 +2072,8 @@ Page {
                     Layout.columnSpan: 3
                     Layout.fillWidth: true
                     Layout.preferredHeight: equipmentCardColumn.implicitHeight + Theme.scaled(24)
+                    // With a recipe, equipment folds into the recipe card above.
+                    visible: (editShotData.recipeId || -1) <= 0
                     readonly property bool hasEquipment: editEquipmentName.length > 0
                                                          || editGrinderBrand.length > 0 || editGrinderModel.length > 0
                     color: Theme.surfaceColor
@@ -1990,6 +2137,65 @@ Page {
     }
 
     } // KeyboardAwareContainer
+
+    // Change Beans + Change Equipment — page-scoped so both the recipe card and
+    // the standalone bean/equipment rows share one instance regardless of which
+    // is visible.
+    ChangeBeansDialog {
+        id: reviewChangeBeansDialog
+        // Only the most recent shot is the "post-shot" fix path (sets
+        // activeBagId too); older shots opened through this page are historical
+        // — retag the shot only.
+        context: editShotId === MainController.lastSavedShotId ? "postShot" : "historicalShot"
+        shotId: postShotReviewPage.editShotId
+        onBagSelected: function(bagId, bag) {
+            // The dialog already wrote the snapshot to the DB — mirror it into
+            // the edit fields and advance the autosave baseline so a later
+            // autosave doesn't clobber the new bag with stale values.
+            editBeanBrand = bag.roasterName || ""
+            editBeanType = bag.coffeeName || ""
+            editRoastDate = bag.roastDate || ""
+            editRoastLevel = bag.roastLevel || ""
+            editBeanBaseJson = bag.beanBaseData || ""
+            var nb = clonePersistedShot(editShotData)
+            nb.beanBrand = editBeanBrand
+            nb.beanType = editBeanType
+            nb.roastDate = editRoastDate
+            nb.roastLevel = editRoastLevel
+            nb.beanBaseJson = editBeanBaseJson
+            editShotData = nb
+            _committedState = captureEditState()
+            pendingVisualizerUpdate = true
+        }
+    }
+    // Re-point this shot's grinder to a different/new package. The picker
+    // doesn't touch the active bag (applyToActiveBag:false); we resolve the
+    // chosen package and persist equipmentId here.
+    SwitchEquipmentDialog {
+        id: shotEquipmentDialog
+        applyToActiveBag: false
+        onPackageSaved: function(packageId) {
+            postShotReviewPage._pendingEquipmentId = packageId
+            MainController.equipmentStorage.requestPackage(packageId)
+        }
+    }
+    Connections {
+        target: MainController.equipmentStorage
+        function onPackageReady(packageId, pkg) {
+            if (packageId !== postShotReviewPage._pendingEquipmentId) return
+            postShotReviewPage._pendingEquipmentId = -1
+            postShotReviewPage.editEquipmentId = packageId
+            postShotReviewPage.editGrinderBrand = pkg.grinderBrand || ""
+            postShotReviewPage.editGrinderModel = pkg.grinderModel || ""
+            postShotReviewPage.editGrinderBurrs = pkg.grinderBurrs || ""
+            postShotReviewPage.editBasketBrand = pkg.basketBrand || ""
+            postShotReviewPage.editBasketModel = pkg.basketModel || ""
+            postShotReviewPage.editPuckPrep = pkg.puckPrepCanonical || ""
+            postShotReviewPage.editEquipmentName =
+                (pkg.name && String(pkg.name).length > 0) ? String(pkg.name) : ""
+            postShotReviewPage.autosave("equipment", true)
+        }
+    }
 
     // Bottom bar (stays visible under keyboard)
     BottomBar {
