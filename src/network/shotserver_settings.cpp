@@ -25,6 +25,7 @@
 #include <QFile>
 #include <QBuffer>
 #include <algorithm>
+#include <functional>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -46,6 +47,40 @@
 #include <QJniObject>
 #endif
 
+// Privacy: raw secret VALUES (API keys, passwords, usernames) are never
+// emitted over the LAN web server. Instead /api/settings returns a masked
+// sentinel when a secret is configured and "" when it is not. The settings
+// page shows these values in <input>s, so a boolean alone is insufficient; the
+// mask keeps the field visibly "filled" without disclosing the real value.
+// The save path (applySecretString below) treats the mask (and empty) as
+// "leave unchanged", so the owner can still set a NEW key but the current key
+// is never sent to, nor round-tripped from, the browser.
+static const QString kSecretMask = QStringLiteral("••••••••"); // "••••••••"
+
+// Redact a secret for outbound JSON: mask if set, empty string if unset. The
+// web JS only truthiness-checks these (e.g. isProviderConfigured's !!value), so
+// a non-empty mask preserves "configured" indication without leaking the value.
+static QString redactedSecret(const QString& value)
+{
+    return value.isEmpty() ? QString() : kSecretMask;
+}
+
+// Apply a posted secret string only when it is a REAL new value: non-empty and
+// not the redaction mask we handed the page. This prevents the mask (or a blank
+// field the user never touched) from overwriting the stored secret. Consequence:
+// a secret cannot be CLEARED via the web UI (empty = "keep current") — this is
+// the intended privacy trade-off; clearing is still possible in the native app.
+static void applySecretString(const QJsonObject& obj, const QString& key,
+                              const std::function<void(const QString&)>& setter)
+{
+    if (!obj.contains(key))
+        return;
+    const QString v = obj[key].toString();
+    if (v.isEmpty() || v == kSecretMask)
+        return;
+    setter(v);
+}
+
 // Apply AI-related fields from a JSON object to Settings. Only keys present
 // in obj are updated; missing keys leave the current setting unchanged.
 // providerModels entries are validated against aiManager's provider list and
@@ -59,14 +94,11 @@ static QStringList applyAiSettings(Settings* s, AIManager* aiManager, const QJso
     auto* a = s->ai();
     if (obj.contains("aiProvider"))
         a->setAiProvider(obj["aiProvider"].toString());
-    if (obj.contains("openaiApiKey"))
-        a->setOpenaiApiKey(obj["openaiApiKey"].toString());
-    if (obj.contains("anthropicApiKey"))
-        a->setAnthropicApiKey(obj["anthropicApiKey"].toString());
-    if (obj.contains("geminiApiKey"))
-        a->setGeminiApiKey(obj["geminiApiKey"].toString());
-    if (obj.contains("openrouterApiKey"))
-        a->setOpenrouterApiKey(obj["openrouterApiKey"].toString());
+    // Secrets: only overwrite when a real new key is posted (not mask/empty).
+    applySecretString(obj, "openaiApiKey",     [a](const QString& v){ a->setOpenaiApiKey(v); });
+    applySecretString(obj, "anthropicApiKey",  [a](const QString& v){ a->setAnthropicApiKey(v); });
+    applySecretString(obj, "geminiApiKey",     [a](const QString& v){ a->setGeminiApiKey(v); });
+    applySecretString(obj, "openrouterApiKey", [a](const QString& v){ a->setOpenrouterApiKey(v); });
     if (obj.contains("openrouterModel"))
         a->setOpenrouterModel(obj["openrouterModel"].toString());
     if (obj.contains("ollamaEndpoint"))
@@ -116,19 +148,57 @@ static QStringList applyAiSettings(Settings* s, AIManager* aiManager, const QJso
 
 // Apply MQTT-related fields from a JSON object to Settings. Only keys present
 // in obj are updated; missing keys leave the current setting unchanged.
-static void applyMqttSettings(Settings* s, const QJsonObject& obj)
+// Returns true if a broker host/port retarget was refused for security (see below),
+// so callers can surface an error and/or decline to connect.
+static bool applyMqttSettings(Settings* s, const QJsonObject& obj)
 {
     auto* m = s->mqtt();
     if (obj.contains("mqttEnabled"))
         m->setMqttEnabled(obj["mqttEnabled"].toBool());
-    if (obj.contains("mqttBrokerHost"))
-        m->setMqttBrokerHost(obj["mqttBrokerHost"].toString());
-    if (obj.contains("mqttBrokerPort"))
-        m->setMqttBrokerPort(obj["mqttBrokerPort"].toInt());
-    if (obj.contains("mqttUsername"))
-        m->setMqttUsername(obj["mqttUsername"].toString());
-    if (obj.contains("mqttPassword"))
-        m->setMqttPassword(obj["mqttPassword"].toString());
+
+    // Security (broker-redirect guard): host/port are not secrets and are applied
+    // verbatim, but the stored MQTT password is emitted to whatever broker we then
+    // connect to. Changing mqttBrokerHost also fires mqttBrokerHostChanged, which
+    // makes MqttClient reconnect on its own -- so the guard must live HERE, at the
+    // shared chokepoint, not only in handleMqttConnect: both /api/settings (save)
+    // and the connect endpoint funnel through this function. Refuse to retarget the
+    // broker while the password field carries only the mask/empty; otherwise a LAN
+    // client could point the broker at an attacker and have the stored password sent
+    // there in the CONNECT packet. Compute the decision from the STORED password
+    // (m->mqttPassword()) BEFORE applySecretString below overwrites it.
+    const bool hostChanging = obj.contains("mqttBrokerHost")
+        && obj.value("mqttBrokerHost").toString() != m->mqttBrokerHost();
+    const bool portChanging = obj.contains("mqttBrokerPort")
+        && obj.value("mqttBrokerPort").toInt() != m->mqttBrokerPort();
+    const QString postedPassword = obj.value("mqttPassword").toString();
+    const bool passwordReentered = !postedPassword.isEmpty() && postedPassword != kSecretMask;
+    const bool brokerRedirectBlocked =
+        (hostChanging || portChanging) && !m->mqttPassword().isEmpty() && !passwordReentered;
+
+    // Apply the credentials FIRST, before the host/port. Every mqtt* setter here fires
+    // a *Changed signal wired to MqttClient::onSettingsChanged() (mqttclient.cpp
+    // ~L51-55), which reconnects synchronously -- the connection is same-thread, so the
+    // default AutoConnection resolves to a direct call -- and reads the host and
+    // password live out of Settings at connect time. The leak-prevention is purely
+    // about ORDER, not about any setter being inert: the credential setters DO trigger
+    // a reconnect too, but to the still-old (legitimately configured) host, which is
+    // harmless. If we instead set the new host before the re-entered password, the
+    // reconnect that host change triggers would pair the NEW broker with the OLD stored
+    // password -- exactly the leak the guard exists to prevent. Applying credentials
+    // first guarantees the post-host-change reconnect reads the new password.
+    // Only overwrite when a real new value is posted (not mask/empty).
+    applySecretString(obj, "mqttUsername", [m](const QString& v){ m->setMqttUsername(v); });
+    applySecretString(obj, "mqttPassword", [m](const QString& v){ m->setMqttPassword(v); });
+
+    if (brokerRedirectBlocked) {
+        qWarning() << "ShotServer: refused MQTT broker host/port change without password"
+                      " re-entry (broker-redirect guard)";
+    } else {
+        if (obj.contains("mqttBrokerHost"))
+            m->setMqttBrokerHost(obj["mqttBrokerHost"].toString());
+        if (obj.contains("mqttBrokerPort"))
+            m->setMqttBrokerPort(obj["mqttBrokerPort"].toInt());
+    }
     if (obj.contains("mqttBaseTopic"))
         m->setMqttBaseTopic(obj["mqttBaseTopic"].toString());
     if (obj.contains("mqttPublishInterval"))
@@ -139,6 +209,7 @@ static void applyMqttSettings(Settings* s, const QJsonObject& obj)
         m->setMqttRetainMessages(obj["mqttRetainMessages"].toBool());
     if (obj.contains("mqttHomeAssistantDiscovery"))
         m->setMqttHomeAssistantDiscovery(obj["mqttHomeAssistantDiscovery"].toBool());
+    return brokerRedirectBlocked;
 }
 
 QString ShotServer::generateSettingsPage() const
@@ -1000,18 +1071,18 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
 
     QJsonObject obj;
 
-    // Visualizer
-    obj["visualizerUsername"] = m_settings->visualizer()->visualizerUsername();
-    obj["visualizerPassword"] = m_settings->visualizer()->visualizerPassword();
+    // Visualizer — credentials redacted (masked if set, "" if unset).
+    obj["visualizerUsername"] = redactedSecret(m_settings->visualizer()->visualizerUsername());
+    obj["visualizerPassword"] = redactedSecret(m_settings->visualizer()->visualizerPassword());
 
-    // AI
+    // AI — API keys redacted; provider/model/endpoint are not secrets.
     {
         auto* a = m_settings->ai();
         obj["aiProvider"] = a->aiProvider();
-        obj["openaiApiKey"] = a->openaiApiKey();
-        obj["anthropicApiKey"] = a->anthropicApiKey();
-        obj["geminiApiKey"] = a->geminiApiKey();
-        obj["openrouterApiKey"] = a->openrouterApiKey();
+        obj["openaiApiKey"] = redactedSecret(a->openaiApiKey());
+        obj["anthropicApiKey"] = redactedSecret(a->anthropicApiKey());
+        obj["geminiApiKey"] = redactedSecret(a->geminiApiKey());
+        obj["openrouterApiKey"] = redactedSecret(a->openrouterApiKey());
         obj["openrouterModel"] = a->openrouterModel();
         obj["ollamaEndpoint"] = a->ollamaEndpoint();
         obj["ollamaModel"] = a->ollamaModel();
@@ -1055,8 +1126,9 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
     obj["mqttEnabled"] = mqttSettings->mqttEnabled();
     obj["mqttBrokerHost"] = mqttSettings->mqttBrokerHost();
     obj["mqttBrokerPort"] = mqttSettings->mqttBrokerPort();
-    obj["mqttUsername"] = mqttSettings->mqttUsername();
-    obj["mqttPassword"] = mqttSettings->mqttPassword();
+    // MQTT credentials redacted (masked if set, "" if unset).
+    obj["mqttUsername"] = redactedSecret(mqttSettings->mqttUsername());
+    obj["mqttPassword"] = redactedSecret(mqttSettings->mqttPassword());
     obj["mqttBaseTopic"] = mqttSettings->mqttBaseTopic();
     obj["mqttPublishInterval"] = mqttSettings->mqttPublishInterval();
     obj["mqttClientId"] = mqttSettings->mqttClientId();
@@ -1082,25 +1154,32 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
 
     QJsonObject obj = doc.object();
 
-    // Visualizer
-    if (obj.contains("visualizerUsername"))
-        m_settings->visualizer()->setVisualizerUsername(obj["visualizerUsername"].toString());
-    if (obj.contains("visualizerPassword"))
-        m_settings->visualizer()->setVisualizerPassword(obj["visualizerPassword"].toString());
+    // Visualizer credentials: only overwrite on a real new value (not mask/empty).
+    {
+        auto* v = m_settings->visualizer();
+        applySecretString(obj, "visualizerUsername", [v](const QString& s){ v->setVisualizerUsername(s); });
+        applySecretString(obj, "visualizerPassword", [v](const QString& s){ v->setVisualizerPassword(s); });
+    }
 
     // AI
     const QStringList aiErrors = applyAiSettings(m_settings, m_aiManager, obj);
 
-    // MQTT
-    applyMqttSettings(m_settings, obj);
+    // MQTT — applyMqttSettings enforces the broker-redirect guard and returns true if
+    // it refused a host/port change (mask/empty password). Surface that the same way
+    // handleMqttConnect does, so the user isn't told the save succeeded when part of
+    // it was dropped.
+    const bool mqttBrokerRedirectBlocked = applyMqttSettings(m_settings, obj);
 
     // Valid fields (including valid providerModels entries) are applied even
     // when some entries were rejected; the error tells the client which
     // selections did not take.
-    if (!aiErrors.isEmpty()) {
+    QStringList saveErrors = aiErrors;
+    if (mqttBrokerRedirectBlocked)
+        saveErrors << QStringLiteral("Re-enter the MQTT password when changing the broker host or port.");
+    if (!saveErrors.isEmpty()) {
         QJsonObject resp;
         resp["success"] = false;
-        resp["error"] = aiErrors.join(QStringLiteral("; "));
+        resp["error"] = saveErrors.join(QStringLiteral("; "));
         sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
         return;
     }
@@ -1125,6 +1204,14 @@ void ShotServer::handleVisualizerTest(QTcpSocket* socket, const QByteArray& body
     QJsonObject obj = doc.object();
     QString username = obj["username"].toString();
     QString password = obj["password"].toString();
+
+    // The web form shows redacted credentials (masked if configured). If the
+    // user tests without re-entering, substitute the stored value so an already-
+    // configured account can still be tested; a real typed value overrides.
+    if ((username.isEmpty() || username == kSecretMask) && m_settings)
+        username = m_settings->visualizer()->visualizerUsername();
+    if ((password.isEmpty() || password == kSecretMask) && m_settings)
+        password = m_settings->visualizer()->visualizerPassword();
 
     if (username.isEmpty() || password.isEmpty()) {
         sendJson(socket, R"({"success": false, "message": "Username and password are required"})");
@@ -1284,7 +1371,13 @@ void ShotServer::handleMqttConnect(QTcpSocket* socket, const QByteArray& body)
         sendJson(socket, R"({"success": false, "message": "Invalid request body"})");
         return;
     }
-    applyMqttSettings(m_settings, doc.object());
+    // applyMqttSettings enforces the broker-redirect guard and returns true if it
+    // refused a host/port retarget (mask/empty password). Decline to connect in that
+    // case so the stored password is never sent to a newly-supplied broker.
+    if (applyMqttSettings(m_settings, doc.object())) {
+        sendJson(socket, R"({"success": false, "message": "Re-enter the MQTT password when changing the broker host or port."})");
+        return;
+    }
 
     m_mqttConnectInFlight = true;
 

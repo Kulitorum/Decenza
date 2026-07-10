@@ -16,7 +16,9 @@ public:
     /**
      * @brief Export all settings to a JSON object.
      * @param settings The Settings instance to export.
-     * @param includeSensitive If true, includes API keys and passwords.
+     * @param includeSensitive If true, includes credentials — API keys, passwords,
+     *        and the visualizer/MQTT usernames. Keep false for anything served over
+     *        the (default-unauthenticated) LAN web endpoints.
      * @return JSON object containing all exported settings.
      */
     static QJsonObject exportToJson(Settings* settings, bool includeSensitive = false);
