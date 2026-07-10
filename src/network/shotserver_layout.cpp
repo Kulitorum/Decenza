@@ -2748,13 +2748,19 @@ QString ShotServer::generateLayoutPage() const
 
     // --- Drag-and-drop reordering within a zone (replaces the arrow buttons) ---
     var dragState = null;
+    // TEMP DEBUG (drag-and-drop investigation): console.log at each stage so
+    // we can tell, from a real user's DevTools console, whether dragstart
+    // fires at all, whether dragover ever grants a drop target, and whether
+    // drop commits. Remove once the root cause is confirmed.
     function chipDragStart(ev, zone, idx) {
+        console.log('[DND] dragstart zone=' + zone + ' idx=' + idx + ' target=' + (ev.target && ev.target.className));
         dragState = {zone: zone, from: idx};
         ev.dataTransfer.effectAllowed = "move";
-        try { ev.dataTransfer.setData("text/plain", String(idx)); } catch(e) {}
+        try { ev.dataTransfer.setData("text/plain", String(idx)); } catch(e) { console.log('[DND] setData failed', e); }
         if (ev.currentTarget) ev.currentTarget.classList.add("dragging");
     }
     function chipDragEnd(ev) {
+        console.log('[DND] dragend dragState=' + JSON.stringify(dragState));
         if (ev.currentTarget) ev.currentTarget.classList.remove("dragging");
         dragState = null;
     }
@@ -2762,14 +2768,18 @@ QString ShotServer::generateLayoutPage() const
         if (dragState && dragState.zone === zone) {
             ev.preventDefault();
             ev.dataTransfer.dropEffect = "move";
+        } else if (dragState) {
+            console.log('[DND] dragover zone mismatch: dragging from ' + dragState.zone + ' but over ' + zone);
         }
     }
     function chipDrop(ev, zone, idx) {
         ev.preventDefault();
-        if (!dragState || dragState.zone !== zone) return;
+        console.log('[DND] drop zone=' + zone + ' idx=' + idx + ' dragState=' + JSON.stringify(dragState));
+        if (!dragState || dragState.zone !== zone) { console.log('[DND] drop aborted: no matching dragState'); return; }
         var from = dragState.from;
         dragState = null;
-        if (from === idx) return;
+        if (from === idx) { console.log('[DND] drop no-op: same index'); return; }
+        console.log('[DND] reordering ' + zone + ' ' + from + ' -> ' + idx);
         reorder(zone, from, idx);
     }
 
