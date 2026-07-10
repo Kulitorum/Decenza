@@ -16,9 +16,9 @@
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
 #include "../history/coffeebagstorage.h"
+#include "../history/recipepromotion.h"
 #include "../history/recipestorage.h"
 #include "../history/shothistorystorage.h"
-#include "../network/beanbase_blob.h"
 #include "webtemplates/base_css.h"
 #include "webtemplates/menu_css.h"
 #include "webtemplates/menu_html.h"
@@ -34,6 +34,7 @@
 #include <QSqlQuery>
 #include <QTcpSocket>
 #include <QThread>
+#include <optional>
 
 namespace {
 
@@ -271,36 +272,13 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                     respondJson(QJsonObject{{"error", "Shot not found"}}, 404);
                     return;
                 }
-                const QString beanBaseId = BeanBaseBlob::canonicalId(record.beanBaseJson);
-                const bool hasBean = !beanBaseId.isEmpty()
-                    || !record.summary.beanBrand.isEmpty() || !record.summary.beanType.isEmpty();
-                QString steamJson = !record.steamJson.isEmpty() ? record.steamJson : fallbackSteam;
-                if (hasMilkProvided) {
-                    QJsonObject steam = QJsonDocument::fromJson(steamJson.toUtf8()).object();
-                    steam["hasMilk"] = hasMilk;
-                    steamJson = QString::fromUtf8(QJsonDocument(steam).toJson(QJsonDocument::Compact));
-                }
-                QVariantMap fields{
-                    {"name", name},
-                    {"profileTitle", record.summary.profileName},
-                    {"profileJson", record.profileJson},
-                    // The shot's bag becomes the recipe's hard bag link; a
-                    // pre-bag shot (bagId <= 0) stores no link and the bean
-                    // identity below still carries.
-                    {"bagId", record.bagId > 0 ? record.bagId : 0},
-                    {"beanBaseId", beanBaseId},
-                    {"roasterName", record.summary.beanBrand},
-                    {"coffeeName", record.summary.beanType},
-                    {"equipmentId", record.equipmentId},
-                    {"doseG", record.summary.doseWeight},
-                    {"yieldG", record.targetWeight},
-                    {"tempOverrideC", record.temperatureOverride},
-                    {"grindPinned", hasBean ? QString() : record.grinderSetting},
-                    {"steamJson", steamJson},
-                    // Hot water carries verbatim from the shot snapshot only —
-                    // no current-settings fallback (mirrors the composer).
-                    {"hotWaterJson", record.hotWaterJson},
-                    {"createdFromShotId", shotId}};
+                // The shared promotion semantics (bean link, bag link, grind
+                // pin-vs-inherit, steam/hot-water snapshots) — exactly what
+                // the MCP recipe_create_from_shot tool builds.
+                const std::optional<bool> hasMilkOverride =
+                    hasMilkProvided ? std::optional<bool>(hasMilk) : std::nullopt;
+                const QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
+                    record, name, hasMilkOverride, fallbackSteam);
                 auto conn = std::make_shared<QMetaObject::Connection>();
                 *conn = QObject::connect(recipeStorage, &RecipeStorage::recipeCreated, qApp,
                     [conn, respondJson](qint64 recipeId, const QVariantMap& recipe) {

@@ -1484,67 +1484,6 @@ Page {
                         readonly property var gridModel:
                             parent.kindBags.concat([{ isAddNew: true }, { isNone: true }])
 
-                        // A bag tile's photo, from the same on-disk cache the
-                        // bag cards use (canonical id key, else "bag-<id>").
-                        component BagTileImage: Rectangle {
-                            id: tileImage
-                            property var bag: null
-                            readonly property string imageKey: {
-                                if (!bag) return ""
-                                return bag.beanBaseId && String(bag.beanBaseId).length > 0
-                                    ? String(bag.beanBaseId) : "bag-" + bag.id
-                            }
-                            property string cachedImagePath: ""
-                            function refreshImage() {
-                                cachedImagePath = imageKey.length > 0
-                                    ? MainController.beanbase.bagImagePath(imageKey) : ""
-                                if (imageKey.length > 0 && cachedImagePath.length === 0) {
-                                    var link = ""
-                                    if (bag && bag.beanBaseData && String(bag.beanBaseData).length > 0) {
-                                        try { link = JSON.parse(bag.beanBaseData).link || "" } catch (e) {}
-                                    }
-                                    MainController.beanbase.ensureBagImage(
-                                        imageKey, bag ? (bag.coffeeName || "") : "", link)
-                                }
-                            }
-                            onImageKeyChanged: refreshImage()
-                            Component.onCompleted: refreshImage()
-                            Connections {
-                                target: MainController.beanbase
-                                function onBagImageReady(key, path) {
-                                    if (key === tileImage.imageKey)
-                                        tileImage.cachedImagePath = path
-                                }
-                            }
-                            radius: Theme.scaled(6)
-                            color: Theme.backgroundColor
-                            border.color: Theme.borderColor
-                            border.width: 1
-                            ColoredIcon {
-                                anchors.centerIn: parent
-                                visible: bagTileThumb.status !== Image.Ready
-                                source: wizardPage.isTeaDrink ? "qrc:/icons/tea.svg" : "qrc:/icons/coffeebeans.svg"
-                                iconWidth: Theme.scaled(28)
-                                iconHeight: Theme.scaled(28)
-                                iconColor: Theme.textSecondaryColor
-                                opacity: 0.5
-                                Accessible.ignored: true
-                            }
-                            Image {
-                                id: bagTileThumb
-                                anchors.fill: parent
-                                anchors.margins: 1
-                                visible: status === Image.Ready
-                                source: tileImage.cachedImagePath.length > 0
-                                    ? "file:///" + tileImage.cachedImagePath : ""
-                                sourceSize.width: Theme.scaled(180)
-                                sourceSize.height: Theme.scaled(180)
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
-                                Accessible.ignored: true
-                            }
-                        }
-
                         // Roast date plus age ("2026-06-12 · 28d"); empty when
                         // the bag states no roast date.
                         function roastAgeLine(bag) {
@@ -1613,11 +1552,29 @@ Page {
                                         anchors.margins: Theme.spacingSmall
                                         spacing: Theme.scaled(4)
 
-                                        BagTileImage {
+                                        // Bag photo — the shared BeanThumbnail
+                                        // cache widget (canonical id key, else
+                                        // the bag's own "bag-<id>" key).
+                                        BeanThumbnail {
                                             visible: !bagTile.isGhost
-                                            bag: bagTile.isGhost ? null : modelData
                                             Layout.fillWidth: true
                                             Layout.preferredHeight: Theme.scaled(90)
+                                            imageKey: {
+                                                if (bagTile.isGhost) return ""
+                                                return modelData.beanBaseId && String(modelData.beanBaseId).length > 0
+                                                    ? String(modelData.beanBaseId) : "bag-" + modelData.id
+                                            }
+                                            fallbackName: bagTile.isGhost ? "" : (modelData.coffeeName || "")
+                                            link: {
+                                                if (bagTile.isGhost || !modelData.beanBaseData
+                                                    || String(modelData.beanBaseData).length === 0)
+                                                    return ""
+                                                try { return JSON.parse(modelData.beanBaseData).link || "" } catch (e) { return "" }
+                                            }
+                                            iconSource: wizardPage.isTeaDrink
+                                                ? "qrc:/icons/tea.svg" : "qrc:/icons/coffeebeans.svg"
+                                            iconSize: Theme.scaled(28)
+                                            imageSourceSize: Theme.scaled(180)
                                         }
                                         ColoredIcon {
                                             visible: bagTile.isGhost

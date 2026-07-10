@@ -19,6 +19,13 @@ Page {
     property var archivedRecipes: []
     property bool showArchived: false
 
+    // Grid column math (BeanInfoPage pattern: fixed base width, computed
+    // columns) — one implementation for both card grids.
+    function cardWidth(avail) {
+        var columns = Math.max(1, Math.floor(avail / Theme.scaled(380)))
+        return (avail - (columns - 1) * Theme.spacingMedium) / columns
+    }
+
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("recipes.title", "Recipes")
         MainController.recipeStorage.requestInventory()
@@ -417,12 +424,7 @@ Page {
                     model: recipesPage.recipes
                     delegate: RecipeCard {
                         recipe: modelData
-                        width: {
-                            var avail = flickable.width
-                            var cardW = Theme.scaled(380)
-                            var columns = Math.max(1, Math.floor(avail / cardW))
-                            return (avail - (columns - 1) * Theme.spacingMedium) / columns
-                        }
+                        width: recipesPage.cardWidth(flickable.width)
                     }
                 }
             }
@@ -452,12 +454,7 @@ Page {
                     delegate: RecipeCard {
                         recipe: modelData
                         archivedCard: true
-                        width: {
-                            var avail = flickable.width
-                            var cardW = Theme.scaled(380)
-                            var columns = Math.max(1, Math.floor(avail / cardW))
-                            return (avail - (columns - 1) * Theme.spacingMedium) / columns
-                        }
+                        width: recipesPage.cardWidth(flickable.width)
                     }
                 }
             }

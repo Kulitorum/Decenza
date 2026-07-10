@@ -59,23 +59,6 @@ Rectangle {
     readonly property bool isHotWaterOnly:
         (!recipe.profileTitle || String(recipe.profileTitle).trim() === "") && !!hotWater.hasWater
 
-    property string cachedImagePath: ""
-    function refreshBeanImage() {
-        cachedImagePath = imageKey.length > 0
-            ? MainController.beanbase.bagImagePath(imageKey) : ""
-        if (imageKey.length > 0 && cachedImagePath.length === 0)
-            MainController.beanbase.ensureBagImage(imageKey, recipe.coffeeName || "", imageLink)
-    }
-    onImageKeyChanged: refreshBeanImage()
-    Component.onCompleted: refreshBeanImage()
-    Connections {
-        target: MainController.beanbase
-        function onBagImageReady(key, path) {
-            if (key === card.imageKey)
-                card.cachedImagePath = path
-        }
-    }
-
     Tr { id: trActiveBadge; key: "recipes.list.active"; fallback: "Active"; visible: false }
     Tr { id: trShotsWord; key: "recipes.list.shots"; fallback: "shots"; visible: false }
     Tr { id: trMilkWeight; key: "recipes.list.milkWeight"; fallback: "%1g milk"; visible: false }
@@ -145,42 +128,14 @@ Rectangle {
         Layout.fillWidth: true
         spacing: Theme.scaled(10)
 
-        // Bean photo thumbnail (BagCard pattern): cached photo when there is
-        // one, dimmed beans icon otherwise so mixed lists stay aligned.
-        Rectangle {
+        // Bean photo thumbnail — the shared BeanThumbnail cache widget.
+        BeanThumbnail {
             Layout.preferredWidth: Theme.scaled(44)
             Layout.preferredHeight: Theme.scaled(44)
             Layout.alignment: Qt.AlignTop
-            radius: Theme.scaled(6)
-            color: Theme.backgroundColor
-            border.color: Theme.borderColor
-            border.width: 1
-
-            ColoredIcon {
-                anchors.centerIn: parent
-                visible: cardThumb.status !== Image.Ready
-                source: "qrc:/icons/coffeebeans.svg"
-                iconWidth: Theme.scaled(22)
-                iconHeight: Theme.scaled(22)
-                iconColor: Theme.textSecondaryColor
-                opacity: 0.5
-                Accessible.ignored: true
-            }
-
-            Image {
-                id: cardThumb
-                anchors.fill: parent
-                anchors.margins: 1
-                visible: status === Image.Ready
-                source: card.cachedImagePath.length > 0
-                    ? "file:///" + card.cachedImagePath : ""
-                // Decode at thumbnail resolution — never the full photo.
-                sourceSize.width: Theme.scaled(88)
-                sourceSize.height: Theme.scaled(88)
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
-                Accessible.ignored: true
-            }
+            imageKey: card.imageKey
+            fallbackName: card.recipe.coffeeName || ""
+            link: card.imageLink
         }
 
         ColumnLayout {
