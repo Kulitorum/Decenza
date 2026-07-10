@@ -8,7 +8,11 @@ Dialog {
     id: root
     parent: Overlay.overlay
     anchors.centerIn: parent
-    width: Theme.scaled(520)
+    // 520 on tablets; caps to the viewport so it can't overflow a narrow phone
+    // (the content column and the height cap both track this width).
+    readonly property real _frameWidth: Math.min(Theme.scaled(520),
+                                                  (root.parent ? root.parent.width : Theme.scaled(520)) * 0.95)
+    width: _frameWidth
     modal: true
     closePolicy: Dialog.CloseOnEscape
     padding: 0
@@ -184,7 +188,7 @@ Dialog {
         id: keyboardContainer
         implicitHeight: Math.min(mainColumn.implicitHeight,
                                  root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight)
-        implicitWidth: Theme.scaled(520)
+        implicitWidth: root._frameWidth
         inOverlay: true
         textFields: [
             profileInput.textField,
@@ -204,7 +208,7 @@ Dialog {
 
         ColumnLayout {
             id: mainColumn
-            width: Theme.scaled(520)
+            width: root._frameWidth
             spacing: 0
 
         // Header — title + the primary actions (Clear / Cancel / OK) pinned at
@@ -222,13 +226,15 @@ Dialog {
                 spacing: Theme.scaled(8)
 
                 Text {
+                    // Takes the slack (pushing the actions right) and elides so a
+                    // long localized title can't crowd or clip the buttons.
+                    Layout.fillWidth: true
                     text: TranslationManager.translate("brewDialog.title", "Brew Settings")
                     font: Theme.titleFont
                     color: Theme.textColor
+                    elide: Text.ElideRight
                     Accessible.ignored: true  // Dialog title announced on open
                 }
-
-                Item { Layout.fillWidth: true }   // push the actions to the right
 
                 // Clear all overrides
                 AccessibleButton {

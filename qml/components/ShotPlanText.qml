@@ -130,9 +130,10 @@ Item {
     // profiles ("tea"/"tea_portafilter"). Cleaning/descale profiles get their own
     // sentence in _build() — no bean/dose tail, plus the do-not-load-coffee warning.
     readonly property string _bevType: beverageType
-    // The cleaning/descale/calibrate no-coffee tier is Profile::isMaintenanceBeverageType
-    // in C++ — the same call the shot-history, Visualizer and MCP gates make — so this
-    // warning genuinely can't drift from them.
+    // The cleaning/descale/calibrate no-coffee tier: by default `isCleaning`
+    // reads Profile::isMaintenanceBeverageType (the same C++ call the shot-history,
+    // Visualizer and MCP gates make, so the live widget can't drift from them);
+    // per-shot consumers override `isCleaning` from the shot's own frozen flag.
     readonly property bool _isCleaning: isCleaning
     readonly property string _beverage: {
         var _ = TranslationManager.translationVersion   // re-evaluate on a live language switch

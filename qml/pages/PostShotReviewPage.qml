@@ -125,7 +125,7 @@ Page {
         return ""
     }
     // Read-only dial-in for the recipe card: dose → yield · grind · rpm (rpm
-    // only for rpm-capable grinders). Grind itself is edited in the field grid.
+    // only for rpm-capable grinders). Grind itself is edited in the Dial-in row above.
     function recipeDialInText() {
         var _ = TranslationManager.translationVersion
         var parts = []
@@ -147,7 +147,7 @@ Page {
             if ((s.milkWeightG || 0) > 0)
                 parts.push(TranslationManager.translate("recipes.list.milkWeight", "%1g milk").arg(s.milkWeightG))
             return parts.join(" · ")
-        } catch (e) { return "" }
+        } catch (e) { console.warn("PostShotReviewPage: bad steamJson on shot", editShotData.id, e); return "" }
     }
     function recipeWaterText() {
         if (!editShotData.hotWaterJson) return ""
@@ -159,7 +159,7 @@ Page {
             if ((w.volume || 0) > 0) parts.push(w.volume + (w.mode === "volume" ? "ml" : "g"))
             if ((w.temperatureC || 0) > 0) parts.push(Math.round(Theme.cToDisplay(w.temperatureC)) + Theme.tempUnitSuffix())
             return parts.join(" · ")
-        } catch (e) { return "" }
+        } catch (e) { console.warn("PostShotReviewPage: bad hotWaterJson on shot", editShotData.id, e); return "" }
     }
 
     // One labeled read-only component row inside the recipe card (caption over
@@ -1535,7 +1535,9 @@ Page {
                         SuggestionField {
                             id: settingField
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(36)
+                            // No fixed preferredHeight — its implicitHeight is 36 in
+                            // normal mode (matching the steppers) but grows for the
+                            // accessibility button row when a screen reader is on.
                             fieldColor: Theme.surfaceColor   // match the Dose/Out steppers
                             label: ""
                             text: editGrinderSetting
@@ -1565,7 +1567,8 @@ Page {
                         SuggestionField {
                             id: rpmField
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(36)
+                            // No fixed preferredHeight — lets the a11y button row
+                            // expand under a screen reader (implicitHeight is 36 otherwise).
                             fieldColor: Theme.surfaceColor   // match the Dose/Out steppers
                             label: ""
                             text: editRpm > 0 ? String(editRpm) : ""
@@ -1786,14 +1789,13 @@ Page {
                 // read-only and already shown in the title, the Shot Plan
                 // snapshot line, and the recipe card, so they only added clutter.
 
-                // Recipe card (recipeId > 0): the recipe AND its editable
-                // components in one cohesive card, modelled on the recipe
-                // editor's summary. Beans, dial-in (grind/RPM) and equipment are
-                // edited right here (the edit controls the user asked to keep in
-                // the card); profile/steam/water are read-only. Every value is
-                // this page's live edit state. When a recipe is used this
-                // replaces the standalone bean/grind/equipment controls (which
-                // gate to the no-recipe case).
+                // Recipe card (recipeId > 0): the recipe AND its components in
+                // one cohesive card, modelled on the recipe editor's summary.
+                // Beans and equipment are edited right here; profile, dial-in
+                // and steam/water are read-only echoes (grind/RPM are edited in
+                // the Dial-in row at the top). Every value is this page's live
+                // edit state. When a recipe is used this replaces the standalone
+                // bean and equipment controls (which gate to the no-recipe case).
                 Rectangle {
                     id: recipeCard
                     Layout.columnSpan: 3
@@ -1920,8 +1922,8 @@ Page {
                             }
                         }
 
-                        // Dial-in (read-only) — grind is edited in the field grid
-                        // below, echoed here as part of the recipe overview.
+                        // Dial-in (read-only) — grind/RPM are edited in the
+                        // Dial-in row above; echoed here as part of the overview.
                         RecipeField {
                             fieldLabel: trRowDialIn.text
                             value: postShotReviewPage.recipeDialInText()
