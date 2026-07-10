@@ -127,6 +127,14 @@ public:
     Q_INVOKABLE void setZoneItems(const QString& zoneName, const QVariantList& items);
     // Reset a single zone to its default items + options (counterpart to clear).
     Q_INVOKABLE void resetZoneToDefault(const QString& zoneName);
+    // Ensure at least one placed widget can reach Settings (a "settings" item,
+    // or a "custom" item whose action is "navigate:settings"); if none is found
+    // across the standard zones, adds a settings widget to bottomRight. Shared
+    // by the in-app layout editor and the web layout editor so both mutation
+    // paths keep Settings reachable from the home screen. Port of the QML
+    // SettingsLayoutTab.ensureSettingsAccessible() scan (see keep-in-sync note
+    // there).
+    Q_INVOKABLE void ensureSettingsAccessible();
     // Both setters return false when the write was refused (unstorable value)
     // or no item with itemId exists (e.g. deleted from another device while an
     // editor was open) — callers should surface that instead of assuming success.

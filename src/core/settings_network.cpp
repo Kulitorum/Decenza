@@ -1000,6 +1000,33 @@ void SettingsNetwork::resetZoneToDefault(const QString& zoneName) {
     saveLayoutObject(layout);
 }
 
+void SettingsNetwork::ensureSettingsAccessible() {
+    // Keep in sync with the (now-delegating) QML copy in
+    // qml/pages/settings/SettingsLayoutTab.qml::ensureSettingsAccessible().
+    static const QStringList kZones = {
+        QStringLiteral("statusBar"), QStringLiteral("topLeft"), QStringLiteral("topRight"),
+        QStringLiteral("centerStatus"), QStringLiteral("centerTop"), QStringLiteral("centerMiddle"),
+        QStringLiteral("lowerMidBar"), QStringLiteral("bottomLeft"), QStringLiteral("bottomRight")
+    };
+
+    for (const QString& zone : kZones) {
+        const QVariantList items = getZoneItems(zone);
+        for (const QVariant& itemVar : items) {
+            const QVariantMap item = itemVar.toMap();
+            const QString type = item.value("type").toString();
+            if (type == QStringLiteral("settings")) return;
+            if (type == QStringLiteral("custom")) {
+                const QVariantMap props = getItemProperties(item.value("id").toString());
+                if (props.value("action").toString() == QStringLiteral("navigate:settings")) return;
+            }
+        }
+    }
+
+    // No settings access found — add a settings widget to bottom right.
+    addItem(QStringLiteral("settings"), QStringLiteral("bottomRight"));
+    qDebug() << "SettingsNetwork: Added settings widget to bottomRight (no settings access found)";
+}
+
 bool SettingsNetwork::setItemProperty(const QString& itemId, const QString& key, const QVariant& value) {
     // A JS array/object passed from QML reaches a QVariant parameter as a
     // wrapped QJSValue, and a JS `undefined` as an invalid QVariant — both of

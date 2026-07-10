@@ -48,9 +48,31 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
         return;
     }
 
-    // GET /api/layout — return current layout configuration
+    // GET /api/layout — return current layout configuration, with a per-item
+    // "configured" flag (task 4.2 / D5) computed at GET time — not stored —
+    // from SettingsNetwork::itemIsConfigured(), so the web remove-confirm
+    // gate (confirmRemoveItem() in generateLayoutPage()) can prompt only for
+    // widgets carrying non-default settings.
     if (method == "GET" && (path == "/api/layout" || path == "/api/layout/")) {
         QString json = m_settings->network()->layoutConfiguration();
+        QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+        if (doc.isObject()) {
+            QJsonObject root = doc.object();
+            QJsonObject zones = root.value("zones").toObject();
+            for (auto zIt = zones.begin(); zIt != zones.end(); ++zIt) {
+                QJsonArray items = zIt.value().toArray();
+                for (int i = 0; i < items.size(); ++i) {
+                    QJsonObject item = items[i].toObject();
+                    QString itemId = item.value("id").toString();
+                    item["configured"] = !itemId.isEmpty() && m_settings->network()->itemIsConfigured(itemId);
+                    items[i] = item;
+                }
+                zIt.value() = items;
+            }
+            root["zones"] = zones;
+            sendJson(socket, QJsonDocument(root).toJson(QJsonDocument::Compact));
+            return;
+        }
         sendJson(socket, json.toUtf8());
         return;
     }
@@ -267,6 +289,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             return;
         }
         m_settings->network()->removeItem(itemId, zone);
+        m_settings->network()->ensureSettingsAccessible();
         sendJson(socket, R"({"success":true})");
     }
     else if (path == "/api/layout/move") {
@@ -294,6 +317,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
     }
     else if (path == "/api/layout/reset") {
         m_settings->network()->resetLayoutToDefault();
+        m_settings->network()->ensureSettingsAccessible();
         sendJson(socket, R"({"success":true})");
     }
     else if (path == "/api/layout/item") {
@@ -316,6 +340,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendResponse(socket, 404, "application/json", R"({"error":"No such item or unstorable value"})");
             return;
         }
+        m_settings->network()->ensureSettingsAccessible();
         sendJson(socket, R"({"success":true})");
     }
     else if (path == "/api/layout/zone-offset") {
@@ -390,6 +415,7 @@ void ShotServer::handleLayoutApi(QTcpSocket* socket, const QString& method, cons
             sendResponse(socket, 400, "application/json", R"({"error":"Unknown preset"})");
             return;
         }
+        m_settings->network()->ensureSettingsAccessible();
         sendJson(socket, R"({"success":true})");
     }
     // ========== Library API (local, synchronous) ==========
@@ -708,9 +734,8 @@ QString ShotServer::generateLayoutPage() const
             display: flex;
             flex-direction: column;
             gap: 1.5rem;
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 1.5rem;
+            min-width: 0;
+            padding: 0 0 1.5rem;
         }
         .zones-panel { min-width: 0; }
         .editor-panel { }
@@ -742,7 +767,6 @@ QString ShotServer::generateLayoutPage() const
         .zone-opt { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.15rem 0.3rem; font-size: 0.8rem; }
         .zone-opt-btn { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 0.2rem 0.55rem; font-size: 0.8rem; cursor: pointer; }
         .zone-opt-btn.clear { background: transparent; color: #e0544f; border: 1px solid #e0544f; }
-        .chip-mode { margin-left: 0.35rem; background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 5px; font-size: 0.75rem; }
         .offset-separator { width: 1px; height: 20px; background: var(--border); margin: 0 0.25rem; }
         .offset-btn {
             background: none;
@@ -800,17 +824,24 @@ QString ShotServer::generateLayoutPage() const
             align-items: center;
             opacity: 0.7;
             margin-left: 0.1rem;
+            cursor: pointer;
         }
+        .chip-opts:hover { opacity: 1; }
         .chip-opts-ico { width: 11px; height: 11px; }
 )HTML";
     html += R"HTML(
+        /* Always rendered (D5/D7); faint by default, brightens on chip hover or
+           selection so it's discoverable without permanently resizing the chip. */
         .chip-remove {
             cursor: pointer;
             color: #f85149;
             font-weight: bold;
             font-size: 1rem;
             margin-left: 0.25rem;
+            opacity: 0.4;
+            transition: opacity 0.15s;
         }
+        .chip:hover .chip-remove, .chip.selected .chip-remove { opacity: 1; }
         .add-btn {
             width: 36px;
             height: 36px;
@@ -1493,26 +1524,88 @@ QString ShotServer::generateLayoutPage() const
             .editor-preview-col { flex-direction: row; gap: 0.5rem; }
         }
 
-        /* Library panel */
+        /* ---- Page grid (D1): instructions span full width on top; below,
+           zones on the left and a fixed-width right column (preview + library)
+           on the right. Stacks to a single column at <=1100px so the sticky
+           library panel never overlaps the zone cards. ---- */
         .main-wrapper {
-            display: flex;
-            gap: 0;
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            grid-template-areas:
+                "instructions instructions"
+                "zones right";
+            column-gap: 1.5rem;
+            row-gap: 0.75rem;
             max-width: 1800px;
             margin: 0 auto;
+            padding: 1.5rem;
+            align-items: start;
         }
-        .main-wrapper .main-layout { flex: 1; min-width: 0; }
-        .library-panel {
-            width: 340px;
-            min-width: 340px;
+        .main-instructions {
+            grid-area: instructions;
+            margin: 0;
+            font-size: 0.8rem;
+            color: var(--muted, #8b949e);
+            max-width: 100%;
+        }
+        .main-wrapper .main-layout { grid-area: zones; min-width: 0; }
+        .right-column {
+            grid-area: right;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            min-width: 0;
+        }
+        .preview-pane {
             background: var(--surface);
-            border-left: 1px solid var(--border);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 0.75rem;
+        }
+        .preview-box {
+            width: 100%;
+            aspect-ratio: 1.6;
+            background: #14181d;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .pv-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 1px 4px;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.08);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .library-panel {
+            width: 100%;
+            min-width: 0;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
             padding: 1rem;
             display: flex;
             flex-direction: column;
-            height: calc(100vh - 60px);
+            max-height: calc(100vh - 80px);
             overflow: hidden;
             position: sticky;
-            top: 60px;
+            top: 76px;
+        }
+        @media (max-width: 1100px) {
+            .main-wrapper {
+                grid-template-columns: 1fr;
+                grid-template-areas:
+                    "instructions"
+                    "zones"
+                    "right";
+            }
+            .library-panel { position: static; height: auto; max-height: none; }
         }
         #libLocalContent, #libCommunityContent {
             flex: 1;
@@ -1829,7 +1922,7 @@ QString ShotServer::generateLayoutPage() const
     </div>
 
     <div class="main-wrapper">
-    <p style="margin:0 0 0.75rem;font-size:0.8rem;color:var(--muted,#8b949e)">Click + to add widgets. Drag a widget to reorder it. Click a widget to select it; widgets with a gear icon have options — click to edit.</p>
+    <p class="main-instructions">Click + to add widgets. Drag a widget to reorder it. Click a widget to select it, then click its gear icon to change options.</p>
     <div class="main-layout">
         <div class="zones-panel" id="zonesPanel"></div>
         <div class="editor-panel editor-hidden" id="editorPanel">
@@ -1950,7 +2043,6 @@ QString ShotServer::generateLayoutPage() const
                 </div>
             </div>
         </div>
-    </div>
 
     <!-- Screensaver Editor Panel -->
     <div class="editor-panel editor-hidden" id="ssEditorPanel">
@@ -2055,6 +2147,27 @@ QString ShotServer::generateLayoutPage() const
         </div>
     </div>
 
+    <!-- Readout Options Editor Panel (D3) — mirrors qml/components/layout/ReadoutOptionsPopup.qml.
+         Keep section headers/choice labels in sync with that file. -->
+    <div class="editor-panel editor-hidden" id="roEditorPanel">
+        <div class="ss-editor-card">
+            <h3 id="roEditorTitle">Readout Options</h3>
+            <div id="roSections"></div>
+            <div class="editor-buttons">
+                <div style="flex:1"></div>
+                <button class="btn btn-cancel" onclick="closeReadoutOptions()">Done</button>
+            </div>
+        </div>
+    </div>
+    </div><!-- end main-layout -->
+
+    <div class="right-column">
+        <!-- Preview (D4) -->
+        <div class="preview-pane">
+            <div class="section-label" style="margin-top:0">Preview</div>
+            <div class="preview-box" id="layoutPreview"></div>
+        </div>
+
     <!-- Library Panel (right sidebar) -->
     <div class="library-panel" id="libraryPanel">
         <div class="lib-spinner-overlay" id="libSpinner"><div class="lib-spinner"></div><div class="lib-spinner-text" id="libSpinnerText">Loading...</div></div>
@@ -2155,6 +2268,7 @@ QString ShotServer::generateLayoutPage() const
             <div class="lib-load-more" id="commLoadMore" style="display:none" onclick="loadMoreCommunity()">Load more...</div>
         </div>
     </div>
+    </div><!-- end right-column -->
     </div><!-- end main-wrapper -->
 
     <!-- Toast notification -->
@@ -2544,16 +2658,17 @@ QString ShotServer::generateLayoutPage() const
                             .then(function(props) {
                                 itemPropsCache[cid] = props;
                                 loaded++;
-                                if (loaded >= customIds.length) renderZones();
+                                if (loaded >= customIds.length) { renderZones(); renderPreview(); }
                             }).catch(function(e) {
                                 console.warn('Failed to load properties for custom item ' + cid + ':', e);
                                 loaded++;
-                                if (loaded >= customIds.length) renderZones();
+                                if (loaded >= customIds.length) { renderZones(); renderPreview(); }
                             });
                     })(customIds[pi]);
                 }
             } else {
                 renderZones();
+                renderPreview();
             }
         }).catch(function(e) {
             console.warn('loadLayout failed:', e);
@@ -2568,9 +2683,14 @@ QString ShotServer::generateLayoutPage() const
     }
 
     // Driven by the injected WIDGET_CAPABILITIES schema (same C++ table as the
-    // in-app editor); screensavers stay a prefix rule on both sides.
+    // in-app editor); screensavers stay a prefix rule on both sides. Mirrors
+    // SettingsNetwork::typeHasOptions (bespoke-editor types OR readout-schema
+    // types) — the bespoke types (custom/sleep/shotPlan/lastShot) have no
+    // WIDGET_CAPABILITIES entry but still need the gear affordance (D2/D3),
+    // since it is now the only way to open their editors.
     function typeHasOptions(type) {
         if (type.indexOf("screensaver") === 0) return true;
+        if (type === "custom" || type === "sleep" || type === "shotPlan" || type === "lastShot") return true;
         return WIDGET_CAPABILITIES.hasOwnProperty(type);
     }
 
@@ -2643,14 +2763,14 @@ QString ShotServer::generateLayoutPage() const
                 if (layoutData && layoutData.offsets && layoutData.offsets[zone.key] !== undefined)
                     offset = layoutData.offsets[zone.key];
                 html += '<div class="zone-offset-controls">';
-                html += '<button class="offset-btn" onclick="changeOffset(\'' + zone.key + '\',-5)">&#9650;</button>';
-                html += '<span class="offset-val">' + (offset !== 0 ? (offset > 0 ? "+" : "") + offset : "0") + '</span>';
-                html += '<button class="offset-btn" onclick="changeOffset(\'' + zone.key + '\',5)">&#9660;</button>';
+                html += '<button class="offset-btn" title="Move zone up" aria-label="Move zone up" onclick="changeOffset(\'' + zone.key + '\',-5)">&#9650;</button>';
+                html += '<span class="offset-val" title="Vertical offset" aria-label="Vertical offset">' + (offset !== 0 ? (offset > 0 ? "+" : "") + offset : "0") + '</span>';
+                html += '<button class="offset-btn" title="Move zone down" aria-label="Move zone down" onclick="changeOffset(\'' + zone.key + '\',5)">&#9660;</button>';
                 var scale = (layoutData && layoutData.scales && layoutData.scales[zone.key]) ? layoutData.scales[zone.key] : 1.0;
                 html += '<div class="offset-separator"></div>';
-                html += '<span class="offset-val">' + (scale !== 1.0 ? '&times;' + scale.toFixed(2) : '') + '</span>';
-                html += '<button class="offset-btn" onclick="changeScale(\'' + zone.key + '\',-0.05)" style="font-weight:bold">&minus;</button>';
-                html += '<button class="offset-btn" onclick="changeScale(\'' + zone.key + '\',0.05)" style="font-weight:bold">+</button>';
+                html += '<span class="offset-val" title="Zone scale" aria-label="Zone scale">' + (scale !== 1.0 ? '&times;' + scale.toFixed(2) : '') + '</span>';
+                html += '<button class="offset-btn" title="Zone scale &minus;" aria-label="Zone scale minus" style="font-weight:bold" onclick="changeScale(\'' + zone.key + '\',-0.05)">&minus;</button>';
+                html += '<button class="offset-btn" title="Zone scale +" aria-label="Zone scale plus" style="font-weight:bold" onclick="changeScale(\'' + zone.key + '\',0.05)">+</button>';
                 html += '</div>';
             }
             html += '</div>';
@@ -2723,68 +2843,19 @@ QString ShotServer::generateLayoutPage() const
                     var ov = item.color && WIDGET_COLORS[item.color];
                     html += ov ? ('<span style="color:' + ov + '">' + lbl + '</span>') : lbl;
                 }
-                // Persistent "has options" indicator.
+                // Persistent "has options" indicator — a real button (D2/D3): opens
+                // the type-appropriate editor on every click, regardless of
+                // selection state. Inline per-option <select>s were removed; see
+                // openReadoutOptions() / the "Readout Options Editor" block below.
                 if (typeHasOptions(item.type)) {
-                    html += '<span class="chip-opts" title="Has options">' + GEAR_SVG + '</span>';
+                    html += '<span class="chip-opts" title="Options" role="button" tabindex="0" aria-label="Widget options"'
+                         + ' onclick="event.stopPropagation();gearClick(\'' + item.id + '\',\'' + zone.key + '\',\'' + item.type + '\')">' + GEAR_SVG + '</span>';
                 }
-                // Inline option selectors for selected readout chips: each is
-                // gated by the type's capability keys (WIDGET_CAPABILITIES).
-                if (isSel && typeHasOptionKey(item.type, "dataMode")) {
-                    var dm = item.dataMode || "gross";
-                    var modes = [["gross","Gross"],["netBeans","Net beans"],["netMilk","Net milk"],["contextAware","Context"],["expectedYield","Expected output"]];
-                    html += '<select class="chip-mode" onchange="setScaleMode(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
-                    for (var mm = 0; mm < modes.length; mm++) {
-                        var msel = (dm === modes[mm][0]) ? ' selected' : '';
-                        html += '<option value="' + modes[mm][0] + '"' + msel + '>' + modes[mm][1] + '</option>';
-                    }
-                    html += '</select>';
-                }
-                if (isSel && typeHasOptionKey(item.type, "showRatio")) {
-                    // Show-ratio toggle: suppress the redundant 1:X.X suffix.
-                    var sr = (item.showRatio === undefined) ? true : item.showRatio;
-                    html += '<select class="chip-mode" onchange="setShowRatio(\'' + item.id + '\',this.value===\'1\')" onclick="event.stopPropagation()">';
-                    html += '<option value="1"' + (sr ? ' selected' : '') + '>Ratio on</option>';
-                    html += '<option value="0"' + (!sr ? ' selected' : '') + '>Ratio off</option>';
-                    html += '</select>';
-                }
-                if (isSel && typeHasOptionKey(item.type, "displayMode")) {
-                    // An absent stored mode always means "today's rendering";
-                    // the per-type default is injected from the schema.
-                    var disp = item.displayMode || WIDGET_DISPLAY_DEFAULTS[item.type] || "text";
-                    var dispModes = [["text","Value only"],["icon","Icon + value"]];
-                    html += '<select class="chip-mode" onchange="setDisplayMode(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
-                    for (var dd = 0; dd < dispModes.length; dd++) {
-                        var dsel = (disp === dispModes[dd][0]) ? ' selected' : '';
-                        html += '<option value="' + dispModes[dd][0] + '"' + dsel + '>' + dispModes[dd][1] + '</option>';
-                    }
-                    html += '</select>';
-                }
-                if (isSel && typeHasOptionKey(item.type, "color")) {
-                    var clr = item.color || "default";
-                    var clrs = [["default","Default"],["white","White"],["green","Green"],["red","Red"],["blue","Blue"],["orange","Orange"]];
-                    html += '<select class="chip-mode" onchange="setColor(\'' + item.id + '\',this.value)" onclick="event.stopPropagation()">';
-                    for (var cc = 0; cc < clrs.length; cc++) {
-                        var csel = (clr === clrs[cc][0]) ? ' selected' : '';
-                        html += '<option value="' + clrs[cc][0] + '"' + csel + '>' + clrs[cc][1] + '</option>';
-                    }
-                    html += '</select>';
-                }
-                // Inline quit toggle for a selected Sleep chip.
-                if (isSel && item.type === "sleep") {
-                    var aq = (item.allowQuit === undefined) ? true : item.allowQuit;
-                    html += '<select class="chip-mode" onchange="setAllowQuit(\'' + item.id + '\',this.value===\'1\')" onclick="event.stopPropagation()">';
-                    html += '<option value="1"' + (aq ? ' selected' : '') + '>Quit on long-press</option>';
-                    html += '<option value="0"' + (!aq ? ' selected' : '') + '>No quit</option>';
-                    html += '</select>';
-                    var si = (item.showIcon === undefined) ? true : item.showIcon;
-                    html += '<select class="chip-mode" onchange="setShowIcon(\'' + item.id + '\',this.value===\'1\')" onclick="event.stopPropagation()">';
-                    html += '<option value="1"' + (si ? ' selected' : '') + '>Icon on</option>';
-                    html += '<option value="0"' + (!si ? ' selected' : '') + '>Icon off</option>';
-                    html += '</select>';
-                }
-                if (isSel) {
-                    html += '<span class="chip-remove" onclick="event.stopPropagation();removeItem(\'' + item.id + '\',\'' + zone.key + '\')">&times;</span>';
-                }
+                // Remove control (D5/D7): always present, faint until hover/selection
+                // (see .chip-remove CSS), so chip content/size is stable across
+                // selection state. Configured items get a confirmation prompt.
+                html += '<span class="chip-remove" title="Remove widget" aria-label="Remove widget"'
+                     + ' onclick="event.stopPropagation();confirmRemoveItem(\'' + item.id + '\',\'' + zone.key + '\',' + (item.configured ? 'true' : 'false') + ')">&times;</span>';
                 html += '</span>';
             }
 
@@ -2817,10 +2888,152 @@ QString ShotServer::generateLayoutPage() const
         }
         panel.innerHTML = html;
     }
+
+    // ---- Preview (D4) ----
+    // Web analog of qml/components/layout/LayoutPreview.qml: a client-rendered
+    // HTML approximation of the 960x600 device home screen, built from the
+    // same layoutData that drives renderZones() above. Not pixel-faithful by
+    // design (see design.md's non-goals) — placement, order, distribution/
+    // alignment/style, offset, scale, and widget labels/colors are what it
+    // is required to get right.
+
+    // One mini-chip per item: custom items show emoji + truncated text
+    // (mirrors renderZones()'s custom-chip rendering above); spacer/separator
+    // render as a gap/divider instead of a labeled chip; everything else shows
+    // its catalog display name, tinted by a color override if set.
+    function pvItemHtml(item, axis) {
+        if (item.type === "spacer") {
+            return '<span style="flex:1 1 auto;min-width:6px"></span>';
+        }
+        if (item.type === "separator") {
+            var sepStyle = axis === "row"
+                ? "width:1px;align-self:stretch;background:rgba(255,255,255,0.25);margin:0 2px"
+                : "height:1px;align-self:stretch;background:rgba(255,255,255,0.25);margin:2px 0";
+            return '<span style="' + sepStyle + '"></span>';
+        }
+        var inner = "";
+        if (item.type === "custom") {
+            var props = itemPropsCache[item.id];
+            if (props && props.emoji) {
+                if (props.emoji.indexOf("qrc:") === 0) {
+                    inner += '<img src="' + props.emoji.replace("qrc:", "") + '" style="width:10px;height:10px;vertical-align:middle;filter:brightness(0) invert(1);margin-right:2px">';
+                } else {
+                    inner += '<span style="margin-right:2px">' + props.emoji + '</span>';
+                }
+            }
+            var label = stripHtml((props && props.content) || "");
+            label = label.length > 14 ? label.substring(0, 12) + "..." : (label || "Custom");
+            inner += label;
+        } else {
+            var lbl = DISPLAY_NAMES[item.type] || item.type;
+            var ov = item.color && WIDGET_COLORS[item.color];
+            inner = ov ? ('<span style="color:' + ov + '">' + lbl + '</span>') : lbl;
+        }
+        return '<span class="pv-chip">' + inner + '</span>';
+    }
+
+    // Distribution/alignment -> flex justify-content, approximating the
+    // in-app zone layout modes (packed/equalWidth/spaced, left/center/right).
+    function pvJustify(zopts) {
+        var dist = zopts.distribution || "packed";
+        if (dist === "spaced") return "space-around";
+        if (dist === "equalWidth") return "space-between";
+        var align = zopts.alignment || "center";
+        if (align === "left") return "flex-start";
+        if (align === "right") return "flex-end";
+        return "center";
+    }
+
+    // "surface"/"accentBar" zone styles are approximated as a subtle tint or
+    // an accent-colored edge strip; "standard" is unstyled (see design.md's
+    // explicit non-goal: approximate, not pixel-perfect).
+    function pvZoneStyle(zopts) {
+        var style = zopts.style || "standard";
+        if (style === "surface") return "background:rgba(255,255,255,0.06);border-radius:4px;";
+        if (style === "accentBar") return "border-left:2px solid var(--accent);padding-left:3px;";
+        return "";
+    }
+
+    function pvRow(zoneKey, extraStyle) {
+        var items = (layoutData && layoutData.zones && layoutData.zones[zoneKey]) || [];
+        var zopts = (layoutData && layoutData.zoneOptions && layoutData.zoneOptions[zoneKey]) ? layoutData.zoneOptions[zoneKey] : {};
+        var inner = "";
+        for (var i = 0; i < items.length; i++) inner += pvItemHtml(items[i], "row");
+        return '<div style="display:flex;align-items:center;gap:3px;justify-content:' + pvJustify(zopts)
+             + ';overflow:hidden;' + pvZoneStyle(zopts) + (extraStyle || '') + '">' + inner + '</div>';
+    }
+
+    function renderPreview() {
+        var box = document.getElementById("layoutPreview");
+        if (!box) return;
+        var statusItems = (layoutData && layoutData.zones && layoutData.zones.statusBar) || [];
+        var centerStatusItems = (layoutData && layoutData.zones && layoutData.zones.centerStatus) || [];
+        var centerMiddleItems = (layoutData && layoutData.zones && layoutData.zones.centerMiddle) || [];
+        var lowerMidItems = (layoutData && layoutData.zones && layoutData.zones.lowerMidBar) || [];
+
+        function centerBand(zoneKey) {
+            var offsets = (layoutData && layoutData.offsets) || {};
+            var scales = (layoutData && layoutData.scales) || {};
+            var offset = offsets[zoneKey] || 0;
+            var scale = (scales[zoneKey] !== undefined) ? scales[zoneKey] : 1.0;
+            // Offsets are stored in device (960x600) pixels; scale them down by
+            // the same ratio the whole preview box is shrunk by (box is ~1/2.4
+            // of the 960px reference at the panel's default width).
+            var marginTop = Math.round(offset * 0.35);
+            return '<div style="margin-top:' + marginTop + 'px;transform:scale(' + scale + ');transform-origin:center;">'
+                 + pvRow(zoneKey) + '</div>';
+        }
+
+        var html = '<div style="display:flex;flex-direction:column;height:100%;font-size:9px;color:#e6edf3;padding:4px;box-sizing:border-box;gap:2px">';
+
+        // Status bar: full-width thin strip.
+        html += pvRow("statusBar", "padding-bottom:2px;border-bottom:1px solid rgba(255,255,255,0.12);");
+
+        // Top bar: left/right clusters.
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">';
+        html += '<div style="flex:1;min-width:0">' + pvRow("topLeft") + '</div>';
+        html += '<div style="flex:1;min-width:0;display:flex;justify-content:flex-end">' + pvRow("topRight") + '</div>';
+        html += '</div>';
+
+        // Middle: centerStatus/centerTop/centerMiddle stacked, honoring offset+scale.
+        // centerStatus/centerMiddle are skipped when empty (mirrors LayoutPreview.qml's
+        // visible: items.length > 0); centerTop has no such gate and always renders.
+        html += '<div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;overflow:hidden;min-height:0">';
+        if (centerStatusItems.length > 0) html += centerBand("centerStatus");
+        html += centerBand("centerTop");
+        if (centerMiddleItems.length > 0) html += centerBand("centerMiddle");
+        html += '</div>';
+
+        // Lower-mid bar: hidden entirely when the zone has no items.
+        if (lowerMidItems.length > 0) {
+            html += pvRow("lowerMidBar", "padding-top:2px;border-top:1px solid rgba(255,255,255,0.12);");
+        }
+
+        // Bottom bar: left/right clusters.
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:4px;padding-top:2px;border-top:1px solid rgba(255,255,255,0.12)">';
+        html += '<div style="flex:1;min-width:0">' + pvRow("bottomLeft") + '</div>';
+        html += '<div style="flex:1;min-width:0;display:flex;justify-content:flex-end">' + pvRow("bottomRight") + '</div>';
+        html += '</div>';
+
+        html += '</div>';
+        box.innerHTML = html;
+    }
 )HTML";
 
     // Part 5b: Layout editor JS - interaction handlers
     html += R"HTML(
+    // Closes any open instance editor (custom / screensaver / readout options)
+    // that does not belong to keepId. Pass null/undefined to close all of them.
+    // Called whenever selectedChip changes away from the editor's item (D2/D3
+    // "editor closes when its widget is deselected") — chipClick, zoneClick,
+    // and resetLayout all funnel through this so there is one place that knows
+    // the full set of editor kinds.
+    function closeEditorsExcept(keepId) {
+        if (editingItem && editingItem.id !== keepId) closeEditor();
+        if (ssEditingItem && ssEditingItem.id !== keepId) closeScreensaverEditor();
+        if (roEditingItem && roEditingItem.id !== keepId) closeReadoutOptions();
+    }
+
     function zoneClick(zoneKey, event) {
         // Only handle clicks on the zone card itself, not on chips/buttons inside
         if (event.target.closest('.chip, .add-btn, .add-dropdown, .offset-btn')) return;
@@ -2829,20 +3042,36 @@ QString ShotServer::generateLayoutPage() const
         } else {
             selectedChip = {id: null, zone: zoneKey};
         }
+        closeEditorsExcept(null);
         renderZones();
     }
 
+    // Chip click is selection-only (D2) — it no longer opens any editor.
+    // Opening an editor is the gear's job (see gearClick below), so a widget's
+    // options are never a dead click away from an alternating select/deselect.
     function chipClick(itemId, zone, type) {
         if (selectedChip && selectedChip.id === itemId) {
             // Deselect
             selectedChip = null;
+            closeEditorsExcept(null);
         } else {
             selectedChip = {id: itemId, zone: zone};
-            if (type === "custom") {
-                openEditor(itemId, zone);
-            } else if (type.indexOf("screensaver") === 0 || type === "lastShot" || type === "shotPlan") {
-                openScreensaverEditor(itemId, zone, type);
-            }
+            closeEditorsExcept(itemId);
+        }
+        renderZones();
+    }
+
+    // Gear click: always opens the type-appropriate editor, regardless of the
+    // chip's prior selection state (D2). Also selects the chip for visual
+    // consistency with the in-app editor.
+    function gearClick(itemId, zone, type) {
+        selectedChip = {id: itemId, zone: zone};
+        if (type === "custom") {
+            openEditor(itemId, zone);
+        } else if (type.indexOf("screensaver") === 0 || type === "lastShot" || type === "shotPlan") {
+            openScreensaverEditor(itemId, zone, type);
+        } else if (typeHasOptions(type)) {
+            openReadoutOptions(itemId, zone, type);
         }
         renderZones();
     }
@@ -2891,11 +3120,20 @@ QString ShotServer::generateLayoutPage() const
         });
     }
 
+    // Remove confirmation (D5): configured widgets (has non-default settings,
+    // per SettingsNetwork::itemIsConfigured — see the "configured" field added
+    // to GET /api/layout) prompt first; bare widgets remove directly.
+    function confirmRemoveItem(itemId, zone, configured) {
+        if (configured && !confirm("Remove this widget and its settings?")) return;
+        removeItem(itemId, zone);
+    }
+
     function removeItem(itemId, zone) {
         apiPost("/api/layout/remove", {itemId: itemId, zone: zone}, function() {
             if (selectedChip && selectedChip.id === itemId) selectedChip = null;
             if (editingItem && editingItem.id === itemId) closeEditor();
             if (ssEditingItem && ssEditingItem.id === itemId) closeScreensaverEditor();
+            if (roEditingItem && roEditingItem.id === itemId) closeReadoutOptions();
             loadLayout();
         });
     }
@@ -2931,39 +3169,138 @@ QString ShotServer::generateLayoutPage() const
         });
     }
 
-    function setScaleMode(itemId, mode) {
-        apiPost("/api/layout/item", {itemId: itemId, key: "dataMode", value: mode}, function() {
-            loadLayout();
-        });
+    // ---- Readout Options Editor ----
+    // Labeled options panel opened by the chip gear (D2/D3). Mirrors the
+    // section headers, choice labels, and hints of
+    // qml/components/layout/ReadoutOptionsPopup.qml — keep both in sync.
+    // Sections are driven by WIDGET_CAPABILITIES[type] (schema order), so a
+    // new option key shows up here without a separate web-side type list.
+    // Sleep's allowQuit/showIcon pair is special-cased the same way the QML
+    // side special-cases type === "sleep" in openCustomEditor (sleep is a
+    // bespoke-editor type with no capability-schema entries).
+    var roEditingItem = null;   // {id, zone}
+    var roEditingType = "";
+    var roEditingProps = {};
+    var roPendingValues = {};   // key -> value not yet persisted
+    var roAutoSaveTimer = null;
+
+    var RO_DATA_MODE_CHOICES = [
+        ["gross", "Gross weight"],
+        ["netBeans", "Net beans (minus dose tare)"],
+        ["netMilk", "Net milk (minus pitcher)"],
+        ["contextAware", "Context-aware (milk while steaming, else beans)"],
+        ["expectedYield", "Expected output (target weight)"]
+    ];
+    var RO_DISPLAY_MODE_CHOICES = [["text", "Value only"], ["icon", "Icon + value"]];
+    var RO_COLOR_CHOICES = [
+        ["default", "Default"], ["white", "White"], ["green", "Green"],
+        ["red", "Red"], ["blue", "Blue"], ["orange", "Orange"]
+    ];
+
+    function roRadioSection(header, key, choices, current) {
+        var html = '<div class="section-label" style="margin-top:0.9rem">' + header + '</div>';
+        for (var i = 0; i < choices.length; i++) {
+            var val = choices[i][0], label = choices[i][1];
+            var checked = (current === val) ? ' checked' : '';
+            html += '<label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;padding:0.2rem 0">'
+                 + '<input type="radio" name="ro_' + key + '" value="' + val + '"' + checked
+                 + ' onchange="roFieldChanged(\'' + key + '\',\'' + val + '\')">'
+                 + '<span style="color:var(--text);font-size:0.875rem">' + label + '</span></label>';
+        }
+        return html;
     }
 
-    function setDisplayMode(itemId, mode) {
-        apiPost("/api/layout/item", {itemId: itemId, key: "displayMode", value: mode}, function() {
-            loadLayout();
-        });
+    function roCheckboxRow(key, label, hint, current) {
+        var html = '<div style="margin-top:0.9rem">';
+        html += '<label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer">'
+             + '<input type="checkbox" id="ro_' + key + '"' + (current ? ' checked' : '')
+             + ' onchange="roFieldChanged(\'' + key + '\',this.checked)">'
+             + '<span style="color:var(--text);font-size:0.875rem">' + label + '</span></label>';
+        if (hint) html += '<div style="font-size:0.75rem;color:var(--text-secondary);margin:0.15rem 0 0 1.75rem">' + hint + '</div>';
+        html += '</div>';
+        return html;
     }
 
-    function setColor(itemId, color) {
-        apiPost("/api/layout/item", {itemId: itemId, key: "color", value: color}, function() {
-            loadLayout();
-        });
+    function roSectionsHtml(type, props) {
+        if (type === "sleep") {
+            var aq = (props.allowQuit === undefined) ? true : props.allowQuit;
+            var si = (props.showIcon === undefined) ? true : props.showIcon;
+            return roCheckboxRow("allowQuit", "Quit on long-press", "", aq)
+                 + roCheckboxRow("showIcon", "Show icon", "", si);
+        }
+        var keys = typeOptionKeys(type);
+        var html = "";
+        for (var k = 0; k < keys.length; k++) {
+            var key = keys[k];
+            if (key === "dataMode") {
+                html += roRadioSection("Scale data mode", "dataMode", RO_DATA_MODE_CHOICES, props.dataMode || "gross");
+            } else if (key === "displayMode") {
+                var disp = props.displayMode || WIDGET_DISPLAY_DEFAULTS[type] || "text";
+                html += roRadioSection("Display", "displayMode", RO_DISPLAY_MODE_CHOICES, disp);
+            } else if (key === "showRatio") {
+                var sr = (props.showRatio === undefined) ? true : props.showRatio;
+                html += roCheckboxRow("showRatio", "Show ratio", "Off = weight only, no 1:X.X suffix", sr);
+            } else if (key === "color") {
+                html += roRadioSection("Color", "color", RO_COLOR_CHOICES, props.color || "default");
+            }
+        }
+        return html;
     }
 
-    function setAllowQuit(itemId, allow) {
-        apiPost("/api/layout/item", {itemId: itemId, key: "allowQuit", value: allow}, function() {
-            loadLayout();
-        });
+    function openReadoutOptions(itemId, zone, type) {
+        closeEditor();
+        closeScreensaverEditor();
+        if (roEditingItem && roEditingItem.id !== itemId) roFlushPending();
+        roEditingItem = {id: itemId, zone: zone};
+        roEditingType = type;
+        document.getElementById("roEditorTitle").textContent = (DISPLAY_NAMES[type] || type) + " Options";
+        fetch("/api/layout/item?id=" + encodeURIComponent(itemId))
+            .then(function(r) {
+                if (!r.ok) throw new Error('Server error (' + r.status + ')');
+                return r.json();
+            })
+            .then(function(props) {
+                roEditingProps = props || {};
+                document.getElementById("roSections").innerHTML = roSectionsHtml(type, roEditingProps);
+                document.getElementById("roEditorPanel").classList.remove("editor-hidden");
+            }).catch(function(e) {
+                console.warn('openReadoutOptions failed:', e);
+                showLibToast('Failed to load item properties');
+            });
     }
 
-    function setShowIcon(itemId, show) {
-        apiPost("/api/layout/item", {itemId: itemId, key: "showIcon", value: show}, function() {
-            loadLayout();
-        });
+    function closeReadoutOptions() {
+        roFlushPending();
+        roEditingItem = null;
+        roEditingType = "";
+        document.getElementById("roEditorPanel").classList.add("editor-hidden");
     }
 
-    function setShowRatio(itemId, show) {
-        apiPost("/api/layout/item", {itemId: itemId, key: "showRatio", value: show}, function() {
-            loadLayout();
+    // Single shared 200ms debounce timer (task 3.3); each field change refills
+    // roPendingValues and restarts the timer, so a burst of edits across
+    // different keys all get flushed together instead of the last one winning.
+    function roFieldChanged(key, value) {
+        if (!roEditingItem) return;
+        roEditingProps[key] = value;
+        roPendingValues[key] = value;
+        if (roAutoSaveTimer) clearTimeout(roAutoSaveTimer);
+        roAutoSaveTimer = setTimeout(roFlushPending, 200);
+    }
+
+    function roFlushPending() {
+        if (roAutoSaveTimer) { clearTimeout(roAutoSaveTimer); roAutoSaveTimer = null; }
+        if (!roEditingItem) { roPendingValues = {}; return; }
+        var id = roEditingItem.id;
+        var pending = roPendingValues;
+        roPendingValues = {};
+        var keys = Object.keys(pending);
+        if (keys.length === 0) return;
+        var done = 0;
+        keys.forEach(function(key) {
+            apiPost("/api/layout/item", {itemId: id, key: key, value: pending[key]}, function() {
+                done++;
+                if (done >= keys.length) loadLayout();
+            });
         });
     }
 
@@ -2993,6 +3330,7 @@ QString ShotServer::generateLayoutPage() const
             selectedChip = null;
             closeEditor();
             closeScreensaverEditor();
+            closeReadoutOptions();
             loadLayout();
         });
     }
@@ -3013,8 +3351,9 @@ QString ShotServer::generateLayoutPage() const
     };
 
     function openScreensaverEditor(itemId, zone, type) {
-        // Close custom editor if open
+        // Close other editor kinds if open
         closeEditor();
+        closeReadoutOptions();
         ssEditingItem = {id: itemId, zone: zone};
         ssEditingType = type;
         document.getElementById("ssEditorTitle").textContent = SS_TITLES[type] || "Screensaver Settings";
@@ -3414,8 +3753,9 @@ QString ShotServer::generateLayoutPage() const
     }
 
     function openEditor(itemId, zone) {
-        // Close screensaver editor if open
+        // Close other editor kinds if open
         closeScreensaverEditor();
+        closeReadoutOptions();
         // Flush any pending auto-save from previously edited item
         if (editingItem && autoSaveTimer) {
             clearTimeout(autoSaveTimer); autoSaveTimer = null; saveText();
