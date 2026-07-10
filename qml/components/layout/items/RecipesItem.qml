@@ -194,22 +194,15 @@ Item {
             id: recipesPillRow
             maxWidth: Theme.scaled(600)
             // Drink-type icon per pill (add-recipe-wizard-tea): the stored
-            // drinkType, with a block-derived fallback for legacy rows (no
-            // profile lookup here — milk/water are the cheap signals).
+            // drinkType, with a block-derived fallback for legacy rows (the
+            // DrinkType singleton — no profile lookup). A stale recipe (its
+            // linked bag finished) dims but still activates.
             presets: root.inventoryRecipes.map(function(r) {
-                var t = r.drinkType || ""
-                if (t === "") {
-                    var milk = false, water = false
-                    try { milk = !!(r.steamJson && JSON.parse(r.steamJson).hasMilk) } catch (e) {}
-                    try { water = !!(r.hotWaterJson && JSON.parse(r.hotWaterJson).hasWater) } catch (e) {}
-                    t = milk ? "latte" : (water ? "americano" : "espresso")
-                }
-                var icon = "qrc:/icons/espresso.svg"
-                if (t === "filter") icon = "qrc:/icons/filter.svg"
-                else if (t === "americano" || t === "long_black") icon = "qrc:/icons/water.svg"
-                else if (t === "latte") icon = "qrc:/icons/steam.svg"
-                else if (t === "tea" || t === "tea_hotwater") icon = "qrc:/icons/tea.svg"
-                return { name: r.name, icon: icon }
+                return { name: r.name,
+                         icon: DrinkType.icon(DrinkType.fromRecipeMap(r)),
+                         dimmed: r.stale === true,
+                         stateHint: r.stale === true ? TranslationManager.translate(
+                             "recipes.pill.bagFinished", "bag finished") : "" }
             })
             selectedIndex: {
                 var list = root.inventoryRecipes

@@ -1457,6 +1457,38 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 29: recipes.bag_id (recipes-bag-links-ui-polish). Recipes now
+    // link a SPECIFIC bag instead of resolving their bean identity to the
+    // most-recently-used open bag at every activation (which silently picked
+    // the wrong bag for users running two bags of one bean at different
+    // ages). Additive column plus a one-time data pass that resolves each
+    // existing recipe's bean identity to its current open bag — the retired
+    // resolver's logic, run once; recipes whose bean has no open bag stay
+    // NULL and present as stale. Fresh DBs get the column from
+    // ensureTableStatic (the hasColumn guard makes both paths converge).
+    // Idempotent (the data pass only touches NULL bag_id rows), gated
+    // ">= 28 && < 29", mirroring migration 28.
+    if (currentVersion >= 28 && currentVersion < 29) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 29 (recipes bag_id)";
+
+        if (!hasColumn("recipes", "bag_id")
+            && !query.exec ("ALTER TABLE recipes ADD COLUMN bag_id INTEGER"))
+            qWarning() << "ShotHistoryStorage: migration 29 add recipes.bag_id failed -"
+                       << query.lastError().text();
+
+        // The version bump gates on the DATA pass too: the pass is
+        // idempotent (NULL bag_id rows only), so a transient failure —
+        // locked DB at upgrade time — simply retries next launch instead
+        // of permanently stranding every recipe stale.
+        if (hasColumn("recipes", "bag_id") && RecipeStorage::migrateBagLinksStatic(m_db)) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (29)");
+            currentVersion = 29;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 29 incomplete - will retry next launch";
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }
@@ -3239,9 +3271,12 @@ bool ShotHistoryStorage::importDatabaseStatic(const QString& destDbPath, const Q
             // (finish-recipes-first-class): recipe row ids change on insert,
             // exactly like bag ids. Pre-migration-25 sources have no recipes
             // table and yield an empty map. packageIdMap remaps each recipe's
-            // equipment_id; the bean link is bean-level and carries verbatim.
+            // equipment_id; bagIdMap remaps its bag_id (an unmatched source
+            // bag becomes NULL → stale); the bean identity fields carry
+            // verbatim as the relink matching key.
             QHash<qint64, qint64> recipeIdMap;
-            if (!RecipeStorage::importRecipesStatic(srcDb, destDb, merge, recipeIdMap, packageIdMap)) {
+            if (!RecipeStorage::importRecipesStatic(srcDb, destDb, merge, recipeIdMap, packageIdMap,
+                                                    bagIdMap)) {
                 qWarning() << "ShotHistoryStorage::importDatabaseStatic: Recipe import failed";
                 destDb.rollback();
                 goto cleanup;

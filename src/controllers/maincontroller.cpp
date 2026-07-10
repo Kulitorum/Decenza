@@ -1,5 +1,6 @@
 #include "core/settings_app.h"
 #include "maincontroller.h"
+#include <QUuid>
 #include "shottimingcontroller.h"
 #include "autoflowcalclassifier.h"
 #include "abortedshotclassifier.h"
@@ -764,7 +765,7 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
 // ---------------------------------------------------------------------------
 // Recipes (add-recipes)
 //
-// A recipe is the whole drink: profile + bean link + equipment + dose/yield/
+// A recipe is the whole drink: profile + linked bag + equipment + dose/yield/
 // temp + grind routing + steam block. This is the SINGLE activation path —
 // QML pill taps, MCP recipe_activate, and the web /activate route all land
 // here, so activation semantics cannot drift between surfaces.
@@ -812,6 +813,39 @@ void MainController::setupRecipeConnections() {
     // Activation bundles arrive here from the storage worker.
     connect(m_recipeStorage, &RecipeStorage::recipeActivationReady, this,
             &MainController::applyActivatedRecipe);
+
+    // --- Relink lifecycle (recipe-bag-lifecycle): recipes follow bag
+    // inventory events, silently and dup-guarded — roll-on-finish when a
+    // bag leaves inventory, wake-on-restock when a new bag arrives. Pure
+    // event hooks on the storage signals (no polling, no timers); the
+    // courtesy toast lives in main.qml on recipesRelinked.
+    connect(m_bagStorage, &CoffeeBagStorage::bagFinished, this, [this](qint64 bagId) {
+        m_recipeStorage->requestRelinkForFinishedBag(bagId);
+    });
+    connect(m_bagStorage, &CoffeeBagStorage::bagCreated, this,
+            [this](qint64 bagId, const QVariantMap&) {
+        if (bagId > 0)
+            m_recipeStorage->requestRelinkForRestockedBag(bagId);
+    });
+    // A bag RETURNING to inventory (un-finished via MCP/web update) wakes
+    // stale siblings exactly like a new bag — idempotent + dup-guarded.
+    connect(m_bagStorage, &CoffeeBagStorage::bagRestocked, this, [this](qint64 bagId) {
+        m_recipeStorage->requestRelinkForRestockedBag(bagId);
+    });
+    // When an automatic relink moved the ACTIVE recipe, refresh its cache so
+    // grind routing and the deactivate watchers see the new bag link.
+    connect(m_recipeStorage, &RecipeStorage::recipesRelinked, this,
+            [this](const QVariantList& movedRecipeIds, qint64, const QString&) {
+        const qint64 activeId = m_settings->dye()->activeRecipeId();
+        if (activeId <= 0)
+            return;
+        for (const QVariant& moved : movedRecipeIds) {
+            if (moved.toLongLong() == activeId) {
+                m_recipeStorage->requestRecipe(activeId);
+                break;
+            }
+        }
+    });
 
     // Keep the active-recipe cache fresh after edits (composer, MCP, web,
     // our own stamps). recipeUpdated fires for every update, success or not.
@@ -867,7 +901,8 @@ void MainController::setupRecipeConnections() {
     connect(m_settings->dye(), &SettingsDye::activeBagIdChanged, this, [this]() {
         if (m_applyingRecipe || m_activeRecipe.isEmpty())
             return;
-        const bool hasBeanLink = !m_activeRecipe.value("beanBaseId").toString().isEmpty()
+        const bool hasBeanLink = m_activeRecipe.value("bagId").toLongLong() > 0
+            || !m_activeRecipe.value("beanBaseId").toString().isEmpty()
             || !m_activeRecipe.value("roasterName").toString().isEmpty()
             || !m_activeRecipe.value("coffeeName").toString().isEmpty();
         if (!hasBeanLink)
@@ -1011,19 +1046,17 @@ void MainController::acceptRecipesFirstUpgrade(const QString& name, bool hasMilk
         return;
     }
 
-    const qint64 expectedShotId = m_recipesUpgradeShotRecord.summary.id;
-    const QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
+    QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
         m_recipesUpgradeShotRecord, name, std::optional<bool>(hasMilk), currentSteamSpecJson());
+    // Correlation token: recipeCreated is a broadcast — a concurrent MCP/web
+    // create (or its failure) must not be mistaken for the starter recipe.
+    const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    fields.insert(QStringLiteral("requestToken"), token);
 
     auto conn = std::make_shared<QMetaObject::Connection>();
     *conn = connect(m_recipeStorage, &RecipeStorage::recipeCreated, this,
-        [this, conn, name, expectedShotId](qint64 recipeId, const QVariantMap& recipe) {
-            // recipeCreated is a global signal — a concurrent MCP/web
-            // recipe_create firing while this one-shot listener is armed
-            // must not be mistaken for the upgrade's own starter recipe.
-            // A failure (recipeId <= 0) carries no id to correlate against,
-            // so it's still treated as terminal for this request.
-            if (recipeId > 0 && recipe.value("createdFromShotId").toLongLong() != expectedShotId)
+        [this, conn, name, token](qint64 recipeId, const QVariantMap& recipe) {
+            if (recipe.value(QStringLiteral("requestToken")).toString() != token)
                 return;
             QObject::disconnect(*conn);
             if (recipeId > 0) {
@@ -1039,7 +1072,7 @@ void MainController::acceptRecipesFirstUpgrade(const QString& name, bool hasMilk
 }
 
 void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& recipe,
-                                          qint64 openBagId, const QVariantMap& openBag) {
+                                          qint64 linkedBagId, const QVariantMap& linkedBag) {
     if (recipe.isEmpty()) {
         qWarning() << "applyActivatedRecipe: recipe" << recipeId << "not found";
         emit recipeActivated(recipeId, false);
@@ -1096,22 +1129,22 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         // Bag: select keep-fields (deterministic — no async applyActiveBag
         // racing our values below), then apply the bag's OWN bean fields from
         // the bundle's snapshot. Write-throughs write the bag's values back
-        // into it: no-ops. A bean-less recipe (openBagId <= 0) leaves the
+        // into it: no-ops. A bean-less recipe (linkedBagId <= 0) leaves the
         // current bag untouched — the ladder says it doesn't own that choice.
-        if (openBagId > 0) {
-            dye->setActiveBagKeepFields(static_cast<int>(openBagId));
-            dye->setDyeBeanBrand(openBag.value("roasterName").toString());
-            dye->setDyeBeanType(openBag.value("coffeeName").toString());
-            dye->setDyeRoastDate(openBag.value("roastDate").toString());
-            dye->setDyeRoastLevel(openBag.value("roastLevel").toString());
-            dye->setDyeBeanBaseData(openBag.value("beanBaseData").toString());
-            dye->setDyeBeanBaseId(openBag.value("beanBaseId").toString());
+        if (linkedBagId > 0) {
+            dye->setActiveBagKeepFields(static_cast<int>(linkedBagId));
+            dye->setDyeBeanBrand(linkedBag.value("roasterName").toString());
+            dye->setDyeBeanType(linkedBag.value("coffeeName").toString());
+            dye->setDyeRoastDate(linkedBag.value("roastDate").toString());
+            dye->setDyeRoastLevel(linkedBag.value("roastLevel").toString());
+            dye->setDyeBeanBaseData(linkedBag.value("beanBaseData").toString());
+            dye->setDyeBeanBaseId(linkedBag.value("beanBaseId").toString());
         }
 
         // Equipment: the recipe's own package, else the bag's.
         const qint64 equipmentId = recipe.value("equipmentId").toLongLong() > 0
             ? recipe.value("equipmentId").toLongLong()
-            : openBag.value("equipmentId").toLongLong();
+            : linkedBag.value("equipmentId").toLongLong();
         if (equipmentId > 0)
             dye->setActiveEquipmentId(equipmentId);
 
@@ -1126,11 +1159,11 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
             dye->setDyeGrinderSetting(pin);
             if (rpmPin > 0)
                 dye->setDyeGrinderRpm(static_cast<int>(rpmPin));
-        } else if (openBagId > 0) {
-            dye->setDyeGrinderSetting(openBag.value("grinderSetting").toString());
+        } else if (linkedBagId > 0) {
+            dye->setDyeGrinderSetting(linkedBag.value("grinderSetting").toString());
         }
-        if (pin.isEmpty() && openBagId > 0 && openBag.value("rpm").toLongLong() > 0)
-            dye->setDyeGrinderRpm(static_cast<int>(openBag.value("rpm").toLongLong()));
+        if (pin.isEmpty() && linkedBagId > 0 && linkedBag.value("rpm").toLongLong() > 0)
+            dye->setDyeGrinderRpm(static_cast<int>(linkedBag.value("rpm").toLongLong()));
 
         // Dose — queued so it wins over loadProfile's own deferred
         // setDyeBeanWeight(recommendedDose) (same trick as shot load).
@@ -1200,7 +1233,7 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         // reads activeRecipeHasMilk() from this cache. Safe — the watchers
         // are still behind the m_applyingRecipe guard.
         m_activeRecipe = recipe;
-        m_activeRecipe.insert(QStringLiteral("resolvedBagId"), openBagId);
+        m_activeRecipe.insert(QStringLiteral("resolvedBagId"), linkedBagId);
 
         // Heater intent derives from hasMilk — no new setting. The steam
         // heater takes 5-9 MINUTES to warm, so a milk recipe HOLDS the
@@ -1282,7 +1315,7 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         dye->setActiveRecipeId(static_cast<int>(recipeId));
     } else {
         m_activeRecipe = recipe;
-        m_activeRecipe.insert(QStringLiteral("resolvedBagId"), openBagId);
+        m_activeRecipe.insert(QStringLiteral("resolvedBagId"), linkedBagId);
     }
 
     emit activeRecipeChanged();

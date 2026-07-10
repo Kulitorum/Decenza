@@ -638,6 +638,8 @@ QVariantList ProfileManager::allProfilesList() const {
         profile["name"] = info.filename;
         profile["title"] = info.title;
         profile["beverageType"] = info.beverageType;
+        profile["espressoTemperature"] = info.espressoTemperature;
+        profile["targetWeight"] = info.targetWeight;
         profile["source"] = static_cast<int>(info.source);
         profile["hasKnowledgeBase"] = info.hasKnowledgeBase;
         profile["readOnly"] = info.readOnly;
@@ -1344,8 +1346,11 @@ void ProfileManager::refreshProfiles() {
     m_profileJsonCache.clear();
 
     // Helper to extract profile metadata from a JSON object
-    // Returns: title, beverageType, hasKnowledgeBase, editorType, readOnly
-    auto extractProfileMeta = [](const QJsonObject& obj) -> std::tuple<QString, QString, bool, QString, bool> {
+    // Returns: title, beverageType, hasKnowledgeBase, editorType, readOnly,
+    // espressoTemperature, targetWeight (the last two feed ProfileInfo's
+    // display cache — see the struct comment)
+    auto extractProfileMeta = [](const QJsonObject& obj)
+        -> std::tuple<QString, QString, bool, QString, bool, double, double> {
         QString title = obj["title"].toString();
 
         // Derive editor type from title + profileType (matching Profile::editorType())
@@ -1368,21 +1373,27 @@ void ProfileManager::refreshProfiles() {
 
         bool hasKb = !ShotSummarizer::computeProfileKbId(title, editorType).isEmpty();
         bool readOnly = (obj["read_only"].toInt(0) == 1);
-        return {title, obj["beverage_type"].toString(), hasKb, editorType, readOnly};
+        // Tolerant parse: Visualizer-format profile JSON stores these as
+        // STRINGS — a raw toDouble() would cache 0 ("unstated") for them.
+        return {title, obj["beverage_type"].toString(), hasKb, editorType, readOnly,
+                profileJsonToDouble(obj["espresso_temperature"]),
+                profileJsonToDouble(obj["target_weight"])};
     };
 
     // Helper to load profile metadata from file path
-    auto loadProfileMeta = [&extractProfileMeta](const QString& path) -> std::tuple<QString, QString, bool, QString, bool> {
+    auto loadProfileMeta = [&extractProfileMeta](const QString& path)
+        -> std::tuple<QString, QString, bool, QString, bool, double, double> {
         QFile file(path);
         if (file.open(QIODevice::ReadOnly)) {
             QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
             return extractProfileMeta(doc.object());
         }
-        return {QString(), QString(), false, QStringLiteral("advanced"), false};
+        return {QString(), QString(), false, QStringLiteral("advanced"), false, 0, 0};
     };
 
     // Helper to load profile metadata from JSON string
-    auto loadProfileMetaFromJson = [&extractProfileMeta](const QString& jsonContent) -> std::tuple<QString, QString, bool, QString, bool> {
+    auto loadProfileMetaFromJson = [&extractProfileMeta](const QString& jsonContent)
+        -> std::tuple<QString, QString, bool, QString, bool, double, double> {
         QJsonDocument doc = QJsonDocument::fromJson(jsonContent.toUtf8());
         return extractProfileMeta(doc.object());
     };
@@ -1395,13 +1406,15 @@ void ProfileManager::refreshProfiles() {
     QStringList files = builtInDir.entryList(filters, QDir::Files);
     for (const QString& file : files) {
         QString name = file.left(file.length() - 5);  // Remove .json
-        auto [title, beverageType, hasKnowledgeBase, editorType, readOnly] = loadProfileMeta(":/profiles/" + file);
+        auto [title, beverageType, hasKnowledgeBase, editorType, readOnly, espressoTemperature, targetWeight] = loadProfileMeta(":/profiles/" + file);
 
         ProfileInfo info;
         info.filename = name;
         info.title = title.isEmpty() ? name : title;
         info.beverageType = beverageType;
         info.editorType = editorType;
+        info.espressoTemperature = espressoTemperature;
+        info.targetWeight = targetWeight;
         info.source = ProfileSource::BuiltIn;
 
         info.hasKnowledgeBase = hasKnowledgeBase;
@@ -1426,13 +1439,15 @@ void ProfileManager::refreshProfiles() {
             // Cache for loadProfile() to avoid re-reading from storage
             m_profileJsonCache[name] = jsonContent;
 
-            auto [title, beverageType, hasKnowledgeBase, editorType, readOnly] = loadProfileMetaFromJson(jsonContent);
+            auto [title, beverageType, hasKnowledgeBase, editorType, readOnly, espressoTemperature, targetWeight] = loadProfileMetaFromJson(jsonContent);
 
             ProfileInfo info;
             info.filename = name;
             info.title = title.isEmpty() ? name : title;
             info.beverageType = beverageType;
             info.editorType = editorType;
+            info.espressoTemperature = espressoTemperature;
+            info.targetWeight = targetWeight;
             info.source = ProfileSource::UserCreated;
     
             info.hasKnowledgeBase = hasKnowledgeBase;
@@ -1463,13 +1478,15 @@ void ProfileManager::refreshProfiles() {
             continue;  // Skip if already loaded from ProfileStorage
         }
 
-        auto [title, beverageType, hasKnowledgeBase, editorType, readOnly] = loadProfileMeta(downloadedDir.filePath(file));
+        auto [title, beverageType, hasKnowledgeBase, editorType, readOnly, espressoTemperature, targetWeight] = loadProfileMeta(downloadedDir.filePath(file));
 
         ProfileInfo info;
         info.filename = name;
         info.title = title.isEmpty() ? name : title;
         info.beverageType = beverageType;
         info.editorType = editorType;
+        info.espressoTemperature = espressoTemperature;
+        info.targetWeight = targetWeight;
         info.source = ProfileSource::Downloaded;
 
         info.hasKnowledgeBase = hasKnowledgeBase;
@@ -1489,13 +1506,15 @@ void ProfileManager::refreshProfiles() {
             continue;  // Skip if already loaded from ProfileStorage
         }
 
-        auto [title, beverageType, hasKnowledgeBase, editorType, readOnly] = loadProfileMeta(userDir.filePath(file));
+        auto [title, beverageType, hasKnowledgeBase, editorType, readOnly, espressoTemperature, targetWeight] = loadProfileMeta(userDir.filePath(file));
 
         ProfileInfo info;
         info.filename = name;
         info.title = title.isEmpty() ? name : title;
         info.beverageType = beverageType;
         info.editorType = editorType;
+        info.espressoTemperature = espressoTemperature;
+        info.targetWeight = targetWeight;
         info.source = ProfileSource::UserCreated;
 
         info.hasKnowledgeBase = hasKnowledgeBase;

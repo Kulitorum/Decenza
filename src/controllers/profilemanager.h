@@ -28,6 +28,11 @@ struct ProfileInfo {
     ProfileSource source;
     bool hasKnowledgeBase = false;
     bool readOnly = false;  // From profile JSON read_only field or forced for BuiltIn source
+    // Cached at catalog-scan time (the scan parses each profile's JSON
+    // anyway) so list surfaces — e.g. the recipe wizard's profile tiles —
+    // can show real metadata without a per-row file read. 0 = unstated.
+    double espressoTemperature = 0;
+    double targetWeight = 0;
 };
 
 /**

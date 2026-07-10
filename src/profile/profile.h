@@ -3,10 +3,17 @@
 #include <QString>
 #include <QList>
 #include <QJsonDocument>
+#include <QJsonValue>
 #include <QByteArray>
 #include <QDebug>
 #include "profileframe.h"
 #include "recipeparams.h"
+
+// Convert a JSON value that may be string OR number to double — de1app /
+// Visualizer profile JSON encodes numbers as strings ("92.00"), so a raw
+// QJsonValue::toDouble() silently yields 0 for them. The one tolerant parse
+// shared by every profile-JSON reader (Profile::fromJson, the ProfileManager
+// catalog scan).
 
 /**
  * Profile represents a complete espresso profile for the DE1.
@@ -19,6 +26,8 @@
  * - .json: Unified format (compatible with de1app v2)
  * - .tcl: de1app format (Tcl list syntax, importable)
  */
+double profileJsonToDouble(const QJsonValue& val, double defaultVal = 0.0);
+
 class Profile {
 public:
     // Execution modes

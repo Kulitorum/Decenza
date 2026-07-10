@@ -371,6 +371,16 @@ void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
                 emit bagsChanged();
                 if (touchesVisualizerFields(fields))
                     emit bagVisualizerFieldsChanged(bagId);
+                // Inventory lifecycle events, whichever surface wrote them
+                // (the card's Bag Finished button funnels through
+                // requestMarkEmpty; MCP and web updates land here too):
+                // exit → roll-on-finish, return → wake-on-restock.
+                if (fields.contains(QStringLiteral("inInventory"))) {
+                    if (fields.value(QStringLiteral("inInventory")).toBool())
+                        emit bagRestocked(bagId);
+                    else
+                        emit bagFinished(bagId);
+                }
             }
         });
 }

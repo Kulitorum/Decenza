@@ -19,6 +19,13 @@ Page {
     property var archivedRecipes: []
     property bool showArchived: false
 
+    // Grid column math (BeanInfoPage pattern: fixed base width, computed
+    // columns) — one implementation for both card grids.
+    function cardWidth(avail) {
+        var columns = Math.max(1, Math.floor(avail / Theme.scaled(380)))
+        return (avail - (columns - 1) * Theme.spacingMedium) / columns
+    }
+
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("recipes.title", "Recipes")
         MainController.recipeStorage.requestInventory()
@@ -27,9 +34,9 @@ Page {
         addRecipeButton.forceActiveFocus()
     }
 
-    // Open-bag inventory, used by the cards to resolve each recipe's bean to
-    // its bag — the bean photo of a non-canonical bag is cached under the
-    // BAG's image key ("bag-<id>"), not a Bean Base id.
+    // Open-bag inventory: feeds the stale card's re-point picker and the
+    // cards' product-link lookup for the photo cache (a non-canonical bag's
+    // photo is cached under the BAG's image key "bag-<id>").
     property var _bags: []
     Connections {
         target: MainController.bagStorage
@@ -45,12 +52,60 @@ Page {
             MainController.recipeStorage.requestInventory()
             MainController.recipeStorage.requestArchived()
         }
+        // The stale card's re-point is fire-and-forget from the picker — a
+        // failure (bag deleted between snapshot and tap, DB error) must not
+        // look like the tap was ignored.
+        function onRecipeUpdated(recipeId, success) {
+            if (recipeId !== recipesPage._repointPendingId)
+                return
+            recipesPage._repointPendingId = -1
+            if (!success) {
+                repointFailedToast.opacity = 1
+                repointFailedToastTimer.restart()
+                if (AccessibilityManager.enabled)
+                    AccessibilityManager.announce(trRepointFailed.text, true)
+            }
+        }
+    }
+    property int _repointPendingId: -1
+    Tr {
+        id: trRepointFailed
+        key: "recipes.repoint.failed"
+        fallback: "Couldn't move the recipe to that bag"
+        visible: false
+    }
+    Rectangle {
+        id: repointFailedToast
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.bottomBarHeight + Theme.scaled(12)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: repointFailedLabel.implicitWidth + Theme.scaled(32)
+        height: repointFailedLabel.implicitHeight + Theme.scaled(16)
+        radius: Theme.cardRadius
+        color: Theme.surfaceColor
+        border.color: Theme.borderColor
+        border.width: 1
+        opacity: 0
+        visible: opacity > 0
+        z: 600
+        Accessible.ignored: true
+        Behavior on opacity { NumberAnimation { duration: 300 } }
+        Text {
+            id: repointFailedLabel
+            anchors.centerIn: parent
+            text: trRepointFailed.text
+            color: Theme.textColor
+            font.pixelSize: Theme.scaled(13)
+            Accessible.ignored: true
+        }
+    }
+    Timer {
+        id: repointFailedToastTimer
+        interval: 4000
+        onTriggered: repointFailedToast.opacity = 0
     }
 
-    Tr { id: trShots; key: "recipes.list.shots"; fallback: "shots"; visible: false }
-    Tr { id: trActive; key: "recipes.list.active"; fallback: "Active"; visible: false }
     Tr { id: trCopyOf; key: "recipes.list.copyOf"; fallback: "Copy of %1"; visible: false }
-    Tr { id: trMilk; key: "recipes.list.milk"; fallback: "milk"; visible: false }
 
     function openClone(recipe) {
         // Clone lands on the wizard summary as a prefilled copy with the name
@@ -65,65 +120,128 @@ Page {
         pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"), { mode: "create", prefill: copy })
     }
 
-    // Recipe card: tap = activate (like tapping a bag card selects the bag).
-    component RecipeCard: Rectangle {
+    // The stale card's one-tap re-point: an open-bag picker scoped to one
+    // recipe (recipe-bag-lifecycle "manual re-point"). Selecting a bag only
+    // moves the bag link (grind pin/inherit is untouched by construction).
+    property var _repointRecipe: null
+    Dialog {
+        id: repointPicker
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(Theme.scaled(520), parent.width - Theme.scaled(40))
+        height: Math.min(Theme.scaled(620), parent.height - Theme.scaled(80))
+        background: Rectangle { color: Theme.surfaceColor; radius: Theme.cardRadius; border.color: Theme.borderColor; border.width: 1 }
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingSmall
+            Label {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("recipes.repoint.title", "Choose beans for %1")
+                    .arg(recipesPage._repointRecipe ? (recipesPage._repointRecipe.name || "") : "")
+                font: Theme.subtitleFont
+                color: Theme.textColor
+                wrapMode: Text.WordWrap
+                Accessible.role: Accessible.Heading
+                Accessible.name: text
+            }
+            ListView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                // Kind-matched open bags: a tea recipe re-points to tea bags.
+                model: {
+                    var r = recipesPage._repointRecipe
+                    var wantTea = r && String(DrinkType.fromRecipeMap(r)).indexOf("tea") === 0
+                    var out = []
+                    for (var i = 0; i < recipesPage._bags.length; ++i) {
+                        var b = recipesPage._bags[i]
+                        var isTea = String(b.kind || "") === "tea"
+                        if (isTea === wantTea)
+                            out.push(b)
+                    }
+                    return out
+                }
+                delegate: ItemDelegate {
+                    width: ListView.view.width
+                    contentItem: ColumnLayout {
+                        spacing: 0
+                        Label {
+                            Layout.fillWidth: true
+                            text: ((modelData.roasterName || "") + " " + (modelData.coffeeName || "")).trim()
+                            font: Theme.bodyFont
+                            color: Theme.textColor
+                            elide: Text.ElideRight
+                        }
+                        Label {
+                            visible: (modelData.roastDate || "") !== ""
+                            text: modelData.roastDate || ""
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                        }
+                    }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: ((modelData.roasterName || "") + " " + (modelData.coffeeName || "")).trim()
+                    onClicked: {
+                        if (recipesPage._repointRecipe) {
+                            recipesPage._repointPendingId = recipesPage._repointRecipe.id
+                            MainController.recipeStorage.requestRelinkRecipeToBag(
+                                recipesPage._repointRecipe.id, modelData.id)
+                        }
+                        repointPicker.close()
+                    }
+                }
+            }
+        }
+    }
+
+    // Recipe card: the shared RecipeDrinkCard (also the wizard summary's
+    // hero — design D4) plus this page's action row and tap-to-activate.
+    component RecipeCard: RecipeDrinkCard {
         id: card
-        property var recipe: ({})
         property bool archivedCard: false
 
         readonly property bool selected: recipe && recipe.id !== undefined
             && recipe.id === Settings.dye.activeRecipeId
         readonly property bool hasShots: recipe && (recipe.shotCount ?? 0) > 0
-        readonly property var steam: {
-            if (!recipe || !recipe.steamJson || String(recipe.steamJson).length === 0) return ({})
-            try { return JSON.parse(recipe.steamJson) } catch (e) { return ({}) }
+
+        active: selected
+        stale: recipe && recipe.stale === true
+        showStaleAction: !archivedCard
+        onStaleActionClicked: {
+            recipesPage._repointRecipe = card.recipe
+            repointPicker.open()
         }
-        // Bean photo from the same on-disk cache the bag cards use. Canonical
-        // beans are keyed by their Bean Base id; a manual bag's photo lives
-        // under the BAG's key ("bag-<id>"), so resolve the recipe's bean to
-        // its open bag (same identity match as activation) for the fallback.
-        readonly property var openBag: {
-            if (!recipe) return null
-            var bags = recipesPage._bags
-            for (var i = 0; i < bags.length; ++i) {
-                var b = bags[i]
-                var match = recipe.beanBaseId && String(recipe.beanBaseId).length > 0
-                    ? b.beanBaseId === recipe.beanBaseId
-                    : (String(b.roasterName || "").toLowerCase() === String(recipe.roasterName || "").toLowerCase()
-                       && String(b.coffeeName || "").toLowerCase() === String(recipe.coffeeName || "").toLowerCase()
-                       && (String(recipe.roasterName || "") !== "" || String(recipe.coffeeName || "") !== ""))
-                if (match) return b
-            }
-            return null
+        onPlanClicked: {
+            if (!card.archivedCard && card.recipe.id !== Settings.dye.activeRecipeId)
+                MainController.activateRecipe(card.recipe.id)
         }
-        readonly property string imageKey: {
+
+        // Bean photo cache key: canonical Bean Base id when the recipe has
+        // one, else the linked BAG's key ("bag-<id>") — a manual bag's photo
+        // is cached under the bag key.
+        imageKey: {
             if (recipe && recipe.beanBaseId && String(recipe.beanBaseId).length > 0)
                 return String(recipe.beanBaseId)
-            if (openBag)
-                return openBag.beanBaseId && String(openBag.beanBaseId).length > 0
-                    ? String(openBag.beanBaseId) : "bag-" + openBag.id
+            if (recipe && (recipe.bagId || 0) > 0)
+                return "bag-" + recipe.bagId
             return ""
         }
-        property string cachedImagePath: ""
-        function refreshBeanImage() {
-            cachedImagePath = imageKey.length > 0
-                ? MainController.beanbase.bagImagePath(imageKey) : ""
-            if (imageKey.length > 0 && cachedImagePath.length === 0) {
-                // The bag's product-page link (from its blob) lets the cache
-                // backfill a manual bag's photo, same as BagCard.
-                var link = ""
-                if (openBag && openBag.beanBaseData && String(openBag.beanBaseData).length > 0) {
-                    try { link = JSON.parse(openBag.beanBaseData).link || "" } catch (e) {}
+        // Product-page link from the linked bag's blob (lets the cache
+        // backfill a manual bag's photo, same as BagCard).
+        imageLink: {
+            if (!recipe || (recipe.bagId || 0) <= 0) return ""
+            for (var i = 0; i < recipesPage._bags.length; ++i) {
+                var b = recipesPage._bags[i]
+                if (b.id === recipe.bagId && b.beanBaseData && String(b.beanBaseData).length > 0) {
+                    try { return JSON.parse(b.beanBaseData).link || "" } catch (e) { return "" }
                 }
-                MainController.beanbase.ensureBagImage(imageKey, recipe.coffeeName || "", link)
             }
+            return ""
         }
-        onImageKeyChanged: refreshBeanImage()
+
         // The plan line needs the profile's base temperature and target
         // weight (the recipe stores only its overrides). One synchronous
         // profile read per card — the list is small.
-        property real profileTempC: 0
-        property real profileYieldG: 0
         function refreshProfileNumbers() {
             profileTempC = 0
             profileYieldG = 0
@@ -138,41 +256,14 @@ Page {
             }
         }
         onRecipeChanged: refreshProfileNumbers()
-        Component.onCompleted: {
-            refreshBeanImage()
-            refreshProfileNumbers()
-        }
-        Connections {
-            target: MainController.beanbase
-            function onBagImageReady(key, path) {
-                if (key === card.imageKey)
-                    card.cachedImagePath = path
-            }
-        }
+        Component.onCompleted: refreshProfileNumbers()
 
-        implicitHeight: cardColumn.implicitHeight + 2 * Theme.spacingMedium
-        radius: Theme.cardRadius
-        color: Theme.surfaceColor
-        border.color: selected ? Theme.accentColor : Theme.borderColor
-        border.width: selected ? 2 : 1
         opacity: archivedCard ? 0.7 : 1.0
-
-        function subtitle() {
-            var r = card.recipe
-            var parts = []
-            var bean = ((r.roasterName || "") + " " + (r.coffeeName || "")).trim()
-            if (bean !== "") parts.push(bean)
-            if (r.profileTitle) parts.push(r.profileTitle)
-            if (card.steam.hasMilk)
-                parts.push(trMilk.text + (card.steam.milkWeightG ? " " + card.steam.milkWeightG + "g" : ""))
-            if (r.shotCount > 0)
-                parts.push(r.shotCount + " " + trShots.text)
-            return parts.join(" · ")
-        }
 
         // Tap anywhere on the card to activate (buttons overlay and win).
         AccessibleMouseArea {
             anchors.fill: parent
+            z: -1
             enabled: !card.archivedCard
             accessibleName: TranslationManager.translate("recipes.accessible.activate", "Activate recipe %1").arg(card.recipe.name || "")
             accessibleItem: card
@@ -182,115 +273,9 @@ Page {
             }
         }
 
-        ColumnLayout {
-            id: cardColumn
-            anchors.fill: parent
-            anchors.margins: Theme.spacingMedium
-            spacing: Theme.spacingSmall
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.scaled(10)
-
-                // Bean photo thumbnail (BagCard pattern): cached photo when the
-                // recipe's bean is linked, dimmed beans icon otherwise so mixed
-                // lists stay aligned.
-                Rectangle {
-                    Layout.preferredWidth: Theme.scaled(44)
-                    Layout.preferredHeight: Theme.scaled(44)
-                    Layout.alignment: Qt.AlignTop
-                    radius: Theme.scaled(6)
-                    color: Theme.backgroundColor
-                    border.color: Theme.borderColor
-                    border.width: 1
-
-                    ColoredIcon {
-                        anchors.centerIn: parent
-                        visible: recipeThumb.status !== Image.Ready
-                        source: "qrc:/icons/coffeebeans.svg"
-                        iconWidth: Theme.scaled(22)
-                        iconHeight: Theme.scaled(22)
-                        iconColor: Theme.textSecondaryColor
-                        opacity: 0.5
-                        Accessible.ignored: true
-                    }
-
-                    Image {
-                        id: recipeThumb
-                        anchors.fill: parent
-                        anchors.margins: 1
-                        visible: status === Image.Ready
-                        source: card.cachedImagePath.length > 0
-                            ? "file:///" + card.cachedImagePath : ""
-                        // Decode at thumbnail resolution — never the full photo.
-                        sourceSize.width: Theme.scaled(88)
-                        sourceSize.height: Theme.scaled(88)
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        Accessible.ignored: true
-                    }
-                }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(2)
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingSmall
-                        Label {
-                            text: card.recipe.name || ""
-                            font: Theme.subtitleFont
-                            color: Theme.textColor
-                            elide: Text.ElideRight
-                            Layout.fillWidth: true
-                        }
-                        Label {
-                            visible: card.selected
-                            text: trActive.text
-                            font: Theme.captionFont
-                            color: Theme.accentColor
-                        }
-                    }
-                    Label {
-                        Layout.fillWidth: true
-                        text: card.subtitle()
-                        font: Theme.captionFont
-                        color: Theme.textSecondaryColor
-                        wrapMode: Text.WordWrap
-                    }
-
-                    // The shot plan, phrased exactly like the idle Plan widget
-                    // (fragment mode) but fed the RECIPE's values. Grind shows
-                    // only when pinned — an inherited value belongs to the bag.
-                    ShotPlanText {
-                        Layout.fillWidth: true
-                        sentence: false
-                        maxLines: 2
-                        itemOrder: ["doseYield", "temperature", "grind"]
-                        profileName: card.recipe.profileTitle || ""
-                        profileTemp: card.profileTempC
-                        overrideTemp: card.recipe.tempOverrideC > 0 ? card.recipe.tempOverrideC : card.profileTempC
-                        tempOverridden: card.recipe.tempOverrideC > 0
-                        dose: card.recipe.doseG || 0
-                        profileYield: card.profileYieldG
-                        targetWeight: card.recipe.yieldG > 0 ? card.recipe.yieldG : card.profileYieldG
-                        yieldOverridden: card.recipe.yieldG > 0 && card.profileYieldG > 0
-                                         && Math.abs(card.recipe.yieldG - card.profileYieldG) > 0.1
-                        grindSize: card.recipe.grindPinned || ""
-                        roasterBrand: ""
-                        coffeeName: ""
-                        // Its internal MouseArea sits above the card's tap
-                        // area — route the tap to the same activate action.
-                        onClicked: {
-                            if (!card.archivedCard && card.recipe.id !== Settings.dye.activeRecipeId)
-                                MainController.activateRecipe(card.recipe.id)
-                        }
-                    }
-                }
-            }
-
-            // Action row — compact, BagCard-style.
-            Flow {
+            // Action row — compact, BagCard-style — rides the shared card's
+            // footer slot so the border encloses it.
+            footer: Flow {
                 Layout.fillWidth: true
                 spacing: Theme.scaled(6)
 
@@ -359,7 +344,6 @@ Page {
                     onClicked: MainController.recipeStorage.requestUnarchiveRecipe(card.recipe.id)
                 }
             }
-        }
     }
 
     Flickable {
@@ -401,14 +385,87 @@ Page {
                 }
             }
 
-            Tr {
+            // Empty state: two starter tiles teach both creation paths —
+            // promote a good shot from history, or walk the wizard.
+            Flow {
                 visible: recipesPage.recipes.length === 0
-                key: "recipes.emptyHint"
-                fallback: "No recipes yet. Save one from a good shot in History, or add one here."
-                font: Theme.bodyFont
-                color: Theme.textSecondaryColor
                 Layout.fillWidth: true
-                wrapMode: Text.WordWrap
+                Layout.topMargin: Theme.spacingMedium
+                spacing: Theme.spacingMedium
+
+                component StarterTile: Rectangle {
+                    id: tile
+                    property string icon: ""
+                    property string title: ""
+                    property string subtitle: ""
+                    signal tapped()
+                    width: {
+                        var avail = flickable.width
+                        var columns = avail >= Theme.scaled(640) ? 2 : 1
+                        return (avail - (columns - 1) * Theme.spacingMedium) / columns
+                    }
+                    implicitHeight: tileColumn.implicitHeight + 2 * Theme.spacingLarge
+                    radius: Theme.cardRadius
+                    color: Theme.surfaceColor
+                    border.color: Theme.borderColor
+                    border.width: 1
+                    ColumnLayout {
+                        id: tileColumn
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: Theme.spacingLarge
+                        anchors.rightMargin: Theme.spacingLarge
+                        spacing: Theme.spacingSmall
+                        ColoredIcon {
+                            Layout.alignment: Qt.AlignHCenter
+                            source: tile.icon
+                            iconWidth: Theme.scaled(40)
+                            iconHeight: Theme.scaled(40)
+                            iconColor: Theme.primaryColor
+                            Accessible.ignored: true
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            text: tile.title
+                            font: Theme.subtitleFont
+                            color: Theme.textColor
+                            wrapMode: Text.WordWrap
+                            Accessible.ignored: true
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            text: tile.subtitle
+                            font: Theme.captionFont
+                            color: Theme.textSecondaryColor
+                            wrapMode: Text.WordWrap
+                            Accessible.ignored: true
+                        }
+                    }
+                    AccessibleMouseArea {
+                        anchors.fill: parent
+                        accessibleName: tile.title + ", " + tile.subtitle
+                        accessibleItem: tile
+                        onAccessibleClicked: tile.tapped()
+                    }
+                }
+
+                StarterTile {
+                    icon: "qrc:/icons/history.svg"
+                    title: TranslationManager.translate("recipes.empty.fromShot", "Start from a good shot")
+                    subtitle: TranslationManager.translate("recipes.empty.fromShotHint",
+                        "Pick a shot you liked in history and save it as a recipe")
+                    onTapped: pageStack.push(Qt.resolvedUrl("ShotHistoryPage.qml"))
+                }
+                StarterTile {
+                    icon: "qrc:/icons/plus.svg"
+                    title: TranslationManager.translate("recipes.empty.fromScratch", "Build from scratch")
+                    subtitle: TranslationManager.translate("recipes.empty.fromScratchHint",
+                        "Walk through drink, beans, profile, and details")
+                    onTapped: pageStack.push(Qt.resolvedUrl("RecipeWizardPage.qml"), { mode: "create" })
+                }
             }
 
             // Card grid (BeanInfoPage pattern: fixed base width, computed columns)
@@ -420,12 +477,7 @@ Page {
                     model: recipesPage.recipes
                     delegate: RecipeCard {
                         recipe: modelData
-                        width: {
-                            var avail = flickable.width
-                            var cardW = Theme.scaled(380)
-                            var columns = Math.max(1, Math.floor(avail / cardW))
-                            return (avail - (columns - 1) * Theme.spacingMedium) / columns
-                        }
+                        width: recipesPage.cardWidth(flickable.width)
                     }
                 }
             }
@@ -455,12 +507,7 @@ Page {
                     delegate: RecipeCard {
                         recipe: modelData
                         archivedCard: true
-                        width: {
-                            var avail = flickable.width
-                            var cardW = Theme.scaled(380)
-                            var columns = Math.max(1, Math.floor(avail / cardW))
-                            return (avail - (columns - 1) * Theme.spacingMedium) / columns
-                        }
+                        width: recipesPage.cardWidth(flickable.width)
                     }
                 }
             }

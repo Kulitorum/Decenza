@@ -248,6 +248,16 @@ signals:
     void bagReady(qint64 bagId, const QVariantMap& bag);   // bag empty if not found
     void bagCreated(qint64 bagId, const QVariantMap& bag); // bagId -1 on failure
     void bagUpdated(qint64 bagId, bool success);
+    // The bag left inventory (requestMarkEmpty, or any update carrying
+    // inInventory=false — card, MCP, web all funnel through requestUpdateBag).
+    // The recipe roll-on-finish relink hooks onto this event
+    // (recipe-bag-lifecycle) — event-driven, never polled.
+    void bagFinished(qint64 bagId);
+    // The bag returned to inventory (an update carrying inInventory=true).
+    // Wake-on-restock hooks onto this alongside bagCreated, so a bag
+    // un-finished via MCP/web wakes stale sibling recipes exactly like a
+    // newly added bag (the relink is idempotent and dup-guarded).
+    void bagRestocked(qint64 bagId);
     void bagDeleted(qint64 bagId, bool success);
     // Emitted (after a successful update) only when the edit touched a field
     // Visualizer stores on the bean — see touchesVisualizerFields(). The

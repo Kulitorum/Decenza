@@ -1,5 +1,5 @@
 // ShotServer recipes surface (add-recipes): REST API + /recipes management
-// page. A recipe is the whole drink (profile + bean link + equipment +
+// page. A recipe is the whole drink (profile + linked bag + equipment +
 // dose/yield/temp + grind routing + steam block).
 //
 // Routing conventions follow the other domains: reads run storage statics on
@@ -16,9 +16,9 @@
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
 #include "../history/coffeebagstorage.h"
+#include "../history/recipepromotion.h"
 #include "../history/recipestorage.h"
 #include "../history/shothistorystorage.h"
-#include "../network/beanbase_blob.h"
 #include "webtemplates/base_css.h"
 #include "webtemplates/menu_css.h"
 #include "webtemplates/menu_html.h"
@@ -34,6 +34,8 @@
 #include <QSqlQuery>
 #include <QTcpSocket>
 #include <QThread>
+#include <QUuid>
+#include <optional>
 
 namespace {
 
@@ -60,6 +62,7 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
             bev = bevByTitle.value(r.profileTitle.trimmed().toLower());
         o["drinkType"] = Recipe::deriveDrinkType(r, bev);
     }
+    o["bagId"] = r.bagId;
     o["beanBaseId"] = r.beanBaseId;
     o["roasterName"] = r.roasterName;
     o["coffeeName"] = r.coffeeName;
@@ -84,16 +87,28 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
         o["shotCount"] = shotCount;
     o["isActive"] = r.id == activeRecipeId;
     if (db) {
-        // Effective grind for the inherited case (the linked bean's open bag).
-        if (r.grindPinned.isEmpty()) {
-            const qint64 openBagId = RecipeStorage::resolveOpenBagStatic(*db, r);
-            if (openBagId > 0) {
-                const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(*db, openBagId);
-                o["effectiveGrind"] = bag.grinderSetting;
+        // The linked bag: staleness flag (bag finished / gone — display
+        // state, never a gate) and the effective grind for the inherited
+        // case, which resolves from the linked bag whether or not it is
+        // still in inventory.
+        if (r.bagId > 0) {
+            const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(*db, r.bagId);
+            if (bag.isValid()) {
+                if (!bag.inInventory)
+                    o["bagStale"] = true;
+                if (r.grindPinned.isEmpty() && !bag.grinderSetting.isEmpty())
+                    o["effectiveGrind"] = bag.grinderSetting;
+            } else {
+                o["bagStale"] = true;
             }
-        } else {
-            o["effectiveGrind"] = r.grindPinned;
+        } else if (!r.beanBaseId.isEmpty() || !r.roasterName.isEmpty()
+                   || !r.coffeeName.isEmpty()) {
+            // A bean identity with no linked bag (unresolved migration)
+            // presents as stale too — wake-on-restock will re-home it.
+            o["bagStale"] = true;
         }
+        if (!r.grindPinned.isEmpty())
+            o["effectiveGrind"] = r.grindPinned;
     }
     return o;
 }
@@ -110,6 +125,8 @@ QVariantMap recipeFieldsFromBody(const QJsonObject& body)
         if (body.contains(key))
             fields.insert(key, body[key].toString());
     }
+    if (body.contains("bagId"))
+        fields.insert("bagId", body["bagId"].toInteger());
     if (body.contains("equipmentId"))
         fields.insert("equipmentId", body["equipmentId"].toInteger());
     if (body.contains("rpmPinned"))
@@ -215,14 +232,24 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                 bev = m_mainController->profileManager()->beverageTypeForTitle(shaped.profileTitle);
             fields.insert("drinkType", Recipe::deriveDrinkType(shaped, bev));
         }
+        // Correlate on a request token: recipeCreated is a broadcast and a
+        // concurrent create from another surface must not satisfy (or steal)
+        // this listener.
+        const QString createToken = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        fields.insert(QStringLiteral("requestToken"), createToken);
         auto conn = std::make_shared<QMetaObject::Connection>();
         *conn = connect(recipeStorage, &RecipeStorage::recipeCreated, this,
-            [conn, respondJson](qint64 recipeId, const QVariantMap& recipe) {
+            [conn, respondJson, createToken](qint64 recipeId, const QVariantMap& recipe) {
+                if (recipe.value(QStringLiteral("requestToken")).toString() != createToken)
+                    return;  // another surface's create
                 disconnect(*conn);
-                if (recipeId <= 0)
+                if (recipeId <= 0) {
                     respondJson(QJsonObject{{"error", "Create failed"}}, 500);
-                else
-                    respondJson(QJsonObject::fromVariantMap(recipe));
+                } else {
+                    QVariantMap clean = recipe;
+                    clean.remove(QStringLiteral("requestToken"));
+                    respondJson(QJsonObject::fromVariantMap(clean));
+                }
             });
         recipeStorage->requestCreateRecipe(fields);
         return;
@@ -256,40 +283,28 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                     respondJson(QJsonObject{{"error", "Shot not found"}}, 404);
                     return;
                 }
-                const QString beanBaseId = BeanBaseBlob::canonicalId(record.beanBaseJson);
-                const bool hasBean = !beanBaseId.isEmpty()
-                    || !record.summary.beanBrand.isEmpty() || !record.summary.beanType.isEmpty();
-                QString steamJson = !record.steamJson.isEmpty() ? record.steamJson : fallbackSteam;
-                if (hasMilkProvided) {
-                    QJsonObject steam = QJsonDocument::fromJson(steamJson.toUtf8()).object();
-                    steam["hasMilk"] = hasMilk;
-                    steamJson = QString::fromUtf8(QJsonDocument(steam).toJson(QJsonDocument::Compact));
-                }
-                QVariantMap fields{
-                    {"name", name},
-                    {"profileTitle", record.summary.profileName},
-                    {"profileJson", record.profileJson},
-                    {"beanBaseId", beanBaseId},
-                    {"roasterName", record.summary.beanBrand},
-                    {"coffeeName", record.summary.beanType},
-                    {"equipmentId", record.equipmentId},
-                    {"doseG", record.summary.doseWeight},
-                    {"yieldG", record.targetWeight},
-                    {"tempOverrideC", record.temperatureOverride},
-                    {"grindPinned", hasBean ? QString() : record.grinderSetting},
-                    {"steamJson", steamJson},
-                    // Hot water carries verbatim from the shot snapshot only —
-                    // no current-settings fallback (mirrors the composer).
-                    {"hotWaterJson", record.hotWaterJson},
-                    {"createdFromShotId", shotId}};
+                // The shared promotion semantics (bean link, bag link, grind
+                // pin-vs-inherit, steam/hot-water snapshots) — exactly what
+                // the MCP recipe_create_from_shot tool builds.
+                const std::optional<bool> hasMilkOverride =
+                    hasMilkProvided ? std::optional<bool>(hasMilk) : std::nullopt;
+                QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
+                    record, name, hasMilkOverride, fallbackSteam);
+                const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                fields.insert(QStringLiteral("requestToken"), token);
                 auto conn = std::make_shared<QMetaObject::Connection>();
                 *conn = QObject::connect(recipeStorage, &RecipeStorage::recipeCreated, qApp,
-                    [conn, respondJson](qint64 recipeId, const QVariantMap& recipe) {
+                    [conn, respondJson, token](qint64 recipeId, const QVariantMap& recipe) {
+                        if (recipe.value(QStringLiteral("requestToken")).toString() != token)
+                            return;  // another surface's create
                         QObject::disconnect(*conn);
-                        if (recipeId <= 0)
+                        if (recipeId <= 0) {
                             respondJson(QJsonObject{{"error", "Create failed"}}, 500);
-                        else
-                            respondJson(QJsonObject::fromVariantMap(recipe));
+                        } else {
+                            QVariantMap clean = recipe;
+                            clean.remove(QStringLiteral("requestToken"));
+                            respondJson(QJsonObject::fromVariantMap(clean));
+                        }
                     });
                 recipeStorage->requestCreateRecipe(fields);
             }, Qt::QueuedConnection);
@@ -397,16 +412,22 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                 respondJson(QJsonObject{{"error", "name is required"}}, 400);
                 return;
             }
+            const QString token = QUuid::createUuid().toString(QUuid::WithoutBraces);
             auto conn = std::make_shared<QMetaObject::Connection>();
             *conn = connect(recipeStorage, &RecipeStorage::recipeCreated, this,
-                [conn, respondJson](qint64 newId, const QVariantMap& recipe) {
+                [conn, respondJson, token](qint64 newId, const QVariantMap& recipe) {
+                    if (recipe.value(QStringLiteral("requestToken")).toString() != token)
+                        return;  // another surface's create
                     disconnect(*conn);
-                    if (newId <= 0)
+                    if (newId <= 0) {
                         respondJson(QJsonObject{{"error", "Clone failed"}}, 500);
-                    else
-                        respondJson(QJsonObject::fromVariantMap(recipe));
+                    } else {
+                        QVariantMap clean = recipe;
+                        clean.remove(QStringLiteral("requestToken"));
+                        respondJson(QJsonObject::fromVariantMap(clean));
+                    }
                 });
-            recipeStorage->requestCloneRecipe(recipeId, name);
+            recipeStorage->requestCloneRecipe(recipeId, name, token);
             return;
         }
 
@@ -538,6 +559,8 @@ QString ShotServer::generateRecipesPage() const
         <h2 id="editorTitle">Recipe</h2>
         <label>Name</label><input id="fName">
         <label>Profile title</label><input id="fProfile">
+        <label>Bag (grind follows it; roaster/coffee fill in automatically)</label>
+        <select id="fBag"><option value="0">(no bag)</option></select>
         <label>Roaster</label><input id="fRoaster">
         <label>Coffee</label><input id="fCoffee">
         <label>Dose (g)</label><input id="fDose" type="number" step="0.1">
@@ -580,6 +603,44 @@ QString ShotServer::generateRecipesPage() const
         const status = (m) => { document.getElementById('status').textContent = m || ''; };
         const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
+        let bags = [];
+        let bagsLoaded = false;
+        function loadBags() {
+            fetch('/api/bags')
+                .then(r => { if (!r.ok) throw new Error('Server error (' + r.status + ')'); return r.json(); })
+                .then(d => {
+                    bags = d.bags || [];
+                    bagsLoaded = true;
+                    const sel = document.getElementById('fBag');
+                    sel.innerHTML = '<option value="0">(no bag)</option>' + bags.map(b =>
+                        '<option value="' + b.id + '">'
+                        + esc(((b.roasterName || '') + ' ' + (b.coffeeName || '')).trim()
+                              + (b.roastDate ? ' · ' + b.roastDate : ''))
+                        + '</option>').join('');
+                })
+                .catch(e => {
+                    // Say so — a silently empty select reads as "no bags exist".
+                    console.warn('Could not load bags:', e);
+                    const sel = document.getElementById('fBag');
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.disabled = true;
+                    opt.textContent = '(bags unavailable)';
+                    sel.appendChild(opt);
+                });
+        }
+
+        // Keep the roaster/coffee fields in lockstep with the chosen bag —
+        // the label promises "roaster/coffee fill in automatically", and the
+        // backend adopts identity only for fields the form does NOT send.
+        function onBagChanged() {
+            const id = parseInt(document.getElementById('fBag').value, 10) || 0;
+            const b = bags.find(x => x.id === id);
+            if (!b) return;  // "(no bag)" or the fallback option: leave the fields as typed
+            document.getElementById('fRoaster').value = b.roasterName || '';
+            document.getElementById('fCoffee').value = b.coffeeName || '';
+        }
+
         function load() {
             status('Loading…');
             fetch('/api/recipes')
@@ -598,6 +659,7 @@ QString ShotServer::generateRecipesPage() const
             if (r.effectiveGrind) parts.push('grind ' + esc(r.effectiveGrind) + (r.grindPinned ? ' (pinned)' : ''));
             if (r.steam && r.steam.hasMilk) parts.push('milk' + (r.steam.milkWeightG ? ' ' + r.steam.milkWeightG + 'g' : ''));
             if (r.hotWater && r.hotWater.hasWater) parts.push('+water' + (r.hotWater.order === 'before' ? ' (long black)' : ' (americano)'));
+            if (r.bagStale) parts.push('bag finished');
             if (r.shotCount > 0) parts.push(r.shotCount + ' shots');
             return parts.join(' &middot; ');
         }
@@ -660,6 +722,20 @@ QString ShotServer::generateRecipesPage() const
             document.getElementById('fName').value = r.name || '';
             document.getElementById('fDrinkType').value = r.drinkType || '';
             document.getElementById('fProfile').value = r.profileTitle || '';
+            const bagSel = document.getElementById('fBag');
+            bagSel.onchange = onBagChanged;
+            // A finished linked bag is not in the open-bag list — add it so
+            // editing another field doesn't silently drop the link. When the
+            // bag fetch failed we don't KNOW the bag is finished — label it
+            // neutrally.
+            if (r.bagId > 0 && !bags.some(b => b.id === r.bagId)) {
+                const opt = document.createElement('option');
+                opt.value = r.bagId;
+                opt.textContent = ((r.roasterName || '') + ' ' + (r.coffeeName || '')).trim()
+                    + (bagsLoaded ? ' (finished)' : ' (current bag)');
+                bagSel.appendChild(opt);
+            }
+            bagSel.value = String(r.bagId > 0 ? r.bagId : 0);
             document.getElementById('fRoaster').value = r.roasterName || '';
             document.getElementById('fCoffee').value = r.coffeeName || '';
             document.getElementById('fDose').value = r.doseG > 0 ? r.doseG : '';
@@ -701,6 +777,7 @@ QString ShotServer::generateRecipesPage() const
                 name: name,
                 profileTitle: profileTitle,
                 drinkType: document.getElementById('fDrinkType').value,
+                bagId: parseInt(document.getElementById('fBag').value, 10) || 0,
                 roasterName: document.getElementById('fRoaster').value.trim(),
                 coffeeName: document.getElementById('fCoffee').value.trim(),
                 doseG: parseFloat(document.getElementById('fDose').value) || 0,
@@ -717,6 +794,7 @@ QString ShotServer::generateRecipesPage() const
         }
 
         load();
+        loadBags();
     </script>
 </body>
 </html>)HTML";

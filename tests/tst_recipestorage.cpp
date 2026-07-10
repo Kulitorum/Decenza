@@ -9,9 +9,12 @@
 #include "history/recipestorage.h"
 #include "history/coffeebagstorage.h"
 
-// Recipe storage (add-recipes): CRUD statics, variant-map round-trip,
-// inventory MRU + shot-count aggregate, the delete-vs-archive lifecycle
-// guard, clone provenance, and bean-link resolution to the current open bag.
+// Recipe storage (add-recipes, recipes-bag-links-ui-polish): CRUD statics,
+// variant-map round-trip, inventory MRU + shot-count aggregate + stale flag,
+// the delete-vs-archive lifecycle guard, clone provenance, the hard bag link
+// (activation uses it directly; the resolver survives only as the relink
+// matching helper + migration-29 data pass), and the relink lifecycle
+// (roll-on-finish, wake-on-restock, dup-guard).
 
 template<typename Work>
 static void withRawDb(const QString& path, const QString& connName, Work&& work) {
@@ -42,6 +45,18 @@ static qint64 insertShotForRecipe(QSqlDatabase& db, qint64 recipeId) {
     q.addBindValue(recipeId);
     q.exec();
     return q.lastInsertId().toLongLong();
+}
+
+// Two bags of the same bean for the roll scenarios: the first finished (but
+// deliberately MRU — the roll must pick the NEWEST open bag, never the most
+// recently used), the second open and newer.
+static void insertBeanPair(QSqlDatabase& db, qint64* outFinished, qint64* outOpen) {
+    CoffeeBag finished; finished.roasterName = "Roaster"; finished.coffeeName = "Guji";
+    finished.beanBaseId = "bb-uuid-1"; finished.inInventory = false;
+    finished.lastUsedEpoch = 900;
+    *outFinished = CoffeeBagStorage::insertBagStatic(db, finished);
+    CoffeeBag open = finished; open.inInventory = true; open.lastUsedEpoch = 100;
+    *outOpen = CoffeeBagStorage::insertBagStatic(db, open);
 }
 
 static Recipe sampleRecipe() {
@@ -80,8 +95,10 @@ private slots:
     // --- variant map round-trip ---
 
     void variantMapRoundTrip() {
-        const Recipe r = sampleRecipe();
+        Recipe r = sampleRecipe();
+        r.bagId = 12;
         const Recipe back = Recipe::fromVariantMap(r.toVariantMap());
+        QCOMPARE(back.bagId, r.bagId);
         QCOMPARE(back.name, r.name);
         QCOMPARE(back.profileTitle, r.profileTitle);
         QCOMPARE(back.profileJson, r.profileJson);
@@ -304,6 +321,7 @@ private slots:
     void inventoryFiltersAndOrders() {
         withRawDb(freshDbPath(), "inv", [](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
             createMinimalShots(db);
 
             Recipe a = sampleRecipe(); a.name = "A"; a.lastUsedEpoch = 100;
@@ -327,6 +345,42 @@ private slots:
             const QVector<InventoryRecipe> archived = RecipeStorage::loadInventoryStatic(db, true);
             QCOMPARE(archived.size(), 1);
             QCOMPARE(archived[0].recipe.name, QString("C"));
+        });
+    }
+
+    // Stale flag on the inventory listing: a recipe whose linked bag is
+    // finished (or whose bean was never linked) is stale; an open link or a
+    // bean-less recipe is not. Display state only — the rows still list.
+    void inventoryStaleFlag() {
+        withRawDb(freshDbPath(), "inv_stale", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            createMinimalShots(db);
+
+            CoffeeBag open; open.roasterName = "Roaster"; open.coffeeName = "Guji";
+            open.inInventory = true;
+            const qint64 openId = CoffeeBagStorage::insertBagStatic(db, open);
+            CoffeeBag finished = open; finished.inInventory = false;
+            const qint64 finishedId = CoffeeBagStorage::insertBagStatic(db, finished);
+            QVERIFY(openId > 0 && finishedId > 0);
+
+            Recipe fresh = sampleRecipe(); fresh.name = "Fresh"; fresh.bagId = openId;
+            Recipe stale = sampleRecipe(); stale.name = "Stale"; stale.bagId = finishedId;
+            Recipe unlinked = sampleRecipe(); unlinked.name = "Unlinked";  // bean, no bag
+            Recipe bare; bare.name = "Bare"; bare.profileTitle = "P";      // no bean at all
+            QVERIFY(RecipeStorage::insertRecipeStatic(db, fresh) > 0);
+            QVERIFY(RecipeStorage::insertRecipeStatic(db, stale) > 0);
+            QVERIFY(RecipeStorage::insertRecipeStatic(db, unlinked) > 0);
+            QVERIFY(RecipeStorage::insertRecipeStatic(db, bare) > 0);
+
+            QHash<QString, bool> staleByName;
+            for (const InventoryRecipe& e : RecipeStorage::loadInventoryStatic(db, false))
+                staleByName.insert(e.recipe.name, e.stale);
+            QCOMPARE(staleByName.size(), 4);
+            QCOMPARE(staleByName.value("Fresh"), false);
+            QCOMPARE(staleByName.value("Stale"), true);
+            QCOMPARE(staleByName.value("Unlinked"), true);
+            QCOMPARE(staleByName.value("Bare"), false);
         });
     }
 
@@ -396,13 +450,501 @@ private slots:
         });
     }
 
+    // --- migration-29 data pass: bean identity -> open bag, once ---
+
+    void migrateBagLinks() {
+        withRawDb(freshDbPath(), "mig29", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+
+            CoffeeBag open; open.roasterName = "Roaster"; open.coffeeName = "Guji";
+            open.beanBaseId = "bb-uuid-1"; open.inInventory = true;
+            const qint64 openId = CoffeeBagStorage::insertBagStatic(db, open);
+            CoffeeBag finished = open; finished.inInventory = false;
+            const qint64 finishedId = CoffeeBagStorage::insertBagStatic(db, finished);
+            QVERIFY(openId > 0 && finishedId > 0);
+
+            // Resolves to the open bag of its bean.
+            Recipe resolvable = sampleRecipe();
+            const qint64 resolvableId = RecipeStorage::insertRecipeStatic(db, resolvable);
+            // No open bag of this bean -> stays unlinked (stale).
+            Recipe orphan = sampleRecipe();
+            orphan.beanBaseId = "bb-none"; orphan.roasterName = "Else"; orphan.coffeeName = "Where";
+            const qint64 orphanId = RecipeStorage::insertRecipeStatic(db, orphan);
+            // Already linked (idempotence): the pass must not touch it, even
+            // though the resolver would pick the open bag.
+            Recipe already = sampleRecipe();
+            already.bagId = finishedId;
+            const qint64 alreadyId = RecipeStorage::insertRecipeStatic(db, already);
+            QVERIFY(resolvableId > 0 && orphanId > 0 && alreadyId > 0);
+
+            RecipeStorage::migrateBagLinksStatic(db);
+
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, resolvableId).bagId, openId);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, orphanId).bagId, (qint64)0);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, alreadyId).bagId, finishedId);
+
+            // Running it again changes nothing (idempotent).
+            RecipeStorage::migrateBagLinksStatic(db);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, resolvableId).bagId, openId);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, alreadyId).bagId, finishedId);
+        });
+    }
+
+    // --- import: bag_id remaps through the bag id-map ---
+
+    void importRemapsBagId() {
+        const QString srcPath = freshDbPath();
+        const QString destPath = freshDbPath();
+        qint64 srcLinkedId = 0, srcDanglingId = 0;
+        withRawDb(srcPath, "imp_src", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe linked = sampleRecipe(); linked.name = "Linked"; linked.bagId = 40;
+            Recipe dangling = sampleRecipe(); dangling.name = "Dangling"; dangling.bagId = 77;
+            srcLinkedId = RecipeStorage::insertRecipeStatic(db, linked);
+            srcDanglingId = RecipeStorage::insertRecipeStatic(db, dangling);
+            QVERIFY(srcLinkedId > 0 && srcDanglingId > 0);
+        });
+        withRawDb(destPath, "imp_dest", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+        });
+        withRawDb(srcPath, "imp_src2", [&](QSqlDatabase& srcDb) {
+            withRawDb(destPath, "imp_dest2", [&](QSqlDatabase& destDb) {
+                QHash<qint64, qint64> idMap;
+                const QHash<qint64, qint64> bagIdMap{{40, 9}};  // 77 absent -> NULL
+                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, /*merge=*/false,
+                                                           idMap, {}, bagIdMap));
+                QCOMPARE(RecipeStorage::loadRecipeStatic(destDb, idMap.value(srcLinkedId)).bagId,
+                         (qint64)9);
+                QCOMPARE(RecipeStorage::loadRecipeStatic(destDb, idMap.value(srcDanglingId)).bagId,
+                         (qint64)0);
+            });
+        });
+    }
+
+    // --- save-time normalization (create/update) ---
+
+    // requestCreateRecipe normalizes the bag link once at save time: bean
+    // identity without a bag resolves to that bean's open bag (older MCP/web
+    // clients); a bag without identity adopts the bag's identity fields (the
+    // relink matching key must always be populated); an unknown bag id drops
+    // the link with a warning but still creates. The emitted map echoes the
+    // caller's requestToken — the correlation contract for the broadcast
+    // recipeCreated signal.
+    void createNormalizesBagLink() {
+        const QString path = freshDbPath();
+        qint64 openBagId = 0;
+        withRawDb(path, "create_norm_setup", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            CoffeeBag bag; bag.roasterName = "Roaster"; bag.coffeeName = "Guji";
+            bag.beanBaseId = "bb-uuid-1"; bag.inInventory = true;
+            openBagId = CoffeeBagStorage::insertBagStatic(db, bag);
+        });
+        QVERIFY(openBagId > 0);
+
+        RecipeStorage storage;
+        storage.initialize(path);
+
+        // Identity only -> resolved to the open bag; token echoed.
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeCreated);
+            QVariantMap map = sampleRecipe().toVariantMap();
+            map.remove("id");
+            map.insert("requestToken", "tok-identity");
+            storage.requestCreateRecipe(map);
+            QTRY_COMPARE(spy.count(), 1);
+            const QVariantMap created = spy.at(0).at(1).toMap();
+            QCOMPARE(created.value("requestToken").toString(), QString("tok-identity"));
+            QCOMPARE(created.value("bagId").toLongLong(), openBagId);
+        }
+
+        // Bag only -> adopts the bag's identity fields.
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeCreated);
+            QVariantMap map{{"name", "Bag only"}, {"profileTitle", "P"},
+                            {"bagId", openBagId}};
+            storage.requestCreateRecipe(map);
+            QTRY_COMPARE(spy.count(), 1);
+            const QVariantMap created = spy.at(0).at(1).toMap();
+            QCOMPARE(created.value("bagId").toLongLong(), openBagId);
+            QCOMPARE(created.value("beanBaseId").toString(), QString("bb-uuid-1"));
+            QCOMPARE(created.value("roasterName").toString(), QString("Roaster"));
+            QCOMPARE(created.value("coffeeName").toString(), QString("Guji"));
+        }
+
+        // Unknown bag id -> link dropped (warned), recipe still created.
+        {
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression("unknown bag id"));
+            QSignalSpy spy(&storage, &RecipeStorage::recipeCreated);
+            QVariantMap map{{"name", "Dangling"}, {"profileTitle", "P"},
+                            {"bagId", (qint64)999999}};
+            storage.requestCreateRecipe(map);
+            QTRY_COMPARE(spy.count(), 1);
+            QVERIFY(spy.at(0).at(0).toLongLong() > 0);
+            QCOMPARE(spy.at(0).at(1).toMap().value("bagId").toLongLong(), (qint64)0);
+        }
+    }
+
+    // Clone echoes the requestToken too (same correlation contract).
+    void cloneEchoesRequestToken() {
+        const QString path = freshDbPath();
+        qint64 sourceId = 0;
+        withRawDb(path, "clone_tok_setup", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            sourceId = RecipeStorage::insertRecipeStatic(db, sampleRecipe());
+        });
+        RecipeStorage storage;
+        storage.initialize(path);
+        QSignalSpy spy(&storage, &RecipeStorage::recipeCreated);
+        storage.requestCloneRecipe(sourceId, "Copy", "tok-clone");
+        QTRY_COMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(1).toMap().value("requestToken").toString(),
+                 QString("tok-clone"));
+    }
+
+    // A bagId patch adopts the new bag's identity (the manual re-point);
+    // explicit identity fields in the same patch win over adoption; a
+    // DANGLING bagId drops the link field and applies the rest (the web
+    // editor re-sends the stored bagId on every save — a bag deleted on
+    // another surface must not turn a rename into a failure).
+    void updateBagIdPatch() {
+        const QString path = freshDbPath();
+        qint64 recipeId = 0, bagAId = 0, bagBId = 0;
+        withRawDb(path, "update_patch_setup", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            CoffeeBag a; a.roasterName = "Roaster"; a.coffeeName = "Guji";
+            a.beanBaseId = "bb-uuid-1"; a.inInventory = true;
+            bagAId = CoffeeBagStorage::insertBagStatic(db, a);
+            CoffeeBag b; b.roasterName = "Other"; b.coffeeName = "Yirg";
+            b.beanBaseId = "bb-uuid-2"; b.inInventory = true;
+            bagBId = CoffeeBagStorage::insertBagStatic(db, b);
+            Recipe r = sampleRecipe(); r.bagId = bagAId;
+            recipeId = RecipeStorage::insertRecipeStatic(db, r);
+        });
+        QVERIFY(recipeId > 0 && bagAId > 0 && bagBId > 0);
+
+        RecipeStorage storage;
+        storage.initialize(path);
+
+        // Re-point to bag B: identity follows the bag.
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            storage.requestRelinkRecipeToBag(recipeId, bagBId);
+            QTRY_COMPARE(spy.count(), 1);
+            QCOMPARE(spy.at(0).at(1).toBool(), true);
+        }
+        withRawDb(path, "update_patch_check1", [&](QSqlDatabase& db) {
+            const Recipe r = RecipeStorage::loadRecipeStatic(db, recipeId);
+            QCOMPARE(r.bagId, bagBId);
+            QCOMPARE(r.beanBaseId, QString("bb-uuid-2"));
+            QCOMPARE(r.roasterName, QString("Other"));
+            QCOMPARE(r.coffeeName, QString("Yirg"));
+        });
+
+        // Explicit identity in the same patch wins over adoption.
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            storage.requestUpdateRecipe(recipeId,
+                {{"bagId", bagAId}, {"roasterName", "Custom"}});
+            QTRY_COMPARE(spy.count(), 1);
+            QCOMPARE(spy.at(0).at(1).toBool(), true);
+        }
+        withRawDb(path, "update_patch_check2", [&](QSqlDatabase& db) {
+            const Recipe r = RecipeStorage::loadRecipeStatic(db, recipeId);
+            QCOMPARE(r.bagId, bagAId);
+            QCOMPARE(r.roasterName, QString("Custom"));      // explicit wins
+            QCOMPARE(r.beanBaseId, QString("bb-uuid-1"));    // adopted
+        });
+
+        // Dangling bagId: the link field drops, the rest applies.
+        {
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression("unknown bag id"));
+            QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            storage.requestUpdateRecipe(recipeId,
+                {{"bagId", (qint64)999999}, {"name", "Renamed"}});
+            QTRY_COMPARE(spy.count(), 1);
+            QCOMPARE(spy.at(0).at(1).toBool(), true);
+        }
+        // Dangling bagId as the ONLY field: a clean no-op success.
+        {
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression("unknown bag id"));
+            QSignalSpy spy(&storage, &RecipeStorage::recipeUpdated);
+            storage.requestUpdateRecipe(recipeId, {{"bagId", (qint64)888888}});
+            QTRY_COMPARE(spy.count(), 1);
+            QCOMPARE(spy.at(0).at(1).toBool(), true);
+        }
+        withRawDb(path, "update_patch_check3", [&](QSqlDatabase& db) {
+            const Recipe r = RecipeStorage::loadRecipeStatic(db, recipeId);
+            QCOMPARE(r.name, QString("Renamed"));
+            QCOMPARE(r.bagId, bagAId);  // existing link untouched
+        });
+    }
+
+    // --- relink lifecycle (recipe-bag-lifecycle) ---
+
+    void rollOnFinishHappyPath() {
+        withRawDb(freshDbPath(), "roll_happy", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            qint64 finishedId = 0, openId = 0;
+            insertBeanPair(db, &finishedId, &openId);
+            QVERIFY(finishedId > 0 && openId > 0);
+
+            Recipe r1 = sampleRecipe(); r1.name = "One"; r1.bagId = finishedId;
+            Recipe r2 = sampleRecipe(); r2.name = "Two"; r2.bagId = finishedId;
+            r2.profileTitle = "Different profile";  // no dup collision
+            const qint64 id1 = RecipeStorage::insertRecipeStatic(db, r1);
+            const qint64 id2 = RecipeStorage::insertRecipeStatic(db, r2);
+
+            qint64 target = -1;
+            const QVector<qint64> moved =
+                RecipeStorage::relinkForFinishedBagStatic(db, finishedId, &target);
+            QCOMPARE(target, openId);
+            QCOMPARE(moved.size(), 2);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, id1).bagId, openId);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, id2).bagId, openId);
+        });
+    }
+
+    void rollOnFinishDupGuard() {
+        withRawDb(freshDbPath(), "roll_dup", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            qint64 finishedId = 0, openId = 0;
+            insertBeanPair(db, &finishedId, &openId);
+
+            // A deliberate comparison pair: same profile + drink type on both
+            // bags. The roll would collapse it — the finished side stays put.
+            Recipe onFinished = sampleRecipe(); onFinished.name = "Old bag"; onFinished.bagId = finishedId;
+            Recipe onOpen = sampleRecipe(); onOpen.name = "New bag"; onOpen.bagId = openId;
+            const qint64 finishedRecipeId = RecipeStorage::insertRecipeStatic(db, onFinished);
+            QVERIFY(RecipeStorage::insertRecipeStatic(db, onOpen) > 0);
+
+            const QVector<qint64> moved =
+                RecipeStorage::relinkForFinishedBagStatic(db, finishedId);
+            QVERIFY(moved.isEmpty());
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, finishedRecipeId).bagId, finishedId);
+        });
+    }
+
+    void rollDifferentDrinkTypeIsNotDup() {
+        withRawDb(freshDbPath(), "roll_type", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            qint64 finishedId = 0, openId = 0;
+            insertBeanPair(db, &finishedId, &openId);
+
+            // Same profile, DIFFERENT drink type — not a duplicate.
+            Recipe latte = sampleRecipe(); latte.name = "Latte"; latte.bagId = finishedId;
+            latte.drinkType = "latte";
+            Recipe espresso = sampleRecipe(); espresso.name = "Espresso"; espresso.bagId = openId;
+            espresso.drinkType = "espresso"; espresso.steamJson.clear();
+            const qint64 latteId = RecipeStorage::insertRecipeStatic(db, latte);
+            QVERIFY(RecipeStorage::insertRecipeStatic(db, espresso) > 0);
+
+            const QVector<qint64> moved =
+                RecipeStorage::relinkForFinishedBagStatic(db, finishedId);
+            QCOMPARE(moved.size(), 1);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, latteId).bagId, openId);
+        });
+    }
+
+    void rollNoSuccessorKeepsLink() {
+        withRawDb(freshDbPath(), "roll_none", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            CoffeeBag only; only.roasterName = "Roaster"; only.coffeeName = "Guji";
+            only.beanBaseId = "bb-uuid-1"; only.inInventory = false;
+            const qint64 bagId = CoffeeBagStorage::insertBagStatic(db, only);
+            Recipe r = sampleRecipe(); r.bagId = bagId;
+            const qint64 recipeId = RecipeStorage::insertRecipeStatic(db, r);
+
+            qint64 target = -1;
+            const QVector<qint64> moved =
+                RecipeStorage::relinkForFinishedBagStatic(db, bagId, &target);
+            QVERIFY(moved.isEmpty());
+            QCOMPARE(target, (qint64)-1);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, recipeId).bagId, bagId);
+        });
+    }
+
+    void wakeOnRestock() {
+        withRawDb(freshDbPath(), "wake", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            CoffeeBag gone; gone.roasterName = "Roaster"; gone.coffeeName = "Guji";
+            gone.beanBaseId = "bb-uuid-1"; gone.inInventory = false;
+            const qint64 goneId = CoffeeBagStorage::insertBagStatic(db, gone);
+
+            // Stale recipe of that bean; a pinned grind must survive the move.
+            Recipe stale = sampleRecipe(); stale.bagId = goneId;
+            stale.grindPinned = "2.4"; stale.rpmPinned = 90;
+            const qint64 staleId = RecipeStorage::insertRecipeStatic(db, stale);
+            // A different bean's stale recipe must NOT wake.
+            Recipe otherBean = sampleRecipe(); otherBean.name = "Other";
+            otherBean.beanBaseId = "bb-other"; otherBean.roasterName = "Else";
+            otherBean.coffeeName = "Where";
+            const qint64 otherId = RecipeStorage::insertRecipeStatic(db, otherBean);
+
+            CoffeeBag restock = gone; restock.inInventory = true;
+            const qint64 newId = CoffeeBagStorage::insertBagStatic(db, restock);
+
+            const QVector<qint64> moved =
+                RecipeStorage::relinkForRestockedBagStatic(db, newId);
+            QCOMPARE(moved.size(), 1);
+            QCOMPARE(moved.first(), staleId);
+            const Recipe woken = RecipeStorage::loadRecipeStatic(db, staleId);
+            QCOMPARE(woken.bagId, newId);
+            // Relink never rewrites grind: the pin is untouched.
+            QCOMPARE(woken.grindPinned, QString("2.4"));
+            QCOMPARE(woken.rpmPinned, (qint64)90);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, otherId).bagId, (qint64)0);
+        });
+    }
+
+    void wakeTwinsMruFirst() {
+        withRawDb(freshDbPath(), "wake_twins", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            // Two stale TWINS (same profile + drink type) of the same bean:
+            // only the most recently used one wakes; the dup-guard holds the
+            // other back for the next restock.
+            Recipe older = sampleRecipe(); older.name = "Older"; older.lastUsedEpoch = 100;
+            Recipe newer = sampleRecipe(); newer.name = "Newer"; newer.lastUsedEpoch = 500;
+            const qint64 olderId = RecipeStorage::insertRecipeStatic(db, older);
+            const qint64 newerId = RecipeStorage::insertRecipeStatic(db, newer);
+
+            CoffeeBag bag; bag.roasterName = "Roaster"; bag.coffeeName = "Guji";
+            bag.beanBaseId = "bb-uuid-1"; bag.inInventory = true;
+            const qint64 bagId = CoffeeBagStorage::insertBagStatic(db, bag);
+
+            const QVector<qint64> moved =
+                RecipeStorage::relinkForRestockedBagStatic(db, bagId);
+            QCOMPARE(moved.size(), 1);
+            QCOMPARE(moved.first(), newerId);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, newerId).bagId, bagId);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, olderId).bagId, (qint64)0);
+        });
+    }
+
+    // Roll matching falls back to case-insensitive roaster+coffee when the
+    // bean has no canonical id (the common non-Bean-Base path), and among
+    // SEVERAL open bags picks the NEWEST (highest id), not the MRU one.
+    void rollIdentityFallbackPicksNewest() {
+        withRawDb(freshDbPath(), "roll_ident", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            CoffeeBag finished; finished.roasterName = "ROASTER"; finished.coffeeName = "guji";
+            finished.inInventory = false;   // no beanBaseId anywhere
+            const qint64 finishedId = CoffeeBagStorage::insertBagStatic(db, finished);
+            CoffeeBag older; older.roasterName = "Roaster"; older.coffeeName = "Guji";
+            older.inInventory = true; older.lastUsedEpoch = 900;  // MRU but older
+            const qint64 olderId = CoffeeBagStorage::insertBagStatic(db, older);
+            CoffeeBag newest = older; newest.lastUsedEpoch = 100;
+            const qint64 newestId = CoffeeBagStorage::insertBagStatic(db, newest);
+            QVERIFY(finishedId > 0 && olderId > 0 && newestId > 0);
+
+            Recipe r = sampleRecipe(); r.beanBaseId.clear(); r.bagId = finishedId;
+            const qint64 recipeId = RecipeStorage::insertRecipeStatic(db, r);
+
+            qint64 target = -1;
+            const QVector<qint64> moved =
+                RecipeStorage::relinkForFinishedBagStatic(db, finishedId, &target);
+            QCOMPARE(moved.size(), 1);
+            QCOMPARE(target, newestId);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, recipeId).bagId, newestId);
+        });
+    }
+
+    // Wake guards: a bag NOT in inventory never wakes anything, and identity
+    // matching is case-insensitive.
+    void wakeGuardsAndCaseInsensitivity() {
+        withRawDb(freshDbPath(), "wake_guards", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            Recipe stale = sampleRecipe();
+            stale.beanBaseId.clear();
+            stale.roasterName = "ROASTER"; stale.coffeeName = "GUJI";
+            const qint64 staleId = RecipeStorage::insertRecipeStatic(db, stale);
+
+            // Out-of-inventory bag: no wake.
+            CoffeeBag closed; closed.roasterName = "Roaster"; closed.coffeeName = "Guji";
+            closed.inInventory = false;
+            const qint64 closedId = CoffeeBagStorage::insertBagStatic(db, closed);
+            QVERIFY(RecipeStorage::relinkForRestockedBagStatic(db, closedId).isEmpty());
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, staleId).bagId, (qint64)0);
+
+            // Open bag, different casing: wakes.
+            CoffeeBag open = closed; open.inInventory = true;
+            const qint64 openId = CoffeeBagStorage::insertBagStatic(db, open);
+            const QVector<qint64> moved = RecipeStorage::relinkForRestockedBagStatic(db, openId);
+            QCOMPARE(moved.size(), 1);
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, staleId).bagId, openId);
+        });
+    }
+
+    // The async wrappers' observable contract: recipesRelinked (with the
+    // moved ids + target bag id + display name) and recipesChanged fire when
+    // something moved; NOTHING fires when nothing moved — the toast and the
+    // active-cache refresh both hang off exactly this payload.
+    void relinkWrappersSignalContract() {
+        const QString path = freshDbPath();
+        qint64 finishedId = 0, openId = 0, recipeId = 0;
+        withRawDb(path, "wrap_setup", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            createMinimalShots(db);  // the drain read below joins shot counts
+            insertBeanPair(db, &finishedId, &openId);
+            Recipe r = sampleRecipe(); r.bagId = finishedId;
+            recipeId = RecipeStorage::insertRecipeStatic(db, r);
+        });
+        QVERIFY(recipeId > 0);
+
+        RecipeStorage storage;
+        storage.initialize(path);
+
+        // Moves: one relinked emission naming the target bag, + recipesChanged.
+        {
+            QSignalSpy relinked(&storage, &RecipeStorage::recipesRelinked);
+            QSignalSpy changed(&storage, &RecipeStorage::recipesChanged);
+            storage.requestRelinkForFinishedBag(finishedId);
+            QTRY_COMPARE(relinked.count(), 1);
+            const auto args = relinked.at(0);
+            QCOMPARE(args.at(0).toList().size(), 1);
+            QCOMPARE(args.at(0).toList().first().toLongLong(), recipeId);
+            QCOMPARE(args.at(1).toLongLong(), openId);
+            QCOMPARE(args.at(2).toString(), QString("Guji"));
+            QCOMPARE(changed.count(), 1);
+        }
+
+        // Nothing left to move: silent (no phantom toast).
+        {
+            QSignalSpy relinked(&storage, &RecipeStorage::recipesRelinked);
+            QSignalSpy changed(&storage, &RecipeStorage::recipesChanged);
+            storage.requestRelinkForFinishedBag(finishedId);
+            // Drain the worker with an unrelated read so the relink job has
+            // definitely completed before asserting silence.
+            QSignalSpy inv(&storage, &RecipeStorage::inventoryReady);
+            storage.requestInventory();
+            QTRY_COMPARE(inv.count(), 1);
+            QCOMPARE(relinked.count(), 0);
+            QCOMPARE(changed.count(), 0);
+        }
+    }
+
     // --- activation bundle ---
 
     // requestRecipeForActivation loads recipe + resolved bag in ONE pass and is
     // the terminus of every activation caller (idle pill, RecipesPage, MCP,
     // web). Its three documented contracts — happy path, missing recipe emits
     // an EMPTY map (activation must fail cleanly, NOT hang), and bean-less /
-    // no-open-bag emits openBagId == -1 — are each load-bearing.
+    // no-linked-bag emits linkedBagId == -1 — are each load-bearing.
     // drink_type follows the blocks on updates that change them without
     // setting it (MCP/web edits, steam stamps) — and a stored profile-derived
     // type (tea/filter) survives a block stamp when the profile didn't change.
@@ -593,23 +1135,46 @@ private slots:
 
     void requestRecipeForActivation() {
         const QString path = freshDbPath();
-        qint64 recipeId = 0, bareId = 0, openBagId = 0;
+        qint64 recipeId = 0, bareId = 0, staleId = 0, mruTrapId = 0;
+        qint64 linkedBagId = 0, finishedBagId = 0;
         withRawDb(path, "act_setup", [&](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));
             QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
-            CoffeeBag bag; bag.roasterName = "Roaster"; bag.coffeeName = "Guji";
-            bag.beanBaseId = "bb-uuid-1"; bag.inInventory = true; bag.grinderSetting = "2.4";
-            openBagId = CoffeeBagStorage::insertBagStatic(db, bag);
-            recipeId = RecipeStorage::insertRecipeStatic(db, sampleRecipe());
+            // Two open bags of the same bean: the recipe links the OLDER,
+            // less recently used one — activation must apply exactly it (no
+            // MRU resolution, the whole point of the hard bag link).
+            CoffeeBag linked; linked.roasterName = "Roaster"; linked.coffeeName = "Guji";
+            linked.beanBaseId = "bb-uuid-1"; linked.inInventory = true;
+            linked.grinderSetting = "2.4"; linked.lastUsedEpoch = 100;
+            linkedBagId = CoffeeBagStorage::insertBagStatic(db, linked);
+            CoffeeBag mruTwin = linked; mruTwin.grinderSetting = "3.0";
+            mruTwin.lastUsedEpoch = 900;
+            QVERIFY(CoffeeBagStorage::insertBagStatic(db, mruTwin) > 0);
+            // A finished bag for the stale case.
+            CoffeeBag finished = linked; finished.inInventory = false;
+            finished.grinderSetting = "1.8";
+            finishedBagId = CoffeeBagStorage::insertBagStatic(db, finished);
+
+            Recipe r = sampleRecipe();
+            r.bagId = linkedBagId;
+            recipeId = RecipeStorage::insertRecipeStatic(db, r);
+            Recipe stale = sampleRecipe(); stale.name = "Stale";
+            stale.bagId = finishedBagId;
+            staleId = RecipeStorage::insertRecipeStatic(db, stale);
+            // Bean identity but NO bag link (unresolved migration): no
+            // MRU resolution happens at activation anymore.
+            Recipe unlinked = sampleRecipe(); unlinked.name = "Unlinked";
+            mruTrapId = RecipeStorage::insertRecipeStatic(db, unlinked);
             Recipe bare; bare.name = "Bare";  // no bean link
             bareId = RecipeStorage::insertRecipeStatic(db, bare);
         });
-        QVERIFY(recipeId > 0 && bareId > 0 && openBagId > 0);
+        QVERIFY(recipeId > 0 && bareId > 0 && staleId > 0 && mruTrapId > 0
+                && linkedBagId > 0 && finishedBagId > 0);
 
         RecipeStorage storage;
         storage.initialize(path);
 
-        // Happy path: recipe map + resolved open bag + full bag map, one pass.
+        // Happy path: recipe map + the LINKED bag (not the MRU twin), one pass.
         {
             QSignalSpy spy(&storage, &RecipeStorage::recipeActivationReady);
             storage.requestRecipeForActivation(recipeId);
@@ -617,8 +1182,20 @@ private slots:
             const auto args = spy.at(0);
             QCOMPARE(args.at(0).toLongLong(), recipeId);
             QCOMPARE(args.at(1).toMap().value("name").toString(), QString("Morning capp"));
-            QCOMPARE(args.at(2).toLongLong(), openBagId);
+            QCOMPARE(args.at(2).toLongLong(), linkedBagId);
             QCOMPARE(args.at(3).toMap().value("grinderSetting").toString(), QString("2.4"));
+        }
+
+        // Stale recipe: the FINISHED bag applies fully — full bag map with
+        // its grind, no error, no substitute bag.
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeActivationReady);
+            storage.requestRecipeForActivation(staleId);
+            QTRY_COMPARE(spy.count(), 1);
+            const auto args = spy.at(0);
+            QCOMPARE(args.at(2).toLongLong(), finishedBagId);
+            QCOMPARE(args.at(3).toMap().value("grinderSetting").toString(), QString("1.8"));
+            QCOMPARE(args.at(3).toMap().value("inInventory").toBool(), false);
         }
 
         // Missing recipe: emits with an EMPTY recipe map (caller fails cleanly).
@@ -630,7 +1207,18 @@ private slots:
             QCOMPARE(spy.at(0).at(2).toLongLong(), (qint64)-1);
         }
 
-        // Bean-less recipe: valid recipe, openBagId == -1, empty bag map.
+        // Bean identity but no bag link: bagId == -1 — activation performs
+        // NO identity resolution (the retired MRU behavior must stay dead).
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeActivationReady);
+            storage.requestRecipeForActivation(mruTrapId);
+            QTRY_COMPARE(spy.count(), 1);
+            QVERIFY(!spy.at(0).at(1).toMap().isEmpty());
+            QCOMPARE(spy.at(0).at(2).toLongLong(), (qint64)-1);
+            QVERIFY(spy.at(0).at(3).toMap().isEmpty());
+        }
+
+        // Bean-less recipe: valid recipe, bagId == -1, empty bag map.
         {
             QSignalSpy spy(&storage, &RecipeStorage::recipeActivationReady);
             storage.requestRecipeForActivation(bareId);
@@ -648,6 +1236,7 @@ private slots:
         qint64 usedId = 0, unusedId = 0;
         withRawDb(path, "life_setup", [&](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
             createMinimalShots(db);
             Recipe used = sampleRecipe(); used.name = "Used";
             Recipe unused = sampleRecipe(); unused.name = "Unused";

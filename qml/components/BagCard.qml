@@ -43,32 +43,21 @@ Rectangle {
     readonly property string imageKey: hasCanonical
         ? canonicalId
         : (bag && bag.id !== undefined && beanBase.link ? "bag-" + bag.id : "")
-    property string cachedImagePath: ""
 
-    function refreshBagImage() {
-        if (imageKey.length === 0) {
-            cachedImagePath = ""
-            return
-        }
-        cachedImagePath = MainController.beanbase.bagImagePath(imageKey)
-        if (cachedImagePath.length === 0)
-            MainController.beanbase.ensureBagImage(imageKey,
-                (bag && bag.coffeeName) || "", beanBase.link || "")
-        // The reorder URL is wanted even when the image is already cached
-        // (a legacy blob whose photo resolved before link backfill existed).
-        // Canonical-linked bags only — a manual bag has nothing to recover from.
+    // The thumbnail itself (cache resolve/backfill) lives in the shared
+    // BeanThumbnail widget below; this card only adds the reorder-URL
+    // recovery, wanted even when the image is already cached (a legacy blob
+    // whose photo resolved before link backfill existed). Canonical-linked
+    // bags only — a manual bag has nothing to recover from.
+    function maybeRecoverLink() {
         if (hasCanonical && !beanBase.link)
             MainController.beanbase.recoverBagLink(canonicalId, (bag && bag.coffeeName) || "")
     }
-    Component.onCompleted: refreshBagImage()
-    onImageKeyChanged: refreshBagImage()
+    Component.onCompleted: maybeRecoverLink()
+    onImageKeyChanged: maybeRecoverLink()
 
     Connections {
         target: MainController.beanbase
-        function onBagImageReady(id, path) {
-            if (id === card.imageKey)
-                card.cachedImagePath = path
-        }
         // One-time blob backfill: the image re-search recovered the product
         // URL for a blob linked before `link` was captured. Persist it so the
         // details popup can offer the reorder link (bag row only — shot
@@ -218,45 +207,16 @@ Rectangle {
                 anchors.right: parent.right
                 spacing: Theme.scaled(10)
 
-                // Bag photo thumbnail from the file cache (see cachedImagePath
-                // above; legacy blob `image` URL as fallback). A dimmed beans
-                // icon keeps the slot for imageless/offline bags so mixed
-                // inventories stay aligned.
-                Rectangle {
+                // Bag photo — the shared BeanThumbnail cache widget (legacy
+                // blob `image` URL as fallback).
+                BeanThumbnail {
                     Layout.preferredWidth: Theme.scaled(44)
                     Layout.preferredHeight: Theme.scaled(44)
                     Layout.alignment: Qt.AlignTop
-                    radius: Theme.scaled(6)
-                    color: Theme.backgroundColor
-                    border.color: Theme.borderColor
-                    border.width: 1
-
-                    ColoredIcon {
-                        anchors.centerIn: parent
-                        visible: bagThumb.status !== Image.Ready
-                        source: "qrc:/icons/coffeebeans.svg"
-                        iconWidth: Theme.scaled(22)
-                        iconHeight: Theme.scaled(22)
-                        iconColor: Theme.textSecondaryColor
-                        opacity: 0.5
-                        Accessible.ignored: true
-                    }
-
-                    Image {
-                        id: bagThumb
-                        anchors.fill: parent
-                        anchors.margins: 1
-                        visible: status === Image.Ready
-                        source: card.cachedImagePath.length > 0
-                            ? "file:///" + card.cachedImagePath
-                            : (card.beanBase.image || "")
-                        // Decode at thumbnail resolution — never the full photo.
-                        sourceSize.width: Theme.scaled(88)
-                        sourceSize.height: Theme.scaled(88)
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        Accessible.ignored: true
-                    }
+                    imageKey: card.imageKey
+                    fallbackName: (card.bag && card.bag.coffeeName) || ""
+                    link: card.beanBase.link || ""
+                    legacyImageUrl: card.beanBase.image || ""
                 }
 
                 ColumnLayout {
