@@ -1044,6 +1044,8 @@ QString ShotServer::generateLayoutPage() const
             border: 1px solid var(--border);
             border-radius: 6px;
         }
+        .sp-item-row[draggable="true"] { cursor: grab; }
+        .sp-item-row.dragging { opacity: 0.5; }
         .sp-item-label {
             flex: 1;
             color: var(--text);
@@ -1058,6 +1060,11 @@ QString ShotServer::generateLayoutPage() const
             color: var(--text);
             font-size: 0.75rem;
             cursor: pointer;
+            /* Focusable child of the now-draggable .sp-item-row — see the
+               chip-opts/chip-remove comment above on WebKit swallowing
+               dragstart from a focusable descendant. */
+            -webkit-user-drag: none;
+            user-drag: none;
         }
         .sp-item-btn:hover:not(:disabled) { border-color: var(--accent); }
         .sp-item-btn:disabled { opacity: 0.3; cursor: default; }
@@ -2146,7 +2153,7 @@ QString ShotServer::generateLayoutPage() const
                  Order = display order; up/down reorders, ✕ hides (moves the item
                  to Available), + shows it again. Mirrors the in-app chip editor. -->
             <div id="ssShotPlanSettings" style="display:none">
-                <div class="section-label">Shown (order = display order)</div>
+                <div class="section-label">Shown (drag to reorder)</div>
                 <div id="spShownList"></div>
                 <div class="section-label" id="spAvailableLabel">Available</div>
                 <div id="spAvailableList"></div>
@@ -3550,14 +3557,50 @@ QString ShotServer::generateLayoutPage() const
         return order;
     }
 
+    // Shown-list reorder: drag-to-reorder, matching both the main layout
+    // chips (chipDragStart/etc. above) and the in-app Shot Plan editor's
+    // draggable chips (ScreensaverEditorPopup.qml's planDragMa) — this
+    // replaces the old up/down arrow buttons.
+    var spDragIdx = null;
+    function spDragStart(ev, idx) {
+        spDragIdx = idx;
+        ev.dataTransfer.effectAllowed = "move";
+        try { ev.dataTransfer.setData("text/plain", String(idx)); } catch(e) {}
+        if (ev.currentTarget) ev.currentTarget.classList.add("dragging");
+    }
+    function spDragEnd(ev) {
+        if (ev.currentTarget) ev.currentTarget.classList.remove("dragging");
+        spDragIdx = null;
+    }
+    function spDragOver(ev) {
+        if (spDragIdx !== null) {
+            ev.preventDefault();
+            ev.dataTransfer.dropEffect = "move";
+        }
+    }
+    function spDrop(ev, idx) {
+        ev.preventDefault();
+        if (spDragIdx === null) return;
+        var from = spDragIdx;
+        spDragIdx = null;
+        if (from === idx) return;
+        var item = spItems.splice(from, 1)[0];
+        spItems.splice(idx > from ? idx - 1 : idx, 0, item);
+        spRender();
+        spConfigChanged();
+    }
+
     function spRender() {
         var html = "";
         for (var i = 0; i < spItems.length; i++) {
-            html += '<div class="sp-item-row">'
-                + '<span class="sp-item-label">' + (SP_ITEM_LABELS[spItems[i]] || escapeHtml(spItems[i])) + '</span>'
-                + '<button class="sp-item-btn"' + (i === 0 ? ' disabled' : '') + ' onclick="spMove(' + i + ',-1)" title="Move up" aria-label="Move ' + (SP_ITEM_LABELS[spItems[i]] || escapeHtml(spItems[i])) + ' up">&#9650;</button>'
-                + '<button class="sp-item-btn"' + (i === spItems.length - 1 ? ' disabled' : '') + ' onclick="spMove(' + i + ',1)" title="Move down" aria-label="Move ' + (SP_ITEM_LABELS[spItems[i]] || escapeHtml(spItems[i])) + ' down">&#9660;</button>'
-                + '<button class="sp-item-btn sp-item-remove" onclick="spRemove(' + i + ')" title="Hide" aria-label="Hide ' + (SP_ITEM_LABELS[spItems[i]] || escapeHtml(spItems[i])) + '">&#10005;</button>'
+            var lbl = SP_ITEM_LABELS[spItems[i]] || escapeHtml(spItems[i]);
+            html += '<div class="sp-item-row" draggable="true"'
+                + ' ondragstart="spDragStart(event,' + i + ')"'
+                + ' ondragend="spDragEnd(event)"'
+                + ' ondragover="spDragOver(event)"'
+                + ' ondrop="spDrop(event,' + i + ')">'
+                + '<span class="sp-item-label">' + lbl + '</span>'
+                + '<button class="sp-item-btn sp-item-remove" draggable="false" onclick="spRemove(' + i + ')" title="Hide" aria-label="Hide ' + lbl + '">&#10005;</button>'
                 + '</div>';
         }
         document.getElementById("spShownList").innerHTML = html || '<div class="ss-no-settings">No items shown</div>';
@@ -3569,14 +3612,6 @@ QString ShotServer::generateLayoutPage() const
         document.getElementById("spAvailableList").innerHTML = availHtml;
         document.getElementById("spAvailableLabel").style.display = avail.length ? "" : "none";
         document.getElementById("spAvailableList").style.display = avail.length ? "" : "none";
-    }
-
-    function spMove(i, delta) {
-        var j = i + delta;
-        if (j < 0 || j >= spItems.length) return;
-        var t = spItems[i]; spItems[i] = spItems[j]; spItems[j] = t;
-        spRender();
-        spConfigChanged();
     }
 
     function spRemove(i) {
