@@ -1887,7 +1887,12 @@ Page {
                             collapsible: true
                             expanded: false
                             summary: wizardPage.numbersSummary
-                            title: TranslationManager.translate("recipes.wizard.sectionNumbers", "The numbers")
+                            // Concrete title: name the fields, not "numbers"
+                            // — the collapsed row must explain itself beside
+                            // its value summary.
+                            title: wizardPage.isTeaDrink
+                                ? TranslationManager.translate("recipes.wizard.sectionLeafTemp", "Leaf & temperature")
+                                : TranslationManager.translate("recipes.wizard.sectionDoseYield", "Dose, yield & temperature")
                             // The wizard says where the prefills came from and
                             // why the user might change them — never a wall of
                             // unexplained values.
