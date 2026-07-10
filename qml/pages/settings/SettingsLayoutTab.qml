@@ -140,23 +140,11 @@ Item {
         zoneOptionsPopup.openForZone(zoneName, zoneLabel)
     }
 
-    // Ensure there's always a way to reach Settings from the home screen
+    // Ensure there's always a way to reach Settings from the home screen.
+    // Delegates to the shared C++ implementation (SettingsNetwork::ensureSettingsAccessible)
+    // so the in-app editor and the web layout editor scan/repair identically.
     function ensureSettingsAccessible() {
-        var zones = ["statusBar", "topLeft", "topRight", "centerStatus", "centerTop",
-                     "centerMiddle", "lowerMidBar", "bottomLeft", "bottomRight"]
-        for (var z = 0; z < zones.length; z++) {
-            var items = Settings.network.getZoneItems(zones[z])
-            for (var i = 0; i < items.length; i++) {
-                if (items[i].type === "settings") return
-                if (items[i].type === "custom") {
-                    var props = Settings.network.getItemProperties(items[i].id)
-                    if (props.action === "navigate:settings") return
-                }
-            }
-        }
-        // No settings access found — add a settings widget to bottom right
-        Settings.network.addItem("settings", "bottomRight")
-        console.log("SettingsLayoutTab: Added settings widget to bottomRight (no settings access found)")
+        Settings.network.ensureSettingsAccessible()
     }
 
     onVisibleChanged: {

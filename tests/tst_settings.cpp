@@ -852,6 +852,49 @@ private slots:
         net->setLayoutConfiguration(orig);
     }
 
+    // ensureSettingsAccessible is the shared guard (ported from the QML
+    // SettingsLayoutTab scan) that both the in-app editor and the web layout
+    // editor call after mutations that can strip Settings access from the
+    // home screen. Cover: nothing found -> repaired; a plain "settings" item
+    // already present -> left alone; a "custom" item with the navigate action
+    // -> also counts and no repair happens.
+    void ensureSettingsAccessibleRestoresAccess() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        // No settings widget and no custom navigate:settings item anywhere.
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{\"statusBar\":["
+            "{\"type\":\"temperature\",\"id\":\"t1\"}"
+            "],\"bottomRight\":[]}}"));
+
+        QVERIFY(!net->hasItemType("settings"));
+        net->ensureSettingsAccessible();
+
+        bool found = false;
+        for (const QVariant& v : net->getZoneItems("bottomRight")) {
+            if (v.toMap().value("type").toString() == "settings") { found = true; break; }
+        }
+        QVERIFY2(found, "expected a settings widget to be added to bottomRight");
+
+        // Calling it again with a plain "settings" item present must not add
+        // a second one.
+        const int countBefore = net->getZoneItems("bottomRight").size();
+        net->ensureSettingsAccessible();
+        QCOMPARE(net->getZoneItems("bottomRight").size(), countBefore);
+
+        // A "custom" item whose action is navigate:settings also satisfies the
+        // guard — no settings widget should be added anywhere else.
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{\"topLeft\":["
+            "{\"type\":\"custom\",\"id\":\"c1\",\"action\":\"navigate:settings\"}"
+            "],\"bottomRight\":[]}}"));
+        net->ensureSettingsAccessible();
+        QVERIFY(!net->hasItemType("settings"));
+
+        net->setLayoutConfiguration(orig);
+    }
+
     // Array-valued item properties: setItemPropertyList is the typed path QML
     // must use (a JS array through the generic QVariant setter arrives as a
     // wrapped QJSValue and would be stored as null). Regression for the Shot
