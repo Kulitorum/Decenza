@@ -1104,17 +1104,8 @@ Page {
                             equipmentState: shotData.equipmentState || ""
                         }
                     }
-
-                    // Re-link beans (historicalShot semantics — this shot only).
-                    AccessibleButton {
-                        Layout.preferredHeight: Theme.scaled(40)
-                        Layout.topMargin: Theme.scaled(2)
-                        text: detailRecipeBeanSummary.hasBeans
-                            ? TranslationManager.translate("shotdetail.changeBeans", "Re-link Beans")
-                            : TranslationManager.translate("beans.button.select", "Select Beans")
-                        accessibleName: TranslationManager.translate("shotdetail.accessible.changeBeans", "Change the beans recorded for this shot")
-                        onClicked: detailChangeBeansDialog.open()
-                    }
+                    // Read-only: re-linking beans is an edit, available on the
+                    // Post-Shot Review page (via the header Edit button).
                 }
             }
 
@@ -1208,15 +1199,8 @@ Page {
                             Layout.fillWidth: true
                             beanBaseJson: shotData.beanBaseJson || ""
                         }
-
-                        AccessibleButton {
-                            Layout.preferredHeight: Theme.scaled(40)
-                            text: detailBeanSummary.hasBeans
-                                ? TranslationManager.translate("shotdetail.changeBeans", "Re-link Beans")
-                                : TranslationManager.translate("beans.button.select", "Select Beans")
-                            accessibleName: TranslationManager.translate("shotdetail.accessible.changeBeans", "Change the beans recorded for this shot")
-                            onClicked: detailChangeBeansDialog.open()
-                        }
+                        // Read-only: re-linking beans is an edit, done on the
+                        // Post-Shot Review page (via the header Edit button).
                     }
                 }
 
@@ -1566,17 +1550,9 @@ Page {
         }
     }
 
-    // Re-link beans for this shot — shared by the recipe card and the
-    // standalone bean card (only one is visible at a time). Page-scoped so the
-    // owning card's visibility never affects it. "historicalShot" semantics:
-    // updates only this shot's snapshot, never the active bag.
-    ChangeBeansDialog {
-        id: detailChangeBeansDialog
-        context: "historicalShot"
-        shotId: shotDetailPage.shotId
-    }
-    // Reload after the snapshot update lands so the summary reflects the
-    // re-linked bean (event-based, no race with the background write).
+    // Shot Detail is read-only — beans are re-linked on the Post-Shot Review
+    // page. Still refresh if this shot's metadata changes elsewhere (e.g. after
+    // editing it on the review page pushed on top), so returning shows fresh data.
     Connections {
         target: MainController.shotHistory
         function onShotMetadataUpdated(id, success) {
