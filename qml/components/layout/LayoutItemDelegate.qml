@@ -209,6 +209,7 @@ Item {
                 case "doseWeight":       src = "items/DoseWeightItem.qml"; break
                 case "milkWeight":       src = "items/MilkWeightItem.qml"; break
                 case "ratioQuickSelect": src = "items/RatioQuickSelectItem.qml"; break
+                case "grindQuickSelect": src = "items/GrindQuickSelectItem.qml"; break
                 case "shotPlan":         src = "items/ShotPlanItem.qml"; break
                 case "spacer":           src = "items/SpacerItem.qml"; break
                 case "custom":           src = "items/CustomItem.qml"; break
