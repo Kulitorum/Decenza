@@ -1205,21 +1205,33 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
 
     // Look up profile-specific knowledge by KB ID (computed from title/alias matching),
     // falling back to fuzzy title/editorType matching for shots without a stored KB ID
-    QString profileSection;
-    if (!profileKbId.isEmpty()) {
-        loadProfileKnowledge();
-        if (s_profileKnowledge.contains(profileKbId)) {
-            profileSection = s_profileKnowledge.value(profileKbId).content;
-        }
+    QString resolvedKbId = profileKbId;
+    loadProfileKnowledge();
+    if (resolvedKbId.isEmpty() || !s_profileKnowledge.contains(resolvedKbId)) {
+        resolvedKbId = matchProfileKey(s_profileKnowledge, profileTitle, profileType);
     }
-    if (profileSection.isEmpty()) {
-        profileSection = findProfileSection(profileTitle, profileType);
-    }
-    if (!profileSection.isEmpty()) {
-        base += QStringLiteral("\n\n## Current Profile Knowledge\n\n"
-            "The following is curated knowledge about the specific profile used in this shot. "
-            "Use this to understand what is INTENTIONAL behavior vs. what indicates a problem.\n\n")
-            + profileSection;
+    if (!resolvedKbId.isEmpty() && s_profileKnowledge.contains(resolvedKbId)) {
+        const auto pk = s_profileKnowledge.value(resolvedKbId);
+        // Name the KB entry explicitly (issue #1459): without a label here,
+        // this prose was indistinguishable from any other catalog entry's
+        // description, and the model picked a plausible-sounding catalog
+        // name by matching the DESCRIBED characteristics (e.g. attributing
+        // Allongé's "constant ~4.5 ml/s flow, low pressure" to TurboTurbo,
+        // which shares that description) instead of the shot's actual
+        // profile. `pk.name` is the matched KB entry's canonical display
+        // name, NOT the shot's own title, and NOT its `family` tag (the
+        // `[family: ...]` cluster used elsewhere for switching guidance) —
+        // a custom or renamed profile can resolve to this KB entry while
+        // having a different title in `result.profile.title`.
+        base += QStringLiteral("\n\n## Current Profile Knowledge: ") + pk.name + QStringLiteral("\n\n"
+            "The following is curated knowledge about the profile matched to this shot. The heading above "
+            "is the matched KB entry's canonical name, not necessarily the shot's own profile name — the "
+            "shot's actual title is `result.profile.title` (or the \"Profile:\" line in the prompt); "
+            "if the user renamed or customized the profile, that title may differ from the name above. "
+            "Always refer to the shot by its ACTUAL title when talking to the user, never by this KB "
+            "entry's name. Use this knowledge to understand what is INTENTIONAL behavior vs. what "
+            "indicates a problem.\n\n")
+            + pk.content;
     }
 
     return base;
