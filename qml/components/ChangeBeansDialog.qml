@@ -1304,8 +1304,9 @@ Dialog {
                         Layout.fillWidth: true
                         Layout.leftMargin: Theme.scaled(20)
                         Layout.rightMargin: Theme.scaled(20)
-                        Layout.preferredHeight: Theme.scaled(40)
-                        radius: Theme.scaled(6)
+                        // Match StyledComboBox (the input controls around it): 36 / r8.
+                        Layout.preferredHeight: Theme.scaled(36)
+                        radius: Theme.scaled(8)
                         color: Qt.rgba(255, 255, 255, 0.1)
 
                         Accessible.role: Accessible.Button

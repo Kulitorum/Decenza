@@ -62,8 +62,10 @@ TextField {
     // Explicit padding
     leftPadding: Theme.scaled(12)
     rightPadding: Theme.scaled(12)
-    topPadding: Theme.scaled(12)
-    bottomPadding: Theme.scaled(12)
+    // 8px insets land the implicit height at ~36 to match the app field
+    // standard (ValueInput / SuggestionField / StyledComboBox).
+    topPadding: Theme.scaled(8)
+    bottomPadding: Theme.scaled(8)
 
     // Default: dismiss keyboard on Enter (can be overridden with Keys.onReturnPressed)
     Keys.onReturnPressed: function(event) {

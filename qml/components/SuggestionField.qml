@@ -32,7 +32,7 @@ Item {
     readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
 
     implicitHeight: (root.label.length > 0 ? fieldLabel.height + Theme.scaled(2) : 0)
-                    + Theme.scaled(40)   // matches textInput height + ValueInput
+                    + Theme.scaled(36)   // matches textInput height + ValueInput (app field standard)
                     + (_accessibilityMode && (textInput.text.length > 0 || suggestions.length > 0)
                        ? Theme.scaled(44) + Theme.scaled(4) : 0)
 
@@ -134,7 +134,7 @@ Item {
         anchors.top: root.label.length > 0 ? fieldLabel.bottom : parent.top
         anchors.topMargin: root.label.length > 0 ? Theme.scaled(2) : 0
         // Match ValueInput's field height so the two read as the same size.
-        height: Theme.scaled(40)
+        height: Theme.scaled(36)
         fieldColor: root.fieldColor
         text: root.text
         placeholder: root.label

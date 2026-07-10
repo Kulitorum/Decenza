@@ -1446,7 +1446,7 @@ Page {
                         ValueInput {
                             id: doseInput
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(40)
+                            Layout.preferredHeight: Theme.scaled(36)
                             from: 0
                             to: 40
                             stepSize: 0.1
@@ -1490,7 +1490,7 @@ Page {
                         ValueInput {
                             id: outInput
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(40)
+                            Layout.preferredHeight: Theme.scaled(36)
                             from: 0
                             to: 500
                             stepSize: 0.1
@@ -1535,7 +1535,7 @@ Page {
                         SuggestionField {
                             id: settingField
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(40)
+                            Layout.preferredHeight: Theme.scaled(36)
                             fieldColor: Theme.surfaceColor   // match the Dose/Out steppers
                             label: ""
                             text: editGrinderSetting
@@ -1565,7 +1565,7 @@ Page {
                         SuggestionField {
                             id: rpmField
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(40)
+                            Layout.preferredHeight: Theme.scaled(36)
                             fieldColor: Theme.surfaceColor   // match the Dose/Out steppers
                             label: ""
                             text: editRpm > 0 ? String(editRpm) : ""
@@ -1610,7 +1610,7 @@ Page {
                             ValueInput {
                                 id: tdsInput
                                 Layout.fillWidth: true
-                                Layout.preferredHeight: Theme.scaled(40)
+                                Layout.preferredHeight: Theme.scaled(36)
                                 from: 0
                                 to: 20
                                 stepSize: 0.01
@@ -1655,7 +1655,7 @@ Page {
                         ValueInput {
                             id: eyInput
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.scaled(40)
+                            Layout.preferredHeight: Theme.scaled(36)
                             from: 0
                             to: 30
                             stepSize: 0.1
