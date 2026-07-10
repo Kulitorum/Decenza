@@ -1699,6 +1699,146 @@ Page {
                 // (Equipment identity card moved to the END of this grid — per-shot
                 // dial-in and shot metadata first, hardware context last.)
 
+                // Grind setting — the most-adjusted dial-in; always editable
+                // here (the recipe card above shows it read-only).
+                SuggestionField {
+                    id: settingField
+                    Layout.fillWidth: true
+                    label: TranslationManager.translate("postshotreview.label.grindSetting", "Grind setting")
+                    text: editGrinderSetting
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel) : []
+                        if (editGrinderSetting.length > 0 && list.indexOf(editGrinderSetting) === -1) list = [editGrinderSetting].concat(list)
+                        return list
+                    }
+                    onTextEdited: function(t) { editGrinderSetting = t }
+                    onInputBlurred: postShotReviewPage.autosave("grinderSetting", true)
+                }
+
+                // RPM dial-in — only when the shot's grinder is rpm-adjustable.
+                SuggestionField {
+                    id: rpmField
+                    visible: postShotReviewPage.editRpmCapable
+                    Layout.fillWidth: true
+                    label: TranslationManager.translate("postshotreview.label.rpm", "RPM")
+                    text: editRpm > 0 ? String(editRpm) : ""
+                    suggestions: []
+                    onTextEdited: function(t) { editRpm = parseInt(t) || 0 }
+                    onInputBlurred: postShotReviewPage.autosave("rpm", true)
+                }
+
+                // === ROW 4: Beverage type, Barista, Preset, Shot Date ===
+                LabeledComboBox {
+                    Layout.fillWidth: true
+                    label: TranslationManager.translate("postshotreview.label.beveragetype", "Beverage type")
+                    model: ["espresso", "filter", "pourover", "tea_portafilter", "tea", "calibrate", "cleaning", "descale", "manual"]
+                    currentValue: editBeverageType
+                    onValueChanged: function(v) { editBeverageType = v; postShotReviewPage.autosave("beverageType", true) }
+                }
+
+                SuggestionField {
+                    id: baristaField
+                    Layout.fillWidth: true
+                    label: TranslationManager.translate("postshotreview.label.barista", "Barista")
+                    text: editBarista
+                    suggestions: {
+                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
+                        if (editBarista.length > 0 && list.indexOf(editBarista) === -1) list = [editBarista].concat(list)
+                        return list
+                    }
+                    onTextEdited: function(t) { editBarista = t }
+                    onInputBlurred: postShotReviewPage.autosave("barista", true)
+                }
+
+                // Preset (read-only display)
+                Item {
+                    Layout.fillWidth: true
+                    implicitHeight: presetLabel.height + presetValue.height + 2
+
+                    Text {
+                        id: presetLabel
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        text: TranslationManager.translate("postshotreview.label.preset", "Preset")
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(11)
+                        Accessible.ignored: true
+                    }
+
+                    Rectangle {
+                        id: presetValue
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: presetLabel.bottom
+                        anchors.topMargin: Theme.scaled(2)
+                        height: Theme.scaled(48)
+                        color: Theme.backgroundColor
+                        radius: Theme.scaled(4)
+                        border.color: Theme.textSecondaryColor
+                        border.width: 1
+
+                        Text {
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.scaled(12)
+                            anchors.rightMargin: Theme.scaled(12)
+                            textFormat: Text.RichText
+                            text: Theme.replaceEmojiWithImg(editShotData.profileName || "", Theme.scaled(14))
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                            Accessible.ignored: true
+                        }
+
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: TranslationManager.translate("postshotreview.label.preset", "Preset") + ": " + (editShotData.profileName || "")
+                    }
+                }
+
+                // Shot date/time (read-only display)
+                Item {
+                    Layout.fillWidth: true
+                    implicitHeight: shotDateLabel.height + shotDateValue.height + 2
+
+                    Text {
+                        id: shotDateLabel
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        text: TranslationManager.translate("postshotreview.label.shotdate", "Shot date")
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(11)
+                        Accessible.ignored: true
+                    }
+
+                    Rectangle {
+                        id: shotDateValue
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: shotDateLabel.bottom
+                        anchors.topMargin: Theme.scaled(2)
+                        height: Theme.scaled(48)
+                        color: Theme.backgroundColor
+                        radius: Theme.scaled(4)
+                        border.color: Theme.textSecondaryColor
+                        border.width: 1
+
+                        Text {
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.scaled(12)
+                            anchors.rightMargin: Theme.scaled(12)
+                            text: editShotData.dateTime || ""
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                            Accessible.ignored: true
+                        }
+
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: TranslationManager.translate("postshotreview.label.shotdate", "Shot date") + ": " + (editShotData.dateTime || "")
+                    }
+                }
+
                 // Recipe card (recipeId > 0): the recipe AND its editable
                 // components in one cohesive card, modelled on the recipe
                 // editor's summary. Beans, dial-in (grind/RPM) and equipment are
@@ -1884,146 +2024,6 @@ Page {
                                 onClicked: shotEquipmentDialog.openPicker()
                             }
                         }
-                    }
-                }
-
-                // Grind setting — the most-adjusted dial-in; always editable
-                // here (the recipe card above shows it read-only).
-                SuggestionField {
-                    id: settingField
-                    Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.grindSetting", "Grind setting")
-                    text: editGrinderSetting
-                    suggestions: {
-                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel) : []
-                        if (editGrinderSetting.length > 0 && list.indexOf(editGrinderSetting) === -1) list = [editGrinderSetting].concat(list)
-                        return list
-                    }
-                    onTextEdited: function(t) { editGrinderSetting = t }
-                    onInputBlurred: postShotReviewPage.autosave("grinderSetting", true)
-                }
-
-                // RPM dial-in — only when the shot's grinder is rpm-adjustable.
-                SuggestionField {
-                    id: rpmField
-                    visible: postShotReviewPage.editRpmCapable
-                    Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.rpm", "RPM")
-                    text: editRpm > 0 ? String(editRpm) : ""
-                    suggestions: []
-                    onTextEdited: function(t) { editRpm = parseInt(t) || 0 }
-                    onInputBlurred: postShotReviewPage.autosave("rpm", true)
-                }
-
-                // === ROW 4: Beverage type, Barista, Preset, Shot Date ===
-                LabeledComboBox {
-                    Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.beveragetype", "Beverage type")
-                    model: ["espresso", "filter", "pourover", "tea_portafilter", "tea", "calibrate", "cleaning", "descale", "manual"]
-                    currentValue: editBeverageType
-                    onValueChanged: function(v) { editBeverageType = v; postShotReviewPage.autosave("beverageType", true) }
-                }
-
-                SuggestionField {
-                    id: baristaField
-                    Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.barista", "Barista")
-                    text: editBarista
-                    suggestions: {
-                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctBaristas() : []
-                        if (editBarista.length > 0 && list.indexOf(editBarista) === -1) list = [editBarista].concat(list)
-                        return list
-                    }
-                    onTextEdited: function(t) { editBarista = t }
-                    onInputBlurred: postShotReviewPage.autosave("barista", true)
-                }
-
-                // Preset (read-only display)
-                Item {
-                    Layout.fillWidth: true
-                    implicitHeight: presetLabel.height + presetValue.height + 2
-
-                    Text {
-                        id: presetLabel
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        text: TranslationManager.translate("postshotreview.label.preset", "Preset")
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(11)
-                        Accessible.ignored: true
-                    }
-
-                    Rectangle {
-                        id: presetValue
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: presetLabel.bottom
-                        anchors.topMargin: Theme.scaled(2)
-                        height: Theme.scaled(48)
-                        color: Theme.backgroundColor
-                        radius: Theme.scaled(4)
-                        border.color: Theme.textSecondaryColor
-                        border.width: 1
-
-                        Text {
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.scaled(12)
-                            anchors.rightMargin: Theme.scaled(12)
-                            textFormat: Text.RichText
-                            text: Theme.replaceEmojiWithImg(editShotData.profileName || "", Theme.scaled(14))
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                            verticalAlignment: Text.AlignVCenter
-                            elide: Text.ElideRight
-                            Accessible.ignored: true
-                        }
-
-                        Accessible.role: Accessible.StaticText
-                        Accessible.name: TranslationManager.translate("postshotreview.label.preset", "Preset") + ": " + (editShotData.profileName || "")
-                    }
-                }
-
-                // Shot date/time (read-only display)
-                Item {
-                    Layout.fillWidth: true
-                    implicitHeight: shotDateLabel.height + shotDateValue.height + 2
-
-                    Text {
-                        id: shotDateLabel
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        text: TranslationManager.translate("postshotreview.label.shotdate", "Shot date")
-                        color: Theme.textColor
-                        font.pixelSize: Theme.scaled(11)
-                        Accessible.ignored: true
-                    }
-
-                    Rectangle {
-                        id: shotDateValue
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: shotDateLabel.bottom
-                        anchors.topMargin: Theme.scaled(2)
-                        height: Theme.scaled(48)
-                        color: Theme.backgroundColor
-                        radius: Theme.scaled(4)
-                        border.color: Theme.textSecondaryColor
-                        border.width: 1
-
-                        Text {
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.scaled(12)
-                            anchors.rightMargin: Theme.scaled(12)
-                            text: editShotData.dateTime || ""
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                            verticalAlignment: Text.AlignVCenter
-                            elide: Text.ElideRight
-                            Accessible.ignored: true
-                        }
-
-                        Accessible.role: Accessible.StaticText
-                        Accessible.name: TranslationManager.translate("postshotreview.label.shotdate", "Shot date") + ": " + (editShotData.dateTime || "")
                     }
                 }
 
