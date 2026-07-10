@@ -1517,6 +1517,56 @@ Page {
                         }
                     }
 
+                    // Grind (moved from the field grid — the most-adjusted
+                    // dial-in, now beside Dose/Out).
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        Tr {
+                            key: "shotdetail.grind"
+                            fallback: "Grind"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(10)
+                            Accessible.ignored: true
+                        }
+                        SuggestionField {
+                            id: settingField
+                            Layout.fillWidth: true
+                            label: ""
+                            text: editGrinderSetting
+                            suggestions: {
+                                var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel) : []
+                                if (editGrinderSetting.length > 0 && list.indexOf(editGrinderSetting) === -1) list = [editGrinderSetting].concat(list)
+                                return list
+                            }
+                            onTextEdited: function(t) { editGrinderSetting = t }
+                            onInputBlurred: postShotReviewPage.autosave("grinderSetting", true)
+                        }
+                    }
+
+                    // RPM (only when the grinder is rpm-adjustable)
+                    ColumnLayout {
+                        visible: postShotReviewPage.editRpmCapable
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(2)
+                        Tr {
+                            key: "postshotreview.label.rpm"
+                            fallback: "RPM"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(10)
+                            Accessible.ignored: true
+                        }
+                        SuggestionField {
+                            id: rpmField
+                            Layout.fillWidth: true
+                            label: ""
+                            text: editRpm > 0 ? String(editRpm) : ""
+                            suggestions: []
+                            onTextEdited: function(t) { editRpm = parseInt(t) || 0 }
+                            onInputBlurred: postShotReviewPage.autosave("rpm", true)
+                        }
+                    }
+
                     // TDS (advanced mode only)
                     ColumnLayout {
                         visible: postShotReviewPage.advancedMode
@@ -1699,33 +1749,7 @@ Page {
                 // (Equipment identity card moved to the END of this grid — per-shot
                 // dial-in and shot metadata first, hardware context last.)
 
-                // Grind setting — the most-adjusted dial-in; always editable
-                // here (the recipe card above shows it read-only).
-                SuggestionField {
-                    id: settingField
-                    Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.grindSetting", "Grind setting")
-                    text: editGrinderSetting
-                    suggestions: {
-                        var list = _distinctCacheVersion >= 0 ? MainController.shotHistory.getDistinctGrinderSettingsForGrinder(editGrinderModel) : []
-                        if (editGrinderSetting.length > 0 && list.indexOf(editGrinderSetting) === -1) list = [editGrinderSetting].concat(list)
-                        return list
-                    }
-                    onTextEdited: function(t) { editGrinderSetting = t }
-                    onInputBlurred: postShotReviewPage.autosave("grinderSetting", true)
-                }
-
-                // RPM dial-in — only when the shot's grinder is rpm-adjustable.
-                SuggestionField {
-                    id: rpmField
-                    visible: postShotReviewPage.editRpmCapable
-                    Layout.fillWidth: true
-                    label: TranslationManager.translate("postshotreview.label.rpm", "RPM")
-                    text: editRpm > 0 ? String(editRpm) : ""
-                    suggestions: []
-                    onTextEdited: function(t) { editRpm = parseInt(t) || 0 }
-                    onInputBlurred: postShotReviewPage.autosave("rpm", true)
-                }
+                // Grind + RPM moved up into the Dial-in row (with Dose/Out).
 
                 // Beverage type is captured from the profile at shot time and is
                 // not editable — we trust the profile, and the recipe now
