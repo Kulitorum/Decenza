@@ -835,6 +835,9 @@ QString ShotServer::generateLayoutPage() const
         .chip.selected.screensaver { color: #64B5F6; }
         .chip[draggable="true"] { cursor: grab; }
         .chip.dragging { opacity: 0.5; }
+        /* Drop-target feedback (inset shadow, not a border, so it never
+           resizes the chip or reflows the zone — D7). */
+        .chip.drag-over { box-shadow: inset 0 0 0 2px var(--accent); }
         .chip-opts {
             display: inline-flex;
             align-items: center;
@@ -1046,6 +1049,7 @@ QString ShotServer::generateLayoutPage() const
         }
         .sp-item-row[draggable="true"] { cursor: grab; }
         .sp-item-row.dragging { opacity: 0.5; }
+        .sp-item-row.drag-over { box-shadow: inset 0 0 0 2px var(--accent); }
         .sp-item-label {
             flex: 1;
             color: var(--text);
@@ -2748,38 +2752,46 @@ QString ShotServer::generateLayoutPage() const
 
     // --- Drag-and-drop reordering within a zone (replaces the arrow buttons) ---
     var dragState = null;
-    // TEMP DEBUG (drag-and-drop investigation): console.log at each stage so
-    // we can tell, from a real user's DevTools console, whether dragstart
-    // fires at all, whether dragover ever grants a drop target, and whether
-    // drop commits. Remove once the root cause is confirmed.
+    // Drop-target feedback: highlight whichever chip is currently under the
+    // dragged chip (.drag-over, cleared on dragleave/drop/dragend) so there's
+    // a visible answer to "where will this land" during the drag, not just
+    // after releasing.
+    var dragOverEl = null;
+    function clearDragOver() {
+        if (dragOverEl) { dragOverEl.classList.remove("drag-over"); dragOverEl = null; }
+    }
     function chipDragStart(ev, zone, idx) {
-        console.log('[DND] dragstart zone=' + zone + ' idx=' + idx + ' target=' + (ev.target && ev.target.className));
         dragState = {zone: zone, from: idx};
         ev.dataTransfer.effectAllowed = "move";
-        try { ev.dataTransfer.setData("text/plain", String(idx)); } catch(e) { console.log('[DND] setData failed', e); }
+        try { ev.dataTransfer.setData("text/plain", String(idx)); } catch(e) {}
         if (ev.currentTarget) ev.currentTarget.classList.add("dragging");
     }
     function chipDragEnd(ev) {
-        console.log('[DND] dragend dragState=' + JSON.stringify(dragState));
         if (ev.currentTarget) ev.currentTarget.classList.remove("dragging");
         dragState = null;
+        clearDragOver();
     }
     function chipDragOver(ev, zone) {
         if (dragState && dragState.zone === zone) {
             ev.preventDefault();
             ev.dataTransfer.dropEffect = "move";
-        } else if (dragState) {
-            console.log('[DND] dragover zone mismatch: dragging from ' + dragState.zone + ' but over ' + zone);
+            if (dragOverEl !== ev.currentTarget) {
+                clearDragOver();
+                dragOverEl = ev.currentTarget;
+                dragOverEl.classList.add("drag-over");
+            }
         }
+    }
+    function chipDragLeave(ev) {
+        if (ev.currentTarget === dragOverEl) clearDragOver();
     }
     function chipDrop(ev, zone, idx) {
         ev.preventDefault();
-        console.log('[DND] drop zone=' + zone + ' idx=' + idx + ' dragState=' + JSON.stringify(dragState));
-        if (!dragState || dragState.zone !== zone) { console.log('[DND] drop aborted: no matching dragState'); return; }
+        clearDragOver();
+        if (!dragState || dragState.zone !== zone) return;
         var from = dragState.from;
         dragState = null;
-        if (from === idx) { console.log('[DND] drop no-op: same index'); return; }
-        console.log('[DND] reordering ' + zone + ' ' + from + ' -> ' + idx);
+        if (from === idx) return;
         reorder(zone, from, idx);
     }
 
@@ -2880,6 +2892,7 @@ QString ShotServer::generateLayoutPage() const
                      + ' ondragstart="chipDragStart(event,\'' + zone.key + '\',' + i + ')"'
                      + ' ondragend="chipDragEnd(event)"'
                      + ' ondragover="chipDragOver(event,\'' + zone.key + '\')"'
+                     + ' ondragleave="chipDragLeave(event)"'
                      + ' ondrop="chipDrop(event,\'' + zone.key + '\',' + i + ')"'
                      + ' onclick="chipClick(\'' + item.id + '\',\'' + zone.key + '\',\'' + item.type + '\')">';
 
@@ -3572,6 +3585,12 @@ QString ShotServer::generateLayoutPage() const
     // draggable chips (ScreensaverEditorPopup.qml's planDragMa) — this
     // replaces the old up/down arrow buttons.
     var spDragIdx = null;
+    // Drop-target feedback, same pattern as the main layout chips (see
+    // clearDragOver/dragOverEl above).
+    var spDragOverEl = null;
+    function clearSpDragOver() {
+        if (spDragOverEl) { spDragOverEl.classList.remove("drag-over"); spDragOverEl = null; }
+    }
     function spDragStart(ev, idx) {
         spDragIdx = idx;
         ev.dataTransfer.effectAllowed = "move";
@@ -3581,15 +3600,25 @@ QString ShotServer::generateLayoutPage() const
     function spDragEnd(ev) {
         if (ev.currentTarget) ev.currentTarget.classList.remove("dragging");
         spDragIdx = null;
+        clearSpDragOver();
     }
     function spDragOver(ev) {
         if (spDragIdx !== null) {
             ev.preventDefault();
             ev.dataTransfer.dropEffect = "move";
+            if (spDragOverEl !== ev.currentTarget) {
+                clearSpDragOver();
+                spDragOverEl = ev.currentTarget;
+                spDragOverEl.classList.add("drag-over");
+            }
         }
+    }
+    function spDragLeave(ev) {
+        if (ev.currentTarget === spDragOverEl) clearSpDragOver();
     }
     function spDrop(ev, idx) {
         ev.preventDefault();
+        clearSpDragOver();
         if (spDragIdx === null) return;
         var from = spDragIdx;
         spDragIdx = null;
@@ -3608,6 +3637,7 @@ QString ShotServer::generateLayoutPage() const
                 + ' ondragstart="spDragStart(event,' + i + ')"'
                 + ' ondragend="spDragEnd(event)"'
                 + ' ondragover="spDragOver(event)"'
+                + ' ondragleave="spDragLeave(event)"'
                 + ' ondrop="spDrop(event,' + i + ')">'
                 + '<span class="sp-item-label">' + lbl + '</span>'
                 + '<button class="sp-item-btn sp-item-remove" draggable="false" onclick="spRemove(' + i + ')" title="Hide" aria-label="Hide ' + lbl + '">&#10005;</button>'
