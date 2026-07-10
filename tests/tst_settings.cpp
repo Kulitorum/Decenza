@@ -29,6 +29,16 @@ static QStringList typesOf(const QVariantList& items) {
     return result;
 }
 
+// File-scope helper: the ordered list of "id" values in a getZoneItems()
+// result — used to prove an item was MOVED (its id carried over) rather than
+// discarded and recreated with a fresh default id.
+static QStringList idsOf(const QVariantList& items) {
+    QStringList result;
+    for (const QVariant& v : items)
+        result << v.toMap().value("id").toString();
+    return result;
+}
+
 // File-scope helper (Q_OBJECT moc rejects nested structs in test classes).
 // Snapshot + clear the Known Devices store so a test owns it for the
 // duration, and restore on scope exit. Settings exposes addKnownScale /
@@ -1147,6 +1157,110 @@ private slots:
                  QStringList({"recipes", "steam", "hotwater"}));
         QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
                  QStringList({"history", "equipment", "espresso", "settings"}));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    // Regression: a customized user whose Recipes button already lives OUTSIDE
+    // the center (here, in the bottom bar) with Profiles (espresso) in the
+    // center. The upgrade must MOVE that existing Recipes button into the
+    // Profiles slot — not leave the center row short — and relocate Profiles to
+    // the bar. The old "insert Recipes only if none exists anywhere" guard
+    // wrongly skipped the center placement because a Recipes button was present
+    // (in the bar), so Profiles was pulled out with nothing put in its place.
+    void applyRecipesFirstUpgradeMovesExistingBarRecipesIntoEspressoSlot() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        // The bar Recipes button carries a distinctive id so the assertions can
+        // tell a genuine MOVE (id preserved) from a discard-and-recreate (which
+        // would produce the code's default "recipes1").
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerTop\":["
+            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"},"
+            "{\"type\":\"hotwater\",\"id\":\"hotwater1\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"recipes\",\"id\":\"recipesKept\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->applyRecipesFirstUpgrade();
+
+        // Recipes moved from the bar into Profiles' former center slot; exactly
+        // one Recipes button exists; Profiles relocated after Equipment.
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
+                 QStringList({"recipes", "steam", "hotwater"}));
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "equipment", "espresso", "settings"}));
+        // The existing button was MOVED (its id survived), not recreated.
+        QCOMPARE(idsOf(net->getZoneItems("centerTop")).value(0), QStringLiteral("recipesKept"));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    // Multiple Recipes buttons across zones (a reachable hand-edited state):
+    // the transform must dedupe to exactly one, landed in Profiles' slot, with
+    // no stray copy left in any bar/other zone.
+    void applyRecipesFirstUpgradeDedupesMultipleRecipes() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerTop\":["
+            "{\"type\":\"espresso\",\"id\":\"espresso1\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"}],"
+            "\"bottomLeft\":[{\"type\":\"recipes\",\"id\":\"recipesA\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"recipes\",\"id\":\"recipesB\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->applyRecipesFirstUpgrade();
+
+        // Exactly one Recipes button remains, in the Profiles slot; none linger
+        // in either bar zone.
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")),
+                 QStringList({"recipes", "steam"}));
+        QVERIFY(!typesOf(net->getZoneItems("bottomLeft")).contains("recipes"));
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"equipment", "espresso", "settings"}));
+
+        net->setLayoutConfiguration(orig);
+    }
+
+    // A Profiles copy parked in the unclassified lowerMidBar band (neither a
+    // center nor a bar zone) must not cause a duplicate: the center Profiles is
+    // swapped to Recipes, but since a Profiles button still exists (in
+    // lowerMidBar) none is appended to the bottom bar.
+    void applyRecipesFirstUpgradeNoDuplicateWhenProfilesInLowerMidBar() {
+        SettingsNetwork* net = m_settings.network();
+        const QString orig = net->layoutConfiguration();
+
+        net->setLayoutConfiguration(QStringLiteral(
+            "{\"version\":1,\"zones\":{"
+            "\"centerTop\":["
+            "{\"type\":\"espresso\",\"id\":\"espresso_center\"},"
+            "{\"type\":\"steam\",\"id\":\"steam1\"}],"
+            "\"lowerMidBar\":[{\"type\":\"espresso\",\"id\":\"espresso_lmb\"}],"
+            "\"bottomRight\":["
+            "{\"type\":\"history\",\"id\":\"history1\"},"
+            "{\"type\":\"equipment\",\"id\":\"equipment1\"},"
+            "{\"type\":\"settings\",\"id\":\"settings1\"}]"
+            "}}"));
+
+        net->applyRecipesFirstUpgrade();
+
+        QCOMPARE(typesOf(net->getZoneItems("centerTop")), QStringList({"recipes", "steam"}));
+        QCOMPARE(typesOf(net->getZoneItems("lowerMidBar")), QStringList({"espresso"}));
+        // No Profiles appended to the bar — exactly one Profiles button total.
+        QCOMPARE(typesOf(net->getZoneItems("bottomRight")),
+                 QStringList({"history", "equipment", "settings"}));
 
         net->setLayoutConfiguration(orig);
     }
