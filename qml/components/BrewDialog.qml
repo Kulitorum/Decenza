@@ -8,7 +8,9 @@ Dialog {
     id: root
     parent: Overlay.overlay
     anchors.centerIn: parent
-    property real dialogScale: 0.75
+    // No down-scaling: render at standard, unscaled sizes so the fields match
+    // the app's 36px field standard (they were rendering at 36 x 0.75 = 27px).
+    property real dialogScale: 1.0
     width: Theme.scaled(520) * dialogScale
     modal: true
     closePolicy: Dialog.CloseOnEscape
