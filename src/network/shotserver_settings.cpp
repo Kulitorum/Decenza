@@ -164,8 +164,8 @@ static bool applyMqttSettings(Settings* s, const QJsonObject& obj)
     // and the connect endpoint funnel through this function. Refuse to retarget the
     // broker while the password field carries only the mask/empty; otherwise a LAN
     // client could point the broker at an attacker and have the stored password sent
-    // there in the CONNECT packet. Read the STORED password before applySecretString
-    // below can overwrite it.
+    // there in the CONNECT packet. Compute the decision from the STORED password
+    // (m->mqttPassword()) BEFORE applySecretString below overwrites it.
     const bool hostChanging = obj.contains("mqttBrokerHost")
         && obj.value("mqttBrokerHost").toString() != m->mqttBrokerHost();
     const bool portChanging = obj.contains("mqttBrokerPort")
@@ -174,6 +174,22 @@ static bool applyMqttSettings(Settings* s, const QJsonObject& obj)
     const bool passwordReentered = !postedPassword.isEmpty() && postedPassword != kSecretMask;
     const bool brokerRedirectBlocked =
         (hostChanging || portChanging) && !m->mqttPassword().isEmpty() && !passwordReentered;
+
+    // Apply the credentials FIRST, before the host/port. Every mqtt* setter here fires
+    // a *Changed signal wired to MqttClient::onSettingsChanged() (mqttclient.cpp
+    // ~L51-55), which reconnects synchronously -- the connection is same-thread, so the
+    // default AutoConnection resolves to a direct call -- and reads the host and
+    // password live out of Settings at connect time. The leak-prevention is purely
+    // about ORDER, not about any setter being inert: the credential setters DO trigger
+    // a reconnect too, but to the still-old (legitimately configured) host, which is
+    // harmless. If we instead set the new host before the re-entered password, the
+    // reconnect that host change triggers would pair the NEW broker with the OLD stored
+    // password -- exactly the leak the guard exists to prevent. Applying credentials
+    // first guarantees the post-host-change reconnect reads the new password.
+    // Only overwrite when a real new value is posted (not mask/empty).
+    applySecretString(obj, "mqttUsername", [m](const QString& v){ m->setMqttUsername(v); });
+    applySecretString(obj, "mqttPassword", [m](const QString& v){ m->setMqttPassword(v); });
+
     if (brokerRedirectBlocked) {
         qWarning() << "ShotServer: refused MQTT broker host/port change without password"
                       " re-entry (broker-redirect guard)";
@@ -183,9 +199,6 @@ static bool applyMqttSettings(Settings* s, const QJsonObject& obj)
         if (obj.contains("mqttBrokerPort"))
             m->setMqttBrokerPort(obj["mqttBrokerPort"].toInt());
     }
-    // Credentials: only overwrite when a real new value is posted (not mask/empty).
-    applySecretString(obj, "mqttUsername", [m](const QString& v){ m->setMqttUsername(v); });
-    applySecretString(obj, "mqttPassword", [m](const QString& v){ m->setMqttPassword(v); });
     if (obj.contains("mqttBaseTopic"))
         m->setMqttBaseTopic(obj["mqttBaseTopic"].toString());
     if (obj.contains("mqttPublishInterval"))
@@ -1151,16 +1164,22 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
     // AI
     const QStringList aiErrors = applyAiSettings(m_settings, m_aiManager, obj);
 
-    // MQTT
-    applyMqttSettings(m_settings, obj);
+    // MQTT — applyMqttSettings enforces the broker-redirect guard and returns true if
+    // it refused a host/port change (mask/empty password). Surface that the same way
+    // handleMqttConnect does, so the user isn't told the save succeeded when part of
+    // it was dropped.
+    const bool mqttBrokerRedirectBlocked = applyMqttSettings(m_settings, obj);
 
     // Valid fields (including valid providerModels entries) are applied even
     // when some entries were rejected; the error tells the client which
     // selections did not take.
-    if (!aiErrors.isEmpty()) {
+    QStringList saveErrors = aiErrors;
+    if (mqttBrokerRedirectBlocked)
+        saveErrors << QStringLiteral("Re-enter the MQTT password when changing the broker host or port.");
+    if (!saveErrors.isEmpty()) {
         QJsonObject resp;
         resp["success"] = false;
-        resp["error"] = aiErrors.join(QStringLiteral("; "));
+        resp["error"] = saveErrors.join(QStringLiteral("; "));
         sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
         return;
     }

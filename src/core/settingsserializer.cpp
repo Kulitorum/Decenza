@@ -251,10 +251,13 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
 
     // Visualizer settings
     QJsonObject visualizer;
+    // Username AND password are gated behind includeSensitive. The username is a
+    // credential (often an email) and must not be emitted by the LAN backup/migration
+    // endpoints (handleBackupSettings / handleBackupFull force includeSensitive=false),
+    // which are UNauthenticated when webSecurityEnabled is off (the default). Every
+    // current caller passes includeSensitive=false; the flag exists for a future
+    // credential-complete backup that never leaves the device.
     if (includeSensitive) {
-        // Username is a credential too — keep it behind includeSensitive so the LAN
-        // web-backup endpoint (which forces includeSensitive=false) never emits it,
-        // consistent with how /api/settings redacts it.
         visualizer["username"] = settings->visualizer()->visualizerUsername();
         visualizer["password"] = settings->visualizer()->visualizerPassword();
     }
@@ -344,8 +347,10 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     mqtt["enabled"] = mqttSettings->mqttEnabled();
     mqtt["brokerHost"] = mqttSettings->mqttBrokerHost();
     mqtt["brokerPort"] = mqttSettings->mqttBrokerPort();
+    // Username and password are both gated behind includeSensitive so the
+    // unauthenticated LAN backup/migration endpoints never emit them (see visualizer
+    // above for the rationale).
     if (includeSensitive) {
-        // Username is a credential too — gated with the password (see visualizer above).
         mqtt["username"] = mqttSettings->mqttUsername();
         mqtt["password"] = mqttSettings->mqttPassword();
     }

@@ -533,9 +533,12 @@ void DataMigrationClient::onSettingsReply()
 
         QJsonDocument doc = QJsonDocument::fromJson(data);
         if (doc.isObject() && m_settings) {
-            // Exclude machine-specific calibration and broker-specific MQTT password.
-            // Other sensitive keys (API keys, visualizer password) are intentionally
-            // transferred — they belong to the user, not the machine.
+            // The /api/backup/settings response omits all raw credential values
+            // (the endpoint forces includeSensitive=false), so API keys, passwords,
+            // and the visualizer/MQTT usernames are not transferred and must be
+            // re-entered on the target device. Only non-credential settings transfer.
+            // We additionally drop machine-specific flow calibration and defensively
+            // re-exclude any mqttPassword key on import.
             SettingsSerializer::importFromJson(m_settings, doc.object(), {"flowCalibration", "mqttPassword"});
             m_settingsImported = 1;
             qDebug() << "DataMigrationClient: Settings imported successfully";
