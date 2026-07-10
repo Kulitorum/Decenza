@@ -293,6 +293,7 @@ Page {
         // Loading an existing recipe counts as "already filled" — a later async
         // history reply must not overwrite the saved numbers.
         _detailsUserEdited = true
+        _numbersSource = "saved"
         if (fEquipmentId > 0)
             MainController.equipmentStorage.requestInventory()
         refreshInheritedGrind()
@@ -591,6 +592,9 @@ Page {
         if (fDrinkType === "tea_hotwater")
             fDrinkType = "tea"
         var detail = ProfileManager.getProfileByFilename(entry.name)
+        if ((detail.recommended_dose > 0 && doseField.text === "")
+            || (detail.target_weight > 0 && yieldField.text === ""))
+            _numbersSource = "profile"
         if (detail.recommended_dose > 0 && doseField.text === "")
             doseField.text = Number(detail.recommended_dose).toFixed(1)
         if (detail.target_weight > 0 && yieldField.text === "")
@@ -634,6 +638,41 @@ Page {
     // is false, so a value the user has since typed is never clobbered.
     property bool _detailsUserEdited: false
 
+    // Where the prefilled numbers came from — the wizard TELLS the user, so
+    // the details step isn't a wall of unexplained values: "history" (last
+    // shot with this bean+profile), "profile" (its recommended numbers),
+    // "teabag" (the bag's brewing instructions), "saved" (editing an
+    // existing recipe), "" (nothing seeded).
+    property string _numbersSource: ""
+    readonly property string numbersHint: {
+        var origin = ""
+        switch (_numbersSource) {
+        case "history":
+            origin = TranslationManager.translate("recipes.wizard.numbers.fromHistory",
+                "Prefilled from your last shot with these beans and this profile — the numbers that worked.")
+            break
+        case "profile":
+            origin = TranslationManager.translate("recipes.wizard.numbers.fromProfile",
+                "Prefilled with the profile's own recommended numbers.")
+            break
+        case "teabag":
+            origin = TranslationManager.translate("recipes.wizard.numbers.fromTeaBag",
+                "Prefilled from the tea's brewing instructions.")
+            break
+        case "saved":
+            origin = TranslationManager.translate("recipes.wizard.numbers.saved",
+                "The recipe's saved numbers.")
+            break
+        }
+        var why = isTeaDrink
+            ? TranslationManager.translate("recipes.wizard.numbers.whyTea",
+                "Adjust the leaf amount and steeping temperature to taste.")
+            : TranslationManager.translate("recipes.wizard.numbers.why",
+                "Change them to make this drink your own — the temp offset shifts the "
+                + "profile's brew temperature (0° = as the profile was designed).")
+        return origin === "" ? why : origin + " " + why
+    }
+
     function applyDetailsPrefill() {
         // Profile/bag seeds run synchronously so the details step is never
         // blank; the shot-history tier lands async via
@@ -648,6 +687,8 @@ Page {
             var stated = parseFloat(_teaBrewing.brewTempC) || 0
             var typeMatched = fProfileTitle !== ""
                 && ProfileManager.teaProfileMatchesType(fProfileTitle, String(_teaBrewing.teaType || ""))
+            if (fTeaTempC <= 0 && (stated > 0 || parseFloat(_teaBrewing.leafGramsPer100Ml) > 0))
+                _numbersSource = "teabag"
             if (fTeaTempC <= 0) {
                 // Vendor temp applies verbatim for hot-water tea; for
                 // portafilter tea only when the profile is NOT type-matched
@@ -725,7 +766,8 @@ Page {
         var tier1 = []
         for (i = 0; i < withBean.length; ++i) {
             var p = byTitle[String(withBean[i].profileName).toLowerCase()]
-            if (p) { tier1.push({ isHeader: false, tier: 1, title: p.title, name: p.name, reason: "" }); used[p.title] = true }
+            if (p) { tier1.push({ isHeader: false, tier: 1, title: p.title, name: p.name, reason: "",
+                                  tempC: p.espressoTemperature || 0, yieldG: p.targetWeight || 0 }); used[p.title] = true }
         }
         if (tier1.length > 0) {
             model.push({ isHeader: true, title: TranslationManager.translate(
@@ -746,6 +788,7 @@ Page {
                 if (used[inSet[i].title]) continue
                 if (ProfileManager.teaProfileMatchesType(inSet[i].title, teaType))
                     tier2.push({ isHeader: false, tier: 2, title: inSet[i].title, name: inSet[i].name,
+                                 tempC: inSet[i].espressoTemperature || 0, yieldG: inSet[i].targetWeight || 0,
                                  reason: TranslationManager.translate(
                                      "recipes.wizard.profiles.matchesType", "matches %1").arg(teaType) })
             }
@@ -755,6 +798,7 @@ Page {
                 if (used[inSet[i].title]) continue
                 if (ProfileManager.kbProfileSuitsRoast(inSet[i].title, _selectedBagRoastLevel))
                     tier2.push({ isHeader: false, tier: 2, title: inSet[i].title, name: inSet[i].name,
+                                 tempC: inSet[i].espressoTemperature || 0, yieldG: inSet[i].targetWeight || 0,
                                  reason: TranslationManager.translate(
                                      "recipes.wizard.profiles.suitsRoast", "suits %1 roasts")
                                      .arg(_selectedBagRoastLevel.toLowerCase()) })
@@ -769,6 +813,7 @@ Page {
                 }
                 if (!already)
                     tier2.push({ isHeader: false, tier: 2, title: p.title, name: p.name,
+                                 tempC: p.espressoTemperature || 0, yieldG: p.targetWeight || 0,
                                  reason: TranslationManager.translate(
                                      "recipes.wizard.profiles.similarBeans", "used with similar beans") })
             }
@@ -797,8 +842,7 @@ Page {
         }
         if (statedTemp > 0) {
             var withTemp = rest.map(function(p) {
-                var d = ProfileManager.getProfileByFilename(p.name)
-                var t = d.espresso_temperature || 0
+                var t = p.espressoTemperature || 0
                 return { p: p, key: t > 0 ? Math.abs(t - statedTemp) : 999 }
             })
             withTemp.sort(function(a, b) { return a.key - b.key })
@@ -809,7 +853,8 @@ Page {
                 model.push({ isHeader: true, title: TranslationManager.translate(
                     "recipes.wizard.profiles.all", "All profiles") })
             for (i = 0; i < rest.length; ++i)
-                model.push({ isHeader: false, tier: 3, title: rest[i].title, name: rest[i].name, reason: "" })
+                model.push({ isHeader: false, tier: 3, title: rest[i].title, name: rest[i].name, reason: "",
+                             tempC: rest[i].espressoTemperature || 0, yieldG: rest[i].targetWeight || 0 })
         }
         profileModel = model
     }
@@ -892,6 +937,7 @@ Page {
             // never a value the user has typed (_detailsUserEdited).
             if (wizardPage._detailsUserEdited)
                 return
+            wizardPage._numbersSource = "history"
             if (shot.doseWeightG > 0)
                 doseField.text = Number(shot.doseWeightG).toFixed(1)
             if (shot.targetWeightG > 0)
@@ -1173,7 +1219,7 @@ Page {
         anchors.topMargin: Theme.pageTopMargin
         anchors.bottomMargin: Theme.bottomBarHeight
         textFields: [nameField, doseField.input, yieldField.input, grindField, rpmField,
-                     milkField.input, profileSearchField]
+                     profileSearchField]
 
         ColumnLayout {
             anchors.fill: parent
@@ -1571,124 +1617,123 @@ Page {
                             wizardPage.rebuildProfileModel()
                         }
                     }
-                    ListView {
+                    // Profile tile GRID (same visual language as the drink
+                    // and bag steps): every profile is a tile with its real
+                    // temperature and target yield; the ranked tiers carry
+                    // the recommendation reason as an on-tile chip. Headers
+                    // span the full row. Metadata comes from the catalog
+                    // cache (ProfileInfo) — no per-tile file reads.
+                    Flickable {
+                        id: profileGridFlick
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        contentHeight: profileGrid.implicitHeight + Theme.scaled(16)
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
-                        model: wizardPage.profileModel
-                        delegate: Loader {
-                            width: ListView.view.width
-                            // Ranked tiers ①/② render as metadata TILES (real
-                            // profile numbers, the reason as an on-tile chip);
-                            // tier ③ stays a compact list under the search.
-                            sourceComponent: modelData.isHeader ? headerRow
-                                : ((modelData.tier || 3) < 3 ? profileTile : profileRow)
-                            property var row: modelData
-                            Component {
-                                id: headerRow
-                                Label {
-                                    text: row.title
-                                    font: Theme.captionFont
-                                    color: Theme.textSecondaryColor
-                                    topPadding: Theme.spacingMedium
-                                    bottomPadding: Theme.scaled(2)
-                                    Accessible.role: Accessible.Heading
-                                    Accessible.name: text
-                                }
+
+                        Flow {
+                            id: profileGrid
+                            width: profileGridFlick.width
+                            spacing: Theme.spacingSmall
+
+                            readonly property real tileWidth: {
+                                var min = Theme.scaled(230)
+                                var columns = Math.max(1, Math.floor(width / min))
+                                return (width - (columns - 1) * spacing) / columns
                             }
-                            Component {
-                                id: profileTile
-                                Item {
-                                    implicitHeight: tileRect.implicitHeight + Theme.scaled(6)
-                                    Rectangle {
-                                        id: tileRect
-                                        width: parent.width
-                                        implicitHeight: tileColumn.implicitHeight + 2 * Theme.spacingMedium
-                                        radius: Theme.cardRadius
-                                        color: Theme.surfaceColor
-                                        border.color: Theme.borderColor
-                                        border.width: 1
-                                        // One profile read per tile — same pattern
-                                        // the recipe cards use; the tiers are small.
-                                        readonly property var detail: ProfileManager.getProfileByFilename(row.name)
-                                        readonly property string metaLine: {
-                                            var parts = []
-                                            var t = detail.espresso_temperature || 0
-                                            if (t > 0) parts.push(Theme.formatTemperature(t, 0))
-                                            var y = detail.target_weight || 0
-                                            if (y > 0) parts.push("→ " + Number(y).toFixed(0) + "g")
-                                            return parts.join(" · ")
+
+                            Repeater {
+                                model: wizardPage.profileModel
+                                delegate: Loader {
+                                    sourceComponent: modelData.isHeader ? profileHeader : profileTile
+                                    property var row: modelData
+                                    Component {
+                                        id: profileHeader
+                                        Label {
+                                            width: profileGrid.width
+                                            text: row.title
+                                            font: Theme.captionFont
+                                            color: Theme.textSecondaryColor
+                                            topPadding: Theme.spacingMedium
+                                            bottomPadding: Theme.scaled(2)
+                                            Accessible.role: Accessible.Heading
+                                            Accessible.name: text
                                         }
-                                        ColumnLayout {
-                                            id: tileColumn
-                                            anchors.left: parent.left
-                                            anchors.right: parent.right
-                                            anchors.top: parent.top
-                                            anchors.margins: Theme.spacingMedium
-                                            spacing: Theme.scaled(4)
-                                            RowLayout {
-                                                Layout.fillWidth: true
-                                                spacing: Theme.spacingSmall
+                                    }
+                                    Component {
+                                        id: profileTile
+                                        Rectangle {
+                                            id: tileRect
+                                            width: profileGrid.tileWidth
+                                            height: Theme.scaled(112)
+                                            radius: Theme.cardRadius
+                                            color: Theme.surfaceColor
+                                            border.color: wizardPage.fProfileTitle === row.title
+                                                ? Theme.primaryColor : Theme.borderColor
+                                            border.width: wizardPage.fProfileTitle === row.title ? 2 : 1
+                                            readonly property string metaLine: {
+                                                var parts = []
+                                                if ((row.tempC || 0) > 0)
+                                                    parts.push(Theme.formatTemperature(row.tempC, 0))
+                                                if ((row.yieldG || 0) > 0)
+                                                    parts.push("→ " + Number(row.yieldG).toFixed(0) + "g")
+                                                return parts.join(" · ")
+                                            }
+                                            ColumnLayout {
+                                                anchors.fill: parent
+                                                anchors.margins: Theme.spacingSmall
+                                                spacing: Theme.scaled(4)
                                                 Label {
                                                     Layout.fillWidth: true
                                                     text: row.title
                                                     font: Theme.bodyFont
                                                     color: Theme.textColor
                                                     wrapMode: Text.WordWrap
+                                                    maximumLineCount: 2
+                                                    elide: Text.ElideRight
                                                     Accessible.ignored: true
                                                 }
+                                                Label {
+                                                    visible: tileRect.metaLine !== ""
+                                                    text: tileRect.metaLine
+                                                    font: Theme.captionFont
+                                                    color: Theme.textSecondaryColor
+                                                    Accessible.ignored: true
+                                                }
+                                                Item { Layout.fillHeight: true }
                                                 // The recommendation reason rides its
                                                 // tile as a chip — never detached text.
                                                 Rectangle {
                                                     visible: row.reason !== ""
-                                                    Layout.alignment: Qt.AlignTop
                                                     radius: height / 2
                                                     color: Qt.alpha(Theme.primaryColor, 0.15)
-                                                    implicitHeight: reasonChip.implicitHeight + Theme.scaled(8)
-                                                    implicitWidth: reasonChip.implicitWidth + Theme.scaled(16)
+                                                    implicitHeight: reasonChip.implicitHeight + Theme.scaled(6)
+                                                    implicitWidth: Math.min(
+                                                        reasonChip.implicitWidth + Theme.scaled(14),
+                                                        tileRect.width - 2 * Theme.spacingSmall)
                                                     Label {
                                                         id: reasonChip
                                                         anchors.centerIn: parent
+                                                        width: Math.min(implicitWidth,
+                                                            parent.width - Theme.scaled(10))
                                                         text: row.reason
                                                         font: Theme.captionFont
                                                         color: Theme.primaryColor
+                                                        elide: Text.ElideRight
                                                         Accessible.ignored: true
                                                     }
                                                 }
                                             }
-                                            Label {
-                                                visible: tileRect.metaLine !== ""
-                                                text: tileRect.metaLine
-                                                font: Theme.captionFont
-                                                color: Theme.textSecondaryColor
-                                                Accessible.ignored: true
+                                            AccessibleMouseArea {
+                                                anchors.fill: parent
+                                                accessibleName: row.title
+                                                    + (tileRect.metaLine !== "" ? ", " + tileRect.metaLine : "")
+                                                    + (row.reason !== "" ? ", " + row.reason : "")
+                                                accessibleItem: tileRect
+                                                onAccessibleClicked: wizardPage.selectProfile(row)
                                             }
                                         }
-                                        AccessibleMouseArea {
-                                            anchors.fill: parent
-                                            accessibleName: row.title
-                                                + (tileRect.metaLine !== "" ? ", " + tileRect.metaLine : "")
-                                                + (row.reason !== "" ? ", " + row.reason : "")
-                                            accessibleItem: tileRect
-                                            onAccessibleClicked: wizardPage.selectProfile(row)
-                                        }
                                     }
-                                }
-                            }
-                            Component {
-                                id: profileRow
-                                ItemDelegate {
-                                    width: parent ? parent.width : 0
-                                    contentItem: Label {
-                                        text: row.title
-                                        font: Theme.bodyFont
-                                        color: Theme.textColor
-                                        elide: Text.ElideRight
-                                    }
-                                    Accessible.role: Accessible.Button
-                                    Accessible.name: row.title
-                                    onClicked: wizardPage.selectProfile(row)
                                 }
                             }
                         }
@@ -1727,6 +1772,18 @@ Page {
 
                         SectionCard {
                             title: TranslationManager.translate("recipes.wizard.sectionNumbers", "The numbers")
+                            // The wizard says where the prefills came from and
+                            // why the user might change them — never a wall of
+                            // unexplained values.
+                            Label {
+                                Layout.fillWidth: true
+                                text: wizardPage.numbersHint
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WordWrap
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: text
+                            }
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacingMedium
@@ -1798,6 +1855,17 @@ Page {
                         SectionCard {
                             visible: wizardPage.activeTemplate.grind
                             title: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
+                            Label {
+                                visible: wizardPage.hasBean
+                                Layout.fillWidth: true
+                                text: TranslationManager.translate("recipes.wizard.grindFollowsHelp",
+                                      "Grind lives on the bag: re-dialing the bag updates every recipe "
+                                      + "that follows it. Override only if this drink deliberately grinds "
+                                      + "differently.")
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WordWrap
+                            }
                             // The knowledge-base grind hint as an anchored
                             // callout (icon + tinted background), not muted
                             // caption text.
@@ -1906,34 +1974,30 @@ Page {
                         }
 
                         // Milk block (latte template, or added on the summary).
+                        // No milk-weight capture here: milk is weighed each
+                        // time you steam — the recipe only needs the pitcher
+                        // (whose preset carries steam time/flow/temperature)
+                        // and the milk INTENT, which drives the heater hold.
                         SectionCard {
                             visible: wizardPage.fHasMilk
                             title: TranslationManager.translate("recipes.composer.sectionSteam", "Steam")
                             Label {
                                 Layout.fillWidth: true
-                                text: TranslationManager.translate("recipes.composer.milkHint",
-                                      "Keeps the steam heater warm while this recipe is active (5–9 min warm-up).")
+                                text: TranslationManager.translate("recipes.composer.steamHint",
+                                      "Pick the pitcher you steam this drink with — its preset sets the "
+                                      + "steam time and flow. You'll weigh the milk when you steam; a milk "
+                                      + "drink also keeps the steam heater warm while the recipe is active "
+                                      + "(5–9 min warm-up).")
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.WordWrap
                             }
-                            RowLayout {
+                            PickerField {
                                 Layout.fillWidth: true
-                                spacing: Theme.spacingMedium
-                                PickerField {
-                                    Layout.fillWidth: true
-                                    label: TranslationManager.translate("recipes.composer.pitcher", "Pitcher")
-                                    value: wizardPage.fPitcherName
-                                    placeholder: TranslationManager.translate("recipes.composer.choosePitcher", "Choose pitcher…")
-                                    onActivated: pitcherPicker.open()
-                                }
-                                NumberField {
-                                    id: milkField
-                                    Layout.fillWidth: true
-                                    label: TranslationManager.translate("recipes.composer.milkWeight", "Milk (g)")
-                                    text: wizardPage.fMilkWeightG > 0 ? String(wizardPage.fMilkWeightG) : ""
-                                    onEdited: function(newText) { wizardPage.fMilkWeightG = parseFloat(newText) || 0 }
-                                }
+                                label: TranslationManager.translate("recipes.composer.pitcher", "Pitcher")
+                                value: wizardPage.fPitcherName
+                                placeholder: TranslationManager.translate("recipes.composer.choosePitcher", "Choose pitcher…")
+                                onActivated: pitcherPicker.open()
                             }
                         }
 
@@ -1978,6 +2042,15 @@ Page {
                         // a row, not a step (it rarely changes once set).
                         SectionCard {
                             title: TranslationManager.translate("recipes.composer.sectionEquipment", "Equipment")
+                            Label {
+                                Layout.fillWidth: true
+                                text: TranslationManager.translate("recipes.wizard.equipmentHint",
+                                      "Prefilled from the gear you last used for this drink — change it "
+                                      + "only if this recipe uses a different grinder or basket.")
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WordWrap
+                            }
                             PickerField {
                                 Layout.fillWidth: true
                                 label: TranslationManager.translate("recipes.composer.equipmentLabel", "Grinder / basket package")
