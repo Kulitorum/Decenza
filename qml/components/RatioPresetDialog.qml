@@ -23,18 +23,16 @@ Dialog {
     padding: 0
 
     property bool showHelp: false
-    // Edit mode turns the three ratio cards into steppers so each standard can be
-    // tuned (writing Settings.brew.ratioPreset1/2/3). Off by default; tapping a card
-    // still just applies it. Restores preset editing the upstream ratio-quick-select
-    // reimplementation dropped (it originally lived, hard-to-find, in Espresso Setup).
     // Each standard is a RANGE in practice (ristretto ~1:1–1.5, normale ~1:2–2.5,
     // lungo ~1:3+); the right point depends on the bean and the machine, so fixed
-    // 1:1/1:2/1:3 values need to be adjustable.
+    // 1:1/1:2/1:3 values need to be adjustable. Off by default; tapping a card
+    // still just applies it.
     property bool editMode: false
 
     // Clamp + round to one decimal, then write the preset for this card's index.
+    // Bounds match SettingsBrew::setRatioPreset1/2/3's qBound(0.5, r, 6.0).
     function setPresetRatio(idx, r) {
-        var v = Math.max(0.5, Math.min(5.0, Math.round(r * 10) / 10))
+        var v = Math.max(0.5, Math.min(6.0, Math.round(r * 10) / 10))
         if (idx === 1) Settings.brew.ratioPreset1 = v
         else if (idx === 2) Settings.brew.ratioPreset2 = v
         else Settings.brew.ratioPreset3 = v
@@ -205,8 +203,6 @@ Dialog {
                             wrapMode: Text.WordWrap
                         }
 
-                        // Edit stepper (edit mode only): tune this preset's ratio in 0.1
-                        // increments, writing Settings.brew.ratioPreset{1,2,3} via setPresetRatio.
                         RowLayout {
                             Layout.fillWidth: true
                             Layout.topMargin: Theme.spacingSmall
@@ -223,7 +219,7 @@ Dialog {
                                                  .arg(TranslationManager.translate(modelData.key + ".name", modelData.name))
                                 Accessible.focusable: true
                                 Accessible.onPressAction: minusMa.clicked(null)
-                                Text { anchors.centerIn: parent; text: "–"; color: Theme.primaryContrastColor
+                                Text { anchors.centerIn: parent; text: "—"; color: Theme.primaryContrastColor
                                        font.pixelSize: Theme.scaled(24); font.bold: true }
                                 MouseArea { id: minusMa; anchors.fill: parent
                                     onClicked: root.setPresetRatio(modelData.idx, modelData.ratio - 0.1) }
@@ -256,7 +252,6 @@ Dialog {
                     MouseArea {
                         id: cardMa
                         anchors.fill: parent
-                        // In edit mode the card is for tuning, not applying — steppers handle taps.
                         enabled: !root.editMode
                         onClicked: root.applyRatio(modelData.ratio)
                     }
@@ -290,7 +285,7 @@ Dialog {
                 Accessible.onPressAction: helpMa.clicked(null)
                 Text {
                     anchors.centerIn: parent
-                    text: (root.showHelp ? "– " : "+ ") + TranslationManager.translate("ratio.help.button", "About brew ratios")
+                    text: (root.showHelp ? "— " : "+ ") + TranslationManager.translate("ratio.help.button", "About brew ratios")
                     color: Theme.primaryColor
                     font: Theme.labelFont
                 }
