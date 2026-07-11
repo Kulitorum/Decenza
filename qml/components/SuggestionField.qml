@@ -19,6 +19,9 @@ Item {
     property var descriptions: ({})
     property string accessibleName: ""  // Explicit accessible name for screen readers (overrides label)
     property alias textField: textInput  // Expose internal text input for KeyboardAwareContainer registration
+    // Field fill — forwarded to the text input; raise to Theme.surfaceColor to
+    // match a ValueInput sitting beside it (e.g. the shot-review dial-in row).
+    property color fieldColor: Theme.backgroundColor
 
     signal textEdited(string text)
     signal suggestionSelected(string text)  // Emitted when user picks from dropdown (not on keystroke)
@@ -29,7 +32,7 @@ Item {
     readonly property bool _accessibilityMode: typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled
 
     implicitHeight: (root.label.length > 0 ? fieldLabel.height + Theme.scaled(2) : 0)
-                    + Theme.scaled(48)
+                    + Theme.scaled(36)   // matches textInput height + ValueInput (app field standard)
                     + (_accessibilityMode && (textInput.text.length > 0 || suggestions.length > 0)
                        ? Theme.scaled(44) + Theme.scaled(4) : 0)
 
@@ -130,7 +133,9 @@ Item {
         anchors.right: parent.right
         anchors.top: root.label.length > 0 ? fieldLabel.bottom : parent.top
         anchors.topMargin: root.label.length > 0 ? Theme.scaled(2) : 0
-        height: Theme.scaled(48)
+        // Match ValueInput's field height so the two read as the same size.
+        height: Theme.scaled(36)
+        fieldColor: root.fieldColor
         text: root.text
         placeholder: root.label
         EnterKey.type: Qt.EnterKeyDone
@@ -141,8 +146,9 @@ Item {
         // fires on every preedit change.
         inputMethodHints: Qt.ImhNoPredictiveText
 
-        // Make room for buttons on the right (only in normal mode)
-        rightPadding: root._accessibilityMode ? Theme.scaled(12) : Theme.scaled(84)
+        // Make room for the clear + dropdown buttons on the right (28px each +
+        // spacing) in normal mode.
+        rightPadding: root._accessibilityMode ? Theme.scaled(12) : Theme.scaled(68)
 
         onTextEdited: {
             // Committed text reached `text` (desktop keystroke, or IME commit on
@@ -258,10 +264,12 @@ Item {
         // Clear button (X in circle) - only when there's text
         Rectangle {
             visible: textInput.text.length > 0
-            width: Theme.scaled(36)
-            height: Theme.scaled(36)
-            radius: Theme.scaled(18)
-            color: clearArea.pressed ? Theme.surfaceColor : Theme.backgroundColor
+            width: Theme.scaled(28)
+            height: Theme.scaled(28)
+            radius: Theme.scaled(14)
+            // Transparent so the outlined circle reads the same on any field
+            // fill (page background or a surfaceColor dial-in field).
+            color: clearArea.pressed ? Theme.surfaceColor : "transparent"
             border.color: Theme.textSecondaryColor
             border.width: 1
             Accessible.ignored: true
@@ -270,7 +278,7 @@ Item {
                 anchors.centerIn: parent
                 text: "\u00D7"  // multiplication sign
                 color: Theme.textSecondaryColor
-                font.pixelSize: Theme.scaled(21)
+                font.pixelSize: Theme.scaled(17)
                 Accessible.ignored: true
             }
 
@@ -293,9 +301,9 @@ Item {
 
         // Dropdown arrow button
         Rectangle {
-            width: Theme.scaled(36)
-            height: Theme.scaled(36)
-            radius: Theme.scaled(18)
+            width: Theme.scaled(28)
+            height: Theme.scaled(28)
+            radius: Theme.scaled(14)
             color: arrowArea.pressed ? Theme.surfaceColor : "transparent"
             Accessible.ignored: true
 

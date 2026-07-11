@@ -42,7 +42,7 @@ ComboBox {
     background: Rectangle {
         implicitHeight: Theme.scaled(36)
         color: control.enabled ? Qt.rgba(255, 255, 255, 0.1) : Qt.rgba(128, 128, 128, 0.1)
-        radius: Theme.scaled(6)
+        radius: Theme.scaled(8)   // match the app field standard
         border.color: control.activeFocus ? Theme.primaryColor : "transparent"
         border.width: control.activeFocus ? 1 : 0
     }

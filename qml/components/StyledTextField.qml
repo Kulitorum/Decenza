@@ -10,6 +10,9 @@ TextField {
     property string placeholder: ""
     // Explicit accessible name (overrides placeholder for screen readers)
     property string accessibleName: ""
+    // Field fill — defaults to the page background; a consumer can raise it to
+    // Theme.surfaceColor to match a ValueInput sitting beside it.
+    property color fieldColor: Theme.backgroundColor
 
     // Track whether focus was granted via accessibility double-tap (onPressAction)
     property bool _a11yActivated: false
@@ -59,8 +62,10 @@ TextField {
     // Explicit padding
     leftPadding: Theme.scaled(12)
     rightPadding: Theme.scaled(12)
-    topPadding: Theme.scaled(12)
-    bottomPadding: Theme.scaled(12)
+    // 8px insets land the implicit height at ~36 to match the app field
+    // standard (ValueInput / SuggestionField / StyledComboBox).
+    topPadding: Theme.scaled(8)
+    bottomPadding: Theme.scaled(8)
 
     // Default: dismiss keyboard on Enter (can be overridden with Keys.onReturnPressed)
     Keys.onReturnPressed: function(event) {
@@ -73,8 +78,10 @@ TextField {
     }
 
     background: Rectangle {
-        color: Theme.backgroundColor
-        radius: Theme.scaled(4)
+        color: control.fieldColor
+        // Match ValueInput's rounding (sc(8)) so text fields and steppers read
+        // as the same family across the app.
+        radius: Theme.scaled(8)
         border.color: control.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
         border.width: 1
 

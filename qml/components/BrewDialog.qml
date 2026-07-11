@@ -8,8 +8,11 @@ Dialog {
     id: root
     parent: Overlay.overlay
     anchors.centerIn: parent
-    property real dialogScale: 0.75
-    width: Theme.scaled(520) * dialogScale
+    // 520 on tablets; caps to the viewport so it can't overflow a narrow phone
+    // (the content column and the height cap both track this width).
+    readonly property real _frameWidth: Math.min(Theme.scaled(520),
+                                                  (root.parent ? root.parent.width : Theme.scaled(520)) * 0.95)
+    width: _frameWidth
     modal: true
     closePolicy: Dialog.CloseOnEscape
     padding: 0
@@ -183,9 +186,9 @@ Dialog {
 
     contentItem: KeyboardAwareContainer {
         id: keyboardContainer
-        implicitHeight: Math.min(mainColumn.implicitHeight * root.dialogScale,
-                                 root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight * root.dialogScale)
-        implicitWidth: Theme.scaled(520) * root.dialogScale
+        implicitHeight: Math.min(mainColumn.implicitHeight,
+                                 root.parent ? root.parent.height * 0.9 : mainColumn.implicitHeight)
+        implicitWidth: root._frameWidth
         inOverlay: true
         textFields: [
             profileInput.textField,
@@ -196,7 +199,7 @@ Dialog {
         Flickable {
             id: brewFlickable
             anchors.fill: parent
-            contentHeight: mainColumn.implicitHeight * root.dialogScale
+            contentHeight: mainColumn.implicitHeight
                            + keyboardContainer.estimatedKeyboardHeight
             contentWidth: parent.width
             clip: true
@@ -205,31 +208,130 @@ Dialog {
 
         ColumnLayout {
             id: mainColumn
-            width: Theme.scaled(520)
-            scale: root.dialogScale
-            transformOrigin: Item.TopLeft
+            width: root._frameWidth
             spacing: 0
 
-        // Header
+        // Header — title + the primary actions (Clear / Cancel / OK) pinned at
+        // the top next to the title. At standard size the fields fit without
+        // scrolling, so keeping the actions here means they never scroll off.
         Item {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(50)
             Layout.topMargin: Theme.scaled(10)
 
-            Text {
-                anchors.left: parent.left
+            RowLayout {
+                anchors.fill: parent
                 anchors.leftMargin: Theme.scaled(20)
-                anchors.verticalCenter: parent.verticalCenter
-                text: TranslationManager.translate("brewDialog.title", "Brew Settings")
-                font: Theme.titleFont
-                color: Theme.textColor
-                Accessible.ignored: true  // Dialog title announced on open
-            }
-
-            HideKeyboardButton {
-                anchors.right: parent.right
                 anchors.rightMargin: Theme.scaled(8)
-                anchors.verticalCenter: parent.verticalCenter
+                spacing: Theme.scaled(8)
+
+                Text {
+                    // Takes the slack (pushing the actions right) and elides so a
+                    // long localized title can't crowd or clip the buttons.
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("brewDialog.title", "Brew Settings")
+                    font: Theme.titleFont
+                    color: Theme.textColor
+                    elide: Text.ElideRight
+                    Accessible.ignored: true  // Dialog title announced on open
+                }
+
+                // Clear all overrides
+                AccessibleButton {
+                    Layout.preferredHeight: Theme.scaled(36)
+                    text: TranslationManager.translate("brewDialog.clear", "Clear")
+                    accessibleName: TranslationManager.translate("brewDialog.clearAllOverrides", "Clear all overrides")
+                    onClicked: {
+                        // Reset to current profile and bean preset values (not cached values from dialog open)
+                        root.profileTemperature = ProfileManager.profileTargetTemperature
+                        root.temperatureValue = root.profileTemperature
+                        root.profileTargetWeight = ProfileManager.profileTargetWeight
+                        // Reset the dose to the active bag's dose (the bean's remembered
+                        // weight), otherwise default 18 g.
+                        root.doseValue = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
+                        root.selectedProfileTitle = ProfileManager.currentProfileName
+                        root.grindSetting = Settings.dye.dyeGrinderSetting
+                        root.grindRpm = Settings.dye.dyeGrinderRpm
+                        var profileTarget = ProfileManager.profileTargetWeight
+                        root.ratio = (profileTarget > 0 && root.doseValue > 0) ? profileTarget / root.doseValue : Settings.brew.lastUsedRatio
+                        root.targetManuallySet = false
+                        root.targetValue = root.doseValue * root.ratio
+                    }
+                    background: Rectangle {
+                        implicitHeight: Theme.scaled(36)
+                        radius: Theme.buttonRadius
+                        color: "transparent"
+                        border.width: 1
+                        border.color: Theme.warningColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: Theme.warningColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                // Cancel
+                AccessibleButton {
+                    Layout.preferredHeight: Theme.scaled(36)
+                    text: TranslationManager.translate("brewDialog.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("brewDialog.cancelBrewSettings", "Cancel brew settings")
+                    onClicked: root.reject()
+                    background: Rectangle {
+                        implicitHeight: Theme.scaled(36)
+                        radius: Theme.buttonRadius
+                        color: "transparent"
+                        border.width: 1
+                        border.color: Theme.textSecondaryColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: Theme.textColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                // OK (primary)
+                AccessibleButton {
+                    Layout.preferredHeight: Theme.scaled(36)
+                    text: TranslationManager.translate("brewDialog.ok", "OK")
+                    accessibleName: TranslationManager.translate("brewDialog.confirmBrewSettings", "Confirm brew settings")
+                    onClicked: {
+                        Qt.inputMethod.commit()
+                        Settings.brew.lastUsedRatio = root.ratio
+                        // Grinder identity is managed via Switch Equipment; only the
+                        // dial-in (grind setting + rpm) is saved from here.
+                        Settings.dye.dyeGrinderSetting = root.grindSetting
+                        Settings.dye.dyeGrinderRpm = root.grindRpm
+                        ProfileManager.activateBrewWithOverrides(
+                            root.doseValue,
+                            root.targetValue,
+                            root.temperatureValue,
+                            root.grindSetting
+                        )
+                        root.accept()
+                    }
+                    background: Rectangle {
+                        implicitHeight: Theme.scaled(36)
+                        radius: Theme.buttonRadius
+                        color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    }
+                    contentItem: Text {
+                        text: parent.text
+                        font: Theme.bodyFont
+                        color: Theme.primaryContrastColor
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                HideKeyboardButton {
+                    Layout.alignment: Qt.AlignVCenter
+                }
             }
 
             Rectangle {
@@ -818,113 +920,6 @@ Dialog {
                     text: root.grindRpm > 0 ? String(root.grindRpm) : ""
                     Accessible.name: TranslationManager.translate("brewDialog.rpmAccessible", "Grinder rpm")
                     onTextEdited: root.grindRpm = parseInt(text) || 0
-                }
-            }
-        }
-
-        // Buttons
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.leftMargin: Theme.scaled(20)
-            Layout.rightMargin: Theme.scaled(20)
-            Layout.bottomMargin: Theme.scaled(20)
-            spacing: Theme.scaled(10)
-
-            // Clear All button
-            AccessibleButton {
-                Layout.preferredHeight: Theme.scaled(50)
-                text: TranslationManager.translate("brewDialog.clear", "Clear")
-                accessibleName: TranslationManager.translate("brewDialog.clearAllOverrides", "Clear all overrides")
-                onClicked: {
-                    // Reset to current profile and bean preset values (not cached values from dialog open)
-                    root.profileTemperature = ProfileManager.profileTargetTemperature
-                    root.temperatureValue = root.profileTemperature
-                    root.profileTargetWeight = ProfileManager.profileTargetWeight
-
-                    // Reset the dose to the active bag's dose (the bean's remembered
-                    // weight), otherwise default 18 g. (Working-vs-bag dose separation
-                    // is a follow-up change.)
-                    root.doseValue = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
-                    root.selectedProfileTitle = ProfileManager.currentProfileName
-                    root.grindSetting = Settings.dye.dyeGrinderSetting
-                    root.grindRpm = Settings.dye.dyeGrinderRpm
-
-                    // Calculate ratio from profile target weight / dose
-                    var profileTarget = ProfileManager.profileTargetWeight
-                    root.ratio = (profileTarget > 0 && root.doseValue > 0) ? profileTarget / root.doseValue : Settings.brew.lastUsedRatio
-                    root.targetManuallySet = false
-                    root.targetValue = root.doseValue * root.ratio
-                }
-                background: Rectangle {
-                    implicitHeight: Theme.scaled(50)
-                    radius: Theme.buttonRadius
-                    color: "transparent"
-                    border.width: 1
-                    border.color: Theme.warningColor
-                }
-                contentItem: Text {
-                    text: parent.text
-                    font: Theme.bodyFont
-                    color: Theme.warningColor
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-            }
-
-            AccessibleButton {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(50)
-                text: TranslationManager.translate("brewDialog.cancel", "Cancel")
-                accessibleName: TranslationManager.translate("brewDialog.cancelBrewSettings", "Cancel brew settings")
-                onClicked: root.reject()
-                background: Rectangle {
-                    implicitHeight: Theme.scaled(50)
-                    radius: Theme.buttonRadius
-                    color: "transparent"
-                    border.width: 1
-                    border.color: Theme.textSecondaryColor
-                }
-                contentItem: Text {
-                    text: parent.text
-                    font: Theme.bodyFont
-                    color: Theme.textColor
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-            }
-
-            AccessibleButton {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.scaled(50)
-                text: TranslationManager.translate("brewDialog.ok", "OK")
-                accessibleName: TranslationManager.translate("brewDialog.confirmBrewSettings", "Confirm brew settings")
-                onClicked: {
-                    Qt.inputMethod.commit()
-                    Settings.brew.lastUsedRatio = root.ratio
-                    // Grinder identity is managed via Switch Equipment; only the
-                    // dial-in (grind setting + rpm) is saved from here.
-                    Settings.dye.dyeGrinderSetting = root.grindSetting
-                    Settings.dye.dyeGrinderRpm = root.grindRpm
-                    // Use the new activateBrewWithOverrides method
-                    ProfileManager.activateBrewWithOverrides(
-                        root.doseValue,
-                        root.targetValue,
-                        root.temperatureValue,
-                        root.grindSetting
-                    )
-                    root.accept()
-                }
-                background: Rectangle {
-                    implicitHeight: Theme.scaled(50)
-                    radius: Theme.buttonRadius
-                    color: parent.down ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-                }
-                contentItem: Text {
-                    text: parent.text
-                    font: Theme.bodyFont
-                    color: Theme.primaryContrastColor
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
                 }
             }
         }

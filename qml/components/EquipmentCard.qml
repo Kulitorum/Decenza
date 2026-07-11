@@ -73,9 +73,9 @@ Rectangle {
                 grinderBrand: (card.pkg && card.pkg.grinderBrand) || ""
                 grinderModel: (card.pkg && card.pkg.grinderModel) || ""
                 grinderBurrs: (card.pkg && card.pkg.grinderBurrs) || ""
-                grindSetting: (card.pkg && card.pkg.lastGrindSetting) || ""
-                rpm: (card.pkg && card.pkg.lastRpm) ? Number(card.pkg.lastRpm) : 0
-                rpmCapable: !!(card.pkg && card.pkg.rpmCapable)
+                // Grind/rpm are a per-shot dial-in, not equipment — the inventory
+                // card lists only what the package IS, so the last-dial line is
+                // left unfed here (Shot Detail / Post-Shot Review still show it).
                 basketBrand: (card.pkg && card.pkg.basketBrand) || ""
                 basketModel: (card.pkg && card.pkg.basketModel) || ""
                 puckPrepCanonical: (card.pkg && card.pkg.puckPrepCanonical) || ""

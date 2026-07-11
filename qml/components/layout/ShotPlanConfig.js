@@ -50,3 +50,42 @@ function itemsFor(props) {
     if (props.shotPlanShowRoastDate === true) order.push("roastDate")
     return order
 }
+
+// The first Shot Plan widget object in a parsed layout, scanning every zone's
+// item list in object order, or null when the layout has none. Lets surfaces
+// outside the idle screen (the shot-page snapshot line) mirror the widget the
+// user actually placed. Normally there is at most one; "first found" is the
+// tie-break when a layout has several.
+function firstShotPlanItem(layoutObj) {
+    if (!layoutObj || !layoutObj.zones) return null
+    var zones = layoutObj.zones
+    for (var z in zones) {
+        var arr = zones[z]
+        if (!arr || typeof arr.length !== "number") continue
+        for (var i = 0; i < arr.length; i++) {
+            if (arr[i] && arr[i].type === "shotPlan") return arr[i]
+        }
+    }
+    return null
+}
+
+// The ordered display-item list from the user's first Shot Plan widget, falling
+// back to the same canonical defaults the widget itself uses when the layout has
+// none. Only the field selection + order is taken; the sentence/stacked toggles
+// are intentionally ignored (the snapshot line is always a plain fragment list).
+// `profile` and `temperature` are dropped: the shot-page snapshot line sits
+// directly under a title that already shows the profile name and temperature
+// (e.g. "Default (90°C)"), so repeating them there is redundant.
+function itemOrderFromLayout(layoutObj) {
+    return itemsFor(firstShotPlanItem(layoutObj))
+        .filter(function(k) { return k !== "profile" && k !== "temperature" })
+}
+
+// Same as itemOrderFromLayout, but parses the raw layout JSON string first
+// (the form the pages hold it in) — a malformed/empty string falls back to the
+// canonical defaults. Keeps the parse+guard next to the resolver it feeds.
+function itemOrderFromLayoutJson(jsonStr) {
+    var layout
+    try { layout = JSON.parse(jsonStr) } catch (e) { layout = null }
+    return itemOrderFromLayout(layout)
+}

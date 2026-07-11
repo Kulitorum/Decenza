@@ -63,6 +63,14 @@ Item {
     // can render THEIR overrides; defaults preserve the live-widget behavior.
     property bool yieldOverridden: Settings.brew.hasBrewYieldOverride
     property bool tempOverridden: Settings.brew.hasTemperatureOverride
+    // Grind RPM + whether the grinder reports RPM, the beverage word, and the
+    // cleaning flag — all default to the live singleton reads so the home
+    // widget is unchanged, but a per-shot consumer can override every one with
+    // the shot's own frozen snapshot values.
+    property int grindRpm: Settings.dye.dyeGrinderRpm
+    property bool rpmCapable: Settings.dye.grinderRpmCapable(Settings.dye.dyeGrinderBrand, Settings.dye.dyeGrinderModel)
+    property string beverageType: ProfileManager.currentProfileBeverageType
+    property bool isCleaning: ProfileManager.currentProfileIsMaintenance
 
     // Highlight (espresso-button yellow) on a brew TEMPERATURE override only.
     // Yield is intentionally excluded: the target output is dose × ratio and the
@@ -91,7 +99,7 @@ Item {
     readonly property string _tempStr: {
         void(Settings.app.temperatureUnit)
         if (!(_has("temperature") && profileTemp > 0)) return ""
-        return ProfileManager.temperatureDisplay(profileTemp, Settings.brew.hasTemperatureOverride, overrideTemp)
+        return ProfileManager.temperatureDisplay(profileTemp, tempOverridden, overrideTemp)
     }
     // Roaster = brand only; Coffee = bean name only; Grind = grinder setting + RPM when recorded.
     // Each item gates exactly its named content so saved widget configs mean what they say.
@@ -101,9 +109,8 @@ Item {
         if (!_has("grind")) return ""
         var parts = []
         if (grindSize.length > 0) parts.push(grindSize)
-        if (Settings.dye.dyeGrinderRpm > 0
-                && Settings.dye.grinderRpmCapable(Settings.dye.dyeGrinderBrand, Settings.dye.dyeGrinderModel))
-            parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(Settings.dye.dyeGrinderRpm))
+        if (grindRpm > 0 && rpmCapable)
+            parts.push(TranslationManager.translate("equipment.card.lastRpm", "%1 rpm").arg(grindRpm))
         return parts.join(" · ")
     }
     readonly property string _roastDateStr: (_has("roastDate") && roastDate.length > 0) ? roastDate : ""
@@ -111,11 +118,12 @@ Item {
     // generic "coffee" for filter/pourover/any other coffee type, "tea" for tea
     // profiles ("tea"/"tea_portafilter"). Cleaning/descale profiles get their own
     // sentence in _build() — no bean/dose tail, plus the do-not-load-coffee warning.
-    readonly property string _bevType: ProfileManager.currentProfileBeverageType
-    // The cleaning/descale/calibrate no-coffee tier is Profile::isMaintenanceBeverageType
-    // in C++ — the same call the shot-history, Visualizer and MCP gates make — so this
-    // warning genuinely can't drift from them.
-    readonly property bool _isCleaning: ProfileManager.currentProfileIsMaintenance
+    readonly property string _bevType: beverageType
+    // The cleaning/descale/calibrate no-coffee tier: by default `isCleaning`
+    // reads Profile::isMaintenanceBeverageType (the same C++ call the shot-history,
+    // Visualizer and MCP gates make, so the live widget can't drift from them);
+    // per-shot consumers override `isCleaning` from the shot's own frozen flag.
+    readonly property bool _isCleaning: isCleaning
     readonly property string _beverage: {
         var _ = TranslationManager.translationVersion   // re-evaluate on a live language switch
         if (_bevType === "espresso") return TranslationManager.translate("idle.button.espresso", "Espresso")

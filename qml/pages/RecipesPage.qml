@@ -485,7 +485,7 @@ Page {
             // --- Archived section ---
             AccessibleButton {
                 visible: recipesPage.archivedRecipes.length > 0
-                height: Theme.scaled(36)
+                Layout.preferredHeight: Theme.scaled(36)   // Layout child: raw height is ignored
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
                 rightPadding: Theme.scaled(10)

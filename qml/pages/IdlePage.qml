@@ -1049,7 +1049,20 @@ Page {
                     onPresetSelected: function(index) {
                         var recipe = idlePage.inventoryRecipes[index]
                         if (!recipe) return
-                        MainController.activateRecipe(recipe.id)
+                        // Match the profile/espresso pills: first tap activates
+                        // the recipe; tapping the already-active recipe starts
+                        // the shot (when the machine is ready).
+                        if (recipe.id === Settings.dye.activeRecipeId) {
+                            if (MachineState.isReady && idlePage.canStartOperations) {
+                                DE1Device.startEspresso()
+                            } else {
+                                console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
+                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                                    AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
+                            }
+                        } else {
+                            MainController.activateRecipe(recipe.id)
+                        }
                     }
                 }
             }
