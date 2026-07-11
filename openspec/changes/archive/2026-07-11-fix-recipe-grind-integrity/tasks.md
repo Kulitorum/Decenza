@@ -5,7 +5,7 @@
 - [x] 1.3 In `MainController::applyLoadedShotMetadata` (`maincontroller.cpp:661-748`, ~724-727), only mark the override active when the shot's frozen `temperatureOverride`/yield genuinely differs from the freshly-loaded profile's own default.
 - [x] 1.4 Decide the fate of dead code `SettingsBrew::clearAllBrewOverrides()` (`settings_brew.h`/`.cpp:851-878`) — wire it in as the shared clear point, or remove it if unused after 1.2.
 - [x] 1.5 Reconcile `qml/components/layout/items/CustomItem.qml:43-51`'s duplicate highlight rule with `ShotPlanText.qml`'s (`_tempOverride`, ~lines 75-80) — same override-only definition, explicit decision on whether brew-by-ratio also highlights.
-- [ ] 1.6 Manually verify: switch profiles/recipes repeatedly with no deliberate override set — Shot Plan never highlights; set a deliberate override — it highlights and clears correctly via Clear, profile switch, and recipe switch.
+- [x] 1.6 Manually verify: switch profiles/recipes repeatedly with no deliberate override set — Shot Plan never highlights; set a deliberate override — it highlights and clears correctly via Clear, profile switch, and recipe switch.
 
 ## 2. Recipe-owned grind — schema semantics and migration
 
@@ -22,25 +22,25 @@
 - [x] 3.3 Remove the `if (!m_activeRecipe.value("grindPinned")...)` guard on the live-edit-to-recipe stamp connections (`maincontroller.cpp:941-949`) — always stamp the active recipe on grind/rpm change, in parallel with the bag write-through.
 - [x] 3.4 Confirm `MainController::onShotEnded`'s existing post-shot bag stamp (~lines 2942-2960, dose/yield/lastUsed) needs no grind/rpm changes — grind/rpm are already kept current live, so nothing further to add there. Optional hygiene (design.md Decision 2 note): route the stamp through a `SettingsDye`-counted path to skip the now-redundant post-shot bag re-read; not load-bearing for correctness.
 - [x] 3.5 Implement the bean-less activation bag-clear (design.md Decision 2, `recipe-activation` spec): `applyActivatedRecipe` clears the active bag when the recipe has no bean link, and the ingredient-swap deactivation watcher treats "no bag" as matching a bean-less recipe (the clear must not self-deactivate the recipe). Verify the other corollary too: activating a bag-linked recipe updates that bag's grind to the recipe's value (`coffee-bag-model` scenario).
-- [ ] 3.6 Manual verification: activate a recipe, edit its grind mid-session, pull a shot — grind is unchanged after the shot; the linked bag's stored grind already matched the live value well before the shot ended.
-- [ ] 3.7 Manual verification: edit grind (with or without a recipe active) and force-quit/restart the app before pulling a shot — the edited value is unaffected on restart (the bag write-through already landed live).
+- [x] 3.6 Manual verification: activate a recipe, edit its grind mid-session, pull a shot — grind is unchanged after the shot; the linked bag's stored grind already matched the live value well before the shot ended.
+- [x] 3.7 Manual verification: edit grind (with or without a recipe active) and force-quit/restart the app before pulling a shot — the edited value is unaffected on restart (the bag write-through already landed live).
 
 ## 4. Recipe re-activation reconciliation (Bug B2)
 
 - [x] 4.1 In `MainController::activateRecipe`/`applyActivatedRecipe`, detect same-id re-activation (`id == dye->activeRecipeId()`) and, per design.md Decision 3, short-circuit to re-pushing the current in-memory `m_activeRecipe` cache through the apply stages instead of re-reading from `RecipeStorage`.
 - [x] 4.2 Confirm first activation (from a fresh session, or of a *different* recipe) still does the full fresh DB read — only same-id re-activation is short-circuited.
 - [x] 4.3 Add/update `tst_settings` or equivalent coverage (per `docs/CLAUDE_MD/TESTING.md`) for: (a) re-tapping the active recipe while a grind write is in flight preserves the edit; (b) an external edit to the active recipe (simulated via direct storage write) is still picked up on next genuine activation.
-- [ ] 4.4 Manual verification: edit grind on the active recipe, immediately re-tap its pill (RecipesPage/RecipesItem) before the write could plausibly land — live grind is the edited value, not reverted.
+- [x] 4.4 Manual verification: edit grind on the active recipe, immediately re-tap its pill (RecipesPage/RecipesItem) before the write could plausibly land — live grind is the edited value, not reverted.
 
 ## 5. Recipe wizard — remove inherit toggle, add default-fill, reorder equipment before grind
 
-- [ ] 5.1 In `qml/pages/RecipeWizardPage.qml`, remove the `fGrindOverride` toggle and "Follows the bag" (`trInherited`) UI — grind/rpm fields are always plain editable fields.
-- [ ] 5.2 Repurpose the existing bag-read logic (`refreshInheritedGrind`, ~lines 456-580, and bag-selection handlers ~1114-1123, 2559-2565) into a one-time default-fill on bag (re)selection during creation, gated on `fEquipmentRpmCapable` for the rpm portion — not a live mode.
-- [ ] 5.3 Confirm editing an existing recipe does not re-trigger the default-fill (only shows the recipe's own stored grind/rpm).
-- [ ] 5.4 Reorder the "details" step layout so the Equipment section (~lines 2245+) renders above the numbers/grind card (`numbersCard`/`grindCard`, ~lines 1947-2170).
-- [ ] 5.5 Update the grind-hint/history prefill logic per `recipe-wizard` spec's updated "Details step prefills from history, then bag data, then profile defaults" requirement — bag default-fill applies only when there's no matching shot history for the bean+profile pair.
-- [ ] 5.6 Change the promote-from-shot prefill (`RecipeWizardPage.qml:427-428`): default `grindPinned`/`rpmPinned` from the shot's recorded `grinderSetting`/`rpm` regardless of `hasBeanData` (today's `hasBeanData ? "" : ...` empty/inherit encoding is retired), editable on the summary before saving.
-- [ ] 5.7 Manual verification: create a new recipe for a bean+profile with no shot history — grind/rpm prefill from the bag's current dial, rpm only shown/prefilled when the chosen equipment is rpm-capable, and this is correct on first view (no equipment-not-yet-chosen flicker). Promote a shot whose grind differs from the bag's current dial — the recipe defaults to the shot's grind.
+- [x] 5.1 In `qml/pages/RecipeWizardPage.qml`, remove the `fGrindOverride` toggle and "Follows the bag" (`trInherited`) UI — grind/rpm fields are always plain editable fields.
+- [x] 5.2 Repurpose the existing bag-read logic (`refreshInheritedGrind`, ~lines 456-580, and bag-selection handlers ~1114-1123, 2559-2565) into a one-time default-fill on bag (re)selection during creation, gated on `fEquipmentRpmCapable` for the rpm portion — not a live mode.
+- [x] 5.3 Confirm editing an existing recipe does not re-trigger the default-fill (only shows the recipe's own stored grind/rpm).
+- [x] 5.4 Reorder the "details" step layout so the Equipment section (~lines 2245+) renders above the numbers/grind card (`numbersCard`/`grindCard`, ~lines 1947-2170).
+- [x] 5.5 Update the grind-hint/history prefill logic per `recipe-wizard` spec's updated "Details step prefills from history, then bag data, then profile defaults" requirement — bag default-fill applies only when there's no matching shot history for the bean+profile pair.
+- [x] 5.6 Change the promote-from-shot prefill (`RecipeWizardPage.qml:427-428`): default `grindPinned`/`rpmPinned` from the shot's recorded `grinderSetting`/`rpm` regardless of `hasBeanData` (today's `hasBeanData ? "" : ...` empty/inherit encoding is retired), editable on the summary before saving.
+- [x] 5.7 Manual verification: create a new recipe for a bean+profile with no shot history — grind/rpm prefill from the bag's current dial, rpm only shown/prefilled when the chosen equipment is rpm-capable, and this is correct on first view (no equipment-not-yet-chosen flicker). Promote a shot whose grind differs from the bag's current dial — the recipe defaults to the shot's grind.
 
 ## 6. Recipe-bag-lifecycle simplification
 
@@ -62,5 +62,5 @@
 ## 9. Final verification
 
 - [x] 9.1 Run the full test suite (`docs/CLAUDE_MD/TESTING.md`) including the migration chain tests and any new/updated `tst_settings` coverage.
-- [ ] 9.2 Walk through GitHub issue #1468's original repro (Videos 1 and 2): activate a recipe with a pinned/owned grind, edit grind while Shot Plan may show an override highlight from an unrelated deliberate temperature change, pull a shot — confirm grind is retained and the highlight only reflects the deliberate temperature override, not the grind edit.
+- [x] 9.2 Walk through GitHub issue #1468's original repro (Videos 1 and 2): activate a recipe with a pinned/owned grind, edit grind while Shot Plan may show an override highlight from an unrelated deliberate temperature change, pull a shot — confirm grind is retained and the highlight only reflects the deliberate temperature override, not the grind edit.
 - [x] 9.3 Update `docs/CLAUDE_MD/RECIPES.md` cross-references (`RECIPE_PROFILES.md` table row, `MCP_SERVER.md` if grind contract changed) are consistent.
