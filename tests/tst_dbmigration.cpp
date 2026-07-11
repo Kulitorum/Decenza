@@ -415,6 +415,44 @@ private slots:
         });
     }
 
+    // Migration 30 wiring through the real runMigrations() gate (the data
+    // pass itself is covered in tst_recipestorage): a v29 DB with an
+    // inherit-mode recipe (empty grind_pinned + a dialed bag) adopts the
+    // bag's grind/rpm and lands on version 30.
+    void v29ToV30AdoptsBagGrind() {
+        QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }  // full chain -> 30
+
+        qint64 bagId = 0, recipeId = 0;
+        withRawDb(path, "v29_seed", [&](QSqlDatabase& db) {
+            // Rewind to 29 and seed an inherit-mode row, simulating a DB that
+            // upgraded to 29 before this migration shipped.
+            QSqlQuery q(db);
+            QVERIFY(q.exec("DELETE FROM schema_version"));
+            QVERIFY(q.exec("INSERT INTO schema_version (version) VALUES (29)"));
+            QVERIFY(q.exec("INSERT INTO coffee_bags (roaster_name, coffee_name, "
+                           "in_inventory, grinder_setting, rpm) "
+                           "VALUES ('Roaster', 'Guji', 1, '18', 1200)"));
+            bagId = q.lastInsertId().toLongLong();
+            QVERIFY(q.exec(QString("INSERT INTO recipes (name, profile_title, bag_id) "
+                                   "VALUES ('Inheriting', 'P', %1)").arg(bagId)));
+            recipeId = q.lastInsertId().toLongLong();
+        });
+        QVERIFY(bagId > 0 && recipeId > 0);
+
+        { ShotHistoryStorage s; initAndClose(path, s); }  // runs migration 30
+
+        withRawDb(path, "v29_verify30", [&](QSqlDatabase& db) {
+            QCOMPARE(getSchemaVersion(db), 30);
+            QSqlQuery q(db);
+            QVERIFY(q.exec(QString("SELECT grind_pinned, rpm_pinned FROM recipes "
+                                   "WHERE id = %1").arg(recipeId)));
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toString(), QString("18"));
+            QCOMPARE(q.value(1).toLongLong(), (qint64)1200);
+        });
+    }
+
     // ==========================================
     // Edge case: empty v1 DB migrates cleanly
     // ==========================================

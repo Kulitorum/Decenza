@@ -71,6 +71,17 @@ inline double teaTempProximity(double profileTempC, double brewTempC)
     return std::abs(profileTempC - brewTempC);
 }
 
+// Does this recipe drink type carry a grind? Tea family ("tea",
+// "tea_hotwater") stores no grind — a dial edit while a tea recipe is active
+// must not turn it into a recipe that grinds (fix-recipe-grind-integrity).
+// An empty type reads as coffee: recipes without a stored drink_type predate
+// migration 28, which shipped together with tea recipes, so a stored-empty
+// tea recipe does not occur in practice.
+inline bool hasGrind(const QString& drinkType)
+{
+    return !drinkType.startsWith(QLatin1String("tea"));
+}
+
 // Per-type default brew temperature (Celsius) for tea bags whose vendor
 // stated nothing. Steeping classes, not per-bag guesses.
 inline double defaultTeaTempC(const QString& teaType)

@@ -78,7 +78,7 @@ struct Recipe {
     double tempOverrideC = 0; // 0 = no override
 
     QString grindPinned;      // the recipe's own grind (empty = none recorded)
-    qint64 rpmPinned = 0;     // grinder rpm override; only meaningful with a pin (0 = unset)
+    qint64 rpmPinned = 0;     // rides with grindPinned; only applied alongside a non-empty grind (0 = unset)
     QString steamJson;        // steam block, empty = none saved
     QString hotWaterJson;     // hot-water block (opt-in water-vessel snapshot), empty = none
 
@@ -253,10 +253,14 @@ public:
     // Migration 30 data pass (fix-recipe-grind-integrity): copy the linked
     // bag's current grinder_setting/rpm into empty grind_pinned/rpm_pinned
     // rows — the one-time backfill retiring "empty = inherit". Skips rows
-    // whose bag has no dial; leaves bag-less rows untouched. Idempotent;
-    // also run by importRecipesStatic for pre-migration source DBs. Returns
-    // false when the pass could not run (caller must not bump the version).
-    static bool migrateGrindOwnershipStatic(QSqlDatabase& db);
+    // whose bag has no dial; leaves bag-less rows untouched. Also run by
+    // importRecipesStatic for pre-migration source DBs, which MUST pass
+    // onlyRecipeIds (the just-inserted rows): post-migration, empty grind is
+    // a supported deliberate state on local rows and a table-wide re-run
+    // would clobber it. Returns false when the pass could not run (the
+    // migration caller must not bump the version then).
+    static bool migrateGrindOwnershipStatic(QSqlDatabase& db,
+                                            const QVector<qint64>* onlyRecipeIds = nullptr);
 
     // Roll-on-finish (synchronous core): relink the finished bag's
     // non-archived recipes to the newest open bag of the same bean identity,

@@ -547,6 +547,41 @@ private slots:
         });
     }
 
+    // rpm edges of the migration-30 pass: a bag with NO dial but a recorded
+    // rpm is skipped entirely (grind gates the copy); a dialed bag with NULL
+    // rpm zeroes a leftover rpm_pinned (rpm rides with the dial — intended).
+    void migrateGrindOwnershipRpmEdges() {
+        withRawDb(freshDbPath(), "mig30_rpm", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+
+            CoffeeBag rpmOnly; rpmOnly.roasterName = "R"; rpmOnly.coffeeName = "A";
+            rpmOnly.inInventory = true; rpmOnly.rpm = 1400;  // no grinderSetting
+            const qint64 rpmOnlyId = CoffeeBagStorage::insertBagStatic(db, rpmOnly);
+            CoffeeBag noRpm; noRpm.roasterName = "R"; noRpm.coffeeName = "B";
+            noRpm.inInventory = true; noRpm.grinderSetting = "18";  // rpm unset
+            const qint64 noRpmId = CoffeeBagStorage::insertBagStatic(db, noRpm);
+            QVERIFY(rpmOnlyId > 0 && noRpmId > 0);
+
+            Recipe skipped = sampleRecipe();
+            skipped.name = "RpmOnlyBag"; skipped.bagId = rpmOnlyId;  // rpmPinned 90 leftover
+            const qint64 skippedId = RecipeStorage::insertRecipeStatic(db, skipped);
+            Recipe zeroed = sampleRecipe();
+            zeroed.name = "NoRpmBag"; zeroed.bagId = noRpmId;  // rpmPinned 90 leftover
+            const qint64 zeroedId = RecipeStorage::insertRecipeStatic(db, zeroed);
+            QVERIFY(skippedId > 0 && zeroedId > 0);
+
+            QVERIFY(RecipeStorage::migrateGrindOwnershipStatic(db));
+
+            const Recipe s = RecipeStorage::loadRecipeStatic(db, skippedId);
+            QVERIFY(s.grindPinned.isEmpty());               // no dial to copy
+            QCOMPARE(s.rpmPinned, (qint64)90);              // untouched
+            const Recipe z = RecipeStorage::loadRecipeStatic(db, zeroedId);
+            QCOMPARE(z.grindPinned, QString("18"));
+            QCOMPARE(z.rpmPinned, (qint64)0);               // rpm rides with the dial
+        });
+    }
+
     // Import runs the same backfill: a pre-migration-30 source DB's
     // inherit-mode rows adopt their (remapped) bag's dial on arrival.
     void importBackfillsInheritModeGrind() {
@@ -579,6 +614,43 @@ private slots:
                     RecipeStorage::loadRecipeStatic(destDb, idMap.value(srcRecipeId));
                 QCOMPARE(imported.grindPinned, QString("18"));
                 QCOMPARE(imported.rpmPinned, (qint64)1200);
+            });
+        });
+    }
+
+    // The import backfill is scoped to the rows the import inserted: a
+    // pre-existing LOCAL recipe whose grind was deliberately cleared (a
+    // supported state post-migration-30) must survive an unrelated import
+    // untouched — a table-wide re-run would stamp the bag's dial back on.
+    void importDoesNotClobberDeliberatelyEmptyLocalGrind() {
+        const QString srcPath = freshDbPath();
+        const QString destPath = freshDbPath();
+        withRawDb(srcPath, "mig30_keep_src", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe unrelated = sampleRecipe();
+            unrelated.name = "Unrelated import"; unrelated.grindPinned = "2.4";
+            QVERIFY(RecipeStorage::insertRecipeStatic(db, unrelated) > 0);
+        });
+        qint64 localId = 0;
+        withRawDb(destPath, "mig30_keep_dest", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            CoffeeBag bag; bag.roasterName = "Roaster"; bag.coffeeName = "Guji";
+            bag.inInventory = true; bag.grinderSetting = "18";
+            const qint64 bagId = CoffeeBagStorage::insertBagStatic(db, bag);
+            QVERIFY(bagId > 0);
+            Recipe local = sampleRecipe();
+            local.name = "Deliberately grind-less"; local.bagId = bagId;
+            local.rpmPinned = 0;  // grind explicitly cleared, bag dialed
+            localId = RecipeStorage::insertRecipeStatic(db, local);
+            QVERIFY(localId > 0);
+        });
+        withRawDb(srcPath, "mig30_keep_src2", [&](QSqlDatabase& srcDb) {
+            withRawDb(destPath, "mig30_keep_dest2", [&](QSqlDatabase& destDb) {
+                QHash<qint64, qint64> idMap;
+                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, /*merge=*/true,
+                                                           idMap, {}, {}));
+                QVERIFY(RecipeStorage::loadRecipeStatic(destDb, localId).grindPinned.isEmpty());
             });
         });
     }
@@ -622,6 +694,19 @@ private slots:
             storage.requestCreateRecipe(map);
             QTRY_COMPARE(spy.count(), 1);
             QVERIFY(spy.at(0).at(1).toMap().value("grindPinned").toString().isEmpty());
+        }
+
+        // Explicit grind with rpm omitted -> no rpm adoption either: the
+        // default is all-or-nothing, gated on grind being omitted.
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeCreated);
+            QVariantMap map{{"name", "Explicit grind"}, {"profileTitle", "P"},
+                            {"bagId", bagId}, {"grindPinned", "2.6"}};
+            storage.requestCreateRecipe(map);
+            QTRY_COMPARE(spy.count(), 1);
+            const QVariantMap created = spy.at(0).at(1).toMap();
+            QCOMPARE(created.value("grindPinned").toString(), QString("2.6"));
+            QCOMPARE(created.value("rpmPinned").toLongLong(), (qint64)0);
         }
     }
 

@@ -179,7 +179,7 @@ public:
     // --- Recipes (add-recipes) ---
     // Activate a recipe: apply its profile, linked bag (whether or not it is
     // still in inventory — stale recipes activate fully), equipment,
-    // dose/yield/temp, grind routing, and steam block (the single activation
+    // dose/yield/temp, the recipe's own grind, and steam block (the single activation
     // path shared by QML pill taps, MCP recipe_activate, and the web
     // /activate route). Async; terminal status via recipeActivated().
     Q_INVOKABLE void activateRecipe(qint64 recipeId);
@@ -474,11 +474,6 @@ private:
     // activation and by recipesChanged re-reads. Drives the recipe-owned
     // grind apply and the write-through stamps.
     QVariantMap m_activeRecipe;
-    // The linked bag map from the last activation bundle, cached so a
-    // same-id re-activation can re-push the cache without a fresh DB read
-    // (fix-recipe-grind-integrity, Bug B2 — a fresh read can race our own
-    // in-flight write-through and revert the user's edit).
-    QVariantMap m_activeRecipeBagSnapshot;
     // Event-based guard (never a timer): true while activation is applying
     // the recipe's values, so the deactivate-on-ingredient-swap watchers and
     // the write-through stamps ignore self-inflicted change signals.

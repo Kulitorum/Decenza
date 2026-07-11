@@ -989,7 +989,8 @@ bool RecipeStorage::migrateBagLinksStatic(QSqlDatabase& db)
 }
 
 // static
-bool RecipeStorage::migrateGrindOwnershipStatic(QSqlDatabase& db)
+bool RecipeStorage::migrateGrindOwnershipStatic(QSqlDatabase& db,
+                                                const QVector<qint64>* onlyRecipeIds)
 {
     // The one-time data pass of migration 30 (fix-recipe-grind-integrity):
     // grind always lives on the recipe now, so the retired "empty grind_pinned
@@ -997,19 +998,32 @@ bool RecipeStorage::migrateGrindOwnershipStatic(QSqlDatabase& db)
     // in ONCE — the historical equivalent of the creation-time default. Rows
     // whose bag has no dial yet (tea bags, never-dialed bags) are skipped, not
     // stamped with empty strings; bag-less rows stay untouched ("no grind
-    // recorded yet" is a valid state). Idempotent: only empty-grind rows with
-    // a dialed bag match, and after one pass none do. Also reused by
-    // importRecipesStatic — a transfer/backup source DB can predate this
-    // migration, and its rows arrive after the local pass already ran.
-    QSqlQuery query(db);
-    const bool ok = query.exec(QStringLiteral(
+    // recorded yet" is a valid state). Also reused by importRecipesStatic —
+    // a transfer/backup source DB can predate this migration, and its rows
+    // arrive after the local pass already ran. The import pass MUST scope to
+    // the just-inserted rows (onlyRecipeIds): post-migration, "empty grind +
+    // linked bag" is a supported, deliberate state (an explicitly cleared
+    // grind), and a table-wide re-run would silently stamp the bag's dial
+    // back onto such local rows on every import.
+    QString sql = QStringLiteral(
         "UPDATE recipes SET "
         "  grind_pinned = (SELECT b.grinder_setting FROM coffee_bags b WHERE b.id = recipes.bag_id), "
         "  rpm_pinned = (SELECT COALESCE(b.rpm, 0) FROM coffee_bags b WHERE b.id = recipes.bag_id) "
         "WHERE COALESCE(grind_pinned,'') = '' "
         "  AND bag_id IS NOT NULL "
         "  AND EXISTS (SELECT 1 FROM coffee_bags b WHERE b.id = recipes.bag_id "
-        "              AND COALESCE(b.grinder_setting,'') <> '')"));
+        "              AND COALESCE(b.grinder_setting,'') <> '')");
+    if (onlyRecipeIds) {
+        if (onlyRecipeIds->isEmpty())
+            return true;  // nothing imported, nothing to backfill
+        QStringList ids;
+        ids.reserve(onlyRecipeIds->size());
+        for (qint64 id : *onlyRecipeIds)
+            ids << QString::number(id);
+        sql += QStringLiteral(" AND id IN (%1)").arg(ids.join(QLatin1Char(',')));
+    }
+    QSqlQuery query(db);
+    const bool ok = query.exec(sql);
     if (!ok) {
         qWarning() << "RecipeStorage: grind-ownership migration failed:"
                    << query.lastError().text();
@@ -1257,6 +1271,7 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     }
 
     int imported = 0, matched = 0;
+    QVector<qint64> insertedIds;  // scope for the post-import grind backfill
     while (srcRecipes.next()) {
         Recipe recipe = recipeFromQueryRow(srcRecipes);
         // Remap the source equipment_id to the imported package's new dest id
@@ -1303,15 +1318,19 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
             if (destId < 0)
                 return false;
             imported++;
+            insertedIds.append(destId);
         }
         outIdMap.insert(recipe.id, destId);
     }
 
     // A source DB from before migration 30 carries inherit-mode rows (empty
     // grind_pinned + a bag link) that arrive AFTER this device's migration
-    // already ran — run the same idempotent backfill over the merged table so
-    // they adopt their (remapped) bag's dial like local rows did at upgrade.
-    if (!RecipeStorage::migrateGrindOwnershipStatic(destDb))
+    // already ran — run the same backfill, scoped to the rows THIS import
+    // inserted, so they adopt their (remapped) bag's dial like local rows did
+    // at upgrade. Scoping is load-bearing: a pre-existing local recipe with a
+    // deliberately cleared grind must not have its bag's dial stamped back by
+    // an unrelated import (post-migration, empty grind is a supported state).
+    if (!RecipeStorage::migrateGrindOwnershipStatic(destDb, &insertedIds))
         qWarning() << "RecipeStorage: post-import grind-ownership backfill failed"
                    << "- imported inherit-mode recipes stay grind-less (a valid state; "
                       "editing the recipe sets one)";

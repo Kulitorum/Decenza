@@ -101,6 +101,8 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
             o["bagStale"] = true;
         }
     }
+    // Field name kept as "effectiveGrind" for JS/API compatibility — since
+    // fix-recipe-grind-integrity it is simply the recipe's own grind.
     if (!r.grindPinned.isEmpty())
         o["effectiveGrind"] = r.grindPinned;
     return o;
@@ -552,14 +554,14 @@ QString ShotServer::generateRecipesPage() const
         <h2 id="editorTitle">Recipe</h2>
         <label>Name</label><input id="fName">
         <label>Profile title</label><input id="fProfile">
-        <label>Bag (grind follows it; roaster/coffee fill in automatically)</label>
+        <label>Bag (roaster/coffee fill in automatically)</label>
         <select id="fBag"><option value="0">(no bag)</option></select>
         <label>Roaster</label><input id="fRoaster">
         <label>Coffee</label><input id="fCoffee">
         <label>Dose (g)</label><input id="fDose" type="number" step="0.1">
         <label>Yield (g)</label><input id="fYield" type="number" step="0.1">
         <label>Temp override (&deg;C)</label><input id="fTemp" type="number" step="0.1">
-        <label>Pinned grind (empty = follow the bag)</label><input id="fGrind">
+        <label>Grind (this recipe's own; on create, blank adopts the bag's dial)</label><input id="fGrind">
         <label>Drink type</label>
         <select id="fDrinkType">
             <option value="">(automatic from blocks)</option>
@@ -780,6 +782,11 @@ QString ShotServer::generateRecipesPage() const
                 steam: steam,
                 hotWater: hotWater
             };
+            // Create: OMIT a blank grind so storage adopts the linked bag's
+            // dial (the omit-adopts rule). Update keeps sending '' — there it
+            // means "clear this recipe's grind".
+            if (!editingId && bodyData.grindPinned === '')
+                delete bodyData.grindPinned;
             const req = editingId ? post('/api/recipe/' + editingId, bodyData)
                                   : post('/api/recipes', bodyData);
             req.then(() => { document.getElementById('editor').close(); load(); })

@@ -9,6 +9,20 @@ class tst_DrinkTypes : public QObject {
 
 private slots:
 
+    // Grind-bearing drink types (fix-recipe-grind-integrity): the tea family
+    // stores no grind — a dial edit while a tea recipe is active must not
+    // stamp one onto it. Empty (legacy pre-migration-28 rows) reads as coffee.
+    void hasGrindByDrinkType() {
+        QVERIFY(DrinkTypes::hasGrind("espresso"));
+        QVERIFY(DrinkTypes::hasGrind("filter"));
+        QVERIFY(DrinkTypes::hasGrind("americano"));
+        QVERIFY(DrinkTypes::hasGrind("long_black"));
+        QVERIFY(DrinkTypes::hasGrind("latte"));
+        QVERIFY(DrinkTypes::hasGrind(""));  // legacy row: coffee assumption
+        QVERIFY(!DrinkTypes::hasGrind("tea"));
+        QVERIFY(!DrinkTypes::hasGrind("tea_hotwater"));
+    }
+
     // Every stock tea_portafilter title must be reachable from its tea type —
     // this pins the keyword table to the shipped profile set.
     void stockTitlesMatchTheirType() {

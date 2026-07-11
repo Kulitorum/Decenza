@@ -9,7 +9,7 @@ struct ShotRecord;
 // Shared field-building for the recipe promotion path ("that shot was great —
 // save it as a drink"): turns a ShotRecord into the QVariantMap
 // RecipeStorage::requestCreateRecipe expects (profile, bag link, equipment,
-// dose/yield/temp, grind routing, steam block). Shared by the
+// dose/yield/temp, the shot's own grind, steam block). Shared by the
 // recipe_create_from_shot MCP tool (src/mcp/mcptools_recipes.cpp) and the
 // recipes-idle-layout-upgrade starter-recipe hook so there is exactly one
 // implementation of the promotion semantics.

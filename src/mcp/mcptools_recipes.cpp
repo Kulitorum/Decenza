@@ -5,8 +5,8 @@
 // Conventions (docs/CLAUDE_MD/MCP_SERVER.md): unit-suffixed field names
 // (doseG, yieldG, milkWeightG, steamTemperatureC), ISO 8601 timestamps with
 // offset, human-readable enums. Grind always lives on the recipe
-// (fix-recipe-grind-integrity): reads expose it as {"value", "rpm"}, with no
-// inherited/pinned mode — there is nothing to resolve.
+// (fix-recipe-grind-integrity): reads expose it as {"value", "rpm"} — omitted
+// entirely when the recipe has no grind — with no inherited/pinned mode.
 //
 // Reads run on background threads over the storage statics; mutations go
 // through the RecipeStorage instance (one-shot signal connections) so the
@@ -654,7 +654,7 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
     registry->registerAsyncTool(
         "recipe_clone",
         "Clone a recipe under a new name (e.g. a family member's variant of the same drink). "
-        "Copies every field including the steam block and grind pin state. Provenance points at "
+        "Copies every field including the steam block and grind. Provenance points at "
         "the source recipe; the source's golden-shot link is not copied. Follow with "
         "recipe_update to change what differs.",
         QJsonObject{
@@ -769,7 +769,8 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
     registry->registerAsyncTool(
         "recipe_activate",
         "Activate a recipe: loads its profile, selects the linked bag (even when that bag is "
-        "finished — a stale recipe activates fully with the finished bag's grind) and the "
+        "finished — a stale recipe activates fully with its own grind; a bean-less recipe "
+        "clears the active bag) and the "
         "equipment package, applies dose/yield/temperature and the recipe's own grind, "
         "applies the steam block, and warms the steam heater when the drink has milk. Exactly "
         "what tapping the recipe's pill on the idle screen does.",

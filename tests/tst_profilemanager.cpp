@@ -1037,6 +1037,70 @@ private slots:
         QCOMPARE(f.profileManager.getGroupTemperature(), 93.0);
     }
 
+    // THE headline Bug A scenario (#1468, brew-overrides spec "Overrides
+    // cleared on profile switch"): switching profiles genuinely clears the
+    // override flags — a resync-instead-of-clear regression would leave the
+    // Shot Plan latched orange forever.
+    void profileSwitchClearsOverrides() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "First", 36.0, 93.0);
+        f.profileManager.activateBrewWithOverrides(20.0, 50.0, 96.0, "15");
+        QVERIFY(f.settings.brew()->hasTemperatureOverride());
+        QVERIFY(f.settings.brew()->hasBrewYieldOverride());
+
+        loadDFlowProfile(f, "Second", 38.0, 90.0);
+
+        QVERIFY(!f.settings.brew()->hasTemperatureOverride());
+        QVERIFY(!f.settings.brew()->hasBrewYieldOverride());
+        QCOMPARE(f.profileManager.targetWeight(), 38.0);
+        QCOMPARE(f.profileManager.getGroupTemperature(), 90.0);
+    }
+
+    // The startup branch of resetBrewOverridesForLoadedProfile: a persisted
+    // override survives a restart only when it genuinely differs from the
+    // incoming profile's default; a same-as-default persisted value (the
+    // noise every pre-fix session latched) is dropped.
+    void startupRestorePreservesGenuineOverridesOnly() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "Test", 36.0, 93.0);
+
+        // Arm one genuine override (temp, differs) and one noise override
+        // (yield ≈ the profile default).
+        f.settings.brew()->setTemperatureOverride(96.0);
+        f.settings.brew()->setBrewYieldOverride(36.05);
+        QVERIFY(f.settings.brew()->hasTemperatureOverride());
+        QVERIFY(f.settings.brew()->hasBrewYieldOverride());
+
+        // Simulate the startup load of the same profile.
+        f.profileManager.m_startupLoadDone = false;
+        loadDFlowProfile(f, "Test", 36.0, 93.0);
+        f.profileManager.m_startupLoadDone = true;
+
+        QVERIFY(f.settings.brew()->hasTemperatureOverride());   // genuine: survives
+        QCOMPARE(f.settings.brew()->temperatureOverride(), 96.0);
+        QVERIFY(!f.settings.brew()->hasBrewYieldOverride());    // noise: dropped
+        QCOMPARE(f.profileManager.targetWeight(), 36.0);
+    }
+
+    // Editing the profile's own temperature/target (uploadProfile) makes the
+    // edited value the new default — any live override is now stale and must
+    // clear, or uploadCurrentProfile would re-apply it as a second delta.
+    void uploadProfileClearsStaleOverrides() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "Test", 36.0, 93.0);
+        f.profileManager.activateBrewWithOverrides(18.0, 40.0, 95.0, "15");
+        QVERIFY(f.settings.brew()->hasTemperatureOverride());
+        QVERIFY(f.settings.brew()->hasBrewYieldOverride());
+
+        f.profileManager.uploadProfile(QVariantMap{
+            {"espresso_temperature", 94.0}, {"target_weight", 38.0}});
+
+        QVERIFY(!f.settings.brew()->hasTemperatureOverride());
+        QVERIFY(!f.settings.brew()->hasBrewYieldOverride());
+        QCOMPARE(f.profileManager.currentProfile().espressoTemperature(), 94.0);
+        QCOMPARE(f.profileManager.targetWeight(), 38.0);
+    }
+
     // === activateBrewWithOverrides ===
 
     void activateBrewWithOverridesSetsSettings() {
