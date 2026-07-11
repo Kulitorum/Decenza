@@ -23,6 +23,20 @@ Dialog {
     padding: 0
 
     property bool showHelp: false
+    // Each standard is a RANGE in practice (ristretto ~1:1–1.5, normale ~1:2–2.5,
+    // lungo ~1:3+); the right point depends on the bean and the machine, so fixed
+    // 1:1/1:2/1:3 values need to be adjustable. Off by default; tapping a card
+    // still just applies it.
+    property bool editMode: false
+
+    // Clamp + round to one decimal, then write the preset for this card's index.
+    // Bounds match SettingsBrew::setRatioPreset1/2/3's qBound(0.5, r, 6.0).
+    function setPresetRatio(idx, r) {
+        var v = Math.max(0.5, Math.min(6.0, Math.round(r * 10) / 10))
+        if (idx === 1) Settings.brew.ratioPreset1 = v
+        else if (idx === 2) Settings.brew.ratioPreset2 = v
+        else Settings.brew.ratioPreset3 = v
+    }
     // The actual active ratio (target ÷ dose), matching the scale widget / Brew
     // Settings — not lastUsedRatio, so the highlighted preset reflects reality.
     readonly property double _dose: ProfileManager.brewByRatioDose > 0 ? ProfileManager.brewByRatioDose : 18.0
@@ -31,11 +45,11 @@ Dialog {
     // The three presets (ratios are user-configurable, defaulting to 1/2/3).
     // `desc` are our own words, informed by the La Marzocco article credited below.
     readonly property var presets: [
-        { ratio: Settings.brew.ratioPreset1, key: "ratio.ristretto", name: "Ristretto",
+        { idx: 1, ratio: Settings.brew.ratioPreset1, key: "ratio.ristretto", name: "Ristretto",
           desc: "Short & concentrated — syrupy and heavy-bodied with intense flavour. Cuts through milk; suits darker roasts." },
-        { ratio: Settings.brew.ratioPreset2, key: "ratio.normale", name: "Normale",
+        { idx: 2, ratio: Settings.brew.ratioPreset2, key: "ratio.normale", name: "Normale",
           desc: "The modern specialty standard — balanced body and clarity with higher extraction. Flatters lighter roasts and single origins." },
-        { ratio: Settings.brew.ratioPreset3, key: "ratio.lungo", name: "Lungo",
+        { idx: 3, ratio: Settings.brew.ratioPreset3, key: "ratio.lungo", name: "Lungo",
           desc: "Long & lighter — brighter clarity and less body, so individual tasting notes show through. Closer to filter coffee." }
     ]
 
@@ -79,13 +93,46 @@ Dialog {
                 Layout.leftMargin: Theme.spacingLarge
                 Layout.rightMargin: Theme.spacingLarge
                 spacing: Theme.scaled(2)
-                Text {
-                    text: TranslationManager.translate("ratio.dialog.title", "Brew Ratio")
-                    color: Theme.textColor
-                    font.pixelSize: Theme.scaled(24); font.bold: true
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSmall
+                    Text {
+                        text: TranslationManager.translate("ratio.dialog.title", "Brew Ratio")
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(24); font.bold: true
+                    }
+                    Item { Layout.fillWidth: true }
+                    // Edit toggle: reveals a per-card stepper to tune each preset's ratio.
+                    Rectangle {
+                        Layout.preferredHeight: Theme.scaled(34)
+                        Layout.preferredWidth: editLabel.implicitWidth + Theme.spacingMedium * 2
+                        radius: Theme.buttonRadius
+                        color: editMa.pressed ? Qt.darker(Theme.backgroundColor, 1.1)
+                             : (root.editMode ? Theme.primaryColor : "transparent")
+                        border.width: 1
+                        border.color: root.editMode ? Theme.primaryColor : Theme.borderColor
+                        Accessible.role: Accessible.Button
+                        Accessible.name: root.editMode
+                            ? TranslationManager.translate("ratio.edit.done", "Done editing ratios")
+                            : TranslationManager.translate("ratio.edit.button", "Edit ratios")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: editMa.clicked(null)
+                        Text {
+                            id: editLabel
+                            anchors.centerIn: parent
+                            text: root.editMode
+                                ? TranslationManager.translate("common.button.done", "Done")
+                                : TranslationManager.translate("ratio.edit.button", "Edit")
+                            color: root.editMode ? Theme.primaryContrastColor : Theme.primaryColor
+                            font: Theme.labelFont
+                        }
+                        MouseArea { id: editMa; anchors.fill: parent; onClicked: root.editMode = !root.editMode }
+                    }
                 }
                 Text {
-                    text: TranslationManager.translate("ratio.dialog.subtitle", "Coffee : water — tap a style to use it")
+                    text: root.editMode
+                        ? TranslationManager.translate("ratio.dialog.subtitleEdit", "Adjust each ratio to suit your beans and machine")
+                        : TranslationManager.translate("ratio.dialog.subtitle", "Coffee : water — tap a style to use it")
                     color: Theme.textSecondaryColor
                     font: Theme.labelFont
                 }
@@ -111,8 +158,12 @@ Dialog {
                     Accessible.name: TranslationManager.translate(modelData.key + ".name", modelData.name)
                                      + " 1:" + modelData.ratio.toFixed(1)
                                      + (isCurrent ? ", " + TranslationManager.translate("ratio.current", "current") : "")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: cardMa.clicked(null)
+                    // In edit mode the card is not an apply button — the steppers are the actionable
+                    // controls. Gate the accessibility activation the same way cardMa.enabled gates
+                    // pointer taps (a directly-emitted clicked() ignores enabled), and don't announce
+                    // the card as a button so screen-reader focus lands on the steppers instead.
+                    Accessible.focusable: !root.editMode
+                    Accessible.onPressAction: if (!root.editMode) cardMa.clicked(null)
 
                     ColumnLayout {
                         id: cardCol
@@ -151,11 +202,57 @@ Dialog {
                             font: Theme.captionFont
                             wrapMode: Text.WordWrap
                         }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.topMargin: Theme.spacingSmall
+                            visible: root.editMode
+                            spacing: Theme.spacingMedium
+
+                            Rectangle {
+                                Layout.preferredWidth: Theme.scaled(46)
+                                Layout.preferredHeight: Theme.scaled(46)
+                                radius: Theme.buttonRadius
+                                color: minusMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
+                                Accessible.role: Accessible.Button
+                                Accessible.name: TranslationManager.translate("ratio.edit.decrease", "Decrease %1 ratio")
+                                                 .arg(TranslationManager.translate(modelData.key + ".name", modelData.name))
+                                Accessible.focusable: true
+                                Accessible.onPressAction: minusMa.clicked(null)
+                                Text { anchors.centerIn: parent; text: "—"; color: Theme.primaryContrastColor
+                                       font.pixelSize: Theme.scaled(24); font.bold: true }
+                                MouseArea { id: minusMa; anchors.fill: parent
+                                    onClicked: root.setPresetRatio(modelData.idx, modelData.ratio - 0.1) }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                text: "1:" + modelData.ratio.toFixed(1)
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(20); font.bold: true
+                            }
+                            Rectangle {
+                                Layout.preferredWidth: Theme.scaled(46)
+                                Layout.preferredHeight: Theme.scaled(46)
+                                radius: Theme.buttonRadius
+                                color: plusMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
+                                Accessible.role: Accessible.Button
+                                Accessible.name: TranslationManager.translate("ratio.edit.increase", "Increase %1 ratio")
+                                                 .arg(TranslationManager.translate(modelData.key + ".name", modelData.name))
+                                Accessible.focusable: true
+                                Accessible.onPressAction: plusMa.clicked(null)
+                                Text { anchors.centerIn: parent; text: "+"; color: Theme.primaryContrastColor
+                                       font.pixelSize: Theme.scaled(24); font.bold: true }
+                                MouseArea { id: plusMa; anchors.fill: parent
+                                    onClicked: root.setPresetRatio(modelData.idx, modelData.ratio + 0.1) }
+                            }
+                        }
                     }
 
                     MouseArea {
                         id: cardMa
                         anchors.fill: parent
+                        enabled: !root.editMode
                         onClicked: root.applyRatio(modelData.ratio)
                     }
                 }
@@ -188,7 +285,7 @@ Dialog {
                 Accessible.onPressAction: helpMa.clicked(null)
                 Text {
                     anchors.centerIn: parent
-                    text: (root.showHelp ? "– " : "+ ") + TranslationManager.translate("ratio.help.button", "About brew ratios")
+                    text: (root.showHelp ? "— " : "+ ") + TranslationManager.translate("ratio.help.button", "About brew ratios")
                     color: Theme.primaryColor
                     font: Theme.labelFont
                 }
