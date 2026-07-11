@@ -212,7 +212,7 @@ Page {
             repointPicker.open()
         }
         onPlanClicked: {
-            if (!card.archivedCard && card.recipe.id !== Settings.dye.activeRecipeId)
+            if (!card.archivedCard)
                 MainController.activateRecipe(card.recipe.id)
         }
 
@@ -268,8 +268,7 @@ Page {
             accessibleName: TranslationManager.translate("recipes.accessible.activate", "Activate recipe %1").arg(card.recipe.name || "")
             accessibleItem: card
             onAccessibleClicked: {
-                if (card.recipe.id !== Settings.dye.activeRecipeId)
-                    MainController.activateRecipe(card.recipe.id)
+                MainController.activateRecipe(card.recipe.id)
             }
         }
 
