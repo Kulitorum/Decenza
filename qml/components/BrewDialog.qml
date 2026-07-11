@@ -63,6 +63,24 @@ Dialog {
     // quick-switch suggestions and the name→id resolution.
     property var recipeChoices: []
     property string selectedRecipeName: ""
+    // Recipe id of an in-flight "Update Recipe" write, matched against the
+    // recipeUpdated(recipeId, success) result (RecipesPage's pending-id
+    // pattern) so a failure never looks like the tap was ignored.
+    property int _pendingRecipeUpdateId: -1
+    // Failure banner for the fire-and-forget recipe operations (update /
+    // switch). Auto-dismisses — the allowed toast use of a timer.
+    property string recipeErrorText: ""
+    Timer {
+        id: recipeErrorTimer
+        interval: 4000
+        onTriggered: root.recipeErrorText = ""
+    }
+    function showRecipeError(msg) {
+        recipeErrorText = msg
+        recipeErrorTimer.restart()
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+            AccessibilityManager.announce(msg, true)
+    }
 
     function getRecipeSuggestions() {
         var names = []
@@ -174,12 +192,12 @@ Dialog {
                 root.doseValue = Settings.dye.dyeBeanWeight
             }
         }
-        // Re-seed after an in-dialog recipe switch settles: activation applies
-        // profile/bag/equipment/dose/yield/temp/grind and sets activeRecipeId
-        // LAST, so this event marks "everything applied" (event-based, no timer).
-        // Also fires on deactivation (id → -1), refreshing the returning rows.
+        // Deactivation while open (id → -1): refresh the returning Profile
+        // row's seeded values. Successful switches re-seed off recipeActivated
+        // instead — that signal is queued after activation's deferred dose
+        // write, whereas this id flip happens before the dose lands.
         function onActiveRecipeIdChanged() {
-            if (root.visible)
+            if (root.visible && Settings.dye.activeRecipeId < 0)
                 root.seedFromCurrentState()
         }
     }
@@ -220,6 +238,8 @@ Dialog {
         seedFromCurrentState()
         originalProfileFilename = Settings.app.currentProfile
         showScaleWarning = false
+        recipeErrorText = ""
+        _pendingRecipeUpdateId = -1
         MainController.recipeStorage.requestInventory()
     }
 
@@ -232,6 +252,34 @@ Dialog {
         function onRecipesChanged() {
             if (root.visible)
                 MainController.recipeStorage.requestInventory()
+        }
+        // "Update Recipe" is fire-and-forget and, with the auto-stamp gone,
+        // the ONLY path a yield/temp value reaches the recipe — a swallowed
+        // failure would silently lose the user's dialed value.
+        function onRecipeUpdated(recipeId, success) {
+            if (recipeId !== root._pendingRecipeUpdateId)
+                return
+            root._pendingRecipeUpdateId = -1
+            if (!success && root.visible)
+                root.showRecipeError(TranslationManager.translate("brewDialog.recipeUpdateFailed", "Couldn't save to the recipe"))
+        }
+    }
+
+    // Re-seed after an in-dialog recipe switch. recipeActivated is emitted
+    // QUEUED, deliberately after activation's deferred dose write — the one
+    // event where "everything applied" is actually true (activeRecipeId flips
+    // BEFORE the dose lands, so it can't be the re-seed trigger). On failure
+    // nothing was applied: the same re-seed restores the truthful recipe name
+    // in the quick-switch field, plus a banner so the miss isn't silent.
+    Connections {
+        target: MainController
+        enabled: root.visible
+        function onRecipeActivated(recipeId, success) {
+            if (!root.visible)
+                return
+            root.seedFromCurrentState()
+            if (!success)
+                root.showRecipeError(TranslationManager.translate("brewDialog.recipeSwitchFailed", "Couldn't switch to that recipe"))
         }
     }
 
@@ -475,6 +523,13 @@ Dialog {
                 suggestions: root.getRecipeSuggestions()
                 onTextEdited: function(t) {
                     root.selectedRecipeName = t
+                    // The field re-emits its unchanged text on blur, so the active
+                    // recipe's own name is never a switch — otherwise a stray tap
+                    // into the field would activate a same-named twin (the resolver
+                    // prefers a non-active id on duplicates). A twin sharing the
+                    // active name is unreachable from a name-only control anyway.
+                    if (t === (MainController.activeRecipe.name || ""))
+                        return
                     // Only switch on an exact name match (suggestion selection or a
                     // fully typed name); re-selecting the active recipe is a no-op.
                     var id = root.resolveRecipeId(t)
@@ -531,6 +586,35 @@ Dialog {
             Layout.margins: Theme.scaled(20)
             Layout.topMargin: Theme.scaled(8)
             spacing: Theme.scaled(8)
+
+            // Recipe operation failure banner (update/switch) — auto-dismisses.
+            Rectangle {
+                Layout.fillWidth: true
+                visible: root.recipeErrorText.length > 0
+                color: Theme.surfaceColor
+                border.width: 1
+                border.color: Theme.errorColor
+                radius: Theme.scaled(8)
+                implicitHeight: recipeErrorLabel.implicitHeight + Theme.scaled(24)
+
+                Accessible.role: Accessible.AlertMessage
+                Accessible.name: recipeErrorLabel.text
+                Accessible.focusable: true
+
+                Text {
+                    id: recipeErrorLabel
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.margins: Theme.scaled(12)
+                    text: root.recipeErrorText
+                    font: Theme.bodyFont
+                    color: Theme.errorColor
+                    wrapMode: Text.Wrap
+                    horizontalAlignment: Text.AlignHCenter
+                    Accessible.ignored: true  // Parent handles accessibility
+                }
+            }
 
             // Low dose warning
             Rectangle {
@@ -632,11 +716,16 @@ Dialog {
                             ? TranslationManager.translate("brewDialog.saveTemperatureToRecipe", "Save temperature to recipe")
                             : TranslationManager.translate("brewDialog.saveTemperatureToProfile", "Save temperature to profile")
                         primary: true
+                        // In recipe mode, also disable once the recipe already holds
+                        // the shown value — doubling as the "saved" confirmation
+                        // (m_activeRecipe refreshes off recipeUpdated).
                         enabled: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
+                                 && (!root.recipeActive || Math.abs((MainController.activeRecipe.tempOverrideC || 0) - root.temperatureValue) > 0.05)
                         onClicked: {
                             if (root.recipeActive) {
                                 // Absolute °C, matching what activation reads back.
                                 // recipeUpdated → MainController refreshes m_activeRecipe.
+                                root._pendingRecipeUpdateId = Settings.dye.activeRecipeId
                                 MainController.recipeStorage.requestUpdateRecipe(
                                     Settings.dye.activeRecipeId,
                                     {"tempOverrideC": root.temperatureValue})
@@ -853,8 +942,9 @@ Dialog {
                 ValueInput {
                     id: ratioInput
                     Layout.fillWidth: true
-                    // Overridden ⟺ Clear would change it (Clear restores the profile
-                    // default ratio, target ÷ dose).
+                    // Overridden ≈ Clear would change it (the profile default ratio,
+                    // target ÷ dose — compared against the CURRENT dose, and inert
+                    // for volume/timer profiles where profileTargetWeight is 0).
                     readonly property bool overridden: Math.abs(root.ratio - ((root.doseValue > 0 && root.profileTargetWeight > 0) ? root.profileTargetWeight / root.doseValue : root.ratio)) > 0.05
                     value: root.ratio
                     from: 0.5
@@ -903,8 +993,9 @@ Dialog {
                     ValueInput {
                         id: targetInput
                         Layout.fillWidth: true
-                        // Overridden ⟺ Clear would change it (Clear restores the
-                        // profile target weight).
+                        // Overridden ≈ Clear would change it (the profile target
+                        // weight; on volume/timer profiles that baseline is 0, so
+                        // any dialed stop-at reads as an override).
                         readonly property bool overridden: Math.abs(root.targetValue - root.profileTargetWeight) > 0.1
                         value: root.targetValue
                         from: 1
@@ -937,11 +1028,16 @@ Dialog {
                             ? TranslationManager.translate("brewDialog.saveStopWeightToRecipe", "Save stop-at-weight to recipe")
                             : TranslationManager.translate("brewDialog.saveStopWeightToProfile", "Save stop-at-weight to profile")
                         primary: true
+                        // In recipe mode, also disable once the recipe already holds
+                        // the shown value — doubling as the "saved" confirmation
+                        // (m_activeRecipe refreshes off recipeUpdated).
                         enabled: root.targetValue !== root.profileTargetWeight
+                                 && (!root.recipeActive || Math.abs((MainController.activeRecipe.yieldG || 0) - root.targetValue) > 0.05)
                         onClicked: {
                             if (root.recipeActive) {
                                 // Absolute grams, matching what activation reads back.
                                 // recipeUpdated → MainController refreshes m_activeRecipe.
+                                root._pendingRecipeUpdateId = Settings.dye.activeRecipeId
                                 MainController.recipeStorage.requestUpdateRecipe(
                                     Settings.dye.activeRecipeId,
                                     {"yieldG": root.targetValue})

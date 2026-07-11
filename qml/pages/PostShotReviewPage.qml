@@ -80,16 +80,24 @@ Page {
     readonly property var _shotPlanItemOrder:
         ShotPlanConfig.itemOrderFromLayoutJson(Settings.network.layoutConfiguration)
 
-    // The shot-time profile's default yield (target_weight from the frozen
-    // profileJson snapshot), for the plan line's yield-override highlight —
-    // "was the recorded target a deviation from the profile it ran?" 0 when
-    // the snapshot lacks it, which disables the highlight (a frozen shot must
-    // never borrow the live dial's override state).
-    readonly property real _shotProfileYield: {
-        if (!editShotData.profileJson) return 0
-        try { return JSON.parse(editShotData.profileJson).target_weight || 0 }
-        catch (e) { return 0 }
+    // The shot-time profile's defaults (from the frozen profileJson snapshot),
+    // for the override highlights — "was the recorded value a deviation from
+    // the profile it ran?" 0 when the snapshot lacks the field, which disables
+    // the highlight (a frozen shot must never borrow the live dial's override
+    // state). The temperature comparison is essential, not cosmetic: the save
+    // path records temperatureOverrideC for EVERY shot (user override or
+    // profile default), so t > 0 alone does not mean "overridden".
+    readonly property var _shotProfileDefaults: {
+        if (!editShotData.profileJson) return ({ yield: 0, temp: 0 })
+        try {
+            var p = JSON.parse(editShotData.profileJson)
+            return { yield: p.target_weight || 0, temp: p.espresso_temperature || 0 }
+        } catch (e) { return ({ yield: 0, temp: 0 }) }
     }
+    readonly property real _shotProfileYield: _shotProfileDefaults.yield
+    readonly property bool _shotTempOverridden:
+        (editShotData.temperatureOverrideC || 0) > 0 && _shotProfileDefaults.temp > 0
+        && Math.abs(editShotData.temperatureOverrideC - _shotProfileDefaults.temp) > 0.1
 
     // Recipe identity for the recipe card, live-resolved by editShotData.recipeId
     // (follows renames). Grind/rpm on that card comes from this page's live edit
@@ -955,14 +963,17 @@ Page {
                         Text {
                             textFormat: Text.RichText
                             text: {
-                                var name = editShotData.profileName || ""
+                                var name = Theme.escapeHtml(editShotData.profileName || "")
                                 var t = editShotData.temperatureOverrideC
                                 var result
                                 if (t !== undefined && t !== null && t > 0) {
-                                    // The parenthetical only renders when the shot recorded a temp
-                                    // override, so it wears the override-highlight color whole.
-                                    result = name + " <font color=\"" + Theme.colorToHex(Theme.highlightColor) + "\">("
-                                        + Math.round(Theme.cToDisplay(t)) + Theme.tempUnitSuffix() + ")</font>"
+                                    // The recorded temp is the effective brew temperature (present
+                                    // on every shot); highlight it only when it deviated from the
+                                    // shot-time profile's own default.
+                                    var tempStr = "(" + Math.round(Theme.cToDisplay(t)) + Theme.tempUnitSuffix() + ")"
+                                    if (postShotReviewPage._shotTempOverridden)
+                                        tempStr = "<font color=\"" + Theme.colorToHex(Theme.highlightColor) + "\">" + tempStr + "</font>"
+                                    result = name + " " + tempStr
                                 } else {
                                     result = name
                                 }
@@ -1162,7 +1173,8 @@ Page {
                     && postShotReviewPage._shotProfileYield > 0
                     && Math.abs(editShotData.targetWeightG - postShotReviewPage._shotProfileYield) > 0.1
                 // Temperature is filtered out of the line (it lives in the title,
-                // highlighted there); pin the flag off the live dial regardless.
+                // highlighted there when it deviated from the profile default);
+                // pin the flag off the live dial regardless.
                 tempOverridden: false
                 yieldTargetOnly: true
                 roasterBrand: editBeanBrand

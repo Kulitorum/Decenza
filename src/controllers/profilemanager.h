@@ -132,16 +132,6 @@ public:
     double brewByRatio() const;
     Q_INVOKABLE void activateBrewWithOverrides(double dose, double yield, double temperature, const QString& grind);
     Q_INVOKABLE void clearBrewOverrides();
-    // True while ProfileManager's own machinery (loading a profile, editing
-    // its params, baking an override in) is resetting the brew-override
-    // baseline. Distinguishes machinery clears from user tweaks: the
-    // override-*Changed signals fire synchronously out of both, and
-    // MainController's recipe stamp watchers must skip the machinery ones —
-    // otherwise re-loading or editing the ACTIVE recipe's own profile (same
-    // title, so the title gate passes) would stamp yieldG=0/tempOverrideC=0
-    // into the recipe row, silently erasing its dialed values. A user's own
-    // BrewDialog commit or Clear still writes through.
-    bool brewBaselineResetInProgress() const { return m_brewBaselineReset; }
 
     // === Profile catalog ===
     QVariantList availableProfiles() const;
@@ -334,7 +324,6 @@ private:
     bool m_uploadInFlight = false;        // True while a profile upload is in progress at DE1Device
     bool m_uploadPendingAfterInFlight = false;  // True if a newer profile change arrived mid-upload
     bool m_startupLoadDone = false;
-    bool m_brewBaselineReset = false;  // see brewBaselineResetInProgress()
 
     // Auto-retry state for failed profile uploads. A failure with a retryable
     // reason (frame sequence mismatch, ACK timeout) arms

@@ -939,10 +939,11 @@ void MainController::setupRecipeConnections() {
         stampActiveRecipe(QStringLiteral("doseG"), m_settings->dye()->dyeBeanWeight());
     });
     // Yield/temp are per-brew OVERRIDES, not tweaks: they live in Settings.brew
-    // only and never auto-stamp the recipe (recipe-aware-brew-settings). The
-    // recipe's yieldG/tempOverrideC change solely via the explicit "Update
-    // Recipe" button in Brew Settings (requestUpdateRecipe), mirroring how a
-    // profile's target/temperature change only via "Update Profile".
+    // only and are never auto-stamped onto the recipe from the live dial
+    // (recipe-aware-brew-settings). The recipe's yieldG/tempOverrideC change
+    // only through explicit recipe edits — Brew Settings' "Update Recipe"
+    // button, the composer, MCP/web recipe_update — mirroring how a profile's
+    // target/temperature never follow the dial either.
     // Grind/rpm edits always stamp the active recipe's own grind (grind lives
     // on the recipe, fix-recipe-grind-integrity) — in parallel with SettingsDye's
     // unconditional bag write-through off the same edit. Grind-less drink
