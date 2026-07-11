@@ -1779,7 +1779,7 @@ Dialog {
         }
     }
 
-    // Labelled form row: fixed-width label + caller-supplied controls
+    // Labelled form row: shared-width label + caller-supplied controls
     component FieldRow: RowLayout {
         property string labelKey: ""
         property string labelFallback: ""
@@ -1795,7 +1795,13 @@ Dialog {
             font: Theme.bodyFont
             color: Theme.textSecondaryColor
             Layout.alignment: Qt.AlignVCenter
-            Layout.preferredWidth: Theme.scaled(85)
+            // "Equipment:" is the widest label used through this row (see
+            // BrewDialog.qml's equivalent row), so let it size to its content
+            // (min = the shared 85px column) rather than a fixed 85px that
+            // clips it and lets the value butt right against it — this is
+            // what happens on Windows, where Segoe UI renders it wider than
+            // Roboto/San Francisco do at the same pixel size.
+            Layout.minimumWidth: Theme.scaled(85)
             Accessible.ignored: true
         }
     }

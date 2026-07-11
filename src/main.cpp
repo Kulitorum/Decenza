@@ -3,6 +3,7 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QScreen>
 #include <QSettings>
 #include <QIcon>
 #include <QTimer>
@@ -356,6 +357,18 @@ int main(int argc, char *argv[])
     // Bluetooth classes are constructed.
     BtLogFilter::install();
 
+#ifdef Q_OS_WIN
+    // Windows expresses monitor scaling as a percentage (100/125/150/175/200%),
+    // which Qt converts to a fractional device pixel ratio (e.g. 150% -> 1.5).
+    // Non-integer ratios are Qt's own documented cause of layout/text overflow
+    // and sizing artifacts (see doc.qt.io/qt-6/highdpi.html) — and 125%/150%
+    // are common Windows laptop defaults, unlike macOS/Android's integer-ratio
+    // scaling. Round to the nearest whole multiple so every pixel-based
+    // Theme.scaled() computation lands on integer device pixels. Must be set
+    // before QApplication is constructed. (#1469)
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::RoundPreferFloor);
+#endif
+
     QApplication app(argc, argv);
 
 #ifdef Q_OS_MACOS
@@ -413,6 +426,19 @@ int main(int argc, char *argv[])
     qDebug() << "Platform:" << QSysInfo::prettyProductName().simplified()
              << "arch:" << QSysInfo::currentCpuArchitecture()
              << "kernel:" << QSysInfo::kernelType() << QSysInfo::kernelVersion();
+    if (QScreen *screen = QGuiApplication::primaryScreen()) {
+        // Windows expresses monitor scaling as a percentage (100/125/150%...),
+        // which Qt turns into a devicePixelRatio that can be fractional unless
+        // setHighDpiScaleFactorRoundingPolicy() rounds it — logged here so a
+        // reporter's debug log actually shows what scale/DPI their box ran at
+        // instead of us guessing (font/layout overflow reports, e.g. #1469).
+        qDebug() << "Display:" << screen->name()
+                 << "devicePixelRatio:" << screen->devicePixelRatio()
+                 << "logicalDPI:" << screen->logicalDotsPerInch()
+                 << "physicalDPI:" << screen->physicalDotsPerInch()
+                 << "geometry:" << screen->geometry()
+                 << "availableGeometry:" << screen->availableGeometry();
+    }
 #ifdef Q_OS_ANDROID
     {
         jint sdkInt = QJniObject::getStaticField<jint>("android/os/Build$VERSION", "SDK_INT");

@@ -153,7 +153,12 @@ Dialog {
             text: label + ":"
             font: Theme.labelFont
             color: Theme.textSecondaryColor
-            Layout.preferredWidth: Theme.scaled(130)
+            // Fixed preferred width would clip/collide with the value when a
+            // label renders wider than expected (long translation, or a
+            // platform font with wider glyph metrics) — minimumWidth lets it
+            // grow instead. See ChangeBeansDialog.qml FieldRow / BrewDialog.qml
+            // (issue #1469).
+            Layout.minimumWidth: Theme.scaled(130)
             Accessible.ignored: true
         }
         Text {
