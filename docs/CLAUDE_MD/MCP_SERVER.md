@@ -202,17 +202,17 @@ The grinder is a first-class, switchable **equipment package** (the active bag p
 The `de1://dialing` resource's grinder block also exposes `packageId`, `rpmAdjustable`, and `rpm`.
 
 ### Recipes (add-recipes)
-A recipe is the whole drink: profile + bean link + equipment + dose/yield/temp + grind routing + steam block. Grind is explicit in responses — `{"mode": "inherited"|"pinned", "value": <text>}` — so a client never guesses where the grind lives; `recipe_get` also resolves the effective grind and open bag. Mutations run through the app's RecipeStorage so the UI refreshes like a local edit; `recipe_activate` uses MainController's single activation path (identical to the idle pill tap).
+A recipe is the whole drink: profile + bean link + equipment + dose/yield/temp + the recipe's own grind + steam block. Grind always lives on the recipe (fix-recipe-grind-integrity): responses expose it as `grind: {value, rpm}` with no inherited/pinned mode — nothing resolves from the bag. A create that links a bag but *omits* `grindPinned` adopts the bag's current dial at save time (an explicitly empty string stores no grind). Mutations run through the app's RecipeStorage so the UI refreshes like a local edit; `recipe_activate` uses MainController's single activation path (identical to the idle pill tap).
 | Tool | Description | Category |
 |------|-------------|----------|
 | `recipe_list` | List recipes (MRU order, `isActive` marks the machine's current setup; `includeArchived=true` adds archived ones). Each recipe carries `drinkType` (stored, or derived for legacy rows). | read |
-| `recipe_get` | One recipe fully resolved: effective grind, the open bag it would select, steam block. | read |
+| `recipe_get` | One recipe fully resolved: its own grind, the linked bag's identity/status, steam block. | read |
 | `recipe_create` | Create from explicit fields; only `name` always required — `profileTitle` is required unless the payload carries a hot-water block with `hasWater` true (profile-less hot-water tea). Accepts `drinkType` (derived from blocks when omitted). | settings |
-| `recipe_update` | Partial update; `grindPinned: ""` returns the recipe to inheriting grind from its bean's bag. Block/profile changes re-derive `drinkType` unless set in the same call; clearing `profileTitle` requires an active hot-water block in the same call. | settings |
-| `recipe_create_from_shot` | The promotion path: prefills from a shot record + its steam snapshot (fallback: current steam settings). | settings |
+| `recipe_update` | Partial update; `grindPinned` is the recipe's own grind (`""` clears it). Block/profile changes re-derive `drinkType` unless set in the same call; clearing `profileTitle` requires an active hot-water block in the same call. | settings |
+| `recipe_create_from_shot` | The promotion path: prefills from a shot record + its steam snapshot (fallback: current steam settings); the shot's own recorded grind/rpm become the recipe's grind. | settings |
 | `recipe_clone` | Copy + rename (family-variant workflow); provenance points at the source recipe. | settings |
 | `recipe_archive` | Archive (used recipes can never be hard-deleted — same rule as bags); `restore=true` unarchives, `delete=true` hard-deletes an unused recipe. | settings |
-| `recipe_activate` | Apply the whole drink: profile, resolved open bag, equipment, dose/yield/temp, grind routing, steam (+ heater warm-up when `hasMilk`). | control |
+| `recipe_activate` | Apply the whole drink: profile, the linked bag (a bean-less recipe clears the active bag), equipment, dose/yield/temp, the recipe's own grind, steam (+ heater warm-up when `hasMilk`). | control |
 
 ### Profile Management
 | Tool | Description | Category |

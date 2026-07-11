@@ -42,7 +42,10 @@ Item {
 
     // A brew-settings widget highlights (Theme.highlightColor) whenever a brew
     // override is in effect — i.e. temperature or target yield differs from the
-    // active profile's default.
+    // active profile's default. The temperature clause matches ShotPlanText's
+    // _tempOverride exactly; the yield clause (brewByRatioActive) is deliberate
+    // extra: the Shot Plan can show a yield override as a "36 → 40g" arrow, but
+    // this compact button has no room for one, so it colors for either override.
     readonly property bool _isBrewSettingsWidget: action === "brewSettings"
         || longPressAction === "brewSettings" || doubleclickAction === "brewSettings"
     readonly property bool _brewOverrideActive: {

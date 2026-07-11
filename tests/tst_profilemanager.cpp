@@ -1008,12 +1008,33 @@ private slots:
 
         // Activate with different values
         f.profileManager.activateBrewWithOverrides(20.0, 50.0, 96.0, "15");
+        QVERIFY(f.settings.brew()->hasBrewYieldOverride());
+        QVERIFY(f.settings.brew()->hasTemperatureOverride());
 
-        // Clear should reset to profile defaults
+        // Clear genuinely clears (fix-recipe-grind-integrity Bug A: the flags
+        // go false, not merely the values resyncing) — the EFFECTIVE values
+        // then follow the profile defaults.
         f.profileManager.clearBrewOverrides();
 
-        QCOMPARE(f.settings.brew()->brewYieldOverride(), 36.0);
-        QCOMPARE(f.settings.brew()->temperatureOverride(), 93.0);
+        QVERIFY(!f.settings.brew()->hasBrewYieldOverride());
+        QVERIFY(!f.settings.brew()->hasTemperatureOverride());
+        QCOMPARE(f.profileManager.targetWeight(), 36.0);
+        QCOMPARE(f.profileManager.getGroupTemperature(), 93.0);
+    }
+
+    // A value matching the profile's own default is not an override — the
+    // flags mean "deliberately different from the profile" (Bug A fix), so
+    // committing the defaults leaves the plan un-highlighted.
+    void activateBrewAtProfileDefaultsSetsNoOverride() {
+        McpTestFixture f;
+        loadDFlowProfile(f, "Test", 36.0, 93.0);
+
+        f.profileManager.activateBrewWithOverrides(18.0, 36.0, 93.0, "15");
+
+        QVERIFY(!f.settings.brew()->hasBrewYieldOverride());
+        QVERIFY(!f.settings.brew()->hasTemperatureOverride());
+        QCOMPARE(f.profileManager.targetWeight(), 36.0);
+        QCOMPARE(f.profileManager.getGroupTemperature(), 93.0);
     }
 
     // === activateBrewWithOverrides ===

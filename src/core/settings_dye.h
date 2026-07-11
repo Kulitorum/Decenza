@@ -212,18 +212,6 @@ public:
     int activeRecipeId() const;
     void setActiveRecipeId(int recipeId);
 
-    // While the active recipe PINS its grind, grind AND rpm edits belong to
-    // the pin, not the bean: the setters must not write through to the bag
-    // (sibling recipes inherit the bag's value and would silently follow a
-    // pinned recipe's private dial). MainController sets this while a
-    // pin-carrying recipe is active and clears it on deactivation. Runtime
-    // state, deliberately not persisted — it is re-derived from the active
-    // recipe row at startup. The grinder-package "lastGrindSetting" write-
-    // through stays on either way (a pinned grind is still the last dial
-    // used on that grinder).
-    void setGrindBagWriteThroughSuspended(bool suspended) { m_grindBagWriteThroughSuspended = suspended; }
-    bool grindBagWriteThroughSuspended() const { return m_grindBagWriteThroughSuspended; }
-
     // The active bag's yield override (grams). 0 = no override; the bag
     // follows the profile's target weight. Applied to Settings.brew's
     // brewYieldOverride on a user bean switch (see applyActiveBag); the
@@ -302,7 +290,6 @@ private:
 
     bool m_applyingBag = false;  // Suppress write-through echo during applyActiveBag
     bool m_keepFieldsOnNextApply = false;  // setActiveBagKeepFields: next bagReady only refreshes lifecycle
-    bool m_grindBagWriteThroughSuspended = false;  // active recipe pins grind (add-recipes)
     int m_pendingSelfWrites = 0; // Outstanding write-throughs whose bagUpdated echo to skip
     QString m_activeBagFrozenDate;
     QString m_activeBagDefrostDate;

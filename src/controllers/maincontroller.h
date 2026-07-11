@@ -471,9 +471,14 @@ private:
 
     // --- Recipes (add-recipes) ---
     // Cached row of the active recipe (empty = none), kept fresh by
-    // activation and by recipesChanged re-reads. Drives grind routing
-    // (pinned vs inherited) and the write-through stamps.
+    // activation and by recipesChanged re-reads. Drives the recipe-owned
+    // grind apply and the write-through stamps.
     QVariantMap m_activeRecipe;
+    // The linked bag map from the last activation bundle, cached so a
+    // same-id re-activation can re-push the cache without a fresh DB read
+    // (fix-recipe-grind-integrity, Bug B2 — a fresh read can race our own
+    // in-flight write-through and revert the user's edit).
+    QVariantMap m_activeRecipeBagSnapshot;
     // Event-based guard (never a timer): true while activation is applying
     // the recipe's values, so the deactivate-on-ingredient-swap watchers and
     // the write-through stamps ignore self-inflicted change signals.

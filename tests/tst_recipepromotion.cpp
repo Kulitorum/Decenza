@@ -64,12 +64,16 @@ private slots:
         QCOMPARE(fields.value("createdFromShotId").toLongLong(), qint64(42));
     }
 
-    // A bean link means the recipe inherits grind from the bag, not a pin.
-    void grindPinnedOnlyWhenNoBeanLink() {
+    // The shot's own recorded grind/rpm become the recipe's grind regardless
+    // of a bean link (fix-recipe-grind-integrity: grind always lives on the
+    // recipe — the old empty-means-inherit encoding is retired).
+    void grindAlwaysCarriesFromShot() {
         ShotRecord withBean = sampleShotRecord();
+        withBean.rpm = 90;
         const QVariantMap withBeanFields = RecipePromotion::fieldsFromShotRecord(
             withBean, "n", std::nullopt, QString());
-        QVERIFY(withBeanFields.value("grindPinned").toString().isEmpty());
+        QCOMPARE(withBeanFields.value("grindPinned").toString(), QStringLiteral("22"));
+        QCOMPARE(withBeanFields.value("rpmPinned").toLongLong(), qint64(90));
 
         ShotRecord noBean = sampleShotRecord();
         noBean.summary.beanBrand.clear();
@@ -80,16 +84,16 @@ private slots:
     }
 
     // A bean link resolved purely through the Bean Base canonical id (no
-    // free-text brand/type on the shot) still counts as a bean link — the
-    // hasBean OR-condition's beanBaseId arm, otherwise untested.
-    void grindInheritsWhenOnlyBeanBaseIdLinked() {
+    // free-text brand/type on the shot) still carries the canonical id — and
+    // the shot's grind rides along like any other promotion.
+    void beanBaseIdOnlyLinkStillCarries() {
         ShotRecord record = sampleShotRecord();
         record.summary.beanBrand.clear();
         record.summary.beanType.clear();
         record.beanBaseJson = "{\"visualizerCanonicalId\":\"bb-uuid-1\"}";
         const QVariantMap fields = RecipePromotion::fieldsFromShotRecord(
             record, "n", std::nullopt, QString());
-        QVERIFY(fields.value("grindPinned").toString().isEmpty());
+        QCOMPARE(fields.value("grindPinned").toString(), QStringLiteral("22"));
         QCOMPARE(fields.value("beanBaseId").toString(), QStringLiteral("bb-uuid-1"));
     }
 

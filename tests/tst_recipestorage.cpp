@@ -72,7 +72,7 @@ static Recipe sampleRecipe() {
     r.doseG = 18.0;
     r.yieldG = 40.0;
     r.tempOverrideC = 92.5;
-    r.grindPinned = "";  // inherits
+    r.grindPinned = "";  // no grind recorded (a valid state)
     r.rpmPinned = 90;    // migration-26 field; round-trips through COL_EPOCH
     // Real steam-block key shape (see MainController::currentSteamSpecJson).
     r.steamJson = "{\"hasMilk\":true,\"milkWeightG\":150,\"pitcherName\":\"Small\","
@@ -489,6 +489,140 @@ private slots:
             QCOMPARE(RecipeStorage::loadRecipeStatic(db, resolvableId).bagId, openId);
             QCOMPARE(RecipeStorage::loadRecipeStatic(db, alreadyId).bagId, finishedId);
         });
+    }
+
+    // --- migration 30: recipe-owned grind (fix-recipe-grind-integrity) ---
+
+    // Inherit-mode rows (empty grind_pinned + a bag link) adopt their bag's
+    // current dial once; rows whose bag has no dial (tea bags, never-dialed)
+    // are skipped, not stamped with empty strings; already-pinned and
+    // bag-less rows stay untouched. Idempotent.
+    void migrateGrindOwnership() {
+        withRawDb(freshDbPath(), "mig30", [](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+
+            CoffeeBag dialed; dialed.roasterName = "Roaster"; dialed.coffeeName = "Guji";
+            dialed.inInventory = true; dialed.grinderSetting = "18"; dialed.rpm = 1200;
+            const qint64 dialedId = CoffeeBagStorage::insertBagStatic(db, dialed);
+            CoffeeBag undialed; undialed.roasterName = "T"; undialed.coffeeName = "Sencha";
+            undialed.inInventory = true;  // no grinderSetting (tea / never dialed)
+            const qint64 undialedId = CoffeeBagStorage::insertBagStatic(db, undialed);
+            QVERIFY(dialedId > 0 && undialedId > 0);
+
+            Recipe inheriting = sampleRecipe();
+            inheriting.bagId = dialedId;
+            const qint64 inheritingId = RecipeStorage::insertRecipeStatic(db, inheriting);
+            Recipe teaLike = sampleRecipe();
+            teaLike.name = "Sencha"; teaLike.bagId = undialedId; teaLike.rpmPinned = 0;
+            const qint64 teaLikeId = RecipeStorage::insertRecipeStatic(db, teaLike);
+            Recipe pinned = sampleRecipe();
+            pinned.name = "Pinned"; pinned.bagId = dialedId;
+            pinned.grindPinned = "2.4"; pinned.rpmPinned = 90;
+            const qint64 pinnedId = RecipeStorage::insertRecipeStatic(db, pinned);
+            Recipe bagless = sampleRecipe();
+            bagless.name = "Bagless"; bagless.beanBaseId.clear();
+            bagless.roasterName.clear(); bagless.coffeeName.clear();
+            const qint64 baglessId = RecipeStorage::insertRecipeStatic(db, bagless);
+            QVERIFY(inheritingId > 0 && teaLikeId > 0 && pinnedId > 0 && baglessId > 0);
+
+            QVERIFY(RecipeStorage::migrateGrindOwnershipStatic(db));
+
+            const Recipe adopted = RecipeStorage::loadRecipeStatic(db, inheritingId);
+            QCOMPARE(adopted.grindPinned, QString("18"));
+            QCOMPARE(adopted.rpmPinned, (qint64)1200);
+            QVERIFY(RecipeStorage::loadRecipeStatic(db, teaLikeId).grindPinned.isEmpty());
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, pinnedId).grindPinned, QString("2.4"));
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, pinnedId).rpmPinned, (qint64)90);
+            QVERIFY(RecipeStorage::loadRecipeStatic(db, baglessId).grindPinned.isEmpty());
+
+            // Idempotent: a second pass changes nothing (re-dial the bag first
+            // to prove the adopted value is not re-copied).
+            QSqlQuery redial(db);
+            redial.prepare("UPDATE coffee_bags SET grinder_setting = '20' WHERE id = ?");
+            redial.addBindValue(dialedId);
+            QVERIFY(redial.exec());
+            QVERIFY(RecipeStorage::migrateGrindOwnershipStatic(db));
+            QCOMPARE(RecipeStorage::loadRecipeStatic(db, inheritingId).grindPinned, QString("18"));
+        });
+    }
+
+    // Import runs the same backfill: a pre-migration-30 source DB's
+    // inherit-mode rows adopt their (remapped) bag's dial on arrival.
+    void importBackfillsInheritModeGrind() {
+        const QString srcPath = freshDbPath();
+        const QString destPath = freshDbPath();
+        qint64 srcRecipeId = 0;
+        withRawDb(srcPath, "mig30_imp_src", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            Recipe inheriting = sampleRecipe();
+            inheriting.bagId = 40;  // source-side id; remapped below
+            srcRecipeId = RecipeStorage::insertRecipeStatic(db, inheriting);
+            QVERIFY(srcRecipeId > 0);
+        });
+        qint64 destBagId = 0;
+        withRawDb(destPath, "mig30_imp_dest", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            CoffeeBag bag; bag.roasterName = "Roaster"; bag.coffeeName = "Guji";
+            bag.inInventory = true; bag.grinderSetting = "18"; bag.rpm = 1200;
+            destBagId = CoffeeBagStorage::insertBagStatic(db, bag);
+            QVERIFY(destBagId > 0);
+        });
+        withRawDb(srcPath, "mig30_imp_src2", [&](QSqlDatabase& srcDb) {
+            withRawDb(destPath, "mig30_imp_dest2", [&](QSqlDatabase& destDb) {
+                QHash<qint64, qint64> idMap;
+                const QHash<qint64, qint64> bagIdMap{{40, destBagId}};
+                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, /*merge=*/false,
+                                                           idMap, {}, bagIdMap));
+                const Recipe imported =
+                    RecipeStorage::loadRecipeStatic(destDb, idMap.value(srcRecipeId));
+                QCOMPARE(imported.grindPinned, QString("18"));
+                QCOMPARE(imported.rpmPinned, (qint64)1200);
+            });
+        });
+    }
+
+    // Create-time grind default (fix-recipe-grind-integrity): a bag-linked
+    // create map that OMITS grind adopts the bag's current dial — the
+    // non-interactive surfaces' (MCP/web) equivalent of the wizard's editable
+    // prefill; an explicitly EMPTY grind is a deliberate "no grind".
+    void createDefaultsGrindFromBag() {
+        const QString path = freshDbPath();
+        qint64 bagId = 0;
+        withRawDb(path, "create_grind_setup", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+            CoffeeBag bag; bag.roasterName = "Roaster"; bag.coffeeName = "Guji";
+            bag.beanBaseId = "bb-uuid-1"; bag.inInventory = true;
+            bag.grinderSetting = "18"; bag.rpm = 1200;
+            bagId = CoffeeBagStorage::insertBagStatic(db, bag);
+        });
+        QVERIFY(bagId > 0);
+
+        RecipeStorage storage;
+        storage.initialize(path);
+
+        // Omitted grind -> adopts the bag's dial (grind + rpm).
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeCreated);
+            QVariantMap map{{"name", "Adopts"}, {"profileTitle", "P"}, {"bagId", bagId}};
+            storage.requestCreateRecipe(map);
+            QTRY_COMPARE(spy.count(), 1);
+            const QVariantMap created = spy.at(0).at(1).toMap();
+            QCOMPARE(created.value("grindPinned").toString(), QString("18"));
+            QCOMPARE(created.value("rpmPinned").toLongLong(), (qint64)1200);
+        }
+
+        // Explicitly empty grind -> stays empty (deliberate "no grind").
+        {
+            QSignalSpy spy(&storage, &RecipeStorage::recipeCreated);
+            QVariantMap map{{"name", "Deliberate"}, {"profileTitle", "P"},
+                            {"bagId", bagId}, {"grindPinned", QString()}};
+            storage.requestCreateRecipe(map);
+            QTRY_COMPARE(spy.count(), 1);
+            QVERIFY(spy.at(0).at(1).toMap().value("grindPinned").toString().isEmpty());
+        }
     }
 
     // --- import: bag_id remaps through the bag id-map ---

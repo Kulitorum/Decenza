@@ -1489,6 +1489,26 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 30: recipe-owned grind (fix-recipe-grind-integrity). The
+    // "empty grind_pinned = inherit from the bag" mode is retired — grind
+    // always lives on the recipe. Pure data pass, no schema change: each
+    // inherit-mode row adopts its linked bag's current grinder_setting/rpm
+    // once (the historical equivalent of the creation-time default). Rows
+    // whose bag has no dial (tea bags, never-dialed) are skipped, bag-less
+    // rows untouched. Idempotent and gated ">= 29 && < 30", mirroring 29:
+    // a transient failure retries next launch instead of stranding rows.
+    if (currentVersion >= 29 && currentVersion < 30) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 30 (recipe-owned grind)";
+
+        if (RecipeStorage::migrateGrindOwnershipStatic(m_db)) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (30)");
+            currentVersion = 30;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 30 incomplete - will retry next launch";
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }

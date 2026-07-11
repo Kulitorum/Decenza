@@ -289,6 +289,13 @@ private:
     QList<ProfileFrame> framesShiftedToTemperature(double targetTemp) const;
 
     void loadDefaultProfile();
+    // Reset brew overrides for a freshly loaded profile. After startup this is
+    // a genuine clear (flags go false — an override is relative to the profile
+    // it was dialed against). During startup, persisted overrides survive
+    // (brew-overrides spec) unless they match the incoming profile's own
+    // defaults: pre-fix sessions latched a same-as-default "override" on every
+    // load, so a matching persisted value is noise, not intent.
+    void resetBrewOverridesForLoadedProfile();
     void migrateProfileFolders();
     void migrateProfileFormat();
     void migrateRecipeFrames();

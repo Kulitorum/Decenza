@@ -1749,12 +1749,12 @@ private slots:
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
     }
 
-    // Pinned-grind routing (add-recipes): while the active recipe PINS its
-    // grind, SettingsDye suspends the bag write-through — the pin is the
-    // recipe's private dial, and sibling recipes (which inherit the bag's
-    // value) must not follow it. MainController sets/clears the suspension;
-    // here we drive the flag directly and assert the bag row stays put.
-    void settingsDyeGrindPinSuspendsBagWriteThrough() {
+    // Unconditional grind write-through (fix-recipe-grind-integrity): the bag
+    // always mirrors the most recently dialed grind and rpm — the old
+    // recipe-pin suspension is retired (an active recipe's own grind is
+    // stamped independently by MainController off the same edit). Every edit
+    // lands on the bag row, exactly like the other bag-backed dye fields.
+    void settingsDyeGrindWritesThroughUnconditionally() {
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
 
         const QString path = freshDb();
@@ -1778,39 +1778,21 @@ private slots:
         auto bagGrind = [&]() { QString v; withRawDb(path, "pin_bg",
             [&](QSqlDatabase& db) { v = CoffeeBagStorage::loadBagStatic(db, bagId).grinderSetting; }); return v; };
 
-        // Unsuspended: the edit writes through to the bag row.
+        // Every grind edit writes through to the bag row — no mode, no flag.
         dye.setDyeGrinderSetting("2.0");
         QTRY_COMPARE_WITH_TIMEOUT(bagGrind(), QString("2.0"), 15000);
-
-        // Suspended (recipe pin active): the edit stays on the dye cache; the
-        // bag keeps its value. Drain the worker before the negative read so a
-        // wrongly-issued write would have landed by the time we assert.
-        dye.setGrindBagWriteThroughSuspended(true);
         dye.setDyeGrinderSetting("3.0");
-        QCOMPARE(dye.dyeGrinderSetting(), QString("3.0"));
-        for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
-        QCOMPARE(bagGrind(), QString("2.0"));  // unchanged — the pin never landed
+        QTRY_COMPARE_WITH_TIMEOUT(bagGrind(), QString("3.0"), 15000);
 
-        // Lifting the suspension resumes normal bean-dial write-through.
-        dye.setGrindBagWriteThroughSuspended(false);
-        dye.setDyeGrinderSetting("4.0");
-        QTRY_COMPARE_WITH_TIMEOUT(bagGrind(), QString("4.0"), 15000);
-
-        // RPM is pinned WITH grind: the same suspension gates its bag
-        // write-through independently (an rpm-only leak would silently pollute
-        // the bean's dial). Establish a baseline, then set rpm while suspended.
+        // RPM rides with the dial: every rpm edit lands on the bag too.
         auto bagRpm = [&]() { qint64 v = -1; withRawDb(path, "pin_br",
             [&](QSqlDatabase& db) { v = CoffeeBagStorage::loadBagStatic(db, bagId).rpm; }); return v; };
         dye.setDyeGrinderRpm(1200);
         QTRY_COMPARE_WITH_TIMEOUT(bagRpm(), static_cast<qint64>(1200), 15000);
-        dye.setGrindBagWriteThroughSuspended(true);
         dye.setDyeGrinderRpm(1400);
-        QCOMPARE(dye.dyeGrinderRpm(), 1400);
-        for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
-        QCOMPARE(bagRpm(), static_cast<qint64>(1200));  // pinned rpm never landed on the bag
+        QTRY_COMPARE_WITH_TIMEOUT(bagRpm(), static_cast<qint64>(1400), 15000);
 
         // Drain before stack teardown (see settingsDyeYieldOverridePath).
-        dye.setGrindBagWriteThroughSuspended(false);
         for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
     }
