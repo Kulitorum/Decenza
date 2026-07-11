@@ -8,8 +8,8 @@ import "../.."
 
 // Recipes quick-switch (add-recipes): structural mirror of BeansItem. Tap
 // toggles a pill row of the five most-recently-used recipes; a pill tap
-// activates the recipe (profile + bag + equipment + dose/yield/temp + grind
-// routing + steam, via MainController's single activation path). Double-tap
+// activates the recipe (profile + bag + equipment + dose/yield/temp + the
+// recipe's own grind + steam, via MainController's single activation path). Double-tap
 // or long-press opens the Recipes management page; with zero recipes a plain
 // tap goes straight there. MRU replaces any favorite flag.
 Item {

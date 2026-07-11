@@ -182,6 +182,10 @@ A QML binding smoke test that instantiates pages and verifies key property bindi
 
 `tst_mcptools_profiles` and `tst_mcptools_write` test MCP *tools* but not MCP *resources* (`decenza://profiles/active`, `decenza://profiles/list`, etc.). A bug where the `"filename"` field returned a display title instead of a filename was undetectable.
 
+### MainController recipe activation flows
+
+No test instantiates `MainController` (it needs devices, storage, and settings wired together), so the recipe-activation behaviors that live there are manual-verification-only (fix-recipe-grind-integrity): the same-id re-activation short-circuit (re-pushing the in-memory cache with a deliberately EMPTY bag map — an applied bag map there would write stale/blank bean identity through to the bag row), bean-less activation clearing the active bag, the tea grind-stamp skip (`DrinkTypes::hasGrind`, pinned in `tst_drinktypes`), and the profile-title gate that keeps a profile switch from stamping zeroed yield/temp into the outgoing active recipe. Changes to `activateRecipe`/`applyActivatedRecipe`/the stamp watchers need manual verification on a device.
+
 ### ShotHistoryStorage async methods
 
 `tst_dbmigration` exercises schema migration and some query paths, but does not cover all async methods. `requestShotsFiltered()` had a missing destroyed-flag guard (use-after-free risk) that was only found by code review, not tests.

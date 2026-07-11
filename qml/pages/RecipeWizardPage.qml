@@ -158,9 +158,11 @@ Page {
     property real fEquipmentId: 0
     property string fEquipmentName: ""
     property bool fEquipmentRpmCapable: false
-    property bool fGrindOverride: false
-    property string fInheritedGrind: ""
-    property real fInheritedRpm: 0
+    // The linked bag's current dial, read once when the bag is selected and
+    // offered as the grind/rpm fields' editable DEFAULT — grind always lives
+    // on the recipe (fix-recipe-grind-integrity); there is no live follow.
+    property string fBagGrindDefault: ""
+    property real fBagRpmDefault: 0
     property bool fHasMilk: false
     property real fMilkWeightG: 0
     property string fPitcherName: ""
@@ -175,7 +177,6 @@ Page {
     property real fVesselTemperatureC: 0
     property string fWaterOrder: "after"
     property string errorMessage: ""
-    property string bagSwapHint: ""
     property string _autoName: ""
 
     readonly property bool hasBean: fBeanBaseId !== "" || fRoaster !== "" || fCoffee !== ""
@@ -201,8 +202,7 @@ Page {
             : (fProfileTempC > 0
                 ? (Math.abs(fTempDeltaC) > 0.05 ? fProfileTempC + fTempDeltaC : 0)
                 : fLoadedTempOverrideC),
-        grindPinned: (!activeTemplate.grind) ? ""
-            : ((!hasBean || fGrindOverride) ? grindField.text.trim() : ""),
+        grindPinned: (!activeTemplate.grind) ? "" : grindField.text.trim(),
         steamJson: buildSteamJson(),
         hotWaterJson: buildHotWaterJson()
     })
@@ -282,7 +282,6 @@ Page {
         // silently discard the stored temperature.
         fTeaTempC = (r.drinkType && String(r.drinkType).indexOf("tea") === 0
                      && r.tempOverrideC > 0) ? r.tempOverrideC : 0
-        fGrindOverride = (r.grindPinned || "") !== "" || (r.rpmPinned || 0) > 0
         grindField.text = r.grindPinned || ""
         rpmField.text = (r.rpmPinned || 0) > 0 ? String(r.rpmPinned) : ""
         applySteamJson(r.steamJson || "")
@@ -296,7 +295,7 @@ Page {
         _numbersSource = "saved"
         if (fEquipmentId > 0)
             MainController.equipmentStorage.requestInventory()
-        refreshInheritedGrind()
+        refreshBagDetails()
     }
 
     // QML-side mirror of Recipe::deriveDrinkType (blocks + the selected
@@ -408,7 +407,6 @@ Page {
                 console.warn("RecipeWizard: bad beanBaseJson on promoted shot:", e)
             }
         }
-        var hasBeanData = beanBaseId !== "" || shot.beanBrand || shot.beanType
         // Route through `prefill` so save() picks up the provenance fields.
         prefill = ({
             name: "",
@@ -424,8 +422,12 @@ Page {
             doseG: shot.doseWeightG || 0,
             yieldG: shot.targetWeightG || 0,
             tempOverrideC: shot.temperatureOverrideC || 0,
-            grindPinned: hasBeanData ? "" : (shot.grinderSetting || ""),
-            rpmPinned: hasBeanData ? 0 : (shot.rpm || 0),
+            // The shot's own recorded dial — the exact grind that produced the
+            // shot being promoted — is the recipe's default (grind lives on
+            // the recipe; there is no inherit-from-bag encoding to fall back
+            // to). Editable on the summary before saving.
+            grindPinned: shot.grinderSetting || "",
+            rpmPinned: shot.rpm || 0,
             steamJson: shot.steamJson && shot.steamJson !== "" ? shot.steamJson
                                                                : currentSteamSnapshot(),
             hotWaterJson: shot.hotWaterJson || "",
@@ -453,8 +455,11 @@ Page {
         }
     }
 
-    function refreshInheritedGrind() {
-        fInheritedGrind = ""
+    // Re-resolve the linked bag's details (grind default, roast level, tea
+    // blob) from inventory — used when a recipe is loaded for edit/clone,
+    // where the bag map isn't in hand.
+    function refreshBagDetails() {
+        fBagGrindDefault = ""
         if (hasBean)
             MainController.bagStorage.requestInventory()
     }
@@ -493,12 +498,11 @@ Page {
                 : (fProfileTempC > 0
                     ? (Math.abs(fTempDeltaC) > 0.05 ? fProfileTempC + fTempDeltaC : 0)
                     : fLoadedTempOverrideC),
-            // Override OFF (with a bean) = inherit: store nothing. Bean-less
-            // recipes always keep their grind/rpm on the recipe. Tea recipes
-            // never store grind (nothing to grind).
-            grindPinned: (!activeTemplate.grind) ? ""
-                : ((!hasBean || fGrindOverride) ? grindField.text.trim() : ""),
-            rpmPinned: (activeTemplate.grind && (!hasBean || fGrindOverride)
+            // Grind always lives on the recipe (fix-recipe-grind-integrity):
+            // whatever is on the field saves as the recipe's own value. Tea
+            // recipes never store grind (nothing to grind).
+            grindPinned: (!activeTemplate.grind) ? "" : grindField.text.trim(),
+            rpmPinned: (activeTemplate.grind
                         && (fEquipmentRpmCapable || (parseInt(rpmField.text) || 0) > 0))
                 ? (parseInt(rpmField.text) || 0) : 0,
             steamJson: buildSteamJson(),
@@ -541,7 +545,7 @@ Page {
             // Crossing the coffee/tea boundary invalidates the bag choice.
             if (was !== "" && (templates[was] || {}).bagKind !== t.bagKind) {
                 fBagId = 0; fBeanBaseId = ""; fRoaster = ""; fCoffee = ""; fBagBlob = ""
-                fInheritedGrind = ""; fInheritedRpm = 0
+                fBagGrindDefault = ""; fBagRpmDefault = 0
             }
             // Tea → hot-water tea keeps no profile; other switches keep it
             // only when it still fits the new filter set (checked lazily by
@@ -557,16 +561,14 @@ Page {
     }
 
     function selectBean(bag) {
-        var hadBean = hasBean
+        // The previous bag's untouched default may still sit on the field —
+        // remember it so a bag swap can re-default, while a user-typed value
+        // survives (never overwrite an edit in this wizard session).
+        var prevDefault = fBagGrindDefault
         if (!bag) {
-            // No bean to inherit from: carry the current dial onto the recipe.
-            if (activeTemplate.grind && !fGrindOverride && grindField.text === "") {
-                grindField.text = fInheritedGrind
-                rpmField.text = fInheritedRpm > 0 ? String(fInheritedRpm) : ""
-            }
             fBagId = 0
             fBeanBaseId = ""; fRoaster = ""; fCoffee = ""; fBagBlob = ""
-            fInheritedGrind = ""; fInheritedRpm = 0
+            fBagGrindDefault = ""; fBagRpmDefault = 0
             _selectedBagRoastLevel = ""
         } else {
             // The tile IS the bag: link exactly this one (two open bags of
@@ -576,14 +578,20 @@ Page {
             fRoaster = bag.roasterName || ""
             fCoffee = bag.coffeeName || ""
             fBagBlob = bag.beanBaseData || ""
-            fInheritedGrind = bag.grinderSetting || ""
-            fInheritedRpm = bag.rpm || 0
+            fBagGrindDefault = bag.grinderSetting || ""
+            fBagRpmDefault = bag.rpm || 0
             _selectedBagRoastLevel = bag.roastLevel || ""
-            if (hadBean && !fGrindOverride)
-                bagSwapHint = TranslationManager.translate(
-                    "recipes.wizard.grindFollowsHint", "Grind now follows %1: %2")
-                    .arg(((bag.roasterName || "") + " " + (bag.coffeeName || "")).trim())
-                    .arg(fInheritedGrind || "—")
+            // One-time editable default (recipe-model): a NEW recipe's grind
+            // fields start from the bag's current dial. Only on create —
+            // editing an existing recipe never re-offers the default — and
+            // only over an empty field or the previous bag's untouched
+            // default (a swap re-defaults; a typed value stays).
+            if (mode !== "edit" && activeTemplate.grind && fBagGrindDefault !== ""
+                && (grindField.text.trim() === "" || grindField.text.trim() === prevDefault)) {
+                grindField.text = fBagGrindDefault
+                rpmField.text = (fEquipmentRpmCapable && fBagRpmDefault > 0)
+                    ? String(fBagRpmDefault) : ""
+            }
             suggestName()
         }
         stepDone(isHotWaterTea ? "details" : "profile")
@@ -699,21 +707,11 @@ Page {
             : TranslationManager.translate("recipes.wizard.summary.notSet", "Not set")
     }
     readonly property string grindSummary: {
-        if (hasBean && !fGrindOverride) {
-            var s = trInherited.text
-            if (fInheritedGrind !== "") {
-                s += ": " + fInheritedGrind
-                if (fEquipmentRpmCapable && fInheritedRpm > 0)
-                    s += " · " + fInheritedRpm + " rpm"
-            }
-            return s
-        }
         var g = grindField.text.trim()
         if (g === "")
             return TranslationManager.translate("recipes.wizard.summary.notSet", "Not set")
         var rpm = parseInt(rpmField.text) || 0
-        return g + (fEquipmentRpmCapable && rpm > 0 ? " · " + rpm + " rpm" : "") + " · "
-            + TranslationManager.translate("recipes.wizard.grindPinnedShort", "this recipe only")
+        return g + (fEquipmentRpmCapable && rpm > 0 ? " · " + rpm + " rpm" : "")
     }
 
     // Revert the numbers to the profile's own values (the card's "Reset to
@@ -745,9 +743,9 @@ Page {
     function applyDetailsPrefill() {
         // Prefilled = optional: the numbers and grind cards open COLLAPSED
         // to their summaries (they only need attention when nothing could be
-        // prefilled — no dose/yield anywhere, or no bag to inherit from).
+        // prefilled — no dose/yield anywhere, or no grind default to offer).
         numbersCard.expanded = false
-        grindCard.expanded = activeTemplate.grind && !hasBean
+        grindCard.expanded = activeTemplate.grind && grindField.text.trim() === ""
         // Profile/bag seeds run synchronously so the details step is never
         // blank; the shot-history tier lands async via
         // latestShotForBeanProfileReady and OVERWRITES them (history that
@@ -1031,8 +1029,13 @@ Page {
                 else if (wizardPage.fProfileTempC > 0)
                     wizardPage.fTempDeltaC = shot.temperatureOverrideC - wizardPage.fProfileTempC
             }
-            if (wizardPage.activeTemplate.grind && !wizardPage.hasBean && shot.grinderSetting)
+            // History is the top prefill tier for grind too: the dial that
+            // actually worked with this bean+profile beats the bag's default.
+            if (wizardPage.activeTemplate.grind && shot.grinderSetting) {
                 grindField.text = shot.grinderSetting
+                if (wizardPage.fEquipmentRpmCapable && shot.rpm > 0)
+                    rpmField.text = String(shot.rpm)
+            }
         }
     }
 
@@ -1111,16 +1114,16 @@ Page {
                             : (String(b.roasterName).toLowerCase() === wizardPage.fRoaster.toLowerCase()
                                && String(b.coffeeName).toLowerCase() === wizardPage.fCoffee.toLowerCase()))
                     if (match) {
-                        wizardPage.fInheritedGrind = b.grinderSetting || ""
-                        wizardPage.fInheritedRpm = b.rpm || 0
+                        wizardPage.fBagGrindDefault = b.grinderSetting || ""
+                        wizardPage.fBagRpmDefault = b.rpm || 0
                         wizardPage._selectedBagRoastLevel = b.roastLevel || ""
                         if (wizardPage.fBagBlob === "")
                             wizardPage.fBagBlob = b.beanBaseData || ""
                         return
                     }
                 }
-                wizardPage.fInheritedGrind = ""
-                wizardPage.fInheritedRpm = 0
+                wizardPage.fBagGrindDefault = ""
+                wizardPage.fBagRpmDefault = 0
             }
         }
     }
@@ -1145,7 +1148,6 @@ Page {
 
     // Hidden Tr instances for property-bound strings.
     Tr { id: trNone; key: "recipes.composer.none"; fallback: "None"; visible: false }
-    Tr { id: trInherited; key: "recipes.composer.grindInherited"; fallback: "Follows the bag"; visible: false }
     Tr { id: trNoBean; key: "recipes.wizard.noBean"; fallback: "No bean"; visible: false }
     Tr { id: trNoTea; key: "recipes.wizard.noTea"; fallback: "No tea"; visible: false }
     Tr { id: trJustHotWater; key: "recipes.wizard.justHotWater"; fallback: "Just hot water — no profile"; visible: false }
@@ -2052,6 +2054,33 @@ Page {
                         }
 
                         // Grind: coffee drinks only (tea has nothing to grind).
+                        // Equipment BEFORE grind: the rpm field's visibility
+                        // depends on the chosen grinder's rpm capability, so
+                        // the user sees (and can correct) the equipment choice
+                        // before reaching the field it gates
+                        // (fix-recipe-grind-integrity). Prefilled from the
+                        // per-drink-type default; a row, not a step (it rarely
+                        // changes once set).
+                        SectionCard {
+                            title: TranslationManager.translate("recipes.composer.sectionEquipment", "Equipment")
+                            Label {
+                                Layout.fillWidth: true
+                                text: TranslationManager.translate("recipes.wizard.equipmentHint",
+                                      "Prefilled from the gear you last used for this drink — change it "
+                                      + "only if this recipe uses a different grinder or basket.")
+                                font: Theme.captionFont
+                                color: Theme.textSecondaryColor
+                                wrapMode: Text.WordWrap
+                            }
+                            PickerField {
+                                Layout.fillWidth: true
+                                label: TranslationManager.translate("recipes.composer.equipmentLabel", "Grinder / basket package")
+                                value: wizardPage.fEquipmentId > 0 ? wizardPage.fEquipmentName : ""
+                                placeholder: trNone.text
+                                onActivated: { MainController.equipmentStorage.requestInventory(); equipmentPicker.open() }
+                            }
+                        }
+
                         SectionCard {
                             id: grindCard
                             visible: wizardPage.activeTemplate.grind
@@ -2062,10 +2091,10 @@ Page {
                             Label {
                                 visible: wizardPage.hasBean
                                 Layout.fillWidth: true
-                                text: TranslationManager.translate("recipes.wizard.grindFollowsHelp",
-                                      "Grind lives on the bag: re-dialing the bag updates every recipe "
-                                      + "that follows it. Override only if this drink deliberately grinds "
-                                      + "differently.")
+                                text: TranslationManager.translate("recipes.wizard.grindOwnHelp",
+                                      "This recipe's own grind. It starts from the bag's current dial; "
+                                      + "adjusting the grind while this recipe is selected keeps it up "
+                                      + "to date.")
                                 font: Theme.captionFont
                                 color: Theme.textSecondaryColor
                                 wrapMode: Text.WordWrap
@@ -2109,70 +2138,20 @@ Page {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacingMedium
-                                ColumnLayout {
+                                StyledTextField {
+                                    id: grindField
                                     Layout.fillWidth: true
-                                    spacing: Theme.scaled(4)
-                                    Label {
-                                        visible: wizardPage.hasBean && !wizardPage.fGrindOverride
-                                        Layout.fillWidth: true
-                                        text: {
-                                            var inherited = trInherited.text
-                                            if (wizardPage.fInheritedGrind !== "") {
-                                                inherited += ": " + wizardPage.fInheritedGrind
-                                                if (wizardPage.fEquipmentRpmCapable && wizardPage.fInheritedRpm > 0)
-                                                    inherited += " · " + wizardPage.fInheritedRpm + " rpm"
-                                            }
-                                            return inherited
-                                        }
-                                        font: Theme.bodyFont
-                                        color: Theme.textColor
-                                        wrapMode: Text.WordWrap
-                                    }
-                                    RowLayout {
-                                        visible: !wizardPage.hasBean || wizardPage.fGrindOverride
-                                        Layout.fillWidth: true
-                                        spacing: Theme.spacingMedium
-                                        StyledTextField {
-                                            id: grindField
-                                            Layout.fillWidth: true
-                                            placeholder: TranslationManager.translate("recipes.composer.grindPlaceholder", "e.g. 2.4")
-                                            Accessible.name: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
-                                            onTextEdited: wizardPage._detailsUserEdited = true
-                                        }
-                                        StyledTextField {
-                                            id: rpmField
-                                            visible: wizardPage.fEquipmentRpmCapable
-                                            Layout.preferredWidth: Theme.scaled(110)
-                                            inputMethodHints: Qt.ImhFormattedNumbersOnly
-                                            placeholder: TranslationManager.translate("recipes.composer.rpmLabel", "RPM")
-                                            Accessible.name: TranslationManager.translate("recipes.composer.rpmLabel", "RPM")
-                                        }
-                                    }
+                                    placeholder: TranslationManager.translate("recipes.composer.grindPlaceholder", "e.g. 2.4")
+                                    Accessible.name: TranslationManager.translate("recipes.composer.grindLabel", "Grind")
+                                    onTextEdited: wizardPage._detailsUserEdited = true
                                 }
-                                ColumnLayout {
-                                    visible: wizardPage.hasBean
-                                    Layout.alignment: Qt.AlignTop
-                                    spacing: Theme.scaled(2)
-                                    Label {
-                                        text: TranslationManager.translate("recipes.composer.grindOverrideShort", "Override")
-                                        font: Theme.captionFont
-                                        color: Theme.textSecondaryColor
-                                        Layout.alignment: Qt.AlignHCenter
-                                        Accessible.ignored: true
-                                    }
-                                    StyledSwitch {
-                                        checked: wizardPage.fGrindOverride
-                                        Accessible.name: TranslationManager.translate("recipes.composer.grindOverride", "Override grind for this recipe")
-                                        onToggled: {
-                                            wizardPage.fGrindOverride = checked
-                                            if (checked && grindField.text === "") {
-                                                grindField.text = wizardPage.fInheritedGrind
-                                                rpmField.text = wizardPage.fEquipmentRpmCapable
-                                                        && wizardPage.fInheritedRpm > 0
-                                                    ? String(wizardPage.fInheritedRpm) : ""
-                                            }
-                                        }
-                                    }
+                                StyledTextField {
+                                    id: rpmField
+                                    visible: wizardPage.fEquipmentRpmCapable
+                                    Layout.preferredWidth: Theme.scaled(110)
+                                    inputMethodHints: Qt.ImhFormattedNumbersOnly
+                                    placeholder: TranslationManager.translate("recipes.composer.rpmLabel", "RPM")
+                                    Accessible.name: TranslationManager.translate("recipes.composer.rpmLabel", "RPM")
                                 }
                             }
                         }
@@ -2242,37 +2221,6 @@ Page {
                             }
                         }
 
-                        // Equipment: prefilled from the per-drink-type default;
-                        // a row, not a step (it rarely changes once set).
-                        SectionCard {
-                            title: TranslationManager.translate("recipes.composer.sectionEquipment", "Equipment")
-                            Label {
-                                Layout.fillWidth: true
-                                text: TranslationManager.translate("recipes.wizard.equipmentHint",
-                                      "Prefilled from the gear you last used for this drink — change it "
-                                      + "only if this recipe uses a different grinder or basket.")
-                                font: Theme.captionFont
-                                color: Theme.textSecondaryColor
-                                wrapMode: Text.WordWrap
-                            }
-                            PickerField {
-                                Layout.fillWidth: true
-                                label: TranslationManager.translate("recipes.composer.equipmentLabel", "Grinder / basket package")
-                                value: wizardPage.fEquipmentId > 0 ? wizardPage.fEquipmentName : ""
-                                placeholder: trNone.text
-                                onActivated: { MainController.equipmentStorage.requestInventory(); equipmentPicker.open() }
-                            }
-                        }
-
-                        Label {
-                            visible: wizardPage.bagSwapHint !== ""
-                            Layout.fillWidth: true
-                            Layout.columnSpan: detailsColumn.columns
-                            text: wizardPage.bagSwapHint
-                            font: Theme.captionFont
-                            color: Theme.textSecondaryColor
-                            wrapMode: Text.WordWrap
-                        }
                     }
                     }
                 }

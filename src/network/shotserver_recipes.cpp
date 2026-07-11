@@ -1,6 +1,6 @@
 // ShotServer recipes surface (add-recipes): REST API + /recipes management
 // page. A recipe is the whole drink (profile + linked bag + equipment +
-// dose/yield/temp + grind routing + steam block).
+// dose/yield/temp + the recipe's own grind + steam block).
 //
 // Routing conventions follow the other domains: reads run storage statics on
 // a background thread (never the main thread — CLAUDE.md); mutations go
@@ -88,28 +88,23 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
     o["isActive"] = r.id == activeRecipeId;
     if (db) {
         // The linked bag: staleness flag (bag finished / gone — display
-        // state, never a gate) and the effective grind for the inherited
-        // case, which resolves from the linked bag whether or not it is
-        // still in inventory.
+        // state, never a gate). Grind is the recipe's own value
+        // (fix-recipe-grind-integrity); nothing resolves from the bag.
         if (r.bagId > 0) {
             const CoffeeBag bag = CoffeeBagStorage::loadBagStatic(*db, r.bagId);
-            if (bag.isValid()) {
-                if (!bag.inInventory)
-                    o["bagStale"] = true;
-                if (r.grindPinned.isEmpty() && !bag.grinderSetting.isEmpty())
-                    o["effectiveGrind"] = bag.grinderSetting;
-            } else {
+            if (!bag.isValid() || !bag.inInventory)
                 o["bagStale"] = true;
-            }
         } else if (!r.beanBaseId.isEmpty() || !r.roasterName.isEmpty()
                    || !r.coffeeName.isEmpty()) {
             // A bean identity with no linked bag (unresolved migration)
             // presents as stale too — wake-on-restock will re-home it.
             o["bagStale"] = true;
         }
-        if (!r.grindPinned.isEmpty())
-            o["effectiveGrind"] = r.grindPinned;
     }
+    // Field name kept as "effectiveGrind" for JS/API compatibility — since
+    // fix-recipe-grind-integrity it is simply the recipe's own grind.
+    if (!r.grindPinned.isEmpty())
+        o["effectiveGrind"] = r.grindPinned;
     return o;
 }
 
@@ -283,8 +278,8 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
                     respondJson(QJsonObject{{"error", "Shot not found"}}, 404);
                     return;
                 }
-                // The shared promotion semantics (bean link, bag link, grind
-                // pin-vs-inherit, steam/hot-water snapshots) — exactly what
+                // The shared promotion semantics (bean link, bag link, the
+                // shot's own grind, steam/hot-water snapshots) — exactly what
                 // the MCP recipe_create_from_shot tool builds.
                 const std::optional<bool> hasMilkOverride =
                     hasMilkProvided ? std::optional<bool>(hasMilk) : std::nullopt;
@@ -559,14 +554,14 @@ QString ShotServer::generateRecipesPage() const
         <h2 id="editorTitle">Recipe</h2>
         <label>Name</label><input id="fName">
         <label>Profile title</label><input id="fProfile">
-        <label>Bag (grind follows it; roaster/coffee fill in automatically)</label>
+        <label>Bag (roaster/coffee fill in automatically)</label>
         <select id="fBag"><option value="0">(no bag)</option></select>
         <label>Roaster</label><input id="fRoaster">
         <label>Coffee</label><input id="fCoffee">
         <label>Dose (g)</label><input id="fDose" type="number" step="0.1">
         <label>Yield (g)</label><input id="fYield" type="number" step="0.1">
         <label>Temp override (&deg;C)</label><input id="fTemp" type="number" step="0.1">
-        <label>Pinned grind (empty = follow the bag)</label><input id="fGrind">
+        <label>Grind (this recipe's own; on create, blank adopts the bag's dial)</label><input id="fGrind">
         <label>Drink type</label>
         <select id="fDrinkType">
             <option value="">(automatic from blocks)</option>
@@ -656,7 +651,7 @@ QString ShotServer::generateRecipesPage() const
             const bean = ((r.roasterName || '') + ' ' + (r.coffeeName || '')).trim();
             if (bean) parts.push(esc(bean));
             if (r.doseG > 0 && r.yieldG > 0) parts.push(r.doseG.toFixed(1) + 'g &rarr; ' + r.yieldG.toFixed(1) + 'g');
-            if (r.effectiveGrind) parts.push('grind ' + esc(r.effectiveGrind) + (r.grindPinned ? ' (pinned)' : ''));
+            if (r.effectiveGrind) parts.push('grind ' + esc(r.effectiveGrind));
             if (r.steam && r.steam.hasMilk) parts.push('milk' + (r.steam.milkWeightG ? ' ' + r.steam.milkWeightG + 'g' : ''));
             if (r.hotWater && r.hotWater.hasWater) parts.push('+water' + (r.hotWater.order === 'before' ? ' (long black)' : ' (americano)'));
             if (r.bagStale) parts.push('bag finished');
@@ -787,6 +782,11 @@ QString ShotServer::generateRecipesPage() const
                 steam: steam,
                 hotWater: hotWater
             };
+            // Create: OMIT a blank grind so storage adopts the linked bag's
+            // dial (the omit-adopts rule). Update keeps sending '' — there it
+            // means "clear this recipe's grind".
+            if (!editingId && bodyData.grindPinned === '')
+                delete bodyData.grindPinned;
             const req = editingId ? post('/api/recipe/' + editingId, bodyData)
                                   : post('/api/recipes', bodyData);
             req.then(() => { document.getElementById('editor').close(); load(); })

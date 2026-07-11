@@ -15,16 +15,19 @@ class SerialDbWorker;
 
 // A recipe: a named whole-drink specification (openspec change add-recipes).
 // A profile tells the machine how to push water; a recipe holds the drink —
-// profile, bean link, equipment, dose/yield/temp, grind routing, and steam.
+// profile, bean link, equipment, dose/yield/temp, its own grind, and steam.
 // Recipes follow the optionality ladder: only name + profile are required;
 // bean and equipment links are optional and a recipe works with whatever
 // rungs exist.
 //
-// Grind: a recipe with an empty grindPinned INHERITS the linked bag's
-// grind (applied at activation, not here); a non-empty
-// grindPinned is this recipe's own opaque grind text. The pin covers rpm as
-// well (rpmPinned) — grind and rpm are pinned together. Bean-less recipes keep
-// grind/rpm on the recipe by construction (there is nothing to inherit from).
+// Grind: always the recipe's own (fix-recipe-grind-integrity — the old
+// "empty grindPinned = inherit from the bag" mode is retired; migration 30
+// backfilled inherit-mode rows from their bag). grindPinned is this recipe's
+// own opaque grind text, rpmPinned rides with it. The linked bag's dial is
+// read exactly once, at creation, as the field's editable default (the
+// wizard offers it; requestCreateRecipe adopts it when a bag-linked create
+// map OMITS grind — an explicitly empty grind stays empty). Grind-less drink
+// types (tea) store none.
 //
 // Steam: steamJson holds the drink's steam block, serialized as
 // {hasMilk, milkWeightG, pitcherName, durationSec, flow, temperatureC}. The
@@ -74,8 +77,8 @@ struct Recipe {
     double yieldG = 0;        // 0 = unset
     double tempOverrideC = 0; // 0 = no override
 
-    QString grindPinned;      // empty = inherit from bean's current bag
-    qint64 rpmPinned = 0;     // grinder rpm override; only meaningful with a pin (0 = unset)
+    QString grindPinned;      // the recipe's own grind (empty = none recorded)
+    qint64 rpmPinned = 0;     // rides with grindPinned; only applied alongside a non-empty grind (0 = unset)
     QString steamJson;        // steam block, empty = none saved
     QString hotWaterJson;     // hot-water block (opt-in water-vessel snapshot), empty = none
 
@@ -198,7 +201,7 @@ public:
     // identity onto it, MRU-first, same dup-guard.
     Q_INVOKABLE void requestRelinkForRestockedBag(qint64 newBagId);
     // Manual re-point (stale card / wizard bag row): link `recipeId` to
-    // `bagId`, adopting the bag's bean identity fields. Grind pin/inherit is
+    // `bagId`, adopting the bag's bean identity fields. The recipe's grind is
     // untouched. Emits recipeUpdated + recipesChanged like any update.
     Q_INVOKABLE void requestRelinkRecipeToBag(qint64 recipeId, qint64 bagId);
 
@@ -246,6 +249,18 @@ public:
     // schema version then, so the idempotent pass retries next launch
     // instead of silently stranding every recipe stale forever.
     static bool migrateBagLinksStatic(QSqlDatabase& db);
+
+    // Migration 30 data pass (fix-recipe-grind-integrity): copy the linked
+    // bag's current grinder_setting/rpm into empty grind_pinned/rpm_pinned
+    // rows — the one-time backfill retiring "empty = inherit". Skips rows
+    // whose bag has no dial; leaves bag-less rows untouched. Also run by
+    // importRecipesStatic for pre-migration source DBs, which MUST pass
+    // onlyRecipeIds (the just-inserted rows): post-migration, empty grind is
+    // a supported deliberate state on local rows and a table-wide re-run
+    // would clobber it. Returns false when the pass could not run (the
+    // migration caller must not bump the version then).
+    static bool migrateGrindOwnershipStatic(QSqlDatabase& db,
+                                            const QVector<qint64>* onlyRecipeIds = nullptr);
 
     // Roll-on-finish (synchronous core): relink the finished bag's
     // non-archived recipes to the newest open bag of the same bean identity,

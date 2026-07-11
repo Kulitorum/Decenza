@@ -289,11 +289,11 @@ void SettingsDye::setDyeGrinderSetting(const QString& value) {
     if (dyeGrinderSetting() != value) {
         m_dyeGrinderSettingCache = value;
         m_settings.setValue("dye/grinderSetting", value);
-        // Suspended while the active recipe pins its grind (add-recipes):
-        // the pin is the recipe's private dial, so the bean's shared value
-        // must not follow it. MainController stamps the pin instead.
-        if (!m_grindBagWriteThroughSuspended)
-            writeThroughToBag("grinderSetting", value);
+        // Unconditional, like every other bag-backed dye field: the bag always
+        // mirrors the most recently dialed grind (fix-recipe-grind-integrity —
+        // the recipe-pin suspension is retired; an active recipe's own grind
+        // is stamped independently by MainController off the same edit).
+        writeThroughToBag("grinderSetting", value);
         // Dual write-through: the grind setting is grinder-scoped too, so keep
         // the active package's last dial current (add-equipment-packages).
         writeThroughToActivePackage("lastGrindSetting", value);
@@ -310,10 +310,8 @@ void SettingsDye::setDyeGrinderRpm(int value) {
     if (dyeGrinderRpm() != value) {
         m_dyeGrinderRpmCache = value;
         m_settings.setValue("dye/grinderRpm", value);
-        // The grind override pins grind AND rpm together (add-recipes): while
-        // suspended, rpm edits belong to the recipe's pin, not the bean.
-        if (!m_grindBagWriteThroughSuspended)
-            writeThroughToBag("rpm", value > 0 ? QVariant(value) : QVariant());
+        // Unconditional, like grind above — rpm rides with the dial.
+        writeThroughToBag("rpm", value > 0 ? QVariant(value) : QVariant());
         writeThroughToActivePackage("lastRpm", value > 0 ? QVariant(value) : QVariant());
         emit dyeGrinderRpmChanged();
     }

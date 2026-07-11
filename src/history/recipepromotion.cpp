@@ -14,8 +14,6 @@ QVariantMap fieldsFromShotRecord(const ShotRecord& record, const QString& name,
                                   std::optional<bool> hasMilkOverride,
                                   const QString& fallbackSteamJson) {
     const QString beanBaseId = BeanBaseBlob::canonicalId(record.beanBaseJson);
-    const bool hasBean = !beanBaseId.isEmpty()
-        || !record.summary.beanBrand.isEmpty() || !record.summary.beanType.isEmpty();
 
     QString steamJson = !record.steamJson.isEmpty() ? record.steamJson : fallbackSteamJson;
     if (hasMilkOverride.has_value() && !steamJson.isEmpty()) {
@@ -50,7 +48,11 @@ QVariantMap fieldsFromShotRecord(const ShotRecord& record, const QString& name,
     fields.insert("doseG", record.summary.doseWeight);
     fields.insert("yieldG", record.targetWeight);
     fields.insert("tempOverrideC", record.temperatureOverride);
-    fields.insert("grindPinned", hasBean ? QString() : record.grinderSetting);
+    // The shot's own recorded dial is the recipe's grind — the exact grind
+    // that produced the shot being promoted (grind always lives on the
+    // recipe; the old empty-means-inherit encoding is retired).
+    fields.insert("grindPinned", record.grinderSetting);
+    fields.insert("rpmPinned", record.rpm);
     fields.insert("steamJson", steamJson);
     // Hot water carries verbatim from the shot snapshot only — NO
     // current-settings fallback (that would force a shot pulled while an

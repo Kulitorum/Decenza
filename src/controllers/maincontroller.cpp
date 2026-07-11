@@ -7,6 +7,7 @@
 #include "../core/settings.h"
 #include "../core/settings_brew.h"
 #include "../core/settings_dye.h"
+#include "../core/drinktypes.h"
 #include "../network/beanbase_blob.h"
 #include "../core/settings_network.h"
 #include "../core/settings_calibration.h"
@@ -718,15 +719,22 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
         // Note: Don't copy finalWeight/TDS/EY - those are shot results, not inputs
         // (bag selection happened above, before the field writes)
 
-        // Apply brew overrides from history on top of profile defaults (set by loadProfile)
-        // Values > 0 indicate overrides were used (0 means no override or old shot)
+        // Apply brew overrides from history on top of profile defaults (set by loadProfile).
+        // A frozen historical value that matches the freshly-loaded profile's own
+        // default is NOT an override (Bug A: pre-fix shots saved the default here) —
+        // only a genuinely-different value arms the flag, so the Shot Plan highlight
+        // can't latch on from a coincidental snapshot.
         bool hasOverrides = false;
-        if (shotRecord.temperatureOverride > 0) {
+        if (shotRecord.temperatureOverride > 0
+            && qAbs(shotRecord.temperatureOverride
+                    - m_profileManager->currentProfile().espressoTemperature()) > 0.1) {
             m_settings->brew()->setTemperatureOverride(shotRecord.temperatureOverride);
             hasOverrides = true;
         }
 
-        if (shotRecord.targetWeight > 0) {
+        if (shotRecord.targetWeight > 0
+            && qAbs(shotRecord.targetWeight
+                    - m_profileManager->currentProfile().targetWeight()) > 0.1) {
             m_settings->brew()->setBrewYieldOverride(shotRecord.targetWeight);
             hasOverrides = true;
         } else if (shotRecord.summary.finalWeight > 0 && m_profileManager->currentProfile().targetWeight() <= 0) {
@@ -766,7 +774,7 @@ void MainController::applyLoadedShotMetadata(qint64 shotId, const ShotRecord& sh
 // Recipes (add-recipes)
 //
 // A recipe is the whole drink: profile + linked bag + equipment + dose/yield/
-// temp + grind routing + steam block. This is the SINGLE activation path —
+// temp + the recipe's own grind + steam block. This is the SINGLE activation path —
 // QML pill taps, MCP recipe_activate, and the web /activate route all land
 // here, so activation semantics cannot drift between surfaces.
 // ---------------------------------------------------------------------------
@@ -833,7 +841,7 @@ void MainController::setupRecipeConnections() {
         m_recipeStorage->requestRelinkForRestockedBag(bagId);
     });
     // When an automatic relink moved the ACTIVE recipe, refresh its cache so
-    // grind routing and the deactivate watchers see the new bag link.
+    // the write-through stamps and the deactivate watchers see the new bag link.
     connect(m_recipeStorage, &RecipeStorage::recipesRelinked, this,
             [this](const QVariantList& movedRecipeIds, qint64, const QString&) {
         const qint64 activeId = m_settings->dye()->activeRecipeId();
@@ -883,8 +891,6 @@ void MainController::setupRecipeConnections() {
         const bool hadMilk = activeRecipeHasMilk();
         m_activeRecipe = recipe;
         m_activeRecipe.insert(QStringLiteral("resolvedBagId"), resolvedBagId);
-        m_settings->dye()->setGrindBagWriteThroughSuspended(
-            !recipe.value("grindPinned").toString().isEmpty());
         emit activeRecipeChanged();
         // Re-assert the heater hold when hasMilk changed (composer/MCP edit
         // of the active recipe) or on the startup restore of a milk recipe —
@@ -932,20 +938,41 @@ void MainController::setupRecipeConnections() {
     connect(m_settings->dye(), &SettingsDye::dyeBeanWeightChanged, this, [this]() {
         stampActiveRecipe(QStringLiteral("doseG"), m_settings->dye()->dyeBeanWeight());
     });
+    // Yield/temp stamps carry two extra gates beyond stampActiveRecipe's own:
+    // (1) NOT a machinery clear — loading a profile or editing its params
+    // clears the brew overrides (the *Changed signals fire synchronously out
+    // of ProfileManager's own reset), and stamping that clear would write
+    // yieldG=0/tempOverrideC=0 into the active recipe row, silently erasing
+    // its dialed values (the same-title case: re-loading or editing the
+    // recipe's OWN profile). brewBaselineResetInProgress() marks those.
+    // (2) The loaded profile is still the recipe's own — a mismatched title
+    // means the user is mid-switch to a different profile (the deactivate
+    // watcher fires moments later) or the recipe is profile-less (whose
+    // yield/temp are not brew overrides at all); either way the tweak does
+    // not belong to this recipe. A user's own BrewDialog commit or Clear
+    // passes both gates and writes through as always.
     connect(m_settings->brew(), &SettingsBrew::brewOverridesChanged, this, [this]() {
-        stampActiveRecipe(QStringLiteral("yieldG"), m_settings->brew()->brewYieldOverride());
+        if (m_profileManager && !m_profileManager->brewBaselineResetInProgress()
+            && m_profileManager->currentProfile().title()
+                == m_activeRecipe.value(QStringLiteral("profileTitle")).toString())
+            stampActiveRecipe(QStringLiteral("yieldG"), m_settings->brew()->brewYieldOverride());
     });
     connect(m_settings->brew(), &SettingsBrew::temperatureOverrideChanged, this, [this]() {
-        stampActiveRecipe(QStringLiteral("tempOverrideC"), m_settings->brew()->temperatureOverride());
+        if (m_profileManager && !m_profileManager->brewBaselineResetInProgress()
+            && m_profileManager->currentProfile().title()
+                == m_activeRecipe.value(QStringLiteral("profileTitle")).toString())
+            stampActiveRecipe(QStringLiteral("tempOverrideC"), m_settings->brew()->temperatureOverride());
     });
-    // Grind/rpm route to the PIN only when the recipe pins them; inherited
-    // values reach the bag through SettingsDye's own write-through as always.
+    // Grind/rpm edits always stamp the active recipe's own grind (grind lives
+    // on the recipe, fix-recipe-grind-integrity) — in parallel with SettingsDye's
+    // unconditional bag write-through off the same edit. Grind-less drink
+    // types skip the stamp (DrinkTypes::hasGrind, incl. its legacy-row caveat).
     connect(m_settings->dye(), &SettingsDye::dyeGrinderSettingChanged, this, [this]() {
-        if (!m_activeRecipe.value("grindPinned").toString().isEmpty())
+        if (DrinkTypes::hasGrind(m_activeRecipe.value("drinkType").toString()))
             stampActiveRecipe(QStringLiteral("grindPinned"), m_settings->dye()->dyeGrinderSetting());
     });
     connect(m_settings->dye(), &SettingsDye::dyeGrinderRpmChanged, this, [this]() {
-        if (!m_activeRecipe.value("grindPinned").toString().isEmpty())
+        if (DrinkTypes::hasGrind(m_activeRecipe.value("drinkType").toString()))
             stampActiveRecipe(QStringLiteral("rpmPinned"), m_settings->dye()->dyeGrinderRpm());
     });
     // Steam tweaks (pitcher selection/edits, milk weight) refresh the block.
@@ -998,7 +1025,7 @@ void MainController::setupRecipeConnections() {
 
     // Startup restore: the persisted selection survives a restart (the live
     // settings already persist on their own — nothing is re-applied; this
-    // only restores the pill highlight, cache, and pinned-grind routing).
+    // only restores the pill highlight and the active-recipe cache).
     const int savedRecipeId = m_settings->dye()->activeRecipeId();
     m_recipeSelection.reset(savedRecipeId);
     if (savedRecipeId > 0)
@@ -1019,6 +1046,29 @@ void MainController::activateRecipe(qint64 recipeId) {
     qDebug() << "[recipe] activateRecipe" << recipeId << "- selecting + requesting activation";
     if (m_recipeSelection.onActivate(recipeId))
         emit selectedRecipeIdChanged();
+    // Same-id re-activation (re-tapping the active recipe, e.g. after an edit
+    // to push its values to the Shot Plan — the #1466/#1471 flow): re-push the
+    // in-memory cache through the apply stages instead of doing a fresh DB
+    // read. The cache already holds our own optimistic stamps AND external
+    // edits (the recipeUpdated re-read keeps it fresh), while a fresh read can
+    // race an in-flight write-through of the user's own just-made edit and
+    // revert it (Bug B2, fix-recipe-grind-integrity). The bag map is passed
+    // EMPTY on purpose: the bag is already the active bag with live identity
+    // fields — applyActivatedRecipe skips the identity re-apply for an empty
+    // map, so a stale or restart-restored cache can never write old (or
+    // blank) bean fields through to the bag row. First activation and any
+    // different-id activation still read fresh — and so does a bag-link
+    // change since activation (relink / re-point): resolvedBagId is then
+    // stale, so bagId != resolvedBagId falls through to the full fresh read.
+    if (m_settings && recipeId == m_settings->dye()->activeRecipeId()
+        && !m_activeRecipe.isEmpty()
+        && m_activeRecipe.value(QStringLiteral("bagId")).toLongLong()
+               == m_activeRecipe.value(QStringLiteral("resolvedBagId")).toLongLong()) {
+        applyActivatedRecipe(recipeId, m_activeRecipe,
+                             m_activeRecipe.value(QStringLiteral("resolvedBagId")).toLongLong(),
+                             QVariantMap());
+        return;
+    }
     m_recipeStorage->requestRecipeForActivation(recipeId);
 }
 
@@ -1187,16 +1237,28 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         // Bag: select keep-fields (deterministic — no async applyActiveBag
         // racing our values below), then apply the bag's OWN bean fields from
         // the bundle's snapshot. Write-throughs write the bag's values back
-        // into it: no-ops. A bean-less recipe (linkedBagId <= 0) leaves the
-        // current bag untouched — the ladder says it doesn't own that choice.
+        // into it: no-ops. An EMPTY bag map with a positive linkedBagId is
+        // the same-id re-activation contract (see activateRecipe): the bag is
+        // already the active bag with live identity fields, so nothing must
+        // be re-applied — applying an empty map here would write empty
+        // strings THROUGH to the bag row, destroying its identity. A
+        // bean-less recipe (linkedBagId <= 0) CLEARS the active bag: the
+        // session must not stay attributed to — or write its grind into —
+        // whatever bag happened to be laying around
+        // (fix-recipe-grind-integrity). The deactivation watcher is guarded
+        // by m_applyingRecipe, so the clear can't self-deactivate us.
         if (linkedBagId > 0) {
             dye->setActiveBagKeepFields(static_cast<int>(linkedBagId));
-            dye->setDyeBeanBrand(linkedBag.value("roasterName").toString());
-            dye->setDyeBeanType(linkedBag.value("coffeeName").toString());
-            dye->setDyeRoastDate(linkedBag.value("roastDate").toString());
-            dye->setDyeRoastLevel(linkedBag.value("roastLevel").toString());
-            dye->setDyeBeanBaseData(linkedBag.value("beanBaseData").toString());
-            dye->setDyeBeanBaseId(linkedBag.value("beanBaseId").toString());
+            if (!linkedBag.isEmpty()) {
+                dye->setDyeBeanBrand(linkedBag.value("roasterName").toString());
+                dye->setDyeBeanType(linkedBag.value("coffeeName").toString());
+                dye->setDyeRoastDate(linkedBag.value("roastDate").toString());
+                dye->setDyeRoastLevel(linkedBag.value("roastLevel").toString());
+                dye->setDyeBeanBaseData(linkedBag.value("beanBaseData").toString());
+                dye->setDyeBeanBaseId(linkedBag.value("beanBaseId").toString());
+            }
+        } else {
+            dye->setActiveBagId(-1);
         }
 
         // Equipment: the recipe's own package, else the bag's.
@@ -1206,22 +1268,21 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         if (equipmentId > 0)
             dye->setActiveEquipmentId(equipmentId);
 
-        // Grind routing: a pin is the recipe's private dial — grind AND rpm
-        // together (bag write-through suspended so sibling recipes don't
-        // follow it); inherited values come from the bag. Suspension must be
-        // set BEFORE the setters.
-        const QString pin = recipe.value("grindPinned").toString();
-        const qint64 rpmPin = recipe.value("rpmPinned").toLongLong();
-        dye->setGrindBagWriteThroughSuspended(!pin.isEmpty());
-        if (!pin.isEmpty()) {
-            dye->setDyeGrinderSetting(pin);
-            if (rpmPin > 0)
-                dye->setDyeGrinderRpm(static_cast<int>(rpmPin));
-        } else if (linkedBagId > 0) {
-            dye->setDyeGrinderSetting(linkedBag.value("grinderSetting").toString());
+        // Grind: always the recipe's own dial — grind lives on the recipe
+        // (fix-recipe-grind-integrity; the bag-inherit branch and the
+        // write-through suspension are retired). The setters' unconditional
+        // bag write-through mirrors the value onto the linked bag: selecting
+        // a recipe that selects a bag counts as dialing it (a bean-less
+        // recipe's write-through hits no bag — cleared above). An empty
+        // grind (grind-less tea, a never-dialed import) leaves the current
+        // dial untouched rather than wiping it.
+        const QString grind = recipe.value("grindPinned").toString();
+        if (!grind.isEmpty()) {
+            dye->setDyeGrinderSetting(grind);
+            const qint64 rpm = recipe.value("rpmPinned").toLongLong();
+            if (rpm > 0)
+                dye->setDyeGrinderRpm(static_cast<int>(rpm));
         }
-        if (pin.isEmpty() && linkedBagId > 0 && linkedBag.value("rpm").toLongLong() > 0)
-            dye->setDyeGrinderRpm(static_cast<int>(linkedBag.value("rpm").toLongLong()));
 
         // Dose — queued so it wins over loadProfile's own deferred
         // setDyeBeanWeight(recommendedDose) (same trick as shot load).
@@ -1239,13 +1300,17 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         // Profile-less recipes have no profile to override or re-upload.
         bool hasOverrides = false;
         if (!profileLess) {
+            // A recipe value matching the profile's own default is not an
+            // override — don't arm the flag for it (Bug A).
             const double yieldG = recipe.value("yieldG").toDouble();
-            if (yieldG > 0) {
+            if (yieldG > 0
+                && qAbs(yieldG - m_profileManager->currentProfile().targetWeight()) > 0.1) {
                 m_settings->brew()->setBrewYieldOverride(yieldG);
                 hasOverrides = true;
             }
             const double tempC = recipe.value("tempOverrideC").toDouble();
-            if (tempC > 0) {
+            if (tempC > 0
+                && qAbs(tempC - m_profileManager->currentProfile().espressoTemperature()) > 0.1) {
                 m_settings->brew()->setTemperatureOverride(tempC);
                 hasOverrides = true;
             }
@@ -1394,7 +1459,6 @@ void MainController::deactivateRecipe() {
     // its echo would otherwise land with no active recipe and leak the count.
     m_pendingRecipeSelfWrites = 0;
     if (m_settings) {
-        m_settings->dye()->setGrindBagWriteThroughSuspended(false);
         m_settings->dye()->setActiveRecipeId(-1);
     }
     if (!m_activeRecipe.isEmpty()) {
