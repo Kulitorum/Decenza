@@ -102,6 +102,12 @@ add_decenza_test(tst_drinktypes
     tst_drinktypes.cpp
 )
 
+# --- tst_recipeselectionmodel: pure selection + deferred-start state machine
+# behind MainController::selectedRecipeId (header-only target; PR #1470) ---
+add_decenza_test(tst_recipeselectionmodel
+    tst_recipeselectionmodel.cpp
+)
+
 # --- tst_mcptools_shots_helpers: detectorResults envelope reshape (issue #1012) ---
 add_decenza_test(tst_mcptools_shots_helpers
     tst_mcptools_shots_helpers.cpp

@@ -971,17 +971,28 @@ void MainController::setupRecipeConnections() {
     // both should move the pill highlight. activateRecipe() sets the optimistic
     // lead; this keeps it honest afterwards.
     connect(m_settings->dye(), &SettingsDye::activeRecipeIdChanged, this, [this]() {
-        setSelectedRecipeId(m_settings->dye()->activeRecipeId());
+        if (m_recipeSelection.onActiveRecipeChanged(m_settings->dye()->activeRecipeId()))
+            emit selectedRecipeIdChanged();
     });
     // A FAILED activation never changes activeRecipeId (the connect above won't
-    // fire), so roll the optimistic selection back explicitly — otherwise a
-    // second tap would start a shot for a recipe that never applied.
+    // fire), so the model rolls the optimistic selection back — otherwise a
+    // second tap would start a shot for a recipe that never applied. The same
+    // event also resolves a deferred start armed by startSelectedRecipeShotWhenApplied.
     connect(this, &MainController::recipeActivated, this, [this](qint64 recipeId, bool success) {
-        if (!success && m_selectedRecipeId == recipeId) {
+        const auto o = m_recipeSelection.onActivationResult(
+            recipeId, success, m_settings->dye()->activeRecipeId());
+        if (o.reverted)
             qWarning() << "[recipe] activation failed for" << recipeId
                        << "- reverting selection to active recipe"
                        << m_settings->dye()->activeRecipeId();
-            setSelectedRecipeId(m_settings->dye()->activeRecipeId());
+        if (o.selectedChanged)
+            emit selectedRecipeIdChanged();
+        if (o.fireStart && m_device) {
+            qDebug() << "[recipe] activation applied — pulling the deferred shot for" << recipeId;
+            m_device->startEspresso();
+        } else if (o.fireStart || o.startDropped) {
+            qWarning() << "[recipe] deferred shot not pulled for" << recipeId
+                       << "(success=" << success << "device=" << (m_device != nullptr) << ")";
         }
     });
 
@@ -989,7 +1000,7 @@ void MainController::setupRecipeConnections() {
     // settings already persist on their own — nothing is re-applied; this
     // only restores the pill highlight, cache, and pinned-grind routing).
     const int savedRecipeId = m_settings->dye()->activeRecipeId();
-    m_selectedRecipeId = savedRecipeId > 0 ? savedRecipeId : -1;
+    m_recipeSelection.reset(savedRecipeId);
     if (savedRecipeId > 0)
         m_recipeStorage->requestRecipe(savedRecipeId);
 }
@@ -1000,25 +1011,32 @@ void MainController::activateRecipe(qint64 recipeId) {
         emit recipeActivated(recipeId, false);
         return;
     }
-    // Mark it selected NOW (synchronous), before the async DB read + BLE upload,
-    // so the "tap the selected pill again to start" gesture works on the very
-    // next tap. Confirmed on success / rolled back on failure (see the
+    // Optimistically select it NOW (synchronous), before the async DB read +
+    // BLE upload, so the "tap the selected pill again to start" gesture works on
+    // the very next tap. The model also cancels any deferred start armed for a
+    // different recipe. Confirmed on success / rolled back on failure (see the
     // activeRecipeIdChanged + recipeActivated connects in the constructor).
     qDebug() << "[recipe] activateRecipe" << recipeId << "- selecting + requesting activation";
-    setSelectedRecipeId(recipeId);
+    if (m_recipeSelection.onActivate(recipeId))
+        emit selectedRecipeIdChanged();
     m_recipeStorage->requestRecipeForActivation(recipeId);
 }
 
-void MainController::setSelectedRecipeId(qint64 recipeId) {
-    // Normalize any non-positive id (activeRecipeId's int default is -1, but the
-    // codebase treats both 0 and negatives as "none" via > 0 guards) to the -1
-    // sentinel, so no path can seed a stray 0 that the pill match would miss.
-    if (recipeId <= 0)
-        recipeId = -1;
-    if (m_selectedRecipeId == recipeId)
+void MainController::startSelectedRecipeShotWhenApplied() {
+    if (!m_device)
         return;
-    m_selectedRecipeId = recipeId;
-    emit selectedRecipeIdChanged();
+    switch (m_recipeSelection.requestStart(m_settings->dye()->activeRecipeId())) {
+    case RecipeSelectionModel::StartDecision::StartNow:
+        qDebug() << "[recipe] starting espresso for applied recipe" << m_recipeSelection.selected();
+        m_device->startEspresso();
+        break;
+    case RecipeSelectionModel::StartDecision::Deferred:
+        qDebug() << "[recipe] start armed — waiting for recipe" << m_recipeSelection.selected()
+                 << "to finish applying before pulling the shot";
+        break;
+    case RecipeSelectionModel::StartDecision::None:
+        break;
+    }
 }
 
 void MainController::checkRecipesUpgradeEligibility() {

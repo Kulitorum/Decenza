@@ -50,8 +50,10 @@ Item {
             if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
                 AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
         } else {
-            console.log("[recipe pill/compact] starting espresso — recipe=" + recipe.id + " phase=" + MachineState.phase)
-            DE1Device.startEspresso()
+            // Deferred in MainController until the recipe's profile is applied,
+            // so a fast second tap can't pull a shot on the previous profile.
+            console.log("[recipe pill/compact] requesting start — recipe=" + recipe.id + " phase=" + MachineState.phase)
+            MainController.startSelectedRecipeShotWhenApplied()
         }
     }
 
