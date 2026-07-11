@@ -794,6 +794,7 @@ set(QML_FILES
     qml/components/RecipeRow.qml
     qml/components/RecipeDrinkCard.qml
     qml/components/RecipeField.qml
+    qml/components/RecipeResolver.qml
     qml/components/DrinkType.qml
     qml/components/ProfileKnowledgeDialog.qml
     qml/components/BeanThumbnail.qml

@@ -81,29 +81,11 @@ Page {
         ShotPlanConfig.itemOrderFromLayoutJson(Settings.network.layoutConfiguration)
 
     // Recipe identity for the recipe card, live-resolved by editShotData.recipeId
-    // (a shot-linked recipe can only be archived, never deleted, so the row
-    // always resolves and follows renames). Grind/rpm on that card comes from
-    // this page's live edit state, never this map's pin. _resolvedRecipeId
-    // guards against re-requesting on the frequent editShotData reassigns.
-    property var resolvedRecipe: ({})
-    property int _resolvedRecipeId: -1
-    onEditShotDataChanged: {
-        var rid = editShotData.recipeId || -1
-        if (rid > 0 && rid !== _resolvedRecipeId) {
-            _resolvedRecipeId = rid
-            resolvedRecipe = ({})
-            MainController.recipeStorage.requestRecipe(rid)
-        } else if (rid <= 0) {
-            _resolvedRecipeId = -1
-            resolvedRecipe = ({})
-        }
-    }
-    Connections {
-        target: MainController.recipeStorage
-        function onRecipeReady(recipeId, recipe) {
-            if (recipeId === postShotReviewPage._resolvedRecipeId)
-                postShotReviewPage.resolvedRecipe = recipe
-        }
+    // (follows renames). Grind/rpm on that card comes from this page's live edit
+    // state, never this map's pin.
+    RecipeResolver {
+        id: recipeResolver
+        sourceRecipeId: editShotData.recipeId || -1
     }
 
     // --- Read-only recipe-component row text (from the page's live edit state) ---
@@ -1778,9 +1760,9 @@ Page {
                     border.color: Theme.borderColor
                     visible: (editShotData.recipeId || -1) > 0
 
-                    readonly property string recipeName: postShotReviewPage.resolvedRecipe.name || ""
+                    readonly property string recipeName: recipeResolver.recipe.name || ""
                     readonly property string recipeDrinkLabel:
-                        DrinkType.shortLabel(DrinkType.fromRecipeMap(postShotReviewPage.resolvedRecipe))
+                        DrinkType.shortLabel(DrinkType.fromRecipeMap(recipeResolver.recipe))
 
                     Accessible.role: Accessible.Grouping
                     Accessible.name: {
@@ -1823,7 +1805,7 @@ Page {
                             visible: recipeCard.recipeDrinkLabel !== ""
                             ColoredIcon {
                                 Layout.alignment: Qt.AlignVCenter
-                                source: DrinkType.icon(DrinkType.fromRecipeMap(postShotReviewPage.resolvedRecipe))
+                                source: DrinkType.icon(DrinkType.fromRecipeMap(recipeResolver.recipe))
                                 iconWidth: Theme.scaled(16)
                                 iconHeight: Theme.scaled(16)
                                 iconColor: Theme.textSecondaryColor
