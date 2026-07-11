@@ -102,6 +102,12 @@ add_decenza_test(tst_drinktypes
     tst_drinktypes.cpp
 )
 
+# --- tst_recipeselectionmodel: pure selection + deferred-start state machine
+# behind MainController::selectedRecipeId (header-only target; PR #1470) ---
+add_decenza_test(tst_recipeselectionmodel
+    tst_recipeselectionmodel.cpp
+)
+
 # --- tst_mcptools_shots_helpers: detectorResults envelope reshape (issue #1012) ---
 add_decenza_test(tst_mcptools_shots_helpers
     tst_mcptools_shots_helpers.cpp
@@ -391,6 +397,18 @@ add_decenza_test(tst_shotsettings
 # --- tst_mmrwrite: DE1Device::writeMMR per-register dedup (issue #783) ---
 add_decenza_test(tst_mmrwrite
     tst_mmrwrite.cpp
+    mocks/MockTransport.h
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+)
+
+# --- tst_de1device_headless: GHC "headless" gate default + disconnect reset (#1470) ---
+add_decenza_test(tst_de1device_headless
+    tst_de1device_headless.cpp
     mocks/MockTransport.h
     ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
     ${BLE_SOURCES}

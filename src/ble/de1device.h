@@ -488,7 +488,13 @@ private:
     QMetaObject::Connection m_uploadConnection;
     QTimer m_uploadTimeoutTimer;
     bool m_usbChargerOn = true;  // Default on (safe default like de1app)
-    bool m_isHeadless = false;   // True if app can start operations (GHC not installed or inactive)
+    // True if the app may start operations (no GHC, or a GHC that is present
+    // but inactive). Default TRUE, matching de1app, whose ghc_is_installed
+    // defaults to 0 (ghc_required() == 0 → app can start). Only a positive GHC
+    // read flips this false (see parseMMRResponse). Defaulting false would
+    // brick every start button until the GHC MMR read returns — and forever if
+    // that read is ever slow or dropped.
+    bool m_isHeadless = true;
     int m_refillKitDetected = -1;  // -1=unknown, 0=not detected, 1=detected
 
     // SAW stop latency instrumentation (monotonic ms timestamps)

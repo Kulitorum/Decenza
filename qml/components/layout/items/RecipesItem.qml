@@ -26,6 +26,37 @@ Item {
         return null
     }
 
+    // True when the app is allowed to start machine operations on-screen — same
+    // gate as the profile pills (EspressoItem). An active GHC takes exclusive
+    // control, so on-screen starts are only valid headless or in simulation.
+    readonly property bool canStartOperations: DE1Device.isHeadless || DE1Device.simulationMode
+
+    // Two-tap select-then-start, identical to the regular-layout recipe pill
+    // (IdlePage.tryStartRecipe) so both layouts behave the same. Selection is
+    // the synchronous, shared MainController.selectedRecipeId; the first tap
+    // selects (activates), a tap on the already-selected recipe starts the shot.
+    function tryStartRecipe(recipe) {
+        var alreadySelected = (recipe.id === MainController.selectedRecipeId)
+        if (!alreadySelected) {
+            MainController.activateRecipe(recipe.id)  // sets selectedRecipeId synchronously
+            return
+        }
+        if (!root.canStartOperations) {
+            console.log("[recipe pill/compact] start blocked: app cannot start operations (active GHC?) — recipe=" + recipe.id
+                        + " isHeadless=" + DE1Device.isHeadless + " simulationMode=" + DE1Device.simulationMode)
+        } else if (!MachineState.isReady) {
+            console.log("[recipe pill/compact] start blocked: machine not ready — recipe=" + recipe.id
+                        + " phase=" + MachineState.phase)
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
+        } else {
+            // Deferred in MainController until the recipe's profile is applied,
+            // so a fast second tap can't pull a shot on the previous profile.
+            console.log("[recipe pill/compact] requesting start — recipe=" + recipe.id + " phase=" + MachineState.phase)
+            MainController.startSelectedRecipeShotWhenApplied()
+        }
+    }
+
     // The five most-recently-used non-archived recipes (inventoryReady is
     // MRU-ordered); the full list lives on the Recipes page.
     property var inventoryRecipes: []
@@ -140,7 +171,7 @@ Item {
             var selectedName = ""
             for (var i = 0; i < recipes.length; ++i) {
                 names.push(recipes[i].name)
-                if (recipes[i].id === Settings.dye.activeRecipeId) selectedName = recipes[i].name
+                if (recipes[i].id === MainController.selectedRecipeId) selectedName = recipes[i].name
             }
             var announcement = recipes.length + " " + TranslationManager.translate("idle.accessible.recipes", "recipes") + ": " + names.join(", ")
             if (selectedName !== "") {
@@ -207,7 +238,7 @@ Item {
             selectedIndex: {
                 var list = root.inventoryRecipes
                 for (var i = 0; i < list.length; ++i) {
-                    if (list[i].id === Settings.dye.activeRecipeId) return i
+                    if (list[i].id === MainController.selectedRecipeId) return i
                 }
                 return -1
             }
@@ -215,7 +246,9 @@ Item {
             onPresetSelected: function(index) {
                 var recipe = root.inventoryRecipes[index]
                 if (!recipe) return
-                MainController.activateRecipe(recipe.id)
+                // First tap selects (activates); tapping the selected recipe
+                // again starts the shot — same as the regular-layout pill row.
+                root.tryStartRecipe(recipe)
                 presetPopup.close()
             }
         }

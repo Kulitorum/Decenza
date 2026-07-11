@@ -5,6 +5,7 @@
 #include <QMap>
 #include <QTimer>
 #include "profilemanager.h"
+#include "recipeselectionmodel.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
@@ -70,6 +71,22 @@ class MainController : public QObject {
     // deactivation. QML reads name/steam fields from here; the id itself
     // lives in Settings.dye.activeRecipeId.
     Q_PROPERTY(QVariantMap activeRecipe READ activeRecipe NOTIFY activeRecipeChanged)
+    // The recipe the user has SELECTED in a pill row — set synchronously the
+    // instant activateRecipe() is called, so the two-tap "select then start"
+    // gesture (tap once to select, tap the selected pill again to pull the
+    // shot) fires on the very next tap without waiting for the async activation
+    // (background DB read + BLE profile upload) to echo back through
+    // Settings.dye.activeRecipeId. Leads activeRecipeId during activation, then
+    // tracks it: a successful activation confirms it, an external deactivation
+    // or a failed activation rolls it back. This is the recipe analogue of the
+    // profile pills' synchronous Settings.app.selectedFavoriteProfile, and is
+    // the single source of truth shared by the regular (IdlePage) and compact
+    // (RecipesItem) pill rows so both behave identically. -1 = none. Under
+    // rapidly interleaved activations it tracks the last-COMPLETED activation,
+    // not necessarily the last tap (same self-healing race as activeRecipe); it
+    // always re-converges to activeRecipeId, so the highlight never ends
+    // disagreeing with the active recipe.
+    Q_PROPERTY(qint64 selectedRecipeId READ selectedRecipeId NOTIFY selectedRecipeIdChanged)
     Q_PROPERTY(UnifiedBeanSearchModel* beanSearch READ beanSearch CONSTANT)
     Q_PROPERTY(ShotImporter* shotImporter READ shotImporter CONSTANT)
     Q_PROPERTY(ProfileConverter* profileConverter READ profileConverter CONSTANT)
@@ -135,6 +152,7 @@ public:
     EquipmentStorage* equipmentStorage() const { return m_equipmentStorage; }
     RecipeStorage* recipeStorage() const { return m_recipeStorage; }
     QVariantMap activeRecipe() const { return m_activeRecipe; }
+    qint64 selectedRecipeId() const { return m_recipeSelection.selected(); }
     UnifiedBeanSearchModel* beanSearch() const { return m_beanSearch; }
     ShotImporter* shotImporter() const { return m_shotImporter; }
     ProfileConverter* profileConverter() const { return m_profileConverter; }
@@ -165,6 +183,16 @@ public:
     // path shared by QML pill taps, MCP recipe_activate, and the web
     // /activate route). Async; terminal status via recipeActivated().
     Q_INVOKABLE void activateRecipe(qint64 recipeId);
+    // Start an espresso shot for the currently SELECTED recipe, but only once
+    // its profile has actually been applied to the machine. If the selected
+    // recipe's activation is already confirmed (activeRecipeId == selectedRecipeId)
+    // the shot starts immediately; if activation is still in flight (the
+    // background DB read + BLE profile upload have not landed) the start is
+    // armed and fires the instant recipeActivated(id, true) arrives — so a fast
+    // second tap can never pull a shot on the previous, not-yet-replaced
+    // profile. A failed activation, or selecting a different recipe, cancels the
+    // armed start. Callers gate on machine-ready / canStartOperations first.
+    Q_INVOKABLE void startSelectedRecipeShotWhenApplied();
     // Leave the recipe (pill deselects). The recipe row itself is unchanged;
     // live settings stay as they are — the user is free-styling now.
     Q_INVOKABLE void deactivateRecipe();
@@ -285,6 +313,7 @@ signals:
     // pill taps, MCP recipe_activate, and the web /activate route.
     void recipeActivated(qint64 recipeId, bool success);
     void activeRecipeChanged();
+    void selectedRecipeIdChanged();
 
     // Recipes-first layout upgrade offer (recipes-idle-layout-upgrade):
     // willCreateStarterRecipe/milkPreselected answer checkRecipesUpgradeEligibility().
@@ -452,6 +481,11 @@ private:
     // Outstanding write-through stamps whose recipeUpdated echo should not
     // trigger a cache re-read (mirrors SettingsDye::m_pendingSelfWrites).
     int m_pendingRecipeSelfWrites = 0;
+    // Pure state machine behind selectedRecipeId + the deferred recipe-shot
+    // start. MainController only wires it to Qt signals and the device; the
+    // policy (lead/converge/rollback, arm/fire) lives in the header-only model
+    // so it can be unit-tested without linking MainController.
+    RecipeSelectionModel m_recipeSelection;
     // Apply the activation bundle on the main thread (recipeActivationReady).
     void applyActivatedRecipe(qint64 recipeId, const QVariantMap& recipe,
                               qint64 linkedBagId, const QVariantMap& linkedBag);

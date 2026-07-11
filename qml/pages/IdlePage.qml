@@ -174,6 +174,35 @@ Page {
         }
     }
 
+    // Recipe pill selection is the synchronous MainController.selectedRecipeId
+    // (shared with the compact RecipesItem so both layouts behave identically —
+    // the recipe analogue of the profile pills' Settings.app.selectedFavoriteProfile).
+    // See tryStartRecipe() below for the two-tap select-then-start handler.
+    function tryStartRecipe(recipe) {
+        var alreadySelected = (recipe.id === MainController.selectedRecipeId)
+        if (!alreadySelected) {
+            MainController.activateRecipe(recipe.id)  // sets selectedRecipeId synchronously
+            return
+        }
+        // Second tap on the selected recipe → start. Log which gate blocks it
+        // (the two gates fail for very different reasons) so a debug log tells
+        // us exactly why a shot did not start.
+        if (!idlePage.canStartOperations) {
+            console.log("[recipe pill] start blocked: app cannot start operations (active GHC?) — recipe=" + recipe.id
+                        + " isHeadless=" + DE1Device.isHeadless + " simulationMode=" + DE1Device.simulationMode)
+        } else if (!MachineState.isReady) {
+            console.log("[recipe pill] start blocked: machine not ready — recipe=" + recipe.id
+                        + " phase=" + MachineState.phase)
+            if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+                AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
+        } else {
+            // Deferred in MainController until the recipe's profile is applied,
+            // so a fast second tap can't pull a shot on the previous profile.
+            console.log("[recipe pill] requesting start — recipe=" + recipe.id + " phase=" + MachineState.phase)
+            MainController.startSelectedRecipeShotWhenApplied()
+        }
+    }
+
     // Track which function's presets are showing (used by center-zone action items)
     property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush", "beans", "equipment", "recipes"
 
@@ -482,7 +511,9 @@ Page {
                 case "recipes":
                     presets = idlePage.inventoryRecipes.map(function(r) { return { name: r.name } })
                     for (var ri = 0; ri < idlePage.inventoryRecipes.length; ++ri) {
-                        if (idlePage.inventoryRecipes[ri].id === Settings.dye.activeRecipeId) {
+                        // Match the pill highlight (selectedIndex) — the synchronous
+                        // MainController.selectedRecipeId, not the lagging activeRecipeId.
+                        if (idlePage.inventoryRecipes[ri].id === MainController.selectedRecipeId) {
                             selectedName = idlePage.inventoryRecipes[ri].name
                             break
                         }
@@ -1041,7 +1072,7 @@ Page {
                     selectedIndex: {
                         var list = idlePage.inventoryRecipes
                         for (var i = 0; i < list.length; ++i) {
-                            if (list[i].id === Settings.dye.activeRecipeId) return i
+                            if (list[i].id === MainController.selectedRecipeId) return i
                         }
                         return -1
                     }
@@ -1049,20 +1080,10 @@ Page {
                     onPresetSelected: function(index) {
                         var recipe = idlePage.inventoryRecipes[index]
                         if (!recipe) return
-                        // Match the profile/espresso pills: first tap activates
-                        // the recipe; tapping the already-active recipe starts
-                        // the shot (when the machine is ready).
-                        if (recipe.id === Settings.dye.activeRecipeId) {
-                            if (MachineState.isReady && idlePage.canStartOperations) {
-                                DE1Device.startEspresso()
-                            } else {
-                                console.log("Cannot start espresso - machine not ready, phase:", MachineState.phase)
-                                if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
-                                    AccessibilityManager.announce(TranslationManager.translate("machine.notReady", "Machine is not ready"))
-                            }
-                        } else {
-                            MainController.activateRecipe(recipe.id)
-                        }
+                        // Match the profile/espresso pills: first tap selects the
+                        // recipe (kicks off activation); tapping the selected
+                        // recipe again starts the shot (when ready).
+                        idlePage.tryStartRecipe(recipe)
                     }
                 }
             }
