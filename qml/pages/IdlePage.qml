@@ -509,7 +509,9 @@ Page {
                 case "recipes":
                     presets = idlePage.inventoryRecipes.map(function(r) { return { name: r.name } })
                     for (var ri = 0; ri < idlePage.inventoryRecipes.length; ++ri) {
-                        if (idlePage.inventoryRecipes[ri].id === Settings.dye.activeRecipeId) {
+                        // Match the pill highlight (selectedIndex) — the synchronous
+                        // MainController.selectedRecipeId, not the lagging activeRecipeId.
+                        if (idlePage.inventoryRecipes[ri].id === MainController.selectedRecipeId) {
                             selectedName = idlePage.inventoryRecipes[ri].name
                             break
                         }

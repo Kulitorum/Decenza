@@ -1010,6 +1010,11 @@ void MainController::activateRecipe(qint64 recipeId) {
 }
 
 void MainController::setSelectedRecipeId(qint64 recipeId) {
+    // Normalize any non-positive id (activeRecipeId's int default is -1, but the
+    // codebase treats both 0 and negatives as "none" via > 0 guards) to the -1
+    // sentinel, so no path can seed a stray 0 that the pill match would miss.
+    if (recipeId <= 0)
+        recipeId = -1;
     if (m_selectedRecipeId == recipeId)
         return;
     m_selectedRecipeId = recipeId;

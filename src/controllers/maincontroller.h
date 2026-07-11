@@ -80,7 +80,11 @@ class MainController : public QObject {
     // or a failed activation rolls it back. This is the recipe analogue of the
     // profile pills' synchronous Settings.app.selectedFavoriteProfile, and is
     // the single source of truth shared by the regular (IdlePage) and compact
-    // (RecipesItem) pill rows so both behave identically. -1 = none.
+    // (RecipesItem) pill rows so both behave identically. -1 = none. Under
+    // rapidly interleaved activations it tracks the last-COMPLETED activation,
+    // not necessarily the last tap (same self-healing race as activeRecipe); it
+    // always re-converges to activeRecipeId, so the highlight never ends
+    // disagreeing with the active recipe.
     Q_PROPERTY(qint64 selectedRecipeId READ selectedRecipeId NOTIFY selectedRecipeIdChanged)
     Q_PROPERTY(UnifiedBeanSearchModel* beanSearch READ beanSearch CONSTANT)
     Q_PROPERTY(ShotImporter* shotImporter READ shotImporter CONSTANT)

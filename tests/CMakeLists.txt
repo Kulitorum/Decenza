@@ -400,6 +400,18 @@ add_decenza_test(tst_mmrwrite
     ${SIMULATOR_SOURCES}
 )
 
+# --- tst_de1device_headless: GHC "headless" gate default + disconnect reset (#1470) ---
+add_decenza_test(tst_de1device_headless
+    tst_de1device_headless.cpp
+    mocks/MockTransport.h
+    ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+)
+
 # --- tst_de1device_firmware: firmware-update BLE extensions on DE1Device ---
 add_decenza_test(tst_de1device_firmware
     tst_de1device_firmware.cpp
