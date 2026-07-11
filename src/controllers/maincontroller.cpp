@@ -965,20 +965,55 @@ void MainController::setupRecipeConnections() {
     connect(m_settings->brew(), &SettingsBrew::waterVesselPresetsChanged, this,
             [this]() { stampActiveRecipeHotWater(); });
 
+    // selectedRecipeId (the synchronous pill-selection marker) follows
+    // activeRecipeId in steady state: a successful activation sets activeRecipeId
+    // (confirming our optimistic lead), and an external deactivation clears it —
+    // both should move the pill highlight. activateRecipe() sets the optimistic
+    // lead; this keeps it honest afterwards.
+    connect(m_settings->dye(), &SettingsDye::activeRecipeIdChanged, this, [this]() {
+        setSelectedRecipeId(m_settings->dye()->activeRecipeId());
+    });
+    // A FAILED activation never changes activeRecipeId (the connect above won't
+    // fire), so roll the optimistic selection back explicitly — otherwise a
+    // second tap would start a shot for a recipe that never applied.
+    connect(this, &MainController::recipeActivated, this, [this](qint64 recipeId, bool success) {
+        if (!success && m_selectedRecipeId == recipeId) {
+            qWarning() << "[recipe] activation failed for" << recipeId
+                       << "- reverting selection to active recipe"
+                       << m_settings->dye()->activeRecipeId();
+            setSelectedRecipeId(m_settings->dye()->activeRecipeId());
+        }
+    });
+
     // Startup restore: the persisted selection survives a restart (the live
     // settings already persist on their own — nothing is re-applied; this
     // only restores the pill highlight, cache, and pinned-grind routing).
     const int savedRecipeId = m_settings->dye()->activeRecipeId();
+    m_selectedRecipeId = savedRecipeId > 0 ? savedRecipeId : -1;
     if (savedRecipeId > 0)
         m_recipeStorage->requestRecipe(savedRecipeId);
 }
 
 void MainController::activateRecipe(qint64 recipeId) {
     if (!m_recipeStorage) {
+        qWarning() << "[recipe] activateRecipe" << recipeId << "- no recipe storage, activation failed";
         emit recipeActivated(recipeId, false);
         return;
     }
+    // Mark it selected NOW (synchronous), before the async DB read + BLE upload,
+    // so the "tap the selected pill again to start" gesture works on the very
+    // next tap. Confirmed on success / rolled back on failure (see the
+    // activeRecipeIdChanged + recipeActivated connects in the constructor).
+    qDebug() << "[recipe] activateRecipe" << recipeId << "- selecting + requesting activation";
+    setSelectedRecipeId(recipeId);
     m_recipeStorage->requestRecipeForActivation(recipeId);
+}
+
+void MainController::setSelectedRecipeId(qint64 recipeId) {
+    if (m_selectedRecipeId == recipeId)
+        return;
+    m_selectedRecipeId = recipeId;
+    emit selectedRecipeIdChanged();
 }
 
 void MainController::checkRecipesUpgradeEligibility() {

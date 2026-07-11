@@ -70,6 +70,18 @@ class MainController : public QObject {
     // deactivation. QML reads name/steam fields from here; the id itself
     // lives in Settings.dye.activeRecipeId.
     Q_PROPERTY(QVariantMap activeRecipe READ activeRecipe NOTIFY activeRecipeChanged)
+    // The recipe the user has SELECTED in a pill row — set synchronously the
+    // instant activateRecipe() is called, so the two-tap "select then start"
+    // gesture (tap once to select, tap the selected pill again to pull the
+    // shot) fires on the very next tap without waiting for the async activation
+    // (background DB read + BLE profile upload) to echo back through
+    // Settings.dye.activeRecipeId. Leads activeRecipeId during activation, then
+    // tracks it: a successful activation confirms it, an external deactivation
+    // or a failed activation rolls it back. This is the recipe analogue of the
+    // profile pills' synchronous Settings.app.selectedFavoriteProfile, and is
+    // the single source of truth shared by the regular (IdlePage) and compact
+    // (RecipesItem) pill rows so both behave identically. -1 = none.
+    Q_PROPERTY(qint64 selectedRecipeId READ selectedRecipeId NOTIFY selectedRecipeIdChanged)
     Q_PROPERTY(UnifiedBeanSearchModel* beanSearch READ beanSearch CONSTANT)
     Q_PROPERTY(ShotImporter* shotImporter READ shotImporter CONSTANT)
     Q_PROPERTY(ProfileConverter* profileConverter READ profileConverter CONSTANT)
@@ -135,6 +147,7 @@ public:
     EquipmentStorage* equipmentStorage() const { return m_equipmentStorage; }
     RecipeStorage* recipeStorage() const { return m_recipeStorage; }
     QVariantMap activeRecipe() const { return m_activeRecipe; }
+    qint64 selectedRecipeId() const { return m_selectedRecipeId; }
     UnifiedBeanSearchModel* beanSearch() const { return m_beanSearch; }
     ShotImporter* shotImporter() const { return m_shotImporter; }
     ProfileConverter* profileConverter() const { return m_profileConverter; }
@@ -285,6 +298,7 @@ signals:
     // pill taps, MCP recipe_activate, and the web /activate route.
     void recipeActivated(qint64 recipeId, bool success);
     void activeRecipeChanged();
+    void selectedRecipeIdChanged();
 
     // Recipes-first layout upgrade offer (recipes-idle-layout-upgrade):
     // willCreateStarterRecipe/milkPreselected answer checkRecipesUpgradeEligibility().
@@ -452,6 +466,10 @@ private:
     // Outstanding write-through stamps whose recipeUpdated echo should not
     // trigger a cache re-read (mirrors SettingsDye::m_pendingSelfWrites).
     int m_pendingRecipeSelfWrites = 0;
+    // Synchronous "user has selected this recipe" marker (see selectedRecipeId
+    // Q_PROPERTY). Leads Settings.dye.activeRecipeId during activation. -1 = none.
+    qint64 m_selectedRecipeId = -1;
+    void setSelectedRecipeId(qint64 recipeId);
     // Apply the activation bundle on the main thread (recipeActivationReady).
     void applyActivatedRecipe(qint64 recipeId, const QVariantMap& recipe,
                               qint64 linkedBagId, const QVariantMap& linkedBag);

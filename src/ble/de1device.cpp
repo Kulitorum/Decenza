@@ -114,6 +114,11 @@ void DE1Device::onTransportDisconnected() {
     m_lastSawTriggerMs = 0;
     m_lastSawWriteMs = 0;
 
+    // Restore the permissive default so a GHC machine's "false" doesn't carry
+    // into the next connection and block its start buttons until (or unless)
+    // the fresh GHC MMR read returns. setIsHeadless only emits on a change.
+    setIsHeadless(true);
+
     // Clear ShotSettings tracking so a reconnect doesn't compare the DE1's
     // post-reconnect indication against a stale commanded value from the
     // previous session (which would log a spurious drift).
@@ -794,6 +799,15 @@ void DE1Device::requestState(DE1::State state) {
 }
 
 void DE1Device::startEspresso() {
+    // One log for every start surface (profile/recipe pills, MCP, GHC sim): if a
+    // shot fails to start, the debug log shows whether the BLE command was even
+    // issued and the machine state at the time. The gate that can block BEFORE
+    // this point (isHeadless / machine-ready) is logged QML-side.
+    qDebug().noquote() << QString("[BLE DE1] startEspresso: state=%1 headless=%2 sim=%3")
+                              .arg(DE1::stateToString(m_state))
+                              .arg(m_isHeadless ? "yes" : "no")
+                              .arg(m_simulationMode ? "yes" : "no");
+
     writeMMR(DE1::MMR::GHC_MODE, 1);
 
     if (m_state != DE1::State::Idle) {
