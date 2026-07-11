@@ -54,6 +54,83 @@ Dialog {
     property string selectedProfileTitle: ""
     property string originalProfileFilename: ""
 
+    // Recipe mode: when a recipe is active it owns the profile/beans/equipment,
+    // so those rows hide and a Recipe quick-switch row takes the Profile row's
+    // place. activeRecipeId is a NOTIFYing property, so this re-evaluates live
+    // (e.g. deactivation from another surface while the dialog is open).
+    readonly property bool recipeActive: Settings.dye.activeRecipeId >= 0
+    // Non-archived MRU recipe inventory (same source as the pill row), for the
+    // quick-switch suggestions and the name→id resolution.
+    property var recipeChoices: []
+    property string selectedRecipeName: ""
+    // Recipe id of an in-flight "Update Recipe" write, matched against the
+    // recipeUpdated(recipeId, success) result (RecipesPage's pending-id
+    // pattern) so a failure never looks like the tap was ignored.
+    property int _pendingRecipeUpdateId: -1
+    // Failure banner for the fire-and-forget recipe operations (update /
+    // switch). Auto-dismisses — the allowed toast use of a timer.
+    property string recipeErrorText: ""
+    Timer {
+        id: recipeErrorTimer
+        interval: 4000
+        onTriggered: root.recipeErrorText = ""
+    }
+    function showRecipeError(msg) {
+        recipeErrorText = msg
+        recipeErrorTimer.restart()
+        if (typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled)
+            AccessibilityManager.announce(msg, true)
+    }
+
+    function getRecipeSuggestions() {
+        var names = []
+        for (var i = 0; i < recipeChoices.length; i++)
+            names.push(recipeChoices[i].name)
+        return names
+    }
+
+    // Resolve a chosen name to a recipe id. Names can collide; prefer a match
+    // whose id differs from the active one (so picking a duplicate name always
+    // switches). Returns -1 when nothing matches.
+    function resolveRecipeId(name) {
+        var fallback = -1
+        for (var i = 0; i < recipeChoices.length; i++) {
+            var r = recipeChoices[i]
+            if (r.name === name) {
+                if (r.id !== Settings.dye.activeRecipeId)
+                    return r.id
+                if (fallback < 0)
+                    fallback = r.id
+            }
+        }
+        return fallback
+    }
+
+    // Seed every dial-in field from the current DYE/profile/override state.
+    // Called on open and after a recipe switch settles. Writes ONLY local
+    // root.* values — never Settings — so re-seeding can't trigger a
+    // dose/grind stamp on a just-activated recipe.
+    function seedFromCurrentState() {
+        // Update profile temperature, use override if active
+        profileTemperature = ProfileManager.profileTargetTemperature
+        profileTargetWeight = ProfileManager.profileTargetWeight
+        temperatureValue = Settings.brew.hasTemperatureOverride ? Settings.brew.temperatureOverride : profileTemperature
+
+        // Use DYE fields for dose and grind (source of truth). Grinder identity
+        // is read-only here (resolved from the active package); only the dial-in
+        // (grind setting + rpm) is editable.
+        doseValue = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
+        grindSetting = Settings.dye.dyeGrinderSetting
+        grindRpm = Settings.dye.dyeGrinderRpm
+        selectedProfileTitle = ProfileManager.currentProfileName
+        selectedRecipeName = (recipeActive && MainController.activeRecipe.name) ? MainController.activeRecipe.name : ""
+
+        // Yield: use override if active, otherwise use profile default
+        targetValue = Settings.brew.hasBrewYieldOverride ? Settings.brew.brewYieldOverride : profileTargetWeight
+        ratio = doseValue > 0 ? targetValue / doseValue : Settings.brew.lastUsedRatio
+        targetManuallySet = Settings.brew.hasBrewYieldOverride
+    }
+
     function getProfileSuggestions() {
         var profiles = ProfileManager.availableProfiles
         var titles = []
@@ -115,6 +192,14 @@ Dialog {
                 root.doseValue = Settings.dye.dyeBeanWeight
             }
         }
+        // Deactivation while open (id → -1): refresh the returning Profile
+        // row's seeded values. Successful switches re-seed off recipeActivated
+        // instead — that signal is queued after activation's deferred dose
+        // write, whereas this id flip happens before the dose lands.
+        function onActiveRecipeIdChanged() {
+            if (root.visible && Settings.dye.activeRecipeId < 0)
+                root.seedFromCurrentState()
+        }
     }
 
     // Recalculate target when dose or ratio changes (unless manually overridden)
@@ -131,8 +216,10 @@ Dialog {
     }
 
     onRejected: {
-        // Restore the original profile if the user changed it via the profile picker
-        if (originalProfileFilename.length > 0 && Settings.app.currentProfile !== originalProfileFilename) {
+        // Restore the original profile if the user changed it via the profile
+        // picker. Inert in recipe mode: the recipe owns the profile and the
+        // picker is hidden, so there is nothing of the user's to undo.
+        if (!recipeActive && originalProfileFilename.length > 0 && Settings.app.currentProfile !== originalProfileFilename) {
             ProfileManager.loadProfile(originalProfileFilename)
         }
     }
@@ -148,25 +235,52 @@ Dialog {
             AccessibilityManager.announce(announcement)
         }
 
-        // Update profile temperature, use override if active
-        profileTemperature = ProfileManager.profileTargetTemperature
-        profileTargetWeight = ProfileManager.profileTargetWeight
-        temperatureValue = Settings.brew.hasTemperatureOverride ? Settings.brew.temperatureOverride : profileTemperature
-
-        // Use DYE fields for dose and grind (source of truth). Grinder identity
-        // is read-only here (resolved from the active package); only the dial-in
-        // (grind setting + rpm) is editable.
-        doseValue = Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18.0
-        grindSetting = Settings.dye.dyeGrinderSetting
-        grindRpm = Settings.dye.dyeGrinderRpm
-        selectedProfileTitle = ProfileManager.currentProfileName
+        seedFromCurrentState()
         originalProfileFilename = Settings.app.currentProfile
         showScaleWarning = false
+        recipeErrorText = ""
+        _pendingRecipeUpdateId = -1
+        MainController.recipeStorage.requestInventory()
+    }
 
-        // Yield: use override if active, otherwise use profile default
-        targetValue = Settings.brew.hasBrewYieldOverride ? Settings.brew.brewYieldOverride : profileTargetWeight
-        ratio = doseValue > 0 ? targetValue / doseValue : Settings.brew.lastUsedRatio
-        targetManuallySet = Settings.brew.hasBrewYieldOverride
+    // Recipe quick-switch list: the same non-archived MRU inventory the pill
+    // row uses. Refreshed on open (above) and on any recipe change while open
+    // (e.g. after "Update Recipe" writes a field).
+    Connections {
+        target: MainController.recipeStorage
+        function onInventoryReady(recipes) { root.recipeChoices = recipes }
+        function onRecipesChanged() {
+            if (root.visible)
+                MainController.recipeStorage.requestInventory()
+        }
+        // "Update Recipe" is fire-and-forget and, with the auto-stamp gone,
+        // the ONLY path a yield/temp value reaches the recipe — a swallowed
+        // failure would silently lose the user's dialed value.
+        function onRecipeUpdated(recipeId, success) {
+            if (recipeId !== root._pendingRecipeUpdateId)
+                return
+            root._pendingRecipeUpdateId = -1
+            if (!success && root.visible)
+                root.showRecipeError(TranslationManager.translate("brewDialog.recipeUpdateFailed", "Couldn't save to the recipe"))
+        }
+    }
+
+    // Re-seed after an in-dialog recipe switch. recipeActivated is emitted
+    // QUEUED, deliberately after activation's deferred dose write — the one
+    // event where "everything applied" is actually true (activeRecipeId flips
+    // BEFORE the dose lands, so it can't be the re-seed trigger). On failure
+    // nothing was applied: the same re-seed restores the truthful recipe name
+    // in the quick-switch field, plus a banner so the miss isn't silent.
+    Connections {
+        target: MainController
+        enabled: root.visible
+        function onRecipeActivated(recipeId, success) {
+            if (!root.visible)
+                return
+            root.seedFromCurrentState()
+            if (!success)
+                root.showRecipeError(TranslationManager.translate("brewDialog.recipeSwitchFailed", "Couldn't switch to that recipe"))
+        }
     }
 
     SwitchEquipmentDialog {
@@ -191,7 +305,7 @@ Dialog {
         implicitWidth: root._frameWidth
         inOverlay: true
         textFields: [
-            profileInput.textField,
+            profileInput.textField, recipeInput.textField,
             grindInput.textField, rpmInput
         ]
         targetFlickable: brewFlickable
@@ -343,8 +457,10 @@ Dialog {
             }
         }
 
-        // Profile selector
+        // Profile selector — hidden in recipe mode (the recipe owns the profile;
+        // an invisible layout child takes no vertical space, so the row collapses).
         RowLayout {
+            visible: !root.recipeActive
             Layout.fillWidth: true
             Layout.leftMargin: Theme.scaled(20)
             Layout.rightMargin: Theme.scaled(20)
@@ -377,8 +493,56 @@ Dialog {
             }
         }
 
-        // Beans: read-only summary of the active bag + Change Beans
+        // Recipe quick-switch — the Profile row's slot in recipe mode. Picking a
+        // different recipe re-activates through the single activation path
+        // (MainController.activateRecipe); the dial-in fields re-seed when
+        // activeRecipeId settles on the new recipe.
         RowLayout {
+            visible: root.recipeActive
+            Layout.fillWidth: true
+            Layout.leftMargin: Theme.scaled(20)
+            Layout.rightMargin: Theme.scaled(20)
+            Layout.topMargin: Theme.scaled(12)
+            spacing: Theme.scaled(4)
+
+            Text {
+                text: TranslationManager.translate("brewDialog.recipeLabel", "Recipe:")
+                font: Theme.bodyFont
+                color: Theme.textSecondaryColor
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredWidth: Theme.scaled(75)
+                Accessible.ignored: true
+            }
+
+            SuggestionField {
+                id: recipeInput
+                Layout.fillWidth: true
+                label: ""
+                accessibleName: TranslationManager.translate("brewDialog.recipe", "Recipe")
+                text: root.selectedRecipeName
+                suggestions: root.getRecipeSuggestions()
+                onTextEdited: function(t) {
+                    root.selectedRecipeName = t
+                    // The field re-emits its unchanged text on blur, so the active
+                    // recipe's own name is never a switch — otherwise a stray tap
+                    // into the field would activate a same-named twin (the resolver
+                    // prefers a non-active id on duplicates). A twin sharing the
+                    // active name is unreachable from a name-only control anyway.
+                    if (t === (MainController.activeRecipe.name || ""))
+                        return
+                    // Only switch on an exact name match (suggestion selection or a
+                    // fully typed name); re-selecting the active recipe is a no-op.
+                    var id = root.resolveRecipeId(t)
+                    if (id >= 0 && id !== Settings.dye.activeRecipeId)
+                        MainController.activateRecipe(id)
+                }
+            }
+        }
+
+        // Beans: read-only summary of the active bag + Change Beans — hidden in
+        // recipe mode (the recipe owns the bean link).
+        RowLayout {
+            visible: !root.recipeActive
             Layout.fillWidth: true
             Layout.leftMargin: Theme.scaled(20)
             Layout.rightMargin: Theme.scaled(20)
@@ -422,6 +586,35 @@ Dialog {
             Layout.margins: Theme.scaled(20)
             Layout.topMargin: Theme.scaled(8)
             spacing: Theme.scaled(8)
+
+            // Recipe operation failure banner (update/switch) — auto-dismisses.
+            Rectangle {
+                Layout.fillWidth: true
+                visible: root.recipeErrorText.length > 0
+                color: Theme.surfaceColor
+                border.width: 1
+                border.color: Theme.errorColor
+                radius: Theme.scaled(8)
+                implicitHeight: recipeErrorLabel.implicitHeight + Theme.scaled(24)
+
+                Accessible.role: Accessible.AlertMessage
+                Accessible.name: recipeErrorLabel.text
+                Accessible.focusable: true
+
+                Text {
+                    id: recipeErrorLabel
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.margins: Theme.scaled(12)
+                    text: root.recipeErrorText
+                    font: Theme.bodyFont
+                    color: Theme.errorColor
+                    wrapMode: Text.Wrap
+                    horizontalAlignment: Text.AlignHCenter
+                    Accessible.ignored: true  // Parent handles accessibility
+                }
+            }
 
             // Low dose warning
             Rectangle {
@@ -494,6 +687,8 @@ Dialog {
                         // ×9/5 for °F, no origin shift); stored back as a Celsius delta.
                         readonly property real delta: root.temperatureValue - root.profileTemperature
                         readonly property real displayDelta: Theme.cDeltaToDisplay(delta)
+                        // Overridden ⟺ Clear would change it (Clear restores delta 0).
+                        readonly property bool overridden: Math.abs(delta) > 0.1
                         value: displayDelta
                         from: Theme.cDeltaToDisplay(70 - root.profileTemperature)
                         to: Theme.cDeltaToDisplay(100 - root.profileTemperature)
@@ -501,27 +696,46 @@ Dialog {
                         decimals: 0
                         suffix: "°"
                         displayText: (displayDelta > 0 ? "+" : "") + displayDelta.toFixed(0) + "°"
-                        valueColor: Math.abs(delta) > 0.1 ? Theme.temperatureColor : Theme.textSecondaryColor
-                        accentColor: Theme.temperatureColor
+                        valueColor: overridden ? Theme.highlightColor : Theme.textColor
+                        accentColor: overridden ? Theme.highlightColor : Theme.primaryColor
                         accessibleName: TranslationManager.translate("brewDialog.brewTempDelta", "Brew temperature offset")
                         onValueModified: function(newValue) {
                             root.temperatureValue = root.profileTemperature + Theme.displayToCDelta(newValue)
                         }
                     }
 
-                    // Save to profile button
+                    // Save the shown temperature to the baseline: the profile normally,
+                    // the active recipe's tempOverrideC in recipe mode (writing the
+                    // shared profile there would leak into every recipe on it).
                     AccessibleButton {
                         Layout.preferredHeight: Theme.scaled(44)
-                        text: TranslationManager.translate("brewDialog.updateProfile", "Update Profile")
-                        accessibleName: TranslationManager.translate("brewDialog.saveTemperatureToProfile", "Save temperature to profile")
+                        text: root.recipeActive
+                            ? TranslationManager.translate("brewDialog.updateRecipe", "Update Recipe")
+                            : TranslationManager.translate("brewDialog.updateProfile", "Update Profile")
+                        accessibleName: root.recipeActive
+                            ? TranslationManager.translate("brewDialog.saveTemperatureToRecipe", "Save temperature to recipe")
+                            : TranslationManager.translate("brewDialog.saveTemperatureToProfile", "Save temperature to profile")
                         primary: true
+                        // In recipe mode, also disable once the recipe already holds
+                        // the shown value — doubling as the "saved" confirmation
+                        // (m_activeRecipe refreshes off recipeUpdated).
                         enabled: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
+                                 && (!root.recipeActive || Math.abs((MainController.activeRecipe.tempOverrideC || 0) - root.temperatureValue) > 0.05)
                         onClicked: {
-                            // Bake the new temperature into the profile. Anchored on
-                            // espressoTemperature (same as the live-brew override path)
-                            // so save and brew shift every step by the same delta.
-                            ProfileManager.applyTemperatureToProfile(root.temperatureValue)
-                            root.profileTemperature = root.temperatureValue
+                            if (root.recipeActive) {
+                                // Absolute °C, matching what activation reads back.
+                                // recipeUpdated → MainController refreshes m_activeRecipe.
+                                root._pendingRecipeUpdateId = Settings.dye.activeRecipeId
+                                MainController.recipeStorage.requestUpdateRecipe(
+                                    Settings.dye.activeRecipeId,
+                                    {"tempOverrideC": root.temperatureValue})
+                            } else {
+                                // Bake the new temperature into the profile. Anchored on
+                                // espressoTemperature (same as the live-brew override path)
+                                // so save and brew shift every step by the same delta.
+                                ProfileManager.applyTemperatureToProfile(root.temperatureValue)
+                                root.profileTemperature = root.temperatureValue
+                            }
                         }
                     }
                 }
@@ -545,7 +759,7 @@ Dialog {
                     font.family: Theme.bodyFont.family
                     font.pixelSize: Theme.scaled(14)
                     font.italic: true
-                    color: tempPending ? Theme.temperatureColor : Theme.textSecondaryColor
+                    color: tempPending ? Theme.highlightColor : Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignHCenter
                     Layout.leftMargin: Theme.scaled(75) + Theme.scaled(8)
                     Accessible.role: Accessible.StaticText
@@ -570,14 +784,17 @@ Dialog {
                 ValueInput {
                     id: doseInput
                     Layout.fillWidth: true
+                    // Overridden ⟺ Clear would change it (Clear restores the bag's
+                    // remembered dose, else 18 g).
+                    readonly property bool overridden: Math.abs(root.doseValue - (Settings.dye.dyeBeanWeight > 0 ? Settings.dye.dyeBeanWeight : 18)) > 0.05
                     value: root.doseValue
                     from: 1
                     to: 50
                     stepSize: 0.1
                     decimals: 1
                     suffix: "g"
-                    valueColor: Theme.weightColor
-                    accentColor: Theme.weightColor
+                    valueColor: overridden ? Theme.highlightColor : Theme.textColor
+                    accentColor: overridden ? Theme.highlightColor : Theme.primaryColor
                     accessibleName: TranslationManager.translate("brewDialog.doseWeight", "Dose weight")
                     onValueModified: function(newValue) {
                         root.targetManuallySet = false  // Reset manual flag when dose changes
@@ -654,8 +871,9 @@ Dialog {
                     stepSize: 0.1
                     decimals: 1
                     suffix: "g"
-                    valueColor: Theme.weightColor
-                    accentColor: Theme.weightColor
+                    // Never highlighted: Clear does not reset the cup tare.
+                    valueColor: Theme.textColor
+                    accentColor: Theme.primaryColor
                     accessibleName: TranslationManager.translate("brewDialog.doseCupWeight", "Dose cup weight")
                     onValueModified: function(newValue) {
                         Settings.brew.doseCupTareWeight = newValue
@@ -724,13 +942,17 @@ Dialog {
                 ValueInput {
                     id: ratioInput
                     Layout.fillWidth: true
+                    // Overridden ≈ Clear would change it (the profile default ratio,
+                    // target ÷ dose — compared against the CURRENT dose, and inert
+                    // for volume/timer profiles where profileTargetWeight is 0).
+                    readonly property bool overridden: Math.abs(root.ratio - ((root.doseValue > 0 && root.profileTargetWeight > 0) ? root.profileTargetWeight / root.doseValue : root.ratio)) > 0.05
                     value: root.ratio
                     from: 0.5
                     to: 20.0
                     stepSize: 0.1
                     decimals: 1
-                    valueColor: Theme.primaryColor
-                    accentColor: Theme.primaryColor
+                    valueColor: overridden ? Theme.highlightColor : Theme.textColor
+                    accentColor: overridden ? Theme.highlightColor : Theme.primaryColor
                     accessibleName: TranslationManager.translate("brewDialog.brewRatio", "Brew ratio")
                     onValueModified: function(newValue) {
                         root.targetManuallySet = false  // Reset manual flag when ratio changes
@@ -771,15 +993,18 @@ Dialog {
                     ValueInput {
                         id: targetInput
                         Layout.fillWidth: true
+                        // Overridden ≈ Clear would change it (the profile target
+                        // weight; on volume/timer profiles that baseline is 0, so
+                        // any dialed stop-at reads as an override).
+                        readonly property bool overridden: Math.abs(root.targetValue - root.profileTargetWeight) > 0.1
                         value: root.targetValue
                         from: 1
                         to: 500
                         stepSize: 1
                         decimals: 0
                         suffix: "g"
-                        // Color changes based on whether value is auto-calculated or manually set
-                        valueColor: root.targetManuallySet ? Theme.primaryColor : Theme.weightColor
-                        accentColor: root.targetManuallySet ? Theme.primaryColor : Theme.weightColor
+                        valueColor: overridden ? Theme.highlightColor : Theme.textColor
+                        accentColor: overridden ? Theme.highlightColor : Theme.primaryColor
                         accessibleName: TranslationManager.translate("brewDialog.stopAtWeight", "Stop at weight") + (root.targetManuallySet ? TranslationManager.translate("brewDialog.manual", " (manual)") : TranslationManager.translate("brewDialog.calculated", " (calculated)"))
                         onValueModified: function(newValue) {
                             root.targetManuallySet = true  // Mark as manually set
@@ -791,14 +1016,33 @@ Dialog {
                         }
                     }
 
-                    // Save to profile button
+                    // Save the shown stop-at weight to the baseline: the profile
+                    // normally, the active recipe's yieldG in recipe mode (writing
+                    // the shared profile there would leak into its sibling recipes).
                     AccessibleButton {
                         Layout.preferredHeight: Theme.scaled(44)
-                        text: TranslationManager.translate("brewDialog.updateProfile", "Update Profile")
-                        accessibleName: TranslationManager.translate("brewDialog.saveStopWeightToProfile", "Save stop-at-weight to profile")
+                        text: root.recipeActive
+                            ? TranslationManager.translate("brewDialog.updateRecipe", "Update Recipe")
+                            : TranslationManager.translate("brewDialog.updateProfile", "Update Profile")
+                        accessibleName: root.recipeActive
+                            ? TranslationManager.translate("brewDialog.saveStopWeightToRecipe", "Save stop-at-weight to recipe")
+                            : TranslationManager.translate("brewDialog.saveStopWeightToProfile", "Save stop-at-weight to profile")
                         primary: true
+                        // In recipe mode, also disable once the recipe already holds
+                        // the shown value — doubling as the "saved" confirmation
+                        // (m_activeRecipe refreshes off recipeUpdated).
                         enabled: root.targetValue !== root.profileTargetWeight
+                                 && (!root.recipeActive || Math.abs((MainController.activeRecipe.yieldG || 0) - root.targetValue) > 0.05)
                         onClicked: {
+                            if (root.recipeActive) {
+                                // Absolute grams, matching what activation reads back.
+                                // recipeUpdated → MainController refreshes m_activeRecipe.
+                                root._pendingRecipeUpdateId = Settings.dye.activeRecipeId
+                                MainController.recipeStorage.requestUpdateRecipe(
+                                    Settings.dye.activeRecipeId,
+                                    {"yieldG": root.targetValue})
+                                return
+                            }
                             var profile = ProfileManager.getCurrentProfile()
                             if (profile) {
                                 profile.target_weight = root.targetValue
@@ -812,14 +1056,15 @@ Dialog {
                     }
                 }
 
-                // Visual indicator showing profile default
+                // Visual indicator showing profile default (only visible while the
+                // field is overridden, so it always wears the override highlight)
                 Text {
                     visible: Math.abs(root.targetValue - root.profileTargetWeight) > 0.1
                     text: TranslationManager.translate("brewDialog.profileDefault", "Profile: %1g").arg(root.profileTargetWeight.toFixed(0))
                     font.family: Theme.bodyFont.family
                     font.pixelSize: Theme.scaled(11)
                     font.italic: true
-                    color: Theme.textSecondaryColor
+                    color: Theme.highlightColor
                     Layout.alignment: Qt.AlignHCenter
                     Layout.leftMargin: Theme.scaled(75) + Theme.scaled(8)
                     Accessible.role: Accessible.StaticText
@@ -829,7 +1074,9 @@ Dialog {
 
             // Equipment package (read-only) + Switch Equipment button. Identity
             // is managed in the Equipment window / Switch dialog, not edited here.
+            // Hidden in recipe mode (the recipe owns the equipment package).
             RowLayout {
+                visible: !root.recipeActive
                 Layout.fillWidth: true
                 spacing: Theme.scaled(8)
 

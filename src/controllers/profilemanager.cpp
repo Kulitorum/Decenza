@@ -28,17 +28,6 @@
 #include <cmath>
 #include <tuple>
 
-namespace {
-// Scope guard for ProfileManager::m_brewBaselineReset (survives early
-// returns): machinery override-clears run under it so MainController's
-// recipe stamp watchers can tell them apart from user tweaks.
-struct BaselineResetScope {
-    bool& flag;
-    explicit BaselineResetScope(bool& f) : flag(f) { flag = true; }
-    ~BaselineResetScope() { flag = false; }
-};
-}
-
 #ifndef Q_OS_WIN
 #include <dlfcn.h>   // For dladdr() to resolve caller symbols
 #include <unwind.h>  // For _Unwind_Backtrace stack walking
@@ -477,7 +466,6 @@ void ProfileManager::clearBrewOverrides() {
 void ProfileManager::resetBrewOverridesForLoadedProfile() {
     if (!m_settings)
         return;
-    BaselineResetScope resetScope(m_brewBaselineReset);
     SettingsBrew* brew = m_settings->brew();
     if (m_startupLoadDone) {
         brew->clearAllBrewOverrides();
@@ -1726,7 +1714,6 @@ void ProfileManager::uploadProfile(const QVariantMap& profileData) {
         // The edited temperature IS the new profile default — any live override
         // is now stale, so clear it (uploadCurrentProfile must not re-delta it).
         if (m_settings) {
-            BaselineResetScope resetScope(m_brewBaselineReset);
             m_settings->brew()->clearTemperatureOverride();
         }
     }
@@ -1739,7 +1726,6 @@ void ProfileManager::uploadProfile(const QVariantMap& profileData) {
         // The edited weight IS the new profile default — clear any live yield
         // override so the plan follows it instead of a stale number.
         if (m_settings) {
-            BaselineResetScope resetScope(m_brewBaselineReset);
             m_settings->brew()->setBrewYieldOverride(0);
         }
     }
@@ -2216,7 +2202,6 @@ void ProfileManager::uploadRecipeProfile(const QVariantMap& recipeParams) {
     // Clear overrides so uploadCurrentProfile doesn't apply a stale delta
     // and the shot plan shows the edited profile's own values.
     if (m_settings) {
-        BaselineResetScope resetScope(m_brewBaselineReset);
         m_settings->brew()->clearAllBrewOverrides();
     }
 
@@ -2381,7 +2366,6 @@ void ProfileManager::createNewProfileWithEditorType(EditorType type, const QStri
 
     if (m_settings) {
         m_settings->app()->setSelectedFavoriteProfile(-1);
-        BaselineResetScope resetScope(m_brewBaselineReset);
         m_settings->brew()->clearAllBrewOverrides();
     }
     if (m_machineState) {
@@ -2469,7 +2453,6 @@ void ProfileManager::createNewProfile(const QString& title) {
 
     if (m_settings) {
         m_settings->app()->setSelectedFavoriteProfile(-1);  // New profile, not in favorites
-        BaselineResetScope resetScope(m_brewBaselineReset);
         m_settings->brew()->clearAllBrewOverrides();
     }
     if (m_machineState) {
@@ -2793,7 +2776,6 @@ void ProfileManager::applyTemperatureToProfile(double newTemperature) {
     // re-apply the (now stale) override as a second delta, making the uploaded shot
     // disagree with the saved profile.
     if (m_settings && m_settings->brew()->hasTemperatureOverride()) {
-        BaselineResetScope resetScope(m_brewBaselineReset);
         m_settings->brew()->clearTemperatureOverride();
     }
     uploadCurrentProfile();

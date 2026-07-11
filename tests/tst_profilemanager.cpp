@@ -1082,36 +1082,6 @@ private slots:
         QCOMPARE(f.profileManager.targetWeight(), 36.0);
     }
 
-    // The machinery-vs-user-tweak contract MainController's recipe stamp
-    // watchers rely on: while ProfileManager's own machinery (profile load,
-    // param edit) clears the brew overrides, brewBaselineResetInProgress()
-    // is true AT SIGNAL-EMISSION TIME — so a same-title reload or edit of
-    // the active recipe's own profile can never stamp yieldG=0 into the
-    // recipe row. A user commit (activateBrewWithOverrides) emits with the
-    // flag false, so genuine tweaks still write through.
-    void baselineResetFlagDistinguishesMachineryFromTweaks() {
-        McpTestFixture f;
-        loadDFlowProfile(f, "Test", 36.0, 93.0);
-        f.profileManager.activateBrewWithOverrides(18.0, 40.0, 95.0, "15");
-
-        QList<bool> flagAtEmission;
-        connect(f.settings.brew(), &SettingsBrew::brewOverridesChanged, &f.profileManager,
-                [&]() { flagAtEmission.append(f.profileManager.brewBaselineResetInProgress()); });
-
-        // Machinery: a same-title reload clears the overrides under the flag.
-        loadDFlowProfile(f, "Test", 36.0, 93.0);
-        QVERIFY(!flagAtEmission.isEmpty());
-        for (bool duringMachinery : flagAtEmission)
-            QVERIFY(duringMachinery);
-
-        // User tweak: a BrewDialog commit emits with the flag OFF.
-        flagAtEmission.clear();
-        f.profileManager.activateBrewWithOverrides(18.0, 42.0, 95.0, "15");
-        QVERIFY(!flagAtEmission.isEmpty());
-        for (bool duringTweak : flagAtEmission)
-            QVERIFY(!duringTweak);
-    }
-
     // Editing the profile's own temperature/target (uploadProfile) makes the
     // edited value the new default — any live override is now stale and must
     // clear, or uploadCurrentProfile would re-apply it as a second delta.

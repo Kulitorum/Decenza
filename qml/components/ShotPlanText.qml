@@ -72,12 +72,15 @@ Item {
     property string beverageType: ProfileManager.currentProfileBeverageType
     property bool isCleaning: ProfileManager.currentProfileIsMaintenance
 
-    // Highlight (espresso-button yellow) on a brew TEMPERATURE override only.
-    // Yield is intentionally excluded: the target output is dose × ratio and the
-    // measured dose never exactly equals the profile's listed dose, so yield would
-    // almost always differ — leaving the plan permanently highlighted.
+    // Per-item override highlight (recipe-aware-brew-settings): only the
+    // overridden segment(s) recolor — the temperature item on a temp override,
+    // the yield item on a deliberate yield override — matching the Brew
+    // Settings value scheme. Both key off the truthful override flags, never
+    // raw drift (measured dose never exactly equals the profile's listed dose).
     readonly property bool _tempOverride:
         tempOverridden && Math.abs(overrideTemp - profileTemp) > 0.1
+    readonly property bool _yieldOverride:
+        yieldOverridden && profileYield > 0 && Math.abs(targetWeight - profileYield) > 0.1
 
     // --- Per-item segments (empty string = hidden). ---
     // Dose & yield: the shot's target output, plus dose-in (e.g. "18.0g in"). A DELIBERATE yield
@@ -136,10 +139,11 @@ Item {
     function _argSafe(v) { return String(v).replace(/%(\d)/g, "%\u200B$1") }
 
     // ONE renderer for both the plain `text` (a11y label + `visible: text !== ""` check) and the bolded
-    // `_rich` (display), so they can NEVER drift. fmt(value, live) formats one value: plain %-escapes,
-    // rich HTML-escapes and bolds live values. blockSep separates the sentence from its detail tail —
-    // the same `sep` normally, a line break when stacked on the DISPLAY path only (the a11y `text`
-    // always passes the dot separator so the spoken string stays one sentence).
+    // `_rich` (display), so they can NEVER drift. fmt(value, live, overridden) formats one value: plain
+    // %-escapes (and ignores the override flag — the a11y string never changes), rich HTML-escapes,
+    // bolds live values and wraps an overridden value in the highlight color. blockSep separates the
+    // sentence from its detail tail — the same `sep` normally, a line break when stacked on the DISPLAY
+    // path only (the a11y `text` always passes the dot separator so the spoken string stays one sentence).
     function _build(fmt, sep, blockSep) {
         var _ = TranslationManager.translationVersion
         // Cleaning/descale run — beans are the enemy here. Short sentence, no
@@ -168,13 +172,13 @@ Item {
             var s
             if (_yieldStr !== "" && _tempStr !== "")
                 s = TranslationManager.translate("shotplan.sentence", "Brew %1 of %2, using %3 at %4")
-                    .arg(fmt(_yieldStr, true)).arg(fmt(_beverage, false)).arg(fmt(_profileStr, true)).arg(fmt(_tempStr, true))
+                    .arg(fmt(_yieldStr, true, _yieldOverride)).arg(fmt(_beverage, false)).arg(fmt(_profileStr, true)).arg(fmt(_tempStr, true, _tempOverride))
             else if (_yieldStr === "" && _tempStr !== "")
                 s = TranslationManager.translate("shotplan.sentenceNoYield", "Brew %1, using %2 at %3")
-                    .arg(fmt(_beverage, false)).arg(fmt(_profileStr, true)).arg(fmt(_tempStr, true))
+                    .arg(fmt(_beverage, false)).arg(fmt(_profileStr, true)).arg(fmt(_tempStr, true, _tempOverride))
             else if (_yieldStr !== "")
                 s = TranslationManager.translate("shotplan.sentenceNoTemp", "Brew %1 of %2, using %3")
-                    .arg(fmt(_yieldStr, true)).arg(fmt(_beverage, false)).arg(fmt(_profileStr, true))
+                    .arg(fmt(_yieldStr, true, _yieldOverride)).arg(fmt(_beverage, false)).arg(fmt(_profileStr, true))
             else
                 s = TranslationManager.translate("shotplan.sentenceNoYieldNoTemp", "Brew %1, using %2")
                     .arg(fmt(_beverage, false)).arg(fmt(_profileStr, true))
@@ -214,12 +218,12 @@ Item {
 
             var r = (_yieldStr !== "")
                 ? TranslationManager.translate("shotplan.recipe.head", "Brew %1 of %2")
-                    .arg(fmt(_yieldStr, true)).arg(fmt(_beverage, false))
+                    .arg(fmt(_yieldStr, true, _yieldOverride)).arg(fmt(_beverage, false))
                 : TranslationManager.translate("shotplan.recipe.headNoYield", "Brew %1")
                     .arg(fmt(_beverage, false))
             if (_tempStr !== "")
                 r = TranslationManager.translate("shotplan.recipe.atTemp", "%1 at %2")
-                    .arg(r).arg(fmt(_tempStr, true))
+                    .arg(r).arg(fmt(_tempStr, true, _tempOverride))
             if (_doseStr !== "" && beans !== "")
                 r = TranslationManager.translate("shotplan.recipe.fromDoseBeans", "%1 from %2 of %3")
                     .arg(r).arg(fmt(_doseStr, true)).arg(beans)
@@ -246,10 +250,10 @@ Item {
             switch (order[j]) {
             case "doseYield":
                 if (dose !== "") parts.push(dose)
-                if (_yieldStr !== "") parts.push(fmt(_yieldStr, true))
+                if (_yieldStr !== "") parts.push(fmt(_yieldStr, true, _yieldOverride))
                 break
             case "profile":     if (_profileStr !== "") parts.push(fmt(_profileStr, true)); break
-            case "temperature": if (_tempStr !== "") parts.push(fmt(_tempStr, true)); break
+            case "temperature": if (_tempStr !== "") parts.push(fmt(_tempStr, true, _tempOverride)); break
             case "roaster":     if (_roasterStr !== "") parts.push(fmt(_roasterStr, true)); break
             case "coffee":      if (_coffeeStr !== "") parts.push(fmt(_coffeeStr, true)); break
             case "grind":       if (grind !== "") parts.push(grind); break
@@ -262,20 +266,25 @@ Item {
     // Plain: for the accessibility label + `visible: text !== ""`. Always dot-joined —
     // a screen reader hears one clean sentence regardless of the visual format.
     readonly property string text: _build(function(v, live) { return _argSafe(v) }, "  ·  ", "  ·  ")
+    // The override-highlight color as a 6-digit hex for the rich <font color> span.
+    readonly property string _hlHex: Theme.colorToHex(Theme.highlightColor)
+
     // Rich: same content, live values bolded, all HTML-escaped; the styled bold safe-dot · separator.
-    // Stacked breaks the sentence and its detail tail onto separate lines (display only).
-    // A cleaning/descale notice is bolded WHOLE — it's a warning, not a plan.
+    // An overridden value additionally wraps in the highlight color (per-item, so only the overridden
+    // segment lights up — never the whole sentence). Stacked breaks the sentence and its detail tail
+    // onto separate lines (display only). A cleaning/descale notice is bolded WHOLE — it's a warning,
+    // not a plan.
     readonly property string _rich: {
-        var r = _build(function(v, live) {
+        var r = _build(function(v, live, overridden) {
             var e = Theme.escapeHtml(_argSafe(v))
-            return live ? ("<b>" + e + "</b>") : e
+            var b = live ? ("<b>" + e + "</b>") : e
+            return overridden ? ("<font color=\"" + root._hlHex + "\">" + b + "</font>") : b
         }, Theme.bulletSep, root.stacked ? "<br>" : Theme.bulletSep)
         return (_isCleaning && r !== "") ? ("<b>" + r + "</b>") : r
     }
 
     readonly property color _color: mouseArea.pressed ? Theme.accentColor
-        : (_isCleaning ? Theme.errorColor
-                       : (_tempOverride ? Theme.highlightColor : Theme.textColor))
+        : (_isCleaning ? Theme.errorColor : Theme.textColor)
 
     // Natural size = icon + spacing + the text's UNWRAPPED width. Measured on a
     // hidden, width-unconstrained twin (textMeasure): a wrapping/eliding StyledText

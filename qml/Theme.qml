@@ -170,6 +170,14 @@ QtObject {
             .replace(/>/g, "&gt;")
     }
 
+    // 6-digit hex (#rrggbb) for StyledText/RichText <font color> spans. The
+    // point is STRIPPING ALPHA (Qt parses #AARRGGBB fine): a user-customized
+    // translucent theme color would otherwise render the span see-through.
+    function colorToHex(c) {
+        function h(x) { var s = Math.round(x * 255).toString(16); return s.length < 2 ? "0" + s : s }
+        return "#" + h(c.r) + h(c.g) + h(c.b)
+    }
+
     // The styled separator dot used between joined text fragments — slightly larger and
     // bolder than the surrounding text. StyledText HTML (relative sizing — no hardcoded
     // sizes); hosts must set textFormat: Text.StyledText. Shared by joinWithBullet and

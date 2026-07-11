@@ -938,31 +938,12 @@ void MainController::setupRecipeConnections() {
     connect(m_settings->dye(), &SettingsDye::dyeBeanWeightChanged, this, [this]() {
         stampActiveRecipe(QStringLiteral("doseG"), m_settings->dye()->dyeBeanWeight());
     });
-    // Yield/temp stamps carry two extra gates beyond stampActiveRecipe's own:
-    // (1) NOT a machinery clear — loading a profile or editing its params
-    // clears the brew overrides (the *Changed signals fire synchronously out
-    // of ProfileManager's own reset), and stamping that clear would write
-    // yieldG=0/tempOverrideC=0 into the active recipe row, silently erasing
-    // its dialed values (the same-title case: re-loading or editing the
-    // recipe's OWN profile). brewBaselineResetInProgress() marks those.
-    // (2) The loaded profile is still the recipe's own — a mismatched title
-    // means the user is mid-switch to a different profile (the deactivate
-    // watcher fires moments later) or the recipe is profile-less (whose
-    // yield/temp are not brew overrides at all); either way the tweak does
-    // not belong to this recipe. A user's own BrewDialog commit or Clear
-    // passes both gates and writes through as always.
-    connect(m_settings->brew(), &SettingsBrew::brewOverridesChanged, this, [this]() {
-        if (m_profileManager && !m_profileManager->brewBaselineResetInProgress()
-            && m_profileManager->currentProfile().title()
-                == m_activeRecipe.value(QStringLiteral("profileTitle")).toString())
-            stampActiveRecipe(QStringLiteral("yieldG"), m_settings->brew()->brewYieldOverride());
-    });
-    connect(m_settings->brew(), &SettingsBrew::temperatureOverrideChanged, this, [this]() {
-        if (m_profileManager && !m_profileManager->brewBaselineResetInProgress()
-            && m_profileManager->currentProfile().title()
-                == m_activeRecipe.value(QStringLiteral("profileTitle")).toString())
-            stampActiveRecipe(QStringLiteral("tempOverrideC"), m_settings->brew()->temperatureOverride());
-    });
+    // Yield/temp are per-brew OVERRIDES, not tweaks: they live in Settings.brew
+    // only and are never auto-stamped onto the recipe from the live dial
+    // (recipe-aware-brew-settings). The recipe's yieldG/tempOverrideC change
+    // only through explicit recipe edits — Brew Settings' "Update Recipe"
+    // button, the composer, MCP/web recipe_update — mirroring how a profile's
+    // target/temperature never follow the dial either.
     // Grind/rpm edits always stamp the active recipe's own grind (grind lives
     // on the recipe, fix-recipe-grind-integrity) — in parallel with SettingsDye's
     // unconditional bag write-through off the same edit. Grind-less drink
