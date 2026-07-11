@@ -356,7 +356,7 @@ Dialog {
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 Layout.alignment: Qt.AlignVCenter
-                Layout.preferredWidth: Theme.scaled(75)
+                Layout.minimumWidth: Theme.scaled(75)
                 Accessible.ignored: true
             }
 
@@ -390,7 +390,7 @@ Dialog {
                 font: Theme.bodyFont
                 color: Theme.textSecondaryColor
                 Layout.alignment: Qt.AlignVCenter
-                Layout.preferredWidth: Theme.scaled(75)
+                Layout.minimumWidth: Theme.scaled(75)
                 Accessible.ignored: true
             }
 
@@ -563,7 +563,7 @@ Dialog {
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignVCenter
-                    Layout.preferredWidth: Theme.scaled(75)
+                    Layout.minimumWidth: Theme.scaled(75)
                     Accessible.ignored: true  // Label for sighted users; input has accessibleName
                 }
 
@@ -641,7 +641,7 @@ Dialog {
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignVCenter
-                    Layout.preferredWidth: Theme.scaled(75)
+                    Layout.minimumWidth: Theme.scaled(75)
                     Accessible.ignored: true
                 }
 
@@ -717,7 +717,7 @@ Dialog {
                     text: TranslationManager.translate("brewDialog.ratioLabel2", "Ratio:")
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
-                    Layout.preferredWidth: Theme.scaled(75)
+                    Layout.minimumWidth: Theme.scaled(75)
                     Accessible.ignored: true  // Label for sighted users; input has accessibleName
                 }
 
@@ -888,7 +888,7 @@ Dialog {
                     font: Theme.bodyFont
                     color: Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignVCenter
-                    Layout.preferredWidth: Theme.scaled(75)
+                    Layout.minimumWidth: Theme.scaled(75)
                     Accessible.ignored: true
                 }
 

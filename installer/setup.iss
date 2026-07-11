@@ -42,6 +42,11 @@ LZMAUseSeparateProcess=yes
 ; Visual settings
 WizardStyle=modern
 SetupIconFile=..\resources\icons\decenza.ico
+; Without this, Inno Setup shows a generic icon for the Start Menu "Uninstall"
+; shortcut and the Control Panel > Programs and Features entry, even though
+; the app's own exe already has the logo embedded (see CMakeLists.txt
+; QT_WIN_RC_ICONS). (#1467)
+UninstallDisplayIcon={app}\{#TargetName}.exe
 
 ; Privileges
 PrivilegesRequired=lowest
@@ -71,6 +76,13 @@ Name: "{autodesktop}\{#TargetProduct}"; Filename: "{app}\{#TargetName}.exe"; Tas
 [Run]
 ; Install VC++ Runtime (silently, only if needed)
 Filename: "{tmp}\{#VcRedistFile}"; Parameters: "/install /quiet /norestart"; StatusMsg: "{cm:InstallingVCRedist}"; Flags: waituntilterminated skipifsilent
+
+; Windows caches exe/shortcut icons per-user (IconCache.db) — updating over an
+; older install can otherwise leave Explorer/Start Menu/Programs and Features
+; showing a stale generic icon even though the new exe has the logo embedded
+; and UninstallDisplayIcon is now set above. ie4uinit is Microsoft's own
+; built-in tool for invalidating that cache. (#1467)
+Filename: "{sys}\ie4uinit.exe"; Parameters: "-ClearIconCache"; Flags: runhidden waituntilterminated
 
 ; Option to launch after install
 Filename: "{app}\{#TargetName}.exe"; Description: "{cm:LaunchProgram,{#StringChange(TargetProduct, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
