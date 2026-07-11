@@ -938,23 +938,28 @@ void MainController::setupRecipeConnections() {
     connect(m_settings->dye(), &SettingsDye::dyeBeanWeightChanged, this, [this]() {
         stampActiveRecipe(QStringLiteral("doseG"), m_settings->dye()->dyeBeanWeight());
     });
-    // Yield/temp stamps are additionally gated on the loaded profile still
-    // being the recipe's own: loadProfile clears the brew overrides (their
-    // *Changed signals fire synchronously) BEFORE currentProfileChanged
-    // reaches the deactivate watcher below, so during a profile switch away
-    // from an active recipe these would otherwise stamp yieldG=0 /
-    // tempOverrideC=0 into the recipe row moments before it deactivates —
-    // silently erasing its dialed values. A mismatched title means the user
-    // is mid-switch (or the recipe is profile-less, whose yield/temp are not
-    // brew overrides at all): the tweak belongs to the new profile, not the
-    // outgoing recipe.
+    // Yield/temp stamps carry two extra gates beyond stampActiveRecipe's own:
+    // (1) NOT a machinery clear — loading a profile or editing its params
+    // clears the brew overrides (the *Changed signals fire synchronously out
+    // of ProfileManager's own reset), and stamping that clear would write
+    // yieldG=0/tempOverrideC=0 into the active recipe row, silently erasing
+    // its dialed values (the same-title case: re-loading or editing the
+    // recipe's OWN profile). brewBaselineResetInProgress() marks those.
+    // (2) The loaded profile is still the recipe's own — a mismatched title
+    // means the user is mid-switch to a different profile (the deactivate
+    // watcher fires moments later) or the recipe is profile-less (whose
+    // yield/temp are not brew overrides at all); either way the tweak does
+    // not belong to this recipe. A user's own BrewDialog commit or Clear
+    // passes both gates and writes through as always.
     connect(m_settings->brew(), &SettingsBrew::brewOverridesChanged, this, [this]() {
-        if (m_profileManager && m_profileManager->currentProfile().title()
+        if (m_profileManager && !m_profileManager->brewBaselineResetInProgress()
+            && m_profileManager->currentProfile().title()
                 == m_activeRecipe.value(QStringLiteral("profileTitle")).toString())
             stampActiveRecipe(QStringLiteral("yieldG"), m_settings->brew()->brewYieldOverride());
     });
     connect(m_settings->brew(), &SettingsBrew::temperatureOverrideChanged, this, [this]() {
-        if (m_profileManager && m_profileManager->currentProfile().title()
+        if (m_profileManager && !m_profileManager->brewBaselineResetInProgress()
+            && m_profileManager->currentProfile().title()
                 == m_activeRecipe.value(QStringLiteral("profileTitle")).toString())
             stampActiveRecipe(QStringLiteral("tempOverrideC"), m_settings->brew()->temperatureOverride());
     });
