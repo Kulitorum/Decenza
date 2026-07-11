@@ -35,6 +35,17 @@ Page {
     readonly property bool _shotRpmCapable:
         Settings.dye.grinderRpmCapable(shotData.grinderBrand || "", shotData.grinderModel || "")
 
+    // The shot-time profile's default yield (target_weight from the frozen
+    // profileJson snapshot), for the plan line's yield-override highlight —
+    // "was the recorded target a deviation from the profile it ran?" 0 when
+    // the snapshot lacks it, which disables the highlight (a frozen shot must
+    // never borrow the live dial's override state).
+    readonly property real _shotProfileYield: {
+        if (!shotData.profileJson) return 0
+        try { return JSON.parse(shotData.profileJson).target_weight || 0 }
+        catch (e) { return 0 }
+    }
+
     // Recipe identity for the recipe card, live-resolved by shotData.recipeId.
     // Grind/rpm on that card still comes from the shot snapshot, never this
     // map's pin.
@@ -311,7 +322,10 @@ Page {
                                 var t = shotData.temperatureOverrideC
                                 var result
                                 if (t !== undefined && t !== null && t > 0) {
-                                    result = name + " (" + Math.round(Theme.cToDisplay(t)) + Theme.tempUnitSuffix() + ")"
+                                    // The parenthetical only renders when the shot recorded a temp
+                                    // override, so it wears the override-highlight color whole.
+                                    result = name + " <font color=\"" + Theme.colorToHex(Theme.highlightColor) + "\">("
+                                        + Math.round(Theme.cToDisplay(t)) + Theme.tempUnitSuffix() + ")</font>"
                                 } else {
                                     result = name
                                 }
@@ -531,9 +545,17 @@ Page {
                 dose: shotData.doseWeightG || 0
                 // targetWeightG is the planned target (0 for volume/timer
                 // profiles) — fall back to the actual output so a yield still shows.
-                profileYield: shotData.targetWeightG || 0
+                // Override state comes from THIS shot's frozen snapshot (recorded
+                // target vs the profile snapshot's default), never the live dial.
+                profileYield: shotDetailPage._shotProfileYield
                 targetWeight: (shotData.targetWeightG || 0) > 0
                     ? shotData.targetWeightG : (shotData.finalWeightG || 0)
+                yieldOverridden: (shotData.targetWeightG || 0) > 0
+                    && shotDetailPage._shotProfileYield > 0
+                    && Math.abs(shotData.targetWeightG - shotDetailPage._shotProfileYield) > 0.1
+                // Temperature is filtered out of the line (it lives in the title,
+                // highlighted there); pin the flag off the live dial regardless.
+                tempOverridden: false
                 yieldTargetOnly: true
                 roasterBrand: shotData.beanBrand || ""
                 coffeeName: shotData.beanType || ""
