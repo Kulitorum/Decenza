@@ -1,3 +1,12 @@
+## ADDED Requirements
+
+### Requirement: Shot detail metrics row shows a clean five-metric row
+The Shot Detail metrics row SHALL show Duration, Dose, Output, Ratio, and Rating, and SHALL NOT include a dedicated Grind cell. Grind is a per-shot dial-in surfaced in the Shot Plan snapshot line and on its owning card (recipe or bean), not a standalone metric.
+
+#### Scenario: Metrics row omits grind
+- **WHEN** the user opens a shot and views the metrics row
+- **THEN** it shows Duration, Dose, Output, Ratio, and Rating, with no dedicated Grind cell
+
 ## REMOVED Requirements
 
 ### Requirement: Shot detail metrics row shows grind setting
