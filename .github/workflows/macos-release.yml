@@ -175,6 +175,7 @@ jobs:
           mkdir -p build/macos
           cd build/macos
           $QT_ROOT_DIR/bin/qt-cmake ../.. -G Xcode \
+            -DENABLE_TSNET=ON \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
             -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
