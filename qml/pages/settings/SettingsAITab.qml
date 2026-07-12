@@ -1098,7 +1098,9 @@ KeyboardAwareContainer {
                         text: {
                             switch (RemoteMcpAccess.statusString) {
                             case "active":
-                                return TranslationManager.translate("settings.ai.remoteMcp.status.active", "Active — listening on port %1").arg(RemoteMcpAccess.listenPort)
+                                return Settings.mcp.remoteMcpMode === "tailscale"
+                                    ? TranslationManager.translate("settings.ai.remoteMcp.status.activeTailscale", "Active — public Funnel URL ready")
+                                    : TranslationManager.translate("settings.ai.remoteMcp.status.active", "Active — listening on port %1").arg(RemoteMcpAccess.listenPort)
                             case "starting":
                                 return TranslationManager.translate("settings.ai.remoteMcp.status.starting", "Starting…")
                             case "reconnecting":
@@ -1112,6 +1114,18 @@ KeyboardAwareContainer {
                         color: RemoteMcpAccess.statusString === "error" ? Theme.errorColor : Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
                         wrapMode: Text.WordWrap
+                    }
+
+                    // One-time Tailscale setup — opens a step-by-step popup. Hidden
+                    // once the connector is active (setup is done), so it doesn't
+                    // linger after everything is working.
+                    AccessibleButton {
+                        visible: Settings.mcp.remoteMcpMode === "tailscale"
+                            && RemoteMcpAccess.statusString !== "active"
+                        text: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSetupButton", "Set up Tailscale Funnel (one-time)…")
+                        accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSetupAccessible", "Open Tailscale Funnel setup instructions")
+                        warning: RemoteMcpAccess.statusString === "error"
+                        onClicked: tailscaleSetupDialog.open()
                     }
 
                     // Rotate token (revokes the current URL)
@@ -1306,6 +1320,153 @@ KeyboardAwareContainer {
                         RemoteMcpAccess.rotateToken()
                         rotateTokenDialog.close()
                         AccessibilityManager.announce(TranslationManager.translate("settings.ai.remoteMcp.rotated", "Token rotated. New connector URL generated."))
+                    }
+                }
+            }
+        }
+    }
+
+    // Step-by-step Tailscale Funnel setup instructions.
+    Dialog {
+        id: tailscaleSetupDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(parent ? parent.width - Theme.scaled(32) : Theme.scaled(480), Theme.scaled(520))
+        modal: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+
+        readonly property string aclSnippet:
+            '"nodeAttrs": [\n  { "target": ["autogroup:member"], "attr": ["funnel"] },\n],'
+
+        onOpened: AccessibilityManager.announce(tsSetupTitle.text)
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.scaled(12)
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        contentItem: Flickable {
+            implicitHeight: Math.min(tsSetupCol.implicitHeight,
+                tailscaleSetupDialog.parent ? tailscaleSetupDialog.parent.height - Theme.scaled(120) : Theme.scaled(560))
+            contentHeight: tsSetupCol.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+
+            ColumnLayout {
+                id: tsSetupCol
+                width: parent.width
+                spacing: Theme.scaled(12)
+
+                Text {
+                    id: tsSetupTitle
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.ai.remoteMcp.setup.title", "Set up Tailscale Funnel")
+                    color: Theme.textColor
+                    font.family: Theme.subtitleFont.family
+                    font.pixelSize: Theme.subtitleFont.pixelSize
+                    font.bold: true
+                    wrapMode: Text.WordWrap
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.ai.remoteMcp.setup.intro", "A one-time setup on your Tailscale account lets Decenza expose a public URL for AI connectors. Do both steps in the Tailscale admin console — then come back, Decenza connects automatically (no restart).")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(12)
+                    wrapMode: Text.WordWrap
+                }
+
+                // Step 1 — HTTPS certificates
+                Tr {
+                    key: "settings.ai.remoteMcp.setup.step1"
+                    fallback: "1.  Enable HTTPS certificates"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(13)
+                    font.bold: true
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.ai.remoteMcp.setup.step1body", "On the DNS page, scroll to the bottom and turn on “HTTPS Certificates”.")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(12)
+                    wrapMode: Text.WordWrap
+                }
+                AccessibleButton {
+                    text: TranslationManager.translate("settings.ai.remoteMcp.setup.openDns", "Open DNS settings ↗")
+                    accessibleName: TranslationManager.translate("settings.ai.remoteMcp.setup.openDnsAccessible", "Open Tailscale DNS settings in browser")
+                    onClicked: Qt.openUrlExternally("https://login.tailscale.com/admin/dns")
+                }
+
+                // Step 2 — Funnel node attribute
+                Tr {
+                    key: "settings.ai.remoteMcp.setup.step2"
+                    fallback: "2.  Allow Funnel for this device"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(13)
+                    font.bold: true
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.ai.remoteMcp.setup.step2body", "Open Access controls and click “JSON editor” at the top. On the right, open the “Funnel” panel and click “Add Funnel to policy”, then Save (the red button). No typing needed.")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(12)
+                    wrapMode: Text.WordWrap
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: TranslationManager.translate("settings.ai.remoteMcp.setup.step2fallback", "Don’t see it? Paste this rule after the first “{” in the JSON editor instead, then Save:")
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(11)
+                    font.italic: true
+                    wrapMode: Text.WordWrap
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    color: Theme.backgroundColor
+                    border.color: Theme.borderColor
+                    border.width: 1
+                    radius: Theme.scaled(6)
+                    Layout.preferredHeight: tsSnippetText.implicitHeight + Theme.scaled(16)
+                    Text {
+                        id: tsSnippetText
+                        anchors.fill: parent
+                        anchors.margins: Theme.scaled(8)
+                        text: tailscaleSetupDialog.aclSnippet
+                        color: Theme.textColor
+                        font.family: "monospace"
+                        font.pixelSize: Theme.scaled(11)
+                        wrapMode: Text.WrapAnywhere
+                        Accessible.name: TranslationManager.translate("settings.ai.remoteMcp.setup.snippetAccessible", "Tailscale ACL rule to grant Funnel")
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(8)
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.ai.remoteMcp.setup.copyRule", "Copy rule")
+                        accessibleName: TranslationManager.translate("settings.ai.remoteMcp.setup.copyRuleAccessible", "Copy the Tailscale Funnel ACL rule to clipboard")
+                        onClicked: {
+                            MainController.copyToClipboard(tailscaleSetupDialog.aclSnippet)
+                            AccessibilityManager.announce(TranslationManager.translate("settings.ai.remoteMcp.setup.copied", "Rule copied"))
+                        }
+                    }
+                    AccessibleButton {
+                        text: TranslationManager.translate("settings.ai.remoteMcp.setup.openAcls", "Open Access controls ↗")
+                        accessibleName: TranslationManager.translate("settings.ai.remoteMcp.setup.openAclsAccessible", "Open Tailscale access controls in browser")
+                        onClicked: Qt.openUrlExternally("https://login.tailscale.com/admin/acls")
+                    }
+                }
+
+                Item { Layout.fillHeight: true; Layout.minimumHeight: Theme.scaled(4) }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+                    AccessibleButton {
+                        text: TranslationManager.translate("common.button.done", "Done")
+                        accessibleName: TranslationManager.translate("common.button.done", "Done")
+                        primary: true
+                        onClicked: tailscaleSetupDialog.close()
                     }
                 }
             }

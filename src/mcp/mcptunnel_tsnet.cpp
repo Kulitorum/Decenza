@@ -120,22 +120,40 @@ void McpTunnelTsnet::runWorker(QString stateDir, QString hostname, quint16 local
     }
 
     bool funnelEnabled = false;
+    QString lastState;
     while (!m_stopRequested.load()) {
         const QString state = backendState();
+        if (state != lastState) {
+            qInfo() << "McpTunnelTsnet: backend state ->" << state;
+            lastState = state;
+        }
+
         if (state == QLatin1String("Running")) {
-            if (!funnelEnabled) {
+            const QString domain = certDomain();
+            if (domain.isEmpty()) {
+                // Node is authorized and up, but the tailnet hasn't issued a
+                // Funnel/HTTPS cert domain yet — HTTPS Certificates must be
+                // enabled and Funnel approved for this node in the admin console.
+                // Keep polling (do NOT return): the control plane pushes the new
+                // capability to the running node, so this recovers automatically
+                // once the user enables it, no restart needed.
+                post(Error, QString(), QString(),
+                     QStringLiteral("Tailscale node is up, but Funnel isn't available for this tailnet yet. "
+                                    "In the Tailscale admin console: enable HTTPS Certificates (DNS page) "
+                                    "and approve Funnel for this node."));
+            } else if (!funnelEnabled) {
                 if (tailscale_enable_funnel_to_localhost_plaintext_http1(sd, localPort) != 0) {
+                    qWarning() << "McpTunnelTsnet: enable funnel failed:" << errmsg();
                     post(Error, QString(), QString(), errmsg());
+                    // Keep polling — a transient/approval issue may clear.
+                } else {
+                    funnelEnabled = true;
+                    qInfo() << "McpTunnelTsnet: Funnel enabled for" << domain;
+                    post(Running, QString(), domain, QString());
+                    // Done configuring; the node keeps running on its goroutines.
                     return;
                 }
-                funnelEnabled = true;
             }
-            const QString domain = certDomain();
-            post(Running, QString(), domain, QString());
-            // Funnel provisions the cert lazily; once we have the FQDN we're done
-            // configuring and the node keeps running on its own goroutines.
-            if (!domain.isEmpty())
-                return;
         } else if (state == QLatin1String("NeedsLogin")
                    || state == QLatin1String("NeedsMachineAuth")) {
             post(NeedsLogin, authUrl(), QString(), QString());

@@ -11,6 +11,7 @@
 #include <QUrl>
 #include <QStandardPaths>
 #include <QDir>
+#include <QSysInfo>
 
 McpRemoteAccess::McpRemoteAccess(QObject* parent)
     : QObject(parent)
@@ -220,8 +221,25 @@ void McpRemoteAccess::startTunnel()
     }
     const QString stateDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
                              + QStringLiteral("/tsnet");
-    // Node name → Funnel subdomain. Fixed "decenza" for a stable URL across restarts.
-    m_tunnel->start(stateDir, QStringLiteral("decenza"),
+    // Node name → Funnel subdomain. Include the machine hostname so multiple
+    // Decenza instances on one tailnet get distinct, recognisable node names
+    // (and distinct Funnel URLs). Tailscale node names allow only [a-z0-9-];
+    // sanitise the host and trim stray hyphens.
+    QString host = QSysInfo::machineHostName().toLower();
+    // Drop any domain suffix (e.g. macOS returns "name.local") — keep just the
+    // first label so the node is "decenza-<hostname>", not "…-local".
+    const qsizetype dot = host.indexOf('.');
+    if (dot > 0)
+        host = host.left(dot);
+    for (QChar& c : host) {
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'))
+            c = '-';
+    }
+    while (host.startsWith('-')) host.remove(0, 1);
+    while (host.endsWith('-')) host.chop(1);
+    const QString nodeName = host.isEmpty() ? QStringLiteral("decenza")
+                                            : QStringLiteral("decenza-") + host;
+    m_tunnel->start(stateDir, nodeName,
                     static_cast<quint16>(m_settings->remoteMcpPort()));
 }
 
