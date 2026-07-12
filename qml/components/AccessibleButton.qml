@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import Decenza
 
 // Button with required accessibility - enforces accessibleName at compile time
@@ -33,7 +34,10 @@ Button {
     leftPadding: Theme.scaled(20)
     rightPadding: Theme.scaled(20)
 
-    // Icon styling — set icon.source to show an icon before the text
+    // Icon styling — set icon.source to show an icon before the text.
+    // tintIcon: recolor a monochrome SVG icon to icon.color (opt-in — leave false
+    // for multicolor icons/emoji, which must keep their native colors).
+    property bool tintIcon: false
     icon.width: Theme.scaled(16)
     icon.height: Theme.scaled(16)
     icon.color: {
@@ -66,6 +70,11 @@ Button {
                 visible: root.icon.source.toString() !== ""
                 opacity: root.enabled ? 1.0 : 0.5
                 Accessible.ignored: true
+                layer.enabled: root.tintIcon
+                layer.effect: MultiEffect {
+                    colorization: 1.0
+                    colorizationColor: root.icon.color
+                }
             }
 
             Text {

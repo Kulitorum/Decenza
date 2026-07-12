@@ -103,7 +103,7 @@ Dialog {
             x: Theme.scaled(20)
             y: Theme.scaled(15)
             text: knowledgeDialog.formatContent(knowledgeDialog.content)
-            textFormat: Text.RichText
+            textFormat: Text.StyledText
             color: Theme.textColor
             font: Theme.bodyFont
             wrapMode: Text.WordWrap

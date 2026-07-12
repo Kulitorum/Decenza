@@ -556,7 +556,7 @@ Page {
 
         Text {
             anchors.centerIn: parent
-            textFormat: Text.RichText
+            textFormat: Text.StyledText
             text: {
                 // Sanitize author name — Pexels usernames can contain emoji
                 // which triggers CoreText CopyEmojiImage crash on render thread

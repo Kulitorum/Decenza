@@ -34,6 +34,15 @@ Rectangle {
     // no inline editing (the small inline field + on-screen keyboard is a poor experience).
     property bool isMobile: Qt.platform.os === "android" || Qt.platform.os === "ios"
 
+    // On mobile the inline TextArea is disabled and the only way to edit is the
+    // overlay dialog; the raw TapHandlers below aren't accessible, so expose the
+    // container itself as a button for screen-reader users. On desktop the inline
+    // TextArea carries its own accessibility, so the container stays non-semantic.
+    Accessible.role: (isMobile && !readOnly) ? Accessible.Button : Accessible.NoRole
+    Accessible.name: root.accessibleName
+    Accessible.focusable: isMobile && !readOnly
+    Accessible.onPressAction: { if (isMobile && !readOnly) root.openEditorDialog() }
+
     function openEditorDialog() {
         dialogTextArea.text = root.text
         expandDialog.open()
@@ -58,7 +67,9 @@ Rectangle {
         while ((match = urlRegex.exec(plainText)) !== null) {
             result += escapeHtml(plainText.substring(lastIndex, match.index))
             var url = match[0].replace(/[.,;:!?\])}]+$/, '')  // trim trailing punctuation
-            result += '<a href="' + url + '" style="color:' + Theme.primaryColor + '">' + escapeHtml(url) + '</a>'
+            // No inline style="color:" — Text.StyledText ignores it; the link color
+            // comes from the Text.linkColor property on displayText instead.
+            result += '<a href="' + url + '">' + escapeHtml(url) + '</a>'
             lastIndex = match.index + url.length
             urlRegex.lastIndex = lastIndex
         }
@@ -76,9 +87,10 @@ Rectangle {
         topPadding: Theme.scaled(4)
         bottomPadding: Theme.scaled(4)
         text: Theme.replaceEmojiWithImg(formatTextWithLinks(root.text), root.textFont.pixelSize)
-        textFormat: Text.RichText
+        textFormat: Text.StyledText
         font: root.textFont
         color: Theme.textColor
+        linkColor: Theme.primaryColor
         wrapMode: Text.Wrap
         elide: Text.ElideRight
         clip: true

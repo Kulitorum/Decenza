@@ -90,6 +90,7 @@ See `docs/CLAUDE_MD/PROJECT_STRUCTURE.md` for the full source tree, signal/slot 
 - **Numeric defaults**: use `value ?? 0.6`, not `value || 0.6` — `||` treats `0` as falsy.
 - **`native` is reserved**: use `nativeName`.
 - **No Unicode glyphs as icons** (`"✎"`, `"☰"`): use SVG `Image` from `qrc:/icons/`. Safe: `°`, `·`, `—`, `→`, `×`.
+- **`elide` is dead on `Text.RichText`**: use `Text.StyledText` for HTML-ish labels (elide works, and it's lighter); RichText silently disables `elide` → mid-glyph clipping.
 - **Accessibility on interactive elements**: every interactive element needs `Accessible.role`, `Accessible.name`, `Accessible.focusable: true`, and `Accessible.onPressAction`. Prefer `AccessibleButton` / `AccessibleMouseArea` over raw `Rectangle+MouseArea`. Full rules in `docs/CLAUDE_MD/ACCESSIBILITY.md`.
 
 ### MCP Tool Responses (`src/mcp/`)

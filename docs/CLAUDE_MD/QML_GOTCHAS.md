@@ -84,6 +84,10 @@ KeyboardAwareContainer {
 
 Never override FINAL properties on Qt types. Qt 6.10+ marks some `Popup`/`Dialog` properties as FINAL (e.g., `message`, `title`). Declaring `property string message` on a Dialog will prevent the component from loading. Use a different name (e.g., `resultMessage`), or use the inherited property directly if it already exists on the base type.
 
+## `elide` is silently ignored on `Text.RichText` — use `Text.StyledText`
+
+Qt applies `elide` to `Text.PlainText` and `Text.StyledText`, but **not `Text.RichText`** (a `QTextDocument`-backed format). A label with `textFormat: Text.RichText` and `elide: Text.ElideRight` does not truncate — it overruns its width and hard-clips mid-glyph with no ellipsis, which shows up on wider/fallback system fonts (issue #1469). Default to `Text.StyledText` for any HTML-ish label; it supports the tags we use (`<b> <i> <font color> <a href> <img> <br>`) and is lighter than RichText. Reserve `Text.RichText` for the rare label that genuinely needs `QTextDocument`-only features (tables, CSS blocks) — we currently have none. For inline emoji, `Theme.replaceEmojiWithImg` emits `<img align="middle">`, which StyledText honors (it ignores the CSS `style=` attribute). `TextEdit.RichText` (editable fields) is unaffected — this is about read-only `Text`.
+
 ## Numeric defaults with `??` not `||`
 
 JavaScript `||` treats `0` as falsy, so `value || 0.6` returns `0.6` when `value` is `0`. Use `value ?? 0.6` (nullish coalescing) which only falls back for `null`/`undefined`. Only use `||` when `0` genuinely means "no data" (e.g., unrated enjoyment, unmeasured TDS).

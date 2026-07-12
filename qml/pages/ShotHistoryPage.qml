@@ -499,7 +499,8 @@ Page {
 
             // Sort direction button
             AccessibleButton {
-                text: sortDirection === "DESC" ? "\u25BC" : "\u25B2"
+                icon.source: sortDirection === "DESC" ? "qrc:/icons/SortDescending.svg" : "qrc:/icons/SortAscending.svg"
+                tintIcon: true
                 accessibleName: sortDirection === "DESC"
                     ? TranslationManager.translate("shothistory.sortDescending", "Sort descending, tap to sort ascending")
                     : TranslationManager.translate("shothistory.sortAscending", "Sort ascending, tap to sort descending")
@@ -710,7 +711,7 @@ Page {
                             }
 
                             Text {
-                                textFormat: Text.RichText
+                                textFormat: Text.StyledText
                                 text: {
                                     var name = model.profileName || ""
                                     var tempOvr = model.temperatureOverrideC || 0
@@ -731,7 +732,7 @@ Page {
                         }
 
                         Text {
-                            textFormat: Text.RichText
+                            textFormat: Text.StyledText
                             text: {
                                 var bean = (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
                                 var grind = model.grinderSetting || ""
@@ -894,7 +895,7 @@ Page {
                         width: Theme.scaled(40)
                         height: Theme.scaled(40)
                         radius: Theme.scaled(20)
-                        color: "#2E7D32"
+                        color: Theme.successColor
                         Accessible.role: Accessible.Button
                         Accessible.name: TranslationManager.translate("shothistory.accessible.edit", "Edit shot")
                         Accessible.focusable: true
@@ -1249,223 +1250,234 @@ Page {
             border.color: Theme.borderColor
         }
 
-        contentItem: ColumnLayout {
-            spacing: 0
+        // Height-capped + scrollable so a wider or fallback system font (or a long
+        // translation) can never push the dialog off-screen — it scrolls instead.
+        contentItem: ScrollView {
+            id: searchHelpScroll
+            implicitHeight: Math.min(searchHelpColumn.implicitHeight,
+                                     shotHistoryPage.height - Theme.scaled(80))
+            clip: true
 
-            Text {
-                text: TranslationManager.translate("shothistory.searchhelptitle", "Search Syntax")
-                font: Theme.titleFont
-                color: Theme.textColor
-                Accessible.ignored: true
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(20)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-            }
+            ColumnLayout {
+                id: searchHelpColumn
+                width: searchHelpScroll.availableWidth
+                spacing: 0
 
-            Text {
-                text: TranslationManager.translate("shothistory.searchhelpintro", "Use keywords to filter by numeric fields.\nTap a keyword below to add it to your search.")
-                font: Theme.bodyFont
-                color: Theme.textSecondaryColor
-                wrapMode: Text.Wrap
-                Accessible.ignored: true
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(10)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-            }
-
-            // Keyword reference grid
-            GridLayout {
-                columns: 3
-                columnSpacing: Theme.scaled(12)
-                rowSpacing: Theme.scaled(6)
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(12)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-
-                // Header row
-                Text { text: TranslationManager.translate("shothistory.helpheaderkeyword", "Keyword"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
-                Text { text: TranslationManager.translate("shothistory.helpheaderfilters", "Filters"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
-                Text { text: TranslationManager.translate("shothistory.helpheaderexample", "Example"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
-
-                // Data rows — keyword column is tappable to insert into search
-                Rectangle {
-                    color: ratingArea.pressed ? Theme.surfaceColor : "transparent"
-                    radius: Theme.scaled(4)
-                    implicitWidth: ratingLabel.implicitWidth + Theme.scaled(8)
-                    implicitHeight: ratingLabel.implicitHeight + Theme.scaled(4)
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("rating:")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: ratingArea.clicked(null)
-                    Text { id: ratingLabel; text: "rating:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                    MouseArea { id: ratingArea; anchors.fill: parent; onClicked: insertSearchKeyword("rating:") }
+                Text {
+                    text: TranslationManager.translate("shothistory.searchhelptitle", "Search Syntax")
+                    font: Theme.titleFont
+                    color: Theme.textColor
+                    Accessible.ignored: true
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.scaled(20)
+                    Layout.leftMargin: Theme.scaled(20)
+                    Layout.rightMargin: Theme.scaled(20)
                 }
-                Text { text: TranslationManager.translate("shothistory.helprating", "Enjoyment (0-100)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                Text { text: "rating:70+"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
 
-                Rectangle {
-                    color: doseArea.pressed ? Theme.surfaceColor : "transparent"
-                    radius: Theme.scaled(4)
-                    implicitWidth: doseLabel.implicitWidth + Theme.scaled(8)
-                    implicitHeight: doseLabel.implicitHeight + Theme.scaled(4)
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("dose:")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: doseArea.clicked(null)
-                    Text { id: doseLabel; text: "dose:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                    MouseArea { id: doseArea; anchors.fill: parent; onClicked: insertSearchKeyword("dose:") }
+                Text {
+                    text: TranslationManager.translate("shothistory.searchhelpintro", "Use keywords to filter by numeric fields.\nTap a keyword below to add it to your search.")
+                    font: Theme.bodyFont
+                    color: Theme.textSecondaryColor
+                    wrapMode: Text.Wrap
+                    Accessible.ignored: true
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.scaled(10)
+                    Layout.leftMargin: Theme.scaled(20)
+                    Layout.rightMargin: Theme.scaled(20)
                 }
-                Text { text: TranslationManager.translate("shothistory.helpdose", "Dose weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                Text { text: "dose:16-18"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
 
-                Rectangle {
-                    color: yieldArea.pressed ? Theme.surfaceColor : "transparent"
-                    radius: Theme.scaled(4)
-                    implicitWidth: yieldLabel.implicitWidth + Theme.scaled(8)
-                    implicitHeight: yieldLabel.implicitHeight + Theme.scaled(4)
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("yield:")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: yieldArea.clicked(null)
-                    Text { id: yieldLabel; text: "yield:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                    MouseArea { id: yieldArea; anchors.fill: parent; onClicked: insertSearchKeyword("yield:") }
+                // Keyword reference grid
+                GridLayout {
+                    columns: 3
+                    columnSpacing: Theme.scaled(12)
+                    rowSpacing: Theme.scaled(6)
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.scaled(12)
+                    Layout.leftMargin: Theme.scaled(20)
+                    Layout.rightMargin: Theme.scaled(20)
+
+                    // Header row
+                    Text { text: TranslationManager.translate("shothistory.helpheaderkeyword", "Keyword"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
+                    Text { text: TranslationManager.translate("shothistory.helpheaderfilters", "Filters"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
+                    Text { text: TranslationManager.translate("shothistory.helpheaderexample", "Example"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
+
+                    // Data rows — keyword column is tappable to insert into search
+                    Rectangle {
+                        color: ratingArea.pressed ? Theme.surfaceColor : "transparent"
+                        radius: Theme.scaled(4)
+                        implicitWidth: ratingLabel.implicitWidth + Theme.scaled(8)
+                        implicitHeight: ratingLabel.implicitHeight + Theme.scaled(4)
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("rating:")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: ratingArea.clicked(null)
+                        Text { id: ratingLabel; text: "rating:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                        MouseArea { id: ratingArea; anchors.fill: parent; onClicked: insertSearchKeyword("rating:") }
+                    }
+                    Text { text: TranslationManager.translate("shothistory.helprating", "Enjoyment (0-100)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: "rating:70+"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                    Rectangle {
+                        color: doseArea.pressed ? Theme.surfaceColor : "transparent"
+                        radius: Theme.scaled(4)
+                        implicitWidth: doseLabel.implicitWidth + Theme.scaled(8)
+                        implicitHeight: doseLabel.implicitHeight + Theme.scaled(4)
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("dose:")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: doseArea.clicked(null)
+                        Text { id: doseLabel; text: "dose:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                        MouseArea { id: doseArea; anchors.fill: parent; onClicked: insertSearchKeyword("dose:") }
+                    }
+                    Text { text: TranslationManager.translate("shothistory.helpdose", "Dose weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: "dose:16-18"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                    Rectangle {
+                        color: yieldArea.pressed ? Theme.surfaceColor : "transparent"
+                        radius: Theme.scaled(4)
+                        implicitWidth: yieldLabel.implicitWidth + Theme.scaled(8)
+                        implicitHeight: yieldLabel.implicitHeight + Theme.scaled(4)
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("yield:")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: yieldArea.clicked(null)
+                        Text { id: yieldLabel; text: "yield:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                        MouseArea { id: yieldArea; anchors.fill: parent; onClicked: insertSearchKeyword("yield:") }
+                    }
+                    Text { text: TranslationManager.translate("shothistory.helpyield", "Yield weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: "yield:30-40"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                    Rectangle {
+                        color: timeArea.pressed ? Theme.surfaceColor : "transparent"
+                        radius: Theme.scaled(4)
+                        implicitWidth: timeLabel.implicitWidth + Theme.scaled(8)
+                        implicitHeight: timeLabel.implicitHeight + Theme.scaled(4)
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("time:")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: timeArea.clicked(null)
+                        Text { id: timeLabel; text: "time:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                        MouseArea { id: timeArea; anchors.fill: parent; onClicked: insertSearchKeyword("time:") }
+                    }
+                    Text { text: TranslationManager.translate("shothistory.helptime", "Duration (seconds)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: "time:25-35"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                    Rectangle {
+                        color: tdsArea.pressed ? Theme.surfaceColor : "transparent"
+                        radius: Theme.scaled(4)
+                        implicitWidth: tdsLabel.implicitWidth + Theme.scaled(8)
+                        implicitHeight: tdsLabel.implicitHeight + Theme.scaled(4)
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("tds:")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: tdsArea.clicked(null)
+                        Text { id: tdsLabel; text: "tds:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                        MouseArea { id: tdsArea; anchors.fill: parent; onClicked: insertSearchKeyword("tds:") }
+                    }
+                    Text { text: TranslationManager.translate("shotHistory.label.tds", "TDS"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: "tds:1.3-1.5"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                    Rectangle {
+                        color: eyArea.pressed ? Theme.surfaceColor : "transparent"
+                        radius: Theme.scaled(4)
+                        implicitWidth: eyLabel.implicitWidth + Theme.scaled(8)
+                        implicitHeight: eyLabel.implicitHeight + Theme.scaled(4)
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("ey:")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: eyArea.clicked(null)
+                        Text { id: eyLabel; text: "ey:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                        MouseArea { id: eyArea; anchors.fill: parent; onClicked: insertSearchKeyword("ey:") }
+                    }
+                    Text { text: TranslationManager.translate("shothistory.helpey", "Extraction yield (%)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: "ey:18-22"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                    // Quality flag keywords
+                    Rectangle {
+                        color: channelingArea.pressed ? Theme.surfaceColor : "transparent"
+                        radius: Theme.scaled(4)
+                        implicitWidth: channelingLabel.implicitWidth + Theme.scaled(8)
+                        implicitHeight: channelingLabel.implicitHeight + Theme.scaled(4)
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("channeling:yes")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: channelingArea.clicked(null)
+                        Text { id: channelingLabel; text: "channeling:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                        MouseArea { id: channelingArea; anchors.fill: parent; onClicked: insertSearchKeyword("channeling:yes") }
+                    }
+                    Text { text: TranslationManager.translate("shothistory.helpchanneling", "Channeling detected"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: "channeling:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                    Rectangle {
+                        color: grindArea.pressed ? Theme.surfaceColor : "transparent"
+                        radius: Theme.scaled(4)
+                        implicitWidth: grindLabel.implicitWidth + Theme.scaled(8)
+                        implicitHeight: grindLabel.implicitHeight + Theme.scaled(4)
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("grind:yes")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: grindArea.clicked(null)
+                        Text { id: grindLabel; text: "grind:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                        MouseArea { id: grindArea; anchors.fill: parent; onClicked: insertSearchKeyword("grind:yes") }
+                    }
+                    Text { text: TranslationManager.translate("shothistory.helpgrind", "Grind issue"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: "grind:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                    Rectangle {
+                        color: skipFrameArea.pressed ? Theme.surfaceColor : "transparent"
+                        radius: Theme.scaled(4)
+                        implicitWidth: skipFrameLabel.implicitWidth + Theme.scaled(8)
+                        implicitHeight: skipFrameLabel.implicitHeight + Theme.scaled(4)
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("skipframe:yes")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: skipFrameArea.clicked(null)
+                        Text { id: skipFrameLabel; text: "skipframe:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                        MouseArea { id: skipFrameArea; anchors.fill: parent; onClicked: insertSearchKeyword("skipframe:yes") }
+                    }
+                    Text { text: TranslationManager.translate("shothistory.helpskipframe", "First step skipped"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: "skipframe:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+
+                    Rectangle {
+                        color: puckFailedArea.pressed ? Theme.surfaceColor : "transparent"
+                        radius: Theme.scaled(4)
+                        implicitWidth: puckFailedLabel.implicitWidth + Theme.scaled(8)
+                        implicitHeight: puckFailedLabel.implicitHeight + Theme.scaled(4)
+                        Accessible.role: Accessible.Button
+                        Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("puckfailed:yes")
+                        Accessible.focusable: true
+                        Accessible.onPressAction: puckFailedArea.clicked(null)
+                        Text { id: puckFailedLabel; text: "puckfailed:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
+                        MouseArea { id: puckFailedArea; anchors.fill: parent; onClicked: insertSearchKeyword("puckfailed:yes") }
+                    }
+                    Text { text: TranslationManager.translate("shothistory.helppuckfailed", "Puck failed"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
+                    Text { text: "puckfailed:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                 }
-                Text { text: TranslationManager.translate("shothistory.helpyield", "Yield weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                Text { text: "yield:30-40"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
 
-                Rectangle {
-                    color: timeArea.pressed ? Theme.surfaceColor : "transparent"
-                    radius: Theme.scaled(4)
-                    implicitWidth: timeLabel.implicitWidth + Theme.scaled(8)
-                    implicitHeight: timeLabel.implicitHeight + Theme.scaled(4)
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("time:")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: timeArea.clicked(null)
-                    Text { id: timeLabel; text: "time:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                    MouseArea { id: timeArea; anchors.fill: parent; onClicked: insertSearchKeyword("time:") }
+                // Syntax explanation
+                Text {
+                    text: TranslationManager.translate("shothistory.searchhelpsyntax",
+                        "Syntax: N (exact), N-M (range), N+ (minimum)\nQuality flags: channeling:yes, grind:yes, skipframe:yes, puckfailed:yes\nCombine keywords with text: ethiopia dose:18 channeling:yes")
+                    font: Theme.captionFont
+                    color: Theme.textSecondaryColor
+                    wrapMode: Text.Wrap
+                    Accessible.ignored: true
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.scaled(12)
+                    Layout.leftMargin: Theme.scaled(20)
+                    Layout.rightMargin: Theme.scaled(20)
                 }
-                Text { text: TranslationManager.translate("shothistory.helptime", "Duration (seconds)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                Text { text: "time:25-35"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
 
-                Rectangle {
-                    color: tdsArea.pressed ? Theme.surfaceColor : "transparent"
-                    radius: Theme.scaled(4)
-                    implicitWidth: tdsLabel.implicitWidth + Theme.scaled(8)
-                    implicitHeight: tdsLabel.implicitHeight + Theme.scaled(4)
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("tds:")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: tdsArea.clicked(null)
-                    Text { id: tdsLabel; text: "tds:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                    MouseArea { id: tdsArea; anchors.fill: parent; onClicked: insertSearchKeyword("tds:") }
+                // Close button
+                AccessibleButton {
+                    text: TranslationManager.translate("shothistory.close", "Close")
+                    accessibleName: TranslationManager.translate("shothistory.closeHelp", "Close search help")
+                    Layout.alignment: Qt.AlignRight
+                    Layout.topMargin: Theme.scaled(12)
+                    Layout.rightMargin: Theme.scaled(20)
+                    Layout.bottomMargin: Theme.scaled(20)
+                    onClicked: searchHelpDialog.close()
                 }
-                Text { text: TranslationManager.translate("shotHistory.label.tds", "TDS"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                Text { text: "tds:1.3-1.5"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-
-                Rectangle {
-                    color: eyArea.pressed ? Theme.surfaceColor : "transparent"
-                    radius: Theme.scaled(4)
-                    implicitWidth: eyLabel.implicitWidth + Theme.scaled(8)
-                    implicitHeight: eyLabel.implicitHeight + Theme.scaled(4)
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("ey:")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: eyArea.clicked(null)
-                    Text { id: eyLabel; text: "ey:"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                    MouseArea { id: eyArea; anchors.fill: parent; onClicked: insertSearchKeyword("ey:") }
-                }
-                Text { text: TranslationManager.translate("shothistory.helpey", "Extraction yield (%)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                Text { text: "ey:18-22"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-
-                // Quality flag keywords
-                Rectangle {
-                    color: channelingArea.pressed ? Theme.surfaceColor : "transparent"
-                    radius: Theme.scaled(4)
-                    implicitWidth: channelingLabel.implicitWidth + Theme.scaled(8)
-                    implicitHeight: channelingLabel.implicitHeight + Theme.scaled(4)
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("channeling:yes")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: channelingArea.clicked(null)
-                    Text { id: channelingLabel; text: "channeling:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                    MouseArea { id: channelingArea; anchors.fill: parent; onClicked: insertSearchKeyword("channeling:yes") }
-                }
-                Text { text: TranslationManager.translate("shothistory.helpchanneling", "Channeling detected"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                Text { text: "channeling:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-
-                Rectangle {
-                    color: grindArea.pressed ? Theme.surfaceColor : "transparent"
-                    radius: Theme.scaled(4)
-                    implicitWidth: grindLabel.implicitWidth + Theme.scaled(8)
-                    implicitHeight: grindLabel.implicitHeight + Theme.scaled(4)
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("grind:yes")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: grindArea.clicked(null)
-                    Text { id: grindLabel; text: "grind:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                    MouseArea { id: grindArea; anchors.fill: parent; onClicked: insertSearchKeyword("grind:yes") }
-                }
-                Text { text: TranslationManager.translate("shothistory.helpgrind", "Grind issue"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                Text { text: "grind:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-
-                Rectangle {
-                    color: skipFrameArea.pressed ? Theme.surfaceColor : "transparent"
-                    radius: Theme.scaled(4)
-                    implicitWidth: skipFrameLabel.implicitWidth + Theme.scaled(8)
-                    implicitHeight: skipFrameLabel.implicitHeight + Theme.scaled(4)
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("skipframe:yes")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: skipFrameArea.clicked(null)
-                    Text { id: skipFrameLabel; text: "skipframe:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                    MouseArea { id: skipFrameArea; anchors.fill: parent; onClicked: insertSearchKeyword("skipframe:yes") }
-                }
-                Text { text: TranslationManager.translate("shothistory.helpskipframe", "First step skipped"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                Text { text: "skipframe:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-
-                Rectangle {
-                    color: puckFailedArea.pressed ? Theme.surfaceColor : "transparent"
-                    radius: Theme.scaled(4)
-                    implicitWidth: puckFailedLabel.implicitWidth + Theme.scaled(8)
-                    implicitHeight: puckFailedLabel.implicitHeight + Theme.scaled(4)
-                    Accessible.role: Accessible.Button
-                    Accessible.name: TranslationManager.translate("shothistory.insertKeyword", "Insert %1").arg("puckfailed:yes")
-                    Accessible.focusable: true
-                    Accessible.onPressAction: puckFailedArea.clicked(null)
-                    Text { id: puckFailedLabel; text: "puckfailed:yes"; anchors.centerIn: parent; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.primaryColor; font.bold: true; Accessible.ignored: true }
-                    MouseArea { id: puckFailedArea; anchors.fill: parent; onClicked: insertSearchKeyword("puckfailed:yes") }
-                }
-                Text { text: TranslationManager.translate("shothistory.helppuckfailed", "Puck failed"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-                Text { text: "puckfailed:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-            }
-
-            // Syntax explanation
-            Text {
-                text: TranslationManager.translate("shothistory.searchhelpsyntax",
-                    "Syntax: N (exact), N-M (range), N+ (minimum)\nQuality flags: channeling:yes, grind:yes, skipframe:yes, puckfailed:yes\nCombine keywords with text: ethiopia dose:18 channeling:yes")
-                font: Theme.captionFont
-                color: Theme.textSecondaryColor
-                wrapMode: Text.Wrap
-                Accessible.ignored: true
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.scaled(12)
-                Layout.leftMargin: Theme.scaled(20)
-                Layout.rightMargin: Theme.scaled(20)
-            }
-
-            // Close button
-            AccessibleButton {
-                text: TranslationManager.translate("shothistory.close", "Close")
-                accessibleName: TranslationManager.translate("shothistory.closeHelp", "Close search help")
-                Layout.alignment: Qt.AlignRight
-                Layout.topMargin: Theme.scaled(12)
-                Layout.rightMargin: Theme.scaled(20)
-                Layout.bottomMargin: Theme.scaled(20)
-                onClicked: searchHelpDialog.close()
             }
         }
     }

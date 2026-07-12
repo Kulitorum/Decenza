@@ -961,7 +961,9 @@ Page {
                         spacing: Theme.spacingSmall
 
                         Text {
-                            textFormat: Text.RichText
+                            // StyledText so elide works (Qt ignores elide on RichText); still
+                            // renders the <font> highlight and emoji <img> tags.
+                            textFormat: Text.StyledText
                             text: {
                                 var name = Theme.escapeHtml(editShotData.profileName || "")
                                 var t = editShotData.temperatureOverrideC
@@ -1826,7 +1828,7 @@ Page {
                         Text {
                             Layout.fillWidth: true
                             visible: recipeCard.recipeName !== ""
-                            textFormat: Text.RichText
+                            textFormat: Text.StyledText
                             text: Theme.replaceEmojiWithImg(recipeCard.recipeName, Theme.titleFont.pixelSize)
                             font: Theme.titleFont
                             color: Theme.textColor
@@ -2475,76 +2477,6 @@ Page {
             }
         }
 
-    }
-
-    // === Inline Components ===
-
-    component LabeledComboBox: Item {
-        property string label: ""
-        property var model: []
-        property string currentValue: ""
-        signal valueChanged(string value)
-
-        implicitHeight: comboLabel.height + 48 + 2
-
-        Text {
-            id: comboLabel
-            anchors.left: parent.left
-            anchors.top: parent.top
-            text: parent.label
-            color: Theme.textColor
-            font.pixelSize: Theme.scaled(11)
-            Accessible.ignored: true
-        }
-
-        StyledComboBox {
-            id: combo
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: comboLabel.bottom
-            anchors.topMargin: Theme.scaled(2)
-            height: Theme.scaled(48)
-            model: parent.model
-            currentIndex: Math.max(0, model.indexOf(parent.currentValue))
-            font.pixelSize: Theme.scaled(14)
-            accessibleLabel: parent.label
-            emptyItemText: TranslationManager.translate("postshotreview.option.none", "(None)")
-
-            Accessible.description: currentIndex > 0 ? currentText : TranslationManager.translate("postshotreview.accessible.notset", "Not set")
-
-            onActiveFocusChanged: {
-                if (activeFocus && AccessibilityManager.enabled) {
-                    let value = currentIndex > 0 ? currentText : TranslationManager.translate("postshotreview.accessible.notset", "Not set")
-                    AccessibilityManager.announce(parent.label + ". " + value)
-                }
-            }
-
-            background: Rectangle {
-                color: Theme.backgroundColor
-                radius: Theme.scaled(4)
-                border.color: combo.activeFocus ? Theme.primaryColor : Theme.textSecondaryColor
-                border.width: 1
-            }
-
-            contentItem: Text {
-                text: combo.currentIndex === 0 && combo.model[0] === "" ? parent.parent.label : combo.displayText
-                color: Theme.textColor
-                font.pixelSize: Theme.scaled(14)
-                verticalAlignment: Text.AlignVCenter
-                leftPadding: Theme.scaled(12)
-            }
-
-            indicator: Text {
-                anchors.right: parent.right
-                anchors.rightMargin: Theme.scaled(12)
-                anchors.verticalCenter: parent.verticalCenter
-                text: "▼"
-                color: Theme.textColor
-                font.pixelSize: Theme.scaled(10)
-            }
-
-            onActivated: function(index) { parent.valueChanged(currentText) }
-        }
     }
 
     // Profile AI knowledge base dialog

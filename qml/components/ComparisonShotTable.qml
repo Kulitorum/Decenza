@@ -134,7 +134,7 @@ ColumnLayout {
 
                     Text {
                         Layout.fillWidth: true
-                        textFormat: Text.RichText
+                        textFormat: Text.StyledText
                         text: Theme.replaceEmojiWithImg(root.metricValue("profile", root.comparisonModel.getShotInfo(index)), Theme.labelFont.pixelSize)
                         font: Theme.labelFont
                         color: Theme.textColor
@@ -186,7 +186,7 @@ ColumnLayout {
                 Text {
                     required property int index
                     Layout.fillWidth: true
-                    textFormat: Text.RichText
+                    textFormat: Text.StyledText
                     text: Theme.replaceEmojiWithImg(root.metricValue(metricRowItem.modelData.key, root.comparisonModel.getShotInfo(index)), Theme.labelFont.pixelSize)
                     horizontalAlignment: Text.AlignLeft
                     font: Theme.labelFont
