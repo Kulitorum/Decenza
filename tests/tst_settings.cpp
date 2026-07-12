@@ -1405,6 +1405,56 @@ private slots:
         QCOMPARE(spy.count(), 1);
     }
 
+    // ==========================================
+    // Grind-quick-select catalog stepping (grind-quick-select widget):
+    // stepGrinderSetting routes numeric AND Compound "a+b" grinders through the
+    // catalog pipeline; isKnownRpmGrinder confirms rpm capability from the DB.
+    // ==========================================
+
+    void stepGrinderSetting_numeric() {
+        SettingsDye* dye = m_settings.dye();
+        // Turin DF83V — NumericWithSuffix. Default decimals = 1.
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 2.0), QString("22"));
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", -3.0), QString("17"));
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.5), QString("20.5"));
+        // Below the dial floor → "" (caller falls back / skips the row).
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "1", -5.0), QString());
+        // Sub-0.5 step precision is honored, not truncated to a single decimal
+        // (the widget's grindQuickSelectStep goes to 2 decimals). Trailing zeros
+        // stripped: 20.50 → "20.5".
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.25, 2), QString("20.25"));
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.05, 2), QString("20.05"));
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.5, 2),  QString("20.5"));
+    }
+
+    void stepGrinderSetting_compound() {
+        SettingsDye* dye = m_settings.dye();
+        // Eureka Mignon Specialita — Compound, 100 positions/rev. This is the
+        // cohort the hand-rolled regex missed entirely (fell through to history).
+        QCOMPARE(dye->stepGrinderSetting("Eureka", "Mignon Specialita", "1+4", 1.0), QString("1+5"));
+        QCOMPARE(dye->stepGrinderSetting("Eureka", "Mignon Specialita", "1+4", -2.0), QString("1+2"));
+        // Rev carry: 1+98 (=198) + 5 = 203 → 2+3.
+        QCOMPARE(dye->stepGrinderSetting("Eureka", "Mignon Specialita", "1+98", 5.0), QString("2+3"));
+        // Below floor → "".
+        QCOMPARE(dye->stepGrinderSetting("Eureka", "Mignon Specialita", "0+2", -5.0), QString());
+        // A compound grinder whose setting is recorded as a plain number keeps
+        // the numeric form (NOT re-notated to "0+3.5") — output follows the input.
+        QCOMPARE(dye->stepGrinderSetting("Eureka", "Mignon Specialita", "2.5", 1.0, 2), QString("3.5"));
+    }
+
+    void stepGrinderSetting_customGrinderFallsBack() {
+        // A grinder not in the registry returns "" so the widget keeps its own
+        // plain-numeric / letter / history fallback (unchanged behaviour).
+        QCOMPARE(m_settings.dye()->stepGrinderSetting("Acme", "NotReal", "20", 2.0), QString());
+    }
+
+    void isKnownRpmGrinder_catalogConfirmedOnly() {
+        SettingsDye* dye = m_settings.dye();
+        QVERIFY(dye->isKnownRpmGrinder("Turin", "DF83V"));                 // variableRpm true
+        QVERIFY(!dye->isKnownRpmGrinder("Eureka", "Mignon Specialita"));   // variableRpm false
+        QVERIFY(!dye->isKnownRpmGrinder("Acme", "NotReal"));               // unknown → false (NOT unknown→true)
+    }
+
 };
 
 QTEST_GUILESS_MAIN(tst_Settings)

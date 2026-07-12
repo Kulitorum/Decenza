@@ -36,15 +36,13 @@ Item {
     // RPM-capable grinders dial in by motor RPM (BrewDialog shows a dedicated RPM
     // field for exactly these). In that case the pill steps dyeGrinderRpm.
     //
-    // Also require an RPM to be set: grinderRpmCapable() returns true for ANY
-    // grinder not in the registry (deriveRpmCapable: unknown -> true), so a
-    // burr-dialed custom grinder would otherwise be forced into RPM mode with a
-    // dead blank picker. Gating on dyeGrinderRpm > 0 keeps such grinders on burr
-    // stepping until the user actually sets an RPM (in BrewDialog); a genuine RPM
-    // grinder with rpm unset couldn't step from blank anyway, so nothing is lost.
-    // BrewDialog dodges this by showing BOTH fields; this pill is either/or.
-    readonly property bool isRpmMode: Settings.dye.grinderRpmCapable(grinderBrand, grinderModel)
-                                      && Settings.dye.dyeGrinderRpm > 0
+    // Uses isKnownRpmGrinder() (catalog-CONFIRMED variableRpm), NOT the broader
+    // grinderRpmCapable() which treats any unknown/custom grinder as RPM-capable
+    // (deriveRpmCapable: unknown -> true) — that would force a burr-dialed custom
+    // grinder into RPM mode. Catalog-confirmed RPM grinders engage RPM mode from
+    // the first tap, no "set an RPM in Brew Settings first" detour (when the RPM
+    // is still unset the picker seeds a neutral starting anchor, below).
+    readonly property bool isRpmMode: Settings.dye.isKnownRpmGrinder(grinderBrand, grinderModel)
 
     readonly property string labelText: isRpmMode
         ? TranslationManager.translate("grind.quickSelect.rpmLabel", "RPM")
@@ -67,6 +65,13 @@ Item {
     // useless ~10 RPM span, so RPM mode deliberately ignores it. Tunable.
     readonly property int rpmStep: 50
 
+    // Neutral starting anchor for a catalog RPM grinder whose dyeGrinderRpm is
+    // still unset (0): the picker centres here so the first tap is usable without
+    // a detour into Brew Settings. It is only a seed for the offered rows — the
+    // value isn't written until the user actually picks one. ~1000 sits in the
+    // middle of the typical ~600–1400 RPM working range.
+    readonly property int rpmDefaultAnchor: 1000
+
     // Global configurable step (burr-setting numeric mode only), edited in
     // Settings. Default 1.0.
     readonly property double grindStep: (Settings.brew.grindQuickSelectStep > 0)
@@ -77,7 +82,11 @@ Item {
 
     // --- Stepping algorithm ---------------------------------------------------
     // Return the grind setting `n` steps from `currentString` (n in -5..+5),
-    // or "" to skip (out of range / unparseable). Handles four cases in order:
+    // or "" to skip (out of range / unparseable). Registry grinders route
+    // through the catalog first (numeric AND Compound "a+b" rotation dials —
+    // Eureka Mignon/Atom/Helios, 1Zpresso — via SettingsDye.stepGrinderSetting,
+    // the same parse/format math the AI dialing block uses). For grinders NOT in
+    // the registry, or catalog values it can't parse, the JS fallbacks handle:
     //   1. pure numeric      "31"          -> +/- n*step, format by step's decimals
     //   2. number-in-text    "C4" / "4F"   -> step the numeric group, re-wrap
     //   3. pure letters       "F"          -> step the LAST letter ordinal, clamp A..Z
@@ -102,6 +111,16 @@ Item {
         var s = String(currentString == null ? "" : currentString).trim()
         if (s.length === 0)
             return ""
+
+        // 0. Catalog-first: registry grinders (numeric AND compound rotation
+        //    "a+b") step through the notation-aware pipeline, which round-trips
+        //    both notations and handles rev/position carry-borrow. Returns "" for
+        //    a custom grinder, an unparseable value, or a step below the dial
+        //    floor — then the JS branches below take over unchanged.
+        var viaCatalog = Settings.dye.stepGrinderSetting(root.grinderBrand, root.grinderModel,
+                                                         s, n * step, _stepDecimals(step))
+        if (viaCatalog && viaCatalog.length > 0)
+            return viaCatalog
 
         // 1. Pure numeric.
         if (/^-?\d+(\.\d+)?$/.test(s)) {
@@ -182,9 +201,12 @@ Item {
     // RPM rows: current ±5 * rpmStep, clamped at >= 0, de-duplicated. Pure
     // integers (no history fallback — observed history is burr-setting-specific).
     function _rpmRows() {
-        var base = Settings.dye.dyeGrinderRpm
-        if (base <= 0)
-            return [{ value: root.currentSetting, isCurrent: true }]  // unset -> just show "—"/current
+        // When the grinder's RPM is unset, seed the picker from a neutral anchor
+        // so a catalog RPM grinder is adjustable on the first tap (no Brew-Settings
+        // detour). Nothing is written until the user picks; the current row is only
+        // highlighted when a real RPM is set (rpmSet), never for the seed.
+        var rpmSet = Settings.dye.dyeGrinderRpm > 0
+        var base = rpmSet ? Settings.dye.dyeGrinderRpm : root.rpmDefaultAnchor
         var out = []
         var seen = ({})
         for (var n = -5; n <= 5; n++) {
@@ -193,7 +215,7 @@ Item {
             var v = String(rpm)
             if (seen[v]) continue
             seen[v] = true
-            out.push({ value: v, isCurrent: n === 0 })
+            out.push({ value: v, isCurrent: rpmSet && n === 0 })
         }
         return out
     }

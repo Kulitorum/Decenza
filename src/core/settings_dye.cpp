@@ -394,6 +394,47 @@ QStringList SettingsDye::knownGrinderModels(const QString& brand) const {
     return GrinderAliases::modelsForBrand(brand);
 }
 
+QString SettingsDye::stepGrinderSetting(const QString& brand, const QString& model,
+                                        const QString& current, double deltaUnits,
+                                        int decimals) const {
+    // Registry-only: a custom grinder (no match) returns "" so the caller keeps
+    // its plain-numeric / letter / history fallback, exactly as before.
+    const GrinderAliases::GrinderEntry* entry = GrinderAliases::findEntry(brand, model);
+    if (!entry)
+        return QString();
+    const auto linear = GrinderAliases::parseGrinderSetting(*entry, current);
+    if (!linear)
+        return QString();  // unparseable (e.g. pure letters) → caller's fallback
+    const double stepped = *linear + deltaUnits;
+    if (stepped < 0.0)
+        return QString();  // below the dial floor → skip this row
+
+    // Compound rotation ("a+b") renders in its own notation (rev/position
+    // carry-borrow). We gate on the CURRENT value actually being compound: a
+    // compound-notation grinder whose setting is recorded as a plain number
+    // (parseGrinderSetting accepts that — some Mignon users log "0.5") keeps the
+    // numeric form instead of being re-notated to "0+0.5".
+    if (entry->notation == GrinderAliases::SettingNotation::Compound
+        && current.contains(QLatin1Char('+')))
+        return GrinderAliases::formatGrinderSetting(*entry, stepped);
+
+    // Plain-numeric: honor the caller's configured step precision (the widget's
+    // grindQuickSelectStep goes to 2 decimals), not formatGrinderSetting's fixed
+    // single decimal, then strip trailing zeros to match the display convention.
+    const int d = qBound(0, decimals, 3);
+    QString s = QString::number(stepped, 'f', d);
+    if (s.contains(QLatin1Char('.'))) {
+        while (s.endsWith(QLatin1Char('0'))) s.chop(1);
+        if (s.endsWith(QLatin1Char('.'))) s.chop(1);
+    }
+    return s;
+}
+
+bool SettingsDye::isKnownRpmGrinder(const QString& brand, const QString& model) const {
+    const GrinderAliases::GrinderEntry* entry = GrinderAliases::findEntry(brand, model);
+    return entry && entry->variableRpm;
+}
+
 QStringList SettingsDye::knownBasketBrands() const {
     return BasketAliases::allBrands();
 }

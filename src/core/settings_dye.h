@@ -154,6 +154,28 @@ public:
     Q_INVOKABLE QStringList knownGrinderBrands() const;
     Q_INVOKABLE QStringList knownGrinderModels(const QString& brand) const;
 
+    // Step a registry grinder's dial `deltaUnits` linear units from `current`,
+    // via the catalog's notation-aware PARSE (findEntry → parseGrinderSetting →
+    // arithmetic). Handles BOTH plain-numeric AND Compound "a+b" rotation
+    // grinders (Eureka Mignon/Atom/Helios, 1Zpresso) — the same parse math the
+    // AI dialing block uses (dialing_blocks.cpp). Output notation follows the
+    // CURRENT value's form: a compound "a+b" input renders via formatGrinderSetting
+    // (carry-borrow), while a plain-numeric input keeps `decimals` places so a
+    // sub-0.5 quick-select step (e.g. 0.25) isn't truncated to the AI-dialing
+    // convention's single decimal. Returns "" for a grinder not in the registry,
+    // a value the catalog can't parse, or a step below the dial floor (< 0), so
+    // the caller keeps its own letter / plain-numeric / history fallback.
+    Q_INVOKABLE QString stepGrinderSetting(const QString& brand, const QString& model,
+                                           const QString& current, double deltaUnits,
+                                           int decimals = 1) const;
+
+    // Catalog-CONFIRMED rpm capability: true only when brand+model matches a
+    // registry entry whose variableRpm flag is set. Unlike grinderRpmCapable()
+    // (unknown/custom grinder → true), an unmatched grinder returns false — so a
+    // quick-select can engage RPM mode from the catalog alone, with no "set an
+    // RPM once in Brew Settings first" detour.
+    Q_INVOKABLE bool isKnownRpmGrinder(const QString& brand, const QString& model) const;
+
     // Basket registry bridges for the vendor-first picker (add-basket-equipment).
     Q_INVOKABLE QStringList knownBasketBrands() const;
     Q_INVOKABLE QStringList knownBasketModels(const QString& brand) const;
