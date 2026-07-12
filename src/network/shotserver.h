@@ -106,6 +106,11 @@ public:
     // MCP server for AI remote control
     void setMcpServer(McpServer* mcp) { m_mcpServer = mcp; }
 
+    // Remote MCP connector: live status + connector/login URLs for the web
+    // settings page (Settings.mcp holds the persisted config; this owns the
+    // running-state, composed connector URL, and Tailscale login URL).
+    void setRemoteMcpAccess(class McpRemoteAccess* access) { m_remoteMcpAccess = access; }
+
     // Relay client for Pocket app remote control
     void setRelayClient(class RelayClient* client) { m_relayClient = client; }
 
@@ -214,6 +219,7 @@ private:
     QString generateSettingsPage() const;
     void handleGetSettings(QTcpSocket* socket);
     void handleSaveSettings(QTcpSocket* socket, const QByteArray& body);
+    void handleRotateRemoteMcpToken(QTcpSocket* socket);
 
     // Settings test/connect endpoints
     void handleVisualizerTest(QTcpSocket* socket, const QByteArray& body);
@@ -289,6 +295,7 @@ private:
     bool m_mqttConnectInFlight = false;
     WidgetLibrary* m_widgetLibrary = nullptr;
     LibrarySharing* m_librarySharing = nullptr;
+    class McpRemoteAccess* m_remoteMcpAccess = nullptr;
     BatteryManager* m_batteryManager = nullptr;
     McpServer* m_mcpServer = nullptr;
     MemoryMonitor* m_memoryMonitor = nullptr;

@@ -1152,6 +1152,9 @@ int main(int argc, char *argv[])
     McpRemoteAccess remoteMcpAccess;
     remoteMcpAccess.setMcpServer(&mcpServer);
     remoteMcpAccess.setSettings(settings.mcp());
+    // Expose live remote-access status + connector/login URLs to the web
+    // settings page (Settings.mcp holds the persisted config).
+    mainController.shotServer()->setRemoteMcpAccess(&remoteMcpAccess);
     // Note: registerAllTools() is deferred until after AccessibilityManager is created (below)
 
     // Relay client for Pocket app remote control via AWS WebSocket

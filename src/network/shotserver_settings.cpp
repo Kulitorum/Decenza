@@ -9,6 +9,8 @@
 #include "../core/settings_mqtt.h"
 #include "../core/settings_ai.h"
 #include "../core/settings_visualizer.h"
+#include "../core/settings_mcp.h"
+#include "../mcp/mcpremoteaccess.h"
 #include "../core/profilestorage.h"
 #include "../core/settingsserializer.h"
 #include "../ai/aimanager.h"
@@ -212,6 +214,41 @@ static bool applyMqttSettings(Settings* s, const QJsonObject& obj)
     return brokerRedirectBlocked;
 }
 
+// Apply MCP-related fields (local server + remote connector) from a JSON object
+// to Settings. Only keys present in obj are updated. The setters fire *Changed
+// signals that McpRemoteAccess::refresh() is wired to, so toggling remote access
+// or switching mode from the web page starts/stops the tunnel automatically —
+// no separate action endpoint needed. Access/confirmation levels are clamped to
+// the valid 0..2 range; an unknown remote mode is ignored (left unchanged).
+// Returns an error list (empty = all applied).
+static QStringList applyMcpSettings(Settings* s, const QJsonObject& obj)
+{
+    QStringList errors;
+    auto* m = s->mcp();
+
+    if (obj.contains("mcpEnabled"))
+        m->setMcpEnabled(obj["mcpEnabled"].toBool());
+    if (obj.contains("mcpAccessLevel"))
+        m->setMcpAccessLevel(std::clamp(obj["mcpAccessLevel"].toInt(), 0, 2));
+    if (obj.contains("mcpConfirmationLevel"))
+        m->setMcpConfirmationLevel(std::clamp(obj["mcpConfirmationLevel"].toInt(), 0, 2));
+
+    if (obj.contains("remoteMcpEnabled"))
+        m->setRemoteMcpEnabled(obj["remoteMcpEnabled"].toBool());
+    if (obj.contains("remoteMcpMode")) {
+        const QString mode = obj["remoteMcpMode"].toString();
+        if (mode == QLatin1String(SettingsMcp::ModeCustom)
+            || mode == QLatin1String(SettingsMcp::ModeTailscale)) {
+            m->setRemoteMcpMode(mode);
+        } else {
+            errors << QStringLiteral("Unknown remote MCP mode '%1'").arg(mode);
+        }
+    }
+    if (obj.contains("remoteMcpCustomBaseUrl"))
+        m->setRemoteMcpCustomBaseUrl(obj["remoteMcpCustomBaseUrl"].toString().trimmed());
+    return errors;
+}
+
 QString ShotServer::generateSettingsPage() const
 {
     return QString(R"HTML(
@@ -283,6 +320,26 @@ QString ShotServer::generateSettingsPage() const
         }
         .section-icon { font-size: 1.25rem; }
         .section-body { padding: 1.25rem; }
+        .section-desc {
+            margin: 0 0 1rem;
+            font-size: 0.85rem;
+            color: #94a3b8;
+            line-height: 1.4;
+        }
+        .field-hint {
+            margin: 0.35rem 0 0;
+            font-size: 0.78rem;
+            color: #94a3b8;
+            line-height: 1.35;
+        }
+        .link-line {
+            display: inline-block;
+            color: #60a5fa;
+            text-decoration: none;
+            font-size: 0.9rem;
+            word-break: break-all;
+        }
+        .link-line:hover { text-decoration: underline; }
         .form-group {
             margin-bottom: 1rem;
         }
@@ -676,10 +733,111 @@ QString ShotServer::generateSettingsPage() const
                 </div>
             </div>
         </div>
+
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">&#128268;</span>
+                <h2>MCP Server (AI control)</h2>
+            </div>
+            <div class="section-body">
+                <p class="section-desc">Let an AI assistant (Claude, ChatGPT) read from and control this machine. Local clients on your network connect to the URL below.</p>
+                <div class="form-group">
+                    <label class="form-checkbox">
+                        <input type="checkbox" id="mcpEnabled" onchange="updateMcpFields()">
+                        <span>Enable MCP server</span>
+                    </label>
+                </div>
+                <div id="mcpFields" style="display:none;">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Access Level</label>
+                            <select class="form-input" id="mcpAccessLevel">
+                                <option value="0">Monitor Only — read state, history, profiles</option>
+                                <option value="1">Control — monitor + start/stop, wake/sleep</option>
+                                <option value="2">Full Automation — control + upload profiles, change settings</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Confirmation</label>
+                            <select class="form-input" id="mcpConfirmationLevel">
+                                <option value="0">None — commands execute immediately</option>
+                                <option value="1">Dangerous Only — confirm operations &amp; writes</option>
+                                <option value="2">All Control — confirm every control/write</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Setup page</label>
+                        <a id="mcpSetupLink" href="/mcp/setup" target="_blank" rel="noopener" class="link-line">Open setup page &#8599;</a>
+                        <p class="field-hint">Open this on the computer running Claude Desktop for a ready-to-paste configuration. The Local URL below is for manual clients (curl, MCP Inspector).</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Local URL (for clients on this network)</label>
+                        <div class="password-wrapper">
+                            <input type="text" class="form-input" id="mcpLocalUrl" readonly placeholder="Save &amp; enable to generate">
+                            <button type="button" class="password-toggle" onclick="copyField('mcpLocalUrl')" title="Copy">&#128203;</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="section-actions">
+                    <span id="mcpStatus" class="status-msg"></span>
+                    <button class="btn btn-primary" id="mcpSaveBtn" onclick="saveMcp()">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">&#127760;</span>
+                <h2>Remote Access (from anywhere)</h2>
+            </div>
+            <div class="section-body">
+                <p class="section-desc">Reach the MCP server over the public internet — e.g. from the Claude or ChatGPT mobile apps when you're away from home. Off by default. Only the AI connector is exposed, protected by a secret token you can rotate.</p>
+                <div class="form-group">
+                    <label class="form-checkbox">
+                        <input type="checkbox" id="remoteMcpEnabled" onchange="updateRemoteMcpFields()">
+                        <span>Enable remote access</span>
+                    </label>
+                </div>
+                <div id="remoteMcpFields" style="display:none;">
+                    <div class="form-group">
+                        <label class="form-label">Method</label>
+                        <select class="form-input" id="remoteMcpMode" onchange="updateRemoteMcpFields()">
+                            <option value="tailscale">Tailscale (built-in) — private public link, one-time setup</option>
+                            <option value="custom">Custom — your own tunnel / reverse-proxy URL</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="remoteMcpCustomGroup">
+                        <label class="form-label">Public base URL</label>
+                        <input type="text" class="form-input" id="remoteMcpCustomBaseUrl" placeholder="https://your-domain.example.com">
+                        <p class="field-hint">The externally reachable HTTPS address that forwards to this device's MCP port.</p>
+                    </div>
+                    <div class="form-group" id="remoteMcpLoginGroup" style="display:none;">
+                        <label class="form-label">Tailscale sign-in</label>
+                        <a id="remoteMcpLoginLink" href="#" target="_blank" rel="noopener" class="link-line">Open sign-in page &#8599;</a>
+                        <p class="field-hint">Open this once to authorize this device on your tailnet.</p>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Connector URL (paste into your AI app)</label>
+                        <div class="password-wrapper">
+                            <input type="text" class="form-input" id="remoteMcpConnectorUrl" readonly placeholder="Appears once the link is reachable">
+                            <button type="button" class="password-toggle" onclick="copyField('remoteMcpConnectorUrl')" title="Copy">&#128203;</button>
+                        </div>
+                        <p class="field-hint" id="remoteMcpStatusLine"></p>
+                    </div>
+                </div>
+                <div class="section-actions">
+                    <span id="remoteMcpStatus" class="status-msg"></span>
+                    <button class="btn btn-secondary" id="remoteMcpRotateBtn" onclick="rotateRemoteMcpToken()" style="display:none;">Rotate token</button>
+                    <button class="btn btn-primary" id="remoteMcpSaveBtn" onclick="saveRemoteMcp()">Save</button>
+                </div>
+            </div>
+        </div>
     </div>
 )HTML" R"HTML(
     <script>
         let mqttPollTimer = null;
+        let remoteMcpTunnelAvailable = false;
         let selectedProvider = '';
         let modelCatalogs = {};      // providerId -> [{id, name}] (multi-model providers only)
         let selectedModels = {};     // providerId -> selected model id ('' = provider default)
@@ -719,6 +877,27 @@ QString ShotServer::generateSettingsPage() const
                 document.getElementById('mqttRetainMessages').checked = data.mqttRetainMessages || false;
                 document.getElementById('mqttHomeAssistantDiscovery').checked = data.mqttHomeAssistantDiscovery || false;
                 updateMqttFields();
+
+                // MCP — local server
+                document.getElementById('mcpEnabled').checked = data.mcpEnabled || false;
+                document.getElementById('mcpAccessLevel').value = String(data.mcpAccessLevel ?? 0);
+                document.getElementById('mcpConfirmationLevel').value = String(data.mcpConfirmationLevel ?? 0);
+                document.getElementById('mcpLocalUrl').value = data.mcpLocalUrl || '';
+                updateMcpFields();
+
+                // MCP — remote connector
+                remoteMcpTunnelAvailable = !!data.remoteMcpTunnelAvailable;
+                document.getElementById('remoteMcpEnabled').checked = data.remoteMcpEnabled || false;
+                document.getElementById('remoteMcpMode').value = data.remoteMcpMode || 'tailscale';
+                document.getElementById('remoteMcpCustomBaseUrl').value = data.remoteMcpCustomBaseUrl || '';
+                document.getElementById('remoteMcpConnectorUrl').value = data.remoteMcpConnectorUrl || '';
+                const loginUrl = data.remoteMcpLoginUrl || '';
+                const loginLink = document.getElementById('remoteMcpLoginLink');
+                loginLink.href = loginUrl || '#';
+                loginLink.dataset.url = loginUrl;
+                document.getElementById('remoteMcpStatusLine').textContent =
+                    remoteStatusLine(data.remoteMcpStatus, data.remoteMcpStatusDetail);
+                updateRemoteMcpFields();
 
                 pollMqttStatus();
                 startMqttPolling();
@@ -817,6 +996,64 @@ QString ShotServer::generateSettingsPage() const
         function updateMqttFields() {
             const enabled = document.getElementById('mqttEnabled').checked;
             document.getElementById('mqttFields').style.display = enabled ? 'block' : 'none';
+        }
+
+        function updateMcpFields() {
+            const enabled = document.getElementById('mcpEnabled').checked;
+            document.getElementById('mcpFields').style.display = enabled ? 'block' : 'none';
+        }
+
+        function remoteStatusLine(status, detail) {
+            if (!status) return '';
+            const labels = { off: 'Off', starting: 'Starting…', active: 'Active — public link is live',
+                             reconnecting: 'Reconnecting…', error: 'Problem' };
+            let line = labels[status] || status;
+            if (detail) line += ' — ' + detail;
+            return line;
+        }
+
+        function updateRemoteMcpFields() {
+            const enabled = document.getElementById('remoteMcpEnabled').checked;
+            document.getElementById('remoteMcpFields').style.display = enabled ? 'block' : 'none';
+
+            // Hide the built-in Tailscale option on builds that don't ship it.
+            const modeSel = document.getElementById('remoteMcpMode');
+            const tsOption = modeSel.querySelector('option[value="tailscale"]');
+            if (tsOption) {
+                tsOption.disabled = !remoteMcpTunnelAvailable;
+                tsOption.hidden = !remoteMcpTunnelAvailable;
+            }
+            if (!remoteMcpTunnelAvailable && modeSel.value === 'tailscale')
+                modeSel.value = 'custom';
+
+            const mode = modeSel.value;
+            document.getElementById('remoteMcpCustomGroup').style.display = mode === 'custom' ? 'block' : 'none';
+            // Show the Tailscale sign-in link only in Tailscale mode when a login URL exists.
+            const loginUrl = document.getElementById('remoteMcpLoginLink').dataset.url || '';
+            document.getElementById('remoteMcpLoginGroup').style.display =
+                (mode === 'tailscale' && loginUrl) ? 'block' : 'none';
+            // Rotate is meaningful once there's a token in play (connector URL present).
+            const hasConnector = !!document.getElementById('remoteMcpConnectorUrl').value;
+            document.getElementById('remoteMcpRotateBtn').style.display = hasConnector ? 'inline-block' : 'none';
+        }
+
+        async function copyField(id) {
+            const el = document.getElementById(id);
+            if (!el.value) return;
+            // This page is served over plain LAN HTTP, where navigator.clipboard is
+            // unavailable (non-secure context) — so the execCommand fallback is the
+            // common path, not a rare one. Report both outcomes; a silently-failed
+            // copy of the connector URL would otherwise let the user paste stale text.
+            const statusId = (id === 'remoteMcpConnectorUrl') ? 'remoteMcpStatus' : 'mcpStatus';
+            let ok = false;
+            try {
+                await navigator.clipboard.writeText(el.value);
+                ok = true;
+            } catch (e) {
+                el.focus(); el.select();
+                ok = document.execCommand('copy');
+            }
+            showSectionStatus(statusId, ok ? 'Copied' : 'Copy failed — select the field and copy manually', !ok);
         }
 
         function togglePassword(id) {
@@ -949,6 +1186,65 @@ QString ShotServer::generateSettingsPage() const
                 showSectionStatus('mqttStatusText', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
             } catch (e) { showSectionStatus('mqttStatusText', e.message || 'Network error', true); }
             btn.disabled = false; btn.textContent = 'Save';
+        }
+
+        async function saveMcp() {
+            const btn = document.getElementById('mcpSaveBtn');
+            btn.disabled = true; btn.textContent = 'Saving...';
+            try {
+                const resp = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        mcpEnabled: document.getElementById('mcpEnabled').checked,
+                        mcpAccessLevel: parseInt(document.getElementById('mcpAccessLevel').value) || 0,
+                        mcpConfirmationLevel: parseInt(document.getElementById('mcpConfirmationLevel').value) || 0
+                    })
+                });
+                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
+                const r = await resp.json();
+                showSectionStatus('mcpStatus', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
+                if (r.success) await loadSettings();  // refresh derived URL / key fields
+            } catch (e) { showSectionStatus('mcpStatus', e.message || 'Network error', true); }
+            btn.disabled = false; btn.textContent = 'Save';
+        }
+
+        async function saveRemoteMcp() {
+            const btn = document.getElementById('remoteMcpSaveBtn');
+            btn.disabled = true; btn.textContent = 'Saving...';
+            try {
+                const resp = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        remoteMcpEnabled: document.getElementById('remoteMcpEnabled').checked,
+                        remoteMcpMode: document.getElementById('remoteMcpMode').value,
+                        remoteMcpCustomBaseUrl: document.getElementById('remoteMcpCustomBaseUrl').value
+                    })
+                });
+                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
+                const r = await resp.json();
+                showSectionStatus('remoteMcpStatus', r.success ? 'Saved' : (r.error || 'Failed'), !r.success);
+                // Reload so the connector URL / login link / status reflect the new
+                // mode. (Tailscale needs a moment to become reachable — the status
+                // line shows progress; re-open the page or Save again to refresh.)
+                if (r.success) await loadSettings();
+            } catch (e) { showSectionStatus('remoteMcpStatus', e.message || 'Network error', true); }
+            btn.disabled = false; btn.textContent = 'Save';
+        }
+
+        async function rotateRemoteMcpToken() {
+            if (!confirm('Rotate the token? The current connector URL stops working immediately — you\'ll need to update it in your AI app.')) return;
+            const btn = document.getElementById('remoteMcpRotateBtn');
+            btn.disabled = true; btn.textContent = 'Rotating...';
+            try {
+                const resp = await fetch('/api/settings/mcp/rotate-token', { method: 'POST' });
+                if (!resp.ok) throw new Error('Server error (' + resp.status + ')');
+                const r = await resp.json();
+                showSectionStatus('remoteMcpStatus', r.success ? 'Token rotated' : (r.error || 'Failed'), !r.success);
+                if (r.success) await loadSettings();
+            } catch (e) { showSectionStatus('remoteMcpStatus', e.message || 'Network error', true); }
+            btn.disabled = false; btn.textContent = 'Rotate token';
         }
 
         let mqttIsConnected = false;
@@ -1135,6 +1431,38 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
     obj["mqttRetainMessages"] = mqttSettings->mqttRetainMessages();
     obj["mqttHomeAssistantDiscovery"] = mqttSettings->mqttHomeAssistantDiscovery();
 
+    // MCP — local server config + live remote-access status. The local API key
+    // is NOT emitted: the app hides it (the /mcp/setup page handles local client
+    // config), and it only matters when the optional TOTP web-security is on.
+    // The remote connector URL below does embed its capability token — that URL
+    // is deliberately copied into the owner's AI client, unlike the masked
+    // third-party secrets above; see the SettingsMcp header note.
+    {
+        auto* mcp = m_settings->mcp();
+        obj["mcpEnabled"] = mcp->mcpEnabled();
+        obj["mcpAccessLevel"] = mcp->mcpAccessLevel();
+        obj["mcpConfirmationLevel"] = mcp->mcpConfirmationLevel();
+        // LAN endpoint for local clients (Claude Desktop via mcp-remote, curl).
+        // Empty until the server is listening (url() reports the bound address).
+        obj["mcpLocalUrl"] = (mcp->mcpEnabled() && !url().isEmpty())
+                                 ? url() + QStringLiteral("/mcp") : QString();
+
+        obj["remoteMcpEnabled"] = mcp->remoteMcpEnabled();
+        obj["remoteMcpMode"] = mcp->remoteMcpMode();
+        obj["remoteMcpCustomBaseUrl"] = mcp->remoteMcpCustomBaseUrl();
+        // Live coordinator state: status, the composed connector URL (only
+        // populated once actually reachable), and — for Tailscale mode — the
+        // one-time login URL. tunnelAvailable reports whether this build even
+        // includes the embedded Tailscale option.
+        obj["remoteMcpTunnelAvailable"] = McpRemoteAccess::tunnelAvailable();
+        if (m_remoteMcpAccess) {
+            obj["remoteMcpStatus"] = m_remoteMcpAccess->statusString();
+            obj["remoteMcpStatusDetail"] = m_remoteMcpAccess->statusDetail();
+            obj["remoteMcpConnectorUrl"] = m_remoteMcpAccess->connectorUrl();
+            obj["remoteMcpLoginUrl"] = m_remoteMcpAccess->loginUrl();
+        }
+    }
+
     sendJson(socket, QJsonDocument(obj).toJson(QJsonDocument::Compact));
 }
 
@@ -1170,10 +1498,14 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
     // it was dropped.
     const bool mqttBrokerRedirectBlocked = applyMqttSettings(m_settings, obj);
 
+    // MCP (local server + remote connector). Setters fire signals that
+    // McpRemoteAccess reacts to, so a web toggle starts/stops the tunnel.
+    const QStringList mcpErrors = applyMcpSettings(m_settings, obj);
+
     // Valid fields (including valid providerModels entries) are applied even
     // when some entries were rejected; the error tells the client which
     // selections did not take.
-    QStringList saveErrors = aiErrors;
+    QStringList saveErrors = aiErrors + mcpErrors;
     if (mqttBrokerRedirectBlocked)
         saveErrors << QStringLiteral("Re-enter the MQTT password when changing the broker host or port.");
     if (!saveErrors.isEmpty()) {
@@ -1185,6 +1517,33 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
     }
 
     sendJson(socket, R"({"success": true})");
+}
+
+// Rotate the remote MCP capability token. Rotation IS revocation, so route it
+// through McpRemoteAccess::rotateToken(), which both replaces the token AND
+// calls closeAllSockets() to sever every in-flight session on the old URL —
+// matching the native app's rotate. (Calling SettingsMcp::rotateRemoteMcpToken()
+// directly would swap the token but leave live connections open, since
+// remoteMcpTokenChanged is not wired to a restart.) The connector URL is
+// re-composed from the unchanged cert domain / custom base URL, so the fresh
+// URL is available immediately in the response.
+void ShotServer::handleRotateRemoteMcpToken(QTcpSocket* socket)
+{
+    if (!m_settings) {
+        sendJson(socket, R"({"success": false, "error": "Settings not available"})");
+        return;
+    }
+    QJsonObject resp;
+    resp["success"] = true;
+    if (m_remoteMcpAccess) {
+        m_remoteMcpAccess->rotateToken();  // rotate + drop live connections
+        resp["connectorUrl"] = m_remoteMcpAccess->connectorUrl();
+    } else {
+        // No coordinator (not expected in production): at least rotate the
+        // stored token so the old URL stops authorizing new requests.
+        m_settings->mcp()->rotateRemoteMcpToken();
+    }
+    sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
 }
 
 void ShotServer::handleVisualizerTest(QTcpSocket* socket, const QByteArray& body)
