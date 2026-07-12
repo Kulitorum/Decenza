@@ -378,11 +378,11 @@ int main(int argc, char *argv[])
     // Decenza ships its own Roboto so text glyph metrics are deterministic
     // across platforms, OEMs, and OS versions instead of inheriting each
     // device's system font — differing system-font metrics were causing text
-    // to overflow/clip on some devices but not others. Roboto is the face
-    // Android already uses, so the look is unchanged there. Registered before
-    // the QML engine loads so all UI (including splash) inherits it. QML
-    // elements that set an explicit font.family (e.g. Theme.monoFontFamily)
-    // still override this default.
+    // to overflow/clip on some devices but not others. Roboto matches Android's
+    // historical default, so the look is essentially unchanged there. Registered
+    // before the QML engine loads so all QML UI inherits it. QML elements that
+    // set an explicit font.family (e.g. Theme.monoFontFamily) still override
+    // this default.
     {
         const QStringList fontFiles = {
             QStringLiteral(":/fonts/Roboto-Regular.ttf"),
@@ -405,7 +405,7 @@ int main(int argc, char *argv[])
             app.setFont(QFont(bundledFamily));
             qDebug() << "[Font] Bundled application font set:" << bundledFamily;
         } else {
-            qWarning() << "[Font] No bundled font registered — falling back to platform default";
+            qWarning() << "[Font] No bundled font registered (bundled font resource missing from build) — falling back to platform default";
         }
     }
 

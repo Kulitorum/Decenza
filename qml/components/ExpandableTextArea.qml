@@ -58,7 +58,9 @@ Rectangle {
         while ((match = urlRegex.exec(plainText)) !== null) {
             result += escapeHtml(plainText.substring(lastIndex, match.index))
             var url = match[0].replace(/[.,;:!?\])}]+$/, '')  // trim trailing punctuation
-            result += '<a href="' + url + '" style="color:' + Theme.primaryColor + '">' + escapeHtml(url) + '</a>'
+            // No inline style="color:" — Text.StyledText ignores it; the link color
+            // comes from the Text.linkColor property on displayText instead.
+            result += '<a href="' + url + '">' + escapeHtml(url) + '</a>'
             lastIndex = match.index + url.length
             urlRegex.lastIndex = lastIndex
         }
@@ -79,6 +81,7 @@ Rectangle {
         textFormat: Text.StyledText
         font: root.textFont
         color: Theme.textColor
+        linkColor: Theme.primaryColor
         wrapMode: Text.Wrap
         elide: Text.ElideRight
         clip: true

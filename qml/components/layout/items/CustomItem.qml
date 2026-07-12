@@ -252,7 +252,9 @@ Item {
         var statusConnected = "qrc:/emoji/2705.svg"
         var statusDisconnected = "qrc:/icons/cross-filled.svg"
         var statusImg = function(src) {
-            return "<img src=\"" + src + "\" width=\"" + statusIconSize + "\" height=\"" + statusIconSize + "\" style=\"vertical-align: middle\">"
+            // align="middle" centres the icon in Text.StyledText (which ignores the
+            // CSS style= attribute); style keeps it centred under any RichText caller.
+            return "<img src=\"" + src + "\" width=\"" + statusIconSize + "\" height=\"" + statusIconSize + "\" align=\"middle\" style=\"vertical-align: middle\">"
         }
         if (result.indexOf("%MACHINE_CONNECTED%") >= 0)
             result = result.replace(/%MACHINE_CONNECTED%/g,

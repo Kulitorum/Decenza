@@ -1272,7 +1272,7 @@ Page {
                     Layout.leftMargin: Theme.scaled(20)
                     Layout.rightMargin: Theme.scaled(20)
                 }
-    
+
                 Text {
                     text: TranslationManager.translate("shothistory.searchhelpintro", "Use keywords to filter by numeric fields.\nTap a keyword below to add it to your search.")
                     font: Theme.bodyFont
@@ -1284,7 +1284,7 @@ Page {
                     Layout.leftMargin: Theme.scaled(20)
                     Layout.rightMargin: Theme.scaled(20)
                 }
-    
+
                 // Keyword reference grid
                 GridLayout {
                     columns: 3
@@ -1294,12 +1294,12 @@ Page {
                     Layout.topMargin: Theme.scaled(12)
                     Layout.leftMargin: Theme.scaled(20)
                     Layout.rightMargin: Theme.scaled(20)
-    
+
                     // Header row
                     Text { text: TranslationManager.translate("shothistory.helpheaderkeyword", "Keyword"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
                     Text { text: TranslationManager.translate("shothistory.helpheaderfilters", "Filters"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
                     Text { text: TranslationManager.translate("shothistory.helpheaderexample", "Example"); font.bold: true; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textColor; Accessible.ignored: true }
-    
+
                     // Data rows — keyword column is tappable to insert into search
                     Rectangle {
                         color: ratingArea.pressed ? Theme.surfaceColor : "transparent"
@@ -1315,7 +1315,7 @@ Page {
                     }
                     Text { text: TranslationManager.translate("shothistory.helprating", "Enjoyment (0-100)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                     Text { text: "rating:70+"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-    
+
                     Rectangle {
                         color: doseArea.pressed ? Theme.surfaceColor : "transparent"
                         radius: Theme.scaled(4)
@@ -1330,7 +1330,7 @@ Page {
                     }
                     Text { text: TranslationManager.translate("shothistory.helpdose", "Dose weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                     Text { text: "dose:16-18"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-    
+
                     Rectangle {
                         color: yieldArea.pressed ? Theme.surfaceColor : "transparent"
                         radius: Theme.scaled(4)
@@ -1345,7 +1345,7 @@ Page {
                     }
                     Text { text: TranslationManager.translate("shothistory.helpyield", "Yield weight (g)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                     Text { text: "yield:30-40"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-    
+
                     Rectangle {
                         color: timeArea.pressed ? Theme.surfaceColor : "transparent"
                         radius: Theme.scaled(4)
@@ -1360,7 +1360,7 @@ Page {
                     }
                     Text { text: TranslationManager.translate("shothistory.helptime", "Duration (seconds)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                     Text { text: "time:25-35"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-    
+
                     Rectangle {
                         color: tdsArea.pressed ? Theme.surfaceColor : "transparent"
                         radius: Theme.scaled(4)
@@ -1375,7 +1375,7 @@ Page {
                     }
                     Text { text: TranslationManager.translate("shotHistory.label.tds", "TDS"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                     Text { text: "tds:1.3-1.5"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-    
+
                     Rectangle {
                         color: eyArea.pressed ? Theme.surfaceColor : "transparent"
                         radius: Theme.scaled(4)
@@ -1390,7 +1390,7 @@ Page {
                     }
                     Text { text: TranslationManager.translate("shothistory.helpey", "Extraction yield (%)"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                     Text { text: "ey:18-22"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-    
+
                     // Quality flag keywords
                     Rectangle {
                         color: channelingArea.pressed ? Theme.surfaceColor : "transparent"
@@ -1406,7 +1406,7 @@ Page {
                     }
                     Text { text: TranslationManager.translate("shothistory.helpchanneling", "Channeling detected"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                     Text { text: "channeling:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-    
+
                     Rectangle {
                         color: grindArea.pressed ? Theme.surfaceColor : "transparent"
                         radius: Theme.scaled(4)
@@ -1421,7 +1421,7 @@ Page {
                     }
                     Text { text: TranslationManager.translate("shothistory.helpgrind", "Grind issue"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                     Text { text: "grind:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-    
+
                     Rectangle {
                         color: skipFrameArea.pressed ? Theme.surfaceColor : "transparent"
                         radius: Theme.scaled(4)
@@ -1436,7 +1436,7 @@ Page {
                     }
                     Text { text: TranslationManager.translate("shothistory.helpskipframe", "First step skipped"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                     Text { text: "skipframe:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
-    
+
                     Rectangle {
                         color: puckFailedArea.pressed ? Theme.surfaceColor : "transparent"
                         radius: Theme.scaled(4)
@@ -1452,7 +1452,7 @@ Page {
                     Text { text: TranslationManager.translate("shothistory.helppuckfailed", "Puck failed"); font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                     Text { text: "puckfailed:yes"; font.pixelSize: Theme.labelFont.pixelSize; color: Theme.textSecondaryColor; Accessible.ignored: true }
                 }
-    
+
                 // Syntax explanation
                 Text {
                     text: TranslationManager.translate("shothistory.searchhelpsyntax",
@@ -1466,7 +1466,7 @@ Page {
                     Layout.leftMargin: Theme.scaled(20)
                     Layout.rightMargin: Theme.scaled(20)
                 }
-    
+
                 // Close button
                 AccessibleButton {
                     text: TranslationManager.translate("shothistory.close", "Close")
