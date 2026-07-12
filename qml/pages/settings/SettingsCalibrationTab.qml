@@ -759,32 +759,52 @@ Item {
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
 
                 // Heater idle temperature
-                Text { text: TranslationManager.translate("settings.calibration.heaterIdleTemp", "Heater idle temperature"); font: Theme.captionFont; color: Theme.temperatureColor }
-                // Slider mechanics stay in the internal scaled-integer space (value = \u00B0C \u00D7 10,
-                // 0\u2013990). Only the human-readable \u00B0C/\u00B0F label is unit-converted: value/10 is the
-                // Celsius reading, fed through cToDisplay; the stored scaled int is untouched.
-                ValueInput { id: heaterIdleTempSlider; Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.heaterIdleTemp", "Heater idle temperature"); from: 0; to: 990; stepSize: 5; displayText: Theme.cToDisplay(value / 10).toFixed(1) + Theme.tempUnitSuffix(); rangeText: Theme.formatTemperature(0, 1) + " \u2014 " + Theme.formatTemperature(99, 1); value: Settings.hardware.heaterIdleTemp; onValueModified: function(newValue) { Settings.hardware.heaterIdleTemp = Math.round(newValue) }; KeyNavigation.tab: heaterWarmupFlowSlider; KeyNavigation.backtab: doneButton }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(12)
+                    Text { Layout.fillWidth: true; text: TranslationManager.translate("settings.calibration.heaterIdleTemp", "Heater idle temperature"); font: Theme.bodyFont; color: Theme.temperatureColor; wrapMode: Text.WordWrap }
+                    // Slider mechanics stay in the internal scaled-integer space (value = \u00B0C \u00D7 10,
+                    // 0\u2013990). Only the human-readable \u00B0C/\u00B0F label is unit-converted: value/10 is the
+                    // Celsius reading, fed through cToDisplay; the stored scaled int is untouched.
+                    ValueInput { id: heaterIdleTempSlider; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.heaterIdleTemp", "Heater idle temperature"); from: 0; to: 990; stepSize: 5; displayText: Theme.cToDisplay(value / 10).toFixed(1) + Theme.tempUnitSuffix(); rangeText: Theme.formatTemperature(0, 1) + " \u2014 " + Theme.formatTemperature(99, 1); value: Settings.hardware.heaterIdleTemp; onValueModified: function(newValue) { Settings.hardware.heaterIdleTemp = Math.round(newValue) }; KeyNavigation.tab: heaterWarmupFlowSlider; KeyNavigation.backtab: doneButton }
+                }
 
                 // Heater warmup flow rate
-                Text { text: TranslationManager.translate("settings.calibration.heaterWarmupFlow", "Heater warmup flow rate"); font: Theme.captionFont; color: Theme.flowColor }
-                ValueInput { id: heaterWarmupFlowSlider; Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("settings.calibration.heaterWarmupFlow", "Heater warmup flow rate"); from: 5; to: 60; stepSize: 1; displayText: (value / 10).toFixed(1) + " mL/s"; rangeText: "0.5 \u2014 6.0 mL/s"; value: Settings.hardware.heaterWarmupFlow; onValueModified: function(newValue) { Settings.hardware.heaterWarmupFlow = Math.round(newValue) }; KeyNavigation.tab: heaterTestFlowSlider; KeyNavigation.backtab: heaterIdleTempSlider }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(12)
+                    Text { Layout.fillWidth: true; text: TranslationManager.translate("settings.calibration.heaterWarmupFlow", "Heater warmup flow rate"); font: Theme.bodyFont; color: Theme.flowColor; wrapMode: Text.WordWrap }
+                    ValueInput { id: heaterWarmupFlowSlider; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("settings.calibration.heaterWarmupFlow", "Heater warmup flow rate"); from: 5; to: 60; stepSize: 1; displayText: (value / 10).toFixed(1) + " mL/s"; rangeText: "0.5 \u2014 6.0 mL/s"; value: Settings.hardware.heaterWarmupFlow; onValueModified: function(newValue) { Settings.hardware.heaterWarmupFlow = Math.round(newValue) }; KeyNavigation.tab: heaterTestFlowSlider; KeyNavigation.backtab: heaterIdleTempSlider }
+                }
 
                 // Heater test flow rate
-                Text { text: TranslationManager.translate("settings.calibration.heaterTestFlow", "Heater test flow rate"); font: Theme.captionFont; color: Theme.flowColor }
-                ValueInput { id: heaterTestFlowSlider; Layout.fillWidth: true; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("settings.calibration.heaterTestFlow", "Heater test flow rate"); from: 5; to: 80; stepSize: 1; displayText: (value / 10).toFixed(1) + " mL/s"; rangeText: "0.5 \u2014 8.0 mL/s"; value: Settings.hardware.heaterTestFlow; onValueModified: function(newValue) { Settings.hardware.heaterTestFlow = Math.round(newValue) }; KeyNavigation.tab: heaterTestTimeoutSlider; KeyNavigation.backtab: heaterWarmupFlowSlider }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(12)
+                    Text { Layout.fillWidth: true; text: TranslationManager.translate("settings.calibration.heaterTestFlow", "Heater test flow rate"); font: Theme.bodyFont; color: Theme.flowColor; wrapMode: Text.WordWrap }
+                    ValueInput { id: heaterTestFlowSlider; valueColor: Theme.flowColor; accessibleName: TranslationManager.translate("settings.calibration.heaterTestFlow", "Heater test flow rate"); from: 5; to: 80; stepSize: 1; displayText: (value / 10).toFixed(1) + " mL/s"; rangeText: "0.5 \u2014 8.0 mL/s"; value: Settings.hardware.heaterTestFlow; onValueModified: function(newValue) { Settings.hardware.heaterTestFlow = Math.round(newValue) }; KeyNavigation.tab: heaterTestTimeoutSlider; KeyNavigation.backtab: heaterWarmupFlowSlider }
+                }
 
                 // Heater test time-out
-                Text { text: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); font: Theme.captionFont; color: Theme.textSecondaryColor }
-                ValueInput { id: heaterTestTimeoutSlider; Layout.fillWidth: true; accessibleName: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); from: 10; to: 300; stepSize: 1; displayText: (value / 10).toFixed(1) + " s"; rangeText: "1.0 — 30.0 s"; value: Settings.hardware.heaterWarmupTimeout; onValueModified: function(newValue) { Settings.hardware.heaterWarmupTimeout = Math.round(newValue) }; KeyNavigation.tab: fanThresholdSlider; KeyNavigation.backtab: heaterTestFlowSlider }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(12)
+                    Text { Layout.fillWidth: true; text: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); font: Theme.bodyFont; color: Theme.textSecondaryColor; wrapMode: Text.WordWrap }
+                    ValueInput { id: heaterTestTimeoutSlider; accessibleName: TranslationManager.translate("settings.calibration.heaterTestTimeout", "Heater test time-out"); from: 10; to: 300; stepSize: 1; displayText: (value / 10).toFixed(1) + " s"; rangeText: "1.0 — 30.0 s"; value: Settings.hardware.heaterWarmupTimeout; onValueModified: function(newValue) { Settings.hardware.heaterWarmupTimeout = Math.round(newValue) }; KeyNavigation.tab: fanThresholdSlider; KeyNavigation.backtab: heaterTestFlowSlider }
+                }
 
                 // Fan temperature threshold: 0 = "Always on" (fan runs continuously,
                 // matching DE1 firmware default); 1–60 suppresses fan below that temp.
-                Text { text: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); font: Theme.captionFont; color: Theme.temperatureColor }
-                // The slider value stays in Celsius: 0 is the "Always on" sentinel (0°C == 32°F,
-                // so a unit-converted from/to would make the sentinel unreachable in Fahrenheit).
-                // Only the displayed threshold label is unit-converted (cToDisplay(value)); the
-                // stored Celsius value and the 0 sentinel are untouched.
-                ValueInput { id: fanThresholdSlider; Layout.fillWidth: true; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); from: 0; to: 60; stepSize: 1; displayText: value === 0 ? TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") : Theme.formatTemperature(value, 0); rangeText: TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") + " — " + Theme.formatTemperature(60, 0); value: Settings.hardware.fanThreshold; onValueModified: function(newValue) { Settings.hardware.fanThreshold = Math.round(newValue) }; KeyNavigation.tab: defaultsButton; KeyNavigation.backtab: heaterTestTimeoutSlider }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(12)
+                    Text { Layout.fillWidth: true; text: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); font: Theme.bodyFont; color: Theme.temperatureColor; wrapMode: Text.WordWrap }
+                    // The slider value stays in Celsius: 0 is the "Always on" sentinel (0°C == 32°F,
+                    // so a unit-converted from/to would make the sentinel unreachable in Fahrenheit).
+                    // Only the displayed threshold label is unit-converted (cToDisplay(value)); the
+                    // stored Celsius value and the 0 sentinel are untouched.
+                    ValueInput { id: fanThresholdSlider; valueColor: Theme.temperatureColor; accessibleName: TranslationManager.translate("settings.calibration.fanThreshold", "Fan temperature threshold"); from: 0; to: 60; stepSize: 1; displayText: value === 0 ? TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") : Theme.formatTemperature(value, 0); rangeText: TranslationManager.translate("settings.calibration.fanAlwaysOn", "Always on") + " — " + Theme.formatTemperature(60, 0); value: Settings.hardware.fanThreshold; onValueModified: function(newValue) { Settings.hardware.fanThreshold = Math.round(newValue) }; KeyNavigation.tab: defaultsButton; KeyNavigation.backtab: heaterTestTimeoutSlider }
+                }
 
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderColor }
 
