@@ -68,11 +68,13 @@ private slots:
         device.uploadProfile(p);
 
         // Sanity: 1 header + N frames (2 steps → 2 regular + 1 tail = 3 frames)
-        QCOMPARE(transport.writes.size(), 4);
+        // + 1 tank-preheat MMR write riding along after the frames
+        QCOMPARE(transport.writes.size(), 5);
         QCOMPARE(transport.writes.first().first, DE1::Characteristic::HEADER_WRITE);
         QCOMPARE(transport.writes.at(1).first, DE1::Characteristic::FRAME_WRITE);
         QCOMPARE(transport.writes.at(2).first, DE1::Characteristic::FRAME_WRITE);
         QCOMPARE(transport.writes.at(3).first, DE1::Characteristic::FRAME_WRITE);
+        QCOMPARE(transport.writes.at(4).first, DE1::Characteristic::WRITE_TO_MMR);
 
         // Replay ACKs in queue order and confirm the upload resolves as success.
         transport.ackAllWritesInOrder();
@@ -200,8 +202,12 @@ private slots:
 
         device.uploadProfileAndStartEspresso(makeSimpleProfile());
 
-        // 1 header + 3 frames + 1 requested-state = 5 writes
-        QCOMPARE(transport.writes.size(), 5);
+        // 1 header + 3 frames + 1 tank-preheat MMR + 1 requested-state = 6 writes
+        QCOMPARE(transport.writes.size(), 6);
+        QCOMPARE(transport.writes.at(4).first, DE1::Characteristic::WRITE_TO_MMR);
+        // The ride-along MMR write targets the tank threshold (0 for this
+        // profile), not some other register that happens to be queued here.
+        QCOMPARE(queuedTankPreheatValue(transport), 0);
         QCOMPARE(transport.writes.last().first, DE1::Characteristic::REQUESTED_STATE);
 
         // Ack everything except the espresso-start write. Upload must NOT
@@ -216,7 +222,7 @@ private slots:
 
         // Now ack the espresso-start write — upload resolves as success.
         emit transport.writeComplete(DE1::Characteristic::REQUESTED_STATE,
-                                     transport.writes.at(4).second);
+                                     transport.writes.at(5).second);
         QCOMPARE(spy.count(), 1);
         QCOMPARE(spy.takeFirst().at(0).toBool(), true);
     }
@@ -371,6 +377,110 @@ private slots:
         auto args = spy.takeFirst();
         QCOMPARE(args.at(0).toBool(), false);
         QCOMPARE(args.at(1).toString(), QStringLiteral("BLE disconnect during upload"));
+    }
+
+    // ===== Tank preheat rides along with every profile upload =====
+    //
+    // The DE1's tank preheat threshold (MMR 0x80380C) follows the active
+    // profile's tank_desired_water_temperature, matching de1app's
+    // de1_send_shot_frames (which sends the profile value only for advanced
+    // settings_2c profiles and 0 otherwise; Decenza honors the field on all
+    // profile types). Decenza used to parse the field but only ever write a
+    // hardcoded 0 at connect, so profile-requested preheat silently never
+    // reached the machine.
+
+private:
+    // Decode the value from a 20-byte MMR write payload targeting `address`,
+    // or return -1 if the payload addresses a different register.
+    static int mmrValueIfAddress(const QByteArray& payload, uint32_t address) {
+        if (payload.size() != 20) return -1;
+        const uint32_t addr = (static_cast<uint8_t>(payload[1]) << 16)
+                            | (static_cast<uint8_t>(payload[2]) << 8)
+                            |  static_cast<uint8_t>(payload[3]);
+        if (addr != address) return -1;
+        return static_cast<uint8_t>(payload[4])
+             | (static_cast<uint8_t>(payload[5]) << 8)
+             | (static_cast<uint8_t>(payload[6]) << 16)
+             | (static_cast<uint8_t>(payload[7]) << 24);
+    }
+
+    // Find the tank-threshold MMR write in the captured transport writes.
+    // Returns the decoded value, or -1 if no such write was queued.
+    static int queuedTankPreheatValue(const MockTransport& transport) {
+        for (const auto& w : transport.writes) {
+            if (w.first != DE1::Characteristic::WRITE_TO_MMR) continue;
+            const int value = mmrValueIfAddress(w.second, DE1::MMR::TANK_TEMP_THRESHOLD);
+            if (value >= 0) return value;
+        }
+        return -1;
+    }
+
+private slots:
+
+    void uploadWritesProfileTankPreheatTemperature() {
+        MockTransport transport;
+        DE1Device device;
+        device.setTransport(&transport);
+
+        // 34.6, not 35.0 — also pins the qRound (a truncating cast would
+        // write 34).
+        Profile p = makeSimpleProfile();
+        p.setTankDesiredWaterTemperature(34.6);
+        device.uploadProfile(p);
+
+        QCOMPARE(queuedTankPreheatValue(transport), 35);
+
+        // Resolve the tracker so device teardown doesn't warn about an
+        // in-flight upload.
+        transport.ackAllWritesInOrder();
+    }
+
+    void uploadClampsTankPreheatToDe1appCeiling() {
+        MockTransport transport;
+        DE1Device device;
+        device.setTransport(&transport);
+
+        // 60 exceeds de1app's range_check_variable ceiling of 45 — the MMR
+        // write must clamp, not pass the raw value through.
+        Profile p = makeSimpleProfile();
+        p.setTankDesiredWaterTemperature(60.0);
+        device.uploadProfile(p);
+
+        QCOMPARE(queuedTankPreheatValue(transport), 45);
+
+        transport.ackAllWritesInOrder();
+    }
+
+    void uploadClampsNegativeTankPreheatToZero() {
+        MockTransport transport;
+        DE1Device device;
+        device.setTransport(&transport);
+
+        // A hand-edited or third-party profile could carry a negative value.
+        // Without the qBound floor, qRound(-5.0) cast to uint32_t would put
+        // 4294967291 on the wire as the threshold.
+        Profile p = makeSimpleProfile();
+        p.setTankDesiredWaterTemperature(-5.0);
+        device.uploadProfile(p);
+
+        QCOMPARE(queuedTankPreheatValue(transport), 0);
+
+        transport.ackAllWritesInOrder();
+    }
+
+    void uploadWithoutPreheatWritesZero() {
+        MockTransport transport;
+        DE1Device device;
+        device.setTransport(&transport);
+
+        // makeSimpleProfile leaves tankDesiredWaterTemperature at its 0.0
+        // default — the upload disables preheat (fresh device, empty MMR
+        // dedup cache, so the write is actually queued rather than elided).
+        device.uploadProfile(makeSimpleProfile());
+
+        QCOMPARE(queuedTankPreheatValue(transport), 0);
+
+        transport.ackAllWritesInOrder();
     }
 };
 
