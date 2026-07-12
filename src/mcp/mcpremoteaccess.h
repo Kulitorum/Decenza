@@ -12,6 +12,7 @@ class QTcpSocket;
 class QTimer;
 class McpServer;
 class SettingsMcp;
+class McpTunnelTsnet;
 
 // Coordinator for the remote MCP connector (public-internet reachability for
 // Claude / ChatGPT mobile custom connectors). Owns a dedicated TCP listener,
@@ -39,6 +40,11 @@ class McpRemoteAccess : public QObject {
     Q_PROPERTY(QString statusDetail READ statusDetail NOTIFY statusChanged)
     Q_PROPERTY(QString connectorUrl READ connectorUrl NOTIFY connectorUrlChanged)
     Q_PROPERTY(int listenPort READ listenPort NOTIFY statusChanged)
+    // Tailscale (Mode A) interactive login URL — non-empty only while the
+    // embedded node is waiting for the user to authorize it. Surface as QR/link.
+    Q_PROPERTY(QString loginUrl READ loginUrl NOTIFY loginUrlChanged)
+    // Whether embedded-tunnel modes (Mode A) are compiled into this build.
+    Q_PROPERTY(bool tunnelAvailable READ tunnelAvailable CONSTANT)
 
 public:
     enum Status {
@@ -65,6 +71,8 @@ public:
     // a mode whose tunnel URL is not yet known).
     QString connectorUrl() const;
     int listenPort() const;
+    QString loginUrl() const;
+    static bool tunnelAvailable();
 
     // Re-evaluate settings (enabled / mode / port) and start, stop, or restart
     // the listener accordingly. Safe to call repeatedly.
@@ -77,15 +85,23 @@ public:
 signals:
     void statusChanged();
     void connectorUrlChanged();
+    void loginUrlChanged();
 
 private slots:
     void onNewConnection();
     void onReadyRead();
     void onSocketDisconnected();
     void onReaperTick();
+    void onTunnelStateChanged();
 
 private:
-    void startListener();
+    // bindLoopbackOnly: embedded tunnels (Mode A) proxy from 127.0.0.1, so the
+    // listener binds loopback; Mode C needs a LAN-routable bind for an off-box
+    // proxy. Returns true if the listener is (now) up on the requested port.
+    void startListener(bool bindLoopbackOnly);
+    // Start / stop the embedded Tailscale node for Mode A.
+    void startTunnel();
+    void stopTunnel();
     void stopListener();
     void setStatus(Status status, const QString& detail = QString());
     void closeAllSockets();
@@ -109,6 +125,7 @@ private:
     McpServer* m_mcpServer = nullptr;
     SettingsMcp* m_settings = nullptr;
     QTcpServer* m_listener = nullptr;
+    McpTunnelTsnet* m_tunnel = nullptr;   // embedded Tailscale node (Mode A)
     QTimer* m_reaper = nullptr;
 
     Status m_status = Off;

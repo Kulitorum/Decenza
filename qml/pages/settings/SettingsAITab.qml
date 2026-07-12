@@ -839,10 +839,86 @@ KeyboardAwareContainer {
                     spacing: Theme.scaled(10)
                     visible: Settings.mcp.mcpEnabled && Settings.mcp.remoteMcpEnabled
 
+                    // Reachability mode selector
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(6)
+
+                        Tr {
+                            key: "settings.ai.remoteMcp.modeLabel"
+                            fallback: "How is it reachable?"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(13)
+                            font.bold: true
+                        }
+
+                        Repeater {
+                            model: [
+                                {
+                                    mode: "custom",
+                                    label: TranslationManager.translate("settings.ai.remoteMcp.mode.custom", "Custom URL (bring your own)"),
+                                    detail: TranslationManager.translate("settings.ai.remoteMcp.mode.customDesc", "You run a reverse proxy / tunnel that forwards to this device."),
+                                    enabled: true
+                                },
+                                {
+                                    mode: "tailscale",
+                                    label: TranslationManager.translate("settings.ai.remoteMcp.mode.tailscale", "Tailscale (built-in)"),
+                                    detail: RemoteMcpAccess.tunnelAvailable
+                                        ? TranslationManager.translate("settings.ai.remoteMcp.mode.tailscaleDesc", "Join your tailnet and expose a public Funnel URL — no other setup.")
+                                        : TranslationManager.translate("settings.ai.remoteMcp.mode.tailscaleUnavailable", "Not included in this build."),
+                                    enabled: RemoteMcpAccess.tunnelAvailable
+                                }
+                            ]
+                            delegate: Rectangle {
+                                id: modeDelegate
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: modeCol.implicitHeight + Theme.scaled(16)
+                                radius: Theme.scaled(6)
+                                opacity: modelData.enabled ? 1.0 : 0.5
+                                color: Settings.mcp.remoteMcpMode === modelData.mode ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.15) : "transparent"
+                                border.color: Settings.mcp.remoteMcpMode === modelData.mode ? Theme.primaryColor : Theme.borderColor
+                                border.width: 1
+                                Accessible.ignored: true
+
+                                ColumnLayout {
+                                    id: modeCol
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.margins: Theme.scaled(12)
+                                    spacing: Theme.scaled(2)
+                                    Text {
+                                        text: modelData.label
+                                        color: Theme.textColor
+                                        font.pixelSize: Theme.scaled(13)
+                                        font.bold: true
+                                        Accessible.ignored: true
+                                    }
+                                    Text {
+                                        text: modelData.detail
+                                        color: Theme.textSecondaryColor
+                                        font.pixelSize: Theme.scaled(11)
+                                        wrapMode: Text.WordWrap
+                                        Layout.fillWidth: true
+                                        Accessible.ignored: true
+                                    }
+                                }
+                                AccessibleMouseArea {
+                                    anchors.fill: parent
+                                    enabled: modelData.enabled
+                                    accessibleName: modelData.label + ". " + modelData.detail
+                                    accessibleItem: modeDelegate
+                                    onAccessibleClicked: if (modelData.enabled) Settings.mcp.remoteMcpMode = modelData.mode
+                                }
+                            }
+                        }
+                    }
+
                     // Public base URL (Mode C — bring your own)
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(4)
+                        visible: Settings.mcp.remoteMcpMode === "custom"
 
                         Tr {
                             key: "settings.ai.remoteMcp.baseUrlLabel"
@@ -881,6 +957,72 @@ KeyboardAwareContainer {
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
+                        }
+                    }
+
+                    // Tailscale login (Mode A) — shown while the embedded node is
+                    // waiting for the user to authorize it.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+                        visible: Settings.mcp.remoteMcpMode === "tailscale"
+                            && RemoteMcpAccess.loginUrl.length > 0
+
+                        Tr {
+                            key: "settings.ai.remoteMcp.tailscaleLoginLabel"
+                            fallback: "Sign in to Tailscale"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(13)
+                            font.bold: true
+                        }
+                        Tr {
+                            key: "settings.ai.remoteMcp.tailscaleLoginHint"
+                            fallback: "Open this link (or scan the code) to authorize this device on your tailnet. You may also need to approve Funnel for it in the Tailscale admin console."
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(11)
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(8)
+                            Text {
+                                Layout.fillWidth: true
+                                text: RemoteMcpAccess.loginUrl
+                                color: Theme.accentColor
+                                font.pixelSize: Theme.scaled(12)
+                                wrapMode: Text.WrapAnywhere
+                                Accessible.role: Accessible.Link
+                                Accessible.name: TranslationManager.translate("settings.ai.remoteMcp.tailscaleLoginAccessible", "Open Tailscale login page")
+                                Accessible.focusable: true
+                                MouseArea {
+                                    id: tsLoginArea
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: Qt.openUrlExternally(RemoteMcpAccess.loginUrl)
+                                }
+                                Accessible.onPressAction: tsLoginArea.clicked(null)
+                            }
+                            AccessibleButton {
+                                text: TranslationManager.translate("common.button.copy", "Copy")
+                                accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleLoginCopy", "Copy Tailscale login URL")
+                                onClicked: MainController.copyToClipboard(RemoteMcpAccess.loginUrl)
+                            }
+                        }
+                        Rectangle {
+                            Layout.alignment: Qt.AlignHCenter
+                            width: Theme.scaled(180)
+                            height: Theme.scaled(180)
+                            color: "#ffffff"
+                            radius: Theme.scaled(8)
+                            Accessible.role: Accessible.Graphic
+                            Accessible.name: TranslationManager.translate("settings.ai.remoteMcp.tailscaleLoginQr", "QR code of the Tailscale login URL")
+                            QrCode {
+                                anchors.fill: parent
+                                anchors.margins: Theme.scaled(8)
+                                value: RemoteMcpAccess.loginUrl
+                                Accessible.ignored: true
+                            }
                         }
                     }
 

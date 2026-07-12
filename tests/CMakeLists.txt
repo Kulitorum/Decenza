@@ -956,6 +956,8 @@ add_decenza_test(tst_mcpremoteaccess
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpsession.h
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpremoteaccess.cpp
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpremoteaccess.h
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcptunnel_tsnet.cpp
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcptunnel_tsnet.h
     ${PROFILEMANAGER_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
