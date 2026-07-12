@@ -9,12 +9,14 @@ import "../.."
 // value writes it to Settings.dye.dyeGrinderSetting (the same path the Brew
 // Settings +/- controls use, which write-through to the active bag/package).
 //
-// RPM-capable grinders (Settings.dye.grinderRpmCapable(brand, model) — the same
-// check BrewDialog uses to reveal its dedicated RPM field) dial in via motor
-// RPM, not burr position. For those the pill instead steps Settings.dye
-// .dyeGrinderRpm (an int) by a fixed RPM increment, so the widget adjusts the
-// parameter the user actually turns. Non-RPM grinders step dyeGrinderSetting
-// exactly as before.
+// Catalog-confirmed RPM grinders (Settings.dye.isKnownRpmGrinder(brand, model))
+// dial in via motor RPM, not burr position. For those the pill instead steps
+// Settings.dye.dyeGrinderRpm (an int) by a fixed RPM increment, so the widget
+// adjusts the parameter the user actually turns. This intentionally differs from
+// BrewDialog's RPM field, which reveals on the broader grinderRpmCapable() (any
+// unknown/custom grinder counts): here an unknown grinder must NOT be forced into
+// RPM mode, so we gate on catalog-confirmed variableRpm only. Non-RPM grinders
+// step dyeGrinderSetting exactly as before.
 //
 // Pure layout widget: no AI / feedback dependencies, so it can be
 // cherry-picked cleanly onto upstream/main. In burr-setting mode it works
@@ -94,10 +96,11 @@ Item {
     function _stepDecimals(step) {
         // Decimal places come from the STEP, not the current value:
         // 1.0 -> 0 ("31"), 0.5 -> 1 ("30.5"), 0.25 -> 2.
-        // Sanitize float-dirty steps: String(0.30) === "0.30000000000000004" would
-        // otherwise yield 17 decimals and render/persist a garbage grind label (the
-        // picked label string is written straight to dyeGrinderSetting). Bound to 3
-        // decimals and strip trailing zeros so labels + the persisted value stay clean.
+        // Sanitize float-dirty steps: an accumulated step like String(0.1 + 0.2)
+        // === "0.30000000000000004" would otherwise yield 17 decimals and
+        // render/persist a garbage grind label (the picked label string is written
+        // straight to dyeGrinderSetting). Bound to 3 decimals and strip trailing
+        // zeros so labels + the persisted value stay clean.
         var s = Number(step).toFixed(3).replace(/0+$/, "").replace(/\.$/, "")
         var dot = s.indexOf(".")
         return dot < 0 ? 0 : (s.length - dot - 1)
@@ -228,6 +231,11 @@ Item {
         // Track the live dial-in so rows recompute on setting/RPM changes
         // (currentSetting reflects dyeGrinderSetting or dyeGrinderRpm per mode).
         var ___ = root.currentSetting
+        // Track grinder identity too: the burr-mode step values depend on the
+        // grinder's notation via stepGrinderSetting(brand, model, ...), so a switch
+        // to a different grinder sharing the same setting string + mode must still
+        // re-evaluate the rows (which currentSetting alone wouldn't trigger).
+        var ____ = root.grinderBrand + " " + root.grinderModel
 
         if (root.isRpmMode)
             return root._rpmRows()

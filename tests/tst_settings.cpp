@@ -1419,12 +1419,21 @@ private slots:
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.5), QString("20.5"));
         // Below the dial floor → "" (caller falls back / skips the row).
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "1", -5.0), QString());
+        // Exactly 0 is a VALID dial position, not below the floor (the guard is
+        // stepped < 0, not <= 0) → returns "0", not "".
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "2", -2.0), QString("0"));
         // Sub-0.5 step precision is honored, not truncated to a single decimal
         // (the widget's grindQuickSelectStep goes to 2 decimals). Trailing zeros
         // stripped: 20.50 → "20.5".
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.25, 2), QString("20.25"));
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.05, 2), QString("20.05"));
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.5, 2),  QString("20.5"));
+        // decimals = 0 rounds to an integer label (20.25 → "20"); the decimals
+        // arg is qBound(0, .., 3), so out-of-range values clamp rather than
+        // producing garbage-length labels: -1 → 0 decimals, 9 → 3 decimals.
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.25, 0),  QString("20"));
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.25, -1), QString("20"));
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.125, 9), QString("20.125"));
     }
 
     void stepGrinderSetting_compound() {
@@ -1433,8 +1442,11 @@ private slots:
         // cohort the hand-rolled regex missed entirely (fell through to history).
         QCOMPARE(dye->stepGrinderSetting("Eureka", "Mignon Specialita", "1+4", 1.0), QString("1+5"));
         QCOMPARE(dye->stepGrinderSetting("Eureka", "Mignon Specialita", "1+4", -2.0), QString("1+2"));
-        // Rev carry: 1+98 (=198) + 5 = 203 → 2+3.
+        // Rev carry UP: 1+98 (=198) + 5 = 203 → 2+3.
         QCOMPARE(dye->stepGrinderSetting("Eureka", "Mignon Specialita", "1+98", 5.0), QString("2+3"));
+        // Rev borrow DOWN across a revolution: 2+3 (=203) - 5 = 198 → 1+98. The
+        // mirror of the carry case above — exercises floor() on the way down.
+        QCOMPARE(dye->stepGrinderSetting("Eureka", "Mignon Specialita", "2+3", -5.0), QString("1+98"));
         // Below floor → "".
         QCOMPARE(dye->stepGrinderSetting("Eureka", "Mignon Specialita", "0+2", -5.0), QString());
         // A compound grinder whose setting is recorded as a plain number keeps
@@ -1448,11 +1460,25 @@ private slots:
         QCOMPARE(m_settings.dye()->stepGrinderSetting("Acme", "NotReal", "20", 2.0), QString());
     }
 
+    void stepGrinderSetting_unparseableRegistryValueFallsBack() {
+        SettingsDye* dye = m_settings.dye();
+        // A registry grinder whose current setting can't be parsed as a dial
+        // number (a word, or empty/whitespace) returns "" — the caller then uses
+        // its JS letter / history fallback rather than the catalog. Exercises the
+        // parseGrinderSetting == nullopt branch that the happy-path tests skip.
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "fine", 2.0), QString());
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "", 2.0), QString());
+        QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "   ", 2.0), QString());
+    }
+
     void isKnownRpmGrinder_catalogConfirmedOnly() {
         SettingsDye* dye = m_settings.dye();
         QVERIFY(dye->isKnownRpmGrinder("Turin", "DF83V"));                 // variableRpm true
         QVERIFY(!dye->isKnownRpmGrinder("Eureka", "Mignon Specialita"));   // variableRpm false
         QVERIFY(!dye->isKnownRpmGrinder("Acme", "NotReal"));               // unknown → false (NOT unknown→true)
+        // variableRpm is orthogonal to notation: a Compound grinder can still be
+        // RPM-capable (Mignon Turbo), so notation must not gate the flag.
+        QVERIFY(dye->isKnownRpmGrinder("Eureka", "Mignon Turbo"));         // Compound + variableRpm true
     }
 
 };
