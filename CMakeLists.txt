@@ -55,6 +55,11 @@ option(ENABLE_ASAN "Enable Address Sanitizer" OFF)
 # Optional features (Quick3D not available on all platforms, e.g. Raspberry Pi)
 option(ENABLE_QUICK3D "Enable Qt Quick3D for 3D screensavers" ON)
 
+# Embedded Tailscale (tsnet + Funnel) for the Remote MCP connector Mode A.
+# Pulls prebuilt libtailscale artifacts from the fork (no Go toolchain needed).
+# Default OFF: normal builds are unaffected; Mode C (BYO URL) always works.
+option(ENABLE_TSNET "Embed Tailscale (tsnet) for the remote MCP connector" OFF)
+
 # Qt 6 modules - core required components
 find_package(Qt6 REQUIRED COMPONENTS
     Core
@@ -335,6 +340,7 @@ set(SOURCES
     src/network/shotserver_ai.cpp
     src/mcp/mcpserver.cpp
     src/mcp/mcpremoteaccess.cpp
+    src/mcp/mcptunnel_tsnet.cpp
     src/mcp/mcptools_machine.cpp
     src/mcp/mcptools_shots.cpp
     src/mcp/mcptools_profiles.cpp
@@ -603,6 +609,16 @@ target_link_libraries(Decenza PRIVATE
     Qt6::WebSocketsPrivate
     Qt6::CanvasPainter
 )
+
+# Embedded Tailscale (Remote MCP Mode A). mcptunnel_tsnet.cpp is always compiled
+# (as a stub when disabled) so McpRemoteAccess can reference it unconditionally;
+# only when ENABLE_TSNET is on do we pull the prebuilt lib, define the feature
+# macro, and link it.
+if(ENABLE_TSNET)
+    include(${CMAKE_SOURCE_DIR}/cmake/tsnet.cmake)
+    target_compile_definitions(Decenza PRIVATE DECENZA_ENABLE_TSNET)
+    decenza_link_tsnet(Decenza)
+endif()
 
 # Link SerialPort only on desktop (not available on Android/iOS)
 if(NOT ANDROID AND NOT IOS)

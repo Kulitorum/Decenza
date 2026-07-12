@@ -1,6 +1,7 @@
 #include "mcpremoteaccess.h"
 
 #include "mcpserver.h"
+#include "mcptunnel_tsnet.h"
 #include "../core/settings_mcp.h"
 
 #include <QTcpServer>
@@ -8,6 +9,12 @@
 #include <QTimer>
 #include <QHostAddress>
 #include <QUrl>
+#include <QStandardPaths>
+#include <QDir>
+#include <QSysInfo>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
 
 McpRemoteAccess::McpRemoteAccess(QObject* parent)
     : QObject(parent)
@@ -22,6 +29,7 @@ McpRemoteAccess::McpRemoteAccess(QObject* parent)
 
 McpRemoteAccess::~McpRemoteAccess()
 {
+    stopTunnel();   // brings the embedded node down (joins its worker) if running
     stopListener();
 }
 
@@ -88,15 +96,34 @@ QString McpRemoteAccess::connectorUrl() const
         return base + QStringLiteral("/mcp/") + m_settings->remoteMcpToken();
     }
 
-    // Embedded-tunnel modes (tailscale / ngrok) compose their URL from the
-    // tunnel's assigned hostname, which is not available until those modes are
-    // implemented. Report no URL rather than a misleading one.
+    // Mode A (Tailscale): the Funnel FQDN comes from the embedded node once it is
+    // up — but only surface the URL once a real public-reachability probe has
+    // confirmed it actually works (login done, HTTPS certs on, Funnel granted).
+    if (mode == QString::fromLatin1(SettingsMcp::ModeTailscale)) {
+        if (!m_tunnel || m_tunnel->certDomain().isEmpty() || !m_funnelReachable)
+            return QString();
+        return QStringLiteral("https://") + m_tunnel->certDomain()
+               + QStringLiteral("/mcp/") + m_settings->remoteMcpToken();
+    }
+
+    // ngrok (Mode B) not implemented yet.
     return QString();
+}
+
+QString McpRemoteAccess::loginUrl() const
+{
+    return m_tunnel ? m_tunnel->authUrl() : QString();
+}
+
+bool McpRemoteAccess::tunnelAvailable()
+{
+    return McpTunnelTsnet::isAvailable();
 }
 
 void McpRemoteAccess::refresh()
 {
     if (!m_settings) {
+        stopTunnel();
         stopListener();
         setStatus(Off);
         return;
@@ -104,34 +131,56 @@ void McpRemoteAccess::refresh()
 
     const bool wantOn = m_settings->mcpEnabled() && m_settings->remoteMcpEnabled();
     if (!wantOn) {
+        stopTunnel();
         stopListener();
         setStatus(Off);
         emit connectorUrlChanged();
         return;
     }
 
-    // Phase 1 wires Mode C only. Other modes accept the setting but cannot yet
-    // stand up a tunnel, so surface a clear error instead of a silent no-op.
     const QString mode = m_settings->remoteMcpMode();
-    if (mode != QString::fromLatin1(SettingsMcp::ModeCustom)) {
-        stopListener();
-        setStatus(Error, QStringLiteral("Mode '%1' is not available in this build yet").arg(mode));
+
+    // Mode C (BYO URL): LAN-routable listener, an off-box proxy fronts it.
+    if (mode == QString::fromLatin1(SettingsMcp::ModeCustom)) {
+        stopTunnel();
+        startListener(/*bindLoopbackOnly=*/false);
         emit connectorUrlChanged();
         return;
     }
 
-    startListener();
+    // Mode A (Tailscale): loopback listener + embedded node that Funnels to it.
+    if (mode == QString::fromLatin1(SettingsMcp::ModeTailscale)) {
+        if (!McpTunnelTsnet::isAvailable()) {
+            stopListener();
+            setStatus(Error, QStringLiteral("This build was not compiled with Tailscale support"));
+            emit connectorUrlChanged();
+            return;
+        }
+        startListener(/*bindLoopbackOnly=*/true);
+        if (m_status == Error)
+            return;  // listener failed to bind
+        startTunnel();
+        emit connectorUrlChanged();
+        return;
+    }
+
+    // ngrok (Mode B) not implemented yet.
+    stopTunnel();
+    stopListener();
+    setStatus(Error, QStringLiteral("Mode '%1' is not available in this build yet").arg(mode));
     emit connectorUrlChanged();
 }
 
-void McpRemoteAccess::startListener()
+void McpRemoteAccess::startListener(bool bindLoopbackOnly)
 {
     const quint16 port = m_settings ? static_cast<quint16>(m_settings->remoteMcpPort()) : 8890;
+    const QHostAddress bindAddr = bindLoopbackOnly ? QHostAddress(QHostAddress::LocalHost)
+                                                   : QHostAddress(QHostAddress::Any);
 
     if (m_listener && m_listener->isListening()) {
-        if (m_listener->serverPort() == port)
-            return;  // already serving the right port
-        stopListener();  // port changed — rebind
+        if (m_listener->serverPort() == port && m_listener->serverAddress() == bindAddr)
+            return;  // already serving the right port + interface
+        stopListener();  // port or bind changed — rebind
     }
 
     setStatus(Starting);
@@ -147,18 +196,186 @@ void McpRemoteAccess::startListener()
     // the next settings change.
     m_reaper->start();
 
-    // Mode C: an off-box reverse proxy on the LAN forwards to the tablet's LAN
-    // IP + this port, so the listener must be routable, not loopback-only. It
-    // still serves only the tokenized MCP route (route gating in routeRequest),
-    // so no other ShotServer surface is exposed. Embedded-tunnel modes will bind
-    // loopback instead.
-    if (!m_listener->listen(QHostAddress::Any, port)) {
+    // Mode C binds a routable interface so an off-box reverse proxy can reach it;
+    // Mode A binds loopback (the embedded tsnet node proxies from 127.0.0.1). The
+    // listener still serves only the tokenized MCP route (route gating in
+    // routeRequest), so no other ShotServer surface is ever exposed.
+    if (!m_listener->listen(bindAddr, port)) {
         setStatus(Error, QStringLiteral("Could not listen on port %1: %2")
                             .arg(port).arg(m_listener->errorString()));
         return;
     }
 
-    setStatus(Active);
+    // Mode C: listener up is as "active" as we can verify (the off-box proxy is
+    // the user's responsibility). Mode A: stay Starting — the embedded tunnel's
+    // state (login → running) drives the real status via onTunnelStateChanged().
+    if (!bindLoopbackOnly)
+        setStatus(Active);
+}
+
+void McpRemoteAccess::startTunnel()
+{
+    if (!McpTunnelTsnet::isAvailable() || !m_settings)
+        return;
+    if (!m_tunnel) {
+        m_tunnel = new McpTunnelTsnet(this);
+        connect(m_tunnel, &McpTunnelTsnet::stateChanged, this, &McpRemoteAccess::onTunnelStateChanged);
+        connect(m_tunnel, &McpTunnelTsnet::certDomainChanged, this, &McpRemoteAccess::connectorUrlChanged);
+        connect(m_tunnel, &McpTunnelTsnet::authUrlChanged, this, &McpRemoteAccess::loginUrlChanged);
+    }
+    const QString stateDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                             + QStringLiteral("/tsnet");
+    // Node name → Funnel subdomain. Include the machine hostname so multiple
+    // Decenza instances on one tailnet get distinct, recognisable node names
+    // (and distinct Funnel URLs). Tailscale node names allow only [a-z0-9-];
+    // sanitise the host and trim stray hyphens.
+    QString host = QSysInfo::machineHostName().toLower();
+    // Drop any domain suffix (e.g. macOS returns "name.local") — keep just the
+    // first label so the node is "decenza-<hostname>", not "…-local".
+    const qsizetype dot = host.indexOf('.');
+    if (dot > 0)
+        host = host.left(dot);
+    for (QChar& c : host) {
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'))
+            c = '-';
+    }
+    while (host.startsWith('-')) host.remove(0, 1);
+    while (host.endsWith('-')) host.chop(1);
+    const QString nodeName = host.isEmpty() ? QStringLiteral("decenza")
+                                            : QStringLiteral("decenza-") + host;
+    m_tunnel->start(stateDir, nodeName,
+                    static_cast<quint16>(m_settings->remoteMcpPort()));
+}
+
+void McpRemoteAccess::stopTunnel()
+{
+    stopReachabilityProbe();
+    m_funnelReachable = false;
+    if (m_tunnel)
+        m_tunnel->stop();
+}
+
+void McpRemoteAccess::onTunnelStateChanged()
+{
+    if (!m_tunnel)
+        return;
+    switch (m_tunnel->state()) {
+    case McpTunnelTsnet::NeedsLogin:
+        // Surface the login URL (loginUrl property) and keep status "starting".
+        m_funnelReachable = false;
+        stopReachabilityProbe();
+        setStatus(Starting, QStringLiteral("Waiting for Tailscale login"));
+        break;
+    case McpTunnelTsnet::Starting:
+        m_funnelReachable = false;
+        stopReachabilityProbe();
+        setStatus(Starting, QStringLiteral("Connecting to Tailscale"));
+        break;
+    case McpTunnelTsnet::Running:
+        // The node is up and Funnel is configured locally, but that is NOT proof
+        // the public URL works. Stay "starting" and probe the real Funnel URL;
+        // onReachability… flips to Active only once it responds.
+        if (m_funnelReachable) {
+            setStatus(Active);
+        } else {
+            setStatus(Starting, QStringLiteral("Verifying public reachability…"));
+            startReachabilityProbe();
+        }
+        break;
+    case McpTunnelTsnet::Error:
+        m_funnelReachable = false;
+        stopReachabilityProbe();
+        setStatus(Error, m_tunnel->lastError());
+        break;
+    case McpTunnelTsnet::Stopped:
+        m_funnelReachable = false;
+        stopReachabilityProbe();
+        break;
+    }
+    emit connectorUrlChanged();
+}
+
+void McpRemoteAccess::startReachabilityProbe()
+{
+    if (!m_reachProbe) {
+        m_reachProbe = new QNetworkAccessManager(this);
+        m_reachTimer = new QTimer(this);
+        m_reachTimer->setInterval(6000);
+        connect(m_reachTimer, &QTimer::timeout, this, &McpRemoteAccess::doReachabilityProbe);
+    }
+    // New probing session: any in-flight reply from a previous session becomes
+    // stale (its generation no longer matches) and is ignored on completion.
+    ++m_probeGeneration;
+    m_probeFailCount = 0;
+    m_probeInFlight = false;
+    if (!m_reachTimer->isActive())
+        m_reachTimer->start();
+    doReachabilityProbe();  // probe immediately, don't wait a full interval
+}
+
+void McpRemoteAccess::stopReachabilityProbe()
+{
+    ++m_probeGeneration;   // drop any in-flight reply
+    if (m_reachTimer)
+        m_reachTimer->stop();
+    m_probeInFlight = false;
+}
+
+void McpRemoteAccess::doReachabilityProbe()
+{
+    if (m_probeInFlight || !m_reachProbe || !m_tunnel || !m_settings)
+        return;
+    const QString domain = m_tunnel->certDomain();
+    if (domain.isEmpty())
+        return;
+
+    // Fetch the real connector URL over the public internet. It leaves this
+    // machine, hits the Funnel edge, and routes back to the loopback listener —
+    // so any HTTP response (a GET yields 405 from McpServer) proves the whole
+    // public path works. Using the tokenized path avoids the failed-token
+    // limiter. GET (no SSE) creates no MCP session.
+    const QString url = QStringLiteral("https://") + domain
+                        + QStringLiteral("/mcp/") + m_settings->remoteMcpToken();
+    QNetworkRequest req{QUrl(url)};
+    req.setTransferTimeout(10000);
+    m_probeInFlight = true;
+    const quint64 gen = m_probeGeneration;
+    QNetworkReply* reply = m_reachProbe->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, gen]() {
+        const bool gotHttpResponse =
+            reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).isValid();
+        const QString errStr = reply->errorString();
+        reply->deleteLater();
+        // Ignore a reply from a superseded probing session (disable / mode
+        // switch / tunnel restart happened while this was in flight) — it must
+        // not flip status to Active.
+        if (gen != m_probeGeneration)
+            return;
+        m_probeInFlight = false;
+
+        if (gotHttpResponse) {
+            m_probeFailCount = 0;
+            if (!m_funnelReachable) {
+                m_funnelReachable = true;
+                stopReachabilityProbe();
+                setStatus(Active);
+                emit connectorUrlChanged();
+            }
+            return;
+        }
+
+        // No HTTP response: DNS not published, no route, TLS/timeout. Common
+        // cause is Funnel not granted for this node yet. Keep probing (it
+        // recovers once granted), but after a grace window surface an actionable
+        // error instead of an unbounded "Verifying…".
+        qWarning() << "McpRemoteAccess: Funnel reachability probe failed:" << errStr;
+        if (++m_probeFailCount >= 5 && m_status != Error) {
+            setStatus(Error, QStringLiteral(
+                "Public Funnel URL isn't reachable yet. Make sure Funnel is enabled for this "
+                "device in the Tailscale admin console (see “Set up Tailscale Funnel”). "
+                "This clears automatically once it's reachable."));
+        }
+    });
 }
 
 void McpRemoteAccess::stopListener()
@@ -471,11 +688,15 @@ void McpRemoteAccess::onReaperTick()
             ++it;
     }
 
-    // Recover from a dropped listener (e.g. interface flap) while still enabled.
+    // Recover from a dropped listener (e.g. interface flap) while still enabled,
+    // rebinding with the correct interface for the active mode.
     if (m_settings && m_settings->mcpEnabled() && m_settings->remoteMcpEnabled()
-        && m_settings->remoteMcpMode() == QString::fromLatin1(SettingsMcp::ModeCustom)
         && m_listener && !m_listener->isListening()) {
-        setStatus(Reconnecting);
-        startListener();
+        const QString mode = m_settings->remoteMcpMode();
+        const bool loopback = (mode == QString::fromLatin1(SettingsMcp::ModeTailscale));
+        if (loopback || mode == QString::fromLatin1(SettingsMcp::ModeCustom)) {
+            setStatus(Reconnecting);
+            startListener(loopback);
+        }
     }
 }

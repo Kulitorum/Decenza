@@ -12,6 +12,9 @@ class QTcpSocket;
 class QTimer;
 class McpServer;
 class SettingsMcp;
+class McpTunnelTsnet;
+class QNetworkAccessManager;
+class QNetworkReply;
 
 // Coordinator for the remote MCP connector (public-internet reachability for
 // Claude / ChatGPT mobile custom connectors). Owns a dedicated TCP listener,
@@ -39,6 +42,11 @@ class McpRemoteAccess : public QObject {
     Q_PROPERTY(QString statusDetail READ statusDetail NOTIFY statusChanged)
     Q_PROPERTY(QString connectorUrl READ connectorUrl NOTIFY connectorUrlChanged)
     Q_PROPERTY(int listenPort READ listenPort NOTIFY statusChanged)
+    // Tailscale (Mode A) interactive login URL — non-empty only while the
+    // embedded node is waiting for the user to authorize it. Surface as QR/link.
+    Q_PROPERTY(QString loginUrl READ loginUrl NOTIFY loginUrlChanged)
+    // Whether embedded-tunnel modes (Mode A) are compiled into this build.
+    Q_PROPERTY(bool tunnelAvailable READ tunnelAvailable CONSTANT)
 
 public:
     enum Status {
@@ -65,6 +73,8 @@ public:
     // a mode whose tunnel URL is not yet known).
     QString connectorUrl() const;
     int listenPort() const;
+    QString loginUrl() const;
+    static bool tunnelAvailable();
 
     // Re-evaluate settings (enabled / mode / port) and start, stop, or restart
     // the listener accordingly. Safe to call repeatedly.
@@ -77,15 +87,31 @@ public:
 signals:
     void statusChanged();
     void connectorUrlChanged();
+    void loginUrlChanged();
 
 private slots:
     void onNewConnection();
     void onReadyRead();
     void onSocketDisconnected();
     void onReaperTick();
+    void onTunnelStateChanged();
 
 private:
-    void startListener();
+    // bindLoopbackOnly: embedded tunnels (Mode A) proxy from 127.0.0.1, so the
+    // listener binds loopback; Mode C needs a LAN-routable bind for an off-box
+    // proxy. On a bind failure it sets status Error (callers check m_status).
+    void startListener(bool bindLoopbackOnly);
+    // Start / stop the embedded Tailscale node for Mode A.
+    void startTunnel();
+    void stopTunnel();
+
+    // Mode A public-reachability probe: actually fetch the Funnel connector URL
+    // from the app and only treat the connector as Active once it responds — the
+    // tunnel's local "funnel configured" signal is NOT proof the public path
+    // works (needs HTTPS certs + Funnel granted server-side).
+    void startReachabilityProbe();
+    void stopReachabilityProbe();
+    void doReachabilityProbe();
     void stopListener();
     void setStatus(Status status, const QString& detail = QString());
     void closeAllSockets();
@@ -109,6 +135,15 @@ private:
     McpServer* m_mcpServer = nullptr;
     SettingsMcp* m_settings = nullptr;
     QTcpServer* m_listener = nullptr;
+    McpTunnelTsnet* m_tunnel = nullptr;   // embedded Tailscale node (Mode A)
+    QNetworkAccessManager* m_reachProbe = nullptr;  // Mode A reachability probe
+    QTimer* m_reachTimer = nullptr;
+    bool m_funnelReachable = false;       // last probe confirmed the public URL works
+    bool m_probeInFlight = false;
+    // Bumped whenever probing (re)starts/stops; a probe reply carrying a stale
+    // generation is ignored so it can't flip status after disable/mode switch.
+    quint64 m_probeGeneration = 0;
+    int m_probeFailCount = 0;             // consecutive failed probes (for surfacing an error)
     QTimer* m_reaper = nullptr;
 
     Status m_status = Off;
