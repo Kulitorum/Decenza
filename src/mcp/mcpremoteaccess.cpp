@@ -12,6 +12,9 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QSysInfo>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
 
 McpRemoteAccess::McpRemoteAccess(QObject* parent)
     : QObject(parent)
@@ -94,9 +97,10 @@ QString McpRemoteAccess::connectorUrl() const
     }
 
     // Mode A (Tailscale): the Funnel FQDN comes from the embedded node once it is
-    // up. Empty until then (login pending / Funnel not yet approved).
+    // up — but only surface the URL once a real public-reachability probe has
+    // confirmed it actually works (login done, HTTPS certs on, Funnel granted).
     if (mode == QString::fromLatin1(SettingsMcp::ModeTailscale)) {
-        if (!m_tunnel || m_tunnel->certDomain().isEmpty())
+        if (!m_tunnel || m_tunnel->certDomain().isEmpty() || !m_funnelReachable)
             return QString();
         return QStringLiteral("https://") + m_tunnel->certDomain()
                + QStringLiteral("/mcp/") + m_settings->remoteMcpToken();
@@ -245,6 +249,8 @@ void McpRemoteAccess::startTunnel()
 
 void McpRemoteAccess::stopTunnel()
 {
+    stopReachabilityProbe();
+    m_funnelReachable = false;
     if (m_tunnel)
         m_tunnel->stop();
 }
@@ -256,21 +262,90 @@ void McpRemoteAccess::onTunnelStateChanged()
     switch (m_tunnel->state()) {
     case McpTunnelTsnet::NeedsLogin:
         // Surface the login URL (loginUrl property) and keep status "starting".
+        m_funnelReachable = false;
+        stopReachabilityProbe();
         setStatus(Starting, QStringLiteral("Waiting for Tailscale login"));
         break;
     case McpTunnelTsnet::Starting:
+        m_funnelReachable = false;
+        stopReachabilityProbe();
         setStatus(Starting, QStringLiteral("Connecting to Tailscale"));
         break;
     case McpTunnelTsnet::Running:
-        setStatus(Active);
+        // The node is up and Funnel is configured locally, but that is NOT proof
+        // the public URL works. Stay "starting" and probe the real Funnel URL;
+        // onReachability… flips to Active only once it responds.
+        if (m_funnelReachable) {
+            setStatus(Active);
+        } else {
+            setStatus(Starting, QStringLiteral("Verifying public reachability…"));
+            startReachabilityProbe();
+        }
         break;
     case McpTunnelTsnet::Error:
+        m_funnelReachable = false;
+        stopReachabilityProbe();
         setStatus(Error, m_tunnel->lastError());
         break;
     case McpTunnelTsnet::Stopped:
+        m_funnelReachable = false;
+        stopReachabilityProbe();
         break;
     }
     emit connectorUrlChanged();
+}
+
+void McpRemoteAccess::startReachabilityProbe()
+{
+    if (!m_reachProbe) {
+        m_reachProbe = new QNetworkAccessManager(this);
+        m_reachTimer = new QTimer(this);
+        m_reachTimer->setInterval(6000);
+        connect(m_reachTimer, &QTimer::timeout, this, &McpRemoteAccess::doReachabilityProbe);
+    }
+    if (!m_reachTimer->isActive())
+        m_reachTimer->start();
+    doReachabilityProbe();  // probe immediately, don't wait a full interval
+}
+
+void McpRemoteAccess::stopReachabilityProbe()
+{
+    if (m_reachTimer)
+        m_reachTimer->stop();
+    m_probeInFlight = false;
+}
+
+void McpRemoteAccess::doReachabilityProbe()
+{
+    if (m_probeInFlight || !m_reachProbe || !m_tunnel || !m_settings)
+        return;
+    const QString domain = m_tunnel->certDomain();
+    if (domain.isEmpty())
+        return;
+
+    // Fetch the real connector URL over the public internet. It leaves this
+    // machine, hits the Funnel edge, and routes back to the loopback listener —
+    // so any HTTP response (a GET yields 405 from McpServer) proves the whole
+    // public path works. Using the tokenized path avoids the failed-token
+    // limiter. GET (no SSE) creates no MCP session.
+    const QString url = QStringLiteral("https://") + domain
+                        + QStringLiteral("/mcp/") + m_settings->remoteMcpToken();
+    QNetworkRequest req{QUrl(url)};
+    req.setTransferTimeout(10000);
+    m_probeInFlight = true;
+    QNetworkReply* reply = m_reachProbe->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        m_probeInFlight = false;
+        const bool gotHttpResponse =
+            reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).isValid();
+        reply->deleteLater();
+        if (gotHttpResponse && !m_funnelReachable) {
+            m_funnelReachable = true;
+            stopReachabilityProbe();
+            setStatus(Active);
+            emit connectorUrlChanged();
+        }
+    });
 }
 
 void McpRemoteAccess::stopListener()

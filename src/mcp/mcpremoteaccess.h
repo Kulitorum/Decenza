@@ -13,6 +13,8 @@ class QTimer;
 class McpServer;
 class SettingsMcp;
 class McpTunnelTsnet;
+class QNetworkAccessManager;
+class QNetworkReply;
 
 // Coordinator for the remote MCP connector (public-internet reachability for
 // Claude / ChatGPT mobile custom connectors). Owns a dedicated TCP listener,
@@ -102,6 +104,14 @@ private:
     // Start / stop the embedded Tailscale node for Mode A.
     void startTunnel();
     void stopTunnel();
+
+    // Mode A public-reachability probe: actually fetch the Funnel connector URL
+    // from the app and only treat the connector as Active once it responds — the
+    // tunnel's local "funnel configured" signal is NOT proof the public path
+    // works (needs HTTPS certs + Funnel granted server-side).
+    void startReachabilityProbe();
+    void stopReachabilityProbe();
+    void doReachabilityProbe();
     void stopListener();
     void setStatus(Status status, const QString& detail = QString());
     void closeAllSockets();
@@ -126,6 +136,10 @@ private:
     SettingsMcp* m_settings = nullptr;
     QTcpServer* m_listener = nullptr;
     McpTunnelTsnet* m_tunnel = nullptr;   // embedded Tailscale node (Mode A)
+    QNetworkAccessManager* m_reachProbe = nullptr;  // Mode A reachability probe
+    QTimer* m_reachTimer = nullptr;
+    bool m_funnelReachable = false;       // last probe confirmed the public URL works
+    bool m_probeInFlight = false;
     QTimer* m_reaper = nullptr;
 
     Status m_status = Off;

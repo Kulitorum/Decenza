@@ -119,7 +119,7 @@ void McpTunnelTsnet::runWorker(QString stateDir, QString hostname, quint16 local
         return;
     }
 
-    bool funnelEnabled = false;
+    bool funnelLogged = false;
     QString lastState;
     while (!m_stopRequested.load()) {
         const QString state = backendState();
@@ -131,28 +131,24 @@ void McpTunnelTsnet::runWorker(QString stateDir, QString hostname, quint16 local
         if (state == QLatin1String("Running")) {
             const QString domain = certDomain();
             if (domain.isEmpty()) {
-                // Node is authorized and up, but the tailnet hasn't issued a
-                // Funnel/HTTPS cert domain yet — HTTPS Certificates must be
-                // enabled and Funnel approved for this node in the admin console.
-                // Keep polling (do NOT return): the control plane pushes the new
-                // capability to the running node, so this recovers automatically
-                // once the user enables it, no restart needed.
-                post(Error, QString(), QString(),
-                     QStringLiteral("Tailscale node is up, but Funnel isn't available for this tailnet yet. "
-                                    "In the Tailscale admin console: enable HTTPS Certificates (DNS page) "
-                                    "and approve Funnel for this node."));
-            } else if (!funnelEnabled) {
-                if (tailscale_enable_funnel_to_localhost_plaintext_http1(sd, localPort) != 0) {
+                // Node up but no DNS/cert domain yet — keep waiting.
+                post(Starting, QString(), QString(), QString());
+            } else {
+                // (Re-)apply the Funnel serve config every cycle. SetServeConfig
+                // is idempotent, and re-applying is what lets a Funnel grant made
+                // WHILE the app is running take effect without a restart — the
+                // one-shot approach got permanently stuck if Funnel wasn't yet
+                // authorised when we first reached Running.
+                if (tailscale_enable_funnel_to_localhost_plaintext_http1(sd, localPort) != 0)
                     qWarning() << "McpTunnelTsnet: enable funnel failed:" << errmsg();
-                    post(Error, QString(), QString(), errmsg());
-                    // Keep polling — a transient/approval issue may clear.
-                } else {
-                    funnelEnabled = true;
-                    qInfo() << "McpTunnelTsnet: Funnel enabled for" << domain;
-                    post(Running, QString(), domain, QString());
-                    // Done configuring; the node keeps running on its goroutines.
-                    return;
+                if (!funnelLogged) {
+                    funnelLogged = true;
+                    qInfo() << "McpTunnelTsnet: Funnel configured for" << domain;
                 }
+                // Report the FQDN. This is NOT proof of public reachability —
+                // McpRemoteAccess probes the real Funnel URL before it surfaces
+                // the connector URL / "Active".
+                post(Running, QString(), domain, QString());
             }
         } else if (state == QLatin1String("NeedsLogin")
                    || state == QLatin1String("NeedsMachineAuth")) {
@@ -160,7 +156,8 @@ void McpTunnelTsnet::runWorker(QString stateDir, QString hostname, quint16 local
         } else {
             post(Starting, QString(), QString(), QString());
         }
-        QThread::msleep(1000);
+        // Poll faster while coming up; ease off (still re-applying funnel) once up.
+        QThread::msleep(state == QLatin1String("Running") ? 5000 : 1500);
     }
 #else
     Q_UNUSED(stateDir)
