@@ -576,15 +576,247 @@ if(APPLE)
 endif()
 
 # Resources
-qt_add_resources(RESOURCES resources/resources.qrc)
+#
+# emoji.qrc stays on the classic variable-form qt_add_resources (resolved at
+# CMake *configure* time). Its 700+ Twemoji SVGs are a static, machine-generated
+# set whose CONTENT never changes — only additions happen, and adding an emoji
+# already edits emoji.qrc itself, so the .qrc-timestamp dependency the variable
+# form tracks is enough to trigger a rebuild. Enumerating 700+ files in a
+# target-scoped FILES list would be pure noise for no practical gain.
+#
+# resources.qrc and ai.qrc are migrated to the target-scoped FILES signature
+# below (see "Target-scoped resources", after the Decenza target is created).
+# That form registers every listed file as a real build dependency, so RCC
+# re-runs and the binary relinks automatically when an icon/sound/profile/KB
+# file's CONTENT changes — no manual "Run CMake" reconfigure required. The
+# variable form would only notice a changed *.qrc* timestamp, silently shipping
+# a stale binary after an in-place edit to a listed file (this bit us repeatedly
+# during the bundled-fonts / new-SVG-icons work).
 qt_add_resources(RESOURCES resources/emoji.qrc)
-qt_add_resources(RESOURCES resources/ai.qrc)
 
 # Main executable
 qt_add_executable(Decenza
     ${SOURCES}
     ${HEADERS}
     ${RESOURCES}
+)
+
+# Target-scoped resources (see the "# Resources" note above for the rationale).
+# The FILES signature makes each listed file a build dependency of the Decenza
+# target, so a content change to any of them re-runs RCC and relinks on a plain
+# incremental build. BASE=resources maps every file to :/<path-relative-to-base>
+# — identical to each .qrc's prefix="/" mapping — so all qrc:/... paths are
+# unchanged. The three files that carried an <file alias="..."> in resources.qrc
+# keep their alias via the QT_RESOURCE_ALIAS source-file property set just below.
+#
+# NOTE: this FILES list is now the source of truth for the Decenza target's
+# non-emoji resources; resources/resources.qrc and resources/ai.qrc are retained
+# only because the test targets (tests/CMakeLists.txt) still consume them via the
+# variable form. Adding/removing an icon, sound, profile, or KB file means
+# editing BOTH this list AND the matching .qrc so the app and the tests stay in
+# sync.
+set_source_files_properties(
+    "${CMAKE_SOURCE_DIR}/resources/icons/espresso 8mm.svg"
+    PROPERTIES QT_RESOURCE_ALIAS "icons/espresso.svg"
+)
+set_source_files_properties(
+    "${CMAKE_SOURCE_DIR}/resources/icons/flush 8mm.svg"
+    PROPERTIES QT_RESOURCE_ALIAS "icons/flush.svg"
+)
+set_source_files_properties(
+    "${CMAKE_SOURCE_DIR}/Logo/qrcode.png"
+    PROPERTIES QT_RESOURCE_ALIAS "qrcode.png"
+)
+qt_add_resources(Decenza "decenza_ai"
+    PREFIX "/"
+    BASE "${CMAKE_SOURCE_DIR}/resources"
+    FILES
+        "${CMAKE_SOURCE_DIR}/resources/ai/profile_knowledge.json"
+        "${CMAKE_SOURCE_DIR}/resources/ai/espresso_dial_in_reference.md"
+        "${CMAKE_SOURCE_DIR}/resources/ai/claude_agent.md"
+)
+qt_add_resources(Decenza "decenza_resources"
+    PREFIX "/"
+    BASE "${CMAKE_SOURCE_DIR}/resources"
+    FILES
+        # Aliased entries (paths differ from their resource name — see
+        # QT_RESOURCE_ALIAS above): the two "8mm" icons and the qrcode PNG that
+        # lives outside resources/ under Logo/.
+        "${CMAKE_SOURCE_DIR}/resources/icons/espresso 8mm.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/flush 8mm.svg"
+        "${CMAKE_SOURCE_DIR}/Logo/qrcode.png"
+        # Sounds
+        "${CMAKE_SOURCE_DIR}/resources/sounds/tick.wav"
+        "${CMAKE_SOURCE_DIR}/resources/sounds/ding.wav"
+        "${CMAKE_SOURCE_DIR}/resources/sounds/frameclick1.wav"
+        "${CMAKE_SOURCE_DIR}/resources/sounds/frameclick2.wav"
+        "${CMAKE_SOURCE_DIR}/resources/sounds/frameclick3.wav"
+        "${CMAKE_SOURCE_DIR}/resources/sounds/frameclick4.wav"
+        # Splash screens (random on startup)
+        "${CMAKE_SOURCE_DIR}/resources/splash/splash1.png"
+        "${CMAKE_SOURCE_DIR}/resources/splash/splash2.png"
+        "${CMAKE_SOURCE_DIR}/resources/splash/splash3.png"
+        "${CMAKE_SOURCE_DIR}/resources/splash/splash4.png"
+        "${CMAKE_SOURCE_DIR}/resources/splash/splash5.png"
+        # Icons
+        "${CMAKE_SOURCE_DIR}/resources/icons/bell.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/bell-off.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/steam.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/water.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/settings.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/back.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/edit.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/sleep.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/sparkle.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/pin.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/profile.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/hide-keyboard.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/battery-0.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/battery-25.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/battery-50.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/battery-75.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/battery-100.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/battery-charging.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/bluetooth.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/box.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/box-checked.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/coffeebeans.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/cross.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/cross-filled.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/decent-de1.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/filter.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/search.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/grind.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/hand.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/discuss.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/history.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/niche-zero.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/star.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/star-outline.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/tea.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/temperature.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/tick.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/info.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/usb.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/quit.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/scale.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/wifi.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/Graph.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/ArrowLeft.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/Upload.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/list.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/plus.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/download.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/minus.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/trash.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/warning.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/more-vertical.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/grid.svg"
+        "${CMAKE_SOURCE_DIR}/resources/icons/clock.svg"
+        # Coffee Cup (3D-rendered layers for CupFillView)
+        "${CMAKE_SOURCE_DIR}/resources/CoffeeCup/BackGround.png"
+        "${CMAKE_SOURCE_DIR}/resources/CoffeeCup/Mask.png"
+        "${CMAKE_SOURCE_DIR}/resources/CoffeeCup/Overlay.png"
+        # GHC Simulator
+        "${CMAKE_SOURCE_DIR}/resources/GHC_Small.png"
+        # Shot Map Screensaver
+        "${CMAKE_SOURCE_DIR}/resources/maps/earth_night.png"
+        "${CMAKE_SOURCE_DIR}/resources/maps/earth_day.jpg"
+        "${CMAKE_SOURCE_DIR}/resources/maps/earth_bright.png"
+        # Profiles (filenames match profile titles)
+        "${CMAKE_SOURCE_DIR}/resources/profiles/7g_basket.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/80_s_espresso.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/a_flow_default_dark.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/a_flow_default_like_dflow.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/a_flow_default_medium.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/a_flow_default_very_dark.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/adaptive_v2.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/advanced_spring_lever.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/best_overall_pressure_profile.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/best_practice_light_roast.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/blooming_allonge.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/blooming_espresso.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/classic_italian_espresso.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/cleaning_forward_flush.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/cleaning_forward_flush_x5.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/cleaning_weber_spring_clean.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/cremina_lever_machine.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/damian_s_lm_leva.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/d_flow_default.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/d_flow_la_pavoni.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/d_flow_q.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/damian_s_lrv2.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/damian_s_lrv3.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/damian_s_q.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/default.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/descale_wizard.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/e61_classic_gently_up_to_10_bar.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/e61_espresso_machine.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/e61_rocketing_up_to_10_bar.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/e61_with_fast_preinfusion_to_9_bar.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/easy_blooming_active_pressure_decline.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/espresso_forge_dark.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/espresso_forge_light.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/extractamundo_dos.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/filter3.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/filter_2_0.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/filter_2_1.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/flow_profile_for_milky_drinks.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/flow_profile_for_straight_espresso.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/gagne_adaptive_allonge_94c_v1_0.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/gagne_adaptive_shot_92c_v1_0.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/gentle_and_sweet.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/gentle_flat_2_5_ml_per_second.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/gentle_preinfusion_flow_profile.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/gentler_but_still_traditional_8_4_bar.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/ghc_manual_flow_control.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/ghc_manual_pressure_control.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/hybrid_pour_over_espresso.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/i_got_your_back.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/innovative_long_preinfusion.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/italian_australian_espresso.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/londonium.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/low_pressure_lever_machine_at_6_bar.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/pour_over_basket_cold_brew_22g_in_375ml_out.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/pour_over_basket_decent_pour_over.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/pour_over_basket_kalita_20g_in_340ml_out.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/pour_over_basket_v60_15g_in_250g_out.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/pour_over_basket_v60_20g_in_340g_out.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/pour_over_basket_v60_22g_in_375g_out.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/preinfuse_then_45ml_of_water.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/rao_allonge.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/steam_only.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_in_a_basket.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_black_tea.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_blue_willow_tsuyuhikari_sensha.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_bug_bite_oolong.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_chinese_green.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_japanese_green.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_no_pressure.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_oolong.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_oolong_1st_extraction.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_oolong_2nd_extraction.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_oolong_dark.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_pressurized_tea.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_sencha.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_tisane.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_white_tea.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/tea_portafilter_yunnan_green.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/test_flow_calibration.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/test_for_a_small_leak.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/test_leakage_stress_test.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/test_low_pressure_leak.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/test_pressure_calibration.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/test_profile_editor_demo.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/test_temperature_accuracy.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/test_temperature_calibration.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/traditional_lever_machine.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/trendy_6_bar_low_pressure_shot.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/turbo_shot.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/turbobloom.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/turboturbo.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/two_spring_lever_machine_to_9_bar.json"
+        "${CMAKE_SOURCE_DIR}/resources/profiles/weiss_advanced_spring_lever.json"
 )
 
 # Link libraries
@@ -1171,16 +1403,19 @@ if(NOT ANDROID AND NOT IOS)
     #   curl https://visualizer.coffee/api/shots/<uuid>/download > shot.json
     #   ./shot_eval shot.json [more.json ...]
     # The AI KB resource (:/ai/profile_knowledge.json) is embedded below via the
-    # target-scoped qt_add_resources signature (NOT the classic variable form
-    # over resources/ai.qrc). Both forms map the files to the same :/ai/...
-    # paths loadProfileKnowledge reads, but the classic form would derive the
-    # generated source name from the .qrc basename — colliding with the
-    # Decenza target's own qrc_ai.cpp (same directory scope). One custom
-    # command attached to two unrelated targets is rejected by the macOS CI
-    # Xcode "new build system" generator; the local/Linux/Windows/iOS/Android
-    # Ninja generator did not flag it. The target-scoped form emits a
-    # uniquely-named source bound to shot_eval only, so there is no shared
-    # custom command.
+    # target-scoped qt_add_resources signature with a UNIQUE resource name
+    # ("shot_eval_ai"). The Decenza target embeds the same three files via its
+    # own target-scoped call up top (resource name "decenza_ai"). Both map the
+    # files to the same :/ai/... paths loadProfileKnowledge reads, and both
+    # generate uniquely-named sources bound to a single target — so there is no
+    # shared custom command. This matters because the classic variable form
+    # (qt_add_resources(VAR resources/ai.qrc)) derives the generated source name
+    # from the .qrc basename (qrc_ai.cpp); using it on two targets in the same
+    # directory scope produces one custom command attached to both, which the
+    # macOS CI Xcode "new build system" generator rejects (the local/Linux/
+    # Windows/iOS/Android Ninja generator did not flag it). Keep BOTH the
+    # Decenza and shot_eval AI resources on the target-scoped form with distinct
+    # names.
     add_executable(shot_eval
         tools/shot_eval/main.cpp
         src/ai/shotanalysis.cpp
@@ -1203,12 +1438,12 @@ if(NOT ANDROID AND NOT IOS)
     target_include_directories(shot_eval PRIVATE ${CMAKE_SOURCE_DIR}/src)
     # Target-scoped resource: BASE=resources keeps the files at :/ai/<name>
     # (identical to resources/ai.qrc's prefix="/" mapping), and the unique
-    # resource name "shot_eval_ai" produces a shot_eval-only generated source
-    # instead of the shared qrc_ai.cpp. NOTE: this list is maintained
-    # independently of resources/ai.qrc (still consumed by the Decenza target
-    # above) — there is no enforced coupling, so adding a KB file requires
-    # editing BOTH this list and resources/ai.qrc or shot_eval silently lacks
-    # the new resource.
+    # resource name "shot_eval_ai" produces a shot_eval-only generated source.
+    # NOTE: three independent AI-KB file lists now exist — this one, the Decenza
+    # target's "decenza_ai" FILES list up top, and resources/ai.qrc (kept only
+    # because the test targets in tests/CMakeLists.txt still consume it via the
+    # variable form). None are coupled, so adding a KB file means editing ALL
+    # THREE or one of the consumers silently lacks the new resource.
     qt_add_resources(shot_eval "shot_eval_ai"
         PREFIX "/"
         BASE "${CMAKE_SOURCE_DIR}/resources"
