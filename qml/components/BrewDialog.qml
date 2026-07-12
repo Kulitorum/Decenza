@@ -59,6 +59,17 @@ Dialog {
     // place. activeRecipeId is a NOTIFYing property, so this re-evaluates live
     // (e.g. deactivation from another surface while the dialog is open).
     readonly property bool recipeActive: Settings.dye.activeRecipeId >= 0
+    // Baselines for the two override fields (Temp Delta, Stop-at). A recipe's
+    // yield/temp ARE the recipe's design — its baseline — not deviations from
+    // the profile, so when a recipe is active the highlight, the Temp Delta
+    // zero-point, and Clear all measure against the recipe's own values, not the
+    // profile default. A recipe that never pinned a value for a field (stored 0 =
+    // unset) falls back to the profile, matching no-recipe mode. NOTIFY-reactive
+    // via recipeActive (activeRecipeId) + MainController.activeRecipe.
+    readonly property double recipeTempBaseline: (recipeActive && MainController.activeRecipe.tempOverrideC > 0)
+                                                 ? MainController.activeRecipe.tempOverrideC : profileTemperature
+    readonly property double recipeYieldBaseline: (recipeActive && MainController.activeRecipe.yieldG > 0)
+                                                  ? MainController.activeRecipe.yieldG : profileTargetWeight
     // Non-archived MRU recipe inventory (same source as the pill row), for the
     // quick-switch suggestions and the name→id resolution.
     property var recipeChoices: []
@@ -358,7 +369,6 @@ Dialog {
                     onClicked: {
                         // Reset to current profile and bean preset values (not cached values from dialog open)
                         root.profileTemperature = ProfileManager.profileTargetTemperature
-                        root.temperatureValue = root.profileTemperature
                         root.profileTargetWeight = ProfileManager.profileTargetWeight
                         // Reset the dose to the active bag's dose (the bean's remembered
                         // weight), otherwise default 18 g.
@@ -366,10 +376,25 @@ Dialog {
                         root.selectedProfileTitle = ProfileManager.currentProfileName
                         root.grindSetting = Settings.dye.dyeGrinderSetting
                         root.grindRpm = Settings.dye.dyeGrinderRpm
-                        var profileTarget = ProfileManager.profileTargetWeight
-                        root.ratio = (profileTarget > 0 && root.doseValue > 0) ? profileTarget / root.doseValue : Settings.brew.lastUsedRatio
                         root.targetManuallySet = false
-                        root.targetValue = root.doseValue * root.ratio
+                        // Clear returns each override field to the ACTIVE baseline —
+                        // the recipe's own yield/temp when a recipe is active, the
+                        // profile default otherwise. It only strips per-brew deviations;
+                        // it never edits the recipe's stored values (that is "Update
+                        // Recipe"'s job). recipeTempBaseline folds the recipe-vs-profile
+                        // choice for temperature; the yield branch below restores a
+                        // pinned recipe yield exactly, else keeps the profile-derived
+                        // fallback the no-recipe dialog has always used (which handles
+                        // volume/timer profiles with target 0 via lastUsedRatio).
+                        root.temperatureValue = root.recipeTempBaseline
+                        if (root.recipeActive && MainController.activeRecipe.yieldG > 0) {
+                            root.targetValue = MainController.activeRecipe.yieldG
+                            root.ratio = root.doseValue > 0 ? root.targetValue / root.doseValue : Settings.brew.lastUsedRatio
+                        } else {
+                            var profileTarget = ProfileManager.profileTargetWeight
+                            root.ratio = (profileTarget > 0 && root.doseValue > 0) ? profileTarget / root.doseValue : Settings.brew.lastUsedRatio
+                            root.targetValue = root.doseValue * root.ratio
+                        }
                     }
                     background: Rectangle {
                         implicitHeight: Theme.scaled(36)
@@ -676,22 +701,27 @@ Dialog {
                     }
 
                     // The control is an OFFSET applied to the whole profile, not an
-                    // absolute temperature: it reads 0° at the profile default and
-                    // +N°/-N° when adjusted. temperatureValue stays absolute internally
-                    // (= profileTemperature + delta) so the OK / Update Profile paths
-                    // are unchanged; only the presentation is a delta.
+                    // absolute temperature: it reads 0° at the active BASELINE and
+                    // +N°/-N° when adjusted. The baseline is the recipe's own
+                    // temperature when a recipe is active (its yield/temp are the
+                    // recipe's design, not a deviation), else the profile default —
+                    // recipeTempBaseline folds both. temperatureValue stays absolute
+                    // internally so the OK / Update paths are unchanged; only the
+                    // presentation is a delta. In no-recipe mode recipeTempBaseline ==
+                    // profileTemperature, so this is byte-identical to before.
                     ValueInput {
                         id: tempInput
                         Layout.fillWidth: true
                         // The offset is entered/shown in the user's unit (a delta scales
                         // ×9/5 for °F, no origin shift); stored back as a Celsius delta.
-                        readonly property real delta: root.temperatureValue - root.profileTemperature
+                        readonly property real delta: root.temperatureValue - root.recipeTempBaseline
                         readonly property real displayDelta: Theme.cDeltaToDisplay(delta)
-                        // Overridden ⟺ Clear would change it (Clear restores delta 0).
+                        // Overridden ⟺ Clear would change it (Clear restores delta 0
+                        // relative to the recipe baseline).
                         readonly property bool overridden: Math.abs(delta) > 0.1
                         value: displayDelta
-                        from: Theme.cDeltaToDisplay(70 - root.profileTemperature)
-                        to: Theme.cDeltaToDisplay(100 - root.profileTemperature)
+                        from: Theme.cDeltaToDisplay(70 - root.recipeTempBaseline)
+                        to: Theme.cDeltaToDisplay(100 - root.recipeTempBaseline)
                         stepSize: 1
                         decimals: 0
                         suffix: "°"
@@ -700,7 +730,7 @@ Dialog {
                         accentColor: overridden ? Theme.highlightColor : Theme.primaryColor
                         accessibleName: TranslationManager.translate("brewDialog.brewTempDelta", "Brew temperature offset")
                         onValueModified: function(newValue) {
-                            root.temperatureValue = root.profileTemperature + Theme.displayToCDelta(newValue)
+                            root.temperatureValue = root.recipeTempBaseline + Theme.displayToCDelta(newValue)
                         }
                     }
 
@@ -716,11 +746,18 @@ Dialog {
                             ? TranslationManager.translate("brewDialog.saveTemperatureToRecipe", "Save temperature to recipe")
                             : TranslationManager.translate("brewDialog.saveTemperatureToProfile", "Save temperature to profile")
                         primary: true
-                        // In recipe mode, also disable once the recipe already holds
-                        // the shown value — doubling as the "saved" confirmation
-                        // (m_activeRecipe refreshes off recipeUpdated).
-                        enabled: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
-                                 && (!root.recipeActive || Math.abs((MainController.activeRecipe.tempOverrideC || 0) - root.temperatureValue) > 0.05)
+                        // Enabled ⟺ the value deviates from the active baseline —
+                        // exactly the field's override-highlight state. Reusing
+                        // `overridden` (which measures against recipeTempBaseline, so it
+                        // handles an unset tempOverrideC by falling back to the profile,
+                        // and collapses to the profile in no-recipe mode) keeps the
+                        // invariant "Update enabled ⟺ value highlighted" and lets the
+                        // recipe baseline move to any value, including back to the
+                        // profile default (the reporter's "reset-to-default greyed out
+                        // Update Recipe" bug). Comparing against the raw stored value
+                        // instead wrongly enabled this at delta 0 when the override was
+                        // unset (stored 0 vs the profile temperature).
+                        enabled: tempInput.overridden
                         onClicked: {
                             if (root.recipeActive) {
                                 // Absolute °C, matching what activation reads back.
@@ -741,25 +778,33 @@ Dialog {
                 }
 
                 // Profile's actual temperature(s), shown adaptively (single / spaced
-                // mid-dot list / first…last ellipsis) via the shared formatter. When
-                // a delta is dialed in, append the offset tag (e.g. "90 · 88°C +4°")
-                // and switch to the temperature color — mirrors the shot plan and
-                // makes it obvious the change applies to these temps.
+                // mid-dot list / first…last ellipsis) via the shared formatter. The
+                // offset tag is the TOTAL offset from the profile (what the machine
+                // actually applies to the frames), so with a recipe active whose temp
+                // is 4° below the profile it truthfully reads "92°C -4°" — the recipe's
+                // relationship to the profile. The highlight, however, tracks deviation
+                // from the active BASELINE (the recipe in recipe mode), so the recipe's
+                // own temp reads un-highlighted (it is the baseline, not an override)
+                // and only a per-brew deviation from the recipe turns it amber. In
+                // no-recipe mode the two flags coincide, so this is unchanged.
                 Text {
                     id: tempSubtext
-                    readonly property bool tempPending: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
+                    // Tag shown iff the machine applies any shift to the profile frames.
+                    readonly property bool hasProfileOffset: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
+                    // Highlighted iff the dial deviates from the active baseline.
+                    readonly property bool deviatesFromBaseline: Math.abs(root.temperatureValue - root.recipeTempBaseline) > 0.1
                     visible: root.profileTemperature > 0
                     text: {
                         // temperatureDisplay() reads the C/F unit in C++ (not a QML-
                         // capturable dependency), so read it here to re-evaluate on switch.
                         void(Settings.app.temperatureUnit)
                         return TranslationManager.translate("brewDialog.profileTempStructure", "Profile: %1")
-                            .arg(ProfileManager.temperatureDisplay(root.profileTemperature, tempPending, root.temperatureValue))
+                            .arg(ProfileManager.temperatureDisplay(root.profileTemperature, hasProfileOffset, root.temperatureValue))
                     }
                     font.family: Theme.bodyFont.family
                     font.pixelSize: Theme.scaled(14)
                     font.italic: true
-                    color: tempPending ? Theme.highlightColor : Theme.textSecondaryColor
+                    color: deviatesFromBaseline ? Theme.highlightColor : Theme.textSecondaryColor
                     Layout.alignment: Qt.AlignHCenter
                     Layout.leftMargin: Theme.scaled(75) + Theme.scaled(8)
                     Accessible.role: Accessible.StaticText
@@ -942,10 +987,15 @@ Dialog {
                 ValueInput {
                     id: ratioInput
                     Layout.fillWidth: true
-                    // Overridden ≈ Clear would change it (the profile default ratio,
-                    // target ÷ dose — compared against the CURRENT dose, and inert
-                    // for volume/timer profiles where profileTargetWeight is 0).
-                    readonly property bool overridden: Math.abs(root.ratio - ((root.doseValue > 0 && root.profileTargetWeight > 0) ? root.profileTargetWeight / root.doseValue : root.ratio)) > 0.05
+                    // Overridden ≈ Clear would change it: the baseline ratio is the
+                    // active baseline YIELD ÷ the current dose. In recipe mode that
+                    // yield is the recipe's own (recipeYieldBaseline), so a recipe whose
+                    // yield differs from the profile reads its ratio as at-baseline
+                    // (white) rather than as an override — matching the Stop-at field.
+                    // recipeYieldBaseline collapses to profileTargetWeight with no recipe
+                    // (unchanged there), and is 0 for volume/timer profiles with no
+                    // recipe yield → inert, as before.
+                    readonly property bool overridden: Math.abs(root.ratio - ((root.doseValue > 0 && root.recipeYieldBaseline > 0) ? root.recipeYieldBaseline / root.doseValue : root.ratio)) > 0.05
                     value: root.ratio
                     from: 0.5
                     to: 20.0
@@ -993,10 +1043,14 @@ Dialog {
                     ValueInput {
                         id: targetInput
                         Layout.fillWidth: true
-                        // Overridden ≈ Clear would change it (the profile target
-                        // weight; on volume/timer profiles that baseline is 0, so
-                        // any dialed stop-at reads as an override).
-                        readonly property bool overridden: Math.abs(root.targetValue - root.profileTargetWeight) > 0.1
+                        // Overridden ≈ Clear would change it. The baseline is the
+                        // recipe's own yieldG when a recipe is active (its yield is the
+                        // recipe's design, not a deviation), else the profile target
+                        // weight — recipeYieldBaseline folds both. On volume/timer
+                        // profiles with no recipe yield the baseline is 0, so any dialed
+                        // stop-at reads as an override, as before. In no-recipe mode
+                        // recipeYieldBaseline == profileTargetWeight (unchanged).
+                        readonly property bool overridden: Math.abs(root.targetValue - root.recipeYieldBaseline) > 0.1
                         value: root.targetValue
                         from: 1
                         to: 500
@@ -1028,11 +1082,15 @@ Dialog {
                             ? TranslationManager.translate("brewDialog.saveStopWeightToRecipe", "Save stop-at-weight to recipe")
                             : TranslationManager.translate("brewDialog.saveStopWeightToProfile", "Save stop-at-weight to profile")
                         primary: true
-                        // In recipe mode, also disable once the recipe already holds
-                        // the shown value — doubling as the "saved" confirmation
-                        // (m_activeRecipe refreshes off recipeUpdated).
-                        enabled: root.targetValue !== root.profileTargetWeight
-                                 && (!root.recipeActive || Math.abs((MainController.activeRecipe.yieldG || 0) - root.targetValue) > 0.05)
+                        // Enabled ⟺ the value deviates from the active baseline —
+                        // exactly the field's override-highlight state (see the Temp
+                        // Delta button for the full rationale). `overridden` measures
+                        // against recipeYieldBaseline, so it handles an unset yieldG by
+                        // falling back to the profile target and collapses to the
+                        // profile in no-recipe mode, keeping "Update enabled ⟺ value
+                        // highlighted" and letting the recipe baseline move to any value
+                        // (including back to the profile default).
+                        enabled: targetInput.overridden
                         onClicked: {
                             if (root.recipeActive) {
                                 // Absolute grams, matching what activation reads back.
