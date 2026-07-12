@@ -334,6 +334,7 @@ set(SOURCES
     src/network/shotserver_auth.cpp
     src/network/shotserver_ai.cpp
     src/mcp/mcpserver.cpp
+    src/mcp/mcpremoteaccess.cpp
     src/mcp/mcptools_machine.cpp
     src/mcp/mcptools_shots.cpp
     src/mcp/mcptools_profiles.cpp

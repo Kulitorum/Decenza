@@ -373,7 +373,7 @@ QJsonObject McpServer::buildToolCallResponse(const QJsonObject& toolResult,
 
 void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
                                    const QString& path, const QByteArray& headers,
-                                   const QByteArray& body)
+                                   const QByteArray& body, bool remote)
 {
     Q_UNUSED(path)
 
@@ -507,6 +507,8 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
         }
 
         session->touch();
+        if (remote)
+            session->setRemote(true);
 
         // Notifications (no id, no response expected per JSON-RPC)
         // But HTTP still needs a response — send 202 Accepted
@@ -558,6 +560,8 @@ void McpServer::handleHttpRequest(QTcpSocket* socket, const QString& method,
 
         // Associate SSE socket with session if the client sent a session header
         McpSession* sseSession = findSession(sessionHeader);
+        if (remote && sseSession)
+            sseSession->setRemote(true);
 
         // Send SSE headers (include session ID if known)
         QByteArray response;

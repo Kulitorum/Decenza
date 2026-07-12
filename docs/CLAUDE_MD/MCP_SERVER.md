@@ -18,7 +18,8 @@ Add an MCP (Model Context Protocol) server to Decenza so AI assistants (Claude D
 ```
 src/mcp/
   mcpserver.h/cpp           — Session management, JSON-RPC dispatch, SSE
-  mcpsession.h/cpp          — Per-client state (capabilities, SSE socket, subscriptions)
+  mcpremoteaccess.h/cpp     — Remote connector: tokenized loopback/LAN listener (see "Remote Access")
+  mcpsession.h/cpp          — Per-client state (capabilities, SSE socket, subscriptions, remote flag)
   mcptoolregistry.h/cpp     — Tool definitions registry + dispatch
   mcpresourceregistry.h/cpp — Resource definitions registry
   mcptools_machine.cpp      — Machine control + state tools
@@ -146,6 +147,80 @@ For operations where the user is at their desk interacting with the AI remotely 
 5. The tool executes normally (the `confirmed` key is stripped before passing to the handler)
 
 This avoids holding HTTP connections and works naturally with the conversational AI flow. The `confirmed` parameter is declared in each tool's `inputSchema` so the AI knows to include it.
+
+## Remote Access (Mobile Connectors)
+
+The LAN transport above only works for clients that can reach the tablet's LAN
+IP (Claude Desktop via `mcp-remote`, MCP Inspector, curl). **Claude and ChatGPT
+mobile "custom connectors" dial the MCP endpoint from the vendor's cloud
+backend, not from the phone**, so the endpoint must be reachable on the public
+internet over HTTPS. `McpRemoteAccess` (`src/mcp/mcpremoteaccess.{h,cpp}`)
+provides that. Added by the `add-remote-mcp-connector` change; **opt-in,
+defaults off**.
+
+### Capability-URL authentication
+
+A remote request is authorized by an unguessable path segment:
+
+```
+https://<host>/mcp/<token>        token = 128-bit CSPRNG, base64url (22 chars)
+```
+
+- Wrong or missing token → **bare `404`** (no body — indistinguishable from "no
+  server here"). Comparison is constant-time; failed attempts are rate-limited
+  per source (defense-in-depth + log hygiene; the attempted path is never
+  echoed to the log).
+- **Rotation is revocation.** Settings → *Rotate token* generates a new URL and
+  immediately drops every live remote connection, so the old URL dies at once.
+  The user must then update the connector on claude.ai.
+- claude.ai custom connectors treat OAuth as optional — a server that never
+  returns a `401` challenge connects unauthenticated. So there is **no OAuth**;
+  the single principal is whoever holds the capability URL. Trade-off (token in
+  URL lands in logs/proxies) is accepted for this single-owner threat model and
+  bounded by the access-level + confirmation gates below.
+
+### Isolated surface
+
+The connector terminates at a **dedicated listener owned by `McpRemoteAccess`**,
+separate from ShotServer. It serves **only** `POST/GET/DELETE /mcp/<token>` and
+returns a bare `404` for everything else — ShotServer's web editor, REST API,
+and data-migration endpoints are never exposed publicly, and a future ShotServer
+route can't leak into the remote surface. Matching requests are forwarded
+in-process to the same `McpServer::handleHttpRequest` dispatch the LAN path uses,
+with the session flagged remote (`McpSession::isRemote()` — informational; for
+status UI/logging only).
+
+### Access control is unchanged
+
+`mcpAccessLevel` and `mcpConfirmationLevel` apply to remote sessions **exactly**
+as to LAN sessions — same tool-dispatch gates, same in-app confirmation dialog
+for machine-start operations. There are no remote-only bypasses. Remote sessions
+count toward the same session and rate limits.
+
+### Reachability modes (Settings → AI → MCP → Remote Access)
+
+| Mode | Status | How it reaches the public internet |
+|---|---|---|
+| **Custom URL (BYO)** | **Shipped (Phase 1)** | The user runs a reverse proxy / tunnel on any box (Tailscale Funnel, cloudflared named tunnel, nginx, …) that forwards to the tablet's LAN IP + the remote port. The listener binds a routable interface so an off-box proxy can reach it. |
+| Embedded Tailscale (tsnet + Funnel) | Planned | gomobile-embedded `tsnet` joins the user's tailnet and `ListenFunnel()`s a stable `https://<node>.<tailnet>.ts.net` URL; forwards to a loopback listener. Needs a Go toolchain / AAR + CI work. |
+| Embedded ngrok | Deferred | `ngrok-java` agent SDK; pending an interstitial-compatibility spike. |
+
+### Settings (in `SettingsMcp`, addressed as `Settings.mcp.*`)
+
+`remoteMcpEnabled` (default false), `remoteMcpMode` (`custom`|`tailscale`|
+`ngrok`), `remoteMcpPort` (default 8890), `remoteMcpCustomBaseUrl`, and the
+`remoteMcpToken` (128-bit, generated lazily on first read, stored in QSettings
+alongside the existing `mcpApiKey`). `RemoteMcpAccess` is a QML context property
+exposing `status`/`statusString`/`statusDetail`/`connectorUrl`/`listenPort` and
+the `refresh()` / `rotateToken()` invokables.
+
+### Limitations
+
+- No wake-from-doze: the tunnel/listener lives in the app process. Decenza
+  tablets are typically plugged in and screen-on, so this is a corner case, but
+  if Android kills connectivity the connector fails closed (vendor backend gets
+  a timeout). No FCM wake-up is possible without a relay.
+- Depends on the tunnel vendor's TLS/edge for the public hop.
 
 ## Tools (Full Set)
 
