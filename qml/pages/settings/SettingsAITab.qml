@@ -1084,11 +1084,29 @@ KeyboardAwareContainer {
 
                         Tr {
                             key: "settings.ai.remoteMcp.setupGuidance"
-                            fallback: "On claude.ai, go to Settings → Connectors → Add custom connector and paste this URL. Mobile Claude apps sync connectors from claude.ai automatically."
+                            fallback: "Add this as a custom connector in Claude, then paste the URL above (leave the OAuth fields blank). Mobile Claude apps sync connectors automatically."
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
+                        }
+                        Text {
+                            text: TranslationManager.translate("settings.ai.remoteMcp.openClaudeConnectors", "Open Connectors on claude.ai ↗")
+                            color: Theme.accentColor
+                            font.pixelSize: Theme.scaled(12)
+                            font.underline: true
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            Accessible.role: Accessible.Link
+                            Accessible.name: TranslationManager.translate("settings.ai.remoteMcp.openClaudeConnectorsAccessible", "Open the Connectors settings page on claude.ai in your browser")
+                            Accessible.focusable: true
+                            MouseArea {
+                                id: claudeConnectorsArea
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Qt.openUrlExternally("https://claude.ai/settings/connectors")
+                            }
+                            Accessible.onPressAction: claudeConnectorsArea.clicked(null)
                         }
                     }
 
@@ -1111,8 +1129,11 @@ KeyboardAwareContainer {
                                 return TranslationManager.translate("settings.ai.remoteMcp.status.off", "Off")
                             }
                         }
-                        color: RemoteMcpAccess.statusString === "error" ? Theme.errorColor : Theme.textSecondaryColor
+                        color: RemoteMcpAccess.statusString === "error" ? Theme.errorColor
+                             : RemoteMcpAccess.statusString === "active" ? Theme.successColor
+                             : Theme.textSecondaryColor
                         font.pixelSize: Theme.scaled(12)
+                        font.bold: RemoteMcpAccess.statusString === "active"
                         wrapMode: Text.WordWrap
                     }
 
