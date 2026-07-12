@@ -1040,11 +1040,20 @@ QString ShotServer::generateSettingsPage() const
         async function copyField(id) {
             const el = document.getElementById(id);
             if (!el.value) return;
+            // This page is served over plain LAN HTTP, where navigator.clipboard is
+            // unavailable (non-secure context) — so the execCommand fallback is the
+            // common path, not a rare one. Report both outcomes; a silently-failed
+            // copy of the connector URL would otherwise let the user paste stale text.
+            const statusId = (id === 'remoteMcpConnectorUrl') ? 'remoteMcpStatus' : 'mcpStatus';
+            let ok = false;
             try {
                 await navigator.clipboard.writeText(el.value);
+                ok = true;
             } catch (e) {
-                el.select(); document.execCommand('copy');
+                el.focus(); el.select();
+                ok = document.execCommand('copy');
             }
+            showSectionStatus(statusId, ok ? 'Copied' : 'Copy failed — select the field and copy manually', !ok);
         }
 
         function togglePassword(id) {
@@ -1510,23 +1519,30 @@ void ShotServer::handleSaveSettings(QTcpSocket* socket, const QByteArray& body)
     sendJson(socket, R"({"success": true})");
 }
 
-// Rotate the remote MCP capability token. Rotation IS revocation: the old
-// connector URL dies at once (SettingsMcp::rotateRemoteMcpToken fires
-// remoteMcpTokenChanged, which McpRemoteAccess restarts on, dropping live
-// connections). Returns the freshly composed connector URL when it is already
-// known (Custom mode is immediate; Tailscale re-derives it after the tunnel
-// re-probes, so it may be empty here — the page reloads settings to pick it up).
+// Rotate the remote MCP capability token. Rotation IS revocation, so route it
+// through McpRemoteAccess::rotateToken(), which both replaces the token AND
+// calls closeAllSockets() to sever every in-flight session on the old URL —
+// matching the native app's rotate. (Calling SettingsMcp::rotateRemoteMcpToken()
+// directly would swap the token but leave live connections open, since
+// remoteMcpTokenChanged is not wired to a restart.) The connector URL is
+// re-composed from the unchanged cert domain / custom base URL, so the fresh
+// URL is available immediately in the response.
 void ShotServer::handleRotateRemoteMcpToken(QTcpSocket* socket)
 {
     if (!m_settings) {
         sendJson(socket, R"({"success": false, "error": "Settings not available"})");
         return;
     }
-    m_settings->mcp()->rotateRemoteMcpToken();
     QJsonObject resp;
     resp["success"] = true;
-    if (m_remoteMcpAccess)
+    if (m_remoteMcpAccess) {
+        m_remoteMcpAccess->rotateToken();  // rotate + drop live connections
         resp["connectorUrl"] = m_remoteMcpAccess->connectorUrl();
+    } else {
+        // No coordinator (not expected in production): at least rotate the
+        // stored token so the old URL stops authorizing new requests.
+        m_settings->mcp()->rotateRemoteMcpToken();
+    }
     sendJson(socket, QJsonDocument(resp).toJson(QJsonDocument::Compact));
 }
 
