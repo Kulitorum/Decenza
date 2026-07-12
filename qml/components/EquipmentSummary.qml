@@ -111,7 +111,7 @@ ColumnLayout {
 
     Text {
         Layout.fillWidth: true
-        textFormat: Text.RichText
+        textFormat: Text.StyledText
         text: Theme.replaceEmojiWithImg(summary.title, Theme.subtitleFont.pixelSize)
         font.family: Theme.bodyFont.family
         font.pixelSize: Theme.subtitleFont.pixelSize
@@ -124,7 +124,7 @@ ColumnLayout {
     Text {
         Layout.fillWidth: true
         visible: summary.grinderBurrs.length > 0
-        textFormat: Text.RichText
+        textFormat: Text.StyledText
         text: Theme.replaceEmojiWithImg(summary.grinderBurrs, Theme.labelFont.pixelSize)
         font: Theme.labelFont
         color: Theme.textSecondaryColor
@@ -148,7 +148,7 @@ ColumnLayout {
     Text {
         Layout.fillWidth: true
         visible: summary.basketLine.length > 0
-        textFormat: Text.RichText
+        textFormat: Text.StyledText
         text: Theme.replaceEmojiWithImg(summary.basketLine, Theme.labelFont.pixelSize)
         font: Theme.labelFont
         color: Theme.textSecondaryColor

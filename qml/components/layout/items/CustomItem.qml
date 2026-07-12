@@ -471,7 +471,9 @@ Item {
 
             Text {
                 text: root.resolvedText
-                textFormat: Text.RichText
+                // StyledText (not RichText) so elide actually works — Qt ignores
+                // elide on RichText, which clipped mid-glyph on wide/fallback fonts.
+                textFormat: Text.StyledText
                 color: Theme.textColor
                 font: Theme.bodyFont
                 horizontalAlignment: root.qtAlignment
@@ -538,7 +540,7 @@ Item {
             Text {
                 id: emojiText
                 text: root.resolvedText
-                textFormat: Text.RichText
+                textFormat: Text.StyledText
                 color: root._contentColor
                 font: Theme.bodyFont
                 horizontalAlignment: Text.AlignHCenter
@@ -554,7 +556,7 @@ Item {
             anchors.centerIn: parent
             width: Math.max(0, parent.width - (root.hasAction ? Theme.scaled(24) : 0))
             text: root.resolvedText
-            textFormat: Text.RichText
+            textFormat: Text.StyledText
             color: Theme.textColor
             font: Theme.bodyFont
             horizontalAlignment: root.qtAlignment

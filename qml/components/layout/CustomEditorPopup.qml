@@ -458,7 +458,7 @@ Dialog {
                             Text {
                                 id: fpEmojiText
                                 text: previewCol.previewHtml
-                                textFormat: Text.RichText
+                                textFormat: Text.StyledText
                                 color: Theme.textColor
                                 font: Theme.bodyFont
                                 horizontalAlignment: Text.AlignHCenter
@@ -473,7 +473,7 @@ Dialog {
                             anchors.centerIn: parent
                             width: parent.width > 0 ? parent.width - (previewCol.hasAction ? Theme.scaled(24) : 0) : implicitWidth
                             text: previewCol.previewHtml
-                            textFormat: Text.RichText
+                            textFormat: Text.StyledText
                             color: Theme.textColor
                             font: Theme.bodyFont
                             horizontalAlignment: popup.textAlign === "left" ? Text.AlignLeft
@@ -518,7 +518,8 @@ Dialog {
 
                             Text {
                                 text: previewCol.previewHtml
-                                textFormat: Text.RichText
+                                // StyledText so elide works (Qt ignores elide on RichText)
+                                textFormat: Text.StyledText
                                 color: Theme.textColor
                                 font: Theme.bodyFont
                                 elide: Text.ElideRight

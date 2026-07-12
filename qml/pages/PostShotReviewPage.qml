@@ -961,7 +961,9 @@ Page {
                         spacing: Theme.spacingSmall
 
                         Text {
-                            textFormat: Text.RichText
+                            // StyledText so elide works (Qt ignores elide on RichText); still
+                            // renders the <font> highlight and emoji <img> tags.
+                            textFormat: Text.StyledText
                             text: {
                                 var name = Theme.escapeHtml(editShotData.profileName || "")
                                 var t = editShotData.temperatureOverrideC
@@ -1826,7 +1828,7 @@ Page {
                         Text {
                             Layout.fillWidth: true
                             visible: recipeCard.recipeName !== ""
-                            textFormat: Text.RichText
+                            textFormat: Text.StyledText
                             text: Theme.replaceEmojiWithImg(recipeCard.recipeName, Theme.titleFont.pixelSize)
                             font: Theme.titleFont
                             color: Theme.textColor

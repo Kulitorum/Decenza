@@ -77,7 +77,9 @@ QtObject {
     // Replace emoji Unicode characters in a string with RichText <img> tags
     // pointing to pre-rendered SVGs. This prevents CoreText/ImageIO crashes
     // caused by Apple Color Emoji font PNG decoding on the render thread.
-    // Only use on strings bound to Text elements with textFormat: Text.RichText.
+    // Only use on strings bound to Text elements with textFormat: Text.StyledText
+    // (the emoji <img> uses align="middle", which StyledText honors). Prefer
+    // StyledText over RichText — RichText silently disables elide (QML_GOTCHAS.md).
     function replaceEmojiWithImg(text, pixelSize) {
         if (!text) return ""
         var size = pixelSize || 16
@@ -122,8 +124,12 @@ QtObject {
                     break
                 }
                 var src = "qrc:/emoji/" + emojiCps.map(function(c) { return c.toString(16) }).join("-") + ".svg"
+                // align="middle" centres the emoji in Text.StyledText (which ignores
+                // the CSS style= attribute); style="vertical-align" keeps it centred in
+                // any label still using Text.RichText. Prefer StyledText — RichText
+                // silently disables elide (see QML_GOTCHAS.md).
                 result += "<img src=\"" + src + "\" width=\"" + size + "\" height=\"" + size
-                    + "\" style=\"vertical-align: middle\">"
+                    + "\" align=\"middle\" style=\"vertical-align: middle\">"
                 i = j
             } else if (cp === 0xFE0F) {
                 // Stray variation selector — skip
