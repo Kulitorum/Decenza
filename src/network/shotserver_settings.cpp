@@ -767,11 +767,9 @@ QString ShotServer::generateSettingsPage() const
                         </div>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">API Key</label>
-                        <div class="password-wrapper">
-                            <input type="text" class="form-input" id="mcpApiKey" readonly>
-                            <button type="button" class="password-toggle" onclick="copyField('mcpApiKey')" title="Copy">&#128203;</button>
-                        </div>
+                        <label class="form-label">Setup page</label>
+                        <a id="mcpSetupLink" href="/mcp/setup" target="_blank" rel="noopener" class="link-line">Open setup page &#8599;</a>
+                        <p class="field-hint">Open this on the computer running Claude Desktop for a ready-to-paste configuration. The Local URL below is for manual clients (curl, MCP Inspector).</p>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Local URL (for clients on this network)</label>
@@ -884,7 +882,6 @@ QString ShotServer::generateSettingsPage() const
                 document.getElementById('mcpEnabled').checked = data.mcpEnabled || false;
                 document.getElementById('mcpAccessLevel').value = String(data.mcpAccessLevel ?? 0);
                 document.getElementById('mcpConfirmationLevel').value = String(data.mcpConfirmationLevel ?? 0);
-                document.getElementById('mcpApiKey').value = data.mcpApiKey || '';
                 document.getElementById('mcpLocalUrl').value = data.mcpLocalUrl || '';
                 updateMcpFields();
 
@@ -1425,16 +1422,17 @@ void ShotServer::handleGetSettings(QTcpSocket* socket)
     obj["mqttRetainMessages"] = mqttSettings->mqttRetainMessages();
     obj["mqttHomeAssistantDiscovery"] = mqttSettings->mqttHomeAssistantDiscovery();
 
-    // MCP — the API key and remote connector token are plaintext capability
-    // credentials the owner deliberately copies into their AI client (unlike the
-    // masked third-party secrets above), so they are emitted in full. See the
-    // SettingsMcp header note. Local server config + live remote-access status.
+    // MCP — local server config + live remote-access status. The local API key
+    // is NOT emitted: the app hides it (the /mcp/setup page handles local client
+    // config), and it only matters when the optional TOTP web-security is on.
+    // The remote connector URL below does embed its capability token — that URL
+    // is deliberately copied into the owner's AI client, unlike the masked
+    // third-party secrets above; see the SettingsMcp header note.
     {
         auto* mcp = m_settings->mcp();
         obj["mcpEnabled"] = mcp->mcpEnabled();
         obj["mcpAccessLevel"] = mcp->mcpAccessLevel();
         obj["mcpConfirmationLevel"] = mcp->mcpConfirmationLevel();
-        obj["mcpApiKey"] = mcp->mcpApiKey();
         // LAN endpoint for local clients (Claude Desktop via mcp-remote, curl).
         // Empty until the server is listening (url() reports the bound address).
         obj["mcpLocalUrl"] = (mcp->mcpEnabled() && !url().isEmpty())
