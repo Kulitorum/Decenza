@@ -53,6 +53,10 @@ endif()
 if(APPLE AND NOT IOS)
     set(TSNET_INCLUDE_DIR "${_tsnet_extract}/libtailscale-macos/include" CACHE PATH "" FORCE)
     set(_tsnet_lib "${_tsnet_extract}/libtailscale-macos/libtailscale.a")
+    if(NOT EXISTS "${_tsnet_lib}")
+        message(FATAL_ERROR "tsnet: libtailscale.a missing after extract "
+                            "(delete ${TSNET_DOWNLOAD_DIR} to re-download): ${_tsnet_lib}")
+    endif()
     function(decenza_link_tsnet tgt)
         target_include_directories(${tgt} PRIVATE "${TSNET_INCLUDE_DIR}")
         # The Go static archive needs the darwin system frameworks tsnet uses.
@@ -70,6 +74,10 @@ elseif(IOS)
     # under ios-arm64_x86_64-simulator if a simulator build is ever wired up.
     set(TSNET_INCLUDE_DIR "${_tsnet_xcf}/ios-arm64/Headers" CACHE PATH "" FORCE)
     set(_tsnet_lib "${_tsnet_xcf}/ios-arm64/libtailscale_ios.a")
+    if(NOT EXISTS "${_tsnet_lib}")
+        message(FATAL_ERROR "tsnet: iOS libtailscale_ios.a missing after extract "
+                            "(delete ${TSNET_DOWNLOAD_DIR} to re-download): ${_tsnet_lib}")
+    endif()
     function(decenza_link_tsnet tgt)
         target_include_directories(${tgt} PRIVATE "${TSNET_INCLUDE_DIR}")
         target_link_libraries(${tgt} PRIVATE

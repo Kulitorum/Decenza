@@ -303,6 +303,11 @@ void McpRemoteAccess::startReachabilityProbe()
         m_reachTimer->setInterval(6000);
         connect(m_reachTimer, &QTimer::timeout, this, &McpRemoteAccess::doReachabilityProbe);
     }
+    // New probing session: any in-flight reply from a previous session becomes
+    // stale (its generation no longer matches) and is ignored on completion.
+    ++m_probeGeneration;
+    m_probeFailCount = 0;
+    m_probeInFlight = false;
     if (!m_reachTimer->isActive())
         m_reachTimer->start();
     doReachabilityProbe();  // probe immediately, don't wait a full interval
@@ -310,6 +315,7 @@ void McpRemoteAccess::startReachabilityProbe()
 
 void McpRemoteAccess::stopReachabilityProbe()
 {
+    ++m_probeGeneration;   // drop any in-flight reply
     if (m_reachTimer)
         m_reachTimer->stop();
     m_probeInFlight = false;
@@ -333,17 +339,41 @@ void McpRemoteAccess::doReachabilityProbe()
     QNetworkRequest req{QUrl(url)};
     req.setTransferTimeout(10000);
     m_probeInFlight = true;
+    const quint64 gen = m_probeGeneration;
     QNetworkReply* reply = m_reachProbe->get(req);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        m_probeInFlight = false;
+    connect(reply, &QNetworkReply::finished, this, [this, reply, gen]() {
         const bool gotHttpResponse =
             reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).isValid();
+        const QString errStr = reply->errorString();
         reply->deleteLater();
-        if (gotHttpResponse && !m_funnelReachable) {
-            m_funnelReachable = true;
-            stopReachabilityProbe();
-            setStatus(Active);
-            emit connectorUrlChanged();
+        // Ignore a reply from a superseded probing session (disable / mode
+        // switch / tunnel restart happened while this was in flight) — it must
+        // not flip status to Active.
+        if (gen != m_probeGeneration)
+            return;
+        m_probeInFlight = false;
+
+        if (gotHttpResponse) {
+            m_probeFailCount = 0;
+            if (!m_funnelReachable) {
+                m_funnelReachable = true;
+                stopReachabilityProbe();
+                setStatus(Active);
+                emit connectorUrlChanged();
+            }
+            return;
+        }
+
+        // No HTTP response: DNS not published, no route, TLS/timeout. Common
+        // cause is Funnel not granted for this node yet. Keep probing (it
+        // recovers once granted), but after a grace window surface an actionable
+        // error instead of an unbounded "Verifying…".
+        qWarning() << "McpRemoteAccess: Funnel reachability probe failed:" << errStr;
+        if (++m_probeFailCount >= 5 && m_status != Error) {
+            setStatus(Error, QStringLiteral(
+                "Public Funnel URL isn't reachable yet. Make sure Funnel is enabled for this "
+                "device in the Tailscale admin console (see “Set up Tailscale Funnel”). "
+                "This clears automatically once it's reachable."));
         }
     });
 }

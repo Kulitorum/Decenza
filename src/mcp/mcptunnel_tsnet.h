@@ -65,15 +65,20 @@ signals:
 
 private:
     // Applies a status update on the main thread (called via queued invocation
-    // from the worker). Emits the matching change signals.
-    void applyUpdate(State state, const QString& authUrl, const QString& certDomain,
-                     const QString& errorMsg);
+    // from the worker, or directly by stop()). Updates carrying a stale epoch —
+    // posted by a worker generation that has since been stopped/superseded — are
+    // dropped, so a late queued event can't clobber the current state.
+    void applyUpdate(quint64 epoch, State state, const QString& authUrl,
+                     const QString& certDomain, const QString& errorMsg);
 
-    void runWorker(QString stateDir, QString hostname, quint16 localPort);
+    void runWorker(quint64 epoch, QString stateDir, QString hostname, quint16 localPort);
 
     QThread* m_worker = nullptr;
-    std::atomic<int> m_handle{-1};   // libtailscale handle (int), -1 when none
+    std::atomic<int> m_handle{-1};   // libtailscale handle (int), -1 when none. Owned by the worker.
     std::atomic<bool> m_stopRequested{false};
+    // Bumped on every start()/stop(); a worker captures its epoch at launch so
+    // its queued updates are ignored once a newer generation begins.
+    std::atomic<quint64> m_epoch{0};
 
     State m_state = Stopped;
     QString m_authUrl;

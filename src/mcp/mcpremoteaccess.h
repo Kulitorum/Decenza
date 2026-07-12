@@ -99,7 +99,7 @@ private slots:
 private:
     // bindLoopbackOnly: embedded tunnels (Mode A) proxy from 127.0.0.1, so the
     // listener binds loopback; Mode C needs a LAN-routable bind for an off-box
-    // proxy. Returns true if the listener is (now) up on the requested port.
+    // proxy. On a bind failure it sets status Error (callers check m_status).
     void startListener(bool bindLoopbackOnly);
     // Start / stop the embedded Tailscale node for Mode A.
     void startTunnel();
@@ -140,6 +140,10 @@ private:
     QTimer* m_reachTimer = nullptr;
     bool m_funnelReachable = false;       // last probe confirmed the public URL works
     bool m_probeInFlight = false;
+    // Bumped whenever probing (re)starts/stops; a probe reply carrying a stale
+    // generation is ignored so it can't flip status after disable/mode switch.
+    quint64 m_probeGeneration = 0;
+    int m_probeFailCount = 0;             // consecutive failed probes (for surfacing an error)
     QTimer* m_reaper = nullptr;
 
     Status m_status = Off;
