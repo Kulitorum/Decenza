@@ -851,9 +851,12 @@ KeyboardAwareContainer {
                             font.pixelSize: Theme.scaled(13)
                             font.bold: true
                         }
-                        Tr {
-                            key: "settings.ai.remoteMcp.baseUrlHint"
-                            fallback: "The https:// address your proxy/tunnel exposes, forwarding to this tablet on port %1. Example: https://decenza.your-tailnet.ts.net"
+                        Text {
+                            // Not a Tr: the %1 port needs .arg() substitution,
+                            // which Tr does not perform (mirrors the status line).
+                            text: TranslationManager.translate("settings.ai.remoteMcp.baseUrlHint",
+                                "The https:// address your proxy/tunnel exposes, forwarding to this tablet on port %1. Example: https://decenza.your-tailnet.ts.net")
+                                .arg(Settings.mcp.remoteMcpPort)
                             color: Theme.textSecondaryColor
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap
@@ -868,9 +871,12 @@ KeyboardAwareContainer {
                             onTextChanged: Settings.mcp.remoteMcpCustomBaseUrl = text
                         }
                         Text {
-                            visible: remoteMcpBaseUrlField.text.length > 0
-                                && RemoteMcpAccess.connectorUrl.length === 0
-                            text: TranslationManager.translate("settings.ai.remoteMcp.baseUrlInvalid", "Enter a full https:// URL.")
+                            // Shown whenever no usable connector URL composes —
+                            // blank field or a non-https/invalid base URL — so an
+                            // "active" listener is never left without an
+                            // explanation of why there's no URL to copy.
+                            visible: RemoteMcpAccess.connectorUrl.length === 0
+                            text: TranslationManager.translate("settings.ai.remoteMcp.baseUrlInvalid", "Enter a full https:// URL to get your connector URL.")
                             color: Theme.errorColor
                             font.pixelSize: Theme.scaled(11)
                             wrapMode: Text.WordWrap

@@ -100,8 +100,9 @@ private:
     // Constant-time comparison of a candidate token segment against the stored
     // token. Length mismatch always returns false without leaking timing.
     bool tokenMatches(const QByteArray& candidate) const;
-    // Per-source failed-token limiter (defense-in-depth + log hygiene). Returns
-    // true when the source is over budget for the current window.
+    // Per-source failed-token limiter. Returns true when the source is over
+    // budget for the current window; the caller then drops the connection
+    // (forcing a reconnect) and suppresses further per-request log lines.
     bool failedTokenOverLimit(const QString& source);
     void sendBare404(QTcpSocket* socket);
 
@@ -124,6 +125,7 @@ private:
 
     struct FailWindow {
         int count = 0;
+        bool suppressionLogged = false;  // one "further requests dropped" line per window
         QDateTime windowStart;
     };
     QHash<QString, FailWindow> m_failedAttempts;

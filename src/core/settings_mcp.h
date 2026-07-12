@@ -24,9 +24,12 @@ class SettingsMcp : public QObject {
     Q_PROPERTY(QString remoteMcpMode READ remoteMcpMode WRITE setRemoteMcpMode NOTIFY remoteMcpModeChanged)
     Q_PROPERTY(int remoteMcpPort READ remoteMcpPort WRITE setRemoteMcpPort NOTIFY remoteMcpPortChanged)
     Q_PROPERTY(QString remoteMcpCustomBaseUrl READ remoteMcpCustomBaseUrl WRITE setRemoteMcpCustomBaseUrl NOTIFY remoteMcpCustomBaseUrlChanged)
-    // The capability token appears only in the composed connector URL; the raw
-    // value is not exposed as a QML-readable property to keep it out of casual
-    // logs/bindings. Rotation is the revocation story.
+    // The capability token. QML normally consumes it only via the composed
+    // connector URL (RemoteMcpAccess.connectorUrl), but it is a readable property
+    // so the NOTIFY can drive that URL binding and local UI. Rotation is the
+    // revocation story; the token is no more sensitive than the existing plaintext
+    // mcpApiKey and never leaves the owner's device except inside the URL they
+    // paste into their AI app.
     Q_PROPERTY(QString remoteMcpToken READ remoteMcpToken NOTIFY remoteMcpTokenChanged)
 
 public:

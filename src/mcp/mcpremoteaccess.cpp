@@ -68,7 +68,9 @@ int McpRemoteAccess::listenPort() const
 
 QString McpRemoteAccess::connectorUrl() const
 {
-    if (!m_settings || !m_settings->remoteMcpEnabled())
+    // Both the master MCP toggle and the remote toggle must be on — with MCP off,
+    // refresh() stops the listener, so a composed URL would point at nothing.
+    if (!m_settings || !m_settings->mcpEnabled() || !m_settings->remoteMcpEnabled())
         return QString();
 
     const QString mode = m_settings->remoteMcpMode();
@@ -139,6 +141,12 @@ void McpRemoteAccess::startListener()
         connect(m_listener, &QTcpServer::newConnection, this, &McpRemoteAccess::onNewConnection);
     }
 
+    // Start the reaper before attempting to bind: if the bind fails now (e.g. the
+    // port is transiently in use at boot), the reaper's recovery branch retries it
+    // on the next tick. Without this, a failed initial bind would stay Error until
+    // the next settings change.
+    m_reaper->start();
+
     // Mode C: an off-box reverse proxy on the LAN forwards to the tablet's LAN
     // IP + this port, so the listener must be routable, not loopback-only. It
     // still serves only the tokenized MCP route (route gating in routeRequest),
@@ -150,7 +158,6 @@ void McpRemoteAccess::startListener()
         return;
     }
 
-    m_reaper->start();
     setStatus(Active);
 }
 
@@ -259,15 +266,30 @@ void McpRemoteAccess::processBuffer(QTcpSocket* socket)
 
         if (pending.headerEnd < 0) {
             pending.headerEnd = static_cast<int>(pending.buffer.indexOf("\r\n\r\n"));
-            if (pending.headerEnd < 0)
-                return;  // headers incomplete
+            if (pending.headerEnd < 0) {
+                // Headers incomplete. Cap the header section independently of the
+                // body so a client that never terminates the headers can't buffer
+                // unbounded data on one connection.
+                if (pending.buffer.size() > MaxHeaderSize) {
+                    sendBare404(socket);
+                    socket->close();
+                    return;
+                }
+                return;  // wait for more header bytes
+            }
 
             pending.contentLength = 0;
             const QByteArray headerBlock = pending.buffer.left(pending.headerEnd);
             for (const QByteArray& line : headerBlock.split('\n')) {
                 if (line.trimmed().toLower().startsWith("content-length:")) {
+                    bool ok = false;
                     pending.contentLength =
-                        line.mid(line.indexOf(':') + 1).trimmed().toLongLong();
+                        line.mid(line.indexOf(':') + 1).trimmed().toLongLong(&ok);
+                    // A malformed Content-Length (non-numeric) must not silently
+                    // parse as 0 — that desyncs keep-alive framing (the real body
+                    // bytes would be read as the next request). Reject and close.
+                    if (!ok)
+                        pending.contentLength = -1;
                     break;
                 }
             }
@@ -335,9 +357,22 @@ void McpRemoteAccess::routeRequest(QTcpSocket* socket, const QString& method,
 
     if (!authorized) {
         // Never echo the attempted path; just note the source and count it.
-        if (!failedTokenOverLimit(source))
+        if (!failedTokenOverLimit(source)) {
             qWarning() << "McpRemoteAccess: rejected unauthorized request from" << source;
-        sendBare404(socket);
+            sendBare404(socket);
+        } else {
+            // Over the failed-attempt budget for this source this minute. Drop the
+            // keep-alive connection so a scanner must reconnect (bounded by
+            // MaxConnections) instead of pipelining guesses on one socket, and log
+            // the transition exactly once per window rather than going silent.
+            FailWindow& window = m_failedAttempts[source];
+            if (!window.suppressionLogged) {
+                window.suppressionLogged = true;
+                qWarning() << "McpRemoteAccess: further unauthorized requests from" << source
+                           << "will be dropped for the rest of this minute";
+            }
+            socket->close();
+        }
         return;
     }
 
@@ -382,6 +417,7 @@ bool McpRemoteAccess::failedTokenOverLimit(const QString& source)
     if (!window.windowStart.isValid() || window.windowStart.secsTo(now) >= 60) {
         window.windowStart = now;
         window.count = 0;
+        window.suppressionLogged = false;
     }
     window.count++;
     return window.count > MaxFailedPerMinute;
@@ -424,6 +460,15 @@ void McpRemoteAccess::onReaperTick()
         const QDateTime last = m_pending.value(socket).lastActivity;
         if (last.isValid() && last.secsTo(now) >= IdleTimeoutSeconds)
             socket->close();
+    }
+
+    // Prune expired failed-attempt windows so the per-source map can't grow
+    // unbounded from many distinct (or spoofed) source addresses over uptime.
+    for (auto it = m_failedAttempts.begin(); it != m_failedAttempts.end();) {
+        if (!it.value().windowStart.isValid() || it.value().windowStart.secsTo(now) >= 60)
+            it = m_failedAttempts.erase(it);
+        else
+            ++it;
     }
 
     // Recover from a dropped listener (e.g. interface flap) while still enabled.

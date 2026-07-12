@@ -20,6 +20,7 @@
 #include <QJsonArray>
 #include <QElapsedTimer>
 #include <QSettings>
+#include <QStandardPaths>
 
 #include "mcp/mcpremoteaccess.h"
 #include "mcp/mcpserver.h"
@@ -74,25 +75,22 @@ class tst_McpRemoteAccess : public QObject {
     // Send one raw request to 127.0.0.1:port on a fresh connection and read the
     // full response (headers + Content-Length body). Optionally reuse a caller-
     // owned socket instead of opening a new one.
-    static Resp fetch(quint16 port, const QByteArray& request, QTcpSocket* reuse = nullptr)
+    // Pump the event loop until the client socket connects — waitForConnected
+    // only services the client fd, not the listener's accept.
+    static bool pumpConnected(QTcpSocket& sock, quint16 port)
+    {
+        sock.connectToHost(QHostAddress::LocalHost, port);
+        QElapsedTimer ct;
+        ct.start();
+        while (sock.state() != QAbstractSocket::ConnectedState && ct.elapsed() < 3000)
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+        return sock.state() == QAbstractSocket::ConnectedState;
+    }
+
+    // Read exactly one HTTP response (status + Content-Length body) from sock.
+    static Resp readResponse(QTcpSocket& sock)
     {
         Resp r;
-        QTcpSocket local;
-        QTcpSocket* sock = reuse ? reuse : &local;
-        if (sock->state() != QAbstractSocket::ConnectedState) {
-            sock->connectToHost(QHostAddress::LocalHost, port);
-            // Pump the event loop so the listener accepts the connection —
-            // waitForConnected only services the client fd, not the server's.
-            QElapsedTimer ct;
-            ct.start();
-            while (sock->state() != QAbstractSocket::ConnectedState && ct.elapsed() < 3000)
-                QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
-            if (sock->state() != QAbstractSocket::ConnectedState)
-                return r;
-        }
-        sock->write(request);
-        sock->flush();
-
         QByteArray buf;
         int headerEnd = -1;
         qint64 contentLength = -1;
@@ -102,7 +100,7 @@ class tst_McpRemoteAccess : public QObject {
             // processEvents services both the listener (accept + read + respond)
             // and this client socket (receive the response).
             QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
-            buf.append(sock->readAll());
+            buf.append(sock.readAll());
             if (headerEnd < 0)
                 headerEnd = static_cast<int>(buf.indexOf("\r\n\r\n"));
             if (headerEnd >= 0 && contentLength < 0) {
@@ -134,6 +132,43 @@ class tst_McpRemoteAccess : public QObject {
                 r.json = doc.object();
         }
         return r;
+    }
+
+    static Resp fetch(quint16 port, const QByteArray& request, QTcpSocket* reuse = nullptr)
+    {
+        QTcpSocket local;
+        QTcpSocket* sock = reuse ? reuse : &local;
+        if (sock->state() != QAbstractSocket::ConnectedState && !pumpConnected(*sock, port))
+            return Resp{};
+        sock->write(request);
+        sock->flush();
+        return readResponse(*sock);
+    }
+
+    // Send a request split into chunks, pumping the event loop between each so the
+    // server exercises its partial-read reassembly path.
+    static Resp fetchChunked(quint16 port, const QList<QByteArray>& chunks)
+    {
+        QTcpSocket sock;
+        if (!pumpConnected(sock, port))
+            return Resp{};
+        for (const QByteArray& c : chunks) {
+            sock.write(c);
+            sock.flush();
+            QElapsedTimer t;
+            t.start();
+            while (t.elapsed() < 60)
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 15);
+        }
+        return readResponse(sock);
+    }
+
+    static QJsonObject initParams()
+    {
+        return QJsonObject{
+            {"protocolVersion", "2025-11-25"},
+            {"capabilities", QJsonObject{}},
+            {"clientInfo", QJsonObject{{"name", "tst"}, {"version", "1.0"}}}};
     }
 
     static QByteArray httpRequest(const QByteArray& method, const QByteArray& path,
@@ -205,17 +240,38 @@ class tst_McpRemoteAccess : public QObject {
         return init.sessionId.toUtf8();
     }
 
+private:
+    // SettingsMcp uses a fixed-org QSettings that test mode does not redirect on
+    // every platform, so these tests can touch the developer's real store. Snapshot
+    // the keys we mutate and restore them verbatim afterwards — including
+    // mcp/enabled, which the tests toggle and which the real app relies on.
+    static constexpr const char* kTouchedKeys[] = {
+        "mcp/enabled", "mcp/remoteEnabled", "mcp/remoteMode",
+        "mcp/remotePort", "mcp/remoteCustomBaseUrl", "mcp/remoteToken"};
+    QHash<QString, QVariant> m_savedSettings;
+
 private slots:
+    void initTestCase()
+    {
+        // Best-effort isolation on platforms that honor test mode (Linux/CI).
+        QStandardPaths::setTestModeEnabled(true);
+        QSettings s("DecentEspresso", "DE1Qt");
+        for (const char* key : kTouchedKeys)
+            if (s.contains(key))
+                m_savedSettings.insert(key, s.value(key));
+    }
+
     void cleanupTestCase()
     {
-        // Leave no trace: remote access must never be left enabled in the dev's
-        // real QSettings (it would auto-start the listener on next app launch).
+        // Restore the real store exactly as we found it (remove keys we created,
+        // restore prior values for keys that existed).
         QSettings s("DecentEspresso", "DE1Qt");
-        s.remove("mcp/remoteEnabled");
-        s.remove("mcp/remoteMode");
-        s.remove("mcp/remotePort");
-        s.remove("mcp/remoteCustomBaseUrl");
-        s.remove("mcp/remoteToken");
+        for (const char* key : kTouchedKeys) {
+            if (m_savedSettings.contains(key))
+                s.setValue(key, m_savedSettings.value(key));
+            else
+                s.remove(key);
+        }
     }
 
     // ── Token ────────────────────────────────────────────────────────────
@@ -428,6 +484,121 @@ private slots:
         settings.setRemoteMcpCustomBaseUrl(QStringLiteral("https://decenza.example.ts.net/"));
         QCOMPARE(remote.connectorUrl(),
                  QStringLiteral("https://decenza.example.ts.net/mcp/") + QString::fromUtf8(token));
+    }
+
+    // ── connectorUrl also requires the master MCP toggle ──────────────────
+    void connectorUrlRequiresMcpEnabled()
+    {
+        SettingsMcp settings;
+        McpRemoteAccess remote;
+        remote.setSettings(&settings);
+        settings.setRemoteMcpMode(QString::fromLatin1(SettingsMcp::ModeCustom));
+        settings.setRemoteMcpEnabled(true);
+        settings.setRemoteMcpCustomBaseUrl(QStringLiteral("https://decenza.example.ts.net"));
+
+        settings.setMcpEnabled(false);
+        QVERIFY(remote.connectorUrl().isEmpty());   // MCP off → no live URL
+        settings.setMcpEnabled(true);
+        QVERIFY(!remote.connectorUrl().isEmpty());
+    }
+
+    // ── Content-Length validation (body cap + malformed) ──────────────────
+    void contentLengthValidation()
+    {
+        SettingsMcp settings;
+        McpServer server;
+        McpRemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote);
+        QVERIFY(port != 0);
+        const QByteArray token = settings.remoteMcpToken().toUtf8();
+
+        // Content-Length beyond the 1 MB body cap → bare 404, connection closed.
+        const QByteArray oversized = "POST /mcp/" + token +
+            " HTTP/1.1\r\nHost: x\r\nContent-Length: 5000000\r\n\r\n";
+        QCOMPARE(fetch(port, oversized).status, 404);
+
+        // Non-numeric Content-Length must be rejected, not silently parsed as 0
+        // (which would desync keep-alive framing).
+        const QByteArray malformed = "POST /mcp/" + token +
+            " HTTP/1.1\r\nHost: x\r\nContent-Length: notanumber\r\n\r\n";
+        QCOMPARE(fetch(port, malformed).status, 404);
+    }
+
+    // ── Path boundary: trailing segment rejected, query string stripped ───
+    void pathBoundary()
+    {
+        SettingsMcp settings;
+        McpServer server;
+        McpRemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote);
+        QVERIFY(port != 0);
+        const QByteArray token = settings.remoteMcpToken().toUtf8();
+
+        // A trailing segment after the token is not the exact route → 404.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("rejected unauthorized request"));
+        QCOMPARE(fetch(port, httpRequest("POST", "/mcp/" + token + "/extra",
+                                         rpc("initialize", initParams()))).status, 404);
+
+        // A query string after the token is stripped → authorized.
+        Resp ok = fetch(port, httpRequest("POST", "/mcp/" + token + "?src=claude",
+                                          rpc("initialize", initParams())));
+        QCOMPARE(ok.status, 200);
+        QVERIFY(ok.json.contains("result"));
+    }
+
+    // ── Partial-read reassembly (request split across TCP segments) ───────
+    void partialRequestReassembly()
+    {
+        SettingsMcp settings;
+        McpServer server;
+        McpRemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote);
+        QVERIFY(port != 0);
+        const QByteArray token = settings.remoteMcpToken().toUtf8();
+
+        const QByteArray full = httpRequest("POST", "/mcp/" + token,
+                                            rpc("initialize", initParams()));
+        // Split mid-request so the server must buffer across reads before it can
+        // find the header terminator / complete the body.
+        const int mid = static_cast<int>(full.size() / 2);
+        Resp r = fetchChunked(port, {full.left(mid), full.mid(mid)});
+        QCOMPARE(r.status, 200);
+        QVERIFY(r.json.contains("result"));
+    }
+
+    // ── Keep-alive pipelining: two requests in one write, both processed ──
+    void pipelinedRequests()
+    {
+        SettingsMcp settings;
+        McpServer server;
+        McpRemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote);
+        QVERIFY(port != 0);
+        const QByteArray path = "/mcp/" + settings.remoteMcpToken().toUtf8();
+
+        // Two initialize requests concatenated into one write on one socket: the
+        // drain loop must process both, creating two sessions.
+        const QByteArray two = httpRequest("POST", path, rpc("initialize", initParams(), 1))
+                             + httpRequest("POST", path, rpc("initialize", initParams(), 2));
+        fetch(port, two);
+        QTRY_COMPARE(server.activeSessionCount(), 2);
+    }
+
+    // ── Master MCP toggle stops the remote listener ───────────────────────
+    void disabledWhenMcpOff()
+    {
+        SettingsMcp settings;
+        McpServer server;
+        McpRemoteAccess remote;
+        const quint16 port = startRemote(settings, server, remote);
+        QVERIFY(port != 0);
+        QCOMPARE(remote.statusString(), QStringLiteral("active"));
+
+        settings.setMcpEnabled(false);
+        QCOMPARE(remote.listenPort(), 0);
+        QCOMPARE(remote.statusString(), QStringLiteral("off"));
+        QVERIFY(remote.connectorUrl().isEmpty());
     }
 };
 
