@@ -1,182 +1,150 @@
 ## ADDED Requirements
 
-### Requirement: Streamable HTTP Protocol Version
+### Requirement: Capability-URL Authorization for Remote Access
 
-The MCP server SHALL advertise `2025-06-18` as its preferred protocol
-version and SHALL accept `2025-03-26` as a fallback. Earlier versions
-(e.g. `2024-11-05`) SHALL be rejected.
+When remote MCP is enabled, the remote surface SHALL authorize
+requests solely by an unguessable capability token carried as a URL
+path segment (`/mcp/<token>`), where the token is a 128-bit
+cryptographically random value generated on-device. Token comparison
+SHALL be constant-time. Requests with a missing or non-matching token
+SHALL receive a bare HTTP `404` that does not reveal that an MCP
+server exists.
 
-#### Scenario: Client requests current version
-- **WHEN** a client sends `initialize` with `protocolVersion: "2025-06-18"`
-- **THEN** the server responds with `protocolVersion: "2025-06-18"`
+#### Scenario: Valid token
+- **WHEN** a client POSTs a JSON-RPC request to `/mcp/<token>` with the current token
+- **THEN** the request is dispatched to the MCP server and handled normally
 
-#### Scenario: Client requests legacy version
-- **WHEN** a client sends `initialize` with `protocolVersion: "2024-11-05"`
-- **THEN** the server responds with an error indicating the version is unsupported and lists the supported versions
+#### Scenario: Wrong token
+- **WHEN** a client POSTs to `/mcp/<other>` where `<other>` is not the current token
+- **THEN** the server returns `404` with no MCP-identifying headers or body
 
-### Requirement: OAuth 2.1 Protected Resource
+#### Scenario: Missing token
+- **WHEN** a client POSTs to `/mcp` on the remote surface
+- **THEN** the server returns `404`
 
-When remote MCP is enabled, every `/mcp` request SHALL carry a valid
-`Authorization: Bearer <token>` header. Requests without a token, or
-with an expired/revoked token, SHALL receive HTTP `401` with a
-`WWW-Authenticate: Bearer resource_metadata="<url>"` header pointing
-to the protected-resource metadata document.
+### Requirement: Token Rotation as Revocation
 
-#### Scenario: Unauthenticated request
-- **WHEN** a client POSTs to `/mcp` without an `Authorization` header and remote MCP is enabled
-- **THEN** the server returns `401` with `WWW-Authenticate: Bearer resource_metadata="https://<host>/.well-known/oauth-protected-resource"`
+The settings UI SHALL provide a rotate-token action. Rotation SHALL
+generate a fresh token, immediately close all active remote MCP
+sessions, and cause requests bearing the previous token to receive
+`404`. The UI SHALL display the new connector URL and QR code after
+rotation.
 
-#### Scenario: Expired access token
-- **WHEN** a client presents an access token whose `exp` claim is in the past
-- **THEN** the server returns `401` with `WWW-Authenticate: Bearer error="invalid_token"`
+#### Scenario: User rotates the token
+- **WHEN** the user confirms the rotate-token action
+- **THEN** a request using the old token returns `404` within one second and active remote sessions are terminated
 
-#### Scenario: Valid token with sufficient scope
-- **WHEN** a client presents a valid token with scope `mcp:control` and calls a control-level tool
-- **THEN** the server executes the tool and returns the result
+#### Scenario: New URL shown
+- **WHEN** rotation completes
+- **THEN** the settings UI displays the connector URL containing the new token, with copy and QR affordances
 
-#### Scenario: Valid token with insufficient scope
-- **WHEN** a client presents a valid token with scope `mcp:read` and calls a control-level tool
-- **THEN** the server returns a JSON-RPC error with code `-32002` and message indicating insufficient scope
+### Requirement: Isolated Remote Surface
 
-### Requirement: OAuth Authorization Server Metadata
+The remote reachability path SHALL terminate at a dedicated listener
+that serves only the tokenized MCP route (`POST`, `GET`, `DELETE` on
+`/mcp/<token>`). All other paths and methods on the remote surface
+SHALL return `404`. No other ShotServer route (web layout editor,
+REST endpoints, data-migration API) SHALL be reachable through the
+remote surface.
 
-The server SHALL publish RFC 8414 metadata at
-`/.well-known/oauth-authorization-server` and RFC 9728 protected-resource
-metadata at `/.well-known/oauth-protected-resource`, both reachable
-without authentication.
+#### Scenario: Non-MCP route via tunnel
+- **WHEN** a request arrives on the remote surface for any other path (e.g. `/layout`, `/api/shots`)
+- **THEN** the server returns `404`
 
-#### Scenario: AS metadata discovery
-- **WHEN** a client GETs `/.well-known/oauth-authorization-server`
-- **THEN** the response is `200` JSON containing `issuer`, `authorization_endpoint`, `token_endpoint`, `registration_endpoint`, `revocation_endpoint`, `code_challenge_methods_supported: ["S256"]`, and `scopes_supported: ["mcp:read","mcp:control","mcp:full"]`
+#### Scenario: LAN surface unchanged
+- **WHEN** a LAN client uses the existing local `/mcp` endpoint
+- **THEN** behavior is unchanged by remote mode being enabled or disabled
 
-#### Scenario: Protected-resource metadata discovery
-- **WHEN** a client GETs `/.well-known/oauth-protected-resource`
-- **THEN** the response is `200` JSON containing `resource` (the MCP endpoint URL) and `authorization_servers` (a list containing the device's AS issuer)
+### Requirement: Remote Sessions Honor Existing MCP Gates
 
-### Requirement: Dynamic Client Registration
+Remote MCP sessions SHALL be subject to the same `mcpAccessLevel`
+filtering, `mcpConfirmationLevel` confirmation flows (including the
+in-app dialog for machine-start operations), session limits, and
+rate limits as LAN sessions.
 
-The server SHALL accept RFC 7591 client registration at
-`/oauth/register` without prior credentials, and SHALL return a unique
-`client_id` for each registration.
+#### Scenario: Access level enforced remotely
+- **WHEN** `mcpAccessLevel` is Monitor Only and a remote client calls a control-category tool
+- **THEN** the call is rejected identically to the LAN behavior
 
-#### Scenario: New client registers
-- **WHEN** a client POSTs `{"client_name":"Claude","redirect_uris":["https://claude.ai/api/mcp/auth_callback"]}` to `/oauth/register`
-- **THEN** the server returns `201` with a JSON body containing `client_id`, the echoed `redirect_uris`, and `token_endpoint_auth_method: "none"`
+#### Scenario: In-app confirmation over the tunnel
+- **WHEN** `mcpConfirmationLevel` requires confirmation and a remote client calls `machine_start_espresso`
+- **THEN** the on-device confirmation dialog is shown and the held response resolves per the user's choice or the dialog timeout
 
-### Requirement: Authorization Code with PKCE
+### Requirement: Failed-Token Rate Limiting
 
-The `/oauth/authorize` endpoint SHALL require PKCE with method `S256`
-and SHALL reject requests with a missing or non-`S256`
-`code_challenge_method`. The `/oauth/token` endpoint SHALL verify
-`code_verifier` against the stored `code_challenge`.
+The remote surface SHALL rate-limit requests that fail token
+validation, per source, and SHALL log failures without echoing the
+attempted path.
 
-#### Scenario: Authorize without PKCE
-- **WHEN** a client GETs `/oauth/authorize` without `code_challenge`
-- **THEN** the server redirects to the client's `redirect_uri` with `error=invalid_request`
+#### Scenario: Repeated bad tokens
+- **WHEN** a source exceeds the failed-token limit
+- **THEN** further requests from that source are dropped or delayed for the limit window
 
-#### Scenario: Token exchange with wrong verifier
-- **WHEN** a client POSTs to `/oauth/token` with a `code_verifier` that does not match the stored challenge
-- **THEN** the server returns `400` with `error=invalid_grant`
+### Requirement: Reachability Mode — Embedded Tailscale Funnel
 
-### Requirement: Federated Identity via Google or Microsoft
+In Tailscale mode, the app SHALL run an embedded tsnet node
+(userspace, no system VPN interface) that joins the user's tailnet
+and exposes the remote surface via Tailscale Funnel at a stable
+`https://<node>.<tailnet>.ts.net` URL with a certificate managed by
+Tailscale. Setup SHALL surface the tsnet login URL (link and QR) and
+any required Funnel-approval URL. Disabling remote MCP SHALL bring
+the tsnet listener down; an explicit forget action SHALL wipe the
+tsnet node state.
 
-Before showing the on-device consent dialog, `/oauth/authorize` SHALL
-redirect the user to Google or Microsoft for OIDC sign-in and SHALL
-verify the returned `id_token` (`iss`, `aud`, `exp`, signature via the
-IdP's JWKS). The authenticated `sub` SHALL match the device owner
-configured for that IdP; a mismatch SHALL deny the request.
+#### Scenario: First-time Tailscale setup
+- **WHEN** the user selects Tailscale mode and enables remote MCP with no prior tsnet state
+- **THEN** the UI shows the tailnet login URL as link and QR and reports status until the node is authorized and Funnel is active
 
-#### Scenario: First-time device owner setup
-- **WHEN** the user enables remote MCP and completes Google or Microsoft sign-in during first-run setup
-- **THEN** the device stores the IdP issuer and `sub` as the device owner identity
+#### Scenario: Funnel active
+- **WHEN** the tsnet node is authorized and Funnel is enabled
+- **THEN** the UI displays the stable connector URL `https://<node>.<tailnet>.ts.net/mcp/<token>` and requests to it reach the remote surface
 
-#### Scenario: Authorized owner signs in
-- **WHEN** a connector initiates `/oauth/authorize` and the user signs in with the IdP matching the stored device owner
-- **THEN** the flow proceeds to the on-device consent dialog
+#### Scenario: Network change
+- **WHEN** the device changes networks while Tailscale mode is active
+- **THEN** the tsnet node reconnects automatically and the connector URL remains unchanged
 
-#### Scenario: Wrong account signs in
-- **WHEN** the IdP returns a valid `id_token` whose `sub` does not match the stored device owner
-- **THEN** the server redirects to the client's `redirect_uri` with `error=access_denied` and logs the mismatch
+#### Scenario: Forget tailnet
+- **WHEN** the user invokes the forget action
+- **THEN** the tsnet state directory is wiped and re-enabling requires a fresh tailnet login
 
-#### Scenario: Invalid id_token signature
-- **WHEN** the IdP callback returns an `id_token` that fails JWKS signature verification
-- **THEN** the server redirects with `error=access_denied` and does not show the consent dialog
+### Requirement: Reachability Mode — Bring-Your-Own URL
 
-### Requirement: On-Device User Consent
+In custom-URL mode, the user SHALL provide an `https://` base URL
+that they have arranged to forward to the device's remote listener.
+The UI SHALL compose and display the full connector URL
+(`<base>/mcp/<token>`) with copy and QR affordances. The app SHALL
+NOT attempt to manage the user's tunnel.
 
-The device SHALL display a consent dialog on its own screen after
-successful IdP sign-in and before `/oauth/authorize` returns a code,
-showing the requesting client's name, its redirect URI host, and the
-requested scopes. The authorization request SHALL only complete on
-explicit user approval.
+#### Scenario: Custom URL configured
+- **WHEN** the user enters `https://coffee.example.ts.net` as the base URL
+- **THEN** the UI displays connector URL `https://coffee.example.ts.net/mcp/<token>` with copy and QR
 
-#### Scenario: User approves
-- **WHEN** the consent dialog is shown and the user taps Allow
-- **THEN** the server completes the authorization redirect with a valid `code`
+#### Scenario: Non-HTTPS rejected
+- **WHEN** the user enters an `http://` base URL
+- **THEN** the value is rejected with a validation message
 
-#### Scenario: User denies
-- **WHEN** the consent dialog is shown and the user taps Deny
-- **THEN** the server redirects to the client's `redirect_uri` with `error=access_denied`
+### Requirement: Remote Access Status Visibility
 
-#### Scenario: Consent times out
-- **WHEN** the consent dialog has been visible for more than 120 seconds with no response
-- **THEN** the server treats the request as denied and redirects with `error=access_denied`
+The settings UI SHALL show the live state of the remote surface
+(`off`, `starting`, `active`, `reconnecting`, `error`) and SHALL NOT
+display the connector URL as usable while the underlying tunnel is
+down.
 
-### Requirement: Relay Mode Reachability (Option A)
+#### Scenario: Tunnel drops
+- **WHEN** the active tunnel disconnects
+- **THEN** the status changes from `active` to `reconnecting` (or `error`) and the UI reflects that the URL is currently unreachable
 
-In relay mode, the Decenza app SHALL maintain an outbound WebSocket
-connection to `wss://api.decenza.coffee` and SHALL handle inbound
-`mcp_request` messages by dispatching to the in-process MCP server and
-returning results via `mcp_response`. The relay's HTTPS endpoint
-(`https://api.decenza.coffee/v1/mcp/<device-id>`) SHALL be used as the
-OAuth `issuer` and `resource` values.
+### Requirement: Remote MCP Disable Semantics
 
-#### Scenario: Relay connected, MCP request arrives
-- **WHEN** a valid MCP JSON-RPC request arrives at the relay HTTP endpoint with a valid Bearer token
-- **THEN** the relay forwards it to the device WebSocket, the device processes it, returns `mcp_response`, and the relay returns the result to the HTTP caller within 25 seconds
+Disabling remote MCP SHALL stop all tunnels, close the remote
+listener, and terminate remote sessions. The capability token SHALL
+be retained so re-enabling does not invalidate an already-configured
+connector.
 
-#### Scenario: Device offline
-- **WHEN** a MCP request arrives at the relay but the device has no active WebSocket connection
-- **THEN** the relay returns `503 Device Offline`
+#### Scenario: Toggle off
+- **WHEN** the user disables remote MCP
+- **THEN** in-flight remote sessions are closed, the remote listener stops, and the public URL ceases to resolve to the app
 
-#### Scenario: Remote MCP disabled
-- **WHEN** remote MCP is disabled
-- **THEN** the device SHALL close its relay WebSocket and the relay SHALL return `503` for any further requests to that device's endpoint
-
-### Requirement: DuckDNS + UPnP Reachability (Option B)
-
-In DuckDNS mode, the server SHALL expose itself directly using a
-user-registered DuckDNS subdomain, a UPnP-mapped port 443, and a
-Let's Encrypt certificate via ACME DNS-01. The
-`https://<subdomain>.duckdns.org` URL SHALL be used as the OAuth
-`issuer` and `resource` values.
-
-#### Scenario: Fully configured
-- **WHEN** remote MCP is enabled in DuckDNS mode with valid credentials, active UPnP mapping, and a non-expired cert
-- **THEN** the settings UI displays the DuckDNS URL and the HTTPS listener is bound on port 443
-
-#### Scenario: CGNAT detected
-- **WHEN** the UPnP-reported external IP does not match the outbound probe IP
-- **THEN** the server SHALL refuse to enable remote MCP and the UI SHALL suggest switching to relay mode
-
-#### Scenario: UPnP unavailable
-- **WHEN** no IGD device responds to SSDP discovery within 5 seconds
-- **THEN** the server SHALL refuse to enable remote MCP and the UI SHALL display instructions to enable UPnP or switch to relay mode
-
-#### Scenario: ACME renewal
-- **WHEN** the installed cert is within 30 days of expiry
-- **THEN** the server SHALL attempt ACME renewal via DuckDNS DNS-01; on success the new cert SHALL be hot-swapped without dropping connections
-
-#### Scenario: Remote MCP disabled
-- **WHEN** remote MCP is disabled
-- **THEN** the HTTPS listener SHALL stop, the UPnP mapping SHALL be released, and DDNS updates SHALL cease
-
-### Requirement: Client Revocation
-
-The settings UI SHALL list every registered client with its last-used
-timestamp and SHALL provide a revoke action that immediately
-invalidates all refresh and access tokens issued to that client.
-
-#### Scenario: User revokes a client
-- **WHEN** the user taps Revoke on a listed client
-- **THEN** subsequent MCP requests carrying any token previously issued to that client return `401 invalid_token` within one second
+#### Scenario: Re-enable
+- **WHEN** the user re-enables remote MCP in the same mode
+- **THEN** the previous connector URL (same host, same token) works again without reconfiguring claude.ai

@@ -1,81 +1,106 @@
-## 1. Transport upgrade
+## 1. Remote surface + capability token (shared by all modes)
 
-- [ ] 1.1 Bump supported MCP protocol versions in `McpServer::handleInitialize` to `{"2025-06-18", "2025-03-26"}`; drop `2024-11-05`.
-- [ ] 1.2 Verify Streamable HTTP behavior against `2025-06-18` spec (single `/mcp` endpoint, `Mcp-Session-Id` header, JSON + SSE content negotiation).
-- [ ] 1.3 Bind the existing plain-HTTP listener to loopback only when remote mode is enabled.
+- [ ] 1.1 Add `src/mcp/mcpremoteaccess.{h,cpp}`: coordinator owning the
+      remote loopback listener, token lifecycle, mode switching, and
+      status (`off | starting | active | reconnecting | error`)
+      exposed to QML.
+- [ ] 1.2 Dedicated loopback listener that serves **only**
+      `POST/GET/DELETE /mcp/<token>`; every other path/method returns
+      a bare `404`. Forward matching requests in-process to
+      `McpServer` dispatch, with the session flagged remote.
+- [ ] 1.3 Token: 128-bit CSPRNG, base64url, generated on first enable;
+      constant-time comparison; "rotate token" slot that closes
+      active remote sessions immediately.
+- [ ] 1.4 Per-source rate limit on failed-token requests; log at
+      warning level without echoing the attempted path.
+- [ ] 1.5 Settings (in `settings_network`): `remoteMcpEnabled`
+      (default false), `remoteMcpMode` (tailscale | ngrok | custom),
+      `remoteMcpToken`, `remoteMcpCustomBaseUrl`, ngrok
+      authtoken/domain. Token + ngrok authtoken via QtKeychain when
+      available, AES-GCM-encrypted QSettings fallback.
+- [ ] 1.6 Remote sessions respect existing `mcpAccessLevel`,
+      `mcpConfirmationLevel`, session caps, and rate limits (verify —
+      no new gates, no bypasses).
 
-## 2. OAuth 2.1 authorization server
+## 2. Mode C — BYO public URL (ships first)
 
-- [ ] 2.1 Add `src/mcp/mcpoauth.{h,cpp}` implementing `/oauth/authorize`, `/oauth/token`, `/oauth/register`, `/oauth/revoke`.
-- [ ] 2.2 Enforce PKCE S256; reject missing/invalid `code_verifier`.
-- [ ] 2.3 Issue JWT access tokens (1 h) + opaque refresh tokens; sign with per-device key stored in QtKeychain.
-- [ ] 2.4 Serve `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`.
-- [ ] 2.5 Add `Authorization: Bearer` middleware in `McpServer::handleRequest`; unauthenticated requests return `401` with `WWW-Authenticate: Bearer resource_metadata="<url>"`.
-- [ ] 2.6 Map scopes → access levels (`mcp:read`→0, `mcp:control`→1, `mcp:full`→2); enforce at tool-dispatch time.
+- [ ] 2.1 Custom base URL field; validate `https://` scheme; display
+      the composed connector URL `<base>/mcp/<token>`.
+- [ ] 2.2 QR code + copy button for the connector URL.
+- [ ] 2.3 Docs: recipes for Tailscale Funnel on a home box,
+      cloudflared named tunnel (user-owned domain), generic reverse
+      proxy — all forwarding to the tablet's LAN IP + remote port.
 
-## 2a. Identity federation (Google / Microsoft OIDC)
+## 3. Mode A — Embedded Tailscale (tsnet) + Funnel
 
-- [ ] 2a.1 Register Decenza OAuth apps in Google Cloud Console and Microsoft Entra; ship `client_id`s in build config.
-- [ ] 2a.2 Add `src/mcp/mcpidpclient.{h,cpp}`: OIDC discovery, JWKS fetch + caching, PKCE auth-code flow against the IdP, `id_token` verification (`iss`, `aud`, `exp`, signature).
-- [ ] 2a.3 `/oauth/authorize` redirects to the IdP first; on callback, verifies `id_token` before showing the device consent dialog.
-- [ ] 2a.4 First-run setup captures device owner `sub` + `email` per IdP; store in `Settings`.
-- [ ] 2a.5 Reject authorization if the signed-in `sub` doesn't match the stored device owner for that IdP; return `error=access_denied` with a log line naming the mismatch.
-- [ ] 2a.6 Discard IdP access/refresh tokens after `id_token` verification — Decenza does not persist IdP tokens.
+- [ ] 3.1 Minimal Go library wrapping tsnet: `Up(stateDir)`, `Down()`,
+      `Status()`, `LoginURL()`, `FunnelURL()`, `ListenFunnel` →
+      forward to the loopback remote listener. Build as AAR via
+      gomobile; decide prebuilt-in-repo vs CI-built (open question).
+- [ ] 3.2 `src/mcp/mcptunnel_tsnet.{h,cpp}`: JNI binding, lifecycle,
+      state persistence dir, reconnect on network change
+      (`QNetworkInformation`), off-main-thread.
+- [ ] 3.3 Setup flow in Settings: show tsnet login URL as QR/link;
+      poll status until node is authorized; surface the
+      funnel-attribute approval URL when Tailscale requires it.
+- [ ] 3.4 Display resulting stable URL
+      `https://<node>.<tailnet>.ts.net/mcp/<token>`; verify cert
+      provisioning end-to-end.
+- [ ] 3.5 Gradle packaging; gate behind a CMake option so non-tsnet
+      builds still link; measure APK size delta.
+- [ ] 3.6 Logout/disable: `Down()`, wipe tsnet state dir on explicit
+      "forget this tailnet".
+- [ ] 3.7 Desktop (Windows/macOS/Linux): build the same Go wrapper as
+      a `c-shared` library, link via the identical C API; verify
+      coexistence with an installed Tailscale client.
+- [ ] 3.8 iOS: gomobile xcframework build of the same wrapper;
+      sequenced after Android + desktop ship.
 
-## 3. Consent UI
+## 4. Mode B — Embedded ngrok
 
-- [ ] 3.1 New `qml/components/McpConsentDialog.qml` showing client name, redirect URI host, requested scopes.
-- [ ] 3.2 Signal from `McpOAuth` → `MainController` → QML; resolve with allow/deny back to the pending `/oauth/authorize` request.
-- [ ] 3.3 Auto-dismiss after 2 min with implicit deny.
-
-## 4a. Option A — Decenza relay (decenza-shotmap repo)
-
-- [ ] 4a.1 **MCP proxy Lambda** (`backend/lambdas/mcpProxy.ts`):
-  - Validate `Authorization: Bearer` JWT against the requesting device's stored public key.
-  - Look up active WebSocket `connection_id` for the device in DynamoDB.
-  - If device not connected, return `503 Device Offline`.
-  - Write a pending `mcp_request` record to DynamoDB (`MCP_PENDING#<correlation_id>`), call `sendToConnection` to forward the MCP JSON-RPC body.
-  - Poll DynamoDB for `mcp_response` record every 200 ms, up to 25 s (API Gateway HTTP has 29 s timeout). Return 504 on timeout.
-  - Delete pending + response records after use.
-- [ ] 4a.2 **WebSocket message actions** in `wsMessage.ts`:
-  - `mcp_request`: relay-to-device; device receives full MCP JSON-RPC body + `correlation_id`.
-  - `mcp_response`: device-to-relay; handler writes `mcp_response` record to DynamoDB keyed by `correlation_id`.
-- [ ] 4a.3 **OAuth AS Lambdas**: `oauthAuthorize.ts`, `oauthToken.ts`, `oauthRegister.ts`, `oauthRevoke.ts`. Store clients + tokens in new DynamoDB table. Validate tokens using per-device public key (published by device at registration).
-- [ ] 4a.4 **Device keypair registration**: on first relay-mode enable, device generates Ed25519 keypair, calls `POST /v1/mcp/register-device` with `device_id` + public key + pairing token (re-uses existing pairing auth). Relay stores public key in DynamoDB.
-- [ ] 4a.5 **Terraform**: new DynamoDB tables (`mcp_pending`, `oauth_clients`, `oauth_tokens`), new Lambda + HTTP API Gateway routes (`/v1/mcp/{device_id}`, `/v1/oauth/*`, `/.well-known/oauth-*`).
-- [ ] 4a.6 **Decenza app relay client** (`src/mcp/mcprelayclient.{h,cpp}`): maintain outbound WSS to `wss://api.decenza.coffee` in relay mode; handle `mcp_request` messages by dispatching to `McpServer` in-process and writing the response back via `mcp_response`.
-
-## 4b. Option B — DuckDNS + UPnP + Let's Encrypt (on-device, no relay)
-
-- [ ] 4b.1 DuckDNS setup wizard: prompt for subdomain + API token; verify by calling `https://www.duckdns.org/update`.
-- [ ] 4b.2 Periodic IP refresh (hourly + on network change) posting to DuckDNS with backoff on failure.
-- [ ] 4b.3 UPnP IGD port mapping for external 443 → internal 443. Minimal SSDP + IGD:1/IGD:2 SOAP client (~200–300 LOC). Fall back to NAT-PMP.
-- [ ] 4b.4 CGNAT detection: compare UPnP `GetExternalIPAddress` against an outbound probe. On mismatch, disable and suggest Option A.
-- [ ] 4b.5 ACME v2 DNS-01 client (DuckDNS): account key generation, order → TXT challenge → finalize, cert download, renewal 30 days before expiry.
-- [ ] 4b.6 HTTPS listener on 443 using issued cert; bind `0.0.0.0` only after CGNAT check passes.
-- [ ] 4b.7 Release UPnP mapping cleanly on shutdown / disable.
+- [ ] 4.1 **Spike first**: confirm Anthropic's connector backend is
+      not blocked by ngrok's free-tier browser interstitial. If
+      blocked, mark Mode B not-shippable and stop here.
+- [ ] 4.2 Integrate `ngrok-java` (Android); authtoken + static domain
+      fields in Settings; tunnel to the remote loopback listener.
+- [ ] 4.3 Reconnect/backoff on network change; status surfacing.
 
 ## 5. Settings UI
 
-- [ ] 5.1 New `qml/pages/settings/RemoteMcpTab.qml` with enable toggle, mode selector (relay | tunnel), public URL display, QR code.
-- [ ] 5.2 Authorized clients list with last-used timestamp and revoke button (revokes refresh token + all access tokens for that client).
-- [ ] 5.3 i18n keys under `settings.remoteMcp.*`.
-- [ ] 5.4 Accessibility review (consent dialog, toggle, list delegates per CLAUDE.md rules).
+- [ ] 5.1 Remote MCP section (extend `SettingsAITab.qml` MCP section
+      or new `RemoteMcpTab.qml`): enable toggle, mode selector
+      (tap-to-open dialog per accessibility rules, not ComboBox),
+      per-mode setup fields, status line, connector URL + QR + copy,
+      rotate-token button with confirm dialog.
+- [ ] 5.2 Setup guidance text: where to paste the URL on claude.ai
+      (Settings → Connectors → Add custom connector) and note that
+      mobile apps sync connectors from claude.ai.
+- [ ] 5.3 i18n keys under `settings.remoteMcp.*`; all text via
+      `TranslationManager`/`Tr`.
+- [ ] 5.4 Accessibility pass per `ACCESSIBILITY.md` (toggle, dialog,
+      QR alt text, status announcements).
 
-## 6. Persistence
+## 6. Tests
 
-- [ ] 6.1 Extend `Settings` with `remoteMcpEnabled`, `remoteMcpMode`, `remoteMcpPublicUrl`, `remoteMcpDeviceId`.
-- [ ] 6.2 Store registered clients + refresh tokens in QtKeychain when available; fall back to `QSettings` with AES-GCM using a device key.
+- [ ] 6.1 Unit: token generation/rotation, constant-time compare,
+      remote-listener route gating (non-MCP path → 404, wrong token →
+      404, valid token → dispatched).
+- [ ] 6.2 Unit: remote session honors access level + confirmation
+      level (reuse existing MCP test fixtures).
+- [ ] 6.3 Unit: failed-token rate limiting.
+- [ ] 6.4 Integration: `initialize` → `tools/list` → `tools/call`
+      through the remote listener via loopback.
+- [ ] 6.5 Manual QA: add connector on claude.ai web, verify it
+      appears and works in Claude iOS and Claude Android; exercise a
+      control tool with confirmation dialog through the tunnel;
+      rotate token and confirm the old URL dies.
 
-## 7. Tests
+## 7. Documentation
 
-- [ ] 7.1 Unit tests for OAuth flow (PKCE happy path, bad verifier, expired code, refresh).
-- [ ] 7.2 Unit tests for scope → access-level mapping.
-- [ ] 7.3 Integration test: full `initialize` → `tools/list` over Streamable HTTP with Bearer auth using a test AS.
-- [ ] 7.4 Manual QA: connect from Claude mobile and ChatGPT mobile custom connector; verify consent, tool call, revoke.
-
-## 8. Documentation
-
-- [ ] 8.1 Update `docs/CLAUDE_MD/MCP_SERVER.md` with remote-connector setup steps (both relay and BYO tunnel).
-- [ ] 8.2 Add screenshots of consent dialog and settings tab.
-- [ ] 8.3 Note security model: what scopes grant, where tokens live, how to revoke.
+- [ ] 7.1 Update `docs/CLAUDE_MD/MCP_SERVER.md`: remote access
+      section (modes, token model, isolated surface, limitations —
+      no wake-from-doze, tunnel-vendor dependency).
+- [ ] 7.2 Wiki manual page: end-user setup walkthrough per mode with
+      screenshots (claude.ai connector config + mobile).
+- [ ] 7.3 Security note: what the capability URL grants, why rotation
+      is revocation, interaction with access/confirmation levels.
