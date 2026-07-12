@@ -31,6 +31,18 @@ Item {
     readonly property bool yieldTargetOnly: modelData.shotPlanYieldTargetOnly === true
     readonly property bool showSteamPlan: modelData.shotPlanShowSteamPlan !== false
 
+    // When a recipe is active its own yield/temp are the BASELINE, not overrides
+    // of the profile (recipe-baseline-not-override, #1485): pass them to the
+    // ShotPlanText so a recipe's designed yield shows as a plain target ("40.0g",
+    // not "36.0 → 40.0g") and neither yield nor temp is tinted at the recipe's
+    // own values. 0 when no recipe (or the recipe pins none) → profile behavior.
+    readonly property double _recipeBaselineYield:
+        (Settings.dye.activeRecipeId >= 0 && MainController.activeRecipe.yieldG > 0)
+            ? MainController.activeRecipe.yieldG : 0
+    readonly property double _recipeBaselineTemp:
+        (Settings.dye.activeRecipeId >= 0 && MainController.activeRecipe.tempOverrideC > 0)
+            ? MainController.activeRecipe.tempOverrideC : 0
+
     // Steam context = steam selected on the idle screen, OR the full steam page, OR the
     // machine actively steaming. Theme.currentPageObjectName (set by main.qml's
     // page-change handler) and Theme.currentOperationMode (published by IdlePage) are
@@ -93,6 +105,8 @@ Item {
             itemOrder: root.itemOrder
             sentence: root.sentence
             yieldTargetOnly: root.yieldTargetOnly
+            recipeBaselineYield: root._recipeBaselineYield
+            recipeBaselineTemp: root._recipeBaselineTemp
             maxLines: 1
             onClicked: root.openBrewSettings()
         }
@@ -122,6 +136,8 @@ Item {
             itemOrder: root.itemOrder
             sentence: root.sentence
             yieldTargetOnly: root.yieldTargetOnly
+            recipeBaselineYield: root._recipeBaselineYield
+            recipeBaselineTemp: root._recipeBaselineTemp
             stacked: root.stacked
             // Stacked spends a line on the detail tail — give the sentence +
             // wrapped tail room before eliding. Gated on sentence so a stale

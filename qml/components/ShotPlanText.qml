@@ -63,6 +63,21 @@ Item {
     // can render THEIR overrides; defaults preserve the live-widget behavior.
     property bool yieldOverridden: Settings.brew.hasBrewYieldOverride
     property bool tempOverridden: Settings.brew.hasTemperatureOverride
+
+    // The active recipe's own yield/temp, injected by the LIVE idle widget so a
+    // recipe reads as the BASELINE, not overrides of the profile
+    // (recipe-baseline-not-override, #1485): the yield arrow and the amber
+    // highlight measure against these, so a recipe's designed yield shows as a
+    // plain target ("40.0g", not "36.0 → 40.0g") and isn't tinted. 0 = off —
+    // recipe cards and shot review leave these unset and keep their explicit
+    // profile-relative behavior. Only the highlight baseline for temperature is
+    // re-anchored; the temperature STRING still shows the profile's frame temps
+    // plus the true offset tag (the recipe applies a uniform shift the base
+    // can't show), just un-tinted at the recipe baseline.
+    property double recipeBaselineYield: 0
+    property double recipeBaselineTemp: 0
+    readonly property double _yieldBaseline: recipeBaselineYield > 0 ? recipeBaselineYield : profileYield
+    readonly property double _tempHlBaseline: recipeBaselineTemp > 0 ? recipeBaselineTemp : profileTemp
     // Grind RPM + whether the grinder reports RPM, the beverage word, and the
     // cleaning flag — all default to the live singleton reads so the home
     // widget is unchanged, but a per-shot consumer can override every one with
@@ -78,9 +93,9 @@ Item {
     // Settings value scheme. Both key off the truthful override flags, never
     // raw drift (measured dose never exactly equals the profile's listed dose).
     readonly property bool _tempOverride:
-        tempOverridden && Math.abs(overrideTemp - profileTemp) > 0.1
+        tempOverridden && Math.abs(overrideTemp - _tempHlBaseline) > 0.1
     readonly property bool _yieldOverride:
-        yieldOverridden && profileYield > 0 && Math.abs(targetWeight - profileYield) > 0.1
+        yieldOverridden && _yieldBaseline > 0 && Math.abs(targetWeight - _yieldBaseline) > 0.1
 
     // --- Per-item segments (empty string = hidden). ---
     // Dose & yield: the shot's target output, plus dose-in (e.g. "18.0g in"). A DELIBERATE yield
@@ -90,9 +105,13 @@ Item {
     // shows only the effective target ("40.0g"); with no active override it's a visible no-op.
     readonly property string _yieldStr: {
         if (!(_has("doseYield") && targetWeight > 0)) return ""
-        if (!yieldTargetOnly && yieldOverridden && profileYield > 0
-                && Math.abs(targetWeight - profileYield) > 0.1)
-            return profileYield.toFixed(1) + " → " + targetWeight.toFixed(1) + "g"
+        // Arrow shows baseline → target. With a recipe active the baseline is the
+        // recipe's own yield, so a recipe sitting at its yield reads "40.0g" (no
+        // arrow, no profile reference); the arrow returns only for a per-brew
+        // tweak away from the recipe. No recipe → the profile target, as before.
+        if (!yieldTargetOnly && yieldOverridden && _yieldBaseline > 0
+                && Math.abs(targetWeight - _yieldBaseline) > 0.1)
+            return _yieldBaseline.toFixed(1) + " → " + targetWeight.toFixed(1) + "g"
         return targetWeight.toFixed(1) + "g"
     }
     readonly property string _doseStr: (_has("doseYield") && dose > 0) ? (dose.toFixed(1) + "g") : ""

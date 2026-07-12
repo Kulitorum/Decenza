@@ -9,7 +9,7 @@ The baseline for each field is the value the Clear handler restores, and it SHAL
 - **Temp Delta** → when a recipe is active, the recipe's own temperature (`MainController.activeRecipe.tempOverrideC`, i.e. the delta reads `0°` at the recipe's design temperature); when no recipe is active — or the active recipe carries no temperature of its own — the profile temperature (delta `0°`).
 - **Stop-at (yield)** → when a recipe is active, the recipe's own yield (`MainController.activeRecipe.yieldG`); when no recipe is active — or the active recipe carries no yield of its own — the profile target weight.
 - **Dose** → the dose Clear restores (the bean's remembered dose `Settings.dye.dyeBeanWeight`, else 18) — unchanged, not recipe-relative.
-- **Ratio** → the profile default ratio (`profileTargetWeight / dose`) — unchanged, not recipe-relative.
+- **Ratio** → the active baseline yield ÷ the current dose: `recipeYieldBaseline / dose` when a recipe is active (so a recipe whose yield differs from the profile reads its ratio as at-baseline, matching the Stop-at field), else `profileTargetWeight / dose`. Inert for volume/timer profiles where the baseline yield is 0.
 
 Because a recipe's yield and temperature are the recipe's design, not deviations from it, a recipe's own `yieldG` / `tempOverrideC` SHALL render in the default color (no highlight) when the dial sits on them; only a per-brew deviation *from the recipe's* value SHALL be highlighted. The Dose cup field is NOT reset by Clear, so it SHALL always use the default text color. The "Profile: …" sub-indicators MAY use the same highlight color when their field is overridden for visual consistency.
 
@@ -76,3 +76,31 @@ In recipe mode, the button's enabled state SHALL gate on the shown value differi
 
 - **WHEN** no recipe is active
 - **THEN** both buttons read "Update Profile" and bake the value into the profile exactly as before this change
+
+## ADDED Requirements
+
+### Requirement: The live Shot Plan treats an active recipe's yield/temp as the baseline
+
+The idle-screen **Shot Plan** widget SHALL, when a recipe is active, treat that recipe's own `yieldG` / `tempOverrideC` as the baseline rather than the profile's default — mirroring Brew Settings — so a recipe's designed values do not render as overrides. Specifically: the yield SHALL render as a plain effective target (e.g. "40.0g") with no "profile-default → target" arrow, and neither the yield nor the temperature segment SHALL be tinted with the override-highlight color, when the live values equal the active recipe's own. The override arrow (yield) and the amber highlight (yield and temperature) SHALL return only for a per-brew value dialed **beyond** the recipe's saved value. The temperature STRING MAY still show the profile's frame temperature(s) plus the true offset tag (the recipe applies a uniform shift the base cannot express), but SHALL NOT be tinted at the recipe's own temperature.
+
+This applies only to the live widget and its layout-editor preview. Consumers that render frozen per-item values — recipe cards (which deliberately show a recipe's deviation from its profile) and the Shot Review / Shot Detail plan lines (which show what was overridden at shot time, relative to the shot's own profile) — SHALL be unaffected: they keep their explicit profile-relative highlighting.
+
+#### Scenario: Active recipe's yield shows as a plain target, un-highlighted
+
+- **WHEN** a recipe with `yieldG` = 40 is active on a profile whose target weight is 36, and no per-brew tweak has been dialed
+- **THEN** the Shot Plan yield reads "40.0g" (no "36.0 → 40.0g" arrow) and is not tinted
+
+#### Scenario: A per-brew tweak beyond the recipe re-arms the arrow and highlight
+
+- **WHEN** that recipe is active and the user dials the next-brew stop-at to 44
+- **THEN** the Shot Plan yield reads "40.0 → 44.0g" and is tinted with the override-highlight color
+
+#### Scenario: An active recipe's temperature is not tinted
+
+- **WHEN** a recipe carrying a temperature 4°C above the profile is active and no per-brew tweak has been dialed
+- **THEN** the Shot Plan temperature segment is not tinted (the offset tag, if shown, reads as normal text, not an override)
+
+#### Scenario: Recipe cards and shot-review lines are unchanged
+
+- **WHEN** a recipe card or a Shot Review / Shot Detail plan line renders yield/temperature
+- **THEN** it keeps its profile-relative rendering (a card still shows the recipe's deviation from its profile; a shot line still highlights what was overridden at shot time), because the recipe-baseline inputs are supplied only by the live widget
