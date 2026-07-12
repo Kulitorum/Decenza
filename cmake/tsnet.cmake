@@ -93,11 +93,13 @@ elseif(ANDROID)
     if(NOT EXISTS "${_tsnet_so}")
         message(FATAL_ERROR "tsnet: no Android .so for ABI ${CMAKE_ANDROID_ARCH_ABI}")
     endif()
-    # Bundle the .so into the APK for the active ABI so androiddeployqt ships it.
-    set(ANDROID_EXTRA_LIBS "${ANDROID_EXTRA_LIBS};${_tsnet_so}" CACHE STRING "" FORCE)
     function(decenza_link_tsnet tgt)
         target_include_directories(${tgt} PRIVATE "${TSNET_INCLUDE_DIR}")
         target_link_libraries(${tgt} PRIVATE "${_tsnet_so}")
+        # Bundle the .so into the APK for the active ABI. The QT_ANDROID_EXTRA_LIBS
+        # target property is the Qt6-idiomatic way (more reliable than the legacy
+        # ANDROID_EXTRA_LIBS variable) — androiddeployqt copies it into the APK.
+        set_property(TARGET ${tgt} APPEND PROPERTY QT_ANDROID_EXTRA_LIBS "${_tsnet_so}")
     endfunction()
 endif()
 
