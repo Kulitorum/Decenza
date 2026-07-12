@@ -481,6 +481,15 @@ private:
     // Outstanding write-through stamps whose recipeUpdated echo should not
     // trigger a cache re-read (mirrors SettingsDye::m_pendingSelfWrites).
     int m_pendingRecipeSelfWrites = 0;
+    // Set true immediately before the edit-triggered re-read of the ACTIVE
+    // recipe (the recipeUpdated → requestRecipe hop), so the recipeReady
+    // handler mirrors the refreshed grind/rpm back onto the live dial
+    // (Settings.dye). The Shot Plan widget binds to the dial, not the recipe
+    // cache, so an edit of the active recipe's grind (wizard/MCP/web) must
+    // re-push it or the plan goes stale until re-activation (the Flow-3 refresh
+    // bug). Left false on startup restore, relink refresh, and QML editor
+    // prefill reads — none of which should re-apply values to the live session.
+    bool m_refreshDialFromRecipeEdit = false;
     // Pure state machine behind selectedRecipeId + the deferred recipe-shot
     // start. MainController only wires it to Qt signals and the device; the
     // policy (lead/converge/rollback, arm/fire) lives in the header-only model

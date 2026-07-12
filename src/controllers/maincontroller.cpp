@@ -872,8 +872,14 @@ void MainController::setupRecipeConnections() {
             m_pendingRecipeSelfWrites--;
             return;
         }
-        if (success)
+        if (success) {
+            // An external edit of the active recipe (wizard/MCP/web). Flag the
+            // re-read so recipeReady mirrors the new grind/rpm onto the live
+            // dial — the Shot Plan binds to Settings.dye, not the recipe cache,
+            // so without this the plan stays stale until re-activation.
+            m_refreshDialFromRecipeEdit = true;
             m_recipeStorage->requestRecipe(recipeId);
+        }
     });
 
     // Cache refresh + startup restore both land here.
@@ -881,6 +887,11 @@ void MainController::setupRecipeConnections() {
             [this](qint64 recipeId, const QVariantMap& recipe) {
         if (recipeId != m_settings->dye()->activeRecipeId())
             return;
+        // Consume the edit-refresh flag only for the active recipe's own
+        // re-read (a concurrent non-active read returns above without touching
+        // it, so it can't swallow a pending refresh).
+        const bool refreshDial = m_refreshDialFromRecipeEdit;
+        m_refreshDialFromRecipeEdit = false;
         if (recipe.isEmpty() || recipe.value("archived").toBool()) {
             // Row vanished or was archived out from under the selection.
             deactivateRecipe();
@@ -897,6 +908,23 @@ void MainController::setupRecipeConnections() {
         // the 5-9 minute warm-up means the hold must follow the cache.
         if (activeRecipeHasMilk() != hadMilk || activeRecipeHasMilk())
             applySteamSettings();
+        // Mirror an edited grind/rpm back onto the live dial so the Shot Plan
+        // refreshes without a re-activation (Flow-3 fix). Only on an actual
+        // edit re-read; same semantics as applyActivatedRecipe's grind push:
+        // grind-less drink types (tea) and an empty grind leave the dial
+        // untouched. The cache is already updated above, so the resulting
+        // dyeGrinderSettingChanged stamp hits stampActiveRecipe's equality
+        // guard and does NOT loop back into another write.
+        if (refreshDial
+            && DrinkTypes::hasGrind(m_activeRecipe.value(QStringLiteral("drinkType")).toString())) {
+            const QString grind = m_activeRecipe.value(QStringLiteral("grindPinned")).toString();
+            if (!grind.isEmpty()) {
+                m_settings->dye()->setDyeGrinderSetting(grind);
+                const qint64 rpm = m_activeRecipe.value(QStringLiteral("rpmPinned")).toLongLong();
+                if (rpm > 0)
+                    m_settings->dye()->setDyeGrinderRpm(static_cast<int>(rpm));
+            }
+        }
     });
 
     // --- Deactivate on ingredient swaps (tweaks refine the recipe; swapping
@@ -1202,6 +1230,10 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
     // echo arrived after the recipe was deactivated/switched never got a
     // chance to decrement) so it can't swallow this recipe's first edit.
     m_pendingRecipeSelfWrites = 0;
+    // Likewise drop a leaked edit-refresh flag: an edit re-read that never
+    // reached recipeReady before this switch must not push a stale grind onto
+    // the newly-active recipe's first read.
+    m_refreshDialFromRecipeEdit = false;
 
     if (!profileLess) {
         if (!filename.isEmpty()) {
@@ -1439,6 +1471,7 @@ void MainController::deactivateRecipe() {
     // Drop any in-flight self-write count with the recipe it belonged to —
     // its echo would otherwise land with no active recipe and leak the count.
     m_pendingRecipeSelfWrites = 0;
+    m_refreshDialFromRecipeEdit = false;
     if (m_settings) {
         m_settings->dye()->setActiveRecipeId(-1);
     }
