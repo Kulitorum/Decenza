@@ -68,12 +68,11 @@ Item {
     // recipe reads as the BASELINE, not overrides of the profile
     // (recipe-baseline-not-override, #1485): the yield arrow and the amber
     // highlight measure against these, so a recipe's designed yield shows as a
-    // plain target ("40.0g", not "36.0 → 40.0g") and isn't tinted. 0 = off —
-    // recipe cards and shot review leave these unset and keep their explicit
-    // profile-relative behavior. Only the highlight baseline for temperature is
-    // re-anchored; the temperature STRING still shows the profile's frame temps
-    // plus the true offset tag (the recipe applies a uniform shift the base
-    // can't show), just un-tinted at the recipe baseline.
+    // plain target ("40.0g", not "36.0 → 40.0g") and isn't tinted. The
+    // temperature STRING is re-anchored too — `_tempStr` shifts the frames to the
+    // recipe's own temps (e.g. "81 · 91°C") and drops the profile-relative tag.
+    // 0 = off — recipe cards and shot review leave these unset and keep their
+    // explicit profile-relative behavior.
     property double recipeBaselineYield: 0
     property double recipeBaselineTemp: 0
     readonly property double _yieldBaseline: recipeBaselineYield > 0 ? recipeBaselineYield : profileYield

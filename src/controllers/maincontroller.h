@@ -76,8 +76,11 @@ class MainController : public QObject {
     // recipe is active, ITS own yield/temp are the baseline, not overrides of the
     // profile — so a recipe's designed values must not read as overrides on any
     // live readout. These fold the recipe-vs-profile choice into one source of
-    // truth so every widget (Brew Settings, Shot Plan, the temperature readout,
-    // custom brew widgets) can ask instead of re-deriving it inline and drifting.
+    // truth a read-only widget can ask instead of re-deriving it inline and
+    // drifting — currently the temperature readout (TemperatureItem) and custom
+    // brew widgets (CustomItem). (Brew Settings and the Shot Plan have their own
+    // richer, per-instance baselines — a seeded/mutable dialog and injected
+    // recipeBaseline* props — so they intentionally do not read these.)
     // The baselines fall back to the profile when no recipe is active (or the
     // recipe pins no value for that field); the *IsRealOverride flags are true
     // only for a per-brew deviation FROM that baseline. All four re-evaluate on

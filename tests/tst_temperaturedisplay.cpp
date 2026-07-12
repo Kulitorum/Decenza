@@ -157,6 +157,42 @@ private slots:
                  format({88, 93}, 88, true, 90, false));
     }
 
+    // ===== baselineShiftC: render a recipe's OWN temps (frames shifted to the
+    // recipe baseline), used by the recipe-aware Shot Plan / Brew Settings. The
+    // shift moves the shown FRAME temps only; the anchor (empty-frames fallback +
+    // delta tag) is NOT shifted. (recipe-baseline-not-override, #1485) =====
+    void shiftTwoValues() {
+        // the PR's own example: recipe at 81 on an 84·94 profile → "81 · 91°C"
+        QCOMPARE(format({84, 94}, 84, false, 0, false, -3.0),
+                 QStringLiteral("81") + SEP + QStringLiteral("91") + DEG);
+    }
+    void shiftEmptyFramesNotShifted() {
+        // empty frames fall back to the anchor, which is ALREADY the baseline —
+        // it must NOT be shifted again (a refactor routing this through the shifted
+        // path would wrongly yield "90°C").
+        QCOMPARE(format({}, 93, false, 0, false, -3.0), QStringLiteral("93") + DEG);
+    }
+    void shiftWithOverrideTagFromAnchor() {
+        // base shifts to the recipe temps; the tag is delta = override - anchor,
+        // independent of the shift → "81 · 91°C +1°" (a per-brew tweak beyond the recipe).
+        QCOMPARE(format({84, 94}, 84, true, 85, false, -3.0),
+                 QStringLiteral("81") + SEP + QStringLiteral("91") + DEG + QStringLiteral(" +1°"));
+    }
+    void shiftFahrenheitConvertsAfterShift() {
+        // the Celsius shift is added BEFORE the ×9/5+32 conversion:
+        // 84-3=81 → 177.8°F, 94-3=91 → 195.8°F.
+        QCOMPARE(format({84, 94}, 84, false, 0, true, -3.0),
+                 QStringLiteral("177.8") + SEP + QStringLiteral("195.8") + DEGF);
+    }
+    void shiftSingleValue() {
+        QCOMPARE(format({90, 90, 90}, 90, false, 0, false, -2.0), QStringLiteral("88") + DEG);
+    }
+    void shiftThreeValuesFirstLast() {
+        // N>=3 first…last, both endpoints shifted, trajectory order preserved
+        QCOMPARE(format({84, 79, 52}, 84, false, 0, false, 2.0),
+                 QStringLiteral("86") + ELLIP + QStringLiteral("54") + DEG);
+    }
+
     // ===== Conversion primitives =====
     // Single source of the C/F math, shared with QML via TemperatureDisplayBridge
     // (qml/Theme.qml's cToDisplay/tempUnitSuffix etc. delegate here).

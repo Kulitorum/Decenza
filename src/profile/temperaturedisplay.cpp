@@ -78,7 +78,8 @@ QString format(const QVector<double>& stepTemps, double anchorTemp,
     const QString tag = (hasOverride && std::fabs(delta) >= 0.05)
         ? QStringLiteral(" ") + deltaTag(dispDelta(delta)) : QString();
 
-    // The base is the profile's own temperature(s), shifted to the baseline.
+    // With no frames, fall back to the anchor — already the baseline, so NOT
+    // shifted (uses disp, not dispBase). The frame branches below shift via dispBase.
     if (stepTemps.isEmpty())
         return num(disp(anchorTemp)) + suffix + tag;
 

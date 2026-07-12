@@ -155,7 +155,8 @@ Item {
             void(ProfileManager.targetWeight); void(ProfileManager.currentProfileName)
             void(ProfileManager.profileTargetTemperature)
             void(ProfileManager.brewByRatio); void(ProfileManager.brewByRatioDose)
-            if (typeof MainController !== "undefined") void(MainController.activeBaselineTemperatureC)
+            // %TARGET_TEMP% shows the effective brew temp (per-brew override when set)
+            if (typeof Settings !== "undefined") void(Settings.brew.temperatureOverride)
         }
         if (_needsScaleDevice && typeof ScaleDevice !== "undefined" && ScaleDevice) {
             void(ScaleDevice.name); void(ScaleDevice.connected)
@@ -219,10 +220,13 @@ Item {
         // Profile (ProfileManager)
         result = result.replace(/%TARGET_WEIGHT%/g, typeof ProfileManager !== "undefined" ? ProfileManager.targetWeight.toFixed(1) : "—")
         result = result.replace(/%PROFILE%/g, typeof ProfileManager !== "undefined" ? ProfileManager.currentProfileName : "—")
-        // The ACTIVE baseline temp — the recipe's own when one is active, else the
-        // profile's (recipe-baseline-not-override). %TARGET_WEIGHT% already reads the
-        // effective ProfileManager.targetWeight, so this keeps temp and yield aligned.
-        result = result.replace(/%TARGET_TEMP%/g, typeof MainController !== "undefined" ? Theme.cToDisplay(MainController.activeBaselineTemperatureC).toFixed(1) : "—")
+        // The EFFECTIVE brew temp — the per-brew override when set (which, with a
+        // recipe active, is the recipe's own temp), else the profile default. This
+        // matches %TARGET_WEIGHT% (which reads the effective ProfileManager.targetWeight)
+        // so temp and yield stay aligned (recipe-baseline-not-override, #1485).
+        result = result.replace(/%TARGET_TEMP%/g, typeof Settings !== "undefined"
+            ? Theme.cToDisplay(Settings.brew.hasTemperatureOverride ? Settings.brew.temperatureOverride : ProfileManager.profileTargetTemperature).toFixed(1)
+            : "—")
         result = result.replace(/%RATIO%/g, typeof ProfileManager !== "undefined" ? ProfileManager.brewByRatio.toFixed(1) : "—")
         result = result.replace(/%DOSE%/g, typeof ProfileManager !== "undefined" ? ProfileManager.brewByRatioDose.toFixed(1) : "—")
         // Scale device
