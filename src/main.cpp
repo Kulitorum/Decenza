@@ -108,6 +108,7 @@
 #include "history/shothistoryexporter.h"
 #include "history/shotprojection.h"
 #include "mcp/mcpserver.h"
+#include "mcp/mcpremoteaccess.h"
 #include "network/librarysharing.h"
 #include "network/relayclient.h"
 #include "core/documentformatter.h"
@@ -1107,6 +1108,13 @@ int main(int argc, char *argv[])
     mcpServer.setTranslationManager(&translationManager);
     mcpServer.setBatteryManager(&batteryManager);
     mainController.shotServer()->setMcpServer(&mcpServer);
+
+    // Remote MCP connector: a dedicated tokenized listener (separate from
+    // ShotServer) that makes the MCP server reachable from Claude/ChatGPT
+    // mobile custom connectors. Defaults off; started on demand from Settings.
+    McpRemoteAccess remoteMcpAccess;
+    remoteMcpAccess.setMcpServer(&mcpServer);
+    remoteMcpAccess.setSettings(settings.mcp());
     // Note: registerAllTools() is deferred until after AccessibilityManager is created (below)
 
     // Relay client for Pocket app remote control via AWS WebSocket
@@ -1251,6 +1259,9 @@ int main(int argc, char *argv[])
     mcpServer.registerAllTools();
     mcpServer.registerAllResources();
     mcpServer.connectSseNotifications();
+
+    // Start the remote connector listener now if it was left enabled.
+    remoteMcpAccess.refresh();
 
     // Crash reporter for sending crash reports to api.decenza.coffee
     CrashReporter crashReporter;
@@ -2522,6 +2533,7 @@ int main(int argc, char *argv[])
     context->setContextProperty("CrashReporter", &crashReporter);
     context->setContextProperty("WidgetLibrary", &widgetLibrary);
     context->setContextProperty("McpServer", &mcpServer);
+    context->setContextProperty("RemoteMcpAccess", &remoteMcpAccess);
     context->setContextProperty("LibrarySharing", &librarySharing);
     context->setContextProperty("ShotHistoryExporter", &shotHistoryExporter);
 #ifndef Q_OS_IOS

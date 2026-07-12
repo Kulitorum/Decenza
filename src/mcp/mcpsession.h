@@ -55,6 +55,14 @@ public:
     void incrementControlCalls() { m_controlCallCount++; }
     void resetControlCalls() { m_controlCallCount = 0; }
 
+    // True when the session arrived through the remote connector listener
+    // (McpRemoteAccess) rather than the LAN /mcp route. Informational only —
+    // access-level and confirmation gating are identical for both. Used for
+    // status UI and log context. Sticky once set: a reconnecting client reusing
+    // the session keeps its remote provenance.
+    bool isRemote() const { return m_remote; }
+    void setRemote(bool remote) { if (remote) m_remote = true; }
+
 private:
     QString m_id;
     QDateTime m_created;
@@ -65,5 +73,6 @@ private:
     bool m_hadSseSocket = false;
     QSet<QString> m_subscribedResources;
     int m_controlCallCount = 0;
+    bool m_remote = false;
     QString m_protocolVersion = QStringLiteral("2025-03-26");
 };

@@ -5,6 +5,10 @@
 #include <QString>
 
 // MCP server settings: enable, access level, confirmation level, API key.
+//
+// Remote-connector settings live here too (not in settings_network): they sit
+// next to mcpAccessLevel/mcpConfirmationLevel — which remote sessions reuse
+// unchanged — and QML already addresses everything MCP as `Settings.mcp.*`.
 class SettingsMcp : public QObject {
     Q_OBJECT
 
@@ -13,8 +17,29 @@ class SettingsMcp : public QObject {
     Q_PROPERTY(int mcpConfirmationLevel READ mcpConfirmationLevel WRITE setMcpConfirmationLevel NOTIFY mcpConfirmationLevelChanged)
     Q_PROPERTY(QString mcpApiKey READ mcpApiKey NOTIFY mcpApiKeyChanged)
 
+    // Remote MCP connector (public-internet reachability for Claude/ChatGPT
+    // mobile connectors). See docs/CLAUDE_MD/MCP_SERVER.md and the
+    // add-remote-mcp-connector change. Defaults off; opt-in.
+    Q_PROPERTY(bool remoteMcpEnabled READ remoteMcpEnabled WRITE setRemoteMcpEnabled NOTIFY remoteMcpEnabledChanged)
+    Q_PROPERTY(QString remoteMcpMode READ remoteMcpMode WRITE setRemoteMcpMode NOTIFY remoteMcpModeChanged)
+    Q_PROPERTY(int remoteMcpPort READ remoteMcpPort WRITE setRemoteMcpPort NOTIFY remoteMcpPortChanged)
+    Q_PROPERTY(QString remoteMcpCustomBaseUrl READ remoteMcpCustomBaseUrl WRITE setRemoteMcpCustomBaseUrl NOTIFY remoteMcpCustomBaseUrlChanged)
+    // The capability token. QML normally consumes it only via the composed
+    // connector URL (RemoteMcpAccess.connectorUrl), but it is a readable property
+    // so the NOTIFY can drive that URL binding and local UI. Rotation is the
+    // revocation story; the token is no more sensitive than the existing plaintext
+    // mcpApiKey and never leaves the owner's device except inside the URL they
+    // paste into their AI app.
+    Q_PROPERTY(QString remoteMcpToken READ remoteMcpToken NOTIFY remoteMcpTokenChanged)
+
 public:
     explicit SettingsMcp(QObject* parent = nullptr);
+
+    // Remote MCP mode identifiers (stored as strings for forward-compatibility
+    // and human-readable QSettings).
+    static constexpr const char* ModeCustom = "custom";
+    static constexpr const char* ModeTailscale = "tailscale";
+    static constexpr const char* ModeNgrok = "ngrok";
 
     bool mcpEnabled() const;
     void setMcpEnabled(bool enabled);
@@ -28,12 +53,38 @@ public:
     QString mcpApiKey() const;
     Q_INVOKABLE void regenerateMcpApiKey();
 
+    // --- Remote MCP connector ---
+    bool remoteMcpEnabled() const;
+    void setRemoteMcpEnabled(bool enabled);
+
+    QString remoteMcpMode() const;
+    void setRemoteMcpMode(const QString& mode);
+
+    int remoteMcpPort() const;
+    void setRemoteMcpPort(int port);
+
+    QString remoteMcpCustomBaseUrl() const;
+    void setRemoteMcpCustomBaseUrl(const QString& url);
+
+    // Capability token: 128-bit CSPRNG, base64url, generated lazily on first
+    // read when absent. rotateRemoteMcpToken() replaces it (old URL dies).
+    QString remoteMcpToken() const;
+    Q_INVOKABLE void rotateRemoteMcpToken();
+
+private:
+    // Generate a fresh 128-bit base64url token (no padding).
+    static QString generateToken();
+
+    mutable QSettings m_settings;
+
 signals:
     void mcpEnabledChanged();
     void mcpAccessLevelChanged();
     void mcpConfirmationLevelChanged();
     void mcpApiKeyChanged();
-
-private:
-    mutable QSettings m_settings;
+    void remoteMcpEnabledChanged();
+    void remoteMcpModeChanged();
+    void remoteMcpPortChanged();
+    void remoteMcpCustomBaseUrlChanged();
+    void remoteMcpTokenChanged();
 };

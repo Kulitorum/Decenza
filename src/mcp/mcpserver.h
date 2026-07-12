@@ -61,10 +61,13 @@ public:
     void setTranslationManager(TranslationManager* mgr) { m_translationManager = mgr; }
     void setBatteryManager(BatteryManager* mgr) { m_batteryManager = mgr; }
 
-    // Called by ShotServer for /mcp routes
+    // Called by ShotServer for /mcp routes, and by McpRemoteAccess for the
+    // tokenized remote connector route. When `remote` is true the session that
+    // handles this request is flagged remote (informational only — the same
+    // access-level and confirmation gates apply either way).
     void handleHttpRequest(QTcpSocket* socket, const QString& method,
                            const QString& path, const QByteArray& headers,
-                           const QByteArray& body);
+                           const QByteArray& body, bool remote = false);
 
     // Called by ShotServer to keep SSE-aware code paths in sync with raw HTTP
     // socket handling. ShotServer owns the QTcpSocket; McpServer just tracks

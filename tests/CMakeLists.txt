@@ -943,6 +943,43 @@ target_include_directories(tst_mcpserver_protocol PRIVATE ${CMAKE_BINARY_DIR})
 target_sources(tst_mcpserver_protocol PRIVATE ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
 set_target_properties(tst_mcpserver_protocol PROPERTIES AUTORCC ON)
 
+# --- tst_mcpremoteaccess: remote connector (add-remote-mcp-connector) —
+# capability-token lifecycle, dedicated-listener route gating, failed-token
+# rate limiting, and end-to-end dispatch through the loopback listener. Same
+# McpServer dependency footprint as tst_mcpserver_protocol, plus the remote
+# coordinator. ---
+add_decenza_test(tst_mcpremoteaccess
+    tst_mcpremoteaccess.cpp
+    ${MCP_MOC_HEADERS}
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpserver.cpp
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpserver.h
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpsession.h
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpremoteaccess.cpp
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcpremoteaccess.h
+    ${PROFILEMANAGER_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/coffeebagstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/equipmentstorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
+    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
+    ${BLE_SOURCES}
+    ${PROFILE_SOURCES}
+    ${CORE_SOURCES}
+    ${MACHINE_SOURCES}
+    ${CONTROLLER_SOURCES}
+    ${SIMULATOR_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_mcpremoteaccess PRIVATE Qt6::Graphs Qt6::Quick paho-mqtt3a-static)
+target_include_directories(tst_mcpremoteaccess PRIVATE ${CMAKE_BINARY_DIR})
+target_sources(tst_mcpremoteaccess PRIVATE ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
+set_target_properties(tst_mcpremoteaccess PROPERTIES AUTORCC ON)
+
 # --- tst_accessibility_announcements: announce() routing rule (platform vs TTS) ---
 # AccessibilityManager pulls TextToSpeech (m_tts construction in initTts) and
 # QQuickWindow (root-window lookup in dispatchPlatformAnnouncement). The test
