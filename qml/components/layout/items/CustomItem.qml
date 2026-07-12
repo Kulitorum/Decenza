@@ -40,19 +40,16 @@ Item {
 
     readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? Theme.primaryColor : Theme.surfaceColor)
 
-    // A brew-settings widget highlights (Theme.highlightColor) whenever a brew
-    // override is in effect — i.e. temperature or target yield differs from the
-    // active profile's default. The temperature clause matches ShotPlanText's
-    // _tempOverride exactly; the yield clause (brewByRatioActive) is deliberate
-    // extra: the Shot Plan can show a yield override as a "36 → 40g" arrow, but
-    // this compact button has no room for one, so it colors for either override.
+    // A brew-settings widget highlights (Theme.highlightColor) whenever a real
+    // brew override is in effect — temperature or target yield deviating from the
+    // ACTIVE baseline. When a recipe is active that baseline is the recipe's own
+    // yield/temp, so a recipe's designed values don't light this up
+    // (recipe-baseline-not-override, #1485); the shared MainController flags fold
+    // in the recipe-vs-profile choice, matching Brew Settings and the Shot Plan.
     readonly property bool _isBrewSettingsWidget: action === "brewSettings"
         || longPressAction === "brewSettings" || doubleclickAction === "brewSettings"
-    readonly property bool _brewOverrideActive: {
-        var tempOverridden = Settings.brew.hasTemperatureOverride
-            && Math.abs(Settings.brew.temperatureOverride - ProfileManager.profileTargetTemperature) > 0.1
-        return tempOverridden || ProfileManager.brewByRatioActive
-    }
+    readonly property bool _brewOverrideActive:
+        MainController.temperatureIsRealOverride || MainController.yieldIsRealOverride
     readonly property color _effectiveBackground:
         (_isBrewSettingsWidget && _brewOverrideActive) ? Theme.highlightColor : _parsedBgColor
     // Content color for text and icon tinting on the button background
@@ -158,6 +155,8 @@ Item {
             void(ProfileManager.targetWeight); void(ProfileManager.currentProfileName)
             void(ProfileManager.profileTargetTemperature)
             void(ProfileManager.brewByRatio); void(ProfileManager.brewByRatioDose)
+            // %TARGET_TEMP% shows the effective brew temp (per-brew override when set)
+            if (typeof Settings !== "undefined") void(Settings.brew.temperatureOverride)
         }
         if (_needsScaleDevice && typeof ScaleDevice !== "undefined" && ScaleDevice) {
             void(ScaleDevice.name); void(ScaleDevice.connected)
@@ -221,7 +220,13 @@ Item {
         // Profile (ProfileManager)
         result = result.replace(/%TARGET_WEIGHT%/g, typeof ProfileManager !== "undefined" ? ProfileManager.targetWeight.toFixed(1) : "—")
         result = result.replace(/%PROFILE%/g, typeof ProfileManager !== "undefined" ? ProfileManager.currentProfileName : "—")
-        result = result.replace(/%TARGET_TEMP%/g, typeof ProfileManager !== "undefined" ? Theme.cToDisplay(ProfileManager.profileTargetTemperature).toFixed(1) : "—")
+        // The EFFECTIVE brew temp — the per-brew override when set (which, with a
+        // recipe active, is the recipe's own temp), else the profile default. This
+        // matches %TARGET_WEIGHT% (which reads the effective ProfileManager.targetWeight)
+        // so temp and yield stay aligned (recipe-baseline-not-override, #1485).
+        result = result.replace(/%TARGET_TEMP%/g, typeof Settings !== "undefined"
+            ? Theme.cToDisplay(Settings.brew.hasTemperatureOverride ? Settings.brew.temperatureOverride : ProfileManager.profileTargetTemperature).toFixed(1)
+            : "—")
         result = result.replace(/%RATIO%/g, typeof ProfileManager !== "undefined" ? ProfileManager.brewByRatio.toFixed(1) : "—")
         result = result.replace(/%DOSE%/g, typeof ProfileManager !== "undefined" ? ProfileManager.brewByRatioDose.toFixed(1) : "—")
         // Scale device

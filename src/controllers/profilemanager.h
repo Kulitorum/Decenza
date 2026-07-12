@@ -227,13 +227,16 @@ public slots:
     Q_INVOKABLE void applyTemperatureToProfile(double newTemperature);
 
     // Adaptive temperature string for the shot-plan widget / Brew Settings dialog.
-    // anchorTemp is the profile's espressoTemperature (pass profileTargetTemperature
-    // so QML bindings re-evaluate on currentProfileChanged). When hasOverride, the
-    // profile's own temperatures are shown UNSHIFTED with a signed delta tag
-    // appended (e.g. "90 · 88°C +1°") expressing the (overrideTemp - anchorTemp)
-    // offset applied to every step — values are not recomputed.
+    // anchorTemp is the reference the delta tag is measured from (the profile's
+    // espressoTemperature normally; the active recipe's own temp in recipe mode).
+    // When hasOverride, a signed delta tag (overrideTemp - anchorTemp) is appended.
+    // baselineShiftC shifts the shown frame temps to a non-profile baseline: when a
+    // recipe is active its own temps are the baseline, so pass the recipe temp as
+    // anchorTemp AND (recipeTemp - espressoTemperature) as baselineShiftC to render
+    // the recipe's actual temps (e.g. "81 · 91°C") with no profile-relative delta.
     Q_INVOKABLE QString temperatureDisplay(double anchorTemp, bool hasOverride,
-                                           double overrideTemp) const;
+                                           double overrideTemp,
+                                           double baselineShiftC = 0.0) const;
     Q_INVOKABLE bool duplicateProfile(const QString& sourceFilename, const QString& newTitle);
     // Rename in place: changes only the profile's display title, keeping the same
     // filename (so favorites/auto-load/selected references stay valid). Built-in
