@@ -2,7 +2,7 @@
 
 - [x] 1.1 Add `resources/fonts/Roboto-{Regular,Medium,Bold,Light}.ttf` + `OFL.txt` license. Instanced from the canonical google/fonts variable font (`ofl/roboto/Roboto[wdth,wght].ttf`) at wght 400/500/700/300, wdth 100. **Note:** current Roboto is **SIL OFL 1.1**, not Apache-2.0 (artifacts corrected). Weights match usage: Regular+Bold (Theme roles), Medium (EspressoPage/coaching/timeline), Light (2 screensaver spots).
 - [x] 1.2 Registered in `resources/resources.qrc` (already wired into CMake via `qt_add_resources`); resolves at `:/fonts/…`
-- [ ] 1.3 Verify the resources build and are addressable via `qrc:/` (compile check in Qt Creator) — pending build
+- [x] 1.3 Resources build + addressable via `qrc:/` — verified: built via Qt Creator, fonts/icons embedded and render on Mac.
 
 ## 2. Register and default the font at startup
 
@@ -15,9 +15,9 @@
 
 ## 3. Verify determinism
 
-- [ ] 3.1 Startup log shows the registered Roboto family on desktop and Android — pending build/run
-- [ ] 3.2 Reference string measures the same advance width/height on macOS and a physical Android device — pending device
-- [ ] 3.3 Visually confirm no unintended appearance regression on key screens — pending Jeff's on-device check
+- [x] 3.1 Startup log shows registered Roboto family — confirmed on Mac (`[Font] Bundled application font set: "Roboto"`). Android to be confirmed on the released build.
+- [ ] 3.2 (deferred post-merge) Advance-width parity macOS vs physical Android — Android side pending.
+- [x] 3.3 No appearance regression on key screens — verified on Mac (Idle, Shot History, Shot Detail, search dialog, sort icons via computer-use).
 
 ## 4. Container tolerance — dead `elide` on rich text
 
@@ -49,7 +49,7 @@
 
 ## 8. Build, verify, and hand off
 
-- [ ] 8.1 Build via Qt Creator (compile + desktop visual check) — pending
-- [ ] 8.2 Trigger a GitHub Android CI build (`android-release.yml`, `upload_to_release=false`) for a physical-device check of the font + `#ifdef` paths — pending
-- [ ] 8.3 Confirm the two reported sites render correctly on Android; hand the build to the #1469 reporter for confirmation — pending
-- [ ] 8.4 Run `/opsx:archive` as the final commit on the branch before merge — pending
+- [x] 8.1 Built via Qt Creator (0 errors/warnings) + desktop visual check on Mac.
+- [ ] 8.2 (deferred post-merge) GitHub Android CI build for a physical-device check.
+- [ ] 8.3 (deferred post-merge) #1469 reporter confirms on Android + Windows.
+- [x] 8.4 `/opsx:archive` run as the final branch commit before merge.
