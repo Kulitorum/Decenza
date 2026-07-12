@@ -15,6 +15,9 @@
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#endif
 
 McpRemoteAccess::McpRemoteAccess(QObject* parent)
     : QObject(parent)
@@ -225,9 +228,9 @@ void McpRemoteAccess::startTunnel()
     }
     const QString stateDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
                              + QStringLiteral("/tsnet");
-    // Node name → Funnel subdomain. Include the machine hostname so multiple
-    // Decenza instances on one tailnet get distinct, recognisable node names
-    // (and distinct Funnel URLs). Tailscale node names allow only [a-z0-9-];
+    // Node name → Funnel subdomain. Include the device name so multiple Decenza
+    // instances on one tailnet get distinct, recognisable node names (and
+    // distinct Funnel URLs). Tailscale node names allow only [a-z0-9-];
     // sanitise the host and trim stray hyphens.
     QString host = QSysInfo::machineHostName().toLower();
     // Drop any domain suffix (e.g. macOS returns "name.local") — keep just the
@@ -235,6 +238,18 @@ void McpRemoteAccess::startTunnel()
     const qsizetype dot = host.indexOf('.');
     if (dot > 0)
         host = host.left(dot);
+#ifdef Q_OS_ANDROID
+    // Android doesn't expose a device hostname to apps — machineHostName()
+    // returns "localhost", which would make every Android node "decenza-localhost".
+    // Use the marketing model name (Build.MODEL, e.g. "SM-X210") instead so the
+    // node is recognisable and distinct.
+    if (host.isEmpty() || host == QLatin1String("localhost")) {
+        const QJniObject model = QJniObject::getStaticObjectField<jstring>(
+            "android/os/Build", "MODEL");
+        if (model.isValid())
+            host = model.toString().toLower();
+    }
+#endif
     for (QChar& c : host) {
         if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'))
             c = '-';
