@@ -1014,12 +1014,14 @@ void DE1Device::uploadProfileAndStartEspresso(const Profile& profile) {
                        QByteArray(1, static_cast<char>(DE1::State::Espresso)));
 }
 
-// Tank preheat follows the active profile: de1app writes the profile's
-// tank_desired_water_temperature to this MMR with every shot-frame send
-// (de1_send_shot_frames), so the next profile upload naturally overrides or
-// clears the previous one's preheat. 0 disables preheat; 45 is de1app's
-// range-check ceiling. writeMMR's dedup cache elides repeat uploads of the
-// same value.
+// Tank preheat follows the active profile: de1app's de1_send_shot_frames
+// writes this MMR with every shot-frame send — the profile's
+// tank_desired_water_temperature for advanced (settings_2c) profiles, 0 for
+// all others — so each upload overrides or clears the previous preheat.
+// de1app's gate is an artifact of its UI (only advanced profiles can edit
+// the field); we honor the parsed field on every profile type. 0 disables
+// preheat; 45 is de1app's range-check ceiling. writeMMR's dedup cache
+// elides repeat uploads of the same value.
 void DE1Device::writeTankPreheatForProfile(const Profile& profile) {
     const uint32_t tankTemp = static_cast<uint32_t>(
         qBound(0, qRound(profile.tankDesiredWaterTemperature()), 45));

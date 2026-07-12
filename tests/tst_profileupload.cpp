@@ -205,6 +205,9 @@ private slots:
         // 1 header + 3 frames + 1 tank-preheat MMR + 1 requested-state = 6 writes
         QCOMPARE(transport.writes.size(), 6);
         QCOMPARE(transport.writes.at(4).first, DE1::Characteristic::WRITE_TO_MMR);
+        // The ride-along MMR write targets the tank threshold (0 for this
+        // profile), not some other register that happens to be queued here.
+        QCOMPARE(queuedTankPreheatValue(transport), 0);
         QCOMPARE(transport.writes.last().first, DE1::Characteristic::REQUESTED_STATE);
 
         // Ack everything except the espresso-start write. Upload must NOT
@@ -380,9 +383,11 @@ private slots:
     //
     // The DE1's tank preheat threshold (MMR 0x80380C) follows the active
     // profile's tank_desired_water_temperature, matching de1app's
-    // de1_send_shot_frames. Decenza used to parse the field but only ever
-    // write a hardcoded 0 at connect, so profile-requested preheat silently
-    // never reached the machine.
+    // de1_send_shot_frames (which sends the profile value only for advanced
+    // settings_2c profiles and 0 otherwise; Decenza honors the field on all
+    // profile types). Decenza used to parse the field but only ever write a
+    // hardcoded 0 at connect, so profile-requested preheat silently never
+    // reached the machine.
 
 private:
     // Decode the value from a 20-byte MMR write payload targeting `address`,
@@ -417,8 +422,10 @@ private slots:
         DE1Device device;
         device.setTransport(&transport);
 
+        // 34.6, not 35.0 — also pins the qRound (a truncating cast would
+        // write 34).
         Profile p = makeSimpleProfile();
-        p.setTankDesiredWaterTemperature(35.0);
+        p.setTankDesiredWaterTemperature(34.6);
         device.uploadProfile(p);
 
         QCOMPARE(queuedTankPreheatValue(transport), 35);
@@ -440,6 +447,23 @@ private slots:
         device.uploadProfile(p);
 
         QCOMPARE(queuedTankPreheatValue(transport), 45);
+
+        transport.ackAllWritesInOrder();
+    }
+
+    void uploadClampsNegativeTankPreheatToZero() {
+        MockTransport transport;
+        DE1Device device;
+        device.setTransport(&transport);
+
+        // A hand-edited or third-party profile could carry a negative value.
+        // Without the qBound floor, qRound(-5.0) cast to uint32_t would put
+        // 4294967291 on the wire as the threshold.
+        Profile p = makeSimpleProfile();
+        p.setTankDesiredWaterTemperature(-5.0);
+        device.uploadProfile(p);
+
+        QCOMPARE(queuedTankPreheatValue(transport), 0);
 
         transport.ackAllWritesInOrder();
     }

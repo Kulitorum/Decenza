@@ -403,7 +403,9 @@ private:
 
     // Writes the profile's tank_desired_water_temperature (clamped 0-45 °C)
     // to TANK_TEMP_THRESHOLD as part of every profile upload, so the next
-    // profile overrides or clears the previous one's preheat.
+    // profile overrides or clears the previous one's preheat. Direct-control
+    // mode's raw writeHeader/writeFrame path does not pass through here and
+    // leaves the previous profile's preheat active.
     void writeTankPreheatForProfile(const Profile& profile);
 
     // Owned when created internally via connectToDevice(); set externally via setTransport() for USB
