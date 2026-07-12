@@ -20,8 +20,11 @@ Item {
     readonly property double effectiveTargetTemp: Settings.brew.hasTemperatureOverride
         ? Settings.brew.temperatureOverride
         : ProfileManager.profileTargetTemperature
-    readonly property bool isRealOverride: Settings.brew.hasTemperatureOverride &&
-        Math.abs(Settings.brew.temperatureOverride - ProfileManager.profileTargetTemperature) > 0.1
+    // A real override is a deviation from the ACTIVE baseline — the active
+    // recipe's own temperature when one is active, else the profile's — so a
+    // recipe's designed temperature is not flagged here (recipe-baseline-not-
+    // override, #1485). Shared with Brew Settings, the Shot Plan and CustomItem.
+    readonly property bool isRealOverride: MainController.temperatureIsRealOverride
 
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight

@@ -60,8 +60,13 @@ int distinctCount(const QVector<double>& stepTemps) {
 }
 
 QString format(const QVector<double>& stepTemps, double anchorTemp,
-               bool hasOverride, double overrideTemp, bool fahrenheit) {
+               bool hasOverride, double overrideTemp, bool fahrenheit,
+               double baselineShiftC) {
     const auto disp = [fahrenheit](double c) { return cToDisplay(c, fahrenheit); };
+    // Frame temps are shifted to the active baseline (a recipe applies a uniform
+    // delta to every frame); anchorTemp is NOT shifted — it is already the
+    // baseline value used for the empty-frames fallback and the tag.
+    const auto dispBase = [fahrenheit, baselineShiftC](double c) { return cToDisplay(c + baselineShiftC, fahrenheit); };
     const auto dispDelta = [fahrenheit](double d) { return cDeltaToDisplay(d, fahrenheit); };
     const QString suffix = unitSuffix(fahrenheit);
 
@@ -73,7 +78,7 @@ QString format(const QVector<double>& stepTemps, double anchorTemp,
     const QString tag = (hasOverride && std::fabs(delta) >= 0.05)
         ? QStringLiteral(" ") + deltaTag(dispDelta(delta)) : QString();
 
-    // The base is the profile's own temperature(s), unshifted.
+    // The base is the profile's own temperature(s), shifted to the baseline.
     if (stepTemps.isEmpty())
         return num(disp(anchorTemp)) + suffix + tag;
 
@@ -90,11 +95,11 @@ QString format(const QVector<double>& stepTemps, double anchorTemp,
 
     QString base;
     if (distinct.size() <= 1)
-        base = num(disp(stepTemps.first())) + suffix;                                       // N=1: single value
+        base = num(dispBase(stepTemps.first())) + suffix;                                       // N=1: single value
     else if (distinct.size() == 2)
-        base = num(disp(distinct[0])) + kListSep + num(disp(distinct[1])) + suffix;         // N=2: spaced mid-dot list
+        base = num(dispBase(distinct[0])) + kListSep + num(dispBase(distinct[1])) + suffix;      // N=2: spaced mid-dot list
     else
-        base = num(disp(stepTemps.first())) + kEllip + num(disp(stepTemps.last())) + suffix; // N>=3: first…last
+        base = num(dispBase(stepTemps.first())) + kEllip + num(dispBase(stepTemps.last())) + suffix; // N>=3: first…last
     return base + tag;
 }
 

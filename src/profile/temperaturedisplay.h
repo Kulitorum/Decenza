@@ -45,8 +45,15 @@ int distinctCount(const QVector<double>& stepTemps);
 //   overrideTemp– the active override value (ignored when !hasOverride)
 //   fahrenheit  – when true the (Celsius) inputs are converted to °F for display
 //                 (absolute ×9/5+32, delta ×9/5) and the unit symbol becomes °F
+//   baselineShiftC – added to every displayed frame temperature (Celsius). Used to
+//                 show a recipe's OWN temps as the baseline: a recipe applies a
+//                 uniform delta to every frame, so the shot plan shows the shifted
+//                 temps (e.g. "81 · 91°C") rather than "profile + delta". Pass the
+//                 recipe temp as anchorTemp too so the tag measures deviation FROM
+//                 the recipe (0 at the recipe baseline). Defaults to 0 = no shift.
 QString format(const QVector<double>& stepTemps, double anchorTemp,
-               bool hasOverride, double overrideTemp, bool fahrenheit = false);
+               bool hasOverride, double overrideTemp, bool fahrenheit = false,
+               double baselineShiftC = 0.0);
 
 } // namespace TemperatureDisplay
 

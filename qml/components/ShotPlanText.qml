@@ -121,7 +121,13 @@ Item {
     readonly property string _tempStr: {
         void(Settings.app.temperatureUnit)
         if (!(_has("temperature") && profileTemp > 0)) return ""
-        return ProfileManager.temperatureDisplay(profileTemp, tempOverridden, overrideTemp)
+        // A recipe's temperature is the baseline (a baseline is a baseline): show
+        // the recipe's OWN temps (profile frames shifted by the recipe's delta,
+        // e.g. "81 · 91°C") anchored on the recipe, so a tag appears only for a
+        // per-brew deviation FROM the recipe — never a profile-relative delta. With
+        // no recipe, shift 0 and anchor on the profile → unchanged.
+        var shift = recipeBaselineTemp > 0 ? (recipeBaselineTemp - profileTemp) : 0
+        return ProfileManager.temperatureDisplay(_tempHlBaseline, tempOverridden, overrideTemp, shift)
     }
     // Roaster = brand only; Coffee = bean name only; Grind = grinder setting + RPM when recorded.
     // Each item gates exactly its named content so saved widget configs mean what they say.

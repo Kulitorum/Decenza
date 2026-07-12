@@ -777,29 +777,27 @@ Dialog {
                     }
                 }
 
-                // Profile's actual temperature(s), shown adaptively (single / spaced
-                // mid-dot list / first…last ellipsis) via the shared formatter. The
-                // offset tag is the TOTAL offset from the profile (what the machine
-                // actually applies to the frames), so with a recipe active whose temp
-                // is 4° below the profile it truthfully reads "92°C -4°" — the recipe's
-                // relationship to the profile. The highlight, however, tracks deviation
-                // from the active BASELINE (the recipe in recipe mode), so the recipe's
-                // own temp reads un-highlighted (it is the baseline, not an override)
-                // and only a per-brew deviation from the recipe turns it amber. In
-                // no-recipe mode the two flags coincide, so this is unchanged.
+                // The baseline temperature(s) the Temp Delta control is measured
+                // from — a baseline is a baseline. With a recipe active that is the
+                // recipe's OWN temps (profile frames shifted by the recipe's delta,
+                // e.g. "Recipe: 81 · 91°C"), matching the Temp Delta reading 0° at the
+                // recipe; a tag appears only for a per-brew deviation FROM the recipe.
+                // With no recipe it is the profile's temps ("Profile: 84 · 94°C" + the
+                // offset tag when the dial is adjusted) — unchanged.
                 Text {
                     id: tempSubtext
-                    // Tag shown iff the machine applies any shift to the profile frames.
-                    readonly property bool hasProfileOffset: Math.abs(root.temperatureValue - root.profileTemperature) > 0.1
-                    // Highlighted iff the dial deviates from the active baseline.
+                    // Highlighted / tagged iff the dial deviates from the active baseline.
                     readonly property bool deviatesFromBaseline: Math.abs(root.temperatureValue - root.recipeTempBaseline) > 0.1
+                    readonly property double _shift: root.recipeTempBaseline - root.profileTemperature
                     visible: root.profileTemperature > 0
                     text: {
                         // temperatureDisplay() reads the C/F unit in C++ (not a QML-
                         // capturable dependency), so read it here to re-evaluate on switch.
                         void(Settings.app.temperatureUnit)
-                        return TranslationManager.translate("brewDialog.profileTempStructure", "Profile: %1")
-                            .arg(ProfileManager.temperatureDisplay(root.profileTemperature, hasProfileOffset, root.temperatureValue))
+                        var body = ProfileManager.temperatureDisplay(root.recipeTempBaseline, deviatesFromBaseline, root.temperatureValue, _shift)
+                        return root.recipeActive
+                            ? TranslationManager.translate("brewDialog.recipeTempStructure", "Recipe: %1").arg(body)
+                            : TranslationManager.translate("brewDialog.profileTempStructure", "Profile: %1").arg(body)
                     }
                     font.family: Theme.bodyFont.family
                     font.pixelSize: Theme.scaled(14)
@@ -1114,11 +1112,20 @@ Dialog {
                     }
                 }
 
-                // Visual indicator showing profile default (only visible while the
-                // field is overridden, so it always wears the override highlight)
+                // Profile-default reference, shown only while the stop-at deviates
+                // from the ACTIVE baseline (recipeYieldBaseline via targetInput —
+                // the recipe's own yield when a recipe is active, else the profile),
+                // so a recipe sitting at its own yield no longer shows a spurious
+                // amber "Profile: Xg" (recipe-baseline-not-override, #1485).
                 Text {
-                    visible: Math.abs(root.targetValue - root.profileTargetWeight) > 0.1
-                    text: TranslationManager.translate("brewDialog.profileDefault", "Profile: %1g").arg(root.profileTargetWeight.toFixed(0))
+                    // Baseline reference the shown value deviates from — a baseline is
+                    // a baseline: the active recipe's own yield when a recipe is active
+                    // ("Recipe: 40g"), else the profile default ("Profile: 36g"),
+                    // matching the temperature sub-line above.
+                    visible: targetInput.overridden
+                    text: root.recipeActive
+                        ? TranslationManager.translate("brewDialog.recipeDefault", "Recipe: %1g").arg(root.recipeYieldBaseline.toFixed(0))
+                        : TranslationManager.translate("brewDialog.profileDefault", "Profile: %1g").arg(root.profileTargetWeight.toFixed(0))
                     font.family: Theme.bodyFont.family
                     font.pixelSize: Theme.scaled(11)
                     font.italic: true
@@ -1126,7 +1133,9 @@ Dialog {
                     Layout.alignment: Qt.AlignHCenter
                     Layout.leftMargin: Theme.scaled(75) + Theme.scaled(8)
                     Accessible.role: Accessible.StaticText
-                    Accessible.name: TranslationManager.translate("brewDialog.profileDefaultStopWeight", "Profile default stop-at-weight: %1 grams").arg(root.profileTargetWeight.toFixed(0))
+                    Accessible.name: root.recipeActive
+                        ? TranslationManager.translate("brewDialog.recipeStopWeight", "Recipe stop-at-weight: %1 grams").arg(root.recipeYieldBaseline.toFixed(0))
+                        : TranslationManager.translate("brewDialog.profileDefaultStopWeight", "Profile default stop-at-weight: %1 grams").arg(root.profileTargetWeight.toFixed(0))
                 }
             }
 

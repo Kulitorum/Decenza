@@ -71,6 +71,22 @@ class MainController : public QObject {
     // deactivation. QML reads name/steam fields from here; the id itself
     // lives in Settings.dye.activeRecipeId.
     Q_PROPERTY(QVariantMap activeRecipe READ activeRecipe NOTIFY activeRecipeChanged)
+
+    // Recipe-aware brew baseline (recipe-baseline-not-override, #1485). When a
+    // recipe is active, ITS own yield/temp are the baseline, not overrides of the
+    // profile — so a recipe's designed values must not read as overrides on any
+    // live readout. These fold the recipe-vs-profile choice into one source of
+    // truth so every widget (Brew Settings, Shot Plan, the temperature readout,
+    // custom brew widgets) can ask instead of re-deriving it inline and drifting.
+    // The baselines fall back to the profile when no recipe is active (or the
+    // recipe pins no value for that field); the *IsRealOverride flags are true
+    // only for a per-brew deviation FROM that baseline. All four re-evaluate on
+    // brewBaselineChanged (recipe activation/edit, brew-override edits, profile
+    // switch, or a target-weight sync).
+    Q_PROPERTY(double activeBaselineTemperatureC READ activeBaselineTemperatureC NOTIFY brewBaselineChanged)
+    Q_PROPERTY(double activeBaselineYieldG READ activeBaselineYieldG NOTIFY brewBaselineChanged)
+    Q_PROPERTY(bool temperatureIsRealOverride READ temperatureIsRealOverride NOTIFY brewBaselineChanged)
+    Q_PROPERTY(bool yieldIsRealOverride READ yieldIsRealOverride NOTIFY brewBaselineChanged)
     // The recipe the user has SELECTED in a pill row — set synchronously the
     // instant activateRecipe() is called, so the two-tap "select then start"
     // gesture (tap once to select, tap the selected pill again to pull the
@@ -152,6 +168,10 @@ public:
     EquipmentStorage* equipmentStorage() const { return m_equipmentStorage; }
     RecipeStorage* recipeStorage() const { return m_recipeStorage; }
     QVariantMap activeRecipe() const { return m_activeRecipe; }
+    double activeBaselineTemperatureC() const;
+    double activeBaselineYieldG() const;
+    bool temperatureIsRealOverride() const;
+    bool yieldIsRealOverride() const;
     qint64 selectedRecipeId() const { return m_recipeSelection.selected(); }
     UnifiedBeanSearchModel* beanSearch() const { return m_beanSearch; }
     ShotImporter* shotImporter() const { return m_shotImporter; }
@@ -313,6 +333,7 @@ signals:
     // pill taps, MCP recipe_activate, and the web /activate route.
     void recipeActivated(qint64 recipeId, bool success);
     void activeRecipeChanged();
+    void brewBaselineChanged();
     void selectedRecipeIdChanged();
 
     // Recipes-first layout upgrade offer (recipes-idle-layout-upgrade):

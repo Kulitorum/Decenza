@@ -492,6 +492,16 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     connect(m_settings->brew(), &SettingsBrew::steamDisabledChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);
     connect(m_settings->brew(), &SettingsBrew::keepSteamHeaterOnChanged, m_mqttClient, &MqttClient::onSteamSettingsChanged);
 
+    // Recipe-aware brew baseline (recipe-baseline-not-override, #1485): the
+    // effective baseline + real-override flags change with the active recipe, the
+    // live brew overrides, and the profile's own target/temp. Relay all of those
+    // into one signal so the baseline Q_PROPERTYs re-evaluate everywhere at once.
+    connect(this, &MainController::activeRecipeChanged, this, &MainController::brewBaselineChanged);
+    connect(m_settings->brew(), &SettingsBrew::temperatureOverrideChanged, this, &MainController::brewBaselineChanged);
+    connect(m_settings->brew(), &SettingsBrew::brewOverridesChanged, this, &MainController::brewBaselineChanged);
+    connect(m_profileManager, &ProfileManager::currentProfileChanged, this, &MainController::brewBaselineChanged);
+    connect(m_profileManager, &ProfileManager::targetWeightChanged, this, &MainController::brewBaselineChanged);
+
     // Auto-connect MQTT if enabled
     if (m_settings && m_settings->mqtt()->mqttEnabled() && !m_settings->mqtt()->mqttBrokerHost().isEmpty()) {
         // Deferred call ensures construction completes first.
@@ -1464,6 +1474,43 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
     QMetaObject::invokeMethod(this, [this, recipeId]() {
         emit recipeActivated(recipeId, true);
     }, Qt::QueuedConnection);
+}
+
+// Recipe-aware brew baseline (recipe-baseline-not-override, #1485). A recipe's
+// own yield/temp ARE the baseline when it's active — so a widget must measure
+// "is this a real override?" against the recipe, not the profile. These four
+// fold that choice into one source of truth. The recipe map keys ("tempOverrideC"
+// / "yieldG") match applyActivatedRecipe's read-back; 0 = the recipe pins none,
+// so fall back to the profile (which also covers the no-recipe case since
+// m_activeRecipe is cleared on deactivation).
+double MainController::activeBaselineTemperatureC() const {
+    if (!m_activeRecipe.isEmpty()) {
+        const double t = m_activeRecipe.value(QStringLiteral("tempOverrideC")).toDouble();
+        if (t > 0.0)
+            return t;
+    }
+    return m_profileManager ? m_profileManager->profileTargetTemperature() : 0.0;
+}
+
+double MainController::activeBaselineYieldG() const {
+    if (!m_activeRecipe.isEmpty()) {
+        const double y = m_activeRecipe.value(QStringLiteral("yieldG")).toDouble();
+        if (y > 0.0)
+            return y;
+    }
+    return m_profileManager ? m_profileManager->profileTargetWeight() : 0.0;
+}
+
+bool MainController::temperatureIsRealOverride() const {
+    if (!m_settings || !m_settings->brew()->hasTemperatureOverride())
+        return false;
+    return qAbs(m_settings->brew()->temperatureOverride() - activeBaselineTemperatureC()) > 0.1;
+}
+
+bool MainController::yieldIsRealOverride() const {
+    if (!m_settings || !m_settings->brew()->hasBrewYieldOverride())
+        return false;
+    return qAbs(m_settings->brew()->brewYieldOverride() - activeBaselineYieldG()) > 0.1;
 }
 
 void MainController::deactivateRecipe() {
