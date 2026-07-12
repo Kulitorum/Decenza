@@ -416,8 +416,9 @@ Dialog {
                     }
                     readonly property bool hasAction: popup.textAction !== "" || popup.textLongPressAction !== "" || popup.textDoubleclickAction !== ""
                     readonly property bool hasEmoji: popup.textEmoji !== ""
-                    readonly property color fullBg: popup.textBackgroundColor || (hasAction ? "#555555" : Theme.surfaceColor)
-                    readonly property color compactBg: popup.textBackgroundColor || "#555555"
+                    // Mirror CustomItem._parsedBgColor exactly so the preview matches the live widget.
+                    readonly property color fullBg: popup.textBackgroundColor || (hasAction ? Theme.primaryColor : Theme.surfaceColor)
+                    readonly property color compactBg: popup.textBackgroundColor || (hasAction ? Theme.primaryColor : Theme.surfaceColor)
 
                     // --- Full mode preview (exact match with CustomItem full mode) ---
                     Text {
@@ -625,9 +626,9 @@ Dialog {
 
                         Repeater {
                             model: [
-                                { label: "\u25C0", align: "left" },
-                                { label: "\u25CF", align: "center" },
-                                { label: "\u25B6", align: "right" }
+                                { icon: "qrc:/icons/AlignLeft.svg", align: "left" },
+                                { icon: "qrc:/icons/AlignCenter.svg", align: "center" },
+                                { icon: "qrc:/icons/AlignRight.svg", align: "right" }
                             ]
                             Rectangle {
                                 width: Theme.scaled(30); height: Theme.scaled(30)
@@ -638,11 +639,12 @@ Dialog {
                                 Accessible.name: TranslationManager.translate("customeditor.format.align", "Align") + " " + modelData.align + (popup.textAlign === modelData.align ? ", " + TranslationManager.translate("combobox.selected", "selected") : "")
                                 Accessible.focusable: true
                                 Accessible.onPressAction: alignMa.clicked(null)
-                                Text {
-                                    anchors.centerIn: parent; text: modelData.label
-                                    color: popup.textAlign === modelData.align ? Theme.primaryContrastColor : Theme.textColor
-                                    font.pixelSize: Theme.scaled(10)
-                                    Accessible.ignored: true
+                                ColoredIcon {
+                                    anchors.centerIn: parent
+                                    source: modelData.icon
+                                    iconWidth: Theme.scaled(16)
+                                    iconHeight: Theme.scaled(16)
+                                    iconColor: popup.textAlign === modelData.align ? Theme.primaryContrastColor : Theme.textColor
                                 }
                                 MouseArea { id: alignMa; anchors.fill: parent; onClicked: popup.textAlign = modelData.align }
                             }

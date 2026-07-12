@@ -34,6 +34,15 @@ Rectangle {
     // no inline editing (the small inline field + on-screen keyboard is a poor experience).
     property bool isMobile: Qt.platform.os === "android" || Qt.platform.os === "ios"
 
+    // On mobile the inline TextArea is disabled and the only way to edit is the
+    // overlay dialog; the raw TapHandlers below aren't accessible, so expose the
+    // container itself as a button for screen-reader users. On desktop the inline
+    // TextArea carries its own accessibility, so the container stays non-semantic.
+    Accessible.role: (isMobile && !readOnly) ? Accessible.Button : Accessible.NoRole
+    Accessible.name: root.accessibleName
+    Accessible.focusable: isMobile && !readOnly
+    Accessible.onPressAction: { if (isMobile && !readOnly) root.openEditorDialog() }
+
     function openEditorDialog() {
         dialogTextArea.text = root.text
         expandDialog.open()

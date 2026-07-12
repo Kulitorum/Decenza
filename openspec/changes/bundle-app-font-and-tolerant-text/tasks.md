@@ -44,7 +44,7 @@
 
 ## 7. Accessibility & conventions (touched files)
 
-- [x] 7.1 Edits are `textFormat` attribute swaps + one `ScrollView` wrapper — introduce **no** new interactive elements and no new a11y violations (touched `Text` elements already carry `Accessible.ignored`). No full pre-existing-violation sweep of the 9 files (disproportionate to a one-attribute change; would balloon the diff).
+- [x] 7.1 Full pre-existing-violation sweep of every touched file (policy: fix pre-existing issues in files you touch, not just your diff). Fixed: hardcoded colors (`#2E7D32`→`Theme.successColor` ShotHistoryPage; `#555555`→`Theme.primaryColor` CustomEditorPopup, also correcting a preview fidelity mismatch); Unicode-glyphs-as-icons replaced with new tintable SVGs (sort ▼/▲ → SortAscending/Descending.svg via new `AccessibleButton.tintIcon` opt-in; align ◀●▶ → AlignLeft/Center/Right.svg via `ColoredIcon`); ExpandableTextArea mobile a11y (container exposed as a Button so screen-reader users can open the editor); removed dead `LabeledComboBox` component in PostShotReviewPage.
 - [x] 7.2 No user-visible strings added or changed (attribute-only + structural wrap); all existing text stays behind `TranslationManager.translate`/`Tr` and `Theme` styling. `ScrollView` uses no hardcoded colors/sizes.
 
 ## 8. Build, verify, and hand off

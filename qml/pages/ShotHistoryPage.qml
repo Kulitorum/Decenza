@@ -499,7 +499,8 @@ Page {
 
             // Sort direction button
             AccessibleButton {
-                text: sortDirection === "DESC" ? "\u25BC" : "\u25B2"
+                icon.source: sortDirection === "DESC" ? "qrc:/icons/SortDescending.svg" : "qrc:/icons/SortAscending.svg"
+                tintIcon: true
                 accessibleName: sortDirection === "DESC"
                     ? TranslationManager.translate("shothistory.sortDescending", "Sort descending, tap to sort ascending")
                     : TranslationManager.translate("shothistory.sortAscending", "Sort ascending, tap to sort descending")
@@ -894,7 +895,7 @@ Page {
                         width: Theme.scaled(40)
                         height: Theme.scaled(40)
                         radius: Theme.scaled(20)
-                        color: "#2E7D32"
+                        color: Theme.successColor
                         Accessible.role: Accessible.Button
                         Accessible.name: TranslationManager.translate("shothistory.accessible.edit", "Edit shot")
                         Accessible.focusable: true

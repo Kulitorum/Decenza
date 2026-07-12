@@ -30,6 +30,11 @@
         <file>icons/settings.svg</file>
         <file>icons/back.svg</file>
         <file>icons/edit.svg</file>
+        <file>icons/SortAscending.svg</file>
+        <file>icons/SortDescending.svg</file>
+        <file>icons/AlignLeft.svg</file>
+        <file>icons/AlignCenter.svg</file>
+        <file>icons/AlignRight.svg</file>
         <file>icons/sleep.svg</file>
         <file>icons/sparkle.svg</file>
         <file>icons/pin.svg</file>
