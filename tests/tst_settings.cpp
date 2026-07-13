@@ -635,13 +635,146 @@ private slots:
     }
 
     void effectiveSteamDurationSecFallsBackWhenUncalibrated() {
-        // Weight-timing on but no calibration recorded: scaledSteamTime() yields 0
-        // (calibMilkG <= 0), so the base duration must be used, not 0.
+        // Weight-timing on but no global rate recorded: scaledSteamTime() yields 0
+        // (steamSecondsPerGram <= 0), so the base duration must be used, not 0. Set
+        // the rate to 0 explicitly so the test exercises the uncalibrated gate rather
+        // than relying on the ambient store value.
         m_settings.brew()->setMilkAutoCaptureEnabled(true);
+        m_settings.brew()->setSteamSecondsPerGram(0.0);
         m_settings.brew()->addSteamPitcherPreset("Cortado", 20, 150, 135.0);
         const int idx = static_cast<int>(m_settings.brew()->steamPitcherPresets().size()) - 1;
 
         QCOMPARE(m_settings.brew()->effectiveSteamDurationSec(idx, 300.0), 20);
+    }
+
+    void steamSecondsPerGramClampsNegativeToZero() {
+        // A negative rate is nonsensical; the setter must clamp it to 0 (uncalibrated).
+        m_settings.brew()->setSteamSecondsPerGram(-1.0);
+        QCOMPARE(m_settings.brew()->steamSecondsPerGram(), 0.0);
+    }
+
+    void steamSecondsPerGramEmitsOnChangeOnly() {
+        // NOTIFY fires once on a real change and stays silent on a no-op re-set.
+        m_settings.brew()->setSteamSecondsPerGram(0.10);
+        QSignalSpy spy(m_settings.brew(), &SettingsBrew::steamSecondsPerGramChanged);
+        m_settings.brew()->setSteamSecondsPerGram(0.20);   // change -> 1 emit
+        QCOMPARE(spy.count(), 1);
+        m_settings.brew()->setSteamSecondsPerGram(0.20);   // no-op -> no further emit
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void calibrateSteamFromReferenceSetsRateAndEnables() {
+        // The happy path: rate = timeSec / milkG, and weight-timing is turned on as the
+        // explicit calibrate opt-in.
+        m_settings.brew()->setMilkAutoCaptureEnabled(false);
+        m_settings.brew()->setSteamSecondsPerGram(0.0);
+        m_settings.brew()->calibrateSteamFromReference(200.0, 30.0);  // 0.15 s/g
+        QCOMPARE(m_settings.brew()->steamSecondsPerGram(), 0.15);
+        QVERIFY(m_settings.brew()->milkAutoCaptureEnabled());
+    }
+
+    void calibrateSteamFromReferenceGuardsNonPositive() {
+        // With either argument non-positive the call is a no-op — no divide-by-zero
+        // rate, and (critically) it must NOT enable weight-timing off a bad calibration.
+        m_settings.brew()->setMilkAutoCaptureEnabled(false);
+        m_settings.brew()->setSteamSecondsPerGram(0.0);
+        m_settings.brew()->calibrateSteamFromReference(0.0, 30.0);    // no milk
+        m_settings.brew()->calibrateSteamFromReference(200.0, 0.0);   // no time
+        QCOMPARE(m_settings.brew()->steamSecondsPerGram(), 0.0);
+        QVERIFY(!m_settings.brew()->milkAutoCaptureEnabled());
+    }
+
+    void steamSecondsPerGramRoundTrip() {
+        // The global rate must survive an export -> import cycle (it's the whole
+        // weight-timed-steam calibration — losing it on a device migration would
+        // silently disable the feature).
+        m_settings.brew()->setSteamSecondsPerGram(0.22);
+        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+
+        m_settings.brew()->setSteamSecondsPerGram(0.99);   // mutate to prove import overwrites
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+
+        QCOMPARE(m_settings.brew()->steamSecondsPerGram(), 0.22);
+    }
+
+    void steamRateMigrationSeedsFromLegacyPreset() {
+        // The one-time ctor migration seeds the global rate from the FIRST legacy
+        // preset carrying both (calibMilkG, duration). Snapshot the run-once sentinel
+        // because cleanup() doesn't restore it.
+        bool origMigrated;
+        { QSettings raw("DecentEspresso", "DE1Qt");
+          origMigrated = raw.value("steam/steamRateMigrated", false).toBool(); }
+
+        QJsonArray arr;
+        { QJsonObject p; p["name"] = "Small"; p["duration"] = 30; p["flow"] = 150; p["calibMilkG"] = 200; arr.append(p); }
+        { QJsonObject p; p["name"] = "Large"; p["duration"] = 40; p["flow"] = 150; p["calibMilkG"] = 100; arr.append(p); }
+        { QSettings raw("DecentEspresso", "DE1Qt");
+          raw.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
+          raw.remove("steam/steamSecondsPerGram");             // uncalibrated global rate
+          raw.setValue("steam/steamRateMigrated", false);      // allow the one-time seed to run
+          raw.sync(); }
+
+        // A fresh Settings runs the migration in SettingsBrew's ctor. First preset wins:
+        // 30/200 = 0.15, not the second's 40/100 = 0.40.
+        Settings fresh;
+        QCOMPARE(fresh.brew()->steamSecondsPerGram(), 0.15);
+
+        { QSettings raw("DecentEspresso", "DE1Qt");
+          raw.setValue("steam/steamRateMigrated", origMigrated);
+          raw.sync(); }
+        // cleanup() restores steam/pitcherPresets + steamSecondsPerGram.
+    }
+
+    void steamRateMigrationSentinelPreventsReseed() {
+        // A calibrated legacy preset is present, but the sentinel says migration already
+        // ran and the user deliberately left the rate at 0 (via the ± control). The ctor
+        // must NOT re-seed — this is why the gate is the sentinel, not "rate <= 0".
+        bool origMigrated;
+        { QSettings raw("DecentEspresso", "DE1Qt");
+          origMigrated = raw.value("steam/steamRateMigrated", false).toBool(); }
+
+        QJsonArray arr;
+        { QJsonObject p; p["name"] = "Small"; p["duration"] = 30; p["flow"] = 150; p["calibMilkG"] = 200; arr.append(p); }
+        { QSettings raw("DecentEspresso", "DE1Qt");
+          raw.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
+          raw.setValue("steam/steamSecondsPerGram", 0.0);      // deliberately uncalibrated
+          raw.setValue("steam/steamRateMigrated", true);       // already migrated
+          raw.sync(); }
+
+        Settings fresh;
+        QCOMPARE(fresh.brew()->steamSecondsPerGram(), 0.0);
+
+        { QSettings raw("DecentEspresso", "DE1Qt");
+          raw.setValue("steam/steamRateMigrated", origMigrated);
+          raw.sync(); }
+    }
+
+    void steamRateImportReseedsFromLegacyBackup() {
+        // A pre-migration backup carries per-pitcher calibMilkG but NO steamSecondsPerGram
+        // key. Import must re-derive the global rate from the restored presets, so
+        // weight-timed steaming survives a cross-version restore instead of coming back
+        // dead (auto-capture ON, rate 0). Guards the reseed branch in importFromJson.
+        QJsonObject bundle = SettingsSerializer::exportToJson(&m_settings, false);
+        QJsonObject steam = bundle["steam"].toObject();
+        // Deterministic single legacy preset; strip the global-rate key to mimic an old
+        // backup, and mark weight-timing ON as a pre-PR calibrated backup would.
+        QJsonArray presets;
+        { QJsonObject p; p["name"] = "Legacy"; p["duration"] = 30; p["flow"] = 150; p["temperature"] = 135; p["calibMilkG"] = 200; presets.append(p); }
+        steam["pitcherPresets"] = presets;
+        steam["milkAutoCaptureEnabled"] = true;
+        steam.remove("steamSecondsPerGram");
+        bundle["steam"] = steam;
+
+        m_settings.brew()->setSteamSecondsPerGram(0.0);   // clear so the reseed is observable
+
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression(QStringLiteral("SettingsSerializer: importFromJson replacing .* favorites")));
+        QVERIFY(SettingsSerializer::importFromJson(&m_settings, bundle));
+
+        // duration / calibMilkG = 30 / 200 = 0.15.
+        QCOMPARE(m_settings.brew()->steamSecondsPerGram(), 0.15);
     }
 
     void steamPitcherLegacyTemperatureFallsBackToGlobal() {

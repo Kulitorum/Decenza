@@ -1649,19 +1649,21 @@ Page {
                                 font: Theme.labelFont
                                 visible: text.length > 0
                                 text: {
-                                    // Track preset + global-rate changes so the hint recomputes.
+                                    // Preview the weight-timed steam at your last measured milk, under
+                                    // the current global rate. Tracks preset + global-rate + last-milk
+                                    // changes so it recomputes. Only shown while weight-timing is actually
+                                    // active (auto-capture on AND a global rate calibrated) and there IS a
+                                    // last measured milk — in that regime effectiveSteamDurationSec returns
+                                    // the weight-scaled time, so the hint matches real behaviour. Driven by
+                                    // the live lastSteamMilkG (not the retired per-preset calibMilkG, which
+                                    // has no UI left to edit and would freeze on a stale value).
                                     var _ = Settings.brew.steamPitcherPresets
                                     var __ = Settings.brew.steamSecondsPerGram
+                                    var ___ = Settings.brew.lastSteamMilkG
                                     var idx = Settings.brew.selectedSteamPitcher
-                                    var preset = Settings.brew.getSteamPitcherPreset(idx)
-                                    var cal = preset ? (preset.calibMilkG ?? 0) : 0
-                                    // Only show while weight-timing is actually active (auto-capture on
-                                    // AND a global rate calibrated). In that regime effectiveSteamDurationSec
-                                    // == the weight-scaled time, so the hint matches real behaviour. Gating
-                                    // this way avoids rendering pre-migration fixed-duration math driven by a
-                                    // vestigial per-preset calibMilkG (which has no UI left to clear).
-                                    if (cal > 0 && Settings.brew.milkAutoCaptureEnabled && Settings.brew.steamSecondsPerGram > 0)
-                                        return TranslationManager.translate("steam.hint.weightTimed", "Weight-timed") + ": " + cal.toFixed(0) + "g → " + Settings.brew.effectiveSteamDurationSec(idx, cal) + "s"
+                                    var milk = Settings.brew.lastSteamMilkG
+                                    if (milk > 0 && Settings.brew.milkAutoCaptureEnabled && Settings.brew.steamSecondsPerGram > 0)
+                                        return TranslationManager.translate("steam.hint.weightTimed", "Weight-timed") + ": " + milk.toFixed(0) + "g → " + Settings.brew.effectiveSteamDurationSec(idx, milk) + "s"
                                     return ""
                                 }
                                 Accessible.ignored: true

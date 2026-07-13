@@ -40,7 +40,8 @@ class SettingsBrew : public QObject {
     Q_PROPERTY(double lastSteamMilkG READ lastSteamMilkG WRITE setLastSteamMilkG NOTIFY lastSteamMilkGChanged)
     Q_PROPERTY(double lastSteamTimeS READ lastSteamTimeS WRITE setLastSteamTimeS NOTIFY lastSteamTimeSChanged)
     // Global weight-timed steam rate (seconds of steam per gram of milk). One
-    // calibration for every pitcher (same steam flow), replacing per-pitcher
+    // calibration for every pitcher (assumes a consistent steam flow — a
+    // simplification, not a physical guarantee), replacing per-pitcher
     // reference-milk scaling. 0 = uncalibrated. Clamped >= 0.
     Q_PROPERTY(double steamSecondsPerGram READ steamSecondsPerGram WRITE setSteamSecondsPerGram NOTIFY steamSecondsPerGramChanged)
 
@@ -129,6 +130,11 @@ public:
     // timeSec / milkG. Guarded (both > 0). Turns weight-timed steaming on, matching
     // the old per-pitcher calibrate opt-in.
     Q_INVOKABLE void calibrateSteamFromReference(double milkG, double timeSec);
+    // Derive a global rate from the legacy per-pitcher (calibMilkG, duration) — first
+    // calibrated preset wins, 0 if none. Shared by the ctor migration and the backup-
+    // import re-seed. seed…() applies it (positive only) through the setter.
+    double deriveSteamRateFromLegacyPresets() const;
+    void seedSteamRateFromLegacyPresets();
 
     // Steam
     double steamTemperature() const;
