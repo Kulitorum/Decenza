@@ -35,4 +35,4 @@
 ## 6. Verification
 
 - [x] 6.1 Build all targets + run unit tests (tst_recipestorage, tst_recipepromotion, tst_temperaturedisplay, MCP suites)
-- [ ] 6.2 Drive the running app: cards keep their own temps across activations; a recipe with −3° reads "84 · 94°C −3°" on its card (tag-only tint) and "81 · 91°C" untagged on the live Shot Plan; wizard shows the stored offset unchanged after a profile temp edit; Update Recipe → offset stored; MCP recipe_get shows `tempOffsetC`
+- [x] 6.2 Drive the running app: cards keep their own temps across activations; a recipe with −3° reads "84 · 94°C −3°" on its card (tag-only tint) and "81 · 91°C" untagged on the live Shot Plan; wizard shows the stored offset unchanged after a profile temp edit; Update Recipe → offset stored; MCP recipe_get shows `tempOffsetC`
