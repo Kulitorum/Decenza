@@ -34,6 +34,17 @@ Page {
     property var prefill: ({})
     property real promoteShotId: 0
 
+    // Intercept the Android system back button / Escape key (Main.qml pops
+    // the page directly otherwise): step back like the bottom-bar arrow, so
+    // leaving the wizard always funnels through the unsaved-changes guard.
+    focus: true
+    Keys.onReleased: function(event) {
+        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+            event.accepted = true
+            goBackOneStep()
+        }
+    }
+
     // --- step machine ----------------------------------------------------
     // "drink" | "bean" | "profile" | "details" | "summary". Creation walks
     // them in order; edit/clone/promote start at "summary". A step opened
@@ -467,9 +478,10 @@ Page {
             MainController.bagStorage.requestInventory()
     }
 
-    // The exact map save() persists — also the dirty check's comparison
-    // basis, so "unsaved changes" means precisely "save() would store
-    // something different from what was loaded".
+    // The exact map save() persists (plus a create-only requestToken) — also
+    // the dirty check's comparison basis, so "unsaved changes" means
+    // precisely "save() would store something different from what was
+    // loaded".
     function buildSaveMap() {
         var map = {
             name: nameField.text.trim(),
@@ -547,24 +559,42 @@ Page {
         _baselineJson = JSON.stringify(buildSaveMap())
     }
     function hasUnsavedChanges() {
-        // No baseline yet (an edit/promote load still in flight) — nothing
-        // the user typed can have landed either; never block the exit.
+        // No baseline yet (an edit/promote load still in flight): anything
+        // typed this early would be overwritten by applyRecipeMap when the
+        // reply lands anyway — never block the exit.
         if (_baselineJson === "")
             return false
         Qt.inputMethod.commit()  // IME: flush the in-progress word first
         return JSON.stringify(buildSaveMap()) !== _baselineJson
     }
 
-    // Every path that LEAVES the wizard funnels through here: with unsaved
-    // changes the exit dialog intercepts (Discard / Save); otherwise leave
-    // directly. During a creation walk a half-built draft that could not be
-    // saved anyway (no name/profile yet) exits silently — the dialog would
-    // only offer a disabled Save.
+    // Every cancel/back path out of the wizard funnels through here (the
+    // save-success pops and the deleted-recipe bail are deliberately not
+    // intercepted): with unsaved changes the exit dialog intercepts
+    // (Discard / Save); otherwise leave directly. The early creation-walk
+    // steps exit silently when nothing saveable exists yet (abandoning a
+    // couple of taps must not nag); from the details/summary steps — where
+    // typed content lives — any unsaved change prompts, even an unsaveable
+    // one (e.g. the name cleared for a retype): Discard plus a disabled
+    // Save beats a silent discard.
     function requestExit() {
-        if (hasUnsavedChanges() && (canSave || _enteredAtSummary))
+        var earlyWalk = !_enteredAtSummary
+            && currentStep !== "summary" && currentStep !== "details"
+        if (hasUnsavedChanges() && (canSave || !earlyWalk))
             exitDialog.open()
         else
             root.goBack()
+    }
+
+    // A failed save must be SEEN: the pinned error label exists only on the
+    // summary and details steps, but the exit dialog's Save can fire from a
+    // walk step (backing out of a create). Land on the summary, where the
+    // error, the name field, and Save sit together.
+    function showSaveError() {
+        if (currentStep !== "summary" && currentStep !== "details") {
+            _fromSummary = false
+            _enterStep("summary")
+        }
     }
 
     // --- wizard step actions -----------------------------------------------
@@ -1106,22 +1136,26 @@ Page {
             if (wizardPage.mode !== "edit" && wizardPage._submitting) {
                 wizardPage._submitting = false
                 wizardPage._createToken = ""
-                if (recipeId > 0)
+                if (recipeId > 0) {
                     pageStack.pop()
-                else
+                } else {
                     wizardPage.errorMessage =
                         TranslationManager.translate("recipes.wizard.errorSave", "Could not save the recipe")
+                    wizardPage.showSaveError()
+                }
             }
         }
         function onRecipeUpdated(recipeId, success) {
             if (wizardPage.mode === "edit" && recipeId === wizardPage.editRecipeId
                 && wizardPage._submitting) {
                 wizardPage._submitting = false
-                if (success)
+                if (success) {
                     pageStack.pop()
-                else
+                } else {
                     wizardPage.errorMessage =
                         TranslationManager.translate("recipes.wizard.errorSave", "Could not save the recipe")
+                    wizardPage.showSaveError()
+                }
             }
         }
         function onLastEquipmentForDrinkTypeReady(drinkType, equipmentId) {
@@ -2007,6 +2041,8 @@ Page {
                         font: Theme.bodyFont
                         color: Theme.errorColor
                         wrapMode: Text.WordWrap
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: text
                     }
 
                     Flickable {
@@ -2354,6 +2390,8 @@ Page {
                         font: Theme.bodyFont
                         color: Theme.errorColor
                         wrapMode: Text.WordWrap
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: text
                     }
 
                     Flickable {
