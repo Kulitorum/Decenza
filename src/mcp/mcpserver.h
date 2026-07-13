@@ -115,6 +115,11 @@ private:
     McpSession* findOrCreateSession(const QString& sessionHeader);
     McpSession* findSession(const QString& sessionId);
     void cleanupExpiredSessions();
+    // Count of stateful (live-SSE) sessions. Only these occupy a durable slot,
+    // so the MaxSessions cap is measured against this — not m_sessions.size() —
+    // to keep ephemeral per-request clients (cloud connectors) from exhausting
+    // the pool. See McpSession::isStateful().
+    int statefulSessionCount() const;
 
     // Confirmation helpers
     bool needsInAppConfirmation(const QString& toolName) const;
@@ -198,7 +203,13 @@ private:
                                const QJsonObject& toolResult);
 
     // Limits
-    static constexpr int MaxSessions = 8;
+    static constexpr int MaxSessions = 8;         // ceiling on *stateful* (live-SSE) sessions
+    // Absolute backstop on *total* retained sessions (stateful + ephemeral).
+    // Since MaxSessions counts only stateful sessions, ephemeral POST-only
+    // sessions have no other ceiling; this bounds memory against a client that
+    // POSTs `initialize` in a tight loop (which is not rate-limited). Set far
+    // above any legitimate churn so it only ever trims a runaway/malicious peer.
+    static constexpr int MaxTotalSessions = 128;
     static constexpr int MaxSseConnections = 4;
     static constexpr int SessionTimeoutMinutes = 30;  // idle-session cleanup; runs every 60s on m_cleanupTimer and again opportunistically when a new session is created
     static constexpr int RateLimitPerMinute = 60;

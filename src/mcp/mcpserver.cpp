@@ -1037,7 +1037,15 @@ McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
     QStringList orphaned;
     for (auto it = m_sessions.constBegin(); it != m_sessions.constEnd(); ++it) {
         const auto* s = it.value();
-        if (s->sseSocket())
+        if (s->isStateful())  // holds a live SSE stream — not an orphan
+            continue;
+        // Never reap a session that is holding a machine-start confirmation open.
+        // Two ways such a session reaches this sweep with no live SSE: a cloud
+        // connector's momentary SSE closed (hadSseSocket), or a pure-POST connector
+        // (claude.ai) crossed OrphanIdleSeconds while the user deliberates at the
+        // machine. Reaping it would silently reset the pending confirmation and drop
+        // the held HTTP response — so the removal loop below cannot see it.
+        if (m_pendingConfirmation.has_value() && m_pendingConfirmation->sessionId == it.key())
             continue;
         if (s->hadSseSocket()) {
             orphaned.append(it.key());
@@ -1047,15 +1055,55 @@ McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
     }
     for (const QString& id : orphaned) {
         qDebug() << "McpServer: Removing orphaned session" << id;
-        if (m_pendingConfirmation.has_value() && m_pendingConfirmation->sessionId == id)
-            m_pendingConfirmation.reset();
+        // No m_pendingConfirmation reset here: the guard above excludes any
+        // confirmation-holding session from `orphaned`, so it is unreachable.
         delete m_sessions.take(id);
     }
     if (!orphaned.isEmpty())
         emit activeSessionCountChanged();
 
-    if (static_cast<int>(m_sessions.size()) >= MaxSessions) {
-        qWarning() << "McpServer: Too many sessions (" << m_sessions.size() << ")";
+    // Absolute backstop on total retained sessions. Ephemeral (non-SSE) sessions
+    // are no longer bounded by MaxSessions (which now counts only stateful ones),
+    // and `initialize` is not rate-limited, so a client that POSTs `initialize` in
+    // a tight loop without echoing a session header — a faster version of the cloud
+    // connector churn — would otherwise accumulate session objects up to
+    // (request rate × OrphanIdleSeconds) with no ceiling, risking OOM on the tablet.
+    // When the pool is full, evict the least-recently-active *ephemeral* session
+    // (never a stateful one, never one holding a pending confirmation). Eviction,
+    // not rejection, so a burst of churn can never deny service to another client:
+    // the evicted client re-initializes anyway, and any in-flight async response is
+    // decoupled from the session object (it captures the socket + session id by
+    // value), so dropping the session cannot lose or misroute that response.
+    while (static_cast<int>(m_sessions.size()) >= MaxTotalSessions) {
+        McpSession* victim = nullptr;
+        for (McpSession* s : std::as_const(m_sessions)) {
+            if (s->isStateful())
+                continue;
+            if (m_pendingConfirmation.has_value() && m_pendingConfirmation->sessionId == s->id())
+                continue;
+            if (!victim || s->lastActivity() < victim->lastActivity())
+                victim = s;
+        }
+        if (!victim)
+            break;  // pool is all stateful / confirming — let the stateful cap decide
+        qWarning() << "McpServer: Session pool at MaxTotalSessions (" << m_sessions.size()
+                   << ") — evicting least-recently-active ephemeral session" << victim->id();
+        m_sessions.remove(victim->id());
+        delete victim;
+        emit activeSessionCountChanged();
+    }
+
+    // Cap only the *stateful* (live-SSE) sessions — the ones that hold retained
+    // server-side state. Ephemeral POST-only sessions (cloud connectors that
+    // re-initialize per request and never hold an SSE stream) are not counted,
+    // so they can never trip "Too many sessions" and block another client.
+    // Stateful sessions are additionally bounded by MaxSseConnections (4) at the
+    // SSE-establishment path, and MaxSseConnections < MaxSessions (8), so this is
+    // a safety ceiling that is not reachable in normal operation.
+    const int stateful = statefulSessionCount();
+    if (stateful >= MaxSessions) {
+        qWarning() << "McpServer: Too many stateful sessions ("
+                   << stateful << "stateful," << m_sessions.size() << "total)";
         return nullptr;
     }
 
@@ -1069,6 +1117,15 @@ McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
 McpSession* McpServer::findSession(const QString& sessionId)
 {
     return m_sessions.value(sessionId, nullptr);
+}
+
+int McpServer::statefulSessionCount() const
+{
+    int n = 0;
+    for (const McpSession* s : std::as_const(m_sessions))
+        if (s->isStateful())
+            ++n;
+    return n;
 }
 
 void McpServer::cleanupExpiredSessions()
