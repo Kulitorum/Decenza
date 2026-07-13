@@ -670,13 +670,19 @@ Page {
         }
     }
 
-    // Link Button — interactive, must NOT wake the machine on tap. Sits above
-    // the wake-on-tap MouseArea (z:3) in stacking order so it captures its own
-    // taps first; its handler opens the URL only and never calls wake().
+    // Link Button — interactive, must NOT wake the machine on tap. Stacked above
+    // the full-screen wake-on-tap MouseArea below so it captures its own taps
+    // first; its handler opens the URL only and never calls wake(). (That wake
+    // MouseArea must stay below this button's z — see the comment there.)
     Rectangle {
         id: linkButton
         z: 4
         visible: !isDisabledMode && ScreensaverManager.overlayLinkButtonEnabled
+                 && ScreensaverManager.overlayLinkButtonLabel !== ""
+        // Dims along with the rest of the screen, same as everything below the
+        // dim overlay — otherwise it'd be the one static element that never
+        // dims, defeating the point of the anti-burn-in drift above.
+        opacity: 1.0 - dimOverlay.opacity
         anchors.left: parent.left
         anchors.bottom: parent.bottom
         anchors.leftMargin: Theme.scaled(50) - driftX
@@ -688,11 +694,6 @@ Page {
         width: linkButtonText.implicitWidth + Theme.scaled(32)
         height: Theme.scaled(44)
 
-        Accessible.role: Accessible.Button
-        Accessible.name: ScreensaverManager.overlayLinkButtonLabel
-        Accessible.focusable: true
-        Accessible.onPressAction: linkButtonArea.clicked(null)
-
         Text {
             id: linkButtonText
             anchors.centerIn: parent
@@ -702,10 +703,11 @@ Page {
             Accessible.ignored: true
         }
 
-        MouseArea {
+        AccessibleMouseArea {
             id: linkButtonArea
             anchors.fill: parent
-            onClicked: Qt.openUrlExternally(ScreensaverManager.overlayLinkButtonUrl)
+            accessibleName: ScreensaverManager.overlayLinkButtonLabel
+            onAccessibleClicked: Qt.openUrlExternally(screensaverPage.normalizedLinkUrl(ScreensaverManager.overlayLinkButtonUrl))
         }
     }
 
@@ -778,7 +780,8 @@ Page {
         }
     }
 
-    // Touch anywhere to wake
+    // Touch anywhere to wake. Must stay below linkButton's z (currently 4) so
+    // that button can capture its own taps instead of also waking the machine.
     MouseArea {
         z: 3
         anchors.fill: parent
@@ -788,6 +791,14 @@ Page {
 
     // Also wake on key press
     Keys.onPressed: wake()
+
+    // Adds a scheme if the configured Link Button URL is missing one (e.g. a
+    // user typing "example.com") — Qt.openUrlExternally may not resolve a
+    // bare host on every platform.
+    function normalizedLinkUrl(url) {
+        if (!url) return url
+        return url.indexOf("://") === -1 ? "https://" + url : url
+    }
 
     function wake() {
         pendingVideoSource = ""  // Clear first to prevent onItemChanged from re-activating

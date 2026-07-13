@@ -125,8 +125,9 @@ class ScreensaverVideoManager : public QObject {
 
     // Overlay items — global, shared across every background (Clock above is the
     // one legacy exception that stays per-type). Water Level/Shot Plan/Battery
-    // render in a compact icon row; the Link Button opens a URL without waking
-    // the machine.
+    // render in a compact row using the same item components as the persistent
+    // StatusBar (icon+value for Water Level/Battery, a text sentence for Shot
+    // Plan); the Link Button opens a URL without waking the machine.
     Q_PROPERTY(bool overlayShowWaterLevel READ overlayShowWaterLevel WRITE setOverlayShowWaterLevel NOTIFY overlayShowWaterLevelChanged)
     Q_PROPERTY(bool overlayShowShotPlan READ overlayShowShotPlan WRITE setOverlayShowShotPlan NOTIFY overlayShowShotPlanChanged)
     Q_PROPERTY(bool overlayShowBattery READ overlayShowBattery WRITE setOverlayShowBattery NOTIFY overlayShowBatteryChanged)
@@ -204,7 +205,6 @@ public:
     bool shotMapShowProfiles() const { return m_shotMapShowProfiles; }
     bool shotMapShowTerminator() const { return m_shotMapShowTerminator; }
 
-    // Overlay items (global)
     bool overlayShowWaterLevel() const { return m_overlayShowWaterLevel; }
     bool overlayShowShotPlan() const { return m_overlayShowShotPlan; }
     bool overlayShowBattery() const { return m_overlayShowBattery; }
@@ -464,7 +464,6 @@ private:
     bool m_shotMapShowProfiles = true;
     bool m_shotMapShowTerminator = true;
 
-    // Overlay items (global — shared across every background)
     bool m_overlayShowWaterLevel = false;
     bool m_overlayShowShotPlan = false;
     bool m_overlayShowBattery = false;

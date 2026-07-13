@@ -826,11 +826,6 @@ Item {
                                 border.color: isOn ? Theme.primaryColor : Theme.borderColor
                                 border.width: 1
 
-                                Accessible.role: Accessible.Button
-                                Accessible.name: overlayChip.chipLabel + (overlayChip.isOn ? ", " + TranslationManager.translate("accessibility.enabled", "enabled") : "")
-                                Accessible.focusable: true
-                                Accessible.onPressAction: overlayChip.toggleChip()
-
                                 Text {
                                     id: chipText
                                     anchors.centerIn: parent
@@ -840,15 +835,17 @@ Item {
                                     Accessible.ignored: true
                                 }
 
-                                MouseArea {
+                                AccessibleMouseArea {
                                     anchors.fill: parent
-                                    onClicked: overlayChip.toggleChip()
+                                    accessibleName: overlayChip.chipLabel
+                                    accessibleRole: Accessible.CheckBox
+                                    accessibleChecked: overlayChip.isOn
+                                    onAccessibleClicked: overlayChip.toggleChip()
                                 }
                             }
                         }
                     }
 
-                    // Link Button config — visible only once its chip is enabled
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.scaled(10)
