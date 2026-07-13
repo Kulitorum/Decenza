@@ -115,6 +115,11 @@ private:
     McpSession* findOrCreateSession(const QString& sessionHeader);
     McpSession* findSession(const QString& sessionId);
     void cleanupExpiredSessions();
+    // Count of stateful (live-SSE) sessions. Only these occupy a durable slot,
+    // so the MaxSessions cap is measured against this — not m_sessions.size() —
+    // to keep ephemeral per-request clients (cloud connectors) from exhausting
+    // the pool. See McpSession::isStateful().
+    int statefulSessionCount() const;
 
     // Confirmation helpers
     bool needsInAppConfirmation(const QString& toolName) const;

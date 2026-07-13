@@ -45,6 +45,18 @@ public:
     }
     bool hadSseSocket() const { return m_hadSseSocket; }
 
+    // A session is "stateful" only while it holds a *live* SSE stream — the one
+    // thing that requires retained server-side state (server→client push). A
+    // session with no live SSE socket — one that never opened one, or whose SSE
+    // has closed — is ephemeral and need not occupy a durable slot. The cloud
+    // MCP connectors (ChatGPT `openai-mcp`, claude.ai) re-`initialize` on every
+    // request and never hold an SSE stream open, so they are ephemeral; only a
+    // LAN `mcp-remote` / Claude Desktop client keeps its SSE open and is
+    // therefore stateful. Only stateful sessions count toward MaxSessions, so
+    // per-request re-initializing clients cannot exhaust the pool. See
+    // docs/CLAUDE_MD/MCP_SERVER.md.
+    bool isStateful() const { return !m_sseSocket.isNull(); }
+
     // Resource subscriptions
     QSet<QString> subscribedResources() const { return m_subscribedResources; }
     void subscribe(const QString& uri) { m_subscribedResources.insert(uri); }

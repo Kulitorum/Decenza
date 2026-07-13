@@ -210,6 +210,36 @@ private slots:
         QCOMPARE(server.activeSessionCount(), 1);
     }
 
+    // --- Ephemeral (POST-only) sessions do not exhaust the cap ---
+
+    void testEphemeralSessionsDoNotExhaustPool()
+    {
+        McpServer server;
+
+        // The cloud MCP connectors (ChatGPT, claude.ai) re-run `initialize` on
+        // nearly every request without echoing the session header, and never
+        // hold an SSE stream open — so each is a fresh *ephemeral* session. This
+        // harness only ever POSTs (no GET SSE), so every session it creates is
+        // ephemeral. Far more than MaxSessions (8) of them must all succeed:
+        // none is stateful, so none counts toward the cap, and none is rejected
+        // with "Too many sessions". This is the exact wedge observed in the
+        // field when both connectors churn the pool.
+        const int kBursts = 12;
+        for (int i = 0; i < kBursts; i++) {
+            auto r = sendRpc(server, "initialize",
+                             QJsonObject{{"capabilities", QJsonObject{}}});
+            QVERIFY2(!r.sessionId.isEmpty(),
+                     qPrintable(QStringLiteral("initialize #%1 was rejected").arg(i + 1)));
+            QVERIFY2(r.response.contains("result"),
+                     qPrintable(QStringLiteral("initialize #%1 returned no result").arg(i + 1)));
+            QVERIFY2(!r.response.contains("error"),
+                     qPrintable(QStringLiteral("initialize #%1 returned an error").arg(i + 1)));
+        }
+        // All retained (none rejected). Before the fix the 9th would have failed
+        // with -32000 "Too many sessions".
+        QCOMPARE(server.activeSessionCount(), kBursts);
+    }
+
     // --- ping ---
 
     void testPingReturnsEmptyResult()

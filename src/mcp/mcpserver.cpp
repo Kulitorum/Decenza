@@ -1039,6 +1039,12 @@ McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
         const auto* s = it.value();
         if (s->sseSocket())
             continue;
+        // Never reap a session that is holding a machine-start confirmation open —
+        // its SSE may have closed (a cloud connector's momentary stream) while the
+        // user is still deciding at the machine. Reaping here would silently reset
+        // the pending confirmation and drop the held HTTP response.
+        if (m_pendingConfirmation.has_value() && m_pendingConfirmation->sessionId == it.key())
+            continue;
         if (s->hadSseSocket()) {
             orphaned.append(it.key());
         } else if (s->lastActivity().secsTo(now) > OrphanIdleSeconds) {
@@ -1054,8 +1060,15 @@ McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
     if (!orphaned.isEmpty())
         emit activeSessionCountChanged();
 
-    if (static_cast<int>(m_sessions.size()) >= MaxSessions) {
-        qWarning() << "McpServer: Too many sessions (" << m_sessions.size() << ")";
+    // Cap only the *stateful* (live-SSE) sessions — the ones that hold retained
+    // server-side state. Ephemeral POST-only sessions (cloud connectors that
+    // re-initialize per request and never hold an SSE stream) are not counted,
+    // so they can never trip "Too many sessions" and block another client.
+    // Stateful sessions are additionally bounded by MaxSseConnections at the
+    // SSE-establishment path, so this is a safety ceiling.
+    if (statefulSessionCount() >= MaxSessions) {
+        qWarning() << "McpServer: Too many stateful sessions ("
+                   << statefulSessionCount() << "stateful," << m_sessions.size() << "total)";
         return nullptr;
     }
 
@@ -1069,6 +1082,15 @@ McpSession* McpServer::findOrCreateSession(const QString& sessionHeader)
 McpSession* McpServer::findSession(const QString& sessionId)
 {
     return m_sessions.value(sessionId, nullptr);
+}
+
+int McpServer::statefulSessionCount() const
+{
+    int n = 0;
+    for (const McpSession* s : std::as_const(m_sessions))
+        if (s->isStateful())
+            ++n;
+    return n;
 }
 
 void McpServer::cleanupExpiredSessions()
