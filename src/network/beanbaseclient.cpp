@@ -339,6 +339,44 @@ void BeanBaseClient::recoverBagLink(const QString& canonicalId, const QString& r
     });
 }
 
+void BeanBaseClient::validateBagLink(const QString& canonicalId, const QString& productUrl) {
+    if (!isSafeCacheFilename(canonicalId))
+        return;
+    if (m_linkValidated.contains(canonicalId))
+        return;
+    const QUrl url(productUrl);
+    if (!url.isValid() || !url.scheme().startsWith(QLatin1String("http")))
+        return;
+    m_linkValidated.insert(canonicalId);
+
+    QNetworkRequest request{url};
+    request.setTransferTimeout(kTransferTimeoutMs);
+    // Follow redirects so we learn the roaster's current canonical URL — a
+    // renamed/aliased Shopify handle 301s to the live one.
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, canonicalId, productUrl]() {
+        reply->deleteLater();
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        // Confirmed gone → clear the dead link. A transient failure (timeout,
+        // DNS, 5xx — status 0 or ≥500) emits nothing so a later session retries;
+        // clearing on those would wrongly drop a link over a blip.
+        if (status == 404 || status == 410) {
+            emit bagLinkDead(canonicalId);
+            return;
+        }
+        if (reply->error() != QNetworkReply::NoError)
+            return;
+        // Resolved (possibly via redirect). Emit even when unchanged so the
+        // consumer can mark the bag checked without rewriting; when the final
+        // URL differs, the stale alias is normalized to the durable one.
+        const QString resolved = reply->url().toString();
+        emit bagLinkResolved(canonicalId, resolved.isEmpty() ? productUrl : resolved);
+    });
+}
+
 void BeanBaseClient::fetchProductPage(const QString& canonicalId, const QString& productUrl) {
     const QUrl url(productUrl);
     if (!url.isValid() || !url.scheme().startsWith(QLatin1String("http")))

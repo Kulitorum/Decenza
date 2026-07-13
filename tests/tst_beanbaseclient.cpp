@@ -177,6 +177,46 @@ private slots:
     }
 
     // ====================================================
+    // validateBagLink(): pick-time product-URL validation
+    // ====================================================
+
+    void validateBagLinkDeadOn404() {
+        FakeBeanBaseServer server;
+        server.respondWith("404 Not Found", "gone");
+        BeanBaseClient client(&m_nam, &m_settings);
+        QSignalSpy deadSpy(&client, &BeanBaseClient::bagLinkDead);
+        QSignalSpy resolvedSpy(&client, &BeanBaseClient::bagLinkResolved);
+
+        client.validateBagLink("canon-1", server.baseUrl() + "/products/gone");
+        QVERIFY(deadSpy.wait(3000));
+        QCOMPARE(deadSpy.count(), 1);
+        QCOMPARE(deadSpy.first().at(0).toString(), QString("canon-1"));
+        QCOMPARE(resolvedSpy.count(), 0);  // dead, never "resolved"
+
+        // One GET per id per session: a second call is a no-op.
+        client.validateBagLink("canon-1", server.baseUrl() + "/products/gone");
+        QTest::qWait(200);
+        QCOMPARE(deadSpy.count(), 1);
+    }
+
+    void validateBagLinkResolvedOn200() {
+        FakeBeanBaseServer server;
+        server.respondWith("200 OK", "<html></html>");
+        BeanBaseClient client(&m_nam, &m_settings);
+        QSignalSpy resolvedSpy(&client, &BeanBaseClient::bagLinkResolved);
+        QSignalSpy deadSpy(&client, &BeanBaseClient::bagLinkDead);
+
+        const QString productUrl = server.baseUrl() + "/products/live";
+        client.validateBagLink("canon-2", productUrl);
+        QVERIFY(resolvedSpy.wait(3000));
+        QCOMPARE(resolvedSpy.count(), 1);
+        QCOMPARE(resolvedSpy.first().at(0).toString(), QString("canon-2"));
+        // No redirect here → the final URL is the one we asked for.
+        QVERIFY(resolvedSpy.first().at(1).toString().endsWith("/products/live"));
+        QCOMPARE(deadSpy.count(), 0);
+    }
+
+    // ====================================================
     // Bag image resolution: og:image extraction + file cache
     // ====================================================
 

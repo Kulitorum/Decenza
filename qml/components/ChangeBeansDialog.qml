@@ -668,6 +668,13 @@ Dialog {
     EquipmentInfoDialog {
         id: bagEquipmentInfoDialog
     }
+    // Shared details viewer for the search results' info button — one instance,
+    // re-pointed at whichever canonical row was tapped. imageKey defaults to the
+    // blob's canonical id, so the popup resolves and shows the extracted product
+    // photo on open (same viewer as BagCard / BeanInfoPage).
+    BeanBaseDetailsPopup {
+        id: canonicalPreviewPopup
+    }
     Connections {
         target: MainController.equipmentStorage
         // Fills the read-only label for whichever package this bag now points at
@@ -871,9 +878,20 @@ Dialog {
 
                         // Delegates are recreated on every model reset, so the
                         // one-shot get() read stays in sync with the row data.
-                        readonly property int rowBagId: root.resolveBagId(MainController.beanSearch.get(index))
+                        readonly property var rowData: MainController.beanSearch.get(index)
+                        readonly property int rowBagId: root.resolveBagId(resultRow.rowData)
                         readonly property bool isActiveBag: model.tier === 0 && rowBagId > 0
                             && rowBagId === Settings.dye.activeBagId
+
+                        // Canonical-sourced rows (Bean Base autocomplete, alone
+                        // or merged with history) carry the full descriptive
+                        // blob — offer the details preview, including the
+                        // extracted product photo, so same-name near-duplicates
+                        // can be inspected before picking. Other tiers have
+                        // nothing beyond what the row already shows.
+                        readonly property bool canPreview:
+                            (model.sources === "beanbase" || model.sources === "beanbase+history")
+                            && ((resultRow.rowData && resultRow.rowData.beanBaseData) || "").length > 0
 
                         readonly property string primaryText: {
                             var coffee = model.coffeeName || ""
@@ -887,6 +905,12 @@ Dialog {
                             anchors.leftMargin: Theme.scaled(12)
                             anchors.rightMargin: Theme.scaled(12)
                             spacing: Theme.scaled(8)
+                            // Sit above the row-selection overlay so the info
+                            // button gets its own taps; the non-interactive
+                            // Texts and chip don't grab events, so a tap on them
+                            // still falls through to the overlay and selects the
+                            // row.
+                            z: 1
 
                             ColumnLayout {
                                 Layout.fillWidth: true
@@ -918,6 +942,23 @@ Dialog {
                                     color: Theme.textSecondaryColor
                                     elide: Text.ElideRight
                                     Accessible.ignored: true
+                                }
+                            }
+
+                            // Details preview — opens the full canonical entry
+                            // (all attributes + the extracted product photo, so
+                            // the user can see at a glance whether one exists).
+                            StyledIconButton {
+                                Layout.alignment: Qt.AlignVCenter
+                                visible: resultRow.canPreview
+                                implicitWidth: Theme.scaled(36)
+                                implicitHeight: Theme.scaled(36)
+                                icon.source: "qrc:/icons/info.svg"
+                                accessibleName: TranslationManager.translate("changebeans.result.details", "Show all bean details")
+                                onClicked: {
+                                    canonicalPreviewPopup.beanBaseJson =
+                                        (resultRow.rowData && resultRow.rowData.beanBaseData) || ""
+                                    canonicalPreviewPopup.open()
                                 }
                             }
 

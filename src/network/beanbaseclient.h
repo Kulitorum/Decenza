@@ -87,6 +87,20 @@ public:
     // silent on failure. ensureBagImage routes its legacy branch through this.
     Q_INVOKABLE void recoverBagLink(const QString& canonicalId, const QString& roastName);
 
+    // Validate a bag's stored product URL once (pick-time). Follows redirects
+    // and reports the outcome so the consumer can persist "the right data":
+    //   • 200 (incl. via redirect) → bagLinkResolved(id, finalUrl): a stale
+    //     Shopify handle alias is normalized to the durable canonical URL.
+    //   • confirmed 404/410        → bagLinkDead(id): the roaster removed the
+    //     page; the consumer clears the dead link (and marks it so recovery
+    //     never re-adds the same dead URL from the canonical API).
+    //   • transient error (timeout/DNS/5xx) → neither, so it can retry later.
+    // One GET per canonical id per session; BagCard additionally gates on a
+    // persisted linkChecked marker so it is genuinely once-per-bag, not a
+    // per-view probe. Independent of the image cache, so previewing a result
+    // (which caches the photo) can't cause the validation to be skipped.
+    Q_INVOKABLE void validateBagLink(const QString& canonicalId, const QString& productUrl);
+
     // --- Blob edit helpers (add-bag-detail-editing) ---
     // Thin QML bridges over the header-only BeanBaseBlob helpers so the bag
     // editor and MCP bag_update share ONE merge/revert implementation. Pure
@@ -153,6 +167,13 @@ signals:
     // the bag blob so the details popup can offer the reorder link.
     void bagLinkRecovered(const QString& canonicalId, const QString& link);
 
+    // Outcome of validateBagLink(). resolved carries the final URL the stored
+    // link resolved to (following redirects) — equal to the input when nothing
+    // changed, so the consumer can stamp "checked" without a rewrite; dead
+    // fires only on a confirmed 404/410 so the consumer clears the link.
+    void bagLinkResolved(const QString& canonicalId, const QString& link);
+    void bagLinkDead(const QString& canonicalId);
+
 private:
     void doSendCanonicalSearch(const QString& query);
     void fetchProductPage(const QString& canonicalId, const QString& productUrl);
@@ -176,6 +197,7 @@ private:
     QString m_imageCacheDir;
     QSet<QString> m_imageAttempted;
     QSet<QString> m_linkAttempted;
+    QSet<QString> m_linkValidated;  // validateBagLink: one GET per id per session
     // Ids whose image resolution is waiting on link recovery (legacy blobs).
     QSet<QString> m_imageAwaitingLink;
 };
