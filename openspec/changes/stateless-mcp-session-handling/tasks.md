@@ -30,6 +30,15 @@
 - [x] 6.1 Fired 15 back-to-back header-less `initialize`s → **15 succeeded, 0 "Too many sessions"** (pre-fix the 9th+ would be rejected). No-auth localhost endpoint connected cleanly.
 - [x] 6.2 Verified the healthy path is intact: `initialize → notifications/initialized (HTTP 202) → tools/list` returns the full tool set (103 entries). Both cloud connectors were connected concurrently during the field logs that motivated the change.
 
+## 6b. PR review follow-ups (PR #1494)
+
+- [x] 6b.1 **Total-session backstop (Important).** Review found the fix removed the only ceiling on *total* sessions (`initialize` isn't rate-limited → tight-loop spammer could OOM). Added `MaxTotalSessions` (128) with LRU eviction of the least-recently-active *ephemeral* session (never stateful, never confirming), so churn can never reject a legitimate client. Safe: async responses are decoupled from the session object.
+- [x] 6b.2 Unified the orphan sweep to `isStateful()`; removed the now-dead pending-confirmation reset in the removal loop (guard makes it unreachable — confirmed by two reviewers).
+- [x] 6b.3 Fixed the `isStateful()` doc comment (ChatGPT opens SSE momentarily, not "never"; clarified client-name strings are illustrative) and added the `4 < 8` relationship to the cap comment.
+- [x] 6b.4 Added `testSessionStatefulTracksLiveSseSocket` locking the `isStateful()` contract. Hoisted `statefulSessionCount()` to a local in the warning branch.
+- [~] 6b.5 **Not added:** an eviction unit test would need to create 128+ sessions and would emit the (production-appropriate) `qWarning` the test harness forbids, or a friend-seam to lower the constant. Eviction is covered by the spec requirement + code review instead.
+- [~] 6b.6 **Not changed:** pre-existing latent silent-drop in `cleanupExpiredSessions` (30-min timer resets a confirmation without responding) — practically unreachable (15 s auto-dismiss), not a regression this PR introduces; both reviewers advised not to block. Left as-is.
+
 ## 7. Docs
 
 - [x] 7.1 Updated `docs/CLAUDE_MD/MCP_SERVER.md` Security §8 to describe stateful-vs-ephemeral sessions, that `MaxSessions` counts only stateful (SSE-backed) sessions via `statefulSessionCount()`, the ChatGPT/claude.ai per-request re-init behavior it accommodates, and the pending-confirmation reap guard.
