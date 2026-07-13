@@ -19,6 +19,7 @@
 #include <QJsonObject>
 #include <QMetaObject>
 #include <QPointer>
+#include <QSettings>
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QString>
@@ -576,6 +577,124 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
             loadThread->start();
         },
         "control");
+
+    // ai_conversations_list — read tier. Enumerates the persisted multi-shot
+    // AI dialing conversations (AIManager::MAX_CONVERSATIONS = 5, oldest
+    // evicted first), most recently active first. Mirrors the web UI's
+    // /ai-conversations page (ShotServer::generateAIConversationsPage) so
+    // MCP clients can discover and export the same conversations — e.g. to
+    // collect real transcripts for prompt-quality work (#639).
+    registry->registerTool(
+        "ai_conversations_list",
+        "List saved multi-shot AI dialing conversations, most recently active first. "
+        "Each entry is a bean+profile conversation thread the in-app Dialing Assistant "
+        "keeps continuity across shots for — up to 5 are retained, oldest evicted first. "
+        "Pass the returned `key` to ai_conversation_get to fetch the full transcript.",
+        QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
+        [mainController](const QJsonObject&) -> QJsonObject {
+            AIManager* ai = mainController ? mainController->aiManager() : nullptr;
+            if (!ai) return QJsonObject{{"error", "AI advisor not available"}};
+
+            QSettings settings;
+            QJsonArray conversations;
+            for (const auto& entry : ai->conversationIndex()) {
+                const QString prefix = "ai/conversations/" + entry.key + "/";
+                const QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
+                int msgCount = 0;
+                if (!messagesJson.isEmpty()) {
+                    const QJsonDocument doc = QJsonDocument::fromJson(messagesJson);
+                    if (doc.isArray()) msgCount = static_cast<int>(doc.array().size());
+                }
+
+                QStringList labelParts;
+                if (!entry.beanBrand.isEmpty()) labelParts << entry.beanBrand;
+                if (!entry.beanType.isEmpty()) labelParts << entry.beanType;
+                QString label = labelParts.isEmpty() ? QStringLiteral("Unknown beans") : labelParts.join(" ");
+                if (!entry.profileName.isEmpty()) label += " / " + entry.profileName;
+
+                const QDateTime dt = QDateTime::fromSecsSinceEpoch(entry.timestamp);
+
+                conversations.append(QJsonObject{
+                    {"key", entry.key},
+                    {"label", label},
+                    {"beanBrand", entry.beanBrand},
+                    {"beanType", entry.beanType},
+                    {"profileName", entry.profileName},
+                    {"messageCount", msgCount},
+                    {"lastUpdated", dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate)}
+                });
+            }
+            return QJsonObject{{"conversations", conversations}};
+        },
+        "read");
+
+    // ai_conversation_get — read tier. Returns the full transcript for one
+    // conversation key from ai_conversations_list: system prompt + every
+    // user/assistant turn (with shotId/structuredNext when present). Same
+    // underlying QSettings data as ShotServer::handleAIConversationDownload
+    // (the web UI's JSON export), returned as structured JSON instead of a
+    // file download.
+    registry->registerTool(
+        "ai_conversation_get",
+        "Get the full transcript of one saved AI dialing conversation: system prompt plus "
+        "every user/assistant turn, in order. Assistant turns that made a concrete "
+        "recommendation carry a `structuredNext` object; turns tied to a specific shot carry "
+        "`shotId`. Use ai_conversations_list first to find the `key`.",
+        QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                {"key", QJsonObject{{"type", "string"},
+                    {"description", "Conversation key from ai_conversations_list."}}}
+            }},
+            {"required", QJsonArray{"key"}}
+        },
+        [mainController](const QJsonObject& args) -> QJsonObject {
+            AIManager* ai = mainController ? mainController->aiManager() : nullptr;
+            if (!ai) return QJsonObject{{"error", "AI advisor not available"}};
+
+            const QString key = args.value("key").toString().trimmed();
+            if (key.isEmpty()) return QJsonObject{{"error", "key is required"}};
+
+            QSettings settings;
+            const QString prefix = "ai/conversations/" + key + "/";
+            const QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
+            if (messagesJson.isEmpty())
+                return QJsonObject{{"error", "Conversation not found: " + key}};
+
+            QJsonParseError parseError;
+            const QJsonDocument msgDoc = QJsonDocument::fromJson(messagesJson, &parseError);
+            if (parseError.error != QJsonParseError::NoError || !msgDoc.isArray())
+                return QJsonObject{{"error", "Corrupted conversation data for key " + key}};
+
+            QString beanBrand, beanType, profileName;
+            qint64 timestampSecs = 0;
+            for (const auto& entry : ai->conversationIndex()) {
+                if (entry.key == key) {
+                    beanBrand = entry.beanBrand;
+                    beanType = entry.beanType;
+                    profileName = entry.profileName;
+                    timestampSecs = entry.timestamp;
+                    break;
+                }
+            }
+
+            const QDateTime dt = QDateTime::fromSecsSinceEpoch(timestampSecs);
+
+            return QJsonObject{
+                {"key", key},
+                {"metadata", QJsonObject{
+                    {"beanBrand", beanBrand},
+                    {"beanType", beanType},
+                    {"profileName", profileName},
+                    {"lastUpdated", timestampSecs > 0
+                        ? dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate)
+                        : QString()}
+                }},
+                {"systemPrompt", settings.value(prefix + "systemPrompt").toString()},
+                {"messages", msgDoc.array()}
+            };
+        },
+        "read");
 
     registerBeanSearchTool(registry, mainController ? mainController->beanbase() : nullptr);
 }
