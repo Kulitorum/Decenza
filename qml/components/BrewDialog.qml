@@ -66,8 +66,12 @@ Dialog {
     // profile default. A recipe that never pinned a value for a field (stored 0 =
     // unset) falls back to the profile, matching no-recipe mode. NOTIFY-reactive
     // via recipeActive (activeRecipeId) + MainController.activeRecipe.
-    readonly property double recipeTempBaseline: (recipeActive && MainController.activeRecipe.tempOverrideC > 0)
-                                                 ? MainController.activeRecipe.tempOverrideC : profileTemperature
+    // The temperature baseline is OFFSET-derived (recipe-relative-temp-offset):
+    // profile temp + the recipe's stored delta, so a profile temperature edit
+    // moves the recipe's baseline with it. Offset 0 = the profile itself.
+    readonly property double recipeTempBaseline: (recipeActive
+            && Math.abs(MainController.activeRecipe.tempOffsetC || 0) > 0.05)
+        ? profileTemperature + MainController.activeRecipe.tempOffsetC : profileTemperature
     readonly property double recipeYieldBaseline: (recipeActive && MainController.activeRecipe.yieldG > 0)
                                                   ? MainController.activeRecipe.yieldG : profileTargetWeight
     // Non-archived MRU recipe inventory (same source as the pill row), for the
@@ -735,7 +739,7 @@ Dialog {
                     }
 
                     // Save the shown temperature to the baseline: the profile normally,
-                    // the active recipe's tempOverrideC in recipe mode (writing the
+                    // the active recipe's tempOffsetC in recipe mode (writing the
                     // shared profile there would leak into every recipe on it).
                     AccessibleButton {
                         Layout.preferredHeight: Theme.scaled(44)
@@ -749,7 +753,7 @@ Dialog {
                         // Enabled ⟺ the value deviates from the active baseline —
                         // exactly the field's override-highlight state. Reusing
                         // `overridden` (which measures against recipeTempBaseline, so it
-                        // handles an unset tempOverrideC by falling back to the profile,
+                        // handles an unset offset by falling back to the profile,
                         // and collapses to the profile in no-recipe mode) keeps the
                         // invariant "Update enabled ⟺ value highlighted" and lets the
                         // recipe baseline move to any value, including back to the
@@ -760,12 +764,17 @@ Dialog {
                         enabled: tempInput.overridden
                         onClicked: {
                             if (root.recipeActive) {
-                                // Absolute °C, matching what activation reads back.
+                                // Persist the OFFSET (dialed − profile temp), never the
+                                // absolute (recipe-relative-temp-offset); activation
+                                // recomputes profileTemp + offset at apply time.
                                 // recipeUpdated → MainController refreshes m_activeRecipe.
+                                var newOffset = root.temperatureValue - root.profileTemperature
+                                if (Math.abs(newOffset) < 0.05)
+                                    newOffset = 0
                                 root._pendingRecipeUpdateId = Settings.dye.activeRecipeId
                                 MainController.recipeStorage.requestUpdateRecipe(
                                     Settings.dye.activeRecipeId,
-                                    {"tempOverrideC": root.temperatureValue})
+                                    {"tempOffsetC": newOffset})
                             } else {
                                 // Bake the new temperature into the profile. Anchored on
                                 // espressoTemperature (same as the live-brew override path)

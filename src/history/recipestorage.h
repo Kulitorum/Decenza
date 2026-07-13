@@ -75,7 +75,13 @@ struct Recipe {
 
     double doseG = 0;         // 0 = unset
     double yieldG = 0;        // 0 = unset
-    double tempOverrideC = 0; // 0 = no override
+    // Temperature as a SIGNED DELTA against the profile's espresso_temperature
+    // (recipe-relative-temp-offset); 0 = brew at the profile's own temperature.
+    // The effective brew temperature is always computed profileTemp + offset at
+    // use time, so editing the profile's temperature moves the recipe with it
+    // and can never manufacture a phantom offset. Replaces the legacy absolute
+    // temp_override_c, which migration 31 converts and leaves dead in place.
+    double tempOffsetC = 0;
 
     QString grindPinned;      // the recipe's own grind (empty = none recorded)
     qint64 rpmPinned = 0;     // rides with grindPinned; only applied alongside a non-empty grind (0 = unset)
@@ -261,6 +267,25 @@ public:
     // migration caller must not bump the version then).
     static bool migrateGrindOwnershipStatic(QSqlDatabase& db,
                                             const QVector<qint64>* onlyRecipeIds = nullptr);
+
+    // Migration 31 data pass (recipe-relative-temp-offset): convert the legacy
+    // absolute temp_override_c into the relative temp_offset_c. Touches ONLY
+    // rows whose temp_offset_c is NULL (the unconverted marker migration 31's
+    // ADD COLUMN leaves behind, and the marker legacy-source imports set), so
+    // it is idempotent and safe to run every launch until no NULLs remain.
+    // offset = legacy absolute − the profile's espresso_temperature, resolved
+    // from profileTempsByTitle (the caller's snapshot of the profile catalog)
+    // with the recipe's embedded profile_json as fallback; unresolvable → 0
+    // (a delta against an unknown baseline is meaningless; logged), |offset|
+    // < 0.05 → 0. Returns false when the pass could not run to completion.
+    static bool convertLegacyTempOffsetsStatic(QSqlDatabase& db,
+                                               const QHash<QString, double>& profileTempsByTitle);
+
+    // Async wrapper for the conversion pass. Called by MainController at
+    // startup (after the profile catalog scan) and again after a device
+    // transfer / backup import lands legacy-source rows. Emits
+    // recipesChanged() when at least one row was converted.
+    void requestLegacyTempOffsetConversion(const QHash<QString, double>& profileTempsByTitle);
 
     // Roll-on-finish (synchronous core): relink the finished bag's
     // non-archived recipes to the newest open bag of the same bean identity,

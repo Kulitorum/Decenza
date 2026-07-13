@@ -1509,6 +1509,35 @@ bool ShotHistoryStorage::runMigrations()
         }
     }
 
+    // Migration 31: recipes.temp_offset_c (recipe-relative-temp-offset). A
+    // recipe's temperature becomes a SIGNED DELTA against its profile instead
+    // of the absolute temp_override_c, so a profile temperature edit moves the
+    // recipe with the profile and can never manufacture a phantom offset.
+    // Schema-only here: the new column's NULL default IS the "unconverted"
+    // marker, and the data pass (RecipeStorage::convertLegacyTempOffsetsStatic)
+    // runs deferred from MainController once the profile catalog — the
+    // conversion anchor — is available. temp_override_c stays in place, dead:
+    // it is the conversion input and the staging column for legacy-source
+    // imports. Fresh DBs get temp_offset_c from ensureTableStatic's CREATE
+    // TABLE (the hasColumn guard makes both paths converge). Idempotent,
+    // gated ">= 30 && < 31", mirroring migration 30.
+    if (currentVersion >= 30 && currentVersion < 31) {
+        qDebug() << "ShotHistoryStorage: Running migration to version 31 (recipe temp offset)";
+
+        if (!hasColumn("recipes", "temp_offset_c")
+            && !query.exec ("ALTER TABLE recipes ADD COLUMN temp_offset_c REAL"))
+            qWarning() << "ShotHistoryStorage: migration 31 add recipes.temp_offset_c failed -"
+                       << query.lastError().text();
+
+        if (hasColumn("recipes", "temp_offset_c")) {
+            query.exec ("DELETE FROM schema_version");
+            query.exec ("INSERT INTO schema_version (version) VALUES (31)");
+            currentVersion = 31;
+        } else {
+            qWarning() << "ShotHistoryStorage: migration 31 incomplete - will retry next launch";
+        }
+    }
+
     m_schemaVersion = currentVersion;
     return true;
 }

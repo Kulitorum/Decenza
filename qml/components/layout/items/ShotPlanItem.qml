@@ -40,8 +40,9 @@ Item {
         (Settings.dye.activeRecipeId >= 0 && MainController.activeRecipe.yieldG > 0)
             ? MainController.activeRecipe.yieldG : 0
     readonly property double _recipeBaselineTemp:
-        (Settings.dye.activeRecipeId >= 0 && MainController.activeRecipe.tempOverrideC > 0)
-            ? MainController.activeRecipe.tempOverrideC : 0
+        (Settings.dye.activeRecipeId >= 0
+         && Math.abs(MainController.activeRecipe.tempOffsetC || 0) > 0.05)
+            ? ProfileManager.profileTargetTemperature + MainController.activeRecipe.tempOffsetC : 0
 
     // Steam context = steam selected on the idle screen, OR the full steam page, OR the
     // machine actively steaming. Theme.currentPageObjectName (set by main.qml's

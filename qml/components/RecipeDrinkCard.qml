@@ -25,7 +25,7 @@ Rectangle {
     id: card
 
     // The recipe map (storage keys: name, drinkType, profileTitle, steamJson,
-    // hotWaterJson, roasterName, coffeeName, doseG, yieldG, tempOverrideC,
+    // hotWaterJson, roasterName, coffeeName, doseG, yieldG, tempOffsetC,
     // grindPinned, shotCount…). The wizard hero feeds a synthesized map.
     property var recipe: ({})
     property bool active: false
@@ -38,9 +38,14 @@ Rectangle {
     // plus the fallbacks ensureBagImage needs. Empty key = icon placeholder.
     property string imageKey: ""
     property string imageLink: ""
-    // Profile numbers the plan line needs (the recipe stores only overrides).
+    // Profile numbers the plan line needs (the recipe stores only its deltas):
+    // the card's OWN profile's scalar temp/yield plus its frame temperatures —
+    // never the loaded profile's (recipe-relative-temp-offset). An unresolved
+    // profile leaves all three empty/0 and the plan line omits the temperature
+    // segment rather than borrowing the loaded profile's frames.
     property real profileTempC: 0
     property real profileYieldG: 0
+    property var profileStepTemps: []
 
     signal staleActionClicked()
     signal planClicked()
@@ -216,8 +221,14 @@ Rectangle {
                 itemOrder: ["doseYield", "temperature", "grind"]
                 profileName: card.recipe.profileTitle || ""
                 profileTemp: card.profileTempC
-                overrideTemp: card.recipe.tempOverrideC > 0 ? card.recipe.tempOverrideC : card.profileTempC
-                tempOverridden: card.recipe.tempOverrideC > 0
+                // Source + delta (recipe-relative-temp-offset): the card's own
+                // profile's frames render plain, and the recipe's stored offset
+                // renders as a highlighted signed tag. The live override inputs
+                // are explicitly silenced — a card must never reflect the dial.
+                profileStepTemps: card.profileStepTemps
+                recipeTempOffsetC: card.recipe.tempOffsetC || 0
+                overrideTemp: card.profileTempC
+                tempOverridden: false
                 dose: card.recipe.doseG || 0
                 profileYield: card.profileYieldG
                 targetWeight: card.recipe.yieldG > 0 ? card.recipe.yieldG : card.profileYieldG

@@ -237,6 +237,15 @@ public slots:
     Q_INVOKABLE QString temperatureDisplay(double anchorTemp, bool hasOverride,
                                            double overrideTemp,
                                            double baselineShiftC = 0.0) const;
+    // Same adaptive string, but for an EXPLICIT frame-temperature list instead
+    // of the currently loaded profile's frames (recipe-relative-temp-offset):
+    // recipe cards render THEIR OWN profile's temps, which are unrelated to
+    // whatever profile the machine holds. stepTempsC is a plain number list
+    // (QML array); an empty list falls back to anchorTemp alone.
+    Q_INVOKABLE QString temperatureDisplayForSteps(const QVariantList& stepTempsC,
+                                                   double anchorTemp, bool hasOverride,
+                                                   double overrideTemp,
+                                                   double baselineShiftC = 0.0) const;
     Q_INVOKABLE bool duplicateProfile(const QString& sourceFilename, const QString& newTitle);
     // Rename in place: changes only the profile's display title, keeping the same
     // filename (so favorites/auto-load/selected references stay valid). Built-in
