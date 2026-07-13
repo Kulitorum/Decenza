@@ -74,6 +74,7 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     steam["twoTapStop"] = settings->hardware()->steamTwoTapStop();
     steam["selectedPitcher"] = settings->brew()->selectedSteamPitcher();
     steam["milkAutoCaptureEnabled"] = settings->brew()->milkAutoCaptureEnabled();
+    steam["steamSecondsPerGram"] = settings->brew()->steamSecondsPerGram();
 
     // Steam pitcher presets
     QJsonArray pitcherPresets;
@@ -488,6 +489,17 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
         // calibrated preset clobber a backup where the user had the feature OFF.
         // The serialized value must win.
         if (steam.contains("milkAutoCaptureEnabled")) settings->brew()->setMilkAutoCaptureEnabled(steam["milkAutoCaptureEnabled"].toBool());
+        if (steam.contains("steamSecondsPerGram")) {
+            settings->brew()->setSteamSecondsPerGram(steam["steamSecondsPerGram"].toDouble());
+        } else {
+            // Pre-migration backup: no global rate stored, but restored presets may
+            // carry the old per-pitcher (calibMilkG, duration). Re-derive the rate the
+            // same way the one-time ctor migration does, so weight-timed steaming
+            // survives a cross-version restore instead of silently reverting to base
+            // duration with milkAutoCapture still shown ON. Positive-only, so a backup
+            // with no calibrated preset leaves the rate untouched.
+            settings->brew()->seedSteamRateFromLegacyPresets();
+        }
         // Apply the selected pitcher AFTER any preset rebuild (and regardless of
         // whether this JSON carried a presets array) — setting it mid-rebuild would
         // leave it clamped to a stale index. Out-of-range is dropped with a log.

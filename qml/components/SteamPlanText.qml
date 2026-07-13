@@ -46,10 +46,11 @@ Item {
     }
 
     // Target milk for the plan: the weight just measured this session (after the bell) if
-    // there is one, else the pitcher's calibrated reference, else the last measured milk.
+    // there is one, else the last measured milk. (The old per-pitcher calibMilkG is no
+    // longer consulted — weight-timing is now a global rate, and calibMilkG has no UI
+    // left to edit, so it would freeze the plan on a stale reference weight.)
     readonly property real _targetMilk: {
         if (_sessionMilk > 0) return _sessionMilk
-        if (_preset && (_preset.calibMilkG || 0) > 0) return _preset.calibMilkG
         return Settings.brew.lastSteamMilkG || 0
     }
     // The SELECTED preset's effective time (scaled when weight-timing has milk to work

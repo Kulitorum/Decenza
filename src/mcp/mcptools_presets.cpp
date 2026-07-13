@@ -115,8 +115,10 @@ void registerPresetsTools(McpToolRegistry* registry, Settings* settings, MainCon
         "steam_pitcher_list",
         "List all steam pitcher presets and which one is currently selected. Each preset has a "
         "name, durationSec, flowMlPerSec and temperatureC (per-pitcher steam temperature). "
-        "Disabled \"Off\" presets only carry name + disabled. pitcherWeightG / calibMilkG appear "
-        "when the pitcher has been weighed / calibrated for weight-scaled steaming.",
+        "Disabled \"Off\" presets only carry name + disabled. pitcherWeightG is the saved "
+        "empty-pitcher weight (for net-milk capture). calibMilkG is a legacy per-pitcher "
+        "reference weight, no longer used for scaling — weight-timed steaming now uses a single "
+        "global rate (steamSecondsPerGram in settings), not per-pitcher calibration.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [settings](const QJsonObject&) -> QJsonObject {
             QJsonObject result;
