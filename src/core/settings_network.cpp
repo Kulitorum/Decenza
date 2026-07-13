@@ -954,6 +954,7 @@ const QVector<WidgetCatalogEntry>& widgetCatalogTable() {
         { "doseWeight",       1, "layoutEditor.widgetDoseWeight",    "Dose Weight",    "layoutEditor.chipDoseWeight", "Dose",       "", true },
         { "milkWeight",       1, "layoutEditor.widgetMilkWeight",    "Milk Weight",    "layoutEditor.chipMilkWeight", "Milk",       "", true },
         { "ratioQuickSelect", 1, "layoutEditor.widgetRatioQuickSelect", "Ratio Quick-Select", "layoutEditor.chipRatioQuick", "Ratio", "", true },
+        { "grindQuickSelect", 1, "layoutEditor.widgetGrindQuickSelect", "Grind Quick-Select", "layoutEditor.chipGrindQuick", "Grind", "", true },
         { "shotPlan",         1, "layoutEditor.widgetShotPlan",      "Shot Plan",      "layoutEditor.chipShotPlan",   "Shot Plan",  "", true },
         // The clock palette label reuses the chip key — pre-existing (the widget
         // was renamed to "Time" and the chip key kept for translations).
