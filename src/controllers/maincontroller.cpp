@@ -225,6 +225,15 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // recipe the user is in the act of leaving (add-recipes).
     m_recipeStorage = new RecipeStorage(this);
     m_recipeStorage->initialize(m_shotHistory->databasePath());
+    // Migration 31's deferred temp-offset conversion must be queued on the
+    // serialized recipe worker BEFORE setupRecipeConnections() — whose tail
+    // enqueues the startup active-recipe restore read — so that read (and
+    // every later one; the worker is FIFO) sees converted values. Queued
+    // after, the first post-upgrade launch would cache the active recipe
+    // with tempOffsetC 0 and paint its designed temperature as a phantom
+    // override for a whole session. ProfileManager scanned its catalog in
+    // its constructor, so the title→temperature snapshot is ready.
+    requestRecipeTempOffsetConversion();
     setupRecipeConnections();
 
     // Switching beans resets the brew overrides to the active profile's
@@ -627,6 +636,39 @@ MainController::MainController(QNetworkAccessManager* networkManager,
                 .arg(stackTrace));
         }
     });
+
+    // Re-run the temp-offset conversion after any import that can land
+    // legacy-source rows (the startup pass ran before setupRecipeConnections,
+    // see the constructor's storage block). A device transfer imports profile
+    // FILES too, and this C++ connect fires before the QML page's
+    // onImportComplete → ProfileManager.refreshProfiles() — so rescan the
+    // catalog HERE first, or the conversion would snapshot the pre-import
+    // catalog, fail to resolve the transferred recipes' profiles, and drop
+    // their temperature pins permanently.
+    connect(m_shotHistory, &ShotHistoryStorage::importDatabaseFinished, this,
+            [this](bool success) {
+        if (success)
+            requestRecipeTempOffsetConversion();
+    });
+    connect(m_dataMigration, &DataMigrationClient::importComplete, this,
+            [this]() {
+        if (m_profileManager)
+            m_profileManager->refreshProfiles();
+        requestRecipeTempOffsetConversion();
+    });
+}
+
+void MainController::requestRecipeTempOffsetConversion() {
+    if (!m_recipeStorage || !m_profileManager)
+        return;
+    QHash<QString, double> tempsByTitle;
+    const QList<ProfileInfo>& all = m_profileManager->allProfiles();
+    tempsByTitle.reserve(all.size());
+    for (const ProfileInfo& info : all) {
+        if (info.espressoTemperature > 0)
+            tempsByTitle.insert(info.title, info.espressoTemperature);
+    }
+    m_recipeStorage->requestLegacyTempOffsetConversion(tempsByTitle);
 }
 
 void MainController::loadShotWithMetadata(qint64 shotId, double doseOverride) {
@@ -978,7 +1020,7 @@ void MainController::setupRecipeConnections() {
     });
     // Yield/temp are per-brew OVERRIDES, not tweaks: they live in Settings.brew
     // only and are never auto-stamped onto the recipe from the live dial
-    // (recipe-aware-brew-settings). The recipe's yieldG/tempOverrideC change
+    // (recipe-aware-brew-settings). The recipe's yieldG/tempOffsetC change
     // only through explicit recipe edits — Brew Settings' "Update Recipe"
     // button, the composer, MCP/web recipe_update — mirroring how a profile's
     // target/temperature never follow the dial either.
@@ -1323,19 +1365,35 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         // Profile-less recipes have no profile to override or re-upload.
         bool hasOverrides = false;
         if (!profileLess) {
-            // A recipe value matching the profile's own default is not an
-            // override — don't arm the flag for it (Bug A).
+            // A recipe YIELD matching the profile's own default is not an
+            // override — don't arm the flag for it (Bug A). Temperature no
+            // longer needs this guard: its stored offset is unambiguous.
             const double yieldG = recipe.value("yieldG").toDouble();
             if (yieldG > 0
                 && qAbs(yieldG - m_profileManager->currentProfile().targetWeight()) > 0.1) {
                 m_settings->brew()->setBrewYieldOverride(yieldG);
                 hasOverrides = true;
             }
-            const double tempC = recipe.value("tempOverrideC").toDouble();
-            if (tempC > 0
-                && qAbs(tempC - m_profileManager->currentProfile().espressoTemperature()) > 0.1) {
-                m_settings->brew()->setTemperatureOverride(tempC);
+            // Temperature is a stored OFFSET against the profile
+            // (recipe-relative-temp-offset): the brew temperature is computed
+            // profileTemp + offset at activation, so the recipe follows any
+            // later profile temperature edit. Offset 0 is unambiguous "brew at
+            // the profile's temperature" — no coincidental-default comparison
+            // needed (the old Bug-A guard).
+            const double tempOffsetC = recipe.value("tempOffsetC").toDouble();
+            const double profileTempC = m_profileManager->currentProfile().espressoTemperature();
+            if (qAbs(tempOffsetC) > 0.05 && profileTempC > 0) {
+                m_settings->brew()->setTemperatureOverride(profileTempC + tempOffsetC);
                 hasOverrides = true;
+            } else if (qAbs(tempOffsetC) > 0.05) {
+                // A real offset with no profile temperature to anchor on: the
+                // shot brews at whatever the machine holds. Loud, because the
+                // user asked for "profile −3°" and silently not getting it is
+                // undebuggable.
+                qWarning() << "applyActivatedRecipe: recipe" << recipe.value("name").toString()
+                           << "has temp offset" << tempOffsetC
+                           << "but the loaded profile reports no espresso_temperature"
+                           << "- skipping the temperature override";
             }
         }
         if (hasOverrides)
@@ -1479,17 +1537,21 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
 // Recipe-aware brew baseline (recipe-baseline-not-override, #1485). A recipe's
 // own yield/temp ARE the baseline when it's active — so a widget must measure
 // "is this a real override?" against the recipe, not the profile. These four
-// fold that choice into one source of truth. The recipe map keys ("tempOverrideC"
+// fold that choice into one source of truth. The recipe map keys ("tempOffsetC"
 // / "yieldG") match applyActivatedRecipe's read-back; 0 = the recipe pins none,
 // so fall back to the profile (which also covers the no-recipe case since
-// m_activeRecipe is cleared on deactivation).
+// m_activeRecipe is cleared on deactivation). The temperature baseline is
+// OFFSET-derived — profile temp + the recipe's stored delta — never a stored
+// absolute (recipe-relative-temp-offset).
 double MainController::activeBaselineTemperatureC() const {
+    const double profileTemp =
+        m_profileManager ? m_profileManager->profileTargetTemperature() : 0.0;
     if (!m_activeRecipe.isEmpty()) {
-        const double t = m_activeRecipe.value(QStringLiteral("tempOverrideC")).toDouble();
-        if (t > 0.0)
-            return t;
+        const double offset = m_activeRecipe.value(QStringLiteral("tempOffsetC")).toDouble();
+        if (qAbs(offset) > 0.05 && profileTemp > 0)
+            return profileTemp + offset;
     }
-    return m_profileManager ? m_profileManager->profileTargetTemperature() : 0.0;
+    return profileTemp;
 }
 
 double MainController::activeBaselineYieldG() const {

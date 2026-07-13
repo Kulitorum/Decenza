@@ -1,29 +1,6 @@
-# recipe-quick-switch Specification
+# recipe-quick-switch Delta
 
-## Purpose
-TBD - created by archiving change add-recipes. Update Purpose after archive.
-## Requirements
-### Requirement: Recipes idle widget mirrors the Beans button
-The system SHALL provide a Recipes layout widget structurally mirroring the Beans widget: tap toggles a pill row of the five most-recently-used non-archived recipes (MRU-ordered, no favorite flag), tapping a pill activates that recipe, and double-tap or long-press opens the Recipes management page. The active recipe's pill SHALL be highlighted. When no recipes exist, a plain tap SHALL go directly to the Recipes management page. The widget SHALL meet the accessibility rules that the Beans widget follows (focus trap in the pill popup, announcements, `AccessibleTapHandler`).
-
-#### Scenario: Quick switch
-- **WHEN** the user taps the Recipes widget and selects a pill
-- **THEN** that recipe activates (full bundle incl. steam) and the pill row closes with the selection highlighted on next open
-
-#### Scenario: Empty state
-- **WHEN** the user taps the widget with zero recipes
-- **THEN** the Recipes management page opens directly
-
-#### Scenario: MRU ordering
-- **WHEN** a recipe is activated
-- **THEN** it moves to the front of the pill list, and only the five most recent appear
-
-### Requirement: Bean button coherence
-Activating a recipe SHALL set the active bag (the recipe's linked bag), so the Beans widget's pill selection reflects the recipe's bag without additional wiring. Deactivation by ingredient swap SHALL deselect the recipe pill while leaving bag selection as the user set it.
-
-#### Scenario: Bag pill follows recipe
-- **WHEN** a recipe linked to bag X is activated
-- **THEN** the Beans widget shows bag X as selected
+## MODIFIED Requirements
 
 ### Requirement: Management page
 The Recipes management page SHALL list all non-archived recipes with create, edit, clone, and archive/delete actions (delete only for recipes with no shots), and provide access to archived recipes for reference. Each recipe card SHALL present, in order: the recipe name as the top-line anchor (with the Active badge); a drink line with the drink-type icon, its short label, the profile title (always shown, including for same-bean twins), and the milk weight when stored (the bare word "milk" SHALL NOT appear without the weight); a bean line with the bag name and shot count; and the shot-plan line. Card text lines SHALL wrap rather than elide so the profile is never truncated away — added card height is acceptable. Profile-less hot-water tea cards SHALL show "Tea · Hot water" on the drink line and the vessel snapshot (amount and temperature) in place of the shot-plan line. When zero recipes exist the page SHALL show two large starter tiles — one opening shot history (promote a good shot) and one opening the wizard — in place of a text-only hint.
@@ -66,22 +43,3 @@ The shot-plan line SHALL be computed entirely from the card's own recipe, presen
 #### Scenario: An unmodified value carries no highlight
 - **WHEN** a recipe stores offset 0 and a yield equal to its profile's target
 - **THEN** its card shows the profile's temps and yield in the default text color with no tag and no arrow
-
-### Requirement: Recipe pills show a drink-type icon
-Recipe pills in the idle widget and recipe lists SHALL show a small icon for the recipe's drink type (stored value, derived from blocks when absent), rendered as an SVG image (never a Unicode glyph per QML conventions). Wherever the drink type appears as text (cards, wizard summary, auto-names), surfaces SHALL use short labels — "Latte", "Tea", "Americano", "Long black" — reserving the long picker labels ("Latte / Cappuccino", "Tea (hot water)") for the wizard's drink-type step.
-
-#### Scenario: Mixed pill row is scannable
-- **WHEN** the idle widget shows an espresso, a latte, and a tea recipe
-- **THEN** each pill carries its distinct drink-type icon
-
-#### Scenario: Americano and long black stay distinct
-- **WHEN** an americano recipe and a long-black recipe appear on cards or the summary
-- **THEN** each pairs the shared water icon with its own short text label
-
-### Requirement: Stale recipes are visibly indicated
-Surfaces listing recipes SHALL indicate a stale recipe (linked bag finished): the management card SHALL show a "bag finished" state with the one-tap re-point affordance (see `recipe-bag-lifecycle`), and the idle pill SHALL be dimmed or badged. Indication SHALL NOT block activation.
-
-#### Scenario: Stale pill still works
-- **WHEN** the idle pill row contains a stale recipe
-- **THEN** the pill is visually distinct, and tapping it still activates the recipe
-

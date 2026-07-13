@@ -69,7 +69,7 @@ QJsonObject webRecipeJson(const Recipe& r, int activeRecipeId, QSqlDatabase* db,
     o["equipmentId"] = r.equipmentId;
     o["doseG"] = r.doseG;
     o["yieldG"] = r.yieldG;
-    o["temperatureOverrideC"] = r.tempOverrideC;
+    o["tempOffsetC"] = r.tempOffsetC;
     o["grindPinned"] = r.grindPinned;
     o["rpmPinned"] = r.rpmPinned;
     if (!r.steamJson.isEmpty())
@@ -130,8 +130,8 @@ QVariantMap recipeFieldsFromBody(const QJsonObject& body)
         fields.insert("doseG", body["doseG"].toDouble());
     if (body.contains("yieldG"))
         fields.insert("yieldG", body["yieldG"].toDouble());
-    if (body.contains("temperatureOverrideC"))
-        fields.insert("tempOverrideC", body["temperatureOverrideC"].toDouble());
+    if (body.contains("tempOffsetC"))
+        fields.insert("tempOffsetC", body["tempOffsetC"].toDouble());
     if (body.contains("steam"))
         fields.insert("steamJson", QString::fromUtf8(
             QJsonDocument(body["steam"].toObject()).toJson(QJsonDocument::Compact)));
@@ -200,6 +200,12 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
     // POST /api/recipes — create. Profile required unless the recipe is
     // hot-water-only (hasWater in the block) — the shared validation rule.
     if (path == "/api/recipes" && method == "POST") {
+        // The retired absolute field fails LOUD: an old client writing ~90
+        // into the delta column would be a 90° offset.
+        if (bodyJson.contains(QStringLiteral("temperatureOverrideC"))) {
+            respondJson(QJsonObject{{"error", "temperatureOverrideC was replaced by tempOffsetC — a SIGNED DELTA in Celsius against the recipe's profile (recipe-relative-temp-offset). Rejected rather than silently dropped: an absolute written into the delta field would corrupt the recipe's temperature."}}, 400);
+            return;
+        }
         QVariantMap fields = recipeFieldsFromBody(bodyJson);
         // The REST route accepts free text — enforce the drink-type vocabulary
         // (the bundled page's <select> constrains only the browser form).
@@ -352,6 +358,11 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
 
         // POST /api/recipe/<id> — update
         if (action.isEmpty()) {
+            // The retired absolute field fails LOUD (see the create route).
+            if (bodyJson.contains(QStringLiteral("temperatureOverrideC"))) {
+                respondJson(QJsonObject{{"error", "temperatureOverrideC was replaced by tempOffsetC — a SIGNED DELTA in Celsius against the recipe's profile (recipe-relative-temp-offset). Rejected rather than silently dropped: an absolute written into the delta field would corrupt the recipe's temperature."}}, 400);
+                return;
+            }
             QVariantMap fields = recipeFieldsFromBody(bodyJson);
             const QString requestedType = fields.value("drinkType").toString();
             if (!requestedType.isEmpty() && !Recipe::isKnownDrinkType(requestedType)) {
@@ -560,7 +571,7 @@ QString ShotServer::generateRecipesPage() const
         <label>Coffee</label><input id="fCoffee">
         <label>Dose (g)</label><input id="fDose" type="number" step="0.1">
         <label>Yield (g)</label><input id="fYield" type="number" step="0.1">
-        <label>Temp override (&deg;C)</label><input id="fTemp" type="number" step="0.1">
+        <label>Temp offset (&deg;C, relative to the profile)</label><input id="fTemp" type="number" step="0.1">
         <label>Grind (this recipe's own; on create, blank adopts the bag's dial)</label><input id="fGrind">
         <label>Drink type</label>
         <select id="fDrinkType">
@@ -735,7 +746,7 @@ QString ShotServer::generateRecipesPage() const
             document.getElementById('fCoffee').value = r.coffeeName || '';
             document.getElementById('fDose').value = r.doseG > 0 ? r.doseG : '';
             document.getElementById('fYield').value = r.yieldG > 0 ? r.yieldG : '';
-            document.getElementById('fTemp').value = r.temperatureOverrideC > 0 ? r.temperatureOverrideC : '';
+            document.getElementById('fTemp').value = (r.tempOffsetC || 0) !== 0 ? r.tempOffsetC : '';
             document.getElementById('fGrind').value = r.grindPinned || '';
             const steam = r.steam || {};
             document.getElementById('fHasMilk').checked = !!steam.hasMilk;
@@ -777,7 +788,7 @@ QString ShotServer::generateRecipesPage() const
                 coffeeName: document.getElementById('fCoffee').value.trim(),
                 doseG: parseFloat(document.getElementById('fDose').value) || 0,
                 yieldG: parseFloat(document.getElementById('fYield').value) || 0,
-                temperatureOverrideC: parseFloat(document.getElementById('fTemp').value) || 0,
+                tempOffsetC: parseFloat(document.getElementById('fTemp').value) || 0,
                 grindPinned: document.getElementById('fGrind').value.trim(),
                 steam: steam,
                 hotWater: hotWater

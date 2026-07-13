@@ -48,6 +48,11 @@ template<auto M> void readBool(Recipe& r, const QVariant& v) { static_assert(std
 
 template<auto M> QVariant bindStr  (const Recipe& r) { static_assert(std::is_same_v<RecipeMemberT<M>, QString>); return nullIfEmpty(r.*M); }
 template<auto M> QVariant bindDbl  (const Recipe& r) { static_assert(std::is_same_v<RecipeMemberT<M>, double>);  return nullIfZero(r.*M); }
+// Signed double bind: negative values are meaningful (temp_offset_c is a
+// signed delta) so the nullIfZero collapse would silently drop them. 0 binds
+// as an EXPLICIT 0, never NULL — NULL is reserved as migration 31's
+// "unconverted" marker (see convertLegacyTempOffsetsStatic).
+template<auto M> QVariant bindDblSigned(const Recipe& r) { static_assert(std::is_same_v<RecipeMemberT<M>, double>); return QVariant(r.*M); }
 template<auto M> QVariant bindBool (const Recipe& r) { static_assert(std::is_same_v<RecipeMemberT<M>, bool>);    return (r.*M) ? 1 : 0; }
 template<auto M> QVariant bindEpoch(const Recipe& r) { static_assert(std::is_same_v<RecipeMemberT<M>, qint64>);  return (r.*M) > 0 ? QVariant(r.*M) : QVariant(); }
 
@@ -75,6 +80,10 @@ struct RecipeCol {
     RecipeCol{ sqlName, #member, true, \
                &readDbl<&Recipe::member>, &bindDbl<&Recipe::member>, \
                &getMember<&Recipe::member>, &setDbl<&Recipe::member> }
+#define COL_DBL_SIGNED(sqlName, member) \
+    RecipeCol{ sqlName, #member, true, \
+               &readDbl<&Recipe::member>, &bindDblSigned<&Recipe::member>, \
+               &getMember<&Recipe::member>, &setDbl<&Recipe::member> }
 #define COL_BOOL(sqlName, member) \
     RecipeCol{ sqlName, #member, true, \
                &readBool<&Recipe::member>, &bindBool<&Recipe::member>, \
@@ -101,7 +110,7 @@ const RecipeCol kCols[] = {
     COL_EPOCH("equipment_id",          equipmentId),
     COL_DBL  ("dose_g",                doseG),
     COL_DBL  ("yield_g",               yieldG),
-    COL_DBL  ("temp_override_c",       tempOverrideC),
+    COL_DBL_SIGNED("temp_offset_c",    tempOffsetC),
     COL_STR  ("grind_pinned",          grindPinned),
     COL_EPOCH("rpm_pinned",            rpmPinned),
     COL_STR  ("steam_json",            steamJson),
@@ -114,6 +123,7 @@ const RecipeCol kCols[] = {
 
 #undef COL_STR
 #undef COL_DBL
+#undef COL_DBL_SIGNED
 #undef COL_BOOL
 #undef COL_EPOCH
 #undef COL_ID
@@ -713,7 +723,8 @@ bool RecipeStorage::ensureTableStatic(QSqlDatabase& db)
             equipment_id INTEGER,
             dose_g REAL,
             yield_g REAL,
-            temp_override_c REAL,
+            temp_offset_c REAL,
+            temp_override_c REAL, -- dead: pre-31 absolute temps; carrier for legacy-source imports only
             grind_pinned TEXT,
             rpm_pinned INTEGER,
             steam_json TEXT,
@@ -1036,6 +1047,123 @@ bool RecipeStorage::migrateGrindOwnershipStatic(QSqlDatabase& db,
 }
 
 // static
+bool RecipeStorage::convertLegacyTempOffsetsStatic(QSqlDatabase& db,
+                                                   const QHash<QString, double>& profileTempsByTitle,
+                                                   int* outConvertedCount)
+{
+    // Migration 31 data pass (recipe-relative-temp-offset): rows whose
+    // temp_offset_c is NULL are unconverted — either migration 31 just added
+    // the column, or an unconverted-source import marked them
+    // (importRecipesStatic). Converted rows always hold an explicit value
+    // (bindDblSigned never writes NULL), so the pass is idempotent and
+    // re-runs are no-ops. The profile's CURRENT temperature is the anchor
+    // (catalog snapshot first — the files are the live truth); the recipe's
+    // embedded profile_json is the fallback for renamed/deleted profiles.
+    // Neither resolvable → offset 0: a delta against an unknown baseline is
+    // meaningless, and the profile-load stage of activation can't reproduce
+    // the absolute anyway.
+    if (outConvertedCount)
+        *outConvertedCount = 0;
+    QSqlQuery select(db);
+    if (!select.exec("SELECT id, name, profile_title, profile_json, "
+                     "COALESCE(temp_override_c, 0) FROM recipes "
+                     "WHERE temp_offset_c IS NULL")) {
+        qWarning() << "RecipeStorage: temp-offset conversion select failed:"
+                   << select.lastError().text();
+        return false;
+    }
+
+    struct Row { qint64 id; double offset; };
+    QVector<Row> rows;
+    while (select.next()) {
+        const qint64 id = select.value(0).toLongLong();
+        const QString name = select.value(1).toString();
+        const QString title = select.value(2).toString();
+        const QString json = select.value(3).toString();
+        const double legacyAbs = select.value(4).toDouble();
+
+        double offset = 0;
+        // Profile-less rows (hot-water tea) legitimately have no anchor and
+        // their legacy absolute was never applied at activation — drop the
+        // pin quietly rather than warning about resolving "".
+        if (legacyAbs > 0 && !title.isEmpty()) {
+            double profileTemp = profileTempsByTitle.value(title, 0);
+            if (profileTemp <= 0 && !json.isEmpty()) {
+                QJsonParseError parseError;
+                const QJsonObject o =
+                    QJsonDocument::fromJson(json.toUtf8(), &parseError).object();
+                if (parseError.error != QJsonParseError::NoError)
+                    qWarning() << "RecipeStorage: temp-offset conversion - recipe" << name
+                               << "has malformed embedded profile JSON:"
+                               << parseError.errorString();
+                profileTemp = o.value(QStringLiteral("espresso_temperature")).toString().toDouble();
+                if (profileTemp <= 0)
+                    profileTemp = o.value(QStringLiteral("espresso_temperature")).toDouble();
+            }
+            if (profileTemp > 0) {
+                offset = legacyAbs - profileTemp;
+                if (qAbs(offset) < 0.05)
+                    offset = 0;
+            } else {
+                qWarning() << "RecipeStorage: temp-offset conversion could not resolve profile"
+                           << title << "for recipe" << name << "- dropping its temperature pin";
+            }
+        }
+        rows.append({id, offset});
+    }
+
+    for (const Row& row : rows) {
+        QSqlQuery update(db);
+        update.prepare("UPDATE recipes SET temp_offset_c = :offset WHERE id = :id");
+        update.bindValue(":offset", row.offset);
+        update.bindValue(":id", row.id);
+        if (!update.exec()) {
+            qWarning() << "RecipeStorage: temp-offset conversion update failed:"
+                       << update.lastError().text();
+            return false;
+        }
+        if (outConvertedCount)
+            ++(*outConvertedCount);
+    }
+    if (!rows.isEmpty())
+        qDebug() << "RecipeStorage: temp-offset conversion -" << rows.size()
+                 << "recipes converted to relative offsets";
+    return true;
+}
+
+void RecipeStorage::requestLegacyTempOffsetConversion(const QHash<QString, double>& profileTempsByTitle)
+{
+    auto convertedCount = std::make_shared<int>(0);
+    runAsync("recipes_temp_offset",
+        [profileTempsByTitle, convertedCount](QSqlDatabase& db) {
+            // Existence probe first: a completed no-op pass would otherwise
+            // report success and emit a spurious recipesChanged() (QML
+            // inventory refresh) on every launch — the probe keeps the
+            // steady state signal-free. Its own exec failing is NOT "nothing
+            // to convert": most plausibly the column is missing (migration 31
+            // failed and will retry), and staying silent here would hide that
+            // on every launch.
+            QSqlQuery probe(db);
+            if (!probe.exec("SELECT 1 FROM recipes WHERE temp_offset_c IS NULL LIMIT 1")) {
+                qWarning() << "RecipeStorage: temp-offset conversion probe failed"
+                              "(temp_offset_c column missing? migration 31 will retry):"
+                           << probe.lastError().text();
+                return;
+            }
+            if (!probe.next())
+                return;
+            convertLegacyTempOffsetsStatic(db, profileTempsByTitle, convertedCount.get());
+        },
+        [this, convertedCount](bool) {
+            // Emit for the rows that DID convert even when the pass then hit
+            // an update failure — their cards should refresh now; the
+            // remaining NULL rows retry on the next launch.
+            if (*convertedCount > 0)
+                emit recipesChanged();
+        });
+}
+
+// static
 QVector<qint64> RecipeStorage::relinkForFinishedBagStatic(QSqlDatabase& db, qint64 finishedBagId,
                                                           qint64* outTargetBagId)
 {
@@ -1264,8 +1392,33 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
                            ? col
                            : QStringLiteral("NULL AS %1").arg(col));
 
+    // Unconverted temperature rows (recipe-relative-temp-offset): a source
+    // row still holding an ABSOLUTE temp_override_c with no converted offset
+    // must arrive as "unconverted" — the absolute staged into the
+    // destination's dead temp_override_c and temp_offset_c = NULL, so the
+    // deferred conversion pass finishes the job. Two shapes qualify:
+    //   • a pre-31 source (no temp_offset_c column at all) — every row;
+    //   • a ≥31 source whose OWN deferred pass hadn't completed when the
+    //     backup was taken — exactly the rows where temp_offset_c IS NULL
+    //     (readDbl would otherwise flatten the marker to an explicit 0 and
+    //     silently destroy the still-recoverable pin).
+    // The per-row NULL check is load-bearing in the other direction too: a
+    // CONVERTED row carries a correct temp_offset_c AND a stale absolute in
+    // its dead column — reconverting from that would resurrect an offset the
+    // user has since changed or cleared, so converted rows import their
+    // offset verbatim and their dead column is ignored.
+    const bool srcHasOverrideCol = srcColumns.contains(QStringLiteral("temp_override_c"));
+    const bool srcHasOffsetCol = srcColumns.contains(QStringLiteral("temp_offset_c"));
+    QString trailingCols;
+    if (srcHasOverrideCol)
+        trailingCols += QStringLiteral(", COALESCE(temp_override_c, 0)");
+    if (srcHasOverrideCol && srcHasOffsetCol)
+        trailingCols += QStringLiteral(", temp_offset_c IS NULL");
+    QString selectSql = QString("SELECT %1%2 FROM recipes")
+        .arg(selectCols.join(QStringLiteral(", ")), trailingCols);
+
     QSqlQuery srcRecipes(srcDb);
-    if (!srcRecipes.exec(QString("SELECT %1 FROM recipes").arg(selectCols.join(QStringLiteral(", "))))) {
+    if (!srcRecipes.exec(selectSql)) {
         qWarning() << "RecipeStorage: failed to query source recipes:" << srcRecipes.lastError().text();
         return false;
     }
@@ -1274,6 +1427,10 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     QVector<qint64> insertedIds;  // scope for the post-import grind backfill
     while (srcRecipes.next()) {
         Recipe recipe = recipeFromQueryRow(srcRecipes);
+        const double legacyAbsTemp = srcHasOverrideCol
+            ? srcRecipes.value(kColCount).toDouble() : 0.0;
+        const bool rowUnconverted = srcHasOverrideCol
+            && (!srcHasOffsetCol || srcRecipes.value(kColCount + 1).toBool());
         // Remap the source equipment_id to the imported package's new dest id
         // (EquipmentStorage::importEquipmentStatic ran first). A source id
         // absent from the map (older source with no equipment tables, or an
@@ -1319,6 +1476,21 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
                 return false;
             imported++;
             insertedIds.append(destId);
+            if (rowUnconverted && legacyAbsTemp > 0) {
+                // Stage the legacy absolute + the unconverted marker; the
+                // deferred pass (convertLegacyTempOffsetsStatic) turns it into
+                // an offset once the caller re-triggers conversion.
+                QSqlQuery stage(destDb);
+                stage.prepare("UPDATE recipes SET temp_offset_c = NULL, "
+                              "temp_override_c = :abs WHERE id = :id");
+                stage.bindValue(":abs", legacyAbsTemp);
+                stage.bindValue(":id", destId);
+                if (!stage.exec()) {
+                    qWarning() << "RecipeStorage: failed to stage legacy temp for import:"
+                               << stage.lastError().text();
+                    return false;
+                }
+            }
         }
         outIdMap.insert(recipe.id, destId);
     }

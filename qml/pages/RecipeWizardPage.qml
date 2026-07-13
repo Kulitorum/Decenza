@@ -156,7 +156,11 @@ Page {
     property string fProfileJson: ""
     property real fProfileTempC: 0
     property real fTempDeltaC: 0
-    property real fLoadedTempOverrideC: 0
+    // The stored offset as loaded, preserved verbatim when the profile's own
+    // temperature can't be resolved (uninstalled profile): the tea save path
+    // needs the profile temp to convert its absolute UI back to an offset,
+    // and without it the loaded offset must ride through untouched.
+    property real fLoadedTempOffsetC: 0
     property bool _submitting: false
     // The hard bag link (recipes-bag-links-ui-polish): the SPECIFIC bag this
     // recipe is made with — selection on the bag step links exactly that
@@ -208,11 +212,12 @@ Page {
         coffeeName: fCoffee,
         doseG: parseFloat(doseField.text) || 0,
         yieldG: parseFloat(yieldField.text) || 0,
-        tempOverrideC: isTeaDrink
-            ? (fTeaTempC > 0 && Math.abs(fTeaTempC - fProfileTempC) > 0.05 ? fTeaTempC : 0)
-            : (fProfileTempC > 0
-                ? (Math.abs(fTempDeltaC) > 0.05 ? fProfileTempC + fTempDeltaC : 0)
-                : fLoadedTempOverrideC),
+        tempOffsetC: isTeaDrink
+            ? (fProfileTempC > 0
+                ? (fTeaTempC > 0 && Math.abs(fTeaTempC - fProfileTempC) > 0.05
+                    ? fTeaTempC - fProfileTempC : 0)
+                : fLoadedTempOffsetC)
+            : (Math.abs(fTempDeltaC) > 0.05 ? fTempDeltaC : 0),
         grindPinned: (!activeTemplate.grind) ? "" : grindField.text.trim(),
         steamJson: buildSteamJson(),
         hotWaterJson: buildHotWaterJson()
@@ -284,17 +289,20 @@ Page {
         fEquipmentId = r.equipmentId || 0
         doseField.text = r.doseG > 0 ? Number(r.doseG).toFixed(1) : ""
         yieldField.text = r.yieldG > 0 ? Number(r.yieldG).toFixed(1) : ""
-        fLoadedTempOverrideC = r.tempOverrideC || 0
+        fLoadedTempOffsetC = r.tempOffsetC || 0
         refreshProfileTemp()
-        fTempDeltaC = (r.tempOverrideC > 0 && fProfileTempC > 0)
-            ? r.tempOverrideC - fProfileTempC : 0
-        // Tea stores its brew temperature ABSOLUTE in tempOverrideC, and the
-        // save path reads it only from fTeaTempC — seed it here or an
+        // The stored offset loads verbatim — no open-time subtraction against
+        // the profile temp, so a profile temperature edit can never manufacture
+        // a phantom offset here (recipe-relative-temp-offset).
+        fTempDeltaC = r.tempOffsetC || 0
+        // Tea EDITS its brew temperature ABSOLUTE (fTeaTempC) but stores the
+        // same offset — seed the absolute as profileTemp + offset here or an
         // edit/clone/promote (which all load through this function and open on
         // the summary, never through applyDetailsPrefill) would save 0 and
-        // silently discard the stored temperature.
+        // silently discard the stored temperature. Unresolvable profile → 0;
+        // the save path then preserves fLoadedTempOffsetC instead.
         fTeaTempC = (r.drinkType && String(r.drinkType).indexOf("tea") === 0
-                     && r.tempOverrideC > 0) ? r.tempOverrideC : 0
+                     && fProfileTempC > 0) ? fProfileTempC + (r.tempOffsetC || 0) : 0
         grindField.text = r.grindPinned || ""
         rpmField.text = (r.rpmPinned || 0) > 0 ? String(r.rpmPinned) : ""
         applySteamJson(r.steamJson || "")
@@ -434,7 +442,10 @@ Page {
             equipmentId: shot.equipmentId || 0,
             doseG: shot.doseWeightG || 0,
             yieldG: shot.targetWeightG || 0,
-            tempOverrideC: shot.temperatureOverrideC || 0,
+            // The shot's temperature override is a frozen ABSOLUTE; converted
+            // to the recipe's offset below, once applyRecipeMap has resolved
+            // the shot's profile temperature.
+            tempOffsetC: 0,
             // The shot's own recorded dial — the exact grind that produced the
             // shot being promoted — is the recipe's default (grind lives on
             // the recipe; there is no inherit-from-bag encoding to fall back
@@ -447,6 +458,35 @@ Page {
             createdFromShotId: promoteShotId
         })
         applyRecipeMap(prefill)
+        // Promote-from-shot conversion (recipe-relative-temp-offset): offset =
+        // the shot's absolute override − the SHOT's profile snapshot
+        // temperature — the profile as it was when the shot was pulled, which
+        // is what the override was relative to. Same anchor as the C++
+        // promote path (RecipePromotion::fieldsFromShotRecord), so the two
+        // surfaces cannot disagree; the installed profile's current
+        // temperature is only the fallback for a snapshot-less shot.
+        // Unresolvable both ways → no pin.
+        if ((shot.temperatureOverrideC || 0) > 0) {
+            var promoteAnchor = 0
+            if (shot.profileJson && String(shot.profileJson).length > 0) {
+                try {
+                    promoteAnchor = Number(JSON.parse(shot.profileJson).espresso_temperature) || 0
+                } catch (e) {
+                    console.warn("RecipeWizard: shot profile snapshot JSON unparsable:", e)
+                }
+            }
+            if (promoteAnchor <= 0)
+                promoteAnchor = fProfileTempC
+            if (promoteAnchor > 0) {
+                var promoteOffset = shot.temperatureOverrideC - promoteAnchor
+                if (Math.abs(promoteOffset) < 0.05)
+                    promoteOffset = 0
+                if (isTeaDrink)
+                    fTeaTempC = shot.temperatureOverrideC
+                else
+                    fTempDeltaC = promoteOffset
+            }
+        }
         var bean = ((shot.beanBrand || "") + " " + (shot.beanType || "")).trim()
         nameField.text = bean !== "" ? bean : (shot.profileName || "")
         nameField.selectAll()
@@ -456,17 +496,40 @@ Page {
     // Resolve the selected profile's base temperature (for the offset
     // control) and target yield (for the summary hero's plan line).
     property real fProfileYieldG: 0
+    // The selected profile's frame temperatures, for the summary hero's plan
+    // line — the card renders ITS profile's temps, never the loaded one
+    // (recipe-relative-temp-offset).
+    property var fProfileStepTemps: []
     function refreshProfileTemp() {
         fProfileTempC = 0
         fProfileYieldG = 0
+        fProfileStepTemps = []
         if (fProfileTitle === "")
             return
+        var d = null
         var fn = ProfileManager.findProfileByTitle(fProfileTitle)
         if (fn && fn !== "") {
-            var d = ProfileManager.getProfileByFilename(fn)
-            fProfileTempC = d.espresso_temperature || 0
-            fProfileYieldG = d.target_weight || 0
+            d = ProfileManager.getProfileByFilename(fn)
+        } else if (fProfileJson !== "") {
+            // Embedded fallback for a renamed/uninstalled profile — the same
+            // ladder the recipe cards use.
+            try { d = JSON.parse(fProfileJson) } catch (e) {
+                console.warn("RecipeWizard: embedded profile JSON unparsable:", e)
+                d = null
+            }
         }
+        if (!d)
+            return
+        fProfileTempC = Number(d.espresso_temperature) || 0
+        fProfileYieldG = Number(d.target_weight) || 0
+        var temps = []
+        var steps = d.steps || []
+        for (var i = 0; i < steps.length; ++i) {
+            var stTemp = steps[i] ? Number(steps[i].temperature) : 0
+            if (stTemp > 0)
+                temps.push(stTemp)
+        }
+        fProfileStepTemps = temps
     }
 
     // Re-resolve the linked bag's details (grind default, roast level, tea
@@ -495,15 +558,18 @@ Page {
             equipmentId: fEquipmentId,
             doseG: parseFloat(doseField.text) || 0,
             yieldG: parseFloat(yieldField.text) || 0,
-            // Offset semantics (like the shot plan): 0° = no override. When the
-            // profile's base temp is unknown (profile not installed) we can't
-            // recompute the absolute — preserve the loaded override verbatim.
-            // Tea details edit the ABSOLUTE temp instead (fTeaTempC below).
-            tempOverrideC: isTeaDrink
-                ? (fTeaTempC > 0 && Math.abs(fTeaTempC - fProfileTempC) > 0.05 ? fTeaTempC : 0)
-                : (fProfileTempC > 0
-                    ? (Math.abs(fTempDeltaC) > 0.05 ? fProfileTempC + fTempDeltaC : 0)
-                    : fLoadedTempOverrideC),
+            // The offset IS the stored value (recipe-relative-temp-offset):
+            // the stepper edits it verbatim, 0 = brew at the profile's own
+            // temperature. Tea details edit the ABSOLUTE temp instead
+            // (fTeaTempC) and convert here at the boundary; an unresolvable
+            // profile preserves the loaded offset verbatim (the absolute UI
+            // could never display it, so it must not be able to destroy it).
+            tempOffsetC: isTeaDrink
+                ? (fProfileTempC > 0
+                    ? (fTeaTempC > 0 && Math.abs(fTeaTempC - fProfileTempC) > 0.05
+                        ? fTeaTempC - fProfileTempC : 0)
+                    : fLoadedTempOffsetC)
+                : (Math.abs(fTempDeltaC) > 0.05 ? fTempDeltaC : 0),
             // Grind always lives on the recipe (fix-recipe-grind-integrity):
             // whatever is on the field saves as the recipe's own value. Tea
             // recipes never store grind (nothing to grind).
@@ -627,7 +693,7 @@ Page {
             // only when it still fits the new filter set (checked lazily by
             // the profile step; clearing here keeps the walk honest).
             if (type === "tea_hotwater")
-                { fProfileTitle = ""; fProfileJson = ""; fProfileTempC = 0; fProfileYieldG = 0 }
+                { fProfileTitle = ""; fProfileJson = ""; fProfileTempC = 0; fProfileYieldG = 0; fProfileStepTemps = [] }
             // Per-drink-type equipment default (last recipe of this type).
             MainController.recipeStorage.requestLastEquipmentForDrinkType(type)
         }
@@ -692,6 +758,14 @@ Page {
             yieldField.text = Number(detail.target_weight).toFixed(1)
         fProfileTempC = detail.espresso_temperature || 0
         fProfileYieldG = detail.target_weight || 0
+        var pickedTemps = []
+        var pickedSteps = detail.steps || []
+        for (var psi = 0; psi < pickedSteps.length; ++psi) {
+            var psTemp = pickedSteps[psi] ? Number(pickedSteps[psi].temperature) : 0
+            if (psTemp > 0)
+                pickedTemps.push(psTemp)
+        }
+        fProfileStepTemps = pickedTemps
         // Tea temp is resolved entirely by applyDetailsPrefill (bag vendor
         // temp with the type-match correction, then profile default, then
         // history overwrite) — pre-seeding it here would make that whole
@@ -774,7 +848,9 @@ Page {
             parts.push(dose.toFixed(1) + "g → " + yieldG.toFixed(1) + "g")
         else if (dose > 0)
             parts.push(dose.toFixed(1) + "g")
-        if (isTeaDrink && fTeaTempC > 0)
+        if (isHotWaterTea && fVesselTemperatureC > 0)
+            parts.push(Math.round(fVesselTemperatureC) + "°C")   // the vessel IS the temperature source
+        else if (isTeaDrink && fTeaTempC > 0)
             parts.push(Math.round(fTeaTempC) + "°C")
         else if (Math.abs(fTempDeltaC) > 0.05)
             parts.push((fTempDeltaC > 0 ? "+" : "")
@@ -2144,7 +2220,18 @@ Page {
                                     }
                                 }
                                 NumberField {
-                                    visible: wizardPage.isTeaDrink
+                                    // Portafilter tea only: this edits an ABSOLUTE steep
+                                    // temperature that converts to the stored offset against
+                                    // the profile. Hot-water tea has no profile — its
+                                    // temperature belongs to the water vessel (recipe-model:
+                                    // the vessel is the single source of amount/temperature/
+                                    // flow; a separate field here stored a value activation
+                                    // never used). Disabled when the profile can't be
+                                    // resolved: without an anchor the save path preserves the
+                                    // stored offset untouched, so the field must not accept
+                                    // input it would silently discard.
+                                    visible: wizardPage.isTeaDrink && !wizardPage.isHotWaterTea
+                                    enabled: wizardPage.fProfileTempC > 0
                                     Layout.preferredWidth: Theme.scaled(120)
                                     label: TranslationManager.translate("recipes.wizard.teaTemp", "Temp (°C)")
                                     text: wizardPage.fTeaTempC > 0 ? String(Math.round(wizardPage.fTeaTempC)) : ""
@@ -2422,6 +2509,7 @@ Page {
                             active: false
                             profileTempC: wizardPage.fProfileTempC
                             profileYieldG: wizardPage.fProfileYieldG
+                            profileStepTemps: wizardPage.fProfileStepTemps
                             imageKey: wizardPage.fBeanBaseId !== ""
                                 ? wizardPage.fBeanBaseId
                                 : (wizardPage.fBagId > 0 ? "bag-" + wizardPage.fBagId : "")

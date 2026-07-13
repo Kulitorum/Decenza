@@ -2795,6 +2795,22 @@ QString ProfileManager::temperatureDisplay(double anchorTemp, bool hasOverride,
     return TemperatureDisplay::format(temps, anchorTemp, hasOverride, overrideTemp, fahrenheit, baselineShiftC);
 }
 
+QString ProfileManager::temperatureDisplayForSteps(const QVariantList& stepTempsC,
+                                                   double anchorTemp, bool hasOverride,
+                                                   double overrideTemp,
+                                                   double baselineShiftC) const {
+    QVector<double> temps;
+    temps.reserve(stepTempsC.size());
+    for (const QVariant& v : stepTempsC) {
+        const double t = v.toDouble();
+        if (t > 0)
+            temps.append(t);
+    }
+    const bool fahrenheit = m_settings && m_settings->app()
+        && m_settings->app()->temperatureUnit() == QLatin1String("fahrenheit");
+    return TemperatureDisplay::format(temps, anchorTemp, hasOverride, overrideTemp, fahrenheit, baselineShiftC);
+}
+
 void ProfileManager::migrateProfileFolders() {
     QString basePath = profilesPath();
     QString userPath = basePath + "/user";

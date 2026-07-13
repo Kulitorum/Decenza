@@ -239,21 +239,44 @@ Page {
             return ""
         }
 
-        // The plan line needs the profile's base temperature and target
-        // weight (the recipe stores only its overrides). One synchronous
-        // profile read per card — the list is small.
+        // The plan line needs the profile's base temperature, target weight,
+        // and frame temperatures (the recipe stores only its deltas). One
+        // synchronous profile read per card — the list is small. The frame
+        // temps make the card render ITS OWN profile, never the loaded one
+        // (recipe-relative-temp-offset); the recipe's embedded profile JSON
+        // is the fallback for a renamed/uninstalled profile, and a recipe
+        // resolvable by neither shows no temperature segment at all.
         function refreshProfileNumbers() {
             profileTempC = 0
             profileYieldG = 0
+            profileStepTemps = []
             var t = recipe && recipe.profileTitle ? String(recipe.profileTitle) : ""
             if (t === "")
                 return
+            var d = null
             var fn = ProfileManager.findProfileByTitle(t)
             if (fn && fn !== "") {
-                var d = ProfileManager.getProfileByFilename(fn)
-                profileTempC = d.espresso_temperature || 0
-                profileYieldG = d.target_weight || 0
+                d = ProfileManager.getProfileByFilename(fn)
+            } else if (recipe.profileJson && String(recipe.profileJson).length > 0) {
+                try { d = JSON.parse(recipe.profileJson) } catch (e) {
+                    console.warn("RecipesPage: recipe", recipe.name,
+                                 "has unparsable embedded profile JSON:", e)
+                    d = null
+                }
             }
+            if (!d)
+                return
+            profileTempC = Number(d.espresso_temperature) || 0
+            profileYieldG = Number(d.target_weight) || 0
+            var temps = []
+            var steps = d.steps || []
+            for (var i = 0; i < steps.length; ++i) {
+                var st = steps[i]
+                var stTemp = st ? Number(st.temperature) : 0
+                if (stTemp > 0)
+                    temps.push(stTemp)
+            }
+            profileStepTemps = temps
         }
         onRecipeChanged: refreshProfileNumbers()
         Component.onCompleted: refreshProfileNumbers()

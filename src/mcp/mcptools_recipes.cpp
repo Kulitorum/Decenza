@@ -120,7 +120,9 @@ QJsonObject recipeToJson(const Recipe& r, Settings* settings, QSqlDatabase* db,
         o["equipmentId"] = r.equipmentId;
     if (r.doseG > 0) o["doseG"] = r.doseG;
     if (r.yieldG > 0) o["yieldG"] = r.yieldG;
-    if (r.tempOverrideC > 0) o["temperatureOverrideC"] = r.tempOverrideC;
+    // The temperature is a SIGNED OFFSET against the recipe's profile
+    // (recipe-relative-temp-offset) — present only when the recipe pins one.
+    if (qAbs(r.tempOffsetC) > 0.05) o["tempOffsetC"] = r.tempOffsetC;
 
     // Grind: the recipe's own value (grind always lives on the recipe —
     // fix-recipe-grind-integrity; the inherited/pinned mode is retired).
@@ -211,8 +213,8 @@ QVariantMap recipeFieldsFromArgs(const QJsonObject& args)
         if (args.contains(key))
             fields.insert(key, args[key].toDouble());
     }
-    if (args.contains("temperatureOverrideC"))
-        fields.insert("tempOverrideC", args["temperatureOverrideC"].toDouble());
+    if (args.contains("tempOffsetC"))
+        fields.insert("tempOffsetC", args["tempOffsetC"].toDouble());
     if (args.contains("steam"))
         fields.insert("steamJson", QString::fromUtf8(
             QJsonDocument(args["steam"].toObject()).toJson(QJsonDocument::Compact)));
@@ -415,7 +417,9 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 {"equipmentId", QJsonObject{{"type", "integer"}, {"description", "Equipment package id (equipment_list)"}}},
                 {"doseG", QJsonObject{{"type", "number"}}},
                 {"yieldG", QJsonObject{{"type", "number"}}},
-                {"temperatureOverrideC", QJsonObject{{"type", "number"}}},
+                {"tempOffsetC", QJsonObject{{"type", "number"},
+                    {"description", "Signed temperature delta in Celsius against the recipe's "
+                                    "profile (0/omitted = brew at the profile's own temperature)"}}},
                 {"grindPinned", QJsonObject{{"type", "string"},
                     {"description", "The recipe's own grind. Omitted = adopt the linked bag's "
                                     "current dial at save time; explicitly empty = no grind"}}},
@@ -429,6 +433,12 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
         [recipeStorage, settings, mainController](const QJsonObject& args, std::function<void(QJsonObject)> respond) {
             if (!recipeStorage) {
                 respond(QJsonObject{{"error", "Recipe storage not available"}});
+                return;
+            }
+            // The retired absolute field fails LOUD: a pre-rename client
+            // writing ~90 into the delta column would be a 90° offset.
+            if (args.contains("temperatureOverrideC")) {
+                respond(QJsonObject{{"error", "temperatureOverrideC was replaced by tempOffsetC — a SIGNED DELTA in Celsius against the recipe's profile (recipe-relative-temp-offset). Rejected rather than silently dropped: an absolute written into the delta field would corrupt the recipe's temperature."}});
                 return;
             }
             QVariantMap fields = recipeFieldsFromArgs(args);
@@ -507,7 +517,9 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 {"equipmentId", QJsonObject{{"type", "integer"}}},
                 {"doseG", QJsonObject{{"type", "number"}}},
                 {"yieldG", QJsonObject{{"type", "number"}}},
-                {"temperatureOverrideC", QJsonObject{{"type", "number"}}},
+                {"tempOffsetC", QJsonObject{{"type", "number"},
+                    {"description", "Signed temperature delta in Celsius against the recipe's "
+                                    "profile (0 clears it)"}}},
                 {"grindPinned", QJsonObject{{"type", "string"},
                     {"description", "The recipe's own grind ('' clears it)"}}},
                 {"rpmPinned", QJsonObject{{"type", "integer"}}},
@@ -522,6 +534,11 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 return;
             }
             const qint64 recipeId = args["recipeId"].toInteger();
+            // The retired absolute field fails LOUD (see recipe_create).
+            if (args.contains("temperatureOverrideC")) {
+                respond(QJsonObject{{"error", "temperatureOverrideC was replaced by tempOffsetC — a SIGNED DELTA in Celsius against the recipe's profile (recipe-relative-temp-offset). Rejected rather than silently dropped: an absolute written into the delta field would corrupt the recipe's temperature."}});
+                return;
+            }
             QVariantMap fields = recipeFieldsFromArgs(args);
             const QString requestedType = fields.value("drinkType").toString();
             if (!requestedType.isEmpty() && !Recipe::isKnownDrinkType(requestedType)) {

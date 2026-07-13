@@ -732,8 +732,10 @@ Dialog {
                             // yield/temp are the baseline, not overrides.
                             recipeBaselineYield: (Settings.dye.activeRecipeId >= 0 && MainController.activeRecipe.yieldG > 0)
                                                  ? MainController.activeRecipe.yieldG : 0
-                            recipeBaselineTemp: (Settings.dye.activeRecipeId >= 0 && MainController.activeRecipe.tempOverrideC > 0)
-                                                ? MainController.activeRecipe.tempOverrideC : 0
+                            recipeBaselineTemp: (Settings.dye.activeRecipeId >= 0
+                                                 && ProfileManager.profileTargetTemperature > 0
+                                                 && Math.abs(MainController.activeRecipe.tempOffsetC || 0) > 0.05)
+                                                ? ProfileManager.profileTargetTemperature + MainController.activeRecipe.tempOffsetC : 0
                             // Same sentence gating as ShotPlanItem: no 3-line budget
                             // for fragment mode with a stale stacked flag.
                             maxLines: popup.shotPlanStacked && popup.shotPlanSentence ? 3 : 2

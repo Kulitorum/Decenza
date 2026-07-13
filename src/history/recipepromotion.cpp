@@ -47,7 +47,31 @@ QVariantMap fieldsFromShotRecord(const ShotRecord& record, const QString& name,
     fields.insert("equipmentId", record.equipmentId);
     fields.insert("doseG", record.summary.doseWeight);
     fields.insert("yieldG", record.targetWeight);
-    fields.insert("tempOverrideC", record.temperatureOverride);
+    // The shot's temperature override is a frozen ABSOLUTE; the recipe stores
+    // a SIGNED OFFSET against its profile (recipe-relative-temp-offset).
+    // Convert against the shot's own profile snapshot — the profile as it was
+    // when the shot was pulled, which is what the override was relative to.
+    // No snapshot (or no override) → no pin: a delta against an unknown
+    // baseline is meaningless.
+    double tempOffsetC = 0;
+    if (record.temperatureOverride > 0 && !record.profileJson.isEmpty()) {
+        const QJsonObject profile =
+            QJsonDocument::fromJson(record.profileJson.toUtf8()).object();
+        double profileTemp = profile.value(QStringLiteral("espresso_temperature"))
+                                 .toString().toDouble();
+        if (profileTemp <= 0)
+            profileTemp = profile.value(QStringLiteral("espresso_temperature")).toDouble();
+        if (profileTemp > 0) {
+            tempOffsetC = record.temperatureOverride - profileTemp;
+            if (qAbs(tempOffsetC) < 0.05)
+                tempOffsetC = 0;
+        } else {
+            qWarning() << "RecipePromotion: shot" << record.summary.id
+                       << "has a temperature override but its profile snapshot has no"
+                          " espresso_temperature - dropping the temperature pin";
+        }
+    }
+    fields.insert("tempOffsetC", tempOffsetC);
     // The shot's own recorded dial is the recipe's grind — the exact grind
     // that produced the shot being promoted (grind always lives on the
     // recipe; the old empty-means-inherit encoding is retired).

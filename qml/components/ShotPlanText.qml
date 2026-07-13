@@ -71,10 +71,23 @@ Item {
     // plain target ("40.0g", not "36.0 → 40.0g") and isn't tinted. The
     // temperature STRING is re-anchored too — `_tempStr` shifts the frames to the
     // recipe's own temps (e.g. "81 · 91°C") and drops the profile-relative tag.
-    // 0 = off — recipe cards and shot review leave these unset and keep their
-    // explicit profile-relative behavior.
+    // 0 = off — shot review leaves these unset and keeps its explicit
+    // shot-relative behavior; recipe cards use the source + delta properties
+    // below instead.
     property double recipeBaselineYield: 0
     property double recipeBaselineTemp: 0
+
+    // Recipe-card "source + delta" presentation (recipe-relative-temp-offset).
+    // profileStepTemps: the CARD's own profile's frame temperatures (plain
+    // number array) — non-empty routes the temperature string through
+    // temperatureDisplayForSteps so a card never renders whatever profile the
+    // machine currently holds. recipeTempOffsetC: the recipe's stored offset,
+    // rendered as a signed tag AFTER the base temps with the highlight on the
+    // tag only ("84 · 94°C −3°") — the card shows where the values come from
+    // and how the recipe modifies them, while live surfaces show the recipe's
+    // resulting values via recipeBaselineTemp above. Empty/0 = live behavior.
+    property var profileStepTemps: []
+    property double recipeTempOffsetC: 0
     readonly property double _yieldBaseline: recipeBaselineYield > 0 ? recipeBaselineYield : profileYield
     readonly property double _tempHlBaseline: recipeBaselineTemp > 0 ? recipeBaselineTemp : profileTemp
     // Grind RPM + whether the grinder reports RPM, the beverage word, and the
@@ -120,6 +133,12 @@ Item {
     readonly property string _tempStr: {
         void(Settings.app.temperatureUnit)
         if (!(_has("temperature") && profileTemp > 0)) return ""
+        // Recipe cards: the card's OWN profile's frames, unshifted — the
+        // recipe's stored offset renders separately as _tempTagStr. A card
+        // whose profile didn't resolve has profileTemp 0 and exits above:
+        // it never falls back to the loaded profile's frames.
+        if (profileStepTemps && profileStepTemps.length > 0)
+            return ProfileManager.temperatureDisplayForSteps(profileStepTemps, profileTemp, false, 0, 0)
         // A recipe's temperature is the baseline (a baseline is a baseline): show
         // the recipe's OWN temps (profile frames shifted by the recipe's delta,
         // e.g. "81 · 91°C") anchored on the recipe, so a tag appears only for a
@@ -127,6 +146,17 @@ Item {
         // no recipe, shift 0 and anchor on the profile → unchanged.
         var shift = recipeBaselineTemp > 0 ? (recipeBaselineTemp - profileTemp) : 0
         return ProfileManager.temperatureDisplay(_tempHlBaseline, tempOverridden, overrideTemp, shift)
+    }
+    // The card's offset tag ("−3°"), highlighted on its own — never the base
+    // temps. Follows the °C/°F display unit as a DELTA (×9/5, no +32), the
+    // same conversion the wizard's stepper uses.
+    readonly property string _tempTagStr: {
+        if (_tempStr === "" || Math.abs(recipeTempOffsetC) < 0.05) return ""
+        void(Settings.app.temperatureUnit)
+        var d = Theme.cDeltaToDisplay(recipeTempOffsetC)
+        var a = Math.round(Math.abs(d) * 10) / 10
+        var s = a.toFixed(1).replace(/\.0$/, "")
+        return (d < 0 ? "-" : "+") + s + "°"
     }
     // Roaster = brand only; Coffee = bean name only; Grind = grinder setting + RPM when recorded.
     // Each item gates exactly its named content so saved widget configs mean what they say.
@@ -186,6 +216,16 @@ Item {
             : (grindSize.length > 0 ? TranslationManager.translate("shotplan.grind", "grind %1").arg(fmt(_grindStr, true))
                                     : fmt(_grindStr, true))
         var roasted = (_roastDateStr !== "") ? TranslationManager.translate("shotplan.roasted", "roasted %1").arg(fmt(_roastDateStr, true)) : ""
+        // Temperature item: base temps + the card's offset tag. The tag is
+        // formatted as its own overridden fragment so only IT takes the
+        // highlight color in rich mode (source + delta; the a11y path reads
+        // the same words uncolored).
+        var temp = ""
+        if (_tempStr !== "") {
+            temp = fmt(_tempStr, true, _tempOverride)
+            if (_tempTagStr !== "")
+                temp += " " + fmt(_tempTagStr, true, true)
+        }
         var order = itemOrder || []
 
         // Sentence format needs the profile as its anchor; without it (item removed
@@ -196,10 +236,10 @@ Item {
             var s
             if (_yieldStr !== "" && _tempStr !== "")
                 s = TranslationManager.translate("shotplan.sentence", "Brew %1 of %2, using %3 at %4")
-                    .arg(fmt(_yieldStr, true, _yieldOverride)).arg(fmt(_beverage, false)).arg(fmt(_profileStr, true)).arg(fmt(_tempStr, true, _tempOverride))
+                    .arg(fmt(_yieldStr, true, _yieldOverride)).arg(fmt(_beverage, false)).arg(fmt(_profileStr, true)).arg(temp)
             else if (_yieldStr === "" && _tempStr !== "")
                 s = TranslationManager.translate("shotplan.sentenceNoYield", "Brew %1, using %2 at %3")
-                    .arg(fmt(_beverage, false)).arg(fmt(_profileStr, true)).arg(fmt(_tempStr, true, _tempOverride))
+                    .arg(fmt(_beverage, false)).arg(fmt(_profileStr, true)).arg(temp)
             else if (_yieldStr !== "")
                 s = TranslationManager.translate("shotplan.sentenceNoTemp", "Brew %1 of %2, using %3")
                     .arg(fmt(_yieldStr, true, _yieldOverride)).arg(fmt(_beverage, false)).arg(fmt(_profileStr, true))
@@ -247,7 +287,7 @@ Item {
                     .arg(fmt(_beverage, false))
             if (_tempStr !== "")
                 r = TranslationManager.translate("shotplan.recipe.atTemp", "%1 at %2")
-                    .arg(r).arg(fmt(_tempStr, true, _tempOverride))
+                    .arg(r).arg(temp)
             if (_doseStr !== "" && beans !== "")
                 r = TranslationManager.translate("shotplan.recipe.fromDoseBeans", "%1 from %2 of %3")
                     .arg(r).arg(fmt(_doseStr, true)).arg(beans)
@@ -277,7 +317,7 @@ Item {
                 if (_yieldStr !== "") parts.push(fmt(_yieldStr, true, _yieldOverride))
                 break
             case "profile":     if (_profileStr !== "") parts.push(fmt(_profileStr, true)); break
-            case "temperature": if (_tempStr !== "") parts.push(fmt(_tempStr, true, _tempOverride)); break
+            case "temperature": if (temp !== "") parts.push(temp); break
             case "roaster":     if (_roasterStr !== "") parts.push(fmt(_roasterStr, true)); break
             case "coffee":      if (_coffeeStr !== "") parts.push(fmt(_coffeeStr, true)); break
             case "grind":       if (grind !== "") parts.push(grind); break

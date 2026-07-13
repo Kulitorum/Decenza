@@ -16,7 +16,7 @@ static ShotRecord sampleShotRecord() {
     record.summary.beanBrand = "Roaster";
     record.summary.beanType = "Guji";
     record.summary.doseWeight = 18.0;
-    record.profileJson = "{\"title\":\"D-Flow / default\"}";
+    record.profileJson = "{\"title\":\"D-Flow / default\",\"espresso_temperature\":\"90\"}";
     record.equipmentId = 7;
     record.targetWeight = 36.0;
     record.temperatureOverride = 92.5;
@@ -58,10 +58,33 @@ private slots:
         QCOMPARE(fields.value("equipmentId").toLongLong(), qint64(7));
         QCOMPARE(fields.value("doseG").toDouble(), 18.0);
         QCOMPARE(fields.value("yieldG").toDouble(), 36.0);
-        QCOMPARE(fields.value("tempOverrideC").toDouble(), 92.5);
+        // The shot's 92.5 absolute converts to an offset against the profile
+        // snapshot's 90° (recipe-relative-temp-offset).
+        QCOMPARE(fields.value("tempOffsetC").toDouble(), 2.5);
         QCOMPARE(fields.value("steamJson").toString(), record.steamJson);
         QCOMPARE(fields.value("hotWaterJson").toString(), record.hotWaterJson);
         QCOMPARE(fields.value("createdFromShotId").toLongLong(), qint64(42));
+    }
+
+    // Temperature conversion edges (recipe-relative-temp-offset): no override
+    // → offset 0; an override whose profile snapshot carries no temperature
+    // → offset 0 (a delta against an unknown baseline is meaningless); an
+    // override matching the snapshot temp → offset 0 (rounds away).
+    void temperatureOffsetConversionEdges() {
+        ShotRecord noOverride = sampleShotRecord();
+        noOverride.temperatureOverride = 0;
+        QCOMPARE(RecipePromotion::fieldsFromShotRecord(noOverride, "n", std::nullopt, QString())
+                     .value("tempOffsetC").toDouble(), 0.0);
+
+        ShotRecord noAnchor = sampleShotRecord();
+        noAnchor.profileJson = "{\"title\":\"D-Flow / default\"}";  // no espresso_temperature
+        QCOMPARE(RecipePromotion::fieldsFromShotRecord(noAnchor, "n", std::nullopt, QString())
+                     .value("tempOffsetC").toDouble(), 0.0);
+
+        ShotRecord atProfile = sampleShotRecord();
+        atProfile.temperatureOverride = 90.0;  // equals the snapshot's 90°
+        QCOMPARE(RecipePromotion::fieldsFromShotRecord(atProfile, "n", std::nullopt, QString())
+                     .value("tempOffsetC").toDouble(), 0.0);
     }
 
     // The shot's own recorded grind/rpm become the recipe's grind regardless
