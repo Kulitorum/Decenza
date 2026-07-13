@@ -76,7 +76,7 @@ Page {
         }
         switch (currentStep) {
         case "drink":
-            root.goBack()
+            requestExit()
             break
         case "bean":
             _enterStep("drink")
@@ -98,12 +98,12 @@ Page {
             break
         case "summary":
             if (_enteredAtSummary)
-                root.goBack()
+                requestExit()
             else
                 _enterStep("details")
             break
         default:
-            root.goBack()
+            requestExit()
         }
     }
 
@@ -253,8 +253,10 @@ Page {
             applyRecipeMap(prefill)
             nameField.forceActiveFocus()
             nameField.selectAll()
+            captureBaseline()
         } else {
             currentStep = "drink"
+            captureBaseline()
         }
     }
 
@@ -437,6 +439,7 @@ Page {
         var bean = ((shot.beanBrand || "") + " " + (shot.beanType || "")).trim()
         nameField.text = bean !== "" ? bean : (shot.profileName || "")
         nameField.selectAll()
+        captureBaseline()
     }
 
     // Resolve the selected profile's base temperature (for the offset
@@ -464,21 +467,12 @@ Page {
             MainController.bagStorage.requestInventory()
     }
 
-    function save() {
-        Qt.inputMethod.commit()  // IME: flush the in-progress word first
-        errorMessage = ""
-        var name = nameField.text.trim()
-        if (name === "") {
-            errorMessage = TranslationManager.translate("recipes.wizard.errorNoName", "A recipe needs a name")
-            return
-        }
-        if (!MainController.recipeStorage.isSaveValid(name, fProfileTitle, buildHotWaterJson())) {
-            errorMessage = TranslationManager.translate("recipes.wizard.errorNoProfile",
-                "A recipe needs a profile (unless it is a hot-water drink)")
-            return
-        }
+    // The exact map save() persists — also the dirty check's comparison
+    // basis, so "unsaved changes" means precisely "save() would store
+    // something different from what was loaded".
+    function buildSaveMap() {
         var map = {
-            name: name,
+            name: nameField.text.trim(),
             drinkType: fDrinkType !== "" ? fDrinkType : deriveDrinkType(),
             profileTitle: fProfileTitle,
             profileJson: fProfileJson,
@@ -512,6 +506,23 @@ Page {
             map.createdFromShotId = prefill.createdFromShotId
         if (prefill && prefill.clonedFromRecipeId)
             map.clonedFromRecipeId = prefill.clonedFromRecipeId
+        return map
+    }
+
+    function save() {
+        Qt.inputMethod.commit()  // IME: flush the in-progress word first
+        errorMessage = ""
+        var name = nameField.text.trim()
+        if (name === "") {
+            errorMessage = TranslationManager.translate("recipes.wizard.errorNoName", "A recipe needs a name")
+            return
+        }
+        if (!MainController.recipeStorage.isSaveValid(name, fProfileTitle, buildHotWaterJson())) {
+            errorMessage = TranslationManager.translate("recipes.wizard.errorNoProfile",
+                "A recipe needs a profile (unless it is a hot-water drink)")
+            return
+        }
+        var map = buildSaveMap()
         _submitting = true
         if (mode === "edit" && editRecipeId > 0) {
             MainController.recipeStorage.requestUpdateRecipe(editRecipeId, map)
@@ -525,6 +536,36 @@ Page {
         }
     }
     property string _createToken: ""
+
+    // --- unsaved-changes guard ----------------------------------------------
+    // Snapshot of buildSaveMap() at load time; "dirty" is a comparison
+    // against it, so every field, block toggle, and picker choice is covered
+    // without per-control bookkeeping. Captured once the entry state is fully
+    // in hand (after applyRecipeMap / prefillFromShot / a blank start).
+    property string _baselineJson: ""
+    function captureBaseline() {
+        _baselineJson = JSON.stringify(buildSaveMap())
+    }
+    function hasUnsavedChanges() {
+        // No baseline yet (an edit/promote load still in flight) — nothing
+        // the user typed can have landed either; never block the exit.
+        if (_baselineJson === "")
+            return false
+        Qt.inputMethod.commit()  // IME: flush the in-progress word first
+        return JSON.stringify(buildSaveMap()) !== _baselineJson
+    }
+
+    // Every path that LEAVES the wizard funnels through here: with unsaved
+    // changes the exit dialog intercepts (Discard / Save); otherwise leave
+    // directly. During a creation walk a half-built draft that could not be
+    // saved anyway (no name/profile yet) exits silently — the dialog would
+    // only offer a disabled Save.
+    function requestExit() {
+        if (hasUnsavedChanges() && (canSave || _enteredAtSummary))
+            exitDialog.open()
+        else
+            root.goBack()
+    }
 
     // --- wizard step actions -----------------------------------------------
 
@@ -1046,6 +1087,7 @@ Page {
                 return
             if (Object.keys(recipe).length > 0) {
                 wizardPage.applyRecipeMap(recipe)
+                wizardPage.captureBaseline()
             } else {
                 // The recipe was deleted between opening the list and the load
                 // landing — don't leave a blank "edit" form the user fills in
@@ -1914,9 +1956,16 @@ Page {
                         spacing: Theme.spacingMedium
                         Label {
                             Layout.fillWidth: true
-                            text: TranslationManager.translate("recipes.wizard.detailsOptional",
-                                  "Everything here is optional — it's prefilled and ready to save. "
-                                  + "Tap a section to adjust it, then Continue.")
+                            // Edit/clone/promote (entered at the summary):
+                            // this step commits directly — never send the
+                            // user hunting for a second Save press.
+                            text: wizardPage._enteredAtSummary
+                                ? TranslationManager.translate("recipes.wizard.detailsOptionalEdit",
+                                      "Everything here is optional. "
+                                      + "Tap a section to adjust it, then Save.")
+                                : TranslationManager.translate("recipes.wizard.detailsOptional",
+                                      "Everything here is optional — it's prefilled and ready to save. "
+                                      + "Tap a section to adjust it, then Continue.")
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor
                             wrapMode: Text.WordWrap
@@ -1924,12 +1973,40 @@ Page {
                             Accessible.name: text
                         }
                         AccessibleButton {
+                            visible: wizardPage._enteredAtSummary
+                            Layout.alignment: Qt.AlignVCenter
+                            text: TranslationManager.translate("common.cancel", "Cancel")
+                            accessibleName: TranslationManager.translate("recipes.composer.accessible.cancel", "Cancel recipe editing")
+                            onClicked: wizardPage.requestExit()
+                        }
+                        AccessibleButton {
+                            visible: wizardPage._enteredAtSummary
+                            Layout.alignment: Qt.AlignVCenter
+                            primary: true
+                            enabled: wizardPage.canSave
+                            text: TranslationManager.translate("common.save", "Save")
+                            accessibleName: TranslationManager.translate("recipes.composer.accessible.save", "Save the recipe")
+                            onClicked: wizardPage.save()
+                        }
+                        AccessibleButton {
+                            visible: !wizardPage._enteredAtSummary
                             Layout.alignment: Qt.AlignVCenter
                             primary: true
                             text: TranslationManager.translate("recipes.wizard.continue", "Continue")
                             accessibleName: TranslationManager.translate("recipes.wizard.accessible.continue", "Continue to the summary")
                             onClicked: { wizardPage._fromSummary = false; wizardPage.currentStep = "summary" }
                         }
+                    }
+
+                    // Pinned with the header (matching the summary step) so a
+                    // save failure from the details step is never hidden.
+                    Label {
+                        visible: wizardPage.errorMessage !== ""
+                        Layout.fillWidth: true
+                        text: wizardPage.errorMessage
+                        font: Theme.bodyFont
+                        color: Theme.errorColor
+                        wrapMode: Text.WordWrap
                     }
 
                     Flickable {
@@ -2256,7 +2333,7 @@ Page {
                             Layout.alignment: Qt.AlignBottom
                             text: TranslationManager.translate("common.cancel", "Cancel")
                             accessibleName: TranslationManager.translate("recipes.composer.accessible.cancel", "Cancel recipe editing")
-                            onClicked: pageStack.pop()
+                            onClicked: wizardPage.requestExit()
                         }
                         AccessibleButton {
                             Layout.alignment: Qt.AlignBottom
@@ -2615,6 +2692,17 @@ Page {
                 }
             }
         }
+    }
+
+    // Unsaved-changes intercept (requestExit): leaving with edits offers
+    // Save / Discard — closing the dialog (Esc / tap outside) keeps editing.
+    UnsavedChangesDialog {
+        id: exitDialog
+        itemType: "recipe"
+        showSaveAs: false
+        canSave: wizardPage.canSave
+        onDiscardClicked: root.goBack()
+        onSaveClicked: wizardPage.save()
     }
 
     BottomBar {
