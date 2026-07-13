@@ -522,6 +522,11 @@ Page {
     }
 
     function save() {
+        // Re-entry guard: a second tap while the async create/update is in
+        // flight would submit twice (create mode would duplicate the recipe —
+        // the token guard silently discards the first reply).
+        if (_submitting)
+            return
         Qt.inputMethod.commit()  // IME: flush the in-progress word first
         errorMessage = ""
         var name = nameField.text.trim()
