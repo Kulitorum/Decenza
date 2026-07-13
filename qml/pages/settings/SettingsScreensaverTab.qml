@@ -743,6 +743,132 @@ Item {
                 anchors.margins: Theme.scaled(15)
                 spacing: Theme.scaled(15)
 
+                // Overlay chip group — the readouts/link shown on top of whichever
+                // background is active. Clock reads/writes the per-type boolean
+                // below (kept as-is); Water Level/Shot Plan/Battery/Link Button are
+                // each a single global setting shared across every background.
+                // Placed above Display so all the screensaver-overlay controls read
+                // together before the background-specific settings below.
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSmall
+                    visible: ScreensaverManager.screensaverType !== "disabled"
+
+                    Tr {
+                        key: "settings.screensaver.overlayInfo"
+                        fallback: "Info"
+                        color: Theme.textColor
+                        font.pixelSize: Theme.scaled(14)
+                    }
+
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(8)
+
+                        Repeater {
+                            model: ScreensaverManager.overlayChipsForType(ScreensaverManager.screensaverType)
+
+                            Rectangle {
+                                id: overlayChip
+
+                                function chipValue() {
+                                    switch (modelData) {
+                                    case "clock":
+                                        switch (ScreensaverManager.screensaverType) {
+                                        case "videos": return ScreensaverManager.videosShowClock
+                                        case "pipes": return ScreensaverManager.pipesShowClock
+                                        case "attractor": return ScreensaverManager.attractorShowClock
+                                        case "shotmap": return ScreensaverManager.shotMapShowClock
+                                        }
+                                        return false
+                                    case "waterLevel": return ScreensaverManager.overlayShowWaterLevel
+                                    case "shotPlan": return ScreensaverManager.overlayShowShotPlan
+                                    case "battery": return ScreensaverManager.overlayShowBattery
+                                    case "linkButton": return ScreensaverManager.overlayLinkButtonEnabled
+                                    }
+                                    return false
+                                }
+
+                                function toggleChip() {
+                                    switch (modelData) {
+                                    case "clock":
+                                        switch (ScreensaverManager.screensaverType) {
+                                        case "videos": ScreensaverManager.videosShowClock = !ScreensaverManager.videosShowClock; break
+                                        case "pipes": ScreensaverManager.pipesShowClock = !ScreensaverManager.pipesShowClock; break
+                                        case "attractor": ScreensaverManager.attractorShowClock = !ScreensaverManager.attractorShowClock; break
+                                        case "shotmap": ScreensaverManager.shotMapShowClock = !ScreensaverManager.shotMapShowClock; break
+                                        }
+                                        break
+                                    case "waterLevel": ScreensaverManager.overlayShowWaterLevel = !ScreensaverManager.overlayShowWaterLevel; break
+                                    case "shotPlan": ScreensaverManager.overlayShowShotPlan = !ScreensaverManager.overlayShowShotPlan; break
+                                    case "battery": ScreensaverManager.overlayShowBattery = !ScreensaverManager.overlayShowBattery; break
+                                    case "linkButton": ScreensaverManager.overlayLinkButtonEnabled = !ScreensaverManager.overlayLinkButtonEnabled; break
+                                    }
+                                }
+
+                                readonly property bool isOn: chipValue()
+                                readonly property string chipLabel: {
+                                    var _ = TranslationManager.translationVersion
+                                    switch (modelData) {
+                                    case "clock": return TranslationManager.translate("layoutEditor.chipTime", "Time")
+                                    case "waterLevel": return TranslationManager.translate("layoutEditor.chipWater", "Water")
+                                    case "shotPlan": return TranslationManager.translate("layoutEditor.chipShotPlan", "Shot Plan")
+                                    case "battery": return TranslationManager.translate("layoutEditor.chipBattery", "Battery")
+                                    case "linkButton": return TranslationManager.translate("settings.screensaver.linkButton", "Link Button")
+                                    }
+                                    return modelData
+                                }
+
+                                width: chipText.implicitWidth + Theme.scaled(24)
+                                height: Theme.scaled(32)
+                                radius: Theme.scaled(16)
+                                color: isOn ? Theme.primaryColor : "transparent"
+                                border.color: isOn ? Theme.primaryColor : Theme.borderColor
+                                border.width: 1
+
+                                Text {
+                                    id: chipText
+                                    anchors.centerIn: parent
+                                    text: overlayChip.chipLabel
+                                    color: overlayChip.isOn ? Theme.primaryContrastColor : Theme.textColor
+                                    font.pixelSize: Theme.scaled(13)
+                                    Accessible.ignored: true
+                                }
+
+                                AccessibleMouseArea {
+                                    anchors.fill: parent
+                                    accessibleName: overlayChip.chipLabel
+                                    accessibleRole: Accessible.CheckBox
+                                    accessibleChecked: overlayChip.isOn
+                                    onAccessibleClicked: overlayChip.toggleChip()
+                                }
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(10)
+                        visible: ScreensaverManager.overlayLinkButtonEnabled
+
+                        StyledTextField {
+                            Layout.preferredWidth: Theme.scaled(160)
+                            placeholderText: TranslationManager.translate("settings.screensaver.linkButtonLabelPlaceholder", "Button label")
+                            text: ScreensaverManager.overlayLinkButtonLabel
+                            accessibleName: TranslationManager.translate("settings.screensaver.linkButtonLabel", "Link button label")
+                            onEditingFinished: ScreensaverManager.overlayLinkButtonLabel = text
+                        }
+
+                        StyledTextField {
+                            Layout.fillWidth: true
+                            placeholderText: TranslationManager.translate("settings.screensaver.linkButtonUrlPlaceholder", "https://…")
+                            text: ScreensaverManager.overlayLinkButtonUrl
+                            accessibleName: TranslationManager.translate("settings.screensaver.linkButtonUrl", "Link button URL")
+                            onEditingFinished: ScreensaverManager.overlayLinkButtonUrl = text
+                        }
+                    }
+                }
+
                 Tr {
                     key: "settings.screensaver.display"
                     fallback: "Display"
@@ -851,23 +977,6 @@ Item {
                         }
                     }
 
-                    RowLayout {
-                        spacing: Theme.scaled(10)
-
-                        Tr {
-                            key: "settings.screensaver.showClock"
-                            fallback: "Show Clock"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        StyledSwitch {
-                            checked: ScreensaverManager.pipesShowClock
-                            accessibleName: TranslationManager.translate("settings.screensaver.showClock", "Show Clock")
-                            onCheckedChanged: ScreensaverManager.pipesShowClock = checked
-                        }
-                    }
-
                     Item { Layout.fillWidth: true }
                 }
 
@@ -897,31 +1006,8 @@ Item {
                     Item { Layout.fillWidth: true }
                 }
 
-                // Strange Attractor settings (attractor mode only)
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.scaled(30)
-                    visible: ScreensaverManager.screensaverType === "attractor"
-
-                    RowLayout {
-                        spacing: Theme.scaled(10)
-
-                        Tr {
-                            key: "settings.screensaver.showClock"
-                            fallback: "Show Clock"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        StyledSwitch {
-                            checked: ScreensaverManager.attractorShowClock
-                            accessibleName: TranslationManager.translate("settings.screensaver.showClock", "Show Clock")
-                            onCheckedChanged: ScreensaverManager.attractorShowClock = checked
-                        }
-                    }
-
-                    Item { Layout.fillWidth: true }
-                }
+                // Strange Attractor has no type-specific settings beyond the
+                // shared overlay chip group above.
 
                 // Shot Map settings (shotmap mode only)
                 RowLayout {
@@ -992,23 +1078,6 @@ Item {
                     Layout.fillWidth: true
                     spacing: Theme.scaled(30)
                     visible: ScreensaverManager.screensaverType === "shotmap"
-
-                    RowLayout {
-                        spacing: Theme.scaled(8)
-
-                        Tr {
-                            key: "settings.screensaver.showClock"
-                            fallback: "Clock"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        StyledSwitch {
-                            checked: ScreensaverManager.shotMapShowClock
-                            accessibleName: TranslationManager.translate("settings.screensaver.showClock", "Clock")
-                            onToggled: ScreensaverManager.shotMapShowClock = checked
-                        }
-                    }
 
                     RowLayout {
                         spacing: Theme.scaled(8)
@@ -1167,24 +1236,6 @@ Item {
                             checked: ScreensaverManager.cacheEnabled
                             accessibleName: TranslationManager.translate("settings.screensaver.cacheVideos", "Cache Videos")
                             onCheckedChanged: ScreensaverManager.cacheEnabled = checked
-                        }
-                    }
-
-                    // Show clock toggle
-                    RowLayout {
-                        spacing: Theme.scaled(10)
-
-                        Tr {
-                            key: "settings.screensaver.showClock"
-                            fallback: "Show Clock"
-                            color: Theme.textColor
-                            font.pixelSize: Theme.scaled(14)
-                        }
-
-                        StyledSwitch {
-                            checked: ScreensaverManager.videosShowClock
-                            accessibleName: TranslationManager.translate("settings.screensaver.showClock", "Show Clock")
-                            onCheckedChanged: ScreensaverManager.videosShowClock = checked
                         }
                     }
 
