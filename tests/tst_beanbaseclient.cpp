@@ -36,6 +36,27 @@ public:
                     if (m_hang)
                         return;  // hold the socket open, never respond: the
                                  // client's reply stays in-flight until aborted.
+                    // Redirect routing wins: a matching path 301s to its
+                    // Location so validateBagLink's alias-normalization path
+                    // (final URL differs from the requested one) is exercisable.
+                    bool redirected = false;
+                    for (const auto& [pathPart, location] : m_redirects) {
+                        if (line.contains(pathPart)) {
+                            const QByteArray resp =
+                                "HTTP/1.1 301 Moved Permanently\r\n"
+                                "Location: " + location.toUtf8() + "\r\n"
+                                "Content-Length: 0\r\n"
+                                "Connection: close\r\n"
+                                "\r\n";
+                            sock->write(resp);
+                            redirected = true;
+                            break;
+                        }
+                    }
+                    if (redirected) {
+                        sock->disconnectFromHost();
+                        return;
+                    }
                     // Per-path routing; falls back to the single canned response.
                     QByteArray body = m_responseBody;
                     for (const auto& [pathPart, pathBody] : m_pathBodies) {
@@ -72,6 +93,13 @@ public:
         m_pathBodies.append({pathPart, body});
     }
 
+    // 301 requests whose line contains pathPart to `location` (checked before
+    // body routing). Lets a test model a renamed Shopify handle that redirects
+    // to the live canonical URL.
+    void redirectPath(const QString& pathPart, const QString& location) {
+        m_redirects.append({pathPart, location});
+    }
+
     // Accept the request but never answer it — used to keep a reply in-flight so
     // the in-flight supersede/abort path is exercisable.
     void hangWithoutResponding() { m_hang = true; }
@@ -92,6 +120,7 @@ private:
     // which breaks the test class's vtable at link time.
     QByteArray m_responseBody = "{\"data\":[]}";
     QList<QPair<QString, QByteArray>> m_pathBodies;
+    QList<QPair<QString, QString>> m_redirects;
     QStringList m_requestLines;
     bool m_hang = false;
 };
@@ -174,6 +203,85 @@ private slots:
         // The product page URL maps onto the blob's `link` key (consumers: the
         // details popup's open-page button, ensureBagImage's og:image source).
         QCOMPARE(bag["link"].toString(), QString("https://x"));
+    }
+
+    // ====================================================
+    // validateBagLink(): pick-time product-URL validation
+    // ====================================================
+
+    void validateBagLinkDeadOn404() {
+        FakeBeanBaseServer server;
+        server.respondWith("404 Not Found", "gone");
+        BeanBaseClient client(&m_nam, &m_settings);
+        QSignalSpy deadSpy(&client, &BeanBaseClient::bagLinkDead);
+        QSignalSpy resolvedSpy(&client, &BeanBaseClient::bagLinkResolved);
+
+        client.validateBagLink("canon-1", server.baseUrl() + "/products/gone");
+        QVERIFY(deadSpy.wait(3000));
+        QCOMPARE(deadSpy.count(), 1);
+        QCOMPARE(deadSpy.first().at(0).toString(), QString("canon-1"));
+        QCOMPARE(resolvedSpy.count(), 0);  // dead, never "resolved"
+
+        // One GET per id per session: a second call is a no-op.
+        client.validateBagLink("canon-1", server.baseUrl() + "/products/gone");
+        QTest::qWait(200);
+        QCOMPARE(deadSpy.count(), 1);
+    }
+
+    void validateBagLinkResolvedOn200() {
+        FakeBeanBaseServer server;
+        server.respondWith("200 OK", "<html></html>");
+        BeanBaseClient client(&m_nam, &m_settings);
+        QSignalSpy resolvedSpy(&client, &BeanBaseClient::bagLinkResolved);
+        QSignalSpy deadSpy(&client, &BeanBaseClient::bagLinkDead);
+
+        const QString productUrl = server.baseUrl() + "/products/live";
+        client.validateBagLink("canon-2", productUrl);
+        QVERIFY(resolvedSpy.wait(3000));
+        QCOMPARE(resolvedSpy.count(), 1);
+        QCOMPARE(resolvedSpy.first().at(0).toString(), QString("canon-2"));
+        // No redirect here → the final URL is the one we asked for.
+        QVERIFY(resolvedSpy.first().at(1).toString().endsWith("/products/live"));
+        QCOMPARE(deadSpy.count(), 0);
+    }
+
+    // The headline case: a stale Shopify handle 301s to the live product URL.
+    // validateBagLink must report the redirect-resolved final URL (not the
+    // stale input) so the consumer normalizes the durable canonical link.
+    void validateBagLinkNormalizesRedirect() {
+        FakeBeanBaseServer server;
+        server.redirectPath("/products/old-handle",
+                            server.baseUrl() + "/products/new-handle");
+        server.respondWith("200 OK", "<html></html>");  // the redirect target
+        BeanBaseClient client(&m_nam, &m_settings);
+        QSignalSpy resolvedSpy(&client, &BeanBaseClient::bagLinkResolved);
+        QSignalSpy deadSpy(&client, &BeanBaseClient::bagLinkDead);
+
+        const QString staleUrl = server.baseUrl() + "/products/old-handle";
+        client.validateBagLink("canon-3", staleUrl);
+        QVERIFY(resolvedSpy.wait(3000));
+        QCOMPARE(resolvedSpy.count(), 1);
+        QCOMPARE(resolvedSpy.first().at(0).toString(), QString("canon-3"));
+        const QString resolved = resolvedSpy.first().at(1).toString();
+        QVERIFY(resolved.endsWith("/products/new-handle"));  // the live URL
+        QVERIFY(resolved != staleUrl);                        // alias normalized
+        QCOMPARE(deadSpy.count(), 0);
+    }
+
+    // A transient failure (here 503; timeout/DNS/5xx all land here) must emit
+    // NEITHER signal, so the link is left intact and a later session retries —
+    // clearing it over a blip would wrongly drop a live link.
+    void validateBagLinkSilentOnTransientError() {
+        FakeBeanBaseServer server;
+        server.respondWith("503 Service Unavailable", "busy");
+        BeanBaseClient client(&m_nam, &m_settings);
+        QSignalSpy resolvedSpy(&client, &BeanBaseClient::bagLinkResolved);
+        QSignalSpy deadSpy(&client, &BeanBaseClient::bagLinkDead);
+
+        client.validateBagLink("canon-4", server.baseUrl() + "/products/flaky");
+        QTest::qWait(800);  // give the reply time to finish; nothing should fire
+        QCOMPARE(resolvedSpy.count(), 0);
+        QCOMPARE(deadSpy.count(), 0);
     }
 
     // ====================================================

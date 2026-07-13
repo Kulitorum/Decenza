@@ -50,11 +50,19 @@ Rectangle {
     // whose photo resolved before link backfill existed). Canonical-linked
     // bags only — a manual bag has nothing to recover from.
     function maybeRecoverLink() {
-        if (hasCanonical && !beanBase.link)
+        // A cleared-because-dead link (linkDead) must not be recovered: the
+        // canonical API only knows the same dead URL and would re-add it.
+        if (hasCanonical && !beanBase.link && !beanBase.linkDead)
             MainController.beanbase.recoverBagLink(canonicalId, (bag && bag.coffeeName) || "")
     }
-    Component.onCompleted: maybeRecoverLink()
-    onImageKeyChanged: maybeRecoverLink()
+    // Validate the stored product URL once per bag (pick-time). The persisted
+    // linkChecked marker keeps this to a single GET ever — not a per-view probe.
+    function maybeValidateLink() {
+        if (hasCanonical && beanBase.link && !beanBase.linkChecked)
+            MainController.beanbase.validateBagLink(canonicalId, String(beanBase.link))
+    }
+    Component.onCompleted: { maybeRecoverLink(); maybeValidateLink() }
+    onImageKeyChanged: { maybeRecoverLink(); maybeValidateLink() }
 
     Connections {
         target: MainController.beanbase
@@ -69,6 +77,36 @@ Rectangle {
                 return
             var blob = card.beanBase
             blob.link = link
+            MainController.bagStorage.requestUpdateBag(card.bag.id,
+                { "beanBaseData": JSON.stringify(blob) })
+            card.maybeValidateLink()  // validate the freshly recovered URL too
+        }
+        // Pick-time URL validation resolved (possibly via redirect): normalize a
+        // stale alias to the durable canonical URL, and stamp linkChecked so the
+        // check never re-runs for this bag. No-op when nothing changed.
+        function onBagLinkResolved(id, link) {
+            if (id !== card.canonicalId || !card.bag || card.bag.id === undefined)
+                return
+            var blob = card.beanBase
+            var changed = false
+            if (link && blob.link !== link) { blob.link = link; changed = true }
+            if (blob.linkDead !== undefined) { delete blob.linkDead; changed = true }
+            if (!blob.linkChecked) { blob.linkChecked = true; changed = true }
+            if (changed)
+                MainController.bagStorage.requestUpdateBag(card.bag.id,
+                    { "beanBaseData": JSON.stringify(blob) })
+        }
+        // Confirmed 404/410: clear the dead reorder link and mark it so neither
+        // validation nor recovery re-adds the same dead URL.
+        function onBagLinkDead(id) {
+            if (id !== card.canonicalId || !card.bag || card.bag.id === undefined)
+                return
+            var blob = card.beanBase
+            if (blob.link === undefined && blob.linkDead && blob.linkChecked)
+                return
+            delete blob.link
+            blob.linkDead = true
+            blob.linkChecked = true
             MainController.bagStorage.requestUpdateBag(card.bag.id,
                 { "beanBaseData": JSON.stringify(blob) })
         }
