@@ -30,9 +30,9 @@ Temperature overrides SHALL be applied as a delta offset relative to the profile
 
 ### Requirement: Brew Dialog
 
-The system SHALL provide a BrewDialog accessible from the shot plan line on IdlePage and from the StatusBar. The dialog SHALL display the current profile name and bean info as a "Base Recipe" header, and allow editing temperature, dose, ratio, yield and grind (in this order) for the next shot. The temperature control SHALL be presented as a temperature **offset** (labeled "Temp Delta:") applied uniformly to the whole profile: it reads `0°` at the active baseline and `+N°`/`-N°` when adjusted. The active baseline SHALL be the active recipe's own temperature (`tempOverrideC`) when a recipe is active and carries one, otherwise the profile default. Because the control no longer shows an absolute temperature, the dialog SHALL display the temperature(s) the offset is applied to below it, rendered adaptively (single value / spaced mid-dot list / first…last ellipsis).
+The system SHALL provide a BrewDialog accessible from the shot plan line on IdlePage and from the StatusBar. The dialog SHALL display the current profile name and bean info as a "Base Recipe" header, and allow editing temperature, dose, ratio, yield and grind (in this order) for the next shot. The temperature control SHALL be presented as a temperature **offset** (labeled "Temp Delta:") applied uniformly to the whole profile: it reads `0°` at the active baseline and `+N°`/`-N°` when adjusted. The active baseline SHALL be the active recipe's offset-derived temperature (the profile's `espressoTemperature` + the recipe's stored `tempOffsetC`) when a recipe is active and carries a non-zero offset, otherwise the profile default. Because the control no longer shows an absolute temperature, the dialog SHALL display the temperature(s) the offset is applied to below it, rendered adaptively (single value / spaced mid-dot list / first…last ellipsis).
 
-The Clear action SHALL reset each field to its active baseline — the value defined by the override-highlight scheme in `recipe-aware-brew-settings`. For Temp Delta and Stop-at (yield) this baseline is the active recipe's `tempOverrideC` / `yieldG` when a recipe is active, and the profile default otherwise; Dose, Ratio, and grind reset to their existing defaults unchanged. Clear SHALL only strip per-brew deviations from the active baseline; when a recipe is active it SHALL NOT wipe the recipe's own designed yield/temperature back to the profile default.
+The Clear action SHALL reset each field to its active baseline — the value defined by the override-highlight scheme in `recipe-aware-brew-settings`. For Temp Delta and Stop-at (yield) this baseline is the active recipe's offset-derived temperature / its `yieldG` when a recipe is active, and the profile default otherwise; Dose, Ratio, and grind reset to their existing defaults unchanged. Clear SHALL only strip per-brew deviations from the active baseline; when a recipe is active it SHALL NOT wipe the recipe's own designed yield/temperature back to the profile default.
 
 #### Scenario: Opening the BrewDialog
 - **WHEN** the user taps the shot plan text on IdlePage
@@ -48,7 +48,7 @@ The Clear action SHALL reset each field to its active baseline — the value def
 - **AND** a "Update Profile" action permanently bakes the `+2°` offset into every frame
 
 #### Scenario: Temperature offset anchored on the active recipe
-- **WHEN** the BrewDialog opens with a recipe active whose `tempOverrideC` is 4°C below the profile default
+- **WHEN** the BrewDialog opens with a recipe active whose `tempOffsetC` is −4
 - **THEN** the "Temp Delta:" control reads `0°` (the dial sits on the recipe's design temperature, not a deviation)
 - **WHEN** the user adjusts the control to `+1°`
 - **THEN** the next shot brews 1°C above the recipe's design temperature
@@ -71,9 +71,9 @@ The Clear action SHALL reset each field to its active baseline — the value def
 - **THEN** all fields reset to profile defaults (temperature) and empty/default values (dose=18g, grind=bean"", ratio=calculated from profile target weight / 18g)
 
 #### Scenario: Clear returns to the recipe baseline in recipe mode
-- **WHEN** a recipe with `yieldG` = 36 and a temperature 4°C below the profile default is active, the user has dialed a per-brew deviation (e.g. Stop-at 40, Temp Delta +2°), and the user taps "Clear"
+- **WHEN** a recipe with `yieldG` = 36 and `tempOffsetC` = −4 is active, the user has dialed a per-brew deviation (e.g. Stop-at 40, Temp Delta +2°), and the user taps "Clear"
 - **THEN** Stop-at returns to 36 and the Temp Delta returns to `0°` (the recipe's temperature)
-- **AND** the recipe's stored `yieldG` / `tempOverrideC` are unchanged (Clear does not edit the recipe)
+- **AND** the recipe's stored `yieldG` / `tempOffsetC` are unchanged (Clear does not edit the recipe)
 
 ### Requirement: Shot Plan Display
 The system SHALL display a summary line showing the configured shot parameters: profile name with temperature, bean name with grind setting, and dose/yield weights. The line SHALL be clickable to open the BrewDialog. Visibility SHALL be controlled by a "Show shot plan" setting (default: enabled). When a "Show on all screens" setting is enabled, the shot plan line SHALL appear in the top status bar on all pages; otherwise it SHALL appear only on the IdlePage.
