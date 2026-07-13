@@ -123,6 +123,17 @@ class ScreensaverVideoManager : public QObject {
     Q_PROPERTY(bool pipesShowClock READ pipesShowClock WRITE setPipesShowClock NOTIFY pipesShowClockChanged)
     Q_PROPERTY(bool attractorShowClock READ attractorShowClock WRITE setAttractorShowClock NOTIFY attractorShowClockChanged)
 
+    // Overlay items — global, shared across every background (Clock above is the
+    // one legacy exception that stays per-type). Water Level/Shot Plan/Battery
+    // render in a compact icon row; the Link Button opens a URL without waking
+    // the machine.
+    Q_PROPERTY(bool overlayShowWaterLevel READ overlayShowWaterLevel WRITE setOverlayShowWaterLevel NOTIFY overlayShowWaterLevelChanged)
+    Q_PROPERTY(bool overlayShowShotPlan READ overlayShowShotPlan WRITE setOverlayShowShotPlan NOTIFY overlayShowShotPlanChanged)
+    Q_PROPERTY(bool overlayShowBattery READ overlayShowBattery WRITE setOverlayShowBattery NOTIFY overlayShowBatteryChanged)
+    Q_PROPERTY(bool overlayLinkButtonEnabled READ overlayLinkButtonEnabled WRITE setOverlayLinkButtonEnabled NOTIFY overlayLinkButtonEnabledChanged)
+    Q_PROPERTY(QString overlayLinkButtonLabel READ overlayLinkButtonLabel WRITE setOverlayLinkButtonLabel NOTIFY overlayLinkButtonLabelChanged)
+    Q_PROPERTY(QString overlayLinkButtonUrl READ overlayLinkButtonUrl WRITE setOverlayLinkButtonUrl NOTIFY overlayLinkButtonUrlChanged)
+
     // Hardware video decoder availability (false when only emulator/software decoders found)
     Q_PROPERTY(bool hasHardwareVideoDecoder READ hasHardwareVideoDecoder CONSTANT)
 
@@ -193,6 +204,19 @@ public:
     bool shotMapShowProfiles() const { return m_shotMapShowProfiles; }
     bool shotMapShowTerminator() const { return m_shotMapShowTerminator; }
 
+    // Overlay items (global)
+    bool overlayShowWaterLevel() const { return m_overlayShowWaterLevel; }
+    bool overlayShowShotPlan() const { return m_overlayShowShotPlan; }
+    bool overlayShowBattery() const { return m_overlayShowBattery; }
+    bool overlayLinkButtonEnabled() const { return m_overlayLinkButtonEnabled; }
+    QString overlayLinkButtonLabel() const { return m_overlayLinkButtonLabel; }
+    QString overlayLinkButtonUrl() const { return m_overlayLinkButtonUrl; }
+
+    // Overlay chips offered for a given screensaver type: excludes "clock" for
+    // "flipclock" (redundant — the background already is a clock) and returns
+    // an empty list for "disabled" (no overlay when the screen is off).
+    Q_INVOKABLE QStringList overlayChipsForType(const QString& type) const;
+
     // Hardware video decoder detection
     bool hasHardwareVideoDecoder() const;
 
@@ -226,6 +250,12 @@ public:
     void setShotMapShowClock(bool show);
     void setShotMapShowProfiles(bool show);
     void setShotMapShowTerminator(bool show);
+    void setOverlayShowWaterLevel(bool show);
+    void setOverlayShowShotPlan(bool show);
+    void setOverlayShowBattery(bool show);
+    void setOverlayLinkButtonEnabled(bool enabled);
+    void setOverlayLinkButtonLabel(const QString& label);
+    void setOverlayLinkButtonUrl(const QString& url);
 
 public slots:
     // Screen wake lock (prevents screen from turning off)
@@ -308,6 +338,12 @@ signals:
     void shotMapShowClockChanged();
     void shotMapShowProfilesChanged();
     void shotMapShowTerminatorChanged();
+    void overlayShowWaterLevelChanged();
+    void overlayShowShotPlanChanged();
+    void overlayShowBatteryChanged();
+    void overlayLinkButtonEnabledChanged();
+    void overlayLinkButtonLabelChanged();
+    void overlayLinkButtonUrlChanged();
     void rateLimitedChanged();
     void screensaverActiveChanged();
 
@@ -427,6 +463,14 @@ private:
     bool m_shotMapShowClock = true;
     bool m_shotMapShowProfiles = true;
     bool m_shotMapShowTerminator = true;
+
+    // Overlay items (global — shared across every background)
+    bool m_overlayShowWaterLevel = false;
+    bool m_overlayShowShotPlan = false;
+    bool m_overlayShowBattery = false;
+    bool m_overlayLinkButtonEnabled = false;
+    QString m_overlayLinkButtonLabel;
+    QString m_overlayLinkButtonUrl;
 
     // Rate limiting (after cache clear to prevent S3 abuse)
     QDateTime m_rateLimitedUntil;  // Rate limit active until this time

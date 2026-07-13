@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtMultimedia
 import Decenza
 import "../components"
+import "../components/layout/items"
 
 // Screensaver modes:
 // "disabled"  - Dims backlight to minimum with black overlay (keeps screen on to avoid EGL surface issues)
@@ -25,6 +26,25 @@ Page {
     property bool isAttractorMode: screensaverType === "attractor"
     property bool isDisabledMode: screensaverType === "disabled"
     property bool isShotMapMode: screensaverType === "shotmap"
+
+    // Anti-burn-in: nudges the fixed overlay anchors (clock, readout row, link
+    // button) a few px on a slow cycle so no pixel stays lit at exactly the
+    // same position indefinitely. Matters on OLED/AMOLED tablets, harmless on
+    // LCD. No user-facing setting — just built-in behavior.
+    property real driftX: 0
+    property real driftY: 0
+    Behavior on driftX { NumberAnimation { duration: 4000; easing.type: Easing.InOutQuad } }
+    Behavior on driftY { NumberAnimation { duration: 4000; easing.type: Easing.InOutQuad } }
+    Timer {
+        interval: 4 * 60 * 1000  // 4 minutes — slow enough to be imperceptible
+        running: !screensaverPage.appSuspended
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: {
+            screensaverPage.driftX = Math.random() * 8 - 4  // ±4px
+            screensaverPage.driftY = Math.random() * 8 - 4
+        }
+    }
 
     property int videoFailCount: 0
     property bool mediaPlaying: false
@@ -588,8 +608,8 @@ Page {
                  (isAttractorMode && ScreensaverManager.attractorShowClock)
         anchors.bottom: parent.bottom
         anchors.right: parent.right
-        anchors.margins: Theme.scaled(50)
-        anchors.bottomMargin: Theme.chartMarginLarge + Theme.scaled(20)  // Above credits bar
+        anchors.rightMargin: Theme.scaled(50) + driftX
+        anchors.bottomMargin: Theme.chartMarginLarge + Theme.scaled(20) + driftY  // Above credits bar
         text: Qt.formatTime(currentTime, Settings.app.use12HourTime ? "h:mmap" : "HH:mm")
         color: Theme.primaryContrastColor
         opacity: 0.8
@@ -603,6 +623,89 @@ Page {
             running: clockDisplay.visible
             repeat: true
             onTriggered: parent.currentTime = new Date()
+        }
+    }
+
+    // Overlay readout row — Water Level / Shot Plan / Battery, whichever are
+    // enabled (each a single global toggle, shared across every background).
+    // Reuses the same compact rendering as the home screen's persistent
+    // StatusBar. A semi-opaque background band (matching the credits bar
+    // below) keeps it legible over bright video content regardless of theme.
+    Item {
+        id: overlayReadoutRow
+        z: 2
+        visible: !isDisabledMode && overlayRow.implicitWidth > 0
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.topMargin: Theme.scaled(20) + driftY
+        anchors.rightMargin: Theme.scaled(50) + driftX
+        width: overlayRow.implicitWidth
+        height: overlayRow.implicitHeight
+
+        Rectangle {
+            anchors.fill: overlayRow
+            anchors.margins: -Theme.scaled(8)
+            radius: Theme.scaled(8)
+            color: Qt.rgba(0, 0, 0, 0.5)
+        }
+
+        Row {
+            id: overlayRow
+            spacing: Theme.scaled(16)
+
+            WaterLevelItem {
+                isCompact: true
+                visible: ScreensaverManager.overlayShowWaterLevel
+                modelData: ({ displayMode: "icon" })
+            }
+            ShotPlanItem {
+                isCompact: true
+                visible: ScreensaverManager.overlayShowShotPlan
+            }
+            BatteryLevelItem {
+                isCompact: true
+                visible: ScreensaverManager.overlayShowBattery
+                modelData: ({ displayMode: "icon" })
+            }
+        }
+    }
+
+    // Link Button — interactive, must NOT wake the machine on tap. Sits above
+    // the wake-on-tap MouseArea (z:3) in stacking order so it captures its own
+    // taps first; its handler opens the URL only and never calls wake().
+    Rectangle {
+        id: linkButton
+        z: 4
+        visible: !isDisabledMode && ScreensaverManager.overlayLinkButtonEnabled
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: Theme.scaled(50) - driftX
+        anchors.bottomMargin: Theme.chartMarginLarge + Theme.scaled(20) + driftY
+        radius: Theme.scaled(8)
+        color: Qt.rgba(0, 0, 0, 0.5)
+        border.color: Qt.rgba(1, 1, 1, 0.4)
+        border.width: 1
+        width: linkButtonText.implicitWidth + Theme.scaled(32)
+        height: Theme.scaled(44)
+
+        Accessible.role: Accessible.Button
+        Accessible.name: ScreensaverManager.overlayLinkButtonLabel
+        Accessible.focusable: true
+        Accessible.onPressAction: linkButtonArea.clicked(null)
+
+        Text {
+            id: linkButtonText
+            anchors.centerIn: parent
+            text: ScreensaverManager.overlayLinkButtonLabel
+            color: Theme.primaryContrastColor
+            font.pixelSize: Theme.scaled(16)
+            Accessible.ignored: true
+        }
+
+        MouseArea {
+            id: linkButtonArea
+            anchors.fill: parent
+            onClicked: Qt.openUrlExternally(ScreensaverManager.overlayLinkButtonUrl)
         }
     }
 

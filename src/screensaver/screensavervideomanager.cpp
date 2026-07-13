@@ -76,6 +76,12 @@ ScreensaverVideoManager::ScreensaverVideoManager(QNetworkAccessManager* networkM
     m_shotMapShowClock = m_settings->value("screensaver/shotMapShowClock", true).toBool();
     m_shotMapShowProfiles = m_settings->value("screensaver/shotMapShowProfiles", true).toBool();
     m_shotMapShowTerminator = m_settings->value("screensaver/shotMapShowTerminator", true).toBool();
+    m_overlayShowWaterLevel = m_settings->value("screensaver/overlayShowWaterLevel", false).toBool();
+    m_overlayShowShotPlan = m_settings->value("screensaver/overlayShowShotPlan", false).toBool();
+    m_overlayShowBattery = m_settings->value("screensaver/overlayShowBattery", false).toBool();
+    m_overlayLinkButtonEnabled = m_settings->value("screensaver/overlayLinkButtonEnabled", false).toBool();
+    m_overlayLinkButtonLabel = m_settings->value("screensaver/overlayLinkButtonLabel", "").toString();
+    m_overlayLinkButtonUrl = m_settings->value("screensaver/overlayLinkButtonUrl", "").toString();
     m_dimPercent = qBound(0, m_settings->value("screensaver/dimPercent", 0).toInt(), 100);
     m_dimDelayMinutes = qBound(0, m_settings->value("screensaver/dimDelayMinutes", 15).toInt(), 45);
 
@@ -493,6 +499,69 @@ void ScreensaverVideoManager::setShotMapShowTerminator(bool show)
         m_settings->setValue("screensaver/shotMapShowTerminator", show);
         emit shotMapShowTerminatorChanged();
     }
+}
+
+void ScreensaverVideoManager::setOverlayShowWaterLevel(bool show)
+{
+    if (m_overlayShowWaterLevel != show) {
+        m_overlayShowWaterLevel = show;
+        m_settings->setValue("screensaver/overlayShowWaterLevel", show);
+        emit overlayShowWaterLevelChanged();
+    }
+}
+
+void ScreensaverVideoManager::setOverlayShowShotPlan(bool show)
+{
+    if (m_overlayShowShotPlan != show) {
+        m_overlayShowShotPlan = show;
+        m_settings->setValue("screensaver/overlayShowShotPlan", show);
+        emit overlayShowShotPlanChanged();
+    }
+}
+
+void ScreensaverVideoManager::setOverlayShowBattery(bool show)
+{
+    if (m_overlayShowBattery != show) {
+        m_overlayShowBattery = show;
+        m_settings->setValue("screensaver/overlayShowBattery", show);
+        emit overlayShowBatteryChanged();
+    }
+}
+
+void ScreensaverVideoManager::setOverlayLinkButtonEnabled(bool enabled)
+{
+    if (m_overlayLinkButtonEnabled != enabled) {
+        m_overlayLinkButtonEnabled = enabled;
+        m_settings->setValue("screensaver/overlayLinkButtonEnabled", enabled);
+        emit overlayLinkButtonEnabledChanged();
+    }
+}
+
+void ScreensaverVideoManager::setOverlayLinkButtonLabel(const QString& label)
+{
+    if (m_overlayLinkButtonLabel != label) {
+        m_overlayLinkButtonLabel = label;
+        m_settings->setValue("screensaver/overlayLinkButtonLabel", label);
+        emit overlayLinkButtonLabelChanged();
+    }
+}
+
+void ScreensaverVideoManager::setOverlayLinkButtonUrl(const QString& url)
+{
+    if (m_overlayLinkButtonUrl != url) {
+        m_overlayLinkButtonUrl = url;
+        m_settings->setValue("screensaver/overlayLinkButtonUrl", url);
+        emit overlayLinkButtonUrlChanged();
+    }
+}
+
+QStringList ScreensaverVideoManager::overlayChipsForType(const QString& type) const
+{
+    if (type == "disabled")
+        return {};
+    if (type == "flipclock")
+        return {"waterLevel", "shotPlan", "battery", "linkButton"};
+    return {"clock", "waterLevel", "shotPlan", "battery", "linkButton"};
 }
 
 void ScreensaverVideoManager::setDimPercent(int percent)
