@@ -1997,9 +1997,9 @@ Page {
                                 ? TranslationManager.translate("recipes.wizard.detailsOptionalEdit",
                                       "Everything here is optional. "
                                       + "Tap a section to adjust it, then Save.")
-                                : TranslationManager.translate("recipes.wizard.detailsOptional",
+                                : TranslationManager.translate("recipes.wizard.detailsOptionalReview",
                                       "Everything here is optional — it's prefilled and ready to save. "
-                                      + "Tap a section to adjust it, then Continue.")
+                                      + "Tap a section to adjust it, then Review.")
                             font: Theme.captionFont
                             color: Theme.textSecondaryColor
                             wrapMode: Text.WordWrap
@@ -2026,8 +2026,11 @@ Page {
                             visible: !wizardPage._enteredAtSummary
                             Layout.alignment: Qt.AlignVCenter
                             primary: true
-                            text: TranslationManager.translate("recipes.wizard.continue", "Continue")
-                            accessibleName: TranslationManager.translate("recipes.wizard.accessible.continue", "Continue to the summary")
+                            // "Review", not "Continue": the next stop is the
+                            // named, WYSIWYG summary with the Save button —
+                            // a label that reads like a commit loses saves.
+                            text: TranslationManager.translate("recipes.wizard.review", "Review")
+                            accessibleName: TranslationManager.translate("recipes.wizard.accessible.review", "Review the recipe before saving")
                             onClicked: { wizardPage._fromSummary = false; wizardPage.currentStep = "summary" }
                         }
                     }
