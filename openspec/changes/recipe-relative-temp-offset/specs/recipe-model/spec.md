@@ -32,7 +32,7 @@ The temperature offset SHALL be the stored value — never an absolute temperatu
 ### Requirement: Absolute temperature overrides migrate to offsets
 A one-time forward migration SHALL add `temp_offset_c` and convert each recipe's legacy absolute `temp_override_c` into an offset: `offset = stored absolute − the profile's espresso_temperature`, resolving the profile by title with the recipe's embedded profile JSON as fallback. A legacy value of 0 (no override) SHALL migrate to offset 0. When the profile cannot be resolved by either path, the recipe SHALL migrate with offset 0 (no temperature pin) — a delta against an unknown baseline is meaningless. Offsets that round to 0 (|offset| < 0.05 °C) SHALL be stored as 0. The migration SHALL run off the main thread with the other schema migrations, and `temp_override_c` SHALL no longer be read or written after it in normal operation.
 
-Device-to-device transfer and backup import SHALL run the same conversion pass **only when the source schema lacks `temp_offset_c`** (a legacy-version source, detected from the source's `PRAGMA table_info`). A source that already has `temp_offset_c` SHALL import that column verbatim and its dead `temp_override_c` SHALL be ignored — reconverting from the dead column would resurrect an offset the user has since changed or cleared.
+Device-to-device transfer and backup import SHALL stage-and-convert exactly the source rows that are still **unconverted**: every row of a legacy-version source (no `temp_offset_c` column, detected from the source's `PRAGMA table_info`), and the NULL-offset rows of a current-version source whose own deferred pass had not completed when it was exported. A **converted** row (non-NULL offset) SHALL import verbatim and its dead `temp_override_c` SHALL be ignored — reconverting from the dead column would resurrect an offset the user has since changed or cleared.
 
 #### Scenario: Legacy absolute converts against its own profile
 - **WHEN** the database migrates with a recipe storing `temp_override_c` = 87 whose profile's espresso_temperature is 90
@@ -54,12 +54,18 @@ Device-to-device transfer and backup import SHALL run the same conversion pass *
 - **WHEN** recipes are imported from a source that has `temp_offset_c` (its dead `temp_override_c` still holding pre-migration absolutes), including a recipe whose offset the user reset to 0 after migrating
 - **THEN** the imported recipe keeps offset 0 — the dead column is ignored
 
+#### Scenario: An unconverted row inside a current-version source still converts
+- **WHEN** recipes are imported from a source that has `temp_offset_c` but whose deferred conversion never ran (a row with a NULL offset and `temp_override_c` = 87)
+- **THEN** the row imports as unconverted and the destination's conversion pass produces the same offset the source's own pass would have — the pin is not flattened to 0
+
 #### Scenario: Promote-from-shot stores an offset
 - **WHEN** a shot pulled with an absolute brew temperature override of 87 on a 90° profile is promoted to a recipe
 - **THEN** the new recipe stores `temp_offset_c` = −3 (converted at promotion time against the shot's profile)
 
 ### Requirement: Tea temperatures are edited absolute, stored as the same offset
-Portafilter-tea recipes SHALL store their temperature in the same `temp_offset_c` field with the same delta semantics — there SHALL NOT be a second temperature encoding. Because tea users think in absolute temperatures ("80°", not "profile −8°"), the wizard's tea temperature field SHALL stay absolute and convert at the boundary: it loads as `profile espresso_temperature + offset` (offset 0 shows the profile's own temperature) and saves as `entered − profile espresso_temperature` (equal → 0). Activation SHALL need no tea special-case — `profile temp + offset` reproduces the absolute the user entered.
+Portafilter-tea recipes SHALL store their temperature in the same `temp_offset_c` field with the same delta semantics — there SHALL NOT be a second temperature encoding. Because tea users think in absolute temperatures ("80°", not "profile −8°"), the wizard's tea temperature field SHALL stay absolute and convert at the boundary: it loads as `profile espresso_temperature + offset` (offset 0 shows the profile's own temperature) and saves as `entered − profile espresso_temperature` (equal → 0). When the recipe's profile cannot be resolved, the field SHALL be disabled and the stored offset preserved untouched — the field must never accept input the save path would discard. Activation SHALL need no tea special-case — `profile temp + offset` reproduces the absolute the user entered.
+
+Hot-water tea recipes (profile-less) SHALL store no temperature pin at all: the water vessel is the single source of their temperature (per this spec's hot-water-block requirement), so the wizard SHALL NOT show a separate temperature field for them and its summary SHALL present the vessel's temperature. The migration SHALL drop a legacy hot-water-tea absolute quietly (it was never applied at activation and has no anchor to convert against).
 
 #### Scenario: Editing a migrated tea recipe shows its absolute temperature
 - **WHEN** the user opens the details of a tea recipe holding offset −8 on an 88° tea profile
@@ -68,6 +74,10 @@ Portafilter-tea recipes SHALL store their temperature in the same `temp_offset_c
 #### Scenario: Tea save converts the entered absolute
 - **WHEN** the user sets a tea recipe's temperature to 75 on an 88° profile and saves
 - **THEN** the recipe stores offset −13 and activation targets 75°
+
+#### Scenario: Hot-water tea has no temperature pin
+- **WHEN** the user edits a hot-water tea recipe
+- **THEN** no separate temperature field is offered; the summary shows the selected vessel's temperature, and the recipe stores offset 0
 
 ### Requirement: Recipe surfaces expose the offset
 The MCP recipe tools and the ShotServer recipe endpoints (including the web recipe editor) SHALL expose the temperature as `tempOffsetC` — a signed delta in °C, present only when non-zero on read, and accepted as the only temperature field on create/update. The legacy absolute `temperatureOverrideC` field SHALL no longer appear in responses nor be accepted in requests, so no client can silently write an absolute value into a delta column.

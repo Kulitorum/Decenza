@@ -225,6 +225,15 @@ MainController::MainController(QNetworkAccessManager* networkManager,
     // recipe the user is in the act of leaving (add-recipes).
     m_recipeStorage = new RecipeStorage(this);
     m_recipeStorage->initialize(m_shotHistory->databasePath());
+    // Migration 31's deferred temp-offset conversion must be queued on the
+    // serialized recipe worker BEFORE setupRecipeConnections() — whose tail
+    // enqueues the startup active-recipe restore read — so that read (and
+    // every later one; the worker is FIFO) sees converted values. Queued
+    // after, the first post-upgrade launch would cache the active recipe
+    // with tempOffsetC 0 and paint its designed temperature as a phantom
+    // override for a whole session. ProfileManager scanned its catalog in
+    // its constructor, so the title→temperature snapshot is ready.
+    requestRecipeTempOffsetConversion();
     setupRecipeConnections();
 
     // Switching beans resets the brew overrides to the active profile's
@@ -628,21 +637,25 @@ MainController::MainController(QNetworkAccessManager* networkManager,
         }
     });
 
-    // Recipe temp-offset conversion (recipe-relative-temp-offset): migration
-    // 31's deferred data pass, anchored on the profile catalog snapshot taken
-    // here on the main thread. Runs at startup (rows migration 31 marked
-    // unconverted) and again after any import that can land legacy-source
-    // rows. Queued on the serialized recipe worker BEFORE any recipe read can
-    // be requested, so the startup active-recipe restore always sees
-    // converted values.
-    requestRecipeTempOffsetConversion();
+    // Re-run the temp-offset conversion after any import that can land
+    // legacy-source rows (the startup pass ran before setupRecipeConnections,
+    // see the constructor's storage block). A device transfer imports profile
+    // FILES too, and this C++ connect fires before the QML page's
+    // onImportComplete → ProfileManager.refreshProfiles() — so rescan the
+    // catalog HERE first, or the conversion would snapshot the pre-import
+    // catalog, fail to resolve the transferred recipes' profiles, and drop
+    // their temperature pins permanently.
     connect(m_shotHistory, &ShotHistoryStorage::importDatabaseFinished, this,
             [this](bool success) {
         if (success)
             requestRecipeTempOffsetConversion();
     });
     connect(m_dataMigration, &DataMigrationClient::importComplete, this,
-            [this]() { requestRecipeTempOffsetConversion(); });
+            [this]() {
+        if (m_profileManager)
+            m_profileManager->refreshProfiles();
+        requestRecipeTempOffsetConversion();
+    });
 }
 
 void MainController::requestRecipeTempOffsetConversion() {
@@ -1352,8 +1365,9 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
         // Profile-less recipes have no profile to override or re-upload.
         bool hasOverrides = false;
         if (!profileLess) {
-            // A recipe value matching the profile's own default is not an
-            // override — don't arm the flag for it (Bug A).
+            // A recipe YIELD matching the profile's own default is not an
+            // override — don't arm the flag for it (Bug A). Temperature no
+            // longer needs this guard: its stored offset is unambiguous.
             const double yieldG = recipe.value("yieldG").toDouble();
             if (yieldG > 0
                 && qAbs(yieldG - m_profileManager->currentProfile().targetWeight()) > 0.1) {
@@ -1371,6 +1385,15 @@ void MainController::applyActivatedRecipe(qint64 recipeId, const QVariantMap& re
             if (qAbs(tempOffsetC) > 0.05 && profileTempC > 0) {
                 m_settings->brew()->setTemperatureOverride(profileTempC + tempOffsetC);
                 hasOverrides = true;
+            } else if (qAbs(tempOffsetC) > 0.05) {
+                // A real offset with no profile temperature to anchor on: the
+                // shot brews at whatever the machine holds. Loud, because the
+                // user asked for "profile −3°" and silently not getting it is
+                // undebuggable.
+                qWarning() << "applyActivatedRecipe: recipe" << recipe.value("name").toString()
+                           << "has temp offset" << tempOffsetC
+                           << "but the loaded profile reports no espresso_temperature"
+                           << "- skipping the temperature override";
             }
         }
         if (hasOverrides)

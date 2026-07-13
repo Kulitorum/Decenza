@@ -258,7 +258,11 @@ Page {
             if (fn && fn !== "") {
                 d = ProfileManager.getProfileByFilename(fn)
             } else if (recipe.profileJson && String(recipe.profileJson).length > 0) {
-                try { d = JSON.parse(recipe.profileJson) } catch (e) { d = null }
+                try { d = JSON.parse(recipe.profileJson) } catch (e) {
+                    console.warn("RecipesPage: recipe", recipe.name,
+                                 "has unparsable embedded profile JSON:", e)
+                    d = null
+                }
             }
             if (!d)
                 return

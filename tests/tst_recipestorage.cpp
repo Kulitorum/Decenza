@@ -796,6 +796,111 @@ private slots:
         });
     }
 
+    // Clearing an offset through the normal update path must write an
+    // EXPLICIT 0, never NULL — NULL is the migration's "unconverted" marker,
+    // and a NULL here would let the conversion pass resurrect the dead
+    // absolute the user deliberately cleared. This pins bindDblSigned being
+    // wired to temp_offset_c (COL_DBL_SIGNED): "harmonizing" it back to the
+    // null-collapsing COL_DBL is exactly the refactor this test fails on.
+    void clearingOffsetWritesExplicitZeroNeverNull() {
+        withRawDb(freshDbPath(), "clr0", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QSqlQuery q(db);
+            // A migrated row: converted offset −3, dead absolute still parked.
+            QVERIFY(q.exec("INSERT INTO recipes (name, profile_title, temp_offset_c, temp_override_c) "
+                           "VALUES ('Pinned', 'Known', -3.0, 87.0)"));
+            const qint64 id = q.lastInsertId().toLongLong();
+
+            QVERIFY(RecipeStorage::updateRecipeFieldsStatic(db, id, {{"tempOffsetC", 0.0}}));
+            QSqlQuery r(db);
+            QVERIFY(r.exec(QString("SELECT temp_offset_c FROM recipes WHERE id = %1").arg(id)));
+            QVERIFY(r.next());
+            QVERIFY(!r.value(0).isNull());       // explicit 0, NOT the unconverted marker
+            QCOMPARE(r.value(0).toDouble(), 0.0);
+
+            // And the conversion pass must not resurrect the dead absolute.
+            const QHash<QString, double> temps{{QStringLiteral("Known"), 90.0}};
+            QVERIFY(RecipeStorage::convertLegacyTempOffsetsStatic(db, temps));
+            QSqlQuery r2(db);
+            QVERIFY(r2.exec(QString("SELECT temp_offset_c FROM recipes WHERE id = %1").arg(id)));
+            QVERIFY(r2.next());
+            QCOMPARE(r2.value(0).toDouble(), 0.0);
+        });
+    }
+
+    // Merge-mode import: a legacy-source row that dedup-matches an existing
+    // dest recipe maps to the existing row WITHOUT staging — the local
+    // recipe's (possibly deliberately cleared) offset must survive. Staging
+    // belongs to inserted rows only.
+    void mergeMatchedLegacyRowDoesNotStage() {
+        const QString srcPath = freshDbPath();
+        const QString destPath = freshDbPath();
+        withRawDb(srcPath, "mrg_src", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QSqlQuery q(db);
+            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN temp_offset_c"));  // pre-31 schema
+            QVERIFY(q.exec("INSERT INTO recipes (name, profile_title, roaster_name, coffee_name, "
+                           "temp_override_c) VALUES ('Twin', 'P', 'R', 'C', 87.0)"));
+        });
+        withRawDb(destPath, "mrg_dest", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QSqlQuery q(db);
+            // Same identity, offset deliberately cleared to 0 locally.
+            QVERIFY(q.exec("INSERT INTO recipes (name, profile_title, roaster_name, coffee_name, "
+                           "temp_offset_c, temp_override_c) VALUES ('Twin', 'P', 'R', 'C', 0, 87.0)"));
+        });
+        withRawDb(srcPath, "mrg_src2", [&](QSqlDatabase& srcDb) {
+            withRawDb(destPath, "mrg_dest2", [&](QSqlDatabase& destDb) {
+                QHash<qint64, qint64> idMap;
+                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, /*merge=*/true,
+                                                           idMap, {}, {}));
+                QSqlQuery r(destDb);
+                QVERIFY(r.exec("SELECT COUNT(*), MIN(temp_offset_c) FROM recipes"));
+                QVERIFY(r.next());
+                QCOMPARE(r.value(0).toInt(), 1);         // matched, not duplicated
+                QVERIFY(!r.value(1).isNull());           // no unconverted marker planted
+                QCOMPARE(r.value(1).toDouble(), 0.0);    // the cleared offset survived
+            });
+        });
+    }
+
+    // A ≥31 source whose OWN deferred pass hadn't completed (backup exported
+    // mid-window) carries NULL-offset rows with the absolute still in the
+    // dead column. Those rows must import as UNCONVERTED — flattening the
+    // NULL to an explicit 0 would silently destroy a still-recoverable pin.
+    void importUnconvertedRowFromCurrentSourceStages() {
+        const QString srcPath = freshDbPath();
+        const QString destPath = freshDbPath();
+        withRawDb(srcPath, "unc_src", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QSqlQuery q(db);
+            QVERIFY(q.exec("INSERT INTO recipes (name, profile_title, temp_offset_c, temp_override_c) "
+                           "VALUES ('Unconverted', 'Known', NULL, 87.0)"));
+            QVERIFY(q.exec("INSERT INTO recipes (name, profile_title, temp_offset_c, temp_override_c) "
+                           "VALUES ('Converted', 'Known', -2.0, 87.0)"));
+        });
+        withRawDb(destPath, "unc_dest", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+        });
+        withRawDb(srcPath, "unc_src2", [&](QSqlDatabase& srcDb) {
+            withRawDb(destPath, "unc_dest2", [&](QSqlDatabase& destDb) {
+                QHash<qint64, qint64> idMap;
+                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, /*merge=*/false,
+                                                           idMap, {}, {}));
+                const QHash<QString, double> temps{{QStringLiteral("Known"), 90.0}};
+                QVERIFY(RecipeStorage::convertLegacyTempOffsetsStatic(destDb, temps));
+                QSqlQuery r(destDb);
+                QVERIFY(r.exec("SELECT name, temp_offset_c FROM recipes ORDER BY name"));
+                QVERIFY(r.next());
+                QCOMPARE(r.value(0).toString(), QStringLiteral("Converted"));
+                QCOMPARE(r.value(1).toDouble(), -2.0);   // verbatim, never reconverted
+                QVERIFY(r.next());
+                QCOMPARE(r.value(0).toString(), QStringLiteral("Unconverted"));
+                QCOMPARE(r.value(1).toDouble(), -3.0);   // staged, then converted (87 − 90)
+            });
+        });
+    }
+
     // A current-version source imports its offset VERBATIM — its dead
     // temp_override_c (still holding the pre-migration absolute) must never
     // resurrect an offset the user has since cleared.

@@ -63,13 +63,14 @@ Dialog {
     // yield/temp ARE the recipe's design — its baseline — not deviations from
     // the profile, so when a recipe is active the highlight, the Temp Delta
     // zero-point, and Clear all measure against the recipe's own values, not the
-    // profile default. A recipe that never pinned a value for a field (stored 0 =
-    // unset) falls back to the profile, matching no-recipe mode. NOTIFY-reactive
+    // profile default. A recipe that never pinned a yield (stored 0 = unset)
+    // falls back to the profile; for temperature, offset 0 explicitly MEANS
+    // the profile's own temperature — the same fallback either way. NOTIFY-reactive
     // via recipeActive (activeRecipeId) + MainController.activeRecipe.
     // The temperature baseline is OFFSET-derived (recipe-relative-temp-offset):
     // profile temp + the recipe's stored delta, so a profile temperature edit
     // moves the recipe's baseline with it. Offset 0 = the profile itself.
-    readonly property double recipeTempBaseline: (recipeActive
+    readonly property double recipeTempBaseline: (recipeActive && profileTemperature > 0
             && Math.abs(MainController.activeRecipe.tempOffsetC || 0) > 0.05)
         ? profileTemperature + MainController.activeRecipe.tempOffsetC : profileTemperature
     readonly property double recipeYieldBaseline: (recipeActive && MainController.activeRecipe.yieldG > 0)

@@ -1048,18 +1048,22 @@ bool RecipeStorage::migrateGrindOwnershipStatic(QSqlDatabase& db,
 
 // static
 bool RecipeStorage::convertLegacyTempOffsetsStatic(QSqlDatabase& db,
-                                                   const QHash<QString, double>& profileTempsByTitle)
+                                                   const QHash<QString, double>& profileTempsByTitle,
+                                                   int* outConvertedCount)
 {
     // Migration 31 data pass (recipe-relative-temp-offset): rows whose
     // temp_offset_c is NULL are unconverted — either migration 31 just added
-    // the column, or a legacy-source import marked them (importRecipesStatic).
-    // Converted rows always hold an explicit value (bindDblSigned never writes
-    // NULL), so the pass is idempotent and re-runs are no-ops. The profile's
-    // CURRENT temperature is the anchor (catalog snapshot first — the files
-    // are the live truth); the recipe's embedded profile_json is the fallback
-    // for renamed/deleted profiles. Neither resolvable → offset 0: a delta
-    // against an unknown baseline is meaningless, and the profile-load stage
-    // of activation can't reproduce the absolute anyway.
+    // the column, or an unconverted-source import marked them
+    // (importRecipesStatic). Converted rows always hold an explicit value
+    // (bindDblSigned never writes NULL), so the pass is idempotent and
+    // re-runs are no-ops. The profile's CURRENT temperature is the anchor
+    // (catalog snapshot first — the files are the live truth); the recipe's
+    // embedded profile_json is the fallback for renamed/deleted profiles.
+    // Neither resolvable → offset 0: a delta against an unknown baseline is
+    // meaningless, and the profile-load stage of activation can't reproduce
+    // the absolute anyway.
+    if (outConvertedCount)
+        *outConvertedCount = 0;
     QSqlQuery select(db);
     if (!select.exec("SELECT id, name, profile_title, profile_json, "
                      "COALESCE(temp_override_c, 0) FROM recipes "
@@ -1079,10 +1083,19 @@ bool RecipeStorage::convertLegacyTempOffsetsStatic(QSqlDatabase& db,
         const double legacyAbs = select.value(4).toDouble();
 
         double offset = 0;
-        if (legacyAbs > 0) {
+        // Profile-less rows (hot-water tea) legitimately have no anchor and
+        // their legacy absolute was never applied at activation — drop the
+        // pin quietly rather than warning about resolving "".
+        if (legacyAbs > 0 && !title.isEmpty()) {
             double profileTemp = profileTempsByTitle.value(title, 0);
             if (profileTemp <= 0 && !json.isEmpty()) {
-                const QJsonObject o = QJsonDocument::fromJson(json.toUtf8()).object();
+                QJsonParseError parseError;
+                const QJsonObject o =
+                    QJsonDocument::fromJson(json.toUtf8(), &parseError).object();
+                if (parseError.error != QJsonParseError::NoError)
+                    qWarning() << "RecipeStorage: temp-offset conversion - recipe" << name
+                               << "has malformed embedded profile JSON:"
+                               << parseError.errorString();
                 profileTemp = o.value(QStringLiteral("espresso_temperature")).toString().toDouble();
                 if (profileTemp <= 0)
                     profileTemp = o.value(QStringLiteral("espresso_temperature")).toDouble();
@@ -1109,6 +1122,8 @@ bool RecipeStorage::convertLegacyTempOffsetsStatic(QSqlDatabase& db,
                        << update.lastError().text();
             return false;
         }
+        if (outConvertedCount)
+            ++(*outConvertedCount);
     }
     if (!rows.isEmpty())
         qDebug() << "RecipeStorage: temp-offset conversion -" << rows.size()
@@ -1118,19 +1133,32 @@ bool RecipeStorage::convertLegacyTempOffsetsStatic(QSqlDatabase& db,
 
 void RecipeStorage::requestLegacyTempOffsetConversion(const QHash<QString, double>& profileTempsByTitle)
 {
-    auto converted = std::make_shared<bool>(false);
+    auto convertedCount = std::make_shared<int>(0);
     runAsync("recipes_temp_offset",
-        [profileTempsByTitle, converted](QSqlDatabase& db) {
-            // Cheap existence probe first: the common case (nothing to
-            // convert) must not pay for a table scan + logging every launch.
+        [profileTempsByTitle, convertedCount](QSqlDatabase& db) {
+            // Existence probe first: a completed no-op pass would otherwise
+            // report success and emit a spurious recipesChanged() (QML
+            // inventory refresh) on every launch — the probe keeps the
+            // steady state signal-free. Its own exec failing is NOT "nothing
+            // to convert": most plausibly the column is missing (migration 31
+            // failed and will retry), and staying silent here would hide that
+            // on every launch.
             QSqlQuery probe(db);
-            if (!probe.exec("SELECT 1 FROM recipes WHERE temp_offset_c IS NULL LIMIT 1")
-                || !probe.next())
+            if (!probe.exec("SELECT 1 FROM recipes WHERE temp_offset_c IS NULL LIMIT 1")) {
+                qWarning() << "RecipeStorage: temp-offset conversion probe failed"
+                              "(temp_offset_c column missing? migration 31 will retry):"
+                           << probe.lastError().text();
                 return;
-            *converted = convertLegacyTempOffsetsStatic(db, profileTempsByTitle);
+            }
+            if (!probe.next())
+                return;
+            convertLegacyTempOffsetsStatic(db, profileTempsByTitle, convertedCount.get());
         },
-        [this, converted](bool) {
-            if (*converted)
+        [this, convertedCount](bool) {
+            // Emit for the rows that DID convert even when the pass then hit
+            // an update failure — their cards should refresh now; the
+            // remaining NULL rows retry on the next launch.
+            if (*convertedCount > 0)
                 emit recipesChanged();
         });
 }
@@ -1364,21 +1392,30 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
                            ? col
                            : QStringLiteral("NULL AS %1").arg(col));
 
-    // Legacy temperature source (recipe-relative-temp-offset): a source from
-    // before migration 31 stores an ABSOLUTE temp_override_c and has no
-    // temp_offset_c. Read the absolute as an extra trailing column, stage it
-    // in the destination's dead temp_override_c, and mark the row unconverted
-    // (temp_offset_c = NULL) for the deferred conversion pass. The guard is
-    // load-bearing in the other direction: a CURRENT-version source carries a
-    // correct temp_offset_c AND a stale absolute in its dead column —
-    // reconverting from that would resurrect an offset the user has since
-    // changed or cleared, so a non-legacy source imports its offset verbatim
-    // and its dead column is ignored.
-    const bool legacyTempSource = !srcColumns.contains(QStringLiteral("temp_offset_c"))
-                                  && srcColumns.contains(QStringLiteral("temp_override_c"));
+    // Unconverted temperature rows (recipe-relative-temp-offset): a source
+    // row still holding an ABSOLUTE temp_override_c with no converted offset
+    // must arrive as "unconverted" — the absolute staged into the
+    // destination's dead temp_override_c and temp_offset_c = NULL, so the
+    // deferred conversion pass finishes the job. Two shapes qualify:
+    //   • a pre-31 source (no temp_offset_c column at all) — every row;
+    //   • a ≥31 source whose OWN deferred pass hadn't completed when the
+    //     backup was taken — exactly the rows where temp_offset_c IS NULL
+    //     (readDbl would otherwise flatten the marker to an explicit 0 and
+    //     silently destroy the still-recoverable pin).
+    // The per-row NULL check is load-bearing in the other direction too: a
+    // CONVERTED row carries a correct temp_offset_c AND a stale absolute in
+    // its dead column — reconverting from that would resurrect an offset the
+    // user has since changed or cleared, so converted rows import their
+    // offset verbatim and their dead column is ignored.
+    const bool srcHasOverrideCol = srcColumns.contains(QStringLiteral("temp_override_c"));
+    const bool srcHasOffsetCol = srcColumns.contains(QStringLiteral("temp_offset_c"));
+    QString trailingCols;
+    if (srcHasOverrideCol)
+        trailingCols += QStringLiteral(", COALESCE(temp_override_c, 0)");
+    if (srcHasOverrideCol && srcHasOffsetCol)
+        trailingCols += QStringLiteral(", temp_offset_c IS NULL");
     QString selectSql = QString("SELECT %1%2 FROM recipes")
-        .arg(selectCols.join(QStringLiteral(", ")),
-             legacyTempSource ? QStringLiteral(", temp_override_c") : QString());
+        .arg(selectCols.join(QStringLiteral(", ")), trailingCols);
 
     QSqlQuery srcRecipes(srcDb);
     if (!srcRecipes.exec(selectSql)) {
@@ -1390,8 +1427,10 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     QVector<qint64> insertedIds;  // scope for the post-import grind backfill
     while (srcRecipes.next()) {
         Recipe recipe = recipeFromQueryRow(srcRecipes);
-        const double legacyAbsTemp = legacyTempSource
+        const double legacyAbsTemp = srcHasOverrideCol
             ? srcRecipes.value(kColCount).toDouble() : 0.0;
+        const bool rowUnconverted = srcHasOverrideCol
+            && (!srcHasOffsetCol || srcRecipes.value(kColCount + 1).toBool());
         // Remap the source equipment_id to the imported package's new dest id
         // (EquipmentStorage::importEquipmentStatic ran first). A source id
         // absent from the map (older source with no equipment tables, or an
@@ -1437,7 +1476,7 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
                 return false;
             imported++;
             insertedIds.append(destId);
-            if (legacyTempSource && legacyAbsTemp > 0) {
+            if (rowUnconverted && legacyAbsTemp > 0) {
                 // Stage the legacy absolute + the unconverted marker; the
                 // deferred pass (convertLegacyTempOffsetsStatic) turns it into
                 // an offset once the caller re-triggers conversion.

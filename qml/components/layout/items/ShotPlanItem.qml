@@ -41,6 +41,7 @@ Item {
             ? MainController.activeRecipe.yieldG : 0
     readonly property double _recipeBaselineTemp:
         (Settings.dye.activeRecipeId >= 0
+         && ProfileManager.profileTargetTemperature > 0
          && Math.abs(MainController.activeRecipe.tempOffsetC || 0) > 0.05)
             ? ProfileManager.profileTargetTemperature + MainController.activeRecipe.tempOffsetC : 0
 

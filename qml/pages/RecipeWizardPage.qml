@@ -459,17 +459,33 @@ Page {
         })
         applyRecipeMap(prefill)
         // Promote-from-shot conversion (recipe-relative-temp-offset): offset =
-        // the shot's absolute override − the shot's profile temperature (just
-        // resolved by applyRecipeMap → refreshProfileTemp). Unresolvable
-        // profile → no pin; a delta against an unknown baseline is meaningless.
-        if ((shot.temperatureOverrideC || 0) > 0 && fProfileTempC > 0) {
-            var promoteOffset = shot.temperatureOverrideC - fProfileTempC
-            if (Math.abs(promoteOffset) < 0.05)
-                promoteOffset = 0
-            if (isTeaDrink)
-                fTeaTempC = shot.temperatureOverrideC
-            else
-                fTempDeltaC = promoteOffset
+        // the shot's absolute override − the SHOT's profile snapshot
+        // temperature — the profile as it was when the shot was pulled, which
+        // is what the override was relative to. Same anchor as the C++
+        // promote path (RecipePromotion::fieldsFromShotRecord), so the two
+        // surfaces cannot disagree; the installed profile's current
+        // temperature is only the fallback for a snapshot-less shot.
+        // Unresolvable both ways → no pin.
+        if ((shot.temperatureOverrideC || 0) > 0) {
+            var promoteAnchor = 0
+            if (shot.profileJson && String(shot.profileJson).length > 0) {
+                try {
+                    promoteAnchor = Number(JSON.parse(shot.profileJson).espresso_temperature) || 0
+                } catch (e) {
+                    console.warn("RecipeWizard: shot profile snapshot JSON unparsable:", e)
+                }
+            }
+            if (promoteAnchor <= 0)
+                promoteAnchor = fProfileTempC
+            if (promoteAnchor > 0) {
+                var promoteOffset = shot.temperatureOverrideC - promoteAnchor
+                if (Math.abs(promoteOffset) < 0.05)
+                    promoteOffset = 0
+                if (isTeaDrink)
+                    fTeaTempC = shot.temperatureOverrideC
+                else
+                    fTempDeltaC = promoteOffset
+            }
         }
         var bean = ((shot.beanBrand || "") + " " + (shot.beanType || "")).trim()
         nameField.text = bean !== "" ? bean : (shot.profileName || "")
@@ -497,7 +513,10 @@ Page {
         } else if (fProfileJson !== "") {
             // Embedded fallback for a renamed/uninstalled profile — the same
             // ladder the recipe cards use.
-            try { d = JSON.parse(fProfileJson) } catch (e) { d = null }
+            try { d = JSON.parse(fProfileJson) } catch (e) {
+                console.warn("RecipeWizard: embedded profile JSON unparsable:", e)
+                d = null
+            }
         }
         if (!d)
             return
@@ -829,7 +848,9 @@ Page {
             parts.push(dose.toFixed(1) + "g → " + yieldG.toFixed(1) + "g")
         else if (dose > 0)
             parts.push(dose.toFixed(1) + "g")
-        if (isTeaDrink && fTeaTempC > 0)
+        if (isHotWaterTea && fVesselTemperatureC > 0)
+            parts.push(Math.round(fVesselTemperatureC) + "°C")   // the vessel IS the temperature source
+        else if (isTeaDrink && fTeaTempC > 0)
             parts.push(Math.round(fTeaTempC) + "°C")
         else if (Math.abs(fTempDeltaC) > 0.05)
             parts.push((fTempDeltaC > 0 ? "+" : "")
@@ -2199,7 +2220,18 @@ Page {
                                     }
                                 }
                                 NumberField {
-                                    visible: wizardPage.isTeaDrink
+                                    // Portafilter tea only: this edits an ABSOLUTE steep
+                                    // temperature that converts to the stored offset against
+                                    // the profile. Hot-water tea has no profile — its
+                                    // temperature belongs to the water vessel (recipe-model:
+                                    // the vessel is the single source of amount/temperature/
+                                    // flow; a separate field here stored a value activation
+                                    // never used). Disabled when the profile can't be
+                                    // resolved: without an anchor the save path preserves the
+                                    // stored offset untouched, so the field must not accept
+                                    // input it would silently discard.
+                                    visible: wizardPage.isTeaDrink && !wizardPage.isHotWaterTea
+                                    enabled: wizardPage.fProfileTempC > 0
                                     Layout.preferredWidth: Theme.scaled(120)
                                     label: TranslationManager.translate("recipes.wizard.teaTemp", "Temp (°C)")
                                     text: wizardPage.fTeaTempC > 0 ? String(Math.round(wizardPage.fTeaTempC)) : ""

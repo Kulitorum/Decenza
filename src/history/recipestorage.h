@@ -271,20 +271,25 @@ public:
     // Migration 31 data pass (recipe-relative-temp-offset): convert the legacy
     // absolute temp_override_c into the relative temp_offset_c. Touches ONLY
     // rows whose temp_offset_c is NULL (the unconverted marker migration 31's
-    // ADD COLUMN leaves behind, and the marker legacy-source imports set), so
-    // it is idempotent and safe to run every launch until no NULLs remain.
-    // offset = legacy absolute − the profile's espresso_temperature, resolved
-    // from profileTempsByTitle (the caller's snapshot of the profile catalog)
-    // with the recipe's embedded profile_json as fallback; unresolvable → 0
-    // (a delta against an unknown baseline is meaningless; logged), |offset|
-    // < 0.05 → 0. Returns false when the pass could not run to completion.
+    // ADD COLUMN leaves behind, and the marker unconverted-source imports
+    // set), so it is idempotent and safe to run every launch until no NULLs
+    // remain. offset = legacy absolute − the profile's espresso_temperature,
+    // resolved from profileTempsByTitle (the caller's snapshot of the profile
+    // catalog) with the recipe's embedded profile_json as fallback;
+    // unresolvable → 0 (a delta against an unknown baseline is meaningless;
+    // logged), |offset| < 0.05 → 0. Returns false when the pass could not run
+    // to completion; outConvertedCount (optional) reports how many rows were
+    // converted before any failure.
     static bool convertLegacyTempOffsetsStatic(QSqlDatabase& db,
-                                               const QHash<QString, double>& profileTempsByTitle);
+                                               const QHash<QString, double>& profileTempsByTitle,
+                                               int* outConvertedCount = nullptr);
 
     // Async wrapper for the conversion pass. Called by MainController at
-    // startup (after the profile catalog scan) and again after a device
-    // transfer / backup import lands legacy-source rows. Emits
-    // recipesChanged() when at least one row was converted.
+    // startup (before the active-recipe restore read is queued) and again
+    // after a device transfer / backup import lands unconverted rows. Emits
+    // recipesChanged() when at least one row was converted — including a
+    // partial pass that then failed; the remaining rows keep their NULL
+    // marker and retry next launch.
     void requestLegacyTempOffsetConversion(const QHash<QString, double>& profileTempsByTitle);
 
     // Roll-on-finish (synchronous core): relink the finished bag's
