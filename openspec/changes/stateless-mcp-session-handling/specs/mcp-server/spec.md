@@ -34,6 +34,21 @@ The `MaxSessions` concurrency limit SHALL count only stateful (SSE-backed) sessi
 - **THEN** a further attempt to establish a new stateful (SSE) session is refused
 - **AND** the refusal does not disturb existing stateful sessions or ephemeral request handling
 
+### Requirement: Total Session Pool Is Bounded Against Churn Without Rejecting Clients
+
+Because ephemeral sessions are no longer bounded by the stateful concurrency limit and the `initialize` handshake is not rate-limited, the server SHALL enforce an absolute backstop on the total number of retained sessions to bound memory. When creating a session would exceed that backstop, the server SHALL evict the least-recently-active ephemeral session (never a stateful session, and never one holding a pending in-app confirmation) rather than rejecting the new session. A burst of per-request re-initialization SHALL NOT cause any client's request to be rejected.
+
+#### Scenario: Tight-loop initialize is bounded by eviction, not rejection
+
+- **WHEN** a client POSTs `initialize` in a tight loop without echoing a session header, driving the total session count to the backstop
+- **THEN** the total retained session count stays bounded at the backstop
+- **AND** each new `initialize` still succeeds, the server having evicted the least-recently-active ephemeral session to make room
+
+#### Scenario: Eviction never targets a stateful or confirming session
+
+- **WHEN** the pool reaches the backstop while some sessions hold a live SSE stream or a pending in-app confirmation
+- **THEN** eviction skips those sessions and removes only an ephemeral, non-confirming one
+
 ### Requirement: Ephemeral Sessions Are Reaped Well Before the Stateful Timeout
 
 Ephemeral (non-SSE) session state SHALL be released by a reaping pass bounded well below the idle-session timeout used for stateful sessions, so that per-request re-initializing clients do not accumulate durable state up to the full stateful timeout. A session with an in-flight request or a pending in-app confirmation SHALL NOT be reaped.

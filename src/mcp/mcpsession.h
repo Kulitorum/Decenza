@@ -46,15 +46,20 @@ public:
     bool hadSseSocket() const { return m_hadSseSocket; }
 
     // A session is "stateful" only while it holds a *live* SSE stream — the one
-    // thing that requires retained server-side state (server→client push). A
-    // session with no live SSE socket — one that never opened one, or whose SSE
-    // has closed — is ephemeral and need not occupy a durable slot. The cloud
-    // MCP connectors (ChatGPT `openai-mcp`, claude.ai) re-`initialize` on every
-    // request and never hold an SSE stream open, so they are ephemeral; only a
-    // LAN `mcp-remote` / Claude Desktop client keeps its SSE open and is
-    // therefore stateful. Only stateful sessions count toward MaxSessions, so
-    // per-request re-initializing clients cannot exhaust the pool. See
-    // docs/CLAUDE_MD/MCP_SERVER.md.
+    // thing that requires retained server-side state (server→client push). This
+    // keys on a live socket (`!m_sseSocket.isNull()`), deliberately NOT the sticky
+    // hadSseSocket(): the classification is transport statefulness, not "has any
+    // server-side state" (a session mid machine-start confirmation has retained
+    // state yet reports false here — the reaper guards that case separately).
+    // Observed 2026-07-12: the cloud connectors re-`initialize` per request and
+    // hold no stream open between exchanges — claude.ai (`Anthropic/ClaudeAI`) is
+    // pure POST (never opens SSE); ChatGPT (`openai-mcp`) opens an SSE stream only
+    // momentarily per exchange — so both are ephemeral except for ChatGPT's brief
+    // per-call window. Only a LAN `mcp-remote` / Claude Desktop client keeps its
+    // SSE open and is durably stateful. The client-name strings are illustrative
+    // (logged, never branched on); the live SSE socket is the actual signal. Only
+    // stateful sessions count toward MaxSessions, so per-request re-initializing
+    // clients cannot exhaust the pool. See docs/CLAUDE_MD/MCP_SERVER.md.
     bool isStateful() const { return !m_sseSocket.isNull(); }
 
     // Resource subscriptions

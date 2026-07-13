@@ -240,6 +240,27 @@ private slots:
         QCOMPARE(server.activeSessionCount(), kBursts);
     }
 
+    // The ephemeral test above proves "POST-only sessions don't count", but it
+    // would still pass if isStateful() were broken to always return false. This
+    // locks the other half of the invariant: statefulness tracks a *live* SSE
+    // socket, and reverts to ephemeral when that socket clears (ChatGPT's
+    // momentary-SSE transition) while hadSseSocket() stays sticky.
+    void testSessionStatefulTracksLiveSseSocket()
+    {
+        McpSession session;
+        QVERIFY(!session.isStateful());   // fresh: no SSE stream yet
+        QVERIFY(!session.hadSseSocket());
+
+        QTcpSocket socket;
+        session.setSseSocket(&socket);
+        QVERIFY(session.isStateful());    // live SSE → stateful
+        QVERIFY(session.hadSseSocket());
+
+        session.setSseSocket(nullptr);
+        QVERIFY(!session.isStateful());   // SSE closed → ephemeral again
+        QVERIFY(session.hadSseSocket());  // but "ever had SSE" stays true
+    }
+
     // --- ping ---
 
     void testPingReturnsEmptyResult()
