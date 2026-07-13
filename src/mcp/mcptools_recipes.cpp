@@ -435,6 +435,12 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 respond(QJsonObject{{"error", "Recipe storage not available"}});
                 return;
             }
+            // The retired absolute field fails LOUD: a pre-rename client
+            // writing ~90 into the delta column would be a 90° offset.
+            if (args.contains("temperatureOverrideC")) {
+                respond(QJsonObject{{"error", "temperatureOverrideC was replaced by tempOffsetC — a SIGNED DELTA in Celsius against the recipe's profile (recipe-relative-temp-offset). Rejected rather than silently dropped: an absolute written into the delta field would corrupt the recipe's temperature."}});
+                return;
+            }
             QVariantMap fields = recipeFieldsFromArgs(args);
             // Schema enums are advisory to the model — enforce the vocabulary
             // here (a typo'd type silently breaks every exact-match consumer).
@@ -528,6 +534,11 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 return;
             }
             const qint64 recipeId = args["recipeId"].toInteger();
+            // The retired absolute field fails LOUD (see recipe_create).
+            if (args.contains("temperatureOverrideC")) {
+                respond(QJsonObject{{"error", "temperatureOverrideC was replaced by tempOffsetC — a SIGNED DELTA in Celsius against the recipe's profile (recipe-relative-temp-offset). Rejected rather than silently dropped: an absolute written into the delta field would corrupt the recipe's temperature."}});
+                return;
+            }
             QVariantMap fields = recipeFieldsFromArgs(args);
             const QString requestedType = fields.value("drinkType").toString();
             if (!requestedType.isEmpty() && !Recipe::isKnownDrinkType(requestedType)) {

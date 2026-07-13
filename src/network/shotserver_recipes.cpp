@@ -200,6 +200,12 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
     // POST /api/recipes — create. Profile required unless the recipe is
     // hot-water-only (hasWater in the block) — the shared validation rule.
     if (path == "/api/recipes" && method == "POST") {
+        // The retired absolute field fails LOUD: an old client writing ~90
+        // into the delta column would be a 90° offset.
+        if (bodyJson.contains(QStringLiteral("temperatureOverrideC"))) {
+            respondJson(QJsonObject{{"error", "temperatureOverrideC was replaced by tempOffsetC — a SIGNED DELTA in Celsius against the recipe's profile (recipe-relative-temp-offset). Rejected rather than silently dropped: an absolute written into the delta field would corrupt the recipe's temperature."}}, 400);
+            return;
+        }
         QVariantMap fields = recipeFieldsFromBody(bodyJson);
         // The REST route accepts free text — enforce the drink-type vocabulary
         // (the bundled page's <select> constrains only the browser form).
@@ -352,6 +358,11 @@ void ShotServer::handleRecipesApi(QTcpSocket* socket, const QString& method,
 
         // POST /api/recipe/<id> — update
         if (action.isEmpty()) {
+            // The retired absolute field fails LOUD (see the create route).
+            if (bodyJson.contains(QStringLiteral("temperatureOverrideC"))) {
+                respondJson(QJsonObject{{"error", "temperatureOverrideC was replaced by tempOffsetC — a SIGNED DELTA in Celsius against the recipe's profile (recipe-relative-temp-offset). Rejected rather than silently dropped: an absolute written into the delta field would corrupt the recipe's temperature."}}, 400);
+                return;
+            }
             QVariantMap fields = recipeFieldsFromBody(bodyJson);
             const QString requestedType = fields.value("drinkType").toString();
             if (!requestedType.isEmpty() && !Recipe::isKnownDrinkType(requestedType)) {

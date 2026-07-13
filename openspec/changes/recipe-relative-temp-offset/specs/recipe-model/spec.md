@@ -80,7 +80,7 @@ Hot-water tea recipes (profile-less) SHALL store no temperature pin at all: the 
 - **THEN** no separate temperature field is offered; the summary shows the selected vessel's temperature, and the recipe stores offset 0
 
 ### Requirement: Recipe surfaces expose the offset
-The MCP recipe tools and the ShotServer recipe endpoints (including the web recipe editor) SHALL expose the temperature as `tempOffsetC` — a signed delta in °C, present only when non-zero on read, and accepted as the only temperature field on create/update. The legacy absolute `temperatureOverrideC` field SHALL no longer appear in responses nor be accepted in requests, so no client can silently write an absolute value into a delta column.
+The MCP recipe tools and the ShotServer recipe endpoints (including the web recipe editor) SHALL expose the temperature as `tempOffsetC` — a signed delta in °C, present only when non-zero on read, and accepted as the only temperature field on create/update. The legacy absolute `temperatureOverrideC` field SHALL no longer appear in responses, and a create/update request carrying it SHALL be **rejected with an error naming the replacement and its delta semantics** (never a silent drop) — a pre-rename client writing an absolute into the delta field would corrupt the recipe's temperature.
 
 #### Scenario: MCP reads a recipe with an offset
 - **WHEN** an MCP client fetches a recipe holding a −3° offset
@@ -89,3 +89,7 @@ The MCP recipe tools and the ShotServer recipe endpoints (including the web reci
 #### Scenario: Web editor round-trips the offset
 - **WHEN** the web recipe editor saves a recipe with `tempOffsetC` = 2
 - **THEN** the stored recipe holds offset 2 and re-reading it returns `tempOffsetC: 2`
+
+#### Scenario: Legacy field is rejected loudly
+- **WHEN** an MCP or web client sends `temperatureOverrideC` on recipe create or update
+- **THEN** the request fails with an error naming `tempOffsetC` and its signed-delta semantics, and no field is written
