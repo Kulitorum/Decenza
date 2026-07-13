@@ -1,19 +1,18 @@
-## 1. Investigate seams
+## 1. Investigate seams — DONE (spike)
 
-- [ ] 1.1 Confirm how `RecipeStorage`, `ShotHistoryStorage`, and `CoffeeBagStorage` resolve their DB path (via `QStandardPaths` vs hard-coded/derived) — determines whether `QStandardPaths` test mode alone isolates them.
-- [ ] 1.2 Audit the `MainController` constructor for collaborators that perform network or file I/O on construction (ProfileManager/Visualizer/BeanBase/AIManager/LiveSteamCoach); confirm they are inert headless or note what must be guarded.
+- [x] 1.1 DB path resolution: `MainController` calls `ShotHistoryStorage::initialize()` with no arg → defaults to `QStandardPaths::writableLocation(AppDataLocation)/shots.db`; all other storages take `m_shotHistory->databasePath()`. **`QStandardPaths::setTestModeEnabled(true)` isolates all four — zero production seam needed.**
+- [x] 1.2 Constructor inertness: ShotServer only `start()`s if `shotServerEnabled()` (**defaults false**); MqttClient `connectToBroker()` is guarded (off by default); ProfileManager ctor only wires signals + arms single-shot timers (no disk scan); network clients are pointer-storing (auto-fired requests fail harmlessly). **Construction is inert headless.**
+- [x] 1.3 **NEW finding — the real cost is the build graph.** `MainController`'s constructor unconditionally `new`s every collaborator (ProfileManager, Visualizer, BeanBase, AIManager, LiveSteamCoach, ShotServer ×12 split files, MqttClient, all storages, models, UpdateChecker, …), so the test target must link ~150 of the app's 192 sources. No production seam avoids this; it is inherent to the god-object constructor.
 
-## 2. Add test seams to MainController
+## 2. No production changes required
 
-- [ ] 2.1 If 1.1 shows the storages are `QStandardPaths`-derived, add nothing for isolation; otherwise add a minimal test-only DB-path override seam (smallest change that isolates the temp DB).
-- [ ] 2.2 Add optional trailing constructor parameters to inject `RecipeStorage`/`ShotHistoryStorage`/`CoffeeBagStorage`, defaulting to `nullptr` → create-internally (mirrors the existing `profileStorage = nullptr` param).
-- [ ] 2.3 Verify the single production call site compiles unchanged and the default path constructs storages exactly as before.
+- [x] 2.1 DB isolation needs no seam (1.1). Constructor injection is unnecessary — a test constructs `MainController` under test mode and pre-seeds recipes by inserting into the same temp DB via `RecipeStorage::insertRecipeStatic`. **This change is test-only + build wiring; production C++ is untouched.**
 
 ## 3. Stand up the harness
 
-- [ ] 3.1 Create `tests/tst_maincontroller.cpp` with `initTestCase` enabling `QStandardPaths` test mode + a `QTemporaryDir` data dir; construct `MainController` with headless collaborators.
-- [ ] 3.2 Register the `tst_maincontroller` target in `tests/CMakeLists.txt` alongside the existing `tst_*` targets.
-- [ ] 3.3 Prove the harness end-to-end: one `QTRY_VERIFY` test that editing the active recipe's grind reaches `Settings.dye.dyeGrinderSetting`.
+- [ ] 3.1 Wire the build target. Prefer the **curated-source-list** approach (list the ~150 app sources minus `main.cpp`/QML in `add_decenza_test(tst_maincontroller ...)`) — it touches zero app-build config, so the user's Qt Creator app build is unaffected. Fall back to a `Decenza_core` OBJECT library only if the curated list proves unmaintainable. Derive the list from the root `SOURCES` variable.
+- [ ] 3.2 Create `tests/tst_maincontroller.cpp` with `initTestCase` enabling `QStandardPaths` test mode + a clean temp data dir; construct `MainController` with headless collaborators (real inert `Settings`/`DE1Device`/`MachineState`/`ShotDataModel`/`QNetworkAccessManager`, per existing headless tests).
+- [ ] 3.3 Prove the harness end-to-end: one `QTRY_VERIFY` test that editing the active recipe's grind reaches `Settings.dye.dyeGrinderSetting`. Get this green before writing the rest.
 
 ## 4. Cover the recipe-wiring contract
 
@@ -26,10 +25,9 @@
 - [ ] 4.7 Deactivate-on-ingredient-swap fires on a profile/bag/equipment change to a non-recipe value.
 - [ ] 4.8 Recorded limitation: editing the active recipe to zero `rpmPinned` leaves `Settings.dye.dyeGrinderRpm` unchanged (pin current parity behavior).
 
-## 5. Migrate proxy tests
+## 5. Proxy-test audit — DONE (no proxies)
 
-- [ ] 5.1 Enumerate existing recipe tests and classify each assertion: genuine `RecipeStorage`/model unit test (keep) vs proxy for `MainController` wiring (migrate).
-- [ ] 5.2 Move proxy assertions into `tst_maincontroller` and delete the proxy tests, ensuring no net coverage loss.
+- [x] 5.1 Audited every recipe test (`tst_recipeselectionmodel`, `tst_recipestorage`, `tst_recipegenerator`, `tst_recipeparams`, `tst_recipepromotion`). Grep for `activateRecipe`/`deactivateRecipe`/`stampActiveRecipe`/`dyeGrinderSetting`/`m_activeRecipe`/`new MainController` returned **zero** matches — every test is a genuine `RecipeStorage`/`RecipeSelectionModel`/generator unit test. **No proxies to migrate; coverage is 100% net-new.**
 
 ## 6. Verify
 

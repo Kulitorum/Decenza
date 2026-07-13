@@ -2,22 +2,17 @@
 
 ### Requirement: MainController is constructible in isolation for tests
 
-`MainController` SHALL provide test seams that let a unit test construct it without touching the real application database or requiring live hardware, while leaving the production construction path unchanged by default.
+The test suite SHALL construct a real `MainController` against an isolated throwaway database with no live hardware and no changes to production code.
 
 #### Scenario: Storages isolated from the real app DB
 
-- **WHEN** a test constructs `MainController` under `QStandardPaths` test mode with a temporary data directory
-- **THEN** the internally-created `RecipeStorage`, `ShotHistoryStorage`, and `CoffeeBagStorage` operate against a throwaway DB under the temp dir and never read or write the user's real app database
+- **WHEN** a test constructs `MainController` under `QStandardPaths` test mode with a clean temporary data directory
+- **THEN** the internally-created `ShotHistoryStorage`, `RecipeStorage`, `CoffeeBagStorage`, and `EquipmentStorage` operate against a throwaway `shots.db` under the temp dir and never read or write the user's real app database
 
-#### Scenario: Optional storage injection defaults to production behavior
+#### Scenario: Construction is inert headless
 
-- **WHEN** `MainController` is constructed without any injected storages (the production call)
-- **THEN** it creates its storages internally exactly as before the change, with no behavioral difference
-
-#### Scenario: Injected storages are used when provided
-
-- **WHEN** a test constructs `MainController` passing temp-DB-backed storages
-- **THEN** `MainController` uses the injected instances instead of creating its own
+- **WHEN** `MainController` is constructed in the test with default settings
+- **THEN** no listening socket is bound (ShotServer disabled by default), no broker/network connection is initiated on construction, and no production source is modified to make this possible
 
 ### Requirement: Active-recipe grind edits refresh the live dial
 
@@ -72,11 +67,11 @@ The harness SHALL cover the surrounding recipe-wiring invariants so a regression
 - **WHEN** the live profile, bag, or equipment is changed to something other than the active recipe's own ingredient
 - **THEN** the active recipe deactivates
 
-### Requirement: Proxy tests are migrated into the harness
+### Requirement: Coverage is net-new, with no proxy tests to migrate
 
-Existing tests whose assertions only stand in for `MainController` signal-wiring behavior SHALL be re-expressed against the real harness and the proxies removed.
+The audit of existing recipe tests SHALL be recorded, and any genuine proxy for `MainController` wiring migrated. The audit performed for this change found **none**: every existing recipe test (`tst_recipeselectionmodel`, `tst_recipestorage`, `tst_recipegenerator`, `tst_recipeparams`, `tst_recipepromotion`) is a genuine `RecipeStorage`/`RecipeSelectionModel`/generator unit test, not a stand-in for the live signal wiring — so the harness adds coverage without replacing any test.
 
-#### Scenario: No proxy remains for covered wiring
+#### Scenario: Audit finds no proxy to migrate
 
-- **WHEN** the audit identifies a recipe test that uses `RecipeStorage` statics or a pure helper as a substitute for live `MainController` wiring already covered by the harness
-- **THEN** its assertions are moved into `tst_maincontroller` and the proxy test is deleted, with no net loss of coverage
+- **WHEN** the recipe tests are audited for assertions that only stand in for `MainController` signal-wiring behavior (grep for `activateRecipe`/`deactivateRecipe`/`stampActiveRecipe`/`dyeGrinderSetting`/`m_activeRecipe`)
+- **THEN** none are found, and the harness coverage is recorded as 100% net-new (no test deleted)

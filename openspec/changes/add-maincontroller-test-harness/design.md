@@ -30,11 +30,21 @@ The DB layer already provides isolation primitives: `withTempDb()` (`src/core/db
 
 **Why over alternatives:** Test-mode is the idiomatic Qt approach and touches zero production logic. A blanket "inject a DB path everywhere" refactor is larger and riskier. Injecting the storages (D2) also solves it, but test-mode keeps the internal-create path — the one that actually ships — under test, which is more valuable than only ever testing injected doubles.
 
-### D2: Optional constructor injection, defaulting to internal create
+### D1-confirmed (spike): test mode alone isolates everything
 
-**Decision:** Add trailing optional parameters to the `MainController` constructor (or a dedicated test-only overload guarded appropriately) for the three storages, defaulting to `nullptr`. When null, construct internally exactly as today. This gives tests a second lever (inject temp-DB-backed storages) and makes intent explicit, without changing the production call site.
+The spike confirmed `MainController` calls `ShotHistoryStorage::initialize()` with no path (defaults to `QStandardPaths::AppDataLocation/shots.db`) and points the other storages at `databasePath()`. `QStandardPaths::setTestModeEnabled(true)` therefore isolates all four with **no production change**. Chosen.
 
-**Why:** Preserves the shipped path as the default (D1 keeps it isolated), while allowing a test to supply pre-seeded storages when that is simpler than driving inserts through the async API. Trailing-optional-with-nullptr is the least invasive signature change and mirrors the existing `profileStorage = nullptr` parameter already on the constructor.
+### D2 (dropped): constructor injection is unnecessary
+
+**Decision:** Do **not** add storage-injection parameters. The spike showed test mode isolates the DB, so a test constructs `MainController` normally and pre-seeds recipes by inserting into the same temp DB via `RecipeStorage::insertRecipeStatic`. Injection would add production surface for no benefit.
+
+**Why:** Keeps the change strictly test-only. The originally-proposed injection seam solved a problem (DB isolation) that test mode already solves for free.
+
+### D6: Link the graph via a curated source list, not an app-build refactor
+
+**Decision:** `MainController`'s constructor unconditionally constructs every collaborator, so the test target must link ~150 of the app's 192 sources. Wire this as a **curated source list** on `add_decenza_test(tst_maincontroller ...)`, derived from the root `SOURCES` variable minus `main.cpp` and QML-only pieces. Do **not** refactor the app into a `Decenza_core` OBJECT library unless the curated list proves unmaintainable.
+
+**Why over the OBJECT-library alternative:** the curated list touches **zero** app-build configuration, so the user's day-to-day Qt Creator app build is unaffected and cannot be destabilized by this test work. The OBJECT-library refactor is cleaner in the abstract but reshapes the shared production target (QML module + resource wiring), risking the primary build for a test-only benefit. Trade-off: the curated list must be kept in sync as the app gains sources — acceptable, and a link error flags drift immediately.
 
 ### D3: `QTRY_VERIFY`/`QTRY_COMPARE`, never `qWait`
 
@@ -69,7 +79,8 @@ The DB layer already provides isolation primitives: `withTempDb()` (`src/core/db
 5. Audit + migrate proxy assertions; delete proxies.
 6. Build all test targets; confirm no coverage regression.
 
-## Open Questions
+## Open Questions — resolved by the spike
 
-- Do `RecipeStorage`/`ShotHistoryStorage`/`CoffeeBagStorage` resolve their DB path via `QStandardPaths` (D1 sufficient) or a hard-coded/derived path (needs the D2-sibling seam)? Resolve in step 1.
-- Which existing recipe tests, if any, actually qualify as proxies to migrate vs. legitimate storage/model unit tests to keep? Resolve in the step-5 audit.
+- ~~Do the storages resolve their DB path via `QStandardPaths`?~~ **Yes** — test mode is sufficient; no seam (D1-confirmed).
+- ~~Which existing recipe tests qualify as proxies to migrate?~~ **None** — the audit found every recipe test is a genuine `RecipeStorage`/`RecipeSelectionModel`/generator unit test; coverage is 100% net-new.
+- Remaining unknown, to resolve while building: whether any linked source references qrc/QML resources at construction (e.g. a bundled-profile load) such that the headless target needs resource init or a guarded skip. Surface it on the first link+run.

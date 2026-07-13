@@ -4,9 +4,11 @@
 
 ## What Changes
 
-- Add **test seams** to `MainController` so it can be constructed in isolation:
-  - Isolate the internally-created storages from the real app DB via `QStandardPaths` test mode + a temp data dir (confirm the storages resolve their path through `QStandardPaths`; if not, add a minimal DB-path override seam).
-  - **Optional constructor injection** of the three storages, defaulting to `nullptr` → create-internally, so **production behavior is unchanged**.
+- **No production C++ changes.** The investigation spike (task 1) confirmed the harness needs no seam:
+  - **DB isolation is free**: `MainController` initializes `ShotHistoryStorage` with the default path (`QStandardPaths::AppDataLocation/shots.db`) and points the other storages at it, so `QStandardPaths::setTestModeEnabled(true)` isolates all four against a throwaway DB.
+  - **Construction is inert headless**: ShotServer/Mqtt auto-start are off by default, ProfileManager does no disk scan in its ctor, network clients only fire on demand.
+  - Constructor injection is therefore unnecessary — a test pre-seeds recipes into the same temp DB via `RecipeStorage::insertRecipeStatic`.
+- **The real cost is build wiring, not production code.** `MainController`'s constructor unconditionally constructs every collaborator, so the test target must link ~150 of the app's 192 sources. Wire this via a **curated source list** on the test target (derived from the root `SOURCES` variable, minus `main.cpp`/QML), which leaves the app build untouched. A `Decenza_core` OBJECT library is the fallback only if the list proves unmaintainable.
 - Add `tests/tst_maincontroller.cpp` (registered in `tests/CMakeLists.txt`), driving the **real** `recipeUpdated → requestRecipe → recipeReady` chain with `QTRY_VERIFY` (polling, not `qWait`, to avoid flakiness).
 - Cover the recipe-wiring contract, at minimum:
   - editing the **active** recipe's grind pushes to `Settings.dye.dyeGrinderSetting`;
@@ -31,7 +33,7 @@ Non-goal / **not** changing: any production recipe-wiring behavior. The seams ar
 
 ## Impact
 
-- **Code**: `src/controllers/maincontroller.{h,cpp}` (additive constructor param + DB-path seam only); `tests/tst_maincontroller.cpp` (new); `tests/CMakeLists.txt` (new target).
-- **Tests**: proxy/fake recipe-wiring tests removed and re-expressed in the harness (net coverage increase; no loss).
-- **Build/CI**: one new test executable; runs headless like the existing `tst_*` targets. No production-binary impact.
-- **Risk**: low — production construction path is the default (no injection, no test-mode); the seam is inert unless a test opts in.
+- **Code**: **none in production** — `src/controllers/maincontroller.{h,cpp}` are untouched (spike confirmed no seam is needed).
+- **Tests**: `tests/tst_maincontroller.cpp` (new) + a new target in `tests/CMakeLists.txt` linking ~150 app sources via a curated list. **Proxy-migration is a no-op**: an audit of the recipe tests found **zero** proxies for `MainController` wiring — every existing test is a genuine `RecipeStorage`/`RecipeSelectionModel` unit test. This change is therefore **100% net-new coverage**, not replacement.
+- **Build/CI**: one new (heavy) test executable; compiles/links a large fraction of the app, so it is slower than the other `tst_*` targets. Curated-list wiring keeps the app build config unchanged.
+- **Risk**: low for production (no production code touched); the cost/risk is concentrated in the build-graph wiring and keeping the source list in sync as the app grows.
