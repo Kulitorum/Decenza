@@ -1877,6 +1877,57 @@ private slots:
         settings.clear();
     }
 
+    // fix-multishot-advice-tracking manual verification: a real, on-screen
+    // in-app response never made it into persisted storage. Root cause:
+    // saveToStorage() did a blind full-array overwrite from m_messages,
+    // discarding any turn appendAssistantTurnForKey (the MCP ai_advisor_invoke
+    // path) had written to the same key in the meantime. Reproduces the race
+    // directly and asserts saveToStorage() now reconciles instead of clobbering.
+    void aiConversation_saveToStorage_reconcilesTurnsAppendedByAnotherWriter()
+    {
+        QSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        AIConversation conv(&mgr);
+        conv.setStorageKey("test_save_race");
+        conv.m_systemPrompt = QStringLiteral("system");
+
+        conv.addUserMessage(QStringLiteral("u1"));
+        conv.addAssistantMessage(QStringLiteral("a1"));
+        conv.saveToStorage();
+        QCOMPARE(conv.m_syncedMessageCount, qsizetype(2));
+
+        // Another writer (simulating ai_advisor_invoke) appends a turn to the
+        // SAME key, bypassing conv's in-memory state entirely — exactly what
+        // appendAssistantTurnForKey does in production.
+        AIConversation::appendAssistantTurnForKey(
+            QStringLiteral("test_save_race"), 999,
+            QStringLiteral("external user"), QStringLiteral("external assistant"), std::nullopt);
+
+        // conv is unaware of the external turn — its own in-memory state is
+        // still just [u1, a1] when it adds a further turn of its own.
+        conv.addUserMessage(QStringLiteral("u2"));
+        conv.addAssistantMessage(QStringLiteral("a2"));
+        conv.saveToStorage();
+
+        AIConversation conv2(&mgr);
+        conv2.setStorageKey("test_save_race");
+        conv2.loadFromStorage();
+
+        QCOMPARE(conv2.messageCount(), 6);
+        const QString text = conv2.getConversationText();
+        QVERIFY2(text.contains("external user"),
+                 "the externally-appended turn must survive conv's later save, not be clobbered");
+        QVERIFY2(text.contains("u2"),
+                 "conv's own new turn must also survive the reconciliation");
+        QCOMPARE(conv2.shotIdForTurn(2), qint64(999));  // external user turn retains its shotId
+
+        settings.clear();
+    }
+
     // -------------------------------------------------------------
     // Per-turn shot linkage on AIConversation (issue #1053 Part A)
     // -------------------------------------------------------------

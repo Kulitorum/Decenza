@@ -76,6 +76,7 @@ void AIConversation::ask(const QString& systemPrompt, const QString& userMessage
 
     // Clear previous conversation and start fresh
     m_messages = QJsonArray();
+    m_syncedMessageCount = 0;
     m_systemPrompt = systemPrompt;
     m_lastResponse.clear();
     m_errorMessage.clear();
@@ -157,6 +158,7 @@ void AIConversation::clearHistory()
     }
 
     m_messages = QJsonArray();
+    m_syncedMessageCount = 0;
     m_systemPrompt.clear();
     m_lastResponse.clear();
     m_errorMessage.clear();
@@ -170,6 +172,7 @@ void AIConversation::clearHistory()
 void AIConversation::resetInMemory()
 {
     m_messages = QJsonArray();
+    m_syncedMessageCount = 0;
     m_systemPrompt.clear();
     m_lastResponse.clear();
     m_errorMessage.clear();
@@ -912,12 +915,41 @@ void AIConversation::saveToStorage()
     QSettings settings;
     QString prefix = "ai/conversations/" + m_storageKey + "/";
 
+    // Guard against AIConversation::appendAssistantTurnForKey (the MCP
+    // ai_advisor_invoke path) having appended turns to this same key since
+    // we last synced (loadFromStorage/saveToStorage). That helper does a
+    // proper read-modify-write, but this method previously did a blind
+    // overwrite from m_messages — if the two interleaved, whichever wrote
+    // last silently erased the other's turn (found during manual
+    // verification of fix-multishot-advice-tracking: a real, on-screen
+    // response never made it into persisted storage). Only applies when
+    // we've synced before (m_syncedMessageCount > 0) — ask()/clearHistory()/
+    // resetInMemory() reset it to 0 specifically to mean "discard whatever
+    // is on disk," where splicing would be wrong.
+    if (m_syncedMessageCount > 0) {
+        const QByteArray onDiskRaw = settings.value(prefix + "messages").toByteArray();
+        QJsonParseError err{};
+        const QJsonDocument onDiskDoc = QJsonDocument::fromJson(onDiskRaw, &err);
+        if (err.error == QJsonParseError::NoError && onDiskDoc.isArray()) {
+            const QJsonArray onDisk = onDiskDoc.array();
+            if (onDisk.size() > m_syncedMessageCount) {
+                QJsonArray merged = onDisk;
+                for (qsizetype i = m_syncedMessageCount; i < m_messages.size(); ++i)
+                    merged.append(m_messages.at(i));
+                m_messages = merged;
+                qDebug() << "AIConversation::saveToStorage: reconciled" << (onDisk.size() - m_syncedMessageCount)
+                          << "message(s) appended by another writer for key:" << m_storageKey;
+            }
+        }
+    }
+
     settings.setValue(prefix + "systemPrompt", m_systemPrompt);
 
     QJsonDocument doc(m_messages);
     settings.setValue(prefix + "messages", doc.toJson(QJsonDocument::Compact));
 
     settings.setValue(prefix + "timestamp", QDateTime::currentDateTime().toString(Qt::ISODate));
+    m_syncedMessageCount = m_messages.size();
 
     emit savedConversationChanged();
     qDebug() << "AIConversation: Saved conversation with" << m_messages.size() << "messages to key:" << m_storageKey;
@@ -959,6 +991,7 @@ void AIConversation::loadFromStorage()
             break;
         }
     }
+    m_syncedMessageCount = m_messages.size();
 
     emit historyChanged();
     emit canRetryChanged();
