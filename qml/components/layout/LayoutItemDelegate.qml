@@ -65,7 +65,7 @@ Item {
                 action: "togglePreset:espresso",
                 longPressAction: "navigate:profiles",
                 doubleclickAction: "navigate:profiles",
-                backgroundColor: Settings.app.selectedFavoriteProfile === -1 ? Theme.highlightColor : Theme.primaryColor
+                backgroundColor: Settings.app.selectedFavoriteProfile === -1 ? Theme.highlightColor : Theme.actionTileColor
             }
             case "steam": return {
                 emoji: "qrc:/icons/steam.svg",
@@ -73,7 +73,7 @@ Item {
                 action: "togglePreset:steam",
                 longPressAction: "navigate:steam",
                 doubleclickAction: "navigate:steam",
-                backgroundColor: Theme.primaryColor
+                backgroundColor: Theme.actionTileColor
             }
             case "hotwater": return {
                 emoji: "qrc:/icons/water.svg",
@@ -81,7 +81,7 @@ Item {
                 action: "togglePreset:hotwater",
                 longPressAction: "navigate:hotwater",
                 doubleclickAction: "navigate:hotwater",
-                backgroundColor: Theme.primaryColor
+                backgroundColor: Theme.actionTileColor
             }
             case "flush": return {
                 emoji: "qrc:/icons/flush.svg",
@@ -89,7 +89,7 @@ Item {
                 action: "togglePreset:flush",
                 longPressAction: "navigate:flush",
                 doubleclickAction: "navigate:flush",
-                backgroundColor: Theme.primaryColor
+                backgroundColor: Theme.actionTileColor
             }
             case "beans": return {
                 emoji: "qrc:/icons/coffeebeans.svg",
@@ -97,7 +97,7 @@ Item {
                 action: "togglePreset:beans",
                 longPressAction: "navigate:beaninfo",
                 doubleclickAction: "navigate:beaninfo",
-                backgroundColor: Settings.dye.activeBagId <= 0 ? Theme.highlightColor : Theme.primaryColor
+                backgroundColor: Settings.dye.activeBagId <= 0 ? Theme.highlightColor : Theme.actionTileColor
             }
             case "recipes": return {
                 emoji: "qrc:/icons/espresso.svg",
@@ -107,7 +107,7 @@ Item {
                 // target is the pre-existing profile Recipe Editor.
                 longPressAction: "navigate:recipeList",
                 doubleclickAction: "navigate:recipeList",
-                backgroundColor: Theme.primaryColor
+                backgroundColor: Theme.actionTileColor
             }
             case "equipment": return {
                 emoji: "qrc:/icons/grind.svg",
@@ -115,7 +115,7 @@ Item {
                 action: "togglePreset:equipment",
                 longPressAction: "navigate:equipment",
                 doubleclickAction: "navigate:equipment",
-                backgroundColor: Theme.primaryColor
+                backgroundColor: Theme.actionTileColor
             }
             case "history": return {
                 emoji: "qrc:/icons/history.svg",
@@ -123,7 +123,7 @@ Item {
                 action: "navigate:history",
                 longPressAction: "",
                 doubleclickAction: "",
-                backgroundColor: Theme.primaryColor
+                backgroundColor: Theme.actionTileColor
             }
             case "settings": return {
                 emoji: "qrc:/icons/settings.svg",
@@ -131,7 +131,7 @@ Item {
                 action: "navigate:settings",
                 longPressAction: "",
                 doubleclickAction: "",
-                backgroundColor: Theme.primaryColor
+                backgroundColor: Theme.actionTileColor
             }
             case "autofavorites": return {
                 emoji: "qrc:/icons/star.svg",
@@ -139,7 +139,7 @@ Item {
                 action: "navigate:autofavorites",
                 longPressAction: "",
                 doubleclickAction: "",
-                backgroundColor: Theme.primaryColor
+                backgroundColor: Theme.actionTileColor
             }
             case "sleep": return {
                 emoji: "qrc:/icons/sleep.svg",

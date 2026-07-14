@@ -273,7 +273,14 @@ FocusScope {
                         width: pillText.implicitWidth + root.pillPadding
                         height: Theme.scaled(50)
                         radius: Theme.scaled(10)
-                        opacity: isDimmed ? 0.55 : 1.0
+                        // isDimmed already drops opacity < 1; otherwise, when a
+                        // background image is active, nudge to 0.99 so the pill's
+                        // translucent insetBackgroundColor scrim actually blends
+                        // instead of rendering opaque. See docs/CLAUDE_MD/
+                        // QML_GOTCHAS.md "Translucent element renders opaque".
+                        opacity: isDimmed
+                            ? 0.55
+                            : (Settings.theme.backgroundImagePath.length > 0 ? 0.99 : 1.0)
 
                         color: isSelected
                             ? (isDisabled ? Theme.textSecondaryColor : Theme.primaryColor)

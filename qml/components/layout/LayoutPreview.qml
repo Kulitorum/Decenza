@@ -201,10 +201,15 @@ Item {
                 anchors.bottom: parent.bottom
                 // Auto-grow to fit large item-size, matching IdlePage.
                 height: Math.max(Theme.bottomBarHeight, blPreviewZone.implicitHeight, brPreviewZone.implicitHeight)
-                // Mirrors IdlePage's bottom-bar scrim so the preview matches what ships.
+                // Mirrors IdlePage's bottom bar so the preview matches what ships:
+                // neutral surface scrim over a background image (like StatusBar and
+                // the cards), otherwise the standard bottom-bar hue.
                 color: previewRoot.backgroundImageSource.length > 0
-                       ? Theme.scrimColor(Theme.bottomBarColor)
+                       ? Theme.scrimColor(Theme.surfaceColor)
                        : Theme.bottomBarColor
+                // opacity < 1 forces the scrim through the alpha pass (see
+                // docs/CLAUDE_MD/QML_GOTCHAS.md "Translucent element renders opaque").
+                opacity: previewRoot.backgroundImageSource.length > 0 ? 0.99 : 1.0
 
                 RowLayout {
                     anchors.fill: parent

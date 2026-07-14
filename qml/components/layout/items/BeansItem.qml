@@ -194,10 +194,14 @@ Item {
         }
 
         background: Rectangle {
-            color: Theme.surfaceColor
+            // Over a custom background image, float the pills directly (matching
+            // the center inline preset rows) instead of showing a panel; keep the
+            // opaque surface panel when no background image is set.
+            readonly property bool hasBackgroundImage: Settings.theme.backgroundImagePath.length > 0
+            color: hasBackgroundImage ? "transparent" : Theme.surfaceColor
             radius: Theme.cardRadius
             border.color: Theme.borderColor
-            border.width: 1
+            border.width: hasBackgroundImage ? 0 : 1
         }
 
         contentItem: PresetPillRow {

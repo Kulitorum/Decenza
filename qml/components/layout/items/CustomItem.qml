@@ -38,7 +38,10 @@ Item {
         return ""
     }
 
-    readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? Theme.primaryColor : Theme.surfaceColor)
+    // Action tiles use Theme.actionTileColor (neutral over a custom background
+    // image so they match the bars/cards, standard accent otherwise); an explicit
+    // per-widget bgColor still wins.
+    readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? Theme.actionTileColor : Theme.surfaceColor)
 
     // A brew-settings widget highlights (Theme.highlightColor) whenever a real
     // brew override is in effect — temperature or target yield deviating from the
@@ -526,13 +529,6 @@ Item {
             opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
             border.width: root.isActive ? Theme.scaled(3) : 0
             border.color: root._activeRingColor
-
-            // TEMPORARY diagnostic for the Android-only opaque-bottom-bar report
-            // (add-custom-background follow-up) — remove once root-caused.
-            onColorChanged: console.log("[customItem-diag] label=\"" + root.content + "\" pathLen=" + Settings.theme.backgroundImagePath.length
-                + " effectiveBackground=" + root._effectiveBackground + " a=" + root._effectiveBackground.a
-                + " finalColor=" + color + " a=" + color.a + " itemOpacity=" + opacity)
-            Component.onCompleted: colorChanged()
         }
 
         // Layout with emoji: icon above text (like ActionButton)

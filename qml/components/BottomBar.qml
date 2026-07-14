@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-Rectangle {
+Item {
     id: root
 
     property string title: ""
@@ -15,24 +15,32 @@ Rectangle {
     signal backClicked()
 
     readonly property color contentColor: Theme.iconColor
+    // Effective fill color, re-exposed for callers that mirror it (e.g.
+    // CommunityBrowserPage's "Add to Library" label). The fill lives on the
+    // nested bgRect, not this Item root, so alias it back to the public surface.
+    property alias color: bgRect.color
 
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.bottom: parent.bottom
     height: Theme.bottomBarHeight
-    // Semi-transparent scrim (keeping the bar's own hue) when a custom
-    // background image is active, so the image extends behind the bar
-    // instead of stopping at its edge — mirrors StatusBar.qml and IdlePage's
-    // own bottom nav bar. Deliberately checks Settings.theme directly rather
-    // than reaching for main.qml's `root` — this Rectangle's own `id: root`
-    // (above) shadows the outer one within this document, so `root.anything`
-    // here resolves to this component, not main.qml's ApplicationWindow; an
-    // earlier version of this binding referenced a nonexistent property on
-    // itself that way and silently never scrimmed on any of the ~25 pages
-    // using this component.
-    color: Settings.theme.backgroundImagePath.length > 0
-           ? Theme.scrimColor(barColor)
-           : barColor
+
+    Rectangle {
+        id: bgRect
+        anchors.fill: parent
+        // When a custom background image is active, every bar uses the same
+        // neutral surface scrim as StatusBar and the content cards, so the
+        // wallpaper shows through and all bars read consistently — the page's
+        // own barColor (e.g. "transparent" on Beans/Equipment/Recipes) only
+        // applies when no background image is set.
+        color: Settings.theme.backgroundImagePath.length > 0
+               ? Theme.scrimColor(Theme.surfaceColor)
+               : root.barColor
+        // opacity < 1 forces the scrim through the alpha pass; without it this
+        // bar renders opaque and the wallpaper can't show through. See
+        // docs/CLAUDE_MD/QML_GOTCHAS.md "Translucent element renders opaque".
+        opacity: Settings.theme.backgroundImagePath.length > 0 ? 0.99 : 1.0
+    }
 
     // Top border for separation
     Rectangle {

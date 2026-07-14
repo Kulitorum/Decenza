@@ -340,6 +340,13 @@ QtObject {
         ? scrimColor(backgroundColor)
         : backgroundColor
     property color primaryColor: _c("primaryColor", Settings.theme.customThemeColors.primaryColor || "#4e85f4")
+    // Fill for idle-screen action tiles (Recipes/Beans/Steam/etc.). Over a custom
+    // background image they use the neutral surfaceColor so they match the bars and
+    // cards (CustomItem scrims it); otherwise the standard primaryColor accent. The
+    // blue accent reads as out of place once the rest of the chrome is a neutral scrim.
+    readonly property color actionTileColor: Settings.theme.backgroundImagePath.length > 0
+        ? surfaceColor
+        : primaryColor
     property color secondaryColor: _c("secondaryColor", Settings.theme.customThemeColors.secondaryColor || "#c0c5e3")
     property color textColor: _c("textColor", Settings.theme.customThemeColors.textColor || "#ffffff")
     // Brightened whenever a background image is active. Originally tried scoping
