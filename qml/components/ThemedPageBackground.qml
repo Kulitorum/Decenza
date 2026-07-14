@@ -2,23 +2,31 @@ import QtQuick
 import QtQuick.Window
 import Decenza
 
-// Shared `background:` for the 7 pages covered by the custom-background
-// feature (Idle, Beans, Recipes, Steam, Hot Water, Flush, Equipment). Shows
-// Settings.theme.backgroundImagePath when set, falling back to the flat
-// Theme.backgroundColor a page always used before — including when the
-// stored path no longer resolves to a readable file (deleted personal media,
-// evicted cache entry), so a stale setting degrades gracefully instead of
-// showing a broken image.
+// Shared `background:` for pages that support a custom background image
+// (Settings.theme.backgroundImagePath) — used app-wide; see
+// openspec/changes/add-custom-background/design.md Decision 6a for how
+// coverage expanded from an initial 8-page set to universal. Shows the
+// image when set, falling back to the flat Theme.backgroundColor a page
+// always used before — including when the stored path no longer resolves
+// to a readable file, so a stale setting degrades gracefully instead of
+// showing a broken image. (deletePersonalMedia()/clearPersonalMedia()/
+// clearCache() in ScreensaverVideoManager also proactively clear the
+// setting when its backing file is the one being deleted, since this
+// component's own Image.Error fallback isn't visible to the ~70 other
+// call sites that just check backgroundImagePath.length > 0.)
 Item {
     id: root
 
     readonly property bool _hasImage: Settings.theme.backgroundImagePath.length > 0
-    readonly property bool _imageFailed: bgImage.status === Image.Error
 
     Rectangle {
         anchors.fill: parent
         color: Theme.backgroundColor
-        visible: !root._hasImage || root._imageFailed
+        // Stay visible until the image is actually decoded (not just "not yet
+        // errored") — asynchronous: true below means there's a real window where
+        // status is Loading, and painting nothing during that window flashes
+        // transparent/window-color instead of holding the flat fallback.
+        visible: !root._hasImage || bgImage.status !== Image.Ready
     }
 
     Image {

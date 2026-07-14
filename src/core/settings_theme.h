@@ -33,7 +33,7 @@ class SettingsTheme : public QObject {
     Q_PROPERTY(bool isDarkMode READ isDarkMode NOTIFY isDarkModeChanged)
     Q_PROPERTY(QString editingPalette READ editingPalette WRITE setEditingPalette NOTIFY editingPaletteChanged)
 
-    // Custom background image (idle + the 6 other pages covered by add-custom-background).
+    // Custom background image, applied app-wide (see add-custom-background).
     // Absolute filesystem path; empty = today's flat Theme.backgroundColor. Same image in
     // both light and dark mode. Sourced from the screensaver media library (personal
     // uploads + locally-cached catalog images) — see ScreensaverVideoManager.

@@ -691,7 +691,7 @@ KeyboardAwareContainer {
                             }
                         }
 
-                        // Background image (same image behind idle + 6 other pages, both modes)
+                        // Background image (applied app-wide, both light and dark mode)
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: Theme.scaled(15)
