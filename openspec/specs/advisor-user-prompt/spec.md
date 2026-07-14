@@ -105,7 +105,7 @@ The single-shot `ai_advisor_invoke` MCP path (no follow-up expected) MAY skip th
 
 ### Requirement: User-prompt envelope SHALL carry an optional `recentAdvice` block
 
-The JSON envelope produced by `ShotSummarizer::buildUserPromptObject` and enriched by the advisor's DB-scoped background-thread path (`AIManager::enrichUserPromptObject` for `ai_advisor_invoke`; `requestRecentShotContext` for the in-app advisor) SHALL include an optional top-level `recentAdvice` array. The same block SHALL appear under `userPromptUsed` in `ai_advisor_invoke`'s tool result envelope (parity contract from #1041).
+The JSON envelope produced by `ShotSummarizer::buildUserPromptObject` and enriched by the advisor's DB-scoped background-thread path (`AIManager::enrichUserPromptObject` for `ai_advisor_invoke`; `requestRecentShotContext`/`emitRecentShotContext` for the in-app advisor) SHALL include an optional top-level `recentAdvice` array (or, for the in-app advisor's prose-rendered `historicalContext`, an equivalent `## Recent Advice Tracking` section carrying the same data). The same block SHALL appear under `userPromptUsed` in `ai_advisor_invoke`'s tool result envelope (parity contract from #1041).
 
 The block SHALL be derived from the active `AIConversation` (matched by storage key — bean+profile hash) and from the user's shot history.
 
@@ -188,6 +188,14 @@ The block SHALL be stable across calls for identical inputs (same conversation, 
 - **WHEN** the in-app advisor builds its user-prompt envelope
 - **AND** `ai_advisor_invoke` independently builds its `userPromptUsed` echo for the same inputs
 - **THEN** the `recentAdvice` block in both surfaces SHALL be byte-equal under `==`
+
+#### Scenario: In-app advisor's requestRecentShotContext builds the Recent Advice Tracking section
+
+- **GIVEN** the in-app `AIConversation` for the current bean+profile has a qualifying prior turn (non-zero `shotId`, non-null `structuredNext`, a later shot exists on the same profile)
+- **WHEN** `AIManager::requestRecentShotContext` runs and `emitRecentShotContext` renders the result
+- **THEN** the emitted `historicalContext` string SHALL contain a `## Recent Advice Tracking` section
+- **AND** that section SHALL carry the same `turnsAgo` / `recommendation` / `structuredNext` / `userResponse` data `DialingBlocks::buildRecentAdviceBlock` would produce for the same inputs
+- **AND** when zero entries qualify, `historicalContext` SHALL NOT contain a `## Recent Advice Tracking` section at all
 
 ### Requirement: System prompt SHALL teach the LLM to read `recentAdvice` and weight it
 
@@ -340,4 +348,25 @@ The section SHALL repeat the block's `usageConstraint` string verbatim so a sing
 - **GIVEN** the same `grinderCalibration` block
 - **WHEN** rendered via the in-app advisor enrichment path and via `dialing_get_context`
 - **THEN** the calibration section text including the usage constraints SHALL be byte-identical between the two surfaces
+
+### Requirement: System prompt SHALL require taste feedback before declaring dial-in success across repeated untasted shots
+
+The shared espresso system prompt SHALL instruct the model: when tasting feedback (score or notes) has been absent for the last 2 or more shots in the current conversation, the model SHALL ask the user for a taste score before using success/quality language (e.g. "successful", "optimal", "excellent", "dialed in") to characterize those shots from pressure/flow curve data alone. Curve-based observations MAY still be described, but SHALL be framed as preliminary pending taste feedback rather than as a conclusion.
+
+This extends (does not replace) the existing `tastingFeedback`-driven rule that asks for taste feedback when ALL of `hasEnjoymentScore`/`hasNotes`/`hasRefractometer` are false for the CURRENT shot — this new rule additionally triggers on a run of consecutive shots each missing feedback, even if earlier shots in the conversation did have a score.
+
+#### Scenario: Two consecutive untasted shots gates success language
+
+- **GIVEN** a multi-shot conversation where the two most recent shots have no tasting score or notes
+- **AND** both shots' pressure/flow curves land inside the profile's intended target band
+- **WHEN** the model responds to the latest shot
+- **THEN** the response SHALL ask the user for a taste score before or in place of declaring the shots successful, optimal, or excellent
+- **AND** SHALL NOT use unqualified success/quality language about those shots based on curve data alone
+
+#### Scenario: A single untasted shot after a rated shot does not trigger the stricter gate
+
+- **GIVEN** a multi-shot conversation whose most recent shot has no tasting score
+- **AND** the shot immediately before it DID have a tasting score
+- **WHEN** the model responds to the latest shot
+- **THEN** the existing single-shot `tastingFeedback` guidance applies (ask about taste, but the stricter "2+ in a row" success-language gate is not required)
 

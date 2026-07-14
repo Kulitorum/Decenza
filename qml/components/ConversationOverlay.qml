@@ -592,6 +592,14 @@ Rectangle {
                                 }
                             }
 
+                            // Stamp the resolved shot onto this turn pair before
+                            // sending, so recentAdvice can attribute the advisor's
+                            // reply back to the shot it was about (issue #1053).
+                            // Guarded on > 0: a free-form follow-up with no
+                            // resolved shot must not stamp a stale/wrong id.
+                            if (overlay.shotId > 0)
+                                conversation.setShotIdForCurrentTurn(overlay.shotId)
+
                             // Use ask() for new conversation, followUp() for existing
                             var sent = false
                             if (!conversation.hasHistory) {

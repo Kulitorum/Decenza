@@ -146,20 +146,22 @@ OpenAIProvider::OpenAIProvider(QNetworkAccessManager* networkManager,
 
 QList<AIProvider::ModelOption> OpenAIProvider::availableModels() const
 {
-    // Order = UI order; first entry is the recommended default. GPT-5.4 mini
-    // leads as the low-cost default for shot analysis; GPT-5.4 is the same-family
-    // mid-tier opt-in (more capable, higher cost). Pricing figures and why the
-    // other tiers (GPT-5.5, GPT-5.4 nano) are omitted live in
-    // docs/CLAUDE_MD/AI_ADVISOR.md so they don't rot in code. Revisit as models land.
+    // Order = UI order; first entry is the recommended default. GPT-5.4 leads
+    // as the default for shot analysis quality (mini measurably misses
+    // multi-shot trends and taste-feedback gating in real dial-in testing);
+    // GPT-5.4 mini is the same-family cheaper/faster opt-in for cost-conscious
+    // users. Pricing figures and why the other tiers (GPT-5.5, GPT-5.4 nano)
+    // are omitted live in docs/CLAUDE_MD/AI_ADVISOR.md so they don't rot in
+    // code. Revisit as models land.
     return {
-        { "gpt-5.4-mini", "GPT-5.4 mini" },
         { "gpt-5.4", "GPT-5.4" },
+        { "gpt-5.4-mini", "GPT-5.4 mini" },
     };
 }
 
 QString OpenAIProvider::modelHint() const
 {
-    return QStringLiteral("GPT-5.4 is more capable. GPT-5.4 mini is cheaper and faster.");
+    return QStringLiteral("GPT-5.4 mini is cheaper and faster, but gives weaker dial-in advice. GPT-5.4 is recommended.");
 }
 
 void OpenAIProvider::setModel(const QString& modelId)

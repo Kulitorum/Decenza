@@ -393,6 +393,46 @@ QJsonObject buildSawPredictionBlock(Settings* settings,
                                     ProfileManager* profileManager,
                                     const ShotProjection& currentShot);
 
+// Predicted parameter changes + expected ranges out of one `structuredNext`
+// block (see ShotSummarizer's "Response Format" schema), as short
+// human-readable fragments. Shared by `buildRecentAdviceBlock`'s one-line
+// recommendation fallback (dialing_blocks.cpp, used when the model omitted
+// `reasoning`) and the in-app advisor's `## Recent Advice Tracking`
+// renderer (AIManager::emitRecentShotContext) — both describe the same
+// structuredNext shape and must not drift into two independent field lists
+// (the in-app `recentAdvice` wiring itself went stale exactly this way).
+// Defined inline for the same cross-binary-reuse reason as the other
+// helpers in this header.
+struct StructuredNextSummary {
+    QStringList predictedParts;  // "grinder 4.75", "dose 18.0g", "profile X"
+    QStringList expectedParts;   // "32-38s", "1.0-1.5 ml/s", "6.0-9.0 bar"
+};
+
+inline StructuredNextSummary summarizeStructuredNext(const QJsonObject& sn)
+{
+    StructuredNextSummary out;
+    if (sn.contains(QStringLiteral("grinderSetting")))
+        out.predictedParts << QStringLiteral("grinder %1").arg(sn.value("grinderSetting").toString());
+    if (sn.contains(QStringLiteral("doseG")))
+        out.predictedParts << QStringLiteral("dose %1g").arg(sn.value("doseG").toDouble(), 0, 'f', 1);
+    if (sn.contains(QStringLiteral("profileTitle")))
+        out.predictedParts << QStringLiteral("profile %1").arg(sn.value("profileTitle").toString());
+
+    const QJsonArray dur = sn.value(QStringLiteral("expectedDurationSec")).toArray();
+    const QJsonArray flow = sn.value(QStringLiteral("expectedFlowMlPerSec")).toArray();
+    const QJsonArray pressure = sn.value(QStringLiteral("expectedPeakPressureBar")).toArray();
+    if (dur.size() == 2)
+        out.expectedParts << QStringLiteral("%1-%2s")
+            .arg(dur.at(0).toDouble(), 0, 'f', 0).arg(dur.at(1).toDouble(), 0, 'f', 0);
+    if (flow.size() == 2)
+        out.expectedParts << QStringLiteral("%1-%2 ml/s")
+            .arg(flow.at(0).toDouble(), 0, 'f', 1).arg(flow.at(1).toDouble(), 0, 'f', 1);
+    if (pressure.size() == 2)
+        out.expectedParts << QStringLiteral("%1-%2 bar")
+            .arg(pressure.at(0).toDouble(), 0, 'f', 1).arg(pressure.at(1).toDouble(), 0, 'f', 1);
+    return out;
+}
+
 // Inputs for the closed-loop coaching `recentAdvice` block (issue #1053).
 // The caller pulls qualifying assistant turns from the active conversation
 // (`AIConversation::recentAssistantTurns(max)` for the in-app advisor, or

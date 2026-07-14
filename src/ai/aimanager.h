@@ -364,7 +364,8 @@ private:
         const GrinderContext& grinderCtx,
         const QString& grinderBrand,
         int serial,
-        const QJsonObject& grinderCalibration = QJsonObject());
+        const QJsonObject& grinderCalibration = QJsonObject(),
+        const QJsonArray& recentAdvice = QJsonArray());
 
     // Conversation for multi-turn interactions
     AIConversation* m_conversation = nullptr;

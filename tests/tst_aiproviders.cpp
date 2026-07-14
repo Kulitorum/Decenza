@@ -95,8 +95,8 @@ private slots:
     {
         QNetworkAccessManager nam;
         checkProvider<OpenAIProvider>(nam, {
-            { "gpt-5.4-mini", "GPT-5.4 mini" },
             { "gpt-5.4", "GPT-5.4" },
+            { "gpt-5.4-mini", "GPT-5.4 mini" },
         });
     }
 

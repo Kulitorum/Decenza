@@ -584,23 +584,12 @@ QJsonObject computeOutcomeInPredictedRange(const QJsonObject& sn,
 // conversations, off-spec providers).
 QString synthesizeRecommendationSummary(const QJsonObject& sn)
 {
-    QStringList parts;
-    if (sn.contains(QStringLiteral("grinderSetting")))
-        parts << QStringLiteral("grinder %1").arg(sn.value("grinderSetting").toString());
-    if (sn.contains(QStringLiteral("doseG")))
-        parts << QStringLiteral("dose %1g").arg(sn.value("doseG").toDouble(), 0, 'f', 1);
-    if (sn.contains(QStringLiteral("profileTitle")))
-        parts << QStringLiteral("profile %1").arg(sn.value("profileTitle").toString());
-    QString head = parts.isEmpty() ? QStringLiteral("Hold settings") : QStringLiteral("Try ") + parts.join(QStringLiteral(", "));
-    const QJsonArray dur = sn.value(QStringLiteral("expectedDurationSec")).toArray();
-    const QJsonArray flow = sn.value(QStringLiteral("expectedFlowMlPerSec")).toArray();
-    if (dur.size() == 2 && flow.size() == 2) {
-        head += QStringLiteral("; expect %1-%2s, %3-%4 ml/s")
-            .arg(dur.at(0).toDouble(), 0, 'f', 0)
-            .arg(dur.at(1).toDouble(), 0, 'f', 0)
-            .arg(flow.at(0).toDouble(), 0, 'f', 1)
-            .arg(flow.at(1).toDouble(), 0, 'f', 1);
-    }
+    const StructuredNextSummary s = summarizeStructuredNext(sn);
+    QString head = s.predictedParts.isEmpty()
+        ? QStringLiteral("Hold settings")
+        : QStringLiteral("Try ") + s.predictedParts.join(QStringLiteral(", "));
+    if (!s.expectedParts.isEmpty())
+        head += QStringLiteral("; expect ") + s.expectedParts.join(QStringLiteral(", "));
     return head;
 }
 

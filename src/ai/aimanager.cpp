@@ -839,6 +839,67 @@ static QList<QPair<qint64, ShotProjection>> loadQualifiedShots(
     return qualifiedShots;
 }
 
+// File-scope helper: render one `recentAdvice` entry (see
+// DialingBlocks::buildRecentAdviceBlock) as a markdown block. Every other
+// section of the in-app historicalContext is hand-rendered prose, not a
+// JSON blob, so this keeps the format consistent — the underlying data is
+// identical to what the MCP `recentAdvice` JSON array carries for the same
+// inputs (turnsAgo/recommendation/structuredNext/userResponse).
+static QString renderRecentAdviceEntry(const QJsonObject& entry)
+{
+    const int turnsAgo = entry.value("turnsAgo").toInt();
+    const QString recommendation = entry.value("recommendation").toString();
+    const QJsonObject sn = entry.value("structuredNext").toObject();
+    const QJsonObject resp = entry.value("userResponse").toObject();
+
+    QString out = QStringLiteral("### %1 shot%2 ago\n\n")
+        .arg(turnsAgo).arg(turnsAgo == 1 ? "" : "s");
+    if (!recommendation.isEmpty())
+        out += QStringLiteral("**You recommended**: %1\n\n").arg(recommendation);
+
+    const DialingBlocks::StructuredNextSummary snSummary = DialingBlocks::summarizeStructuredNext(sn);
+    if (!snSummary.predictedParts.isEmpty())
+        out += QStringLiteral("- Predicted: %1\n").arg(snSummary.predictedParts.join(QStringLiteral(", ")));
+    if (!snSummary.expectedParts.isEmpty())
+        out += QStringLiteral("- Expected: %1\n").arg(snSummary.expectedParts.join(QStringLiteral(", ")));
+
+    QStringList actual;
+    const QString actualGrinder = resp.value("grinderSetting").toString();
+    if (!actualGrinder.isEmpty())
+        actual << QStringLiteral("grinder %1").arg(actualGrinder);
+    const double actualDose = resp.value("doseG").toDouble();
+    if (actualDose > 0)
+        actual << QStringLiteral("dose %1g").arg(actualDose, 0, 'f', 1);
+    out += QStringLiteral("- Your next shot: %1 — adherence: **%2**\n")
+        .arg(actual.isEmpty() ? QStringLiteral("(no change recorded)") : actual.join(QStringLiteral(", ")))
+        .arg(resp.value("adherence").toString());
+
+    if (resp.contains(QStringLiteral("outcomeRating0to100"))) {
+        QString ratingLine = QStringLiteral("- Score: %1/100").arg(resp.value("outcomeRating0to100").toInt());
+        const QString notes = resp.value("outcomeNotes").toString();
+        if (!notes.isEmpty())
+            ratingLine += QStringLiteral(" (\"%1\")").arg(notes);
+        out += ratingLine + QStringLiteral("\n");
+    } else if (resp.contains(QStringLiteral("outcomeNotes"))) {
+        out += QStringLiteral("- Notes: \"%1\"\n").arg(resp.value("outcomeNotes").toString());
+    }
+
+    const QJsonObject inRange = resp.value(QStringLiteral("outcomeInPredictedRange")).toObject();
+    if (!inRange.isEmpty()) {
+        QStringList rangeParts;
+        if (inRange.contains(QStringLiteral("duration")))
+            rangeParts << QStringLiteral("duration %1").arg(inRange.value("duration").toBool() ? "in range" : "out of range");
+        if (inRange.contains(QStringLiteral("flow")))
+            rangeParts << QStringLiteral("flow %1").arg(inRange.value("flow").toBool() ? "in range" : "out of range");
+        if (inRange.contains(QStringLiteral("pressure")))
+            rangeParts << QStringLiteral("pressure %1").arg(inRange.value("pressure").toBool() ? "in range" : "out of range");
+        if (!rangeParts.isEmpty())
+            out += QStringLiteral("- Outcome vs prediction: %1\n").arg(rangeParts.join(QStringLiteral(", ")));
+    }
+
+    return out;
+}
+
 void AIManager::requestRecentShotContext(const QString& beanBrand, const QString& beanType, const QString& profileName, int excludeShotId)
 {
     if (!m_shotHistory || (beanBrand.isEmpty() && profileName.isEmpty())) {
@@ -861,17 +922,21 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
         GrinderContext grinderCtx;
         QString grinderBrand;
         QJsonObject grinderCalibration;
+        QJsonArray recentAdvice;
         withTempDb(dbPath, "ai_grinder_ctx", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
             // Grinder identity resolves through the shot's equipment_id pointer
             // (the per-shot grinder_brand/model/burrs columns are dropped in
             // migration 23, add-equipment-packages task 4.1). burrs is in the
-            // grinder item's attrs JSON blob.
-            q.prepare("SELECT eg.brand, eg.model, json_extract(eg.attrs, '$.burrs'), s.beverage_type "
+            // grinder item's attrs JSON blob. profile_kb_id is pulled here too
+            // (not a separate query) so the recentAdvice build below can
+            // cross-profile-filter without another round-trip.
+            q.prepare("SELECT eg.brand, eg.model, json_extract(eg.attrs, '$.burrs'), s.beverage_type, s.profile_kb_id "
                       "FROM shots s "
                       "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
                       "WHERE s.id = ?");
             q.bindValue(0, static_cast<qint64>(excludeShotId));
+            QString profileKbId;
             if (!q.exec()) {
                 qWarning() << "AIManager::requestRecentShotContext: grinder ctx query failed:"
                            << q.lastError().text();
@@ -880,10 +945,27 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
                 QString model = q.value(1).toString();
                 QString burrs = q.value(2).toString();
                 QString bev = q.value(3).toString();
+                profileKbId = q.value(4).toString();
                 if (!model.isEmpty()) {
                     grinderCtx = ShotHistoryStorage::queryGrinderContext(db, model, bev);
                     grinderCalibration = DialingBlocks::buildGrinderCalibrationBlock(
                         db, model, burrs, bev, excludeShotId);
+                }
+            }
+
+            // Closed-loop recentAdvice (issue #1053) — same pattern
+            // ai_advisor_invoke uses (mcptools_ai.cpp), so the in-app
+            // advisor's historicalContext carries the same tracking data
+            // the MCP path already does.
+            if (!profileKbId.isEmpty()) {
+                const QString convKey = AIManager::conversationKey(beanBrand, beanType, profileName);
+                const auto turns = AIConversation::loadRecentAssistantTurnsForKey(convKey, 3);
+                if (!turns.isEmpty()) {
+                    DialingBlocks::RecentAdviceInputs in;
+                    in.turns = turns;
+                    in.currentProfileKbId = profileKbId;
+                    in.currentShotId = excludeShotId;
+                    recentAdvice = DialingBlocks::buildRecentAdviceBlock(db, in);
                 }
             }
         });
@@ -895,9 +977,10 @@ void AIManager::requestRecentShotContext(const QString& beanBrand, const QString
         QMetaObject::invokeMethod(qApp, [self, serial, qualifiedShots = std::move(qualifiedShots),
                                          grinderCtx = std::move(grinderCtx),
                                          grinderBrand = std::move(grinderBrand),
-                                         grinderCalibration = std::move(grinderCalibration)]() mutable {
+                                         grinderCalibration = std::move(grinderCalibration),
+                                         recentAdvice = std::move(recentAdvice)]() mutable {
             if (!self) return;
-            self->emitRecentShotContext(qualifiedShots, grinderCtx, grinderBrand, serial, grinderCalibration);
+            self->emitRecentShotContext(qualifiedShots, grinderCtx, grinderBrand, serial, grinderCalibration, recentAdvice);
         }, Qt::QueuedConnection);
     });
 
@@ -910,7 +993,8 @@ void AIManager::emitRecentShotContext(
     const GrinderContext& grinderCtx,
     const QString& grinderBrand,
     int serial,
-    const QJsonObject& grinderCalibration)
+    const QJsonObject& grinderCalibration,
+    const QJsonArray& recentAdvice)
 {
     if (serial != m_contextSerial) {
         // Stale request superseded by a newer one — emit empty so QML clears contextLoading.
@@ -1134,6 +1218,18 @@ void AIManager::emitRecentShotContext(
         }
 
         result += cal;
+    }
+
+    // Recent Advice Tracking goes first — "what I told you last time"
+    // should read before the raw shot-by-shot history so the model sees
+    // its own prior call before re-deriving from scratch.
+    if (!recentAdvice.isEmpty()) {
+        QStringList entries;
+        for (const QJsonValue& v : recentAdvice)
+            entries << renderRecentAdviceEntry(v.toObject());
+        result = QStringLiteral("## Recent Advice Tracking\n\n")
+                + entries.join(QStringLiteral("\n"))
+                + QStringLiteral("\n\n") + result;
     }
 
     emit recentShotContextReady(result);
