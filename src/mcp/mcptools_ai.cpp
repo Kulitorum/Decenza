@@ -584,11 +584,19 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
     // /ai-conversations page (ShotServer::generateAIConversationsPage) so
     // MCP clients can discover and export the same conversations — e.g. to
     // collect real transcripts for prompt-quality work (#639).
+    //
+    // Reads the "ai/conversations/<key>/*" QSettings keys directly rather
+    // than adding another AIConversation static helper — matching the raw
+    // read already duplicated in shotserver_ai.cpp. If that key format
+    // ever changes, grep for "ai/conversations/" across the codebase.
     registry->registerTool(
         "ai_conversations_list",
         "List saved multi-shot AI dialing conversations, most recently active first. "
         "Each entry is a bean+profile conversation thread the in-app Dialing Assistant "
         "keeps continuity across shots for — up to 5 are retained, oldest evicted first. "
+        "An entry carries `corrupted: true` (omitted otherwise) when its stored transcript "
+        "failed to parse — `messageCount` is unreliable for that entry; fetch it via "
+        "ai_conversation_get to see the actual parse error. "
         "Pass the returned `key` to ai_conversation_get to fetch the full transcript.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{}}},
         [mainController](const QJsonObject&) -> QJsonObject {
@@ -601,9 +609,14 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 const QString prefix = "ai/conversations/" + entry.key + "/";
                 const QByteArray messagesJson = settings.value(prefix + "messages").toByteArray();
                 int msgCount = 0;
+                bool corrupted = false;
                 if (!messagesJson.isEmpty()) {
-                    const QJsonDocument doc = QJsonDocument::fromJson(messagesJson);
-                    if (doc.isArray()) msgCount = static_cast<int>(doc.array().size());
+                    QJsonParseError parseError;
+                    const QJsonDocument doc = QJsonDocument::fromJson(messagesJson, &parseError);
+                    if (parseError.error != QJsonParseError::NoError || !doc.isArray())
+                        corrupted = true;
+                    else
+                        msgCount = static_cast<int>(doc.array().size());
                 }
 
                 QStringList labelParts;
@@ -612,17 +625,23 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                 QString label = labelParts.isEmpty() ? QStringLiteral("Unknown beans") : labelParts.join(" ");
                 if (!entry.profileName.isEmpty()) label += " / " + entry.profileName;
 
-                const QDateTime dt = QDateTime::fromSecsSinceEpoch(entry.timestamp);
+                QString lastUpdated;
+                if (entry.timestamp > 0) {
+                    const QDateTime dt = QDateTime::fromSecsSinceEpoch(entry.timestamp);
+                    lastUpdated = dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate);
+                }
 
-                conversations.append(QJsonObject{
+                QJsonObject convObj{
                     {"key", entry.key},
                     {"label", label},
                     {"beanBrand", entry.beanBrand},
                     {"beanType", entry.beanType},
                     {"profileName", entry.profileName},
                     {"messageCount", msgCount},
-                    {"lastUpdated", dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate)}
-                });
+                    {"lastUpdated", lastUpdated}
+                };
+                if (corrupted) convObj["corrupted"] = true;
+                conversations.append(convObj);
             }
             return QJsonObject{{"conversations", conversations}};
         },
@@ -666,19 +685,36 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
             if (parseError.error != QJsonParseError::NoError || !msgDoc.isArray())
                 return QJsonObject{{"error", "Corrupted conversation data for key " + key}};
 
+            // Bean/profile identity only lives in the index — a key with no
+            // matching index entry (evicted, or a legacy conversation predating
+            // the index) leaves these blank, which is an honest "unknown"
+            // rather than an error: the transcript itself is still valid.
             QString beanBrand, beanType, profileName;
-            qint64 timestampSecs = 0;
+            qint64 indexTimestampSecs = 0;
             for (const auto& entry : ai->conversationIndex()) {
                 if (entry.key == key) {
                     beanBrand = entry.beanBrand;
                     beanType = entry.beanType;
                     profileName = entry.profileName;
-                    timestampSecs = entry.timestamp;
+                    indexTimestampSecs = entry.timestamp;
                     break;
                 }
             }
 
-            const QDateTime dt = QDateTime::fromSecsSinceEpoch(timestampSecs);
+            // Prefer the per-conversation stored timestamp (always written
+            // alongside `messages` by saveToStorage/appendAssistantTurnForKey,
+            // so it survives even when the key has no index entry); fall back
+            // to the index's timestamp otherwise. Same fallback order as
+            // ShotServer::generateAIConversationsPage.
+            QString lastUpdated;
+            const QDateTime storedDt = QDateTime::fromString(
+                settings.value(prefix + "timestamp").toString(), Qt::ISODate);
+            if (storedDt.isValid()) {
+                lastUpdated = storedDt.toOffsetFromUtc(storedDt.offsetFromUtc()).toString(Qt::ISODate);
+            } else if (indexTimestampSecs > 0) {
+                const QDateTime dt = QDateTime::fromSecsSinceEpoch(indexTimestampSecs);
+                lastUpdated = dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate);
+            }
 
             return QJsonObject{
                 {"key", key},
@@ -686,9 +722,7 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
                     {"beanBrand", beanBrand},
                     {"beanType", beanType},
                     {"profileName", profileName},
-                    {"lastUpdated", timestampSecs > 0
-                        ? dt.toOffsetFromUtc(dt.offsetFromUtc()).toString(Qt::ISODate)
-                        : QString()}
+                    {"lastUpdated", lastUpdated}
                 }},
                 {"systemPrompt", settings.value(prefix + "systemPrompt").toString()},
                 {"messages", msgDoc.array()}
