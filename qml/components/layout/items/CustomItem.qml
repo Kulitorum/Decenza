@@ -38,7 +38,13 @@ Item {
         return ""
     }
 
-    readonly property color _parsedBgColor: bgColor !== "" ? bgColor : (hasAction ? Theme.primaryColor : Theme.surfaceColor)
+    // Default action tiles are primaryColor, but over a custom background image
+    // they use the same neutral surfaceColor scrim as the top/bottom bars and
+    // cards so all chrome reads consistently. An explicit per-widget bgColor
+    // still wins in both cases.
+    readonly property color _parsedBgColor: bgColor !== ""
+        ? bgColor
+        : (hasAction && Settings.theme.backgroundImagePath.length === 0 ? Theme.primaryColor : Theme.surfaceColor)
 
     // A brew-settings widget highlights (Theme.highlightColor) whenever a real
     // brew override is in effect — temperature or target yield deviating from the
