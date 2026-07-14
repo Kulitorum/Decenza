@@ -124,6 +124,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     void initTestCase()
     {
         // No setup needed — warnings from McpServer without full wiring are expected

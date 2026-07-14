@@ -181,7 +181,7 @@ private slots:
 
     // Reset the migration fault-injection seam before every test so a one-shot
     // fault set by one test can never leak into the next.
-    void init() {
+    void init() { QTest::failOnWarning();
         ShotHistoryStorage::s_faultInjectMigration = 0;
     }
 

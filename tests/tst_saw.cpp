@@ -40,7 +40,7 @@ private:
 
 private slots:
 
-    void init() {
+    void init() { QTest::failOnWarning();
         m_fakeClock = 1000000;  // Reset for each test
     }
 

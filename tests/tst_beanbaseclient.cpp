@@ -133,6 +133,7 @@ private:
     QNetworkAccessManager m_nam;
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     // ====================================================
     // search(): the canonical (Visualizer) path — keyless,
     // debounced (350 ms), session-cached, official /api JSON.

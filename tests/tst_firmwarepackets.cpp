@@ -13,6 +13,7 @@ class tst_FirmwarePackets : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ===== buildFWMapRequest: 7-byte packet written to A009 =====
     // Layout: [WindowIncrement(u16 BE)=0][FWToErase][FWToMap][FirstError×3]

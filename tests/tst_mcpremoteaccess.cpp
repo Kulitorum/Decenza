@@ -252,6 +252,7 @@ private:
     QHash<QString, QVariant> m_savedSettings;
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     void initTestCase()
     {
         // Best-effort isolation on platforms that honor test mode (Linux/CI).

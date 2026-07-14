@@ -123,6 +123,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ===== profiles_list =====
 

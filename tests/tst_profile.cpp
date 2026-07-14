@@ -88,6 +88,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ==========================================
     // JSON Round-Trip Tests

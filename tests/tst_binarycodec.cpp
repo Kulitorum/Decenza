@@ -10,6 +10,7 @@ class tst_BinaryCodec : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ===== U8P4: 4 fractional bits, range 0-15.9375 (de1app encode_U8P4) =====
 

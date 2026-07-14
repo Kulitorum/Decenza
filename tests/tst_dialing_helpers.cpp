@@ -8,6 +8,7 @@ class TstDialingHelpers : public QObject
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     void emptyInput_returnsNoSessions();
     void singleShot_returnsOneSessionOfOne();
     void twoAdjacentShots_inSameSession();

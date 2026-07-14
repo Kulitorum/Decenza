@@ -15,6 +15,7 @@ class tst_FirmwareAssetCacheHelpers : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ===== MetaJson round-trip =====
 

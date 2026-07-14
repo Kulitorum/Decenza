@@ -26,6 +26,7 @@ class tst_MachineStatusSnapshot : public QObject {
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     void initTestCase() {
         // Keep snapshot writes out of the real app data dir, and guarantee
         // the desktop platformWrite path is writable so it never emits the

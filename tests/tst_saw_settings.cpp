@@ -49,7 +49,7 @@ private:
 
 private slots:
 
-    void init() {
+    void init() { QTest::failOnWarning();
         m_settings.calibration()->resetSawLearning();
     }
 

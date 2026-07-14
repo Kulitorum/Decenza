@@ -23,6 +23,7 @@ class TstShotCorpus : public QObject
 {
     Q_OBJECT
 private slots:
+    void init() { QTest::failOnWarning(); }
     void corpus_validates_against_manifest();
 };
 

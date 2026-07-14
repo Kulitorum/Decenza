@@ -91,6 +91,7 @@ class tst_AIProviders : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     void openAiCatalogAndSelection()
     {
         QNetworkAccessManager nam;

@@ -15,6 +15,7 @@ class tst_RecipeGenerator : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ==========================================
     // D-Flow frame structure

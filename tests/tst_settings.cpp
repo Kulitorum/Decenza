@@ -107,7 +107,7 @@ private:
 
 private slots:
 
-    void init() {
+    void init() { QTest::failOnWarning();
         // Save all originals before each test
         m_origTargetWeight = m_settings.brew()->targetWeight();
         m_origDoseCupTare = m_settings.brew()->doseCupTareWeight();

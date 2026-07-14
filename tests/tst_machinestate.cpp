@@ -35,6 +35,7 @@ private:
     };
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ==========================================
     // Phase Mapping (de1app update_de1_state)

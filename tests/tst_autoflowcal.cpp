@@ -78,6 +78,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // D-Flow / Q: window sits entirely inside the Pouring flow frame.
     // isFlowProfile=true, target=1.8. No regression from today's behavior.

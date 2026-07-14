@@ -136,6 +136,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     void initTestCase() {
         QVERIFY(m_tempDir.isValid());

@@ -17,6 +17,7 @@ class tst_AbortedShotClassifier : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // Real shots from Jeff's local DB that the classifier should drop.
     void corpusPositives_data() {

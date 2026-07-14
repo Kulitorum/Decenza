@@ -167,6 +167,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ─── Protocol version negotiation ──────────────────────────────────────
 

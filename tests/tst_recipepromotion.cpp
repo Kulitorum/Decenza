@@ -31,6 +31,7 @@ class tst_RecipePromotion : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // The shot's bag becomes the recipe's hard bag link (recipes link a
     // specific bag); a pre-bag shot (bagId <= 0) stores no link — the bean

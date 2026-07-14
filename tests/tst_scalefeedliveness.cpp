@@ -36,7 +36,7 @@ class tst_ScaleFeedLiveness : public QObject {
 
 private slots:
 
-    void init() { m_clock = 1000000; }
+    void init() { QTest::failOnWarning(); m_clock = 1000000; }
 
     // The fix contract, at the ScaleDevice chokepoint: every accepted sample
     // emits weightSampleReceived; weightChanged stays deduped.

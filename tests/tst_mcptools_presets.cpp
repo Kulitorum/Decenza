@@ -53,7 +53,7 @@ private slots:
         registerPresetsTools(&m_registry, &m_settings, nullptr, nullptr);
     }
 
-    void init() {
+    void init() { QTest::failOnWarning();
         QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
         m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray();
         m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();

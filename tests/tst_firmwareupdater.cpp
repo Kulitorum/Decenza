@@ -98,6 +98,7 @@ private:
     };
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ===== §4b: error paths =====
 
