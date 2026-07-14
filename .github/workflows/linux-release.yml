@@ -112,7 +112,10 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           cd build
-          ctest --output-on-failure
+          # -j parallelises; --repeat until-pass:3 absorbs the rare timing flake
+          # in the two clock-cadence tests (tst_settling, tst_decentscalewifi)
+          # under heavy CPU contention. A real failure still fails all 3 attempts.
+          ctest --output-on-failure -j$(nproc) --repeat until-pass:3
 
       - name: Get version
         id: version

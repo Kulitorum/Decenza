@@ -1,4 +1,5 @@
 #include <QtTest>
+#include "core/settings.h"
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
@@ -330,7 +331,7 @@ private slots:
 
     void convertLegacyPresetSettingsClearsKeysOnSuccessOnly() {
         // Snapshot + restore the REAL settings keys (app scope, deliberate).
-        QSettings appSettings(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
+        QSettings appSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
         const QVariant origPresets = appSettings.value("bean/presets");
         const QVariant origSelected = appSettings.value("bean/selectedPreset");
         auto restore = qScopeGuard([&]() {
@@ -1664,10 +1665,6 @@ private slots:
         dye.persistYieldOverrideToBag(0.0);
         QCOMPARE(dye.activeBagYieldOverrideG(), 0.0);
 
-        // Drain the storage's async work to completion before the stack objects
-        // destruct, so no worker is still holding a connection at teardown (which
-        // would qWarning on stderr — the suite requires silence).
-        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
     }
 
@@ -1745,7 +1742,6 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(bagRpm(), static_cast<qint64>(1350), 15000);
         QTRY_COMPARE_WITH_TIMEOUT(pkgRpm(), static_cast<qint64>(1350), 15000);
 
-        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
     }
 
@@ -1792,8 +1788,8 @@ private slots:
         dye.setDyeGrinderRpm(1400);
         QTRY_COMPARE_WITH_TIMEOUT(bagRpm(), static_cast<qint64>(1400), 15000);
 
-        // Drain before stack teardown (see settingsDyeYieldOverridePath).
-        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(10); }
+        // Clear the dye QSettings state before teardown; the DB worker is joined
+        // by ~CoffeeBagStorage/~EquipmentStorage (SerialDbWorker quit()+wait()).
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
     }
 
@@ -1834,8 +1830,12 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(pkgGrind(), QString::number(kWrites - 1), 15000);
 
         // Drain every write, then re-assert the SETTLED value is still the last
-        // submitted. This is the real revert-detector: a reordered build's final
-        // commit is the random last-scheduled write, almost never "49".
+        // submitted. This must be a fixed drain + one-shot compare, NOT a
+        // QTRY: QTRY_COMPARE passes the instant it observes "49", and a reordered
+        // build can expose "49" transiently mid-race (right after this point the
+        // QTRY above first saw it) before a later-scheduled write commits last.
+        // Only waiting for full quiescence and then comparing distinguishes
+        // "49 is final" (FIFO) from "49 was briefly seen" (reordered).
         for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
         QCOMPARE(pkgGrind(), QString::number(kWrites - 1));
     }
@@ -1866,7 +1866,6 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(okSpy.count(), 1, 15000);
         QVERIFY(okSpy.at(0).at(1).toMap().isEmpty());
 
-        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
     }
 
     // Same contract for ShotHistoryStorage::requestShot, which uses a DIFFERENT
@@ -1900,7 +1899,6 @@ private slots:
         ok.requestShot(999999);
         QTRY_COMPARE_WITH_TIMEOUT(okSpy.count(), 1, 15000);
 
-        for (int i = 0; i < 40; i++) { QCoreApplication::processEvents(); QThread::msleep(5); }
     }
 
     // VisualizerUploader::buildBagEnrichBody — the pure fill-blanks diff that

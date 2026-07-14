@@ -1,4 +1,5 @@
 #include <QtTest>
+#include "core/settings.h"
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
@@ -768,8 +769,7 @@ private slots:
         // here is exactly the scope-mismatch bug this regression-tests:
         // it passed before the production fix only because production
         // also (wrongly) used a bare QSettings.
-        QSettings appSettings(QStringLiteral("DecentEspresso"),
-                              QStringLiteral("DE1Qt"));
+        QSettings appSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
         const QVariant prior = appSettings.value("shot/defaultRating");
         const QVariant priorPending = appSettings.value("migration16/pendingVisualizerSync");
         appSettings.setValue("shot/defaultRating", 50);
@@ -1076,7 +1076,6 @@ private slots:
             QVERIFY(s.initialize(path));
             QCOMPARE(s.lastSavedShotId(), qint64(0));
             s.close();
-            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
         }
 
         // Insert three shots, then construct a SECOND instance — modelling an
@@ -1099,7 +1098,6 @@ private slots:
             QVERIFY(s.initialize(path));
             QCOMPARE(s.lastSavedShotId(), newestId);
             s.close();
-            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
         }
 
         // Delete the newest row; a fresh instance must seed the surviving
@@ -1114,7 +1112,6 @@ private slots:
             QVERIFY(s.initialize(path));
             QCOMPARE(s.lastSavedShotId(), newestId - 1);
             s.close();
-            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
         }
     }
 
@@ -1353,7 +1350,7 @@ private slots:
     // single most dangerous regression in this migration.
     void v22_reinitDoesNotDuplicatePackages() {
         const QString path = freshDbPath();
-        QSettings app(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
+        QSettings app(Settings::testQSettingsPath(), QSettings::IniFormat);
         const QVariant pB = app.value("dye/grinderBrand"), pM = app.value("dye/grinderModel"),
                        pBu = app.value("dye/grinderBurrs"), pS = app.value("dye/grinderSetting");
         app.setValue("dye/grinderBrand", "Niche");
@@ -1535,7 +1532,6 @@ private slots:
             shotId = s.importShotRecord(rec);
             QVERIFY(shotId > 0);
             s.close();
-            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
         }
         withRawDb(path, "v23_import_verify", [&](QSqlDatabase& db) {
             const ShotRecord r = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
@@ -1597,7 +1593,6 @@ private slots:
         QCOMPARE(spy.last().at(2).toInt(), 0);
 
         s.close();
-        for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
     }
 };
 

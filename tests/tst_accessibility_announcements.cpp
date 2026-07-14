@@ -1,4 +1,5 @@
 #include <QtTest>
+#include "core/settings.h"
 #include <QSignalSpy>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -79,7 +80,7 @@ class tst_AccessibilityAnnouncements : public QObject {
     Q_OBJECT
 
 private:
-    QSettings m_realSettings{QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt")};
+    QSettings m_realSettings{Settings::testQSettingsPath(), QSettings::IniFormat};
     QVariant m_origEnabled;
     QVariant m_origTtsEnabled;
     QVariant m_origTickEnabled;

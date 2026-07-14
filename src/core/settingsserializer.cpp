@@ -593,7 +593,11 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
     if (json.contains("beans") && !excludeKeys.contains("beans")) {
         QJsonObject beans = json["beans"].toObject();
         if (beans.contains("presets")) {
+#ifdef DECENZA_TESTING
+            QSettings rawSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
+#else
             QSettings rawSettings(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
+#endif
             rawSettings.setValue(QStringLiteral("bean/presets"),
                                  QJsonDocument(beans["presets"].toArray()).toJson());
             if (beans.contains("selectedPreset"))

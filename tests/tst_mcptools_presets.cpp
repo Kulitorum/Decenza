@@ -54,7 +54,7 @@ private slots:
     }
 
     void init() {
-        QSettings raw("DecentEspresso", "DE1Qt");
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
         m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray();
         m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();
         m_origSelectedSteam = m_settings.brew()->selectedSteamPitcher();
@@ -62,7 +62,7 @@ private slots:
     }
 
     void cleanup() {
-        QSettings raw("DecentEspresso", "DE1Qt");
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
         raw.setValue("steam/pitcherPresets", m_origPitcherPresets);
         raw.setValue("water/vesselPresets", m_origVesselPresets);
         raw.sync();
