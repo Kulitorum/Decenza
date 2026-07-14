@@ -38,6 +38,12 @@
 #include "history/shotprojection.h"
 #include "history/shothistory_types.h"
 #include "ai/dialing_blocks.h"
+#include "mcp/mcptoolregistry.h"
+
+// Implemented in src/mcp/mcptools_ai_conversations.cpp — split into its own
+// translation unit specifically so it can be linked here against a real
+// AIManager without MainController/ShotHistoryStorage/BeanBaseClient.
+void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager);
 
 namespace {
 
@@ -2715,6 +2721,167 @@ private slots:
                  "json body must not appear in conversation text");
 
         s.clear();
+    }
+
+    // -------------------------------------------------------------
+    // ai_conversations_list / ai_conversation_get MCP tools (#639 support).
+    // registerAIConversationTools lives in mcptools_ai_conversations.cpp —
+    // linked into this target so it can run against a real AIManager.
+    // -------------------------------------------------------------
+
+    void mcpAiConversations_listAndGet_roundTripRealConversation()
+    {
+        QSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString key = mgr.switchConversation(
+            QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"),
+            QStringLiteral("D-Flow"));
+        AIConversation* conv = mgr.conversation();
+        conv->m_systemPrompt = QStringLiteral("system prompt");
+        conv->addUserMessage(QStringLiteral("Shot pulled at 19g/1:2"));
+        const QString response = QStringLiteral("Try 4.75 on the grinder.");
+        conv->addAssistantMessage(response);
+        conv->saveToStorage();
+
+        McpToolRegistry registry;
+        registerAIConversationTools(&registry, &mgr);
+
+        QString err;
+        const QJsonObject listResult = registry.callTool("ai_conversations_list", {}, 0, err);
+        QVERIFY2(err.isEmpty(), qPrintable(err));
+        const QJsonArray conversations = listResult["conversations"].toArray();
+        QCOMPARE(conversations.size(), 1);
+        const QJsonObject entry = conversations[0].toObject();
+        QCOMPARE(entry["key"].toString(), key);
+        QCOMPARE(entry["label"].toString(), QStringLiteral("Rogue Wave Ethiopia Yirgacheffe / D-Flow"));
+        QCOMPARE(entry["messageCount"].toInt(), 2);
+        QVERIFY(!entry["lastUpdated"].toString().isEmpty());
+        QVERIFY2(!entry.contains("corrupted"), "healthy entries must not carry the corrupted key at all");
+
+        const QJsonObject getResult = registry.callTool("ai_conversation_get", {{"key", key}}, 0, err);
+        QVERIFY2(err.isEmpty(), qPrintable(err));
+        QVERIFY(!getResult.contains("error"));
+        QCOMPARE(getResult["key"].toString(), key);
+        QCOMPARE(getResult["systemPrompt"].toString(), QStringLiteral("system prompt"));
+        const QJsonObject metadata = getResult["metadata"].toObject();
+        QCOMPARE(metadata["beanBrand"].toString(), QStringLiteral("Rogue Wave"));
+        QCOMPARE(metadata["profileName"].toString(), QStringLiteral("D-Flow"));
+        QVERIFY(!metadata["lastUpdated"].toString().isEmpty());
+        const QJsonArray messages = getResult["messages"].toArray();
+        QCOMPARE(messages.size(), 2);
+        QCOMPARE(messages[0].toObject()["role"].toString(), QStringLiteral("user"));
+        QCOMPARE(messages[1].toObject()["role"].toString(), QStringLiteral("assistant"));
+        QCOMPARE(messages[1].toObject()["content"].toString(), response);
+
+        settings.clear();
+    }
+
+    void mcpAiConversationGet_missingKey_returnsErrorNotCrash()
+    {
+        QSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        McpToolRegistry registry;
+        registerAIConversationTools(&registry, &mgr);
+
+        QString err;
+        const QJsonObject r = registry.callTool(
+            "ai_conversation_get", {{"key", "nonexistent_key"}}, 0, err);
+        QVERIFY2(err.isEmpty(), qPrintable(err));  // tool-level error, not a registry dispatch error
+        QVERIFY(r.contains("error"));
+        QVERIFY2(r["error"].toString().contains("not found"), qPrintable(r["error"].toString()));
+
+        settings.clear();
+    }
+
+    // Corrupted stored data must be flagged, not silently reported as an
+    // empty-but-healthy conversation — see silent-failure-hunter finding on
+    // PR #1500: ai_conversations_list previously swallowed the parse error.
+    void mcpAiConversationsList_corruptedEntry_flagsInsteadOfSwallowing()
+    {
+        QSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString key = mgr.switchConversation(
+            QStringLiteral("Brand"), QStringLiteral("Type"), QStringLiteral("Profile"));
+        // The index entry exists (switchConversation added it) but the
+        // messages blob itself is garbage — simulating an interrupted write.
+        settings.setValue(QStringLiteral("ai/conversations/") + key + "/messages",
+                           QByteArrayLiteral("{not valid json"));
+
+        McpToolRegistry registry;
+        registerAIConversationTools(&registry, &mgr);
+
+        QString err;
+        const QJsonObject listResult = registry.callTool("ai_conversations_list", {}, 0, err);
+        const QJsonArray conversations = listResult["conversations"].toArray();
+        QCOMPARE(conversations.size(), 1);
+        const QJsonObject entry = conversations[0].toObject();
+        QVERIFY2(entry["corrupted"].toBool(),
+                 "corrupted transcript must be flagged, not silently reported as messageCount:0");
+        QCOMPARE(entry["messageCount"].toInt(), 0);
+
+        const QJsonObject getResult = registry.callTool("ai_conversation_get", {{"key", key}}, 0, err);
+        QVERIFY(getResult.contains("error"));
+        QVERIFY2(getResult["error"].toString().contains("Corrupted"),
+                 qPrintable(getResult["error"].toString()));
+
+        settings.clear();
+    }
+
+    // A key with no matching conversationIndex entry (evicted, or a legacy
+    // conversation predating the index) must still return a real
+    // lastUpdated by falling back to the per-conversation stored timestamp,
+    // instead of silently returning it blank.
+    void mcpAiConversationGet_orphanedKey_fallsBackToStoredTimestamp()
+    {
+        QSettings settings;
+        settings.clear();
+
+        // AIManager's constructor runs a one-time clearAllConversationsOnce
+        // migration that wipes the whole "ai/conversations" QSettings group
+        // when its marker is absent (settings.clear() above wiped it too) —
+        // construct AIManager BEFORE writing the orphaned key, or this
+        // migration wipes it out from under the test.
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);  // conversationIndex() has no entry for `key`
+
+        const QString key = QStringLiteral("orphaned_test_key");
+        const QString prefix = QStringLiteral("ai/conversations/") + key + "/";
+        settings.setValue(prefix + "systemPrompt", QStringLiteral("system"));
+        settings.setValue(prefix + "messages", QJsonDocument(QJsonArray{
+            QJsonObject{{"role", "user"}, {"content", "hi"}}
+        }).toJson(QJsonDocument::Compact));
+        settings.setValue(prefix + "timestamp", QDateTime::currentDateTime().toString(Qt::ISODate));
+
+        McpToolRegistry registry;
+        registerAIConversationTools(&registry, &mgr);
+
+        QString err;
+        const QJsonObject getResult = registry.callTool("ai_conversation_get", {{"key", key}}, 0, err);
+        QVERIFY2(err.isEmpty(), qPrintable(err));
+        QVERIFY(!getResult.contains("error"));
+        const QJsonObject metadata = getResult["metadata"].toObject();
+        QVERIFY2(metadata["beanBrand"].toString().isEmpty(),
+                 "no index entry means bean identity is honestly unknown, not an error");
+        QVERIFY2(!metadata["lastUpdated"].toString().isEmpty(),
+                 "lastUpdated must fall back to the stored per-conversation timestamp "
+                 "when the key has no conversationIndex entry");
+
+        settings.clear();
     }
 };
 

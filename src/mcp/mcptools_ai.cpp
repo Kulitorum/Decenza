@@ -34,6 +34,7 @@
 static constexpr int kAdvisorMcpTimeoutMs = 135 * 1000;
 
 void registerBeanSearchTool(McpToolRegistry* registry, BeanBaseClient* client);
+void registerAIConversationTools(McpToolRegistry* registry, AIManager* aiManager);
 
 void registerAITools(McpToolRegistry* registry, MainController* mainController)
 {
@@ -576,6 +577,13 @@ void registerAITools(McpToolRegistry* registry, MainController* mainController)
             loadThread->start();
         },
         "control");
+
+    // ai_conversations_list / ai_conversation_get — split into their own
+    // translation unit (mcptools_ai_conversations.cpp) so tests can link
+    // them against a real AIManager without dragging in this file's
+    // MainController/ShotHistoryStorage/BeanBaseClient dependencies. Same
+    // rationale as registerBeanSearchTool below.
+    registerAIConversationTools(registry, mainController ? mainController->aiManager() : nullptr);
 
     registerBeanSearchTool(registry, mainController ? mainController->beanbase() : nullptr);
 }
