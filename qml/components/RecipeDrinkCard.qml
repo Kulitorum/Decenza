@@ -234,7 +234,6 @@ Rectangle {
                 // must never reflect the dial, and has no override to show.
                 profileStepTemps: card.profileStepTemps
                 recipeTempOffsetC: card.recipe.tempOffsetC || 0
-                overrideTemp: card.profileTempC
                 tempOverridden: false
                 dose: card.recipe.doseG || 0
                 profileYield: card.profileYieldG

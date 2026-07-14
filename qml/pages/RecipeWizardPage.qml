@@ -529,7 +529,11 @@ Page {
             if (stTemp > 0)
                 temps.push(stTemp)
         }
-        fProfileStepTemps = temps
+        // See RecipesPage.refreshProfileNumbers: a resolved profile whose
+        // steps carry no explicit per-step temperature must still yield a
+        // non-empty array, or the summary hero falls through to rendering
+        // the loaded profile instead of its own.
+        fProfileStepTemps = temps.length > 0 ? temps : (fProfileTempC > 0 ? [fProfileTempC] : [])
     }
 
     // Re-resolve the linked bag's details (grind default, roast level, tea
@@ -765,7 +769,9 @@ Page {
             if (psTemp > 0)
                 pickedTemps.push(psTemp)
         }
-        fProfileStepTemps = pickedTemps
+        // See RecipesPage.refreshProfileNumbers: don't leave this empty
+        // when the profile resolved but its steps carry no per-step temp.
+        fProfileStepTemps = pickedTemps.length > 0 ? pickedTemps : (fProfileTempC > 0 ? [fProfileTempC] : [])
         // Tea temp is resolved entirely by applyDetailsPrefill (bag vendor
         // temp with the type-match correction, then profile default, then
         // history overwrite) — pre-seeding it here would make that whole
