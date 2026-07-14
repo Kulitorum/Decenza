@@ -1,4 +1,5 @@
 #include <QtTest>
+#include "core/settings.h"
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
@@ -768,8 +769,7 @@ private slots:
         // here is exactly the scope-mismatch bug this regression-tests:
         // it passed before the production fix only because production
         // also (wrongly) used a bare QSettings.
-        QSettings appSettings(QStringLiteral("DecentEspresso"),
-                              QStringLiteral("DE1Qt"));
+        QSettings appSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
         const QVariant prior = appSettings.value("shot/defaultRating");
         const QVariant priorPending = appSettings.value("migration16/pendingVisualizerSync");
         appSettings.setValue("shot/defaultRating", 50);
@@ -1350,7 +1350,7 @@ private slots:
     // single most dangerous regression in this migration.
     void v22_reinitDoesNotDuplicatePackages() {
         const QString path = freshDbPath();
-        QSettings app(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
+        QSettings app(Settings::testQSettingsPath(), QSettings::IniFormat);
         const QVariant pB = app.value("dye/grinderBrand"), pM = app.value("dye/grinderModel"),
                        pBu = app.value("dye/grinderBurrs"), pS = app.value("dye/grinderSetting");
         app.setValue("dye/grinderBrand", "Niche");

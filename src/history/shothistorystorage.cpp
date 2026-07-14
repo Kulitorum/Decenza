@@ -2,6 +2,7 @@
 #include "shothistorystorage_internal.h"
 #include "coffeebagstorage.h"
 #include "equipmentstorage.h"
+#include "core/settings.h"   // Settings::testQSettingsPath() under DECENZA_TESTING
 #include "recipestorage.h"
 #include "ai/conductance.h"
 #include "ai/shotanalysis.h"
@@ -877,8 +878,12 @@ bool ShotHistoryStorage::runMigrations()
             // "Decenza" (main.cpp setApplicationName) — a DIFFERENT,
             // empty store — which would silently return the 75 fallback
             // and no-op the reset for every user whose default ≠ 75.
+#ifdef DECENZA_TESTING
+            QSettings appSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
+#else
             QSettings appSettings(QStringLiteral("DecentEspresso"),
                                   QStringLiteral("DE1Qt"));
+#endif
             const int defaultRating = appSettings.value(
                 QStringLiteral("shot/defaultRating"), 75).toInt();
 
@@ -1181,7 +1186,11 @@ bool ShotHistoryStorage::runMigrations()
             // Read the SAME QSettings scope SettingsDye writes to — a bare
             // QSettings() depends on QCoreApplication org/app being set, which
             // isn't guaranteed (the scope-mismatch bug migration 16 fixed).
+#ifdef DECENZA_TESTING
+            QSettings settings(Settings::testQSettingsPath(), QSettings::IniFormat);
+#else
             QSettings settings(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
+#endif
             const QString curBrand = settings.value("dye/grinderBrand").toString();
             const QString curModel = settings.value("dye/grinderModel").toString();
             const QString curBurrs = settings.value("dye/grinderBurrs").toString();

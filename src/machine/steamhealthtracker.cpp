@@ -1,5 +1,6 @@
 #include "steamhealthtracker.h"
 #include "models/steamdatamodel.h"
+#include "core/settings.h"   // Settings::testQSettingsPath() under DECENZA_TESTING
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -8,7 +9,11 @@
 
 SteamHealthTracker::SteamHealthTracker(QObject* parent)
     : QObject(parent)
+#ifdef DECENZA_TESTING
+    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
+#else
     , m_settings("DecentEspresso", "DE1Qt")
+#endif
 {
     auto history = loadHistory();
     m_sessionCount = static_cast<int>(history.size());

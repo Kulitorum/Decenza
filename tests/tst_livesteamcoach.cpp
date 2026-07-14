@@ -30,7 +30,7 @@ private:
     // / tst_settings), otherwise a test run permanently flips the developer's
     // steam-coaching toggles (they must stay off-by-default for new users) and
     // steam duration.
-    QSettings m_realSettings{"DecentEspresso", "DE1Qt"};
+    QSettings m_realSettings{Settings::testQSettingsPath(), QSettings::IniFormat};
     QVariant m_origCoachVisual;
     QVariant m_origCoachAudio;
     QVariant m_origSteamTimeout;

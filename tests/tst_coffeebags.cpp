@@ -1,4 +1,5 @@
 #include <QtTest>
+#include "core/settings.h"
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
@@ -330,7 +331,7 @@ private slots:
 
     void convertLegacyPresetSettingsClearsKeysOnSuccessOnly() {
         // Snapshot + restore the REAL settings keys (app scope, deliberate).
-        QSettings appSettings(QStringLiteral("DecentEspresso"), QStringLiteral("DE1Qt"));
+        QSettings appSettings(Settings::testQSettingsPath(), QSettings::IniFormat);
         const QVariant origPresets = appSettings.value("bean/presets");
         const QVariant origSelected = appSettings.value("bean/selectedPreset");
         auto restore = qScopeGuard([&]() {

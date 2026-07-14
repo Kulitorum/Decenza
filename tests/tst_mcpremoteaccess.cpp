@@ -14,6 +14,7 @@
 // tst_mcpserver_protocol.cpp) so no full tool graph is required.
 
 #include <QtTest>
+#include "core/settings.h"
 #include <QTcpSocket>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -255,7 +256,7 @@ private slots:
     {
         // Best-effort isolation on platforms that honor test mode (Linux/CI).
         QStandardPaths::setTestModeEnabled(true);
-        QSettings s("DecentEspresso", "DE1Qt");
+        QSettings s(Settings::testQSettingsPath(), QSettings::IniFormat);
         for (const char* key : kTouchedKeys)
             if (s.contains(key))
                 m_savedSettings.insert(key, s.value(key));
@@ -265,7 +266,7 @@ private slots:
     {
         // Restore the real store exactly as we found it (remove keys we created,
         // restore prior values for keys that existed).
-        QSettings s("DecentEspresso", "DE1Qt");
+        QSettings s(Settings::testQSettingsPath(), QSettings::IniFormat);
         for (const char* key : kTouchedKeys) {
             if (m_savedSettings.contains(key))
                 s.setValue(key, m_savedSettings.value(key));
