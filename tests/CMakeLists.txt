@@ -880,3 +880,13 @@ target_compile_definitions(tst_kb_schema PRIVATE
     VALIDATE_KB_SCRIPT="${CMAKE_SOURCE_DIR}/tools/validate_kb.py"
     VALIDATE_KB_REAL_JSON="${CMAKE_SOURCE_DIR}/resources/ai/profile_knowledge.json"
 )
+
+# --- failonwarning_lint: guard that every QTEST_*MAIN test file arms
+# QTest::failOnWarning() (see tests/lint_failonwarning.cmake and the Handling
+# Warnings section of docs/CLAUDE_MD/TESTING.md). A pure cmake -P check — no
+# build, no extra dependency — that re-globs on each run, so a newly-added
+# test file that forgets the guard fails `ctest` without a reconfigure.
+add_test(NAME failonwarning_lint
+    COMMAND ${CMAKE_COMMAND}
+        -DLINT_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/lint_failonwarning.cmake)
