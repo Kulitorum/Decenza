@@ -287,7 +287,7 @@ Item {
                 objectName: "autoSleep"
                 Layout.fillWidth: true
                 implicitHeight: timingContent.implicitHeight + Theme.scaled(24)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
@@ -345,7 +345,7 @@ Item {
                 Layout.fillWidth: true
                 visible: ScreensaverManager.screensaverType !== "disabled"
                 implicitHeight: dimContent.implicitHeight + Theme.scaled(24)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
@@ -425,7 +425,7 @@ Item {
                 objectName: "autoWake"
                 Layout.fillWidth: true
                 implicitHeight: autoWakeContent.implicitHeight + Theme.scaled(24)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -469,7 +469,7 @@ Item {
 
                                     color: isSelected ? Qt.lighter(Theme.primaryColor, 1.3) :
                                            isEnabled ? Theme.primaryColor :
-                                           Theme.backgroundColor
+                                           Theme.insetBackgroundColor
                                     border.color: isSelected ? Theme.primaryContrastColor :
                                                   isEnabled ? Theme.primaryColor : Theme.borderColor
                                     border.width: isSelected ? 2 : 1
@@ -631,7 +631,7 @@ Item {
 
             Rectangle {
                 anchors.fill: parent
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
@@ -682,7 +682,7 @@ Item {
 
                             background: Rectangle {
                                 color: parent.highlighted ? Theme.primaryColor :
-                                       parent.hovered ? Qt.darker(Theme.backgroundColor, 1.2) : Theme.backgroundColor
+                                       parent.hovered ? Qt.darker(Theme.insetBackgroundColor, 1.2) : Theme.insetBackgroundColor
                                 radius: Theme.scaled(6)
                             }
 
@@ -735,7 +735,7 @@ Item {
             objectName: "screensaver"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
             ColumnLayout {
@@ -1202,7 +1202,7 @@ Item {
                     Layout.fillWidth: true
                     height: Theme.scaled(6)
                     radius: Theme.scaled(3)
-                    color: Qt.darker(Theme.surfaceColor, 1.3)
+                    color: Qt.darker(Theme.insetBackgroundColor, 1.3)
                     visible: ScreensaverManager.screensaverType === "videos" && ScreensaverManager.isDownloading
 
                     Rectangle {

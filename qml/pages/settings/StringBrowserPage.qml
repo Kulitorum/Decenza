@@ -7,7 +7,7 @@ import "../../components"
 Page {
     id: stringBrowserPage
     objectName: "stringBrowserPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     property bool isEditing: false
     property int editingIndex: -1
@@ -240,7 +240,7 @@ Page {
                     anchors.right: filterRow.left
                     anchors.rightMargin: Theme.spacingSmall
                     height: parent.height
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.buttonRadius
                     border.width: 1
                     border.color: searchField.activeFocus ? Theme.primaryColor : Theme.borderColor
@@ -329,7 +329,7 @@ Page {
                         Rectangle {
                             width: Theme.scaled(70)
                             height: Theme.scaled(36)
-                            color: stringModel.filterMode === modelData.mode ? Theme.primaryColor : Theme.surfaceColor
+                            color: stringModel.filterMode === modelData.mode ? Theme.primaryColor : Theme.cardBackgroundColor
                             radius: Theme.buttonRadius
                             border.width: stringModel.filterMode === modelData.mode ? 0 : 1
                             border.color: Theme.borderColor
@@ -378,7 +378,7 @@ Page {
             anchors.top: headerSection.bottom
             anchors.topMargin: Theme.spacingSmall
             height: Theme.scaled(28)
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.scaled(4)
             visible: !isEditing
 
@@ -499,7 +499,7 @@ Page {
                 width: stringListView.width
                 // Calculate height based on tallest column content
                 height: Math.max(Theme.scaled(48), rowHeight + Theme.scaled(16))
-                color: index % 2 === 0 ? Theme.surfaceColor : Qt.darker(Theme.surfaceColor, 1.05)
+                color: index % 2 === 0 ? Theme.cardBackgroundColor : Qt.darker(Theme.cardBackgroundColor, 1.05)
                 radius: Theme.scaled(4)
 
                 // Functions at delegate level where singletons are accessible
@@ -828,7 +828,7 @@ Page {
             anchors.centerIn: parent
             width: Theme.scaled(340)
             height: progressContent.height + Theme.scaled(48)
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.width: 2
             border.color: Theme.primaryContrastColor

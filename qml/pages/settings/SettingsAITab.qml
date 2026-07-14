@@ -50,7 +50,7 @@ KeyboardAwareContainer {
     Rectangle {
         objectName: "aiProvider"
         anchors.fill: parent
-        color: Theme.surfaceColor
+        color: Theme.cardBackgroundColor
         radius: Theme.cardRadius
 
         Flickable {
@@ -112,7 +112,13 @@ KeyboardAwareContainer {
                                 color: {
                                     if (isSelected) return Theme.primaryColor
                                     if (hasKey) return Qt.rgba(0.2, 0.7, 0.3, 0.25)
-                                    return Theme.backgroundColor
+                                    // Unconfigured state is meant to blend into the page
+                                    // backdrop. With a flat Theme.backgroundColor page that
+                                    // meant matching it exactly; with a background image
+                                    // active there's no flat color to match, so scrim
+                                    // instead — same tinted-glass look as the "hasKey"
+                                    // branch above, at Theme's shared scrim alpha.
+                                    return Theme.insetBackgroundColor
                                 }
                                 border.color: {
                                     if (isSelected) return Theme.primaryColor

@@ -8,7 +8,7 @@ import "../components"
 Page {
     id: profileImportPage
     objectName: "profileImportPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     readonly property bool isIOS: Qt.platform.os === "ios"
     property url customScanPath: ""
@@ -42,7 +42,7 @@ Page {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             visible: profileImportPage.isIOS
 
@@ -87,7 +87,7 @@ Page {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(80)
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             visible: !profileImportPage.isIOS
 
@@ -193,7 +193,7 @@ Page {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             visible: !profileImportPage.isIOS
 

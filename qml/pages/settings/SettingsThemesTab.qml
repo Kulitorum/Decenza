@@ -146,7 +146,7 @@ KeyboardAwareContainer {
                 Layout.fillWidth: true
                 Layout.maximumWidth: Math.max(0, themesTab.width * 0.4)
                 Layout.fillHeight: true
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
@@ -216,7 +216,7 @@ KeyboardAwareContainer {
                 objectName: "saveTheme"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 clip: true
 

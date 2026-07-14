@@ -1,5 +1,6 @@
 #include "screensavervideomanager.h"
 #include "core/settings.h"
+#include "core/settings_theme.h"
 #include "core/profilestorage.h"
 
 #include <QStandardPaths>
@@ -10,6 +11,7 @@
 #include <QDebug>
 #include <QRandomGenerator>
 #include <QFileInfo>
+#include <QSet>
 #include <utility>
 
 #ifdef Q_OS_ANDROID
@@ -1093,6 +1095,11 @@ void ScreensaverVideoManager::clearCache()
     // Delete all cached files
     for (const CachedVideo& cv : std::as_const(m_cacheIndex)) {
         QFile::remove(cv.localPath);
+        // See deletePersonalMedia() for why this check matters — a cached
+        // catalog image can be the active custom background too.
+        if (m_settings->theme()->backgroundImagePath() == cv.localPath) {
+            m_settings->theme()->setBackgroundImagePath("");
+        }
     }
 
     m_cacheIndex.clear();
@@ -1940,13 +1947,63 @@ QVariantList ScreensaverVideoManager::getPersonalMediaList() const
     QString personalDir = m_cacheDir + "/personal";
 
     for (const VideoItem& item : std::as_const(m_personalCatalog)) {
+        QString filePath = personalDir + "/" + item.path;
+        // Skip catalog entries whose backing file is gone (matches
+        // getCachedCatalogImages()'s filter below) — an unfiltered entry here
+        // renders as a permanently blank, indistinguishable tile in the
+        // background picker grid.
+        if (!QFile::exists(filePath)) {
+            continue;
+        }
+
         QVariantMap map;
         map["id"] = item.id;
         map["type"] = item.isImage() ? "image" : "video";
         map["filename"] = item.path;
-        map["path"] = personalDir + "/" + item.path;
+        map["path"] = filePath;
         map["bytes"] = item.bytes;
         map["author"] = item.author;
+        list.append(map);
+    }
+    return list;
+}
+
+QVariantList ScreensaverVideoManager::getCachedCatalogImages() const
+{
+    QVariantList list;
+
+    // Iterate m_cacheIndex directly rather than m_catalog: m_catalog only
+    // holds the *currently selected* category's manifest (replaced wholesale
+    // on category switch — see setSelectedCategoryId()), but m_cacheIndex
+    // accumulates every downloaded file across every category ever visited,
+    // and survives category switches. Filtering on m_catalog meant images
+    // cached under a previously-selected category silently disappeared from
+    // the picker the moment the user switched categories, even though the
+    // files were still on disk. getCachePath() only ever writes catalog
+    // images with these three extensions, so extension is a reliable
+    // image/video discriminator here without needing the original VideoItem
+    // (author is left blank — not otherwise available once the owning
+    // category's catalog has been replaced).
+    static const QSet<QString> kImageExtensions = {"jpg", "jpeg", "png"};
+
+    for (auto it = m_cacheIndex.constBegin(); it != m_cacheIndex.constEnd(); ++it) {
+        const CachedVideo& cv = it.value();
+        if (!QFile::exists(cv.localPath)) {
+            continue;
+        }
+
+        QString ext = QFileInfo(cv.localPath).suffix().toLower();
+        if (!kImageExtensions.contains(ext)) {
+            continue;
+        }
+
+        QVariantMap map;
+        map["id"] = cv.catalogId;
+        map["type"] = "image";
+        map["filename"] = QFileInfo(cv.localPath).fileName();
+        map["path"] = cv.localPath;
+        map["bytes"] = cv.bytes;
+        map["author"] = QString();
         list.append(map);
     }
     return list;
@@ -1964,6 +2021,17 @@ bool ScreensaverVideoManager::deletePersonalMedia(int mediaId)
             // Delete file
             if (QFile::exists(filePath)) {
                 QFile::remove(filePath);
+            }
+
+            // If this was the active custom background, clear the setting rather
+            // than leaving it pointing at a deleted file — ThemedPageBackground
+            // falls back to the flat color fine on its own, but every other
+            // consumer (card/bar/text scrims) only checks whether the path
+            // string is non-empty, not whether it still resolves. Left stale,
+            // the whole app would stay in "background active" translucent mode
+            // over nothing.
+            if (m_settings->theme()->backgroundImagePath() == filePath) {
+                m_settings->theme()->setBackgroundImagePath("");
             }
 
             // Remove from catalog
@@ -1988,6 +2056,10 @@ void ScreensaverVideoManager::clearPersonalMedia()
         QString filePath = personalDir + "/" + item.path;
         if (QFile::exists(filePath)) {
             QFile::remove(filePath);
+        }
+        // See deletePersonalMedia() above for why this check matters.
+        if (m_settings->theme()->backgroundImagePath() == filePath) {
+            m_settings->theme()->setBackgroundImagePath("");
         }
         freedBytes += item.bytes;
     }

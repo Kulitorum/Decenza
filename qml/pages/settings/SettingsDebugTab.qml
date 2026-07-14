@@ -24,7 +24,7 @@ Item {
                 id: resolutionSection
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(120)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 visible: Qt.platform.os === "windows"
 
@@ -119,7 +119,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: simTogglesContent.implicitHeight + Theme.scaled(30)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
@@ -206,7 +206,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: profileConverterContent.implicitHeight + Theme.scaled(30)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
@@ -393,7 +393,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(160)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
@@ -540,7 +540,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(180)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {

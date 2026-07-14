@@ -16,6 +16,10 @@ Item {
     enabled: (DE1Device.simulationMode || DE1Device.isHeadless) && MachineState.isReady
     opacity: ((DE1Device.simulationMode || DE1Device.isHeadless) && MachineState.isReady) ? 1.0 : 0.4
 
+    function _effectiveColor(baseColor) {
+        return Settings.theme.backgroundImagePath.length > 0 ? Theme.scrimColor(baseColor) : baseColor
+    }
+
     implicitWidth: isCompact ? compactContent.implicitWidth : fullContent.implicitWidth
     implicitHeight: isCompact ? compactContent.implicitHeight : fullContent.implicitHeight
 
@@ -46,7 +50,7 @@ Item {
                     width: Theme.scaled(32)
                     height: Theme.scaled(32)
                     radius: Theme.scaled(6)
-                    color: compactArea.isPressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
+                    color: compactArea.isPressed ? Qt.darker(root._effectiveColor(Theme.primaryColor), 1.2) : root._effectiveColor(Theme.primaryColor)
                     Accessible.ignored: true
 
                     Image {
@@ -84,7 +88,7 @@ Item {
 
         Rectangle {
             anchors.fill: parent
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.borderColor
             border.width: 1
@@ -149,7 +153,10 @@ Item {
                     return TranslationManager.translate(translationKey, translationFallback)
                 }
 
-                color: btnArea.isPressed ? Qt.darker(buttonColor, 1.2) : buttonColor
+                readonly property color _effectiveButtonColor:
+                    Settings.theme.backgroundImagePath.length > 0 ? Theme.scrimColor(buttonColor) : buttonColor
+
+                color: btnArea.isPressed ? Qt.darker(_effectiveButtonColor, 1.2) : _effectiveButtonColor
                 Accessible.ignored: true
                 clip: true
 

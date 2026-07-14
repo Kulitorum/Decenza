@@ -300,6 +300,14 @@ public slots:
     bool deletePersonalMedia(int mediaId);
     void clearPersonalMedia();
 
+    // Read-only: catalog (stock) images that are already downloaded to disk.
+    // Does NOT trigger any download — coverage grows over time as
+    // startBackgroundDownload()'s rate-limited queue progresses. Same item
+    // shape as getPersonalMediaList() ({id, type, filename, path, bytes,
+    // author}) so callers (e.g. the background-image picker) can merge both
+    // lists uniformly. Videos are never included.
+    QVariantList getCachedCatalogImages() const;
+
 signals:
     void enabledChanged();
     void catalogUrlChanged();

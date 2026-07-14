@@ -7,7 +7,7 @@ import "../components"
 Page {
     id: shotHistoryPage
     objectName: "shotHistoryPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     // Tap outside to dismiss keyboard
     MouseArea {
@@ -628,7 +628,7 @@ Page {
                 width: shotListView.width
                 height: Math.max(Theme.scaled(90), shotContentRow.implicitHeight + Theme.spacingMedium * 2)
                 radius: Theme.cardRadius
-                color: isSelected(model.id) ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
+                color: isSelected(model.id) ? Qt.darker(Theme.cardBackgroundColor, 1.2) : Theme.cardBackgroundColor
                 border.color: isSelected(model.id) ? Theme.primaryColor : "transparent"
                 border.width: isSelected(model.id) ? 2 : 0
 

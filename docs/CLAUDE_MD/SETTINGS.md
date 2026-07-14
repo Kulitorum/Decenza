@@ -145,6 +145,12 @@ Each sub-object's `mutable QSettings m_settings("DecentEspresso", "DE1Qt")` open
 
 Do **not** rename keys when moving a property between domains — that silently loses every user's saved value.
 
+## `SettingsTheme.backgroundImagePath`
+
+Optional custom background image, applied app-wide (every page, both light and dark mode — coverage started at 8 pages and expanded to universal, see design.md Decision 6a). Empty = today's flat `Theme.backgroundColor`. Sourced entirely from the screensaver media library (`ScreensaverVideoManager`/`ScreensaverManager`): personal (web-uploaded) images always show up, but stock/catalog images only appear once they've been downloaded to disk by the existing rate-limited background download (`startBackgroundDownload()`), across every category ever selected — `getCachedCatalogImages()` reads `m_cacheIndex` directly rather than the currently-selected category's `m_catalog`, since the catalog list is replaced wholesale on every category switch but the on-disk cache index isn't. `ScreensaverVideoManager::getCachedCatalogImages()` deliberately does **not** force a download — a sparse `BackgroundPickerDialog` grid right after install or a fresh category is expected behavior, not a bug; it fills in over time.
+
+The shared chrome (`StatusBar.qml`, `BottomBar.qml`, `IdlePage`'s own bottom nav bar, and every page-level card via `Theme.cardBackgroundColor`/`Theme.insetBackgroundColor`) automatically goes semi-transparent when a background image is active — each reads `Settings.theme.backgroundImagePath.length > 0` directly rather than through a shared intermediary property. No separate setting for this; see `openspec/changes/add-custom-background/design.md` Decision 6/6a. `ScreensaverVideoManager::deletePersonalMedia()`/`clearPersonalMedia()`/`clearCache()` clear `backgroundImagePath` if it points at the file being deleted, since none of these ~70 call sites are aware of whether the image actually loaded — only `ThemedPageBackground.qml` checks `Image.status` — so a stale path left in place would leave every card/bar stuck in translucent "background active" mode over nothing.
+
 ## When in doubt
 
 The `openspec/changes/split-headers-by-domain/` folder has the proposal, design notes, and tasks list documenting why the architecture looks the way it does and what's still pending.

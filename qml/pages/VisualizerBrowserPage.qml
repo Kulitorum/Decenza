@@ -7,7 +7,7 @@ import "../components"
 Page {
     id: visualizerPage
     objectName: "visualizerBrowserPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     // Translatable strings for page title
     Tr { id: trPageTitle; key: "visualizer.title"; fallback: "Import from Visualizer"; visible: false }
@@ -81,7 +81,7 @@ Page {
             Layout.fillWidth: true
             Layout.preferredHeight: visible ? Theme.scaled(40) : 0
             visible: false
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
 
             property string statusMessage: ""
             property color statusColor: Theme.textColor
@@ -210,7 +210,7 @@ Page {
                     Rectangle {
                         width: parent.width
                         height: instructionsColumn.height + Theme.scaled(20)
-                        color: Theme.surfaceColor
+                        color: Theme.cardBackgroundColor
                         radius: Theme.scaled(8)
 
                         Column {

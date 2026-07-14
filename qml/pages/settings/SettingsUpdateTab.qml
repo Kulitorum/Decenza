@@ -25,7 +25,7 @@ Item {
             objectName: "checkUpdates"
             Layout.preferredWidth: Theme.scaled(280)
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
             ColumnLayout {
@@ -44,7 +44,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     height: Theme.scaled(65)
-                    color: Theme.backgroundColor
+                    color: Theme.insetBackgroundColor
                     radius: Theme.scaled(8)
 
                     // Centered within the region left of the Manual button
@@ -272,7 +272,7 @@ Item {
                 objectName: "firmwareUpdate"
                 Layout.fillWidth: true
                 Layout.preferredHeight: firmwareCardContent.implicitHeight + Theme.scaled(16)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
@@ -378,7 +378,7 @@ Item {
             objectName: "releaseNotes"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
             ColumnLayout {
@@ -449,7 +449,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: statusColumn.height + Theme.scaled(12)
-                    color: Theme.backgroundColor
+                    color: Theme.insetBackgroundColor
                     radius: Theme.scaled(8)
 
                     ColumnLayout {
@@ -592,7 +592,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    color: Theme.backgroundColor
+                    color: Theme.insetBackgroundColor
                     radius: Theme.scaled(8)
                     visible: MainController.updateChecker.releaseNotes !== ""
 

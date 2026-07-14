@@ -160,7 +160,7 @@ Item {
         id: valueDisplay
         anchors.fill: parent
         radius: sc(8)
-        color: Theme.surfaceColor
+        color: Theme.cardBackgroundColor
         border.width: 1
         border.color: Theme.textSecondaryColor
 

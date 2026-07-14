@@ -21,7 +21,7 @@ Item {
     property alias textField: textInput  // Expose internal text input for KeyboardAwareContainer registration
     // Field fill — forwarded to the text input; raise to Theme.surfaceColor to
     // match a ValueInput sitting beside it (e.g. the shot-review dial-in row).
-    property color fieldColor: Theme.backgroundColor
+    property color fieldColor: Theme.insetBackgroundColor
 
     signal textEdited(string text)
     signal suggestionSelected(string text)  // Emitted when user picks from dropdown (not on keystroke)

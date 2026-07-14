@@ -12,7 +12,7 @@ Page {
     // Exposed so the global Brew Settings dialog (main.qml) can source the live
     // empty-scale virtual zero while this is the current page.
     readonly property real scaleVirtualZero: beanCapture.virtualZero
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     // True when the app is allowed to start machine operations on-screen.
     // The hardware Group Head Controller (GHC), when present and active, takes
@@ -1157,7 +1157,12 @@ Page {
         anchors.bottom: parent.bottom
         // Auto-grow to fit large item-size; standard bar height otherwise.
         height: Math.max(Theme.bottomBarHeight, blZone.implicitHeight, brZone.implicitHeight)
-        color: Theme.bottomBarColor
+        // Semi-transparent scrim (keeping the bar's own hue) when a custom
+        // background image is active, so the image extends behind the bar
+        // instead of stopping at its edge — mirrors StatusBar.qml.
+        color: Settings.theme.backgroundImagePath.length > 0
+               ? Theme.scrimColor(Theme.bottomBarColor)
+               : Theme.bottomBarColor
 
         RowLayout {
             anchors.fill: parent

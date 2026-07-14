@@ -7,7 +7,7 @@ import "../components"
 Page {
     id: multiImportPage
     objectName: "visualizerMultiImportPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("visualizerImport.pageTitle", "Import Shared Profiles")
@@ -111,7 +111,7 @@ Page {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: instructionsCol.height + Theme.scaled(30)
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.scaled(8)
             visible: MainController.visualizerImporter.sharedShots.length === 0 &&
                      !MainController.visualizerImporter.fetching
@@ -329,7 +329,7 @@ Page {
                 Rectangle {
                     Layout.preferredWidth: parent.width * 0.45
                     Layout.fillHeight: true
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.scaled(8)
 
                     Column {
@@ -546,7 +546,7 @@ Page {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.scaled(8)
 
                     Accessible.role: Accessible.Button
@@ -836,7 +836,7 @@ Page {
         anchors.top: parent.top
         anchors.topMargin: Theme.pageTopMargin
         height: visible ? Theme.scaled(60) : 0
-        color: Theme.surfaceColor
+        color: Theme.cardBackgroundColor
         visible: showRenameDialog
         z: 100
 

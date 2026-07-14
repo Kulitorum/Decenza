@@ -52,7 +52,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(110)
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.borderColor
             border.width: 1
@@ -137,7 +137,7 @@ Item {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(70)
             visible: fw && fw.updateAvailable && fw.isDowngrade
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.warningColor
             border.width: 1
@@ -184,7 +184,7 @@ Item {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(50)
             visible: fw && fw.isSimulated
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.textSecondaryColor
             border.width: 1
@@ -213,7 +213,7 @@ Item {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(110)
             visible: firmwareTab.isFlashing
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.accentColor
             border.width: 1
@@ -260,7 +260,7 @@ Item {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(80)
             visible: fw && fw.state === firmwareTab.stateFailed
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.errorColor
             border.width: 1
@@ -308,7 +308,7 @@ Item {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(60)
             visible: fw && fw.state === firmwareTab.stateSucceeded
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.accentColor
             border.width: 1
@@ -332,7 +332,7 @@ Item {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.scaled(80)
             visible: fw && fw.state === firmwareTab.stateAwaitingReboot
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             border.color: Theme.warningColor
             border.width: 1

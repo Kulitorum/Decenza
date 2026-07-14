@@ -13,7 +13,7 @@ import "../components"
 Page {
     id: recipeEditorPage
     objectName: "recipeEditorPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     property var profile: null
     property var recipe: ProfileManager.getOrConvertRecipeParams()
@@ -245,7 +245,7 @@ Page {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumHeight: Theme.scaled(120)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ProfileGraph {
@@ -285,7 +285,7 @@ Page {
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(320)
                 Layout.fillHeight: true
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ScrollView {

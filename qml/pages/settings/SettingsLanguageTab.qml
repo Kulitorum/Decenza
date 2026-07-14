@@ -39,7 +39,7 @@ Item {
             Layout.preferredWidth: Theme.scaled(300)
             Layout.maximumWidth: Theme.scaled(350)
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
             ColumnLayout {
@@ -205,7 +205,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: progressColumn.height + Theme.scaled(16)
-                    color: Theme.backgroundColor
+                    color: Theme.insetBackgroundColor
                     radius: Theme.buttonRadius
                     visible: TranslationManager.currentLanguage !== "en"
 
@@ -289,7 +289,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: englishInfoText.implicitHeight + Theme.scaled(16)
-                    color: Theme.backgroundColor
+                    color: Theme.insetBackgroundColor
                     radius: Theme.buttonRadius
                     visible: TranslationManager.currentLanguage === "en"
 
@@ -343,7 +343,7 @@ Item {
             objectName: "accessibility"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
             ColumnLayout {

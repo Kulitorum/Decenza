@@ -12,7 +12,7 @@ import "../components"
 Page {
     id: bagInventoryPage
     objectName: "bagInventoryPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     StackView.onActivated: root.currentPageTitle = TranslationManager.translate("beaninfo.title", "Beans")
 

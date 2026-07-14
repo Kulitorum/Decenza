@@ -17,9 +17,15 @@ Rectangle {
     property var zoneOpts: (_layout.zoneOptions && _layout.zoneOptions.statusBar) || ({})
 
     // Default keeps the surface background; a non-standard style overrides it.
-    color: (zoneOpts.style && zoneOpts.style !== "standard")
+    // When a custom background image is active, go semi-transparent (keeping
+    // the bar's own hue as a scrim) so the image extends behind the bar
+    // instead of stopping at its edge.
+    readonly property color _opaqueColor: (zoneOpts.style && zoneOpts.style !== "standard")
            ? Theme.zoneBackgroundColor(zoneOpts.style)
            : Theme.surfaceColor
+    color: Settings.theme.backgroundImagePath.length > 0
+           ? Theme.scrimColor(_opaqueColor)
+           : _opaqueColor
 
     LayoutBarZone {
         anchors.fill: parent

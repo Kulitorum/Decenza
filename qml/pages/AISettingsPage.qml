@@ -7,7 +7,7 @@ import "../components"
 Page {
     id: aiSettingsPage
     objectName: "aiSettingsPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     Component.onCompleted: root.currentPageTitle = TranslationManager.translate("aisettings.title", "AI Dialing Assistant")
     StackView.onActivated: root.currentPageTitle = TranslationManager.translate("aisettings.title", "AI Dialing Assistant")
@@ -64,7 +64,7 @@ Page {
                         Layout.maximumWidth: Theme.scaled(500)
                         height: Theme.scaled(70)
                         radius: Theme.buttonRadius
-                        color: Settings.ai.aiProvider === modelData.id ? Theme.primaryColor : Theme.surfaceColor
+                        color: Settings.ai.aiProvider === modelData.id ? Theme.primaryColor : Theme.cardBackgroundColor
                         border.color: Settings.ai.aiProvider === modelData.id ? Theme.primaryColor : Theme.borderColor
                         border.width: 1
 
@@ -295,7 +295,7 @@ Page {
                     Layout.fillWidth: true
                     height: costColumn.height + Theme.spacingMedium * 2
                     radius: Theme.buttonRadius
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
 
                     ColumnLayout {
                         id: costColumn

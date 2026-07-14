@@ -25,7 +25,7 @@ import "../components"
 Page {
     id: wizardPage
     objectName: "recipeWizardPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     // "create" | "edit". Edit loads the row; create starts from `prefill`
     // (possibly empty) or `promoteShotId`. Same contract as the old composer.
@@ -1328,7 +1328,7 @@ Page {
             Layout.fillWidth: true
             implicitHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             border.color: Theme.borderColor
             border.width: 1
             RowLayout {
@@ -1398,7 +1398,7 @@ Page {
         Layout.alignment: Qt.AlignTop
         implicitHeight: cardColumn.implicitHeight + 2 * Theme.spacingMedium
         radius: Theme.cardRadius
-        color: Theme.surfaceColor
+        color: Theme.cardBackgroundColor
         border.color: Theme.borderColor
         border.width: 1
         ColumnLayout {
@@ -1470,7 +1470,7 @@ Page {
         Layout.alignment: Qt.AlignTop
         implicitHeight: summaryRowColumn.implicitHeight + 2 * Theme.spacingMedium
         radius: Theme.cardRadius
-        color: Theme.surfaceColor
+        color: Theme.cardBackgroundColor
         border.color: Theme.borderColor
         border.width: 1
         ColumnLayout {
@@ -1550,7 +1550,7 @@ Page {
                     delegate: Rectangle {
                         visible: modelData.value !== "" && wizardPage.currentStep !== modelData.step
                         radius: height / 2
-                        color: Theme.surfaceColor
+                        color: Theme.cardBackgroundColor
                         border.color: Theme.borderColor
                         border.width: 1
                         implicitHeight: Theme.scaled(34)
@@ -1598,7 +1598,7 @@ Page {
                             model: ["espresso", "latte", "filter", "americano", "long_black", "tea"]
                             delegate: Rectangle {
                                 radius: Theme.cardRadius
-                                color: Theme.surfaceColor
+                                color: Theme.cardBackgroundColor
                                 border.color: wizardPage.fDrinkType === modelData
                                     ? Theme.primaryColor : Theme.borderColor
                                 border.width: wizardPage.fDrinkType === modelData ? 2 : 1
@@ -1723,7 +1723,7 @@ Page {
                                     width: Theme.scaled(170)
                                     height: Theme.scaled(190)
                                     radius: Theme.cardRadius
-                                    color: isGhost ? "transparent" : Theme.surfaceColor
+                                    color: isGhost ? "transparent" : Theme.cardBackgroundColor
                                     border.color: isSelected ? Theme.primaryColor : "transparent"
                                     border.width: isSelected ? 2 : 0
 
@@ -1927,7 +1927,7 @@ Page {
                                             width: profileGrid.tileWidth
                                             height: Theme.scaled(124)
                                             radius: Theme.cardRadius
-                                            color: Theme.surfaceColor
+                                            color: Theme.cardBackgroundColor
                                             border.color: wizardPage.fProfileTitle === row.title
                                                 ? Theme.primaryColor : Theme.borderColor
                                             border.width: wizardPage.fProfileTitle === row.title ? 2 : 1

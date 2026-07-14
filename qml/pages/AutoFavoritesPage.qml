@@ -8,7 +8,7 @@ import "../components"
 Page {
     id: autoFavoritesPage
     objectName: "autoFavoritesPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     property bool _waitingForShotLoad: false
 
@@ -150,7 +150,7 @@ Page {
                 width: Theme.scaled(36)
                 height: Theme.scaled(36)
                 radius: Theme.scaled(18)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 Accessible.ignored: true
 
                 Image {
@@ -191,7 +191,7 @@ Page {
                 width: favoritesListView.width
                 height: contentColumn.implicitHeight + Theme.spacingMedium * 2
                 radius: Theme.cardRadius
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 Accessible.ignored: true
 
                 property string _beanText: {

@@ -7,6 +7,8 @@ Qt/C++ cross-platform controller for the Decent Espresso DE1 machine with BLE co
 
 The end-user manual lives in the GitHub wiki at https://github.com/Kulitorum/Decenza/wiki/Manual. Consult it when working on user-visible behaviour to confirm documented expectations or the official wording for features. The wiki is a separate git repo (`Kulitorum/Decenza.wiki.git`) — clone it locally if you need to edit a manual page.
 
+**When adding or changing a user-visible feature, update the wiki manual as part of that work** — add a task for it in the change's `tasks.md` (or do it directly for small fixes). Don't leave it as an afterthought; a shipped feature with no manual entry is incomplete.
+
 ## Reference Documents
 
 Detailed documentation lives in `docs/CLAUDE_MD/`. Read these when working in the relevant domain:

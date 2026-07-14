@@ -7,7 +7,7 @@ import "../components"
 Page {
     id: profileInfoPage
     objectName: "profileInfoPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     // Profile to display
     property string profileFilename: ""
@@ -77,7 +77,7 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(220)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ProfileGraph {
@@ -103,7 +103,7 @@ Page {
             // Settings Section
             Rectangle {
                 Layout.fillWidth: true
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 implicitHeight: settingsColumn.height + Theme.scaled(24)
 
@@ -246,7 +246,7 @@ Page {
             // Profile Notes Section
             Rectangle {
                 Layout.fillWidth: true
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 implicitHeight: notesColumn.height + Theme.scaled(24)
 

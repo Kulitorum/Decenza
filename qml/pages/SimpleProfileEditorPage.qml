@@ -15,7 +15,7 @@ import "../components"
 Page {
     id: editorPage
     objectName: isFlow ? "flowEditorPage" : "pressureEditorPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     required property string profileType
     readonly property bool isFlow: profileType === "flow"
@@ -243,7 +243,7 @@ Page {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumHeight: Theme.scaled(120)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ProfileGraph {
@@ -282,7 +282,7 @@ Page {
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(320)
                 Layout.fillHeight: true
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ScrollView {

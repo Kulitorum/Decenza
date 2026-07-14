@@ -6,7 +6,7 @@ import "../components"
 
 Page {
     objectName: "hotWaterPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     // Use StackView.onActivated (not Component.onCompleted) so side effects
     // run when the page is actually shown, not during construction. This
@@ -121,7 +121,7 @@ Page {
                         width: liveVesselText.implicitWidth + 24
                         height: Theme.scaled(36)
                         radius: Theme.scaled(18)
-                        color: index === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.surfaceColor
+                        color: index === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.cardBackgroundColor
                         border.color: index === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
 
@@ -337,7 +337,7 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(90)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 RowLayout {
@@ -376,7 +376,7 @@ Page {
                                     width: vesselText.implicitWidth + 24
                                     height: Theme.scaled(36)
                                     radius: Theme.scaled(18)
-                                    color: vesselDelegate.vesselIndex === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.backgroundColor
+                                    color: vesselDelegate.vesselIndex === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.insetBackgroundColor
                                     border.color: vesselDelegate.vesselIndex === Settings.brew.selectedWaterVessel ? Theme.primaryColor : Theme.textSecondaryColor
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
@@ -562,7 +562,7 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
@@ -584,7 +584,7 @@ Page {
                                 width: weightModeText.implicitWidth + Theme.scaled(20)
                                 height: Theme.scaled(36)
                                 radius: Theme.scaled(18)
-                                color: !isVolumeMode ? Theme.primaryColor : Theme.backgroundColor
+                                color: !isVolumeMode ? Theme.primaryColor : Theme.insetBackgroundColor
                                 border.color: !isVolumeMode ? Theme.primaryColor : Theme.textSecondaryColor
                                 border.width: 1
 
@@ -624,7 +624,7 @@ Page {
                                 width: volumeModeText.implicitWidth + Theme.scaled(20)
                                 height: Theme.scaled(36)
                                 radius: Theme.scaled(18)
-                                color: isVolumeMode ? Theme.primaryColor : Theme.backgroundColor
+                                color: isVolumeMode ? Theme.primaryColor : Theme.insetBackgroundColor
                                 border.color: isVolumeMode ? Theme.primaryColor : Theme.textSecondaryColor
                                 border.width: 1
 

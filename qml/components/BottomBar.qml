@@ -20,7 +20,19 @@ Rectangle {
     anchors.right: parent.right
     anchors.bottom: parent.bottom
     height: Theme.bottomBarHeight
-    color: barColor
+    // Semi-transparent scrim (keeping the bar's own hue) when a custom
+    // background image is active, so the image extends behind the bar
+    // instead of stopping at its edge — mirrors StatusBar.qml and IdlePage's
+    // own bottom nav bar. Deliberately checks Settings.theme directly rather
+    // than reaching for main.qml's `root` — this Rectangle's own `id: root`
+    // (above) shadows the outer one within this document, so `root.anything`
+    // here resolves to this component, not main.qml's ApplicationWindow; an
+    // earlier version of this binding referenced a nonexistent property on
+    // itself that way and silently never scrimmed on any of the ~25 pages
+    // using this component.
+    color: Settings.theme.backgroundImagePath.length > 0
+           ? Theme.scrimColor(barColor)
+           : barColor
 
     // Top border for separation
     Rectangle {

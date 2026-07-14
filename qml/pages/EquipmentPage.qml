@@ -11,7 +11,7 @@ import "../components"
 Page {
     id: equipmentPage
     objectName: "equipmentPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     StackView.onActivated: root.currentPageTitle = TranslationManager.translate("equipment.title", "Equipment")
 
