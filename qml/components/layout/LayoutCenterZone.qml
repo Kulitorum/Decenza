@@ -8,6 +8,10 @@ Item {
     required property string zoneName
     required property var items
     property real zoneScale: 1.0
+    // Horizontal alignment of the row within the zone: "center" (default) | "left" | "right".
+    // Honors the same per-zone "alignment" option the bar zones use (Settings.network zone options),
+    // implemented via the auto-centering spacers below. Default "center" = unchanged behavior.
+    property string alignment: "center"
 
     // Items that size to their content instead of using fixed button width
     // Action buttons (espresso, steam, etc.) use fixed buttonWidth; readouts auto-size
@@ -68,8 +72,9 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         spacing: root.scaledSpacing
 
-        // Auto-centering spacer (hides when user has their own spacers)
-        Item { Layout.fillWidth: true; visible: !root.hasSpacer }
+        // Leading auto-spacer: present for center + right alignment (absent for left → row hugs the left).
+        // Hides when the user has their own spacers (they position manually).
+        Item { Layout.fillWidth: true; visible: !root.hasSpacer && (root.alignment === "center" || root.alignment === "right") }
 
         Repeater {
             model: root.items
@@ -105,7 +110,7 @@ Item {
             }
         }
 
-        // Auto-centering spacer (hides when user has their own spacers)
-        Item { Layout.fillWidth: true; visible: !root.hasSpacer }
+        // Trailing auto-spacer: present for center + left alignment (absent for right → row hugs the right).
+        Item { Layout.fillWidth: true; visible: !root.hasSpacer && (root.alignment === "center" || root.alignment === "left") }
     }
 }

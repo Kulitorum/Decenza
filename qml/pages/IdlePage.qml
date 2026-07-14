@@ -97,6 +97,15 @@ Page {
     // Center zone scales (user-configurable sizing)
     property real centerStatusScale: layoutConfig.scales ? (layoutConfig.scales.centerStatus || 1.0) : 1.0
     property real centerTopScale: layoutConfig.scales ? (layoutConfig.scales.centerTop || 1.0) : 1.0
+    // Center-zone horizontal alignment (per-zone "alignment" option; "center" default). Each center zone
+    // honors the same alignment option the bar zones do, so its row can be left / center / right justified
+    // (e.g. right-justify the action buttons against a right-side panel).
+    property string centerStatusAlignment: (layoutConfig.zoneOptions && layoutConfig.zoneOptions.centerStatus)
+                                        ? (layoutConfig.zoneOptions.centerStatus.alignment || "center") : "center"
+    property string centerTopAlignment: (layoutConfig.zoneOptions && layoutConfig.zoneOptions.centerTop)
+                                        ? (layoutConfig.zoneOptions.centerTop.alignment || "center") : "center"
+    property string centerMiddleAlignment: (layoutConfig.zoneOptions && layoutConfig.zoneOptions.centerMiddle)
+                                        ? (layoutConfig.zoneOptions.centerMiddle.alignment || "center") : "center"
     property real centerMiddleScale: layoutConfig.scales ? (layoutConfig.scales.centerMiddle || 1.0) : 1.0
 
     // Per-zone item size ("compact" | "large"); bars grow to fit large items.
@@ -595,6 +604,7 @@ Page {
             items: idlePage.centerStatusItems
             visible: idlePage.centerStatusItems.length > 0
             zoneScale: idlePage.centerStatusScale
+            alignment: idlePage.centerStatusAlignment
         }
 
         // Main action buttons from centerTop zone
@@ -605,6 +615,7 @@ Page {
             zoneName: "centerTop"
             items: idlePage.centerTopItems
             zoneScale: idlePage.centerTopScale
+            alignment: idlePage.centerTopAlignment
         }
 
         // Inline preset rows (for center-zone action buttons)
@@ -1097,6 +1108,7 @@ Page {
             zoneName: "centerMiddle"
             items: idlePage.centerMiddleItems
             zoneScale: idlePage.centerMiddleScale
+            alignment: idlePage.centerMiddleAlignment
         }
     }
 
