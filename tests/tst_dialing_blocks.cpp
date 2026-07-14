@@ -71,6 +71,13 @@ struct ShotRow {
     // #1161: why the shot ended → shots.stopped_by. "" by default so
     // existing fixtures are unaffected (sparse-omitted from the blocks).
     QString stoppedBy;
+    // Bean storage lifecycle snapshot (bean-freshness-followup) → shots
+    // frozen_date/defrost_date/storage_hint/opened_date. "" by default so
+    // existing fixtures are unaffected (sparse-omitted from the blocks).
+    QString frozenDate;
+    QString defrostDate;
+    QString storageHint;
+    QString openedDate;
 };
 
 // Run work with a scoped raw SQLite connection on `path`. Same pattern
@@ -115,14 +122,16 @@ qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
             bean_brand, bean_type, roast_level,
             grinder_setting, equipment_id,
             enjoyment, espresso_notes, profile_kb_id,
-            profile_json, yield_override, temperature_override, stopped_by
+            profile_json, yield_override, temperature_override, stopped_by,
+            frozen_date, defrost_date, storage_hint, opened_date
         ) VALUES (
             :uuid, :timestamp, :profile_name, :beverage_type,
             :duration, :final_weight, :dose_weight,
             :bean_brand, :bean_type, :roast_level,
             :grinder_setting, :equipment_id,
             :enjoyment, :espresso_notes, :profile_kb_id,
-            :profile_json, :yield_override, :temperature_override, :stopped_by
+            :profile_json, :yield_override, :temperature_override, :stopped_by,
+            :frozen_date, :defrost_date, :storage_hint, :opened_date
         )
     )"));
     q.bindValue(":uuid", r.uuid);
@@ -144,6 +153,10 @@ qint64 insertShot(QSqlDatabase& db, const ShotRow& r)
     q.bindValue(":yield_override", r.targetWeight);
     q.bindValue(":temperature_override", r.temperatureOverride);
     q.bindValue(":stopped_by", r.stoppedBy);
+    q.bindValue(":frozen_date", r.frozenDate.isEmpty() ? QVariant() : r.frozenDate);
+    q.bindValue(":defrost_date", r.defrostDate.isEmpty() ? QVariant() : r.defrostDate);
+    q.bindValue(":storage_hint", r.storageHint.isEmpty() ? QVariant() : r.storageHint);
+    q.bindValue(":opened_date", r.openedDate.isEmpty() ? QVariant() : r.openedDate);
     if (!q.exec ()) {
         qWarning() << "insertShot failed:" << q.lastError().text();
         return -1;
@@ -291,6 +304,26 @@ private slots:
         QCOMPARE(fresh[QStringLiteral("freshnessKnown")].toBool(), true);
         QCOMPARE(fresh[QStringLiteral("frozenDate")].toString(), QStringLiteral("2026-04-16"));
         QCOMPARE(fresh[QStringLiteral("defrostDate")].toString(), QStringLiteral("2026-06-20"));
+    }
+
+    // bean-freshness-followup: the non-frozen storage lifecycle (storageHint +
+    // openedDate) flows through the same mapper for a never-frozen bag.
+    void beanInputsFromProjection_carriesNonFrozenStorage()
+    {
+        ShotProjection sd;
+        sd.beanBrand = QStringLiteral("Sey");
+        sd.roastDate = QStringLiteral("2026-06-01");
+        sd.storageHint = QStringLiteral("airtight");
+        sd.openedDate = QStringLiteral("2026-06-25");
+
+        const QJsonObject bean = DialingBlocks::buildCurrentBeanBlock(
+            DialingBlocks::beanInputsFromProjection(sd));
+        const QJsonObject fresh = bean[QStringLiteral("beanFreshness")].toObject();
+        QCOMPARE(fresh[QStringLiteral("freshnessKnown")].toBool(), true);
+        QCOMPARE(fresh[QStringLiteral("storageHint")].toString(), QStringLiteral("airtight"));
+        QCOMPARE(fresh[QStringLiteral("openedDate")].toString(), QStringLiteral("2026-06-25"));
+        QVERIFY2(!fresh.contains(QStringLiteral("frozenDate")),
+                 "never-frozen bag must omit frozenDate");
     }
 
     // -------------------------------------------------------------------
@@ -472,6 +505,57 @@ private slots:
             QVERIFY2(!diff.isEmpty(), "changeFromBest must capture grind/yield/duration shifts");
             QCOMPARE(diff.value(QStringLiteral("grinderSetting")).toString(),
                      QStringLiteral("4.0 -> 4.4"));
+        });
+    }
+
+    // -------------------------------------------------------------------
+    // bean-freshness-followup: the best-recent-shot anchor carries its OWN
+    // snapshotted lifecycle dates directly, distinct from the resolved shot —
+    // the raw data the AI needs to notice the anchor came from a different,
+    // longer-rested portion of the same bag. No hoisting, no derived flag.
+    // -------------------------------------------------------------------
+    void bestRecentShotBlock_carriesOwnLifecycleDates()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+
+        withRawDb(path, QStringLiteral("best_lifecycle"), [&](QSqlDatabase& db) {
+            // Best anchor: an older, longer-rested thaw.
+            ShotRow best;
+            best.uuid = QStringLiteral("uuid-best-lc");
+            best.profileName = QStringLiteral("80's Espresso");
+            best.profileKbId = QStringLiteral("kb-lc");
+            best.beanBrand = QStringLiteral("Northbound");
+            best.timestamp = now - 14 * kSecPerDay;
+            best.doseWeight = 18.0;
+            best.finalWeight = 38.0;
+            best.duration = 30.0;
+            best.enjoyment = 92;
+            best.defrostDate = QStringLiteral("2026-05-01");
+            const qint64 bestId = insertShot(db, best);
+            QVERIFY(bestId > 0);
+
+            // Current shot: a newer thaw (different portion).
+            ShotRow current = best;
+            current.uuid = QStringLiteral("uuid-current-lc");
+            current.timestamp = now - kSecPerDay;
+            current.enjoyment = 70;
+            current.defrostDate = QStringLiteral("2026-05-13");
+            const qint64 currentId = insertShot(db, current);
+            QVERIFY(currentId > 0);
+
+            const ShotProjection currentProj = projectionForShot(db, currentId);
+            const QJsonObject best_ = DialingBlocks::buildBestRecentShotBlock(
+                db, QStringLiteral("kb-lc"), currentId, currentProj);
+
+            QVERIFY(!best_.isEmpty());
+            // The anchor carries its own defrostDate, distinct from the current
+            // shot's 2026-05-13 — the mismatch signal is now visible.
+            QCOMPARE(best_.value(QStringLiteral("defrostDate")).toString(),
+                     QStringLiteral("2026-05-01"));
+            QCOMPARE(currentProj.defrostDate, QStringLiteral("2026-05-13"));
         });
     }
 

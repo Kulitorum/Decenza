@@ -46,22 +46,30 @@ The session's `shotCount`, `sessionStart`, `sessionEnd`, and `shots[]` array SHA
 - `frozenDate` / `defrostDate` — surfaced verbatim when set.
 - `storageHint` / `openedDate` — surfaced verbatim when set (the non-frozen analogue of `frozenDate`/`defrostDate`; `storageHint` never has a "frozen" value — see `bag-freeze-lifecycle`).
 - `freshnessKnown` — boolean. `true` when at least one of `frozenDate`, `defrostDate`, or `openedDate` is set; `false` otherwise (no storage history recorded at all).
-- `instruction` — one of two fixed strings selected by `freshnessKnown`:
-  - When `false`: an imperative telling the AI calendar age from `roastDate` is NOT freshness (many users freeze/thaw or rotate portions) and to ASK the user about storage before applying any bean-aging guidance.
+- `instruction` — selected by `freshnessKnown` and the presence of a `storageHint`, in three states:
+  - When `false` and no `storageHint`: an imperative teaching the freshness ASYMMETRY — `roastDate` is the UPPER BOUND on staleness because freezing/airtight/vacuum storage only pauses staling, so beans are never older than their calendar age since roast, only fresher. Therefore the AI SHALL treat a *recent* roast as fresh WITHOUT asking about storage (nothing storage could reveal makes recently-roasted beans stale), and SHALL ask about storage ONLY when the roast date is old (the sole case where freshness is genuinely ambiguous: frozen-since-roast-and-fresh vs left-out-and-stale). The AI judges "recent vs old" itself — the block ships no day count.
+  - When `false` and a `storageHint` IS set: the same upper-bound imperative PLUS a clause stating the storage TYPE is already known (naming the hint). The AI SHALL NOT re-ask how the beans are stored; at most — and only when the roast is old — it SHALL ask solely for the aging-start date. `freshnessKnown` stays `false` because a hint without a date is not a precise aging anchor.
   - When `true`: an imperative telling the AI storage history is known — do NOT ask about it — and to age the beans from the most recent of `defrostDate`/`openedDate` (whichever is set), not from `roastDate`. This instruction SHALL also teach the reverse-direction case: a *recent* `defrostDate`/`openedDate` can mean the portion is under-rested/gassy (chokes, runs long, over-extracts, may want a coarser grind that settles back over the following days), not merely "less stale" — the AI SHALL NOT treat a recent thaw/open date as unconditionally meaning "fresher is better."
 
 The block SHALL be omitted entirely when `roastDate` is empty AND no lifecycle field (`frozenDate`, `defrostDate`, `storageHint`, `openedDate`) is set. The block SHALL NOT contain a precomputed day count under any field name; the AI MUST do the subtraction itself, in front of the user, to make the assumption visible.
 
 The `shotAnalysis` prose SHALL NOT contain the parenthetical "(N days since roast, not necessarily freshness — ask about storage)" that previously rendered next to the bean name. It is replaced by the lighter "(roasted YYYY-MM-DD; ask user about storage before reasoning about age)" — same caveat, no day count. (This prose clause is unchanged by this delta; it is carried forward verbatim from the baseline requirement for continuity with the later PR-2-scope requirements in this file that govern whether/where that clause still renders.)
 
-#### Scenario: beanFreshness emits with freshnessKnown false and the ask-about-storage instruction
+#### Scenario: beanFreshness emits with freshnessKnown false and the upper-bound instruction
 - **GIVEN** a resolved shot with `roastDate = "2026-04-15"` and no `frozenDate`/`defrostDate`/`storageHint`/`openedDate`
 - **WHEN** the response is built
 - **THEN** `currentBean.beanFreshness.roastDate` SHALL be `"2026-04-15"`
 - **AND** `currentBean.beanFreshness.freshnessKnown` SHALL be `false`
-- **AND** `currentBean.beanFreshness.instruction` SHALL match the ask-about-storage imperative
+- **AND** `currentBean.beanFreshness.instruction` SHALL frame `roastDate` as the staleness upper bound, carve out recent-roast-is-fresh (no storage question), and gate the ASK on an OLD roast
 - **AND** `currentBean` SHALL NOT contain `daysSinceRoast` or `daysSinceRoastNote` under any spelling
 - **AND** `currentBean.beanFreshness` SHALL NOT contain a `daysSinceRoast`, `calendarDaysSinceRoast`, `effectiveAgeDays`, or any other precomputed-day-count field
+
+#### Scenario: beanFreshness with a storageHint but no date does not re-ask storage
+- **GIVEN** a resolved shot with `roastDate` set, `storageHint = "vacuum-sealed"`, and no `frozenDate`/`defrostDate`/`openedDate`
+- **WHEN** the response is built
+- **THEN** `currentBean.beanFreshness.freshnessKnown` SHALL be `false` (a hint without a date is not a precise aging anchor)
+- **AND** `currentBean.beanFreshness.storageHint` SHALL be `"vacuum-sealed"`
+- **AND** the instruction SHALL name the known storage type and direct the AI NOT to re-ask how the beans are stored — asking, at most, only for the aging-start date and only when the roast is old
 
 #### Scenario: beanFreshness emits with freshnessKnown true from frozen/defrost dates
 - **GIVEN** a resolved shot with `frozenDate` and `defrostDate` set

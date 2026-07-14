@@ -1002,17 +1002,30 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "the single-shot rule above, it extends it to a run of untasted shots.\n\n"
         "**`currentBean.beanFreshness`**: carries an optional `roastDate`, a\n"
         "`freshnessKnown` flag, and an `instruction`. When `freshnessKnown` is\n"
-        "`false`, storage is\n"
-        "unknown — NEVER quote calendar age; ASK the user about storage first\n"
-        "(many users freeze beans and thaw weekly, so calendar days from\n"
-        "`roastDate` are not freshness without storage context). When\n"
-        "`freshnessKnown` is `true`, the block also carries `frozenDate` and/or\n"
-        "`defrostDate`: storage IS known, so do NOT ask — freezing pauses\n"
-        "staling, so age the beans from `defrostDate` (the thaw), not `roastDate`.\n"
-        "Always follow the block's `instruction` field.\n\n"
+        "`false`, no precise aging-anchor date is recorded — but `roastDate` is\n"
+        "the UPPER BOUND on staleness: freezing/airtight/vacuum storage only\n"
+        "pauses staling, so beans are never older than their calendar age since\n"
+        "roast, only fresher. So a RECENT roast means fresh regardless of storage\n"
+        "— do NOT ask about storage. Only when the roast is OLD is freshness\n"
+        "ambiguous (frozen-and-fresh vs left-out-and-stale); only then ask. If a\n"
+        "`storageHint` is present the storage type is already known — never\n"
+        "re-ask it; at most ask (when the roast is old) for the aging-start date.\n"
+        "When\n"
+        "`freshnessKnown` is `true`, the block also carries a `frozenDate`,\n"
+        "`defrostDate`, and/or `openedDate` (and an optional `storageHint` such\n"
+        "as `airtight`/`vacuum-sealed`): storage IS known, so do NOT ask — age\n"
+        "the beans from the most recent of `defrostDate`/`openedDate`, not\n"
+        "`roastDate`. But a RECENT thaw/open cuts both ways: freshly thawed or\n"
+        "just-opened beans are often under-rested and gassy — they choke the\n"
+        "puck, run long, and over-extract, and usually want a COARSER grind that\n"
+        "settles back over the next few days as they degas. Do NOT read a recent\n"
+        "date as simply 'fresher is better.' Always follow the block's\n"
+        "`instruction` field.\n\n"
         "**`dialInSessions[].context`**: hoists shot-identity fields shared across\n"
         "an iteration session (`grinderBrand`, `grinderModel`, `grinderBurrs`,\n"
-        "`beanBrand`, `beanType`). When a per-shot entry under `shots[]` omits\n"
+        "`beanBrand`, `beanType`, and the bean storage-lifecycle dates\n"
+        "`frozenDate`/`defrostDate`/`storageHint`/`openedDate`). When a per-shot\n"
+        "entry under `shots[]` omits\n"
         "one of these fields, that shot uses the session's `context` value.\n"
         "When a per-shot entry carries the field directly, it overrides the\n"
         "context for that shot only. CAVEAT: a hoisted context value reflects\n"
@@ -1609,7 +1622,7 @@ QString ShotSummarizer::sharedForbiddenSimplifications()
 Never give these generic responses without evidence from the data AND checking profile intent:
 - **"Grind finer/coarser"** without supporting evidence (flow rate, shot time, or taste) OR checking if it contradicts the profile intent — state what you observed and why it suggests a grind change.
 - **"Pressure/Time/Ratio should be X"** — the DE1 uses intentional profiles where "non-standard" values are often the goal.
-- **"Your beans are old/stale"** — roast date alone does not indicate staleness. Many users freeze beans and thaw weekly portions, preserving freshness for months. If roast date seems old, ask about storage conditions before assuming degradation.
+- **"Your beans are old/stale"** — roast date alone does not indicate staleness. Many users freeze beans and thaw weekly portions, or keep them airtight/vacuum-sealed, preserving freshness for months. If roast date seems old and storage is unknown (`freshnessKnown: false`), ask about storage before assuming degradation. And do not assume the opposite either: when a `defrostDate`/`openedDate` is recent, the beans may be UNDER-rested and gassy (choking the puck, running long) rather than "fresher" — a recent storage date can call for a coarser grind that settles over the following days, not a finer one.
 )");
 }
 

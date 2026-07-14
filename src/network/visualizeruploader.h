@@ -45,6 +45,11 @@ struct ShotMetadata {
     qint64 bagId = -1;
     QString frozenDate;   // ISO yyyy-MM-dd, "" = not frozen
     QString defrostDate;  // ISO yyyy-MM-dd, "" = not defrosted
+    // Non-frozen storage lifecycle (bean-freshness-followup): the bag's
+    // storage category and opened date at shot time. Local history only —
+    // not part of the Visualizer upload payload.
+    QString storageHint;  // counter/airtight/vacuum-sealed/fridge, "" = unset
+    QString openedDate;   // ISO yyyy-MM-dd, "" = not opened
 
     // Recipe provenance (add-recipes): the recipe active at shot start
     // (<= 0 = none) and compact-JSON snapshots of the steam and hot-water specs

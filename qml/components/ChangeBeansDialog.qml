@@ -82,6 +82,11 @@ Dialog {
     property bool fFreeze: false
     property string fFrozenDate: ""
     property string fDefrostDate: ""
+    // Non-frozen storage lifecycle (bean-freshness-followup). storageHint is a
+    // category tag ("" = unset); openedDate is the non-frozen analogue of the
+    // defrost date. Both apply only while the freeze toggle is OFF.
+    property string fStorageHint: ""
+    property string fOpenedDate: ""
 
     // Bean details (add-bag-detail-editing): the descriptive working keys of
     // the beanBaseData blob, editable for linked and manual bags alike. A
@@ -349,6 +354,7 @@ Dialog {
         fRpm = ""
         fDose = ""; fYield = ""; fNotes = ""
         fFreeze = false; fFrozenDate = ""; fDefrostDate = ""
+        fStorageHint = ""; fOpenedDate = ""
         syncDetailFieldsFromBlob()   // blob is empty: clears every detail field
         detailsExpanded = false
         _openedLink = ""
@@ -431,6 +437,8 @@ Dialog {
         fFrozenDate = bag.frozenDate || ""
         fDefrostDate = bag.defrostDate || ""
         fFreeze = fFrozenDate.length > 0
+        fStorageHint = bag.storageHint || ""
+        fOpenedDate = bag.openedDate || ""
         mode = "form"
         _armedForm = true
         open()
@@ -470,7 +478,9 @@ Dialog {
             "beanBaseId": bag.beanBaseId ? String(bag.beanBaseId) : "",
             "bagId": bagId,
             "frozenDate": bag.frozenDate || "",
-            "defrostDate": bag.defrostDate || ""
+            "defrostDate": bag.defrostDate || "",
+            "storageHint": bag.storageHint || "",
+            "openedDate": bag.openedDate || ""
         })
     }
 
@@ -543,7 +553,10 @@ Dialog {
             "doseWeightG": parseWeight(fDose),
             "yieldOverrideG": parseWeight(fYield),
             "notes": fNotes,
-            "frozenDate": fFreeze ? (fFrozenDate.length === 10 ? fFrozenDate : todayIso()) : ""
+            "frozenDate": fFreeze ? (fFrozenDate.length === 10 ? fFrozenDate : todayIso()) : "",
+            // Non-frozen storage hint: cleared to "" whenever the bag is frozen
+            // (the dropdown is hidden, not merely disabled with a stale value).
+            "storageHint": fFreeze ? "" : fStorageHint
         }
         // kind is stamped at creation only (immutable identity; the edit
         // path never writes it).
@@ -551,6 +564,10 @@ Dialog {
             fields["kind"] = bagKind
         if (formMode === "edit") {
             fields["defrostDate"] = fFreeze ? (fDefrostDate.length === 10 ? fDefrostDate : "") : ""
+            // openedDate is the non-frozen analogue of defrostDate — edit-mode
+            // only (the "Mark Opened" quick action on the bag card is the
+            // everyday path), and cleared when the bag is frozen.
+            fields["openedDate"] = fFreeze ? "" : (fOpenedDate.length === 10 ? fOpenedDate : "")
             // Re-point the bag's equipment package (<=0 -> NULL via the column hook).
             fields["equipmentId"] = fEquipmentId
             // A link change fixes the whole bag: propagate the (new or
@@ -742,6 +759,7 @@ Dialog {
         textFields: [searchField, roasterInput.textField, coffeeInput.textField, roastDateField.textField,
                      grindSettingInput, doseInput, yieldInput,
                      notesInput, frozenDateField.textField, defrostDateField.textField,
+                     openedDateField.textField,
                      originField.textField, regionField.textField, farmField.textField,
                      producerField.textField, varietyField.textField, elevationField.textField,
                      processField.textField, harvestField.textField, qualityScoreField.textField,
@@ -1673,6 +1691,48 @@ Dialog {
                         fieldAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.accessible", "Defrost date, optional.")
                         calendarAccessibleName: TranslationManager.translate("changebeans.form.defrostDate.openCalendar", "Open calendar to pick defrost date")
                         onValueEdited: function(dateString) { root.fDefrostDate = dateString }
+                    }
+
+                    // --- Non-frozen storage (bean-freshness-followup): only
+                    // meaningful while NOT frozen, so both hide once the freeze
+                    // toggle is on (frozen state is fully expressed by the
+                    // freeze toggle + frozen date). storageHint has no "frozen"
+                    // value by design. ---
+                    FieldRow {
+                        visible: !root.fFreeze
+                        labelKey: "changebeans.form.storageHint"
+                        labelFallback: "Storage:"
+
+                        StyledComboBox {
+                            id: storageHintCombo
+                            Layout.fillWidth: true
+                            // Canonical enum values (index-aligned with model);
+                            // index 0 = unset ("").
+                            readonly property var hintValues: ["", "counter", "airtight", "vacuum-sealed", "fridge"]
+                            accessibleLabel: TranslationManager.translate("changebeans.form.storageHint.accessible", "Storage type")
+                            model: [
+                                TranslationManager.translate("changebeans.form.storageHint.unset", "Not specified"),
+                                TranslationManager.translate("changebeans.form.storageHint.counter", "Counter"),
+                                TranslationManager.translate("changebeans.form.storageHint.airtight", "Airtight container"),
+                                TranslationManager.translate("changebeans.form.storageHint.vacuum", "Vacuum-sealed"),
+                                TranslationManager.translate("changebeans.form.storageHint.fridge", "Fridge")]
+                            currentIndex: Math.max(0, hintValues.indexOf(root.fStorageHint))
+                            onActivated: root.fStorageHint = currentIndex > 0 ? hintValues[currentIndex] : ""
+                        }
+                    }
+
+                    // Opened date is only directly editable in edit mode
+                    // ("Mark Opened" on the bag card is the everyday path),
+                    // mirroring the defrost field above.
+                    BeanDateField {
+                        id: openedDateField
+                        visible: !root.fFreeze && root.formMode === "edit"
+                        labelKey: "changebeans.form.openedDate"
+                        labelFallback: "Opened:"
+                        value: root.fOpenedDate
+                        fieldAccessibleName: TranslationManager.translate("changebeans.form.openedDate.accessible", "Opened date, optional.")
+                        calendarAccessibleName: TranslationManager.translate("changebeans.form.openedDate.openCalendar", "Open calendar to pick opened date")
+                        onValueEdited: function(dateString) { root.fOpenedDate = dateString }
                     }
 
                     // --- Grinder setting + dose (the per-bag dial-in fields).

@@ -3,15 +3,16 @@ import QtQuick.Layouts
 import Decenza
 
 // Read-only adaptive one-line bean summary ("show less when more is known"):
-//   canonical-linked  ->  "{coffee} · {origin} · {process} · Roasted <date> [· Def Md | Frozen]"
+//   canonical-linked  ->  "{coffee} · {origin} · {process} · Roasted <date> [· Thawed <date> (Md) | Frozen | Opened <date> (Md)]"
 //                         with a small verified badge
-//   history only      ->  "{roaster} {coffee} · Roasted <date> [· Def Md | Frozen]"
+//   history only      ->  "{roaster} {coffee} · Roasted <date> [· Thawed <date> (Md) | Frozen | Opened <date> (Md)]"
 //                         + "Link to Bean Base" nudge
 //   no roast date     ->  roast-date portion silently omitted (no placeholder)
 //   no bag selected   ->  "No beans selected"
 //
 // Roast shows the actual date (the user freezes beans, so days-since-roast is
-// misleading); defrost shows days-out-of-freezer (a real freshness clock).
+// misleading); the thaw/open line shows the absolute date plus days-since (a
+// real freshness clock for the current portion).
 //
 // Two data sources: live DYE state (default — brew/idle contexts) or
 // explicitly set shot-snapshot properties (useShotData: true — detail pages).
@@ -27,6 +28,9 @@ Item {
     property string beanBaseData: ""
     property string frozenDate: ""
     property string defrostDate: ""
+    // Non-frozen storage lifecycle (bean-freshness-followup): opened date, the
+    // non-frozen analogue of the defrost date.
+    property string openedDate: ""
 
     // Effective values for the active mode
     readonly property string effRoaster: useShotData ? roasterName : Settings.dye.dyeBeanBrand
@@ -35,6 +39,7 @@ Item {
     readonly property string effBeanBaseData: useShotData ? beanBaseData : Settings.dye.dyeBeanBaseData
     readonly property string effFrozenDate: useShotData ? frozenDate : Settings.dye.activeBagFrozenDate
     readonly property string effDefrostDate: useShotData ? defrostDate : Settings.dye.activeBagDefrostDate
+    readonly property string effOpenedDate: useShotData ? openedDate : Settings.dye.activeBagOpenedDate
 
     readonly property var beanBase: {
         if (!effBeanBaseData || effBeanBaseData.length === 0) return ({})
@@ -99,9 +104,15 @@ Item {
         if (effDefrostDate.length > 0) {
             var defAge = daysSince(effDefrostDate)
             if (defAge >= 0)
-                parts.push(TranslationManager.translate("beans.summary.defrostDays", "Def %1d").arg(defAge))
+                parts.push(TranslationManager.translate("beans.summary.thawedDate", "Thawed %1 (%2d)")
+                    .arg(formatRoastDate(effDefrostDate)).arg(defAge))
         } else if (effFrozenDate.length > 0) {
             parts.push(TranslationManager.translate("beans.summary.frozen", "Frozen"))
+        } else if (effOpenedDate.length > 0) {
+            var openAge = daysSince(effOpenedDate)
+            if (openAge >= 0)
+                parts.push(TranslationManager.translate("beans.summary.openedDate", "Opened %1 (%2d)")
+                    .arg(formatRoastDate(effOpenedDate)).arg(openAge))
         }
         return parts
     }

@@ -84,6 +84,10 @@ class SettingsDye : public QObject {
     // shot snapshot (read-only here; edited via CoffeeBagStorage).
     Q_PROPERTY(QString activeBagFrozenDate READ activeBagFrozenDate NOTIFY activeBagChanged)
     Q_PROPERTY(QString activeBagDefrostDate READ activeBagDefrostDate NOTIFY activeBagChanged)
+    // Non-frozen storage lifecycle (bean-freshness-followup): storage category
+    // and opened date of the active bag.
+    Q_PROPERTY(QString activeBagStorageHint READ activeBagStorageHint NOTIFY activeBagChanged)
+    Q_PROPERTY(QString activeBagOpenedDate READ activeBagOpenedDate NOTIFY activeBagChanged)
 
 public:
     // visualizer is non-owning and must outlive this object (Settings owns both).
@@ -229,6 +233,8 @@ public:
     Q_INVOKABLE void setActiveBagKeepFields(int bagId);
     QString activeBagFrozenDate() const { return m_activeBagFrozenDate; }
     QString activeBagDefrostDate() const { return m_activeBagDefrostDate; }
+    QString activeBagStorageHint() const { return m_activeBagStorageHint; }
+    QString activeBagOpenedDate() const { return m_activeBagOpenedDate; }
 
     // Active recipe (add-recipes). Persisted id only — see the Q_PROPERTY note.
     int activeRecipeId() const;
@@ -315,6 +321,8 @@ private:
     int m_pendingSelfWrites = 0; // Outstanding write-throughs whose bagUpdated echo to skip
     QString m_activeBagFrozenDate;
     QString m_activeBagDefrostDate;
+    QString m_activeBagStorageHint;
+    QString m_activeBagOpenedDate;
     double m_activeBagYieldOverrideG = 0;  // active bag's yield override (0 = none)
 
     // Cached DYE values (avoid QSettings::value() → CFPreferences on every QML binding read)

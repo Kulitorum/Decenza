@@ -90,6 +90,10 @@ class ShotProjection {
     Q_PROPERTY(qint64 bagId MEMBER bagId)
     Q_PROPERTY(QString frozenDate MEMBER frozenDate)
     Q_PROPERTY(QString defrostDate MEMBER defrostDate)
+    // Non-frozen storage lifecycle snapshot (bean-freshness-followup): storage
+    // category + opened date at shot time (ISO date, "" = unset).
+    Q_PROPERTY(QString storageHint MEMBER storageHint)
+    Q_PROPERTY(QString openedDate MEMBER openedDate)
     // Recipe provenance (add-recipes): the recipe active at shot time
     // (<= 0 = none) and the steam-spec snapshot — the composer's
     // promote-from-shot prefill reads these.
@@ -178,6 +182,8 @@ public:
     QString steamJson;
     QString hotWaterJson;
     QString defrostDate;
+    QString storageHint;
+    QString openedDate;
 
     bool channelingDetected = false;
     bool grindIssueDetected = false;

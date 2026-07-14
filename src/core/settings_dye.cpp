@@ -74,9 +74,14 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
                     m_keepFieldsOnNextApply = false;
                     const QString frozen = bag.value("frozenDate").toString();
                     const QString defrost = bag.value("defrostDate").toString();
-                    if (frozen != m_activeBagFrozenDate || defrost != m_activeBagDefrostDate) {
+                    const QString storageHint = bag.value("storageHint").toString();
+                    const QString opened = bag.value("openedDate").toString();
+                    if (frozen != m_activeBagFrozenDate || defrost != m_activeBagDefrostDate
+                        || storageHint != m_activeBagStorageHint || opened != m_activeBagOpenedDate) {
                         m_activeBagFrozenDate = frozen;
                         m_activeBagDefrostDate = defrost;
+                        m_activeBagStorageHint = storageHint;
+                        m_activeBagOpenedDate = opened;
                         emit activeBagChanged();
                     }
                     return;
@@ -627,6 +632,8 @@ void SettingsDye::setActiveBagId(int bagId) {
         m_applyingBag = false;
         m_activeBagFrozenDate.clear();
         m_activeBagDefrostDate.clear();
+        m_activeBagStorageHint.clear();
+        m_activeBagOpenedDate.clear();
         m_activeBagYieldOverrideG = 0;  // no bag → no override
         emit activeBagChanged();
         return;
@@ -648,6 +655,8 @@ void SettingsDye::setActiveBagKeepFields(int bagId)
         m_settings.setValue("dye/activeBagId", -1);
         m_activeBagFrozenDate.clear();
         m_activeBagDefrostDate.clear();
+        m_activeBagStorageHint.clear();
+        m_activeBagOpenedDate.clear();
         emit activeBagIdChanged();
         emit activeBagChanged();
         return;
@@ -696,9 +705,14 @@ void SettingsDye::applyActiveBag(const QVariantMap& bag)
 
     const QString frozen = bag.value("frozenDate").toString();
     const QString defrost = bag.value("defrostDate").toString();
-    if (frozen != m_activeBagFrozenDate || defrost != m_activeBagDefrostDate) {
+    const QString storageHint = bag.value("storageHint").toString();
+    const QString opened = bag.value("openedDate").toString();
+    if (frozen != m_activeBagFrozenDate || defrost != m_activeBagDefrostDate
+        || storageHint != m_activeBagStorageHint || opened != m_activeBagOpenedDate) {
         m_activeBagFrozenDate = frozen;
         m_activeBagDefrostDate = defrost;
+        m_activeBagStorageHint = storageHint;
+        m_activeBagOpenedDate = opened;
         emit activeBagChanged();
     }
 

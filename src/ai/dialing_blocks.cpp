@@ -74,10 +74,10 @@ double effectiveTargetWeightG(const ShotProjection& shot)
     return twVal > 0 ? twVal : 0.0;
 }
 
-// Per-shot serializer for dialInSessions. Identity overrides come from
-// the per-session `hoistSessionContext` output; per-shot entries emit
-// the five identity fields only when they differ from the session
-// context (otherwise the field is hoisted and absent here).
+// Per-shot serializer for dialInSessions. Identity/lifecycle overrides come
+// from the per-session `hoistSessionContext` output; per-shot entries emit
+// the identity and storage-lifecycle fields only when they differ from the
+// session context (otherwise the field is hoisted and absent here).
 QJsonObject shotToJson(const ShotProjection& shot,
                        const DialingHelpers::ShotIdentity& override)
 {
@@ -110,6 +110,18 @@ QJsonObject shotToJson(const ShotProjection& shot,
         h["beanBrand"] = override.beanBrand;
     if (!override.beanType.isEmpty())
         h["beanType"] = override.beanType;
+    // Bean storage lifecycle (bean-freshness-followup): emitted per-shot only
+    // when it differs from the session context (e.g. a session spanning a thaw
+    // or open event), so the AI can tell a best-rated anchor came from a
+    // different, longer-rested portion. Hoisted to context otherwise.
+    if (!override.frozenDate.isEmpty())
+        h["frozenDate"] = override.frozenDate;
+    if (!override.defrostDate.isEmpty())
+        h["defrostDate"] = override.defrostDate;
+    if (!override.storageHint.isEmpty())
+        h["storageHint"] = override.storageHint;
+    if (!override.openedDate.isEmpty())
+        h["openedDate"] = override.openedDate;
     h["notes"] = shot.espressoNotes;
     // #1161: why the shot ended. stoppedBy varies shot-to-shot (a session
     // can mix a SAW shot and a manually-aborted one), so it is NOT hoisted
@@ -168,6 +180,10 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
             id.grinderBurrs = s.grinderBurrs;
             id.beanBrand = s.beanBrand;
             id.beanType = s.beanType;
+            id.frozenDate = s.frozenDate;
+            id.defrostDate = s.defrostDate;
+            id.storageHint = s.storageHint;
+            id.openedDate = s.openedDate;
             identities.append(id);
         }
         const DialingHelpers::HoistedSession hoisted =
@@ -251,6 +267,17 @@ QJsonArray buildDialInSessionsBlock(QSqlDatabase& db,
             contextObj["beanBrand"] = hoisted.context.beanBrand;
         if (!hoisted.context.beanType.isEmpty())
             contextObj["beanType"] = hoisted.context.beanType;
+        // Bean storage lifecycle (bean-freshness-followup): hoisted to the
+        // session context when shared across every shot, overridden per-shot
+        // when a session spans a thaw/open event (see shotToJson).
+        if (!hoisted.context.frozenDate.isEmpty())
+            contextObj["frozenDate"] = hoisted.context.frozenDate;
+        if (!hoisted.context.defrostDate.isEmpty())
+            contextObj["defrostDate"] = hoisted.context.defrostDate;
+        if (!hoisted.context.storageHint.isEmpty())
+            contextObj["storageHint"] = hoisted.context.storageHint;
+        if (!hoisted.context.openedDate.isEmpty())
+            contextObj["openedDate"] = hoisted.context.openedDate;
         // Issue #1158: hoisted pour control mode — one field for the
         // whole session instead of repeating it on every shot.
         if (pourControlUniform)
@@ -341,6 +368,21 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     b["grinderModel"] = best.grinderModel;
     b["beanBrand"] = best.beanBrand;
     b["beanType"] = best.beanType;
+    // Bean storage lifecycle (bean-freshness-followup): carry the anchor shot's
+    // own snapshotted dates directly (no hoisting — this is a single object).
+    // When they differ from the resolved shot's currentBean.beanFreshness, the
+    // AI has the raw data to notice the anchor came from a different, longer-
+    // rested portion — no precomputed "different portion" flag, the dates are
+    // the whole signal. Sparse-emit: legacy shots with no lifecycle recorded
+    // carry nothing, same as today.
+    if (!best.frozenDate.isEmpty())
+        b["frozenDate"] = best.frozenDate;
+    if (!best.defrostDate.isEmpty())
+        b["defrostDate"] = best.defrostDate;
+    if (!best.storageHint.isEmpty())
+        b["storageHint"] = best.storageHint;
+    if (!best.openedDate.isEmpty())
+        b["openedDate"] = best.openedDate;
     b["notes"] = best.espressoNotes;
     if (best.doseWeightG > 0)
         b["ratio"] = QString("1:%1").arg(best.finalWeightG / best.doseWeightG, 0, 'f', 2);

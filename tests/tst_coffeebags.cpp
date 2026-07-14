@@ -620,14 +620,18 @@ private slots:
             bag.roasterName = "Transfer";
             bag.coffeeName = "Roast";
             bag.frozenDate = "2026-06-01";
+            bag.storageHint = "airtight";       // bean-freshness-followup
+            bag.openedDate = "2026-06-05";
             srcBagId = CoffeeBagStorage::insertBagStatic(db, bag);
             QVERIFY(srcBagId > 0);
-            // Shot linked to the bag, carrying the once-dropped columns.
+            // Shot linked to the bag, carrying the once-dropped columns plus the
+            // non-frozen storage lifecycle snapshot (bean-freshness-followup).
             QSqlQuery q(db);
             q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
-                      "bean_brand, bean_type, bag_id, stopped_by, beanbase_json, frozen_date) "
+                      "bean_brand, bean_type, bag_id, stopped_by, beanbase_json, frozen_date, "
+                      "storage_hint, opened_date) "
                       "VALUES ('src-uuid-1', 2000, 'P', 30, 'Transfer', 'Roast', :bag, 'weight', "
-                      "'{\"id\":\"canon-9\"}', '2026-06-01')");
+                      "'{\"id\":\"canon-9\"}', '2026-06-01', 'airtight', '2026-06-05')");
             q.bindValue(":bag", srcBagId);
             QVERIFY(q.exec());
         });
@@ -646,7 +650,8 @@ private slots:
         withRawDb(destPath, "imp_check", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT s.bag_id, s.stopped_by, s.beanbase_json, s.beanbase_id, s.frozen_date, "
-                           "b.roaster_name FROM shots s JOIN coffee_bags b ON b.id = s.bag_id "
+                           "b.roaster_name, s.storage_hint, s.opened_date, b.storage_hint, b.opened_date "
+                           "FROM shots s JOIN coffee_bags b ON b.id = s.bag_id "
                            "WHERE s.uuid = 'src-uuid-1'"));
             QVERIFY(q.next());
             QVERIFY(q.value(0).toLongLong() != srcBagId);          // remapped
@@ -655,6 +660,10 @@ private slots:
             QCOMPARE(q.value(3).toString(), QString("canon-9"));    // beanbase_id backfilled
             QCOMPARE(q.value(4).toString(), QString("2026-06-01")); // frozen_date carried
             QCOMPARE(q.value(5).toString(), QString("Transfer"));   // joined to the imported bag
+            QCOMPARE(q.value(6).toString(), QString("airtight"));   // shot storage_hint carried
+            QCOMPARE(q.value(7).toString(), QString("2026-06-05")); // shot opened_date carried
+            QCOMPARE(q.value(8).toString(), QString("airtight"));   // bag storage_hint carried
+            QCOMPARE(q.value(9).toString(), QString("2026-06-05")); // bag opened_date carried
         });
     }
 
@@ -867,7 +876,7 @@ private slots:
             QCOMPARE(q.value(0).toInt(), 0);  // existing rows default to 0
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 31);  // chain runs on to the latest (recipe temp offset)
+            QCOMPARE(q.value(0).toInt(), 32);  // chain runs on to the latest (storage hint + opened date)
         });
     }
 
@@ -892,6 +901,15 @@ private slots:
             // source column reads as "" and must normalize at bind time
             // (bindKind), not blow up the INSERT with an explicit NULL.
             QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN kind"));
+            // Non-frozen storage lifecycle (migration 32): a pre-32 source has
+            // neither column on shots or coffee_bags. The shots-side transfer
+            // path resolves the missing columns to NULL via source-column-index
+            // lookup (idx == -1), so the per-row INSERT must NOT warn — the
+            // armed QTest::failOnWarning() in init() catches any "unknown field".
+            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN storage_hint"));
+            QVERIFY(q.exec("ALTER TABLE shots DROP COLUMN opened_date"));
+            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN storage_hint"));
+            QVERIFY(q.exec("ALTER TABLE coffee_bags DROP COLUMN opened_date"));
         });
 
         QVERIFY(ShotHistoryStorage::importDatabaseStatic(destPath, srcPath, /*merge=*/true));
@@ -903,6 +921,15 @@ private slots:
             QVERIFY(!bags.first().bag.visualizerSyncPending);
             QCOMPARE(bags.first().bag.equipmentId, qint64(0));
             QCOMPARE(bags.first().bag.kind, QString("coffee"));
+            // The new lifecycle fields land on their empty defaults.
+            QVERIFY(bags.first().bag.storageHint.isEmpty());
+            QVERIFY(bags.first().bag.openedDate.isEmpty());
+            // The shot imported cleanly (no per-row warning) with both columns NULL.
+            QSqlQuery q(db);
+            QVERIFY(q.exec("SELECT storage_hint, opened_date FROM shots LIMIT 1"));
+            QVERIFY(q.next());
+            QVERIFY(q.value(0).isNull());
+            QVERIFY(q.value(1).isNull());
         });
     }
 
@@ -1148,7 +1175,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 31);  // chain runs on to the latest (recipe temp offset)
+            QCOMPARE(q.value(0).toInt(), 32);  // chain runs on to the latest (storage hint + opened date)
         });
     }
 
@@ -1181,7 +1208,7 @@ private slots:
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT version FROM schema_version"));
             QVERIFY(q.next());
-            QCOMPARE(q.value(0).toInt(), 31);  // chain runs on to the latest (recipe temp offset)
+            QCOMPARE(q.value(0).toInt(), 32);  // chain runs on to the latest (storage hint + opened date)
             // The repaired table is writable — insertRecipeStatic binds
             // rpm_pinned unconditionally, so it would fail wholesale if the
             // ALTER hadn't landed.

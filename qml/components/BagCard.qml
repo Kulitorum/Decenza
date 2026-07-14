@@ -27,6 +27,9 @@ Rectangle {
     readonly property bool hasCanonical: bag && bag.beanBaseId !== undefined && String(bag.beanBaseId).length > 0
     readonly property bool isFrozen: bag && bag.frozenDate !== undefined && String(bag.frozenDate).length > 0
     readonly property string defrostDate: bag && bag.defrostDate !== undefined ? String(bag.defrostDate) : ""
+    // Non-frozen storage lifecycle (bean-freshness-followup): the "Mark Opened"
+    // quick action mirrors "Thaw" and shows only on non-frozen bags.
+    readonly property string openedDate: bag && bag.openedDate !== undefined ? String(bag.openedDate) : ""
 
     readonly property var beanBase: {
         if (!bag || !bag.beanBaseData || String(bag.beanBaseData).length === 0) return ({})
@@ -155,9 +158,10 @@ Rectangle {
         return Qt.formatDate(d, Qt.locale().dateFormat(Locale.ShortFormat))
     }
 
-    // Roast date · freeze state line (omits anything unknown — no
-    // placeholders). The user freezes beans, so the actual roast date is more
-    // meaningful than days-since-roast.
+    // Roast date · freeze/open state line (omits anything unknown — no
+    // placeholders). The user freezes beans, so the actual roast/thaw/open
+    // date is more meaningful than a bare day count — show both (the absolute
+    // date and the at-a-glance age), matching the roast-date convention.
     readonly property var _metaParts: {
         var _ = TranslationManager.translationVersion
         var parts = []
@@ -167,9 +171,17 @@ Rectangle {
         if (defrostDate.length > 0) {
             var defAge = daysSince(defrostDate)
             if (defAge >= 0)
-                parts.push(TranslationManager.translate("beans.summary.defrostDays", "Def %1d").arg(defAge))
+                parts.push(TranslationManager.translate("beans.summary.thawedDate", "Thawed %1 (%2d)")
+                    .arg(formatRoastDate(defrostDate)).arg(defAge))
         } else if (isFrozen) {
             parts.push(TranslationManager.translate("beans.summary.frozen", "Frozen"))
+        } else if (openedDate.length > 0) {
+            // Non-frozen bags: show the opened date/age the same way (only when
+            // not frozen — a frozen bag's lifecycle is the thaw date above).
+            var openAge = daysSince(openedDate)
+            if (openAge >= 0)
+                parts.push(TranslationManager.translate("beans.summary.openedDate", "Opened %1 (%2d)")
+                    .arg(formatRoastDate(openedDate)).arg(openAge))
         }
         return parts
     }
@@ -205,6 +217,15 @@ Rectangle {
         id: thawDatePicker
         onDateSelected: function(dateString) {
             MainController.bagStorage.requestUpdateBag(card.bag.id, { "defrostDate": dateString })
+        }
+    }
+
+    // "Mark Opened" quick action for non-frozen bags (bean-freshness-followup),
+    // the non-frozen analogue of thawDatePicker.
+    DatePickerDialog {
+        id: openedDatePicker
+        onDateSelected: function(dateString) {
+            MainController.bagStorage.requestUpdateBag(card.bag.id, { "openedDate": dateString })
         }
     }
 
@@ -411,7 +432,10 @@ Rectangle {
             }
 
             // Frozen bag: "Thaw" records the latest portion leaving the
-            // freezer — calendar picker, defaulting to today.
+            // freezer — calendar picker, always defaulting to today (a new
+            // thaw event happening today is overwhelmingly the common case;
+            // pass "" so the picker's "default to today" branch wins over any
+            // stored defrostDate).
             AccessibleButton {
                 visible: card.isFrozen
                 height: Theme.scaled(36)
@@ -420,7 +444,21 @@ Rectangle {
                 rightPadding: Theme.scaled(10)
                 text: TranslationManager.translate("bagcard.thaw", "Thaw")
                 accessibleName: TranslationManager.translate("bagcard.accessible.thaw", "Thaw: pick the date the latest portion left the freezer")
-                onClicked: thawDatePicker.openWithDate(card.defrostDate)
+                onClicked: thawDatePicker.openWithDate("")
+            }
+
+            // Non-frozen bag: "Mark Opened" is the equivalent quick action —
+            // records when the current portion started being used. Same picker
+            // pattern as Thaw, always defaulting to today.
+            AccessibleButton {
+                visible: !card.isFrozen
+                height: Theme.scaled(36)
+                _customFontSize: Theme.captionFont.pixelSize
+                leftPadding: Theme.scaled(10)
+                rightPadding: Theme.scaled(10)
+                text: TranslationManager.translate("bagcard.markOpened", "Mark Opened")
+                accessibleName: TranslationManager.translate("bagcard.accessible.markOpened", "Mark opened: pick the date this bag was opened")
+                onClicked: openedDatePicker.openWithDate("")
             }
 
             // No shots yet: the bag is a mistaken creation — offer delete
