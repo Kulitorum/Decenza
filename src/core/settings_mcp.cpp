@@ -1,11 +1,16 @@
 #include "settings_mcp.h"
+#include "settings.h"
 
 #include <QUuid>
 #include <QRandomGenerator>
 
 SettingsMcp::SettingsMcp(QObject* parent)
     : QObject(parent)
+#ifdef DECENZA_TESTING
+    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
+#else
     , m_settings("DecentEspresso", "DE1Qt")
+#endif
 {
 }
 

@@ -1,4 +1,5 @@
 #include "settings_dye.h"
+#include "settings.h"
 #include "../history/bagid.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/equipmentstorage.h"
@@ -11,7 +12,11 @@
 
 SettingsDye::SettingsDye(SettingsVisualizer* visualizer, QObject* parent)
     : QObject(parent)
+#ifdef DECENZA_TESTING
+    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
+#else
     , m_settings("DecentEspresso", "DE1Qt")
+#endif
     , m_visualizer(visualizer)
 {
     // The visualizer pointer is required — dyeEspressoEnjoyment() falls back

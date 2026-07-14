@@ -1,8 +1,13 @@
 #include "settings_visualizer.h"
+#include "settings.h"
 
 SettingsVisualizer::SettingsVisualizer(QObject* parent)
     : QObject(parent)
+#ifdef DECENZA_TESTING
+    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
+#else
     , m_settings("DecentEspresso", "DE1Qt")
+#endif
 {
 }
 

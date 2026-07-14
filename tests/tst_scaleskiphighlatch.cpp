@@ -5,6 +5,7 @@
 #include "ble/blemanager.h"
 #include "ble/bleepochgate.h"
 #include "core/settings_hardware.h"
+#include "core/settings.h"
 
 // BLEManager::ScaleSkipHighLatch — the in-memory dual-HIGH skip-HIGH latch
 // value type (#1093/#1176, D7 review hardening). Pure: set()/clear() enforce
@@ -173,7 +174,7 @@ private slots:
                                      QStringLiteral("2026-05-18T12:00:00"),
                                      3388, BLEManager::kBleDetectionEpoch);
         {
-            QSettings raw("DecentEspresso", "DE1Qt");
+            QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
             raw.remove("connectionPriority/detectionEpoch");  // → legacy shape
         }
         SettingsHardware s2;

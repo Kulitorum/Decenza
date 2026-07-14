@@ -16,8 +16,12 @@
 #include <QRegularExpression>
 
 // Test Settings property round-trip and signal emission.
-// Settings uses QSettings("DecentEspresso", "DE1Qt") which reads/writes to
-// the system settings store. Tests save originals in init() and restore in
+// Under DECENZA_TESTING, Settings and every settings_<domain>.cpp construct
+// their QSettings from Settings::testQSettingsPath() — an isolated per-process
+// temp file, NOT the real ("DecentEspresso", "DE1Qt") store the shipped app
+// reads/writes. Raw QSettings seeding in these tests must use the same
+// isolated path (never the real store) or the seeded data lands somewhere
+// nothing reads. Tests still save originals in init() and restore in
 // cleanup() (guaranteed to run even if assertions fail mid-test).
 
 // File-scope helper: the ordered list of "type" values in a getZoneItems()
@@ -126,7 +130,7 @@ private slots:
         m_origMilkAutoCapture = m_settings.brew()->milkAutoCaptureEnabled();
         // Weight-timed scaling is now driven by a GLOBAL seconds-per-gram rate.
         m_origSteamSecPerGram = m_settings.brew()->steamSecondsPerGram();
-        { QSettings raw("DecentEspresso", "DE1Qt");
+        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           m_origVesselPresets = raw.value("water/vesselPresets").toByteArray();
           m_origPitcherPresets = raw.value("steam/pitcherPresets").toByteArray(); }
         m_origActiveRecipeId = m_settings.dye()->activeRecipeId();
@@ -152,7 +156,7 @@ private slots:
         m_settings.app()->setTemperatureUnit(m_origTemperatureUnit);
         m_settings.brew()->setMilkAutoCaptureEnabled(m_origMilkAutoCapture);
         m_settings.brew()->setSteamSecondsPerGram(m_origSteamSecPerGram);
-        { QSettings raw("DecentEspresso", "DE1Qt");
+        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           raw.setValue("water/vesselPresets", m_origVesselPresets);
           raw.setValue("steam/pitcherPresets", m_origPitcherPresets);
           raw.sync(); }
@@ -216,7 +220,7 @@ private slots:
         // ran (a stale cache would have returned false).
         m_settings.visualizer()->setVisualizerAutoUpdate(false);
         QVERIFY(!m_settings.visualizer()->visualizerAutoUpdate());
-        QSettings raw("DecentEspresso", "DE1Qt");
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
         raw.remove("visualizer/autoUpdate");
         raw.sync();
         Settings fresh;
@@ -503,7 +507,7 @@ private slots:
 
     void temperatureUnitDefaultIsCelsius() {
         // On fresh state (key absent) the getter default must be "celsius".
-        { QSettings raw("DecentEspresso", "DE1Qt");
+        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           raw.remove("display/temperatureUnit");
           raw.sync(); }
         QCOMPARE(m_settings.app()->temperatureUnit(), QString("celsius"));
@@ -521,7 +525,7 @@ private slots:
         legacy["mode"] = "weight";
         legacy["flowRate"] = 40;
         QJsonArray arr; arr.append(legacy);
-        { QSettings raw("DecentEspresso", "DE1Qt");
+        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           raw.setValue("water/vesselPresets", QJsonDocument(arr).toJson());
           raw.sync(); }
 
@@ -704,13 +708,13 @@ private slots:
         // preset carrying both (calibMilkG, duration). Snapshot the run-once sentinel
         // because cleanup() doesn't restore it.
         bool origMigrated;
-        { QSettings raw("DecentEspresso", "DE1Qt");
+        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           origMigrated = raw.value("steam/steamRateMigrated", false).toBool(); }
 
         QJsonArray arr;
         { QJsonObject p; p["name"] = "Small"; p["duration"] = 30; p["flow"] = 150; p["calibMilkG"] = 200; arr.append(p); }
         { QJsonObject p; p["name"] = "Large"; p["duration"] = 40; p["flow"] = 150; p["calibMilkG"] = 100; arr.append(p); }
-        { QSettings raw("DecentEspresso", "DE1Qt");
+        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           raw.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
           raw.remove("steam/steamSecondsPerGram");             // uncalibrated global rate
           raw.setValue("steam/steamRateMigrated", false);      // allow the one-time seed to run
@@ -721,7 +725,7 @@ private slots:
         Settings fresh;
         QCOMPARE(fresh.brew()->steamSecondsPerGram(), 0.15);
 
-        { QSettings raw("DecentEspresso", "DE1Qt");
+        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           raw.setValue("steam/steamRateMigrated", origMigrated);
           raw.sync(); }
         // cleanup() restores steam/pitcherPresets + steamSecondsPerGram.
@@ -732,12 +736,12 @@ private slots:
         // ran and the user deliberately left the rate at 0 (via the ± control). The ctor
         // must NOT re-seed — this is why the gate is the sentinel, not "rate <= 0".
         bool origMigrated;
-        { QSettings raw("DecentEspresso", "DE1Qt");
+        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           origMigrated = raw.value("steam/steamRateMigrated", false).toBool(); }
 
         QJsonArray arr;
         { QJsonObject p; p["name"] = "Small"; p["duration"] = 30; p["flow"] = 150; p["calibMilkG"] = 200; arr.append(p); }
-        { QSettings raw("DecentEspresso", "DE1Qt");
+        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           raw.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
           raw.setValue("steam/steamSecondsPerGram", 0.0);      // deliberately uncalibrated
           raw.setValue("steam/steamRateMigrated", true);       // already migrated
@@ -746,7 +750,7 @@ private slots:
         Settings fresh;
         QCOMPARE(fresh.brew()->steamSecondsPerGram(), 0.0);
 
-        { QSettings raw("DecentEspresso", "DE1Qt");
+        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           raw.setValue("steam/steamRateMigrated", origMigrated);
           raw.sync(); }
     }
@@ -786,7 +790,7 @@ private slots:
         legacy["duration"] = 30;
         legacy["flow"] = 150;
         QJsonArray arr; arr.append(legacy);
-        { QSettings raw("DecentEspresso", "DE1Qt");
+        { QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
           raw.setValue("steam/pitcherPresets", QJsonDocument(arr).toJson());
           raw.sync(); }
 
@@ -1615,7 +1619,7 @@ private slots:
         // Pre-seed: knownScales has an entry, primary points to it, but the
         // legacy keys are stale/empty (simulates the divergence). Write
         // directly to QSettings so the heal sees the pre-state on next ctor.
-        QSettings raw("DecentEspresso", "DE1Qt");
+        QSettings raw(Settings::testQSettingsPath(), QSettings::IniFormat);
         raw.remove("knownScales/scales");
         raw.beginWriteArray("knownScales/scales");
         raw.setArrayIndex(0);

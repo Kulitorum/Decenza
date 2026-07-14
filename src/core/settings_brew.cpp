@@ -1,4 +1,5 @@
 #include "settings_brew.h"
+#include "settings.h"
 
 #include <QDebug>
 #include <QJsonArray>
@@ -8,7 +9,11 @@
 
 SettingsBrew::SettingsBrew(QObject* parent)
     : QObject(parent)
+#ifdef DECENZA_TESTING
+    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
+#else
     , m_settings("DecentEspresso", "DE1Qt")
+#endif
 {
     // Seed default steam pitcher presets if none exist
     if (!m_settings.contains("steam/pitcherPresets")) {

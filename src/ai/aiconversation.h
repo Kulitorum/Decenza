@@ -169,7 +169,7 @@ public:
      * a prior advisor recommendation to the shot it was about, and the
      * follow-up shot lookup has no anchor.
      */
-    void setShotIdForCurrentTurn(qint64 shotId);
+    Q_INVOKABLE void setShotIdForCurrentTurn(qint64 shotId);
 
     /**
      * Return the shotId stored on the turn at `index`, or 0 when the

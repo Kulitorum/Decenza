@@ -5,6 +5,10 @@
 #include <QString>
 #include <QVariantList>
 #include <QTimer>
+#ifdef DECENZA_TESTING
+#include <QCoreApplication>
+#include <QDir>
+#endif
 // Domain sub-objects are forward-declared. The QML-facing Q_PROPERTYs return
 // QObject* (a known type that QML can introspect) so this header doesn't need
 // to include the twelve sub-object headers — preserving the recompile-blast
@@ -77,6 +81,29 @@ class Settings : public QObject {
 
 public:
     explicit Settings(QObject* parent = nullptr);
+
+#ifdef DECENZA_TESTING
+    // The isolated QSettings location every Settings*/AccessibilityManager
+    // constructor uses under test builds (each independently constructs its
+    // own QSettings — see settings.cpp and each settings_<domain>.cpp) instead
+    // of the real ("DecentEspresso", "DE1Qt") scope the shipped app reads and
+    // writes on the SAME machine. Without this, every test run silently
+    // clobbers a developer's real settings (e.g. tst_aimanager.cpp's
+    // `setOpenaiApiKey("sk-test")` overwriting a real API key). Tests that
+    // need to seed raw pre-construction state (simulating legacy/pre-migration
+    // keys) MUST write here via
+    // `QSettings(Settings::testQSettingsPath(), QSettings::IniFormat)` instead
+    // of `QSettings("DecentEspresso", "DE1Qt")` directly, or the seeded data
+    // lands in a scope nothing reads. PID-scoped so concurrent/repeated test
+    // runs don't collide. Defined inline (not in settings.cpp) so lean test
+    // binaries that link only a single settings_<domain>.cpp — not the whole
+    // settings.cpp — still resolve the symbol.
+    static QString testQSettingsPath()
+    {
+        return QDir::tempPath() + QStringLiteral("/decenza_test_settings_%1.ini")
+            .arg(QCoreApplication::applicationPid());
+    }
+#endif
 
     // Domain sub-object accessors (typed, for C++ callers — header forward-declares
     // the types so callers must include the specific settings_<domain>.h to dereference).

@@ -1,11 +1,16 @@
 #include "settings_hardware.h"
+#include "settings.h"
 
 #include <QtGlobal>
 #include <QDebug>
 
 SettingsHardware::SettingsHardware(QObject* parent)
     : QObject(parent)
+#ifdef DECENZA_TESTING
+    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
+#else
     , m_settings("DecentEspresso", "DE1Qt")
+#endif
 {
 }
 
