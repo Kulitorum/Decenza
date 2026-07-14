@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 
 #include "history/recipepromotion.h"
 #include "history/shothistory_types.h"
@@ -78,6 +79,9 @@ private slots:
 
         ShotRecord noAnchor = sampleShotRecord();
         noAnchor.profileJson = "{\"title\":\"D-Flow / default\"}";  // no espresso_temperature
+        // Deliberate edge case (see comment above) — expect the warning it logs.
+        QTest::ignoreMessage(QtWarningMsg,
+            QRegularExpression("no espresso_temperature - dropping the temperature pin"));
         QCOMPARE(RecipePromotion::fieldsFromShotRecord(noAnchor, "n", std::nullopt, QString())
                      .value("tempOffsetC").toDouble(), 0.0);
 

@@ -737,6 +737,10 @@ private slots:
                            "VALUES ('Cleared', 'Known', 0, 87.0)"));
 
             const QHash<QString, double> temps{{QStringLiteral("Known"), 90.0}};
+            // "Lost"/"Nowhere" is this test's deliberate unresolvable-profile
+            // case (see comment above) — expect the warning it logs.
+            QTest::ignoreMessage(QtWarningMsg,
+                QRegularExpression("could not resolve profile"));
             QVERIFY(RecipeStorage::convertLegacyTempOffsetsStatic(db, temps));
 
             auto offsetOf = [&](const QString& name) {
@@ -773,6 +777,11 @@ private slots:
         });
         withRawDb(destPath, "lts_dest", [&](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));
+            // importRecipesStatic's post-import grind-ownership backfill
+            // queries coffee_bags on the dest DB (see migrateGrindOwnershipStatic);
+            // without the table it logs a warning even though this test has
+            // no bag-linked rows to migrate.
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
         });
         withRawDb(srcPath, "lts_src2", [&](QSqlDatabase& srcDb) {
             withRawDb(destPath, "lts_dest2", [&](QSqlDatabase& destDb) {
@@ -881,6 +890,9 @@ private slots:
         });
         withRawDb(destPath, "unc_dest", [&](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));
+            // See importLegacyTempSourceStagesAndConverts: the post-import
+            // grind-ownership backfill queries coffee_bags on the dest DB.
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
         });
         withRawDb(srcPath, "unc_src2", [&](QSqlDatabase& srcDb) {
             withRawDb(destPath, "unc_dest2", [&](QSqlDatabase& destDb) {
@@ -918,6 +930,9 @@ private slots:
         });
         withRawDb(destPath, "cur_dest", [&](QSqlDatabase& db) {
             QVERIFY(RecipeStorage::ensureTableStatic(db));
+            // See importLegacyTempSourceStagesAndConverts: the post-import
+            // grind-ownership backfill queries coffee_bags on the dest DB.
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
         });
         withRawDb(srcPath, "cur_src2", [&](QSqlDatabase& srcDb) {
             withRawDb(destPath, "cur_dest2", [&](QSqlDatabase& destDb) {
