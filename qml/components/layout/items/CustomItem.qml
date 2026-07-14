@@ -518,6 +518,7 @@ Item {
         implicitHeight: root.hasEmoji ? Theme.scaled(120) : (fullText.implicitHeight + Theme.scaled(16) + (root.hasAction ? Theme.scaled(8) : 0))
 
         Rectangle {
+            id: fullBgRect
             visible: !root.hideBackground && (root.hasAction || root.hasEmoji)
             anchors.fill: parent
             color: fullTap.isPressed ? Qt.darker(root._effectiveBackground, 1.2) : root._effectiveBackground
@@ -525,6 +526,13 @@ Item {
             opacity: root.hasAction && typeof DE1Device !== "undefined" && !DE1Device.guiEnabled ? 0.5 : 1.0
             border.width: root.isActive ? Theme.scaled(3) : 0
             border.color: root._activeRingColor
+
+            // TEMPORARY diagnostic for the Android-only opaque-bottom-bar report
+            // (add-custom-background follow-up) — remove once root-caused.
+            onColorChanged: console.log("[customItem-diag] label=\"" + root.content + "\" pathLen=" + Settings.theme.backgroundImagePath.length
+                + " effectiveBackground=" + root._effectiveBackground + " a=" + root._effectiveBackground.a
+                + " finalColor=" + color + " a=" + color.a + " itemOpacity=" + opacity)
+            Component.onCompleted: colorChanged()
         }
 
         // Layout with emoji: icon above text (like ActionButton)

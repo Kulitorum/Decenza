@@ -27,6 +27,14 @@ Rectangle {
            ? Theme.scrimColor(_opaqueColor)
            : _opaqueColor
 
+    // TEMPORARY diagnostic for the Android-only opaque-bottom-bar report
+    // (add-custom-background follow-up) — remove once root-caused.
+    onColorChanged: console.log("[statusBar-diag] pathLen=" + Settings.theme.backgroundImagePath.length
+        + " opaqueColor=" + _opaqueColor + " a=" + _opaqueColor.a
+        + " scrimResult=" + Theme.scrimColor(_opaqueColor) + " a=" + Theme.scrimColor(_opaqueColor).a
+        + " finalColor=" + color + " a=" + color.a + " itemOpacity=" + opacity + " itemZ=" + z)
+    Component.onCompleted: colorChanged()
+
     LayoutBarZone {
         anchors.fill: parent
         anchors.leftMargin: Theme.chartMarginSmall

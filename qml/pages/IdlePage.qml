@@ -1164,6 +1164,18 @@ Page {
                ? Theme.scrimColor(Theme.bottomBarColor)
                : Theme.bottomBarColor
 
+        // TEMPORARY diagnostic for the Android-only opaque-bottom-bar report
+        // (add-custom-background follow-up) — remove once root-caused.
+        onColorChanged: console.log("[bottomBar-diag] pathLen=" + Settings.theme.backgroundImagePath.length
+            + " bottomBarColor=" + Theme.bottomBarColor + " a=" + Theme.bottomBarColor.a
+            + " scrimResult=" + Theme.scrimColor(Theme.bottomBarColor) + " a=" + Theme.scrimColor(Theme.bottomBarColor).a
+            + " finalColor=" + color + " a=" + color.a + " itemOpacity=" + opacity + " itemZ=" + z)
+        Component.onCompleted: {
+            colorChanged()
+            console.log("[gfx-diag] api=" + GraphicsInfo.api + " shaderType=" + GraphicsInfo.shaderType
+                + " shaderCompilationType=" + GraphicsInfo.shaderCompilationType + " renderableType=" + GraphicsInfo.renderableType)
+        }
+
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: Theme.spacingMedium
