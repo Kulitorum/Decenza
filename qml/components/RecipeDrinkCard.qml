@@ -40,9 +40,12 @@ Rectangle {
     property string imageLink: ""
     // Profile numbers the plan line needs (the recipe stores only its deltas):
     // the card's OWN profile's scalar temp/yield plus its frame temperatures —
-    // never the loaded profile's (recipe-relative-temp-offset). An unresolved
-    // profile leaves all three empty/0 and the plan line omits the temperature
-    // segment rather than borrowing the loaded profile's frames.
+    // never the loaded profile's (recipe-relative-temp-offset). Needed even
+    // though the plan line now shows only the resulting baseline value: the
+    // shared ShotPlanText's live-anchored baseline path reads the currently
+    // loaded profile, which would be wrong here. An unresolved profile leaves
+    // all three empty/0 and the plan line omits the temperature segment
+    // rather than borrowing the loaded profile's frames.
     property real profileTempC: 0
     property real profileYieldG: 0
     property var profileStepTemps: []
@@ -221,10 +224,14 @@ Rectangle {
                 itemOrder: ["doseYield", "temperature", "grind"]
                 profileName: card.recipe.profileTitle || ""
                 profileTemp: card.profileTempC
-                // Source + delta (recipe-relative-temp-offset): the card's own
-                // profile's frames render plain, and the recipe's stored offset
-                // renders as a highlighted signed tag. The live override inputs
-                // are explicitly silenced — a card must never reflect the dial.
+                // Baseline resolution against the card's OWN profile
+                // (recipe-relative-temp-offset): profileStepTemps carries that
+                // profile's own frame temperatures so temperatureDisplayForSteps
+                // can resolve them explicitly (never the currently loaded
+                // profile's), and recipeTempOffsetC is folded into those frames
+                // as a shift — the card shows only the resulting value, no tag.
+                // The live override inputs are explicitly silenced — a card
+                // must never reflect the dial, and has no override to show.
                 profileStepTemps: card.profileStepTemps
                 recipeTempOffsetC: card.recipe.tempOffsetC || 0
                 overrideTemp: card.profileTempC
@@ -232,8 +239,9 @@ Rectangle {
                 dose: card.recipe.doseG || 0
                 profileYield: card.profileYieldG
                 targetWeight: card.recipe.yieldG > 0 ? card.recipe.yieldG : card.profileYieldG
-                yieldOverridden: card.recipe.yieldG > 0 && card.profileYieldG > 0
-                                 && Math.abs(card.recipe.yieldG - card.profileYieldG) > 0.1
+                // No arrow/highlight: a card is a static recipe definition, not
+                // a live per-brew comparison — it shows the resulting yield only.
+                yieldOverridden: false
                 grindSize: card.recipe.grindPinned || ""
                 roasterBrand: ""
                 coffeeName: ""

@@ -72,20 +72,22 @@ Item {
     // temperature STRING is re-anchored too — `_tempStr` shifts the frames to the
     // recipe's own temps (e.g. "81 · 91°C") and drops the profile-relative tag.
     // 0 = off — shot review leaves these unset and keeps its explicit
-    // shot-relative behavior; recipe cards use the source + delta properties
-    // below instead.
+    // shot-relative behavior; recipe cards use the profile-step properties
+    // below instead (they can't use this path — see below).
     property double recipeBaselineYield: 0
     property double recipeBaselineTemp: 0
 
-    // Recipe-card "source + delta" presentation (recipe-relative-temp-offset).
-    // profileStepTemps: the CARD's own profile's frame temperatures (plain
-    // number array) — non-empty routes the temperature string through
-    // temperatureDisplayForSteps so a card never renders whatever profile the
-    // machine currently holds. recipeTempOffsetC: the recipe's stored offset,
-    // rendered as a signed tag AFTER the base temps with the highlight on the
-    // tag only ("84 · 94°C −3°") — the card shows where the values come from
-    // and how the recipe modifies them, while live surfaces show the recipe's
-    // resulting values via recipeBaselineTemp above. Empty/0 = live behavior.
+    // Recipe-card baseline resolution (recipe-relative-temp-offset). Cards
+    // can't use recipeBaselineTemp above because ProfileManager.temperatureDisplay()
+    // reads the machine's CURRENTLY LOADED profile in C++ — a card must stay
+    // correct even while a different profile is loaded (recipe-quick-switch's
+    // "cards are immune to the loaded profile"). profileStepTemps carries the
+    // CARD's own profile's frame temperatures (plain number array) instead, so
+    // temperatureDisplayForSteps can resolve them explicitly. recipeTempOffsetC
+    // is the recipe's stored offset, folded into those frames as a shift (e.g.
+    // a 84 · 94°C profile with offset −3 renders "81 · 91°C") — no separate tag,
+    // no highlight; the card shows the recipe's own resulting value, same as the
+    // live Shot Plan once that recipe is active. Empty/0 = live behavior.
     property var profileStepTemps: []
     property double recipeTempOffsetC: 0
     readonly property double _yieldBaseline: recipeBaselineYield > 0 ? recipeBaselineYield : profileYield
@@ -133,12 +135,12 @@ Item {
     readonly property string _tempStr: {
         void(Settings.app.temperatureUnit)
         if (!(_has("temperature") && profileTemp > 0)) return ""
-        // Recipe cards: the card's OWN profile's frames, unshifted — the
-        // recipe's stored offset renders separately as _tempTagStr. A card
-        // whose profile didn't resolve has profileTemp 0 and exits above:
-        // it never falls back to the loaded profile's frames.
+        // Recipe cards: the card's OWN profile's frames, shifted by the
+        // recipe's stored offset — the resulting value only, no separate tag.
+        // A card whose profile didn't resolve has profileTemp 0 and exits
+        // above: it never falls back to the loaded profile's frames.
         if (profileStepTemps && profileStepTemps.length > 0)
-            return ProfileManager.temperatureDisplayForSteps(profileStepTemps, profileTemp, false, 0, 0)
+            return ProfileManager.temperatureDisplayForSteps(profileStepTemps, profileTemp, false, 0, recipeTempOffsetC)
         // A recipe's temperature is the baseline (a baseline is a baseline): show
         // the recipe's OWN temps (profile frames shifted by the recipe's delta,
         // e.g. "81 · 91°C") anchored on the recipe, so a tag appears only for a
@@ -146,17 +148,6 @@ Item {
         // no recipe, shift 0 and anchor on the profile → unchanged.
         var shift = recipeBaselineTemp > 0 ? (recipeBaselineTemp - profileTemp) : 0
         return ProfileManager.temperatureDisplay(_tempHlBaseline, tempOverridden, overrideTemp, shift)
-    }
-    // The card's offset tag ("−3°"), highlighted on its own — never the base
-    // temps. Follows the °C/°F display unit as a DELTA (×9/5, no +32), the
-    // same conversion the wizard's stepper uses.
-    readonly property string _tempTagStr: {
-        if (_tempStr === "" || Math.abs(recipeTempOffsetC) < 0.05) return ""
-        void(Settings.app.temperatureUnit)
-        var d = Theme.cDeltaToDisplay(recipeTempOffsetC)
-        var a = Math.round(Math.abs(d) * 10) / 10
-        var s = a.toFixed(1).replace(/\.0$/, "")
-        return (d < 0 ? "-" : "+") + s + "°"
     }
     // Roaster = brand only; Coffee = bean name only; Grind = grinder setting + RPM when recorded.
     // Each item gates exactly its named content so saved widget configs mean what they say.
@@ -216,16 +207,7 @@ Item {
             : (grindSize.length > 0 ? TranslationManager.translate("shotplan.grind", "grind %1").arg(fmt(_grindStr, true))
                                     : fmt(_grindStr, true))
         var roasted = (_roastDateStr !== "") ? TranslationManager.translate("shotplan.roasted", "roasted %1").arg(fmt(_roastDateStr, true)) : ""
-        // Temperature item: base temps + the card's offset tag. The tag is
-        // formatted as its own overridden fragment so only IT takes the
-        // highlight color in rich mode (source + delta; the a11y path reads
-        // the same words uncolored).
-        var temp = ""
-        if (_tempStr !== "") {
-            temp = fmt(_tempStr, true, _tempOverride)
-            if (_tempTagStr !== "")
-                temp += " " + fmt(_tempTagStr, true, true)
-        }
+        var temp = (_tempStr !== "") ? fmt(_tempStr, true, _tempOverride) : ""
         var order = itemOrder || []
 
         // Sentence format needs the profile as its anchor; without it (item removed
