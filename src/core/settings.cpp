@@ -44,7 +44,11 @@
 
 Settings::Settings(QObject* parent)
     : QObject(parent)
+#ifdef DECENZA_TESTING
+    , m_settings(testQSettingsPath(), QSettings::IniFormat)
+#else
     , m_settings("DecentEspresso", "DE1Qt")
+#endif
     , m_mqtt(new SettingsMqtt(this))
     , m_autoWake(new SettingsAutoWake(this))
     , m_hardware(new SettingsHardware(this))

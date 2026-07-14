@@ -41,7 +41,7 @@ private:
     // Seed a raw per-profile SAW history map straight into QSettings, bypassing the
     // (now-normalizing) write path — used to simulate legacy display-name-keyed data.
     void seedPerProfileHistory(const QJsonObject& map) {
-        QSettings qs("DecentEspresso", "DE1Qt");
+        QSettings qs(Settings::testQSettingsPath(), QSettings::IniFormat);
         qs.setValue("saw/perProfileHistory", QJsonDocument(map).toJson(QJsonDocument::Compact));
         qs.sync();
         m_settings.calibration()->invalidateCache();
@@ -416,7 +416,7 @@ private slots:
 
     // migrateScaleTypeIds() branch A: global pool entry's "scale" field.
     void migrationRewritesGlobalPoolScaleField() {
-        QSettings qs("DecentEspresso", "DE1Qt");
+        QSettings qs(Settings::testQSettingsPath(), QSettings::IniFormat);
         QJsonArray pool; pool.append(medianEntry(1.0, 2.0, "Acaia"));
         qs.setValue("saw/learningHistory", QJsonDocument(pool).toJson());
         qs.sync();
@@ -433,7 +433,7 @@ private slots:
 
     // migrateScaleTypeIds() branch C: pending-batch map keyed on a display name.
     void migrationRekeysPendingBatch() {
-        QSettings qs("DecentEspresso", "DE1Qt");
+        QSettings qs(Settings::testQSettingsPath(), QSettings::IniFormat);
         QJsonObject batchMap;
         QJsonArray b; b.append(medianEntry(1.0, 2.0, "Bookoo"));
         batchMap["profile_a::Bookoo"] = b;
@@ -448,7 +448,7 @@ private slots:
 
     // migrateScaleTypeIds() branch D: globalBootstrapLag sub-keys.
     void migrationRenamesBootstrapSubKeys() {
-        QSettings qs("DecentEspresso", "DE1Qt");
+        QSettings qs(Settings::testQSettingsPath(), QSettings::IniFormat);
         qs.setValue("saw/globalBootstrapLag/Felicita", 0.42);  // legacy display-name key
         qs.setValue("saw/globalBootstrapLag/skale", 0.30);     // already an id (control)
         qs.sync();
@@ -458,7 +458,7 @@ private slots:
 
         QCOMPARE(m_settings.calibration()->globalSawBootstrapLag("felicita"), 0.42);  // renamed -> id
         QCOMPARE(m_settings.calibration()->globalSawBootstrapLag("skale"), 0.30);     // id key untouched
-        QSettings qs2("DecentEspresso", "DE1Qt");
+        QSettings qs2(Settings::testQSettingsPath(), QSettings::IniFormat);
         QVERIFY(!qs2.contains("saw/globalBootstrapLag/Felicita"));                    // legacy key removed
     }
 
@@ -467,7 +467,7 @@ private slots:
     // (CI runs on a clean one). knownScales are already id-normalized by the member
     // m_settings ctor, so a fresh re-run won't disturb them.
     void ctorMigratesScaleTypeOnce() {
-        QSettings qs("DecentEspresso", "DE1Qt");
+        QSettings qs(Settings::testQSettingsPath(), QSettings::IniFormat);
         const QVariant origType = qs.value("scale/type");
         const QVariant origFlag = qs.value("scale/typeIdsMigrated");
 
@@ -479,7 +479,7 @@ private slots:
             Settings fresh;   // ctor normalizes scale/type and sets the migrated flag
             QCOMPARE(fresh.scaleType(), QString("bookoo"));
         }
-        QSettings qs2("DecentEspresso", "DE1Qt");
+        QSettings qs2(Settings::testQSettingsPath(), QSettings::IniFormat);
         QVERIFY(qs2.value("scale/typeIdsMigrated").toBool());
 
         if (origType.isValid()) qs.setValue("scale/type", origType); else qs.remove("scale/type");

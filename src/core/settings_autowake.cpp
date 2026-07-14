@@ -1,4 +1,5 @@
 #include "settings_autowake.h"
+#include "settings.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -7,7 +8,11 @@
 
 SettingsAutoWake::SettingsAutoWake(QObject* parent)
     : QObject(parent)
+#ifdef DECENZA_TESTING
+    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
+#else
     , m_settings("DecentEspresso", "DE1Qt")
+#endif
 {
 }
 

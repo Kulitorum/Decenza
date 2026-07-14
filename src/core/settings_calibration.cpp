@@ -42,7 +42,11 @@ QJsonObject parseFlowCalBatch(const QSettings& settings) {
 SettingsCalibration::SettingsCalibration(Settings* owner, QObject* parent)
     : QObject(parent)
     , m_owner(owner)
+#ifdef DECENZA_TESTING
+    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
+#else
     , m_settings("DecentEspresso", "DE1Qt")
+#endif
 {
 }
 

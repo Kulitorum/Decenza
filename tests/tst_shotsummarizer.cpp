@@ -729,6 +729,26 @@ private slots:
                  "system prompt must teach empty-string semantics for currentBean fields");
     }
 
+    // fix-multishot-advice-tracking, task 5.4: the strengthened multi-shot
+    // taste-feedback gate (2+ consecutive untasted shots) must ship
+    // alongside — not replace — the existing single-shot tastingFeedback
+    // rule pinned by the test above.
+    void shotAnalysisSystemPrompt_carriesRepeatedUntastedShotsGate()
+    {
+        const QString prompt = ShotSummarizer::shotAnalysisSystemPrompt(
+            QStringLiteral("espresso"), QStringLiteral("80's Espresso"),
+            QString(), QString());
+        QVERIFY2(prompt.contains(QStringLiteral("Repeated untasted shots")),
+                 "system prompt must teach the repeated-untasted-shots gate");
+        QVERIFY2(prompt.contains(QStringLiteral("LAST 2 OR MORE shots")),
+                 "system prompt must state the 2+ consecutive shot threshold");
+        QVERIFY2(prompt.contains(QStringLiteral("preliminary")),
+                 "system prompt must frame curve-only observations as preliminary pending taste");
+        // Still present, not replaced.
+        QVERIFY2(prompt.contains(QStringLiteral("ASK the user")),
+                 "single-shot tastingFeedback rule must still be present");
+    }
+
     // Openspec optimize-dialing-context-payload, tasks 8 + 9: the prose
     // body carries shot-VARIABLE data only. Bean identity (`Coffee:`),
     // roast date (`roasted YYYY-MM-DD`), grinder brand/model/burrs, and

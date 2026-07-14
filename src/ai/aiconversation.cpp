@@ -76,6 +76,7 @@ void AIConversation::ask(const QString& systemPrompt, const QString& userMessage
 
     // Clear previous conversation and start fresh
     m_messages = QJsonArray();
+    m_unsyncedMessages = QJsonArray();
     m_systemPrompt = systemPrompt;
     m_lastResponse.clear();
     m_errorMessage.clear();
@@ -157,6 +158,7 @@ void AIConversation::clearHistory()
     }
 
     m_messages = QJsonArray();
+    m_unsyncedMessages = QJsonArray();
     m_systemPrompt.clear();
     m_lastResponse.clear();
     m_errorMessage.clear();
@@ -170,6 +172,7 @@ void AIConversation::clearHistory()
 void AIConversation::resetInMemory()
 {
     m_messages = QJsonArray();
+    m_unsyncedMessages = QJsonArray();
     m_systemPrompt.clear();
     m_lastResponse.clear();
     m_errorMessage.clear();
@@ -214,6 +217,7 @@ void AIConversation::addUserMessage(const QString& message)
         msg["shotId"] = static_cast<double>(m_pendingShotId);
     }
     m_messages.append(msg);
+    m_unsyncedMessages.append(msg);
 }
 
 void AIConversation::addAssistantMessage(const QString& message,
@@ -230,6 +234,7 @@ void AIConversation::addAssistantMessage(const QString& message,
         m_pendingShotId = 0;  // consume the latch
     }
     m_messages.append(msg);
+    m_unsyncedMessages.append(msg);
 }
 
 std::optional<QJsonObject> AIConversation::structuredNextForTurn(qsizetype index) const
@@ -912,12 +917,53 @@ void AIConversation::saveToStorage()
     QSettings settings;
     QString prefix = "ai/conversations/" + m_storageKey + "/";
 
+    // Guard against AIConversation::appendAssistantTurnForKey (the MCP
+    // ai_advisor_invoke path) having appended turns to this same key since
+    // we last synced (loadFromStorage/saveToStorage). That helper does a
+    // proper read-modify-write, but this method previously did a blind
+    // overwrite from m_messages — if the two interleaved, whichever wrote
+    // last silently erased the other's turn (found during manual
+    // verification of fix-multishot-advice-tracking: a real, on-screen
+    // response never made it into persisted storage).
+    //
+    // m_messages.size() minus m_unsyncedMessages.size() is what we expect
+    // disk to currently hold — everything we last synced, before our own
+    // still-pending additions. If disk actually holds MORE than that,
+    // another writer added turns we don't know about; splice our pending
+    // messages onto the real current disk contents instead of overwriting
+    // them away. Comparing against m_unsyncedMessages (not a simple
+    // "messages synced so far" counter) means this stays correct even when
+    // trimHistory() has compacted m_messages's shape in the meantime.
+    QJsonArray toWrite = m_messages;
+    const qsizetype expectedPriorSize = m_messages.size() - m_unsyncedMessages.size();
+    const QByteArray onDiskRaw = settings.value(prefix + "messages").toByteArray();
+    if (!onDiskRaw.isEmpty()) {
+        QJsonParseError err{};
+        const QJsonDocument onDiskDoc = QJsonDocument::fromJson(onDiskRaw, &err);
+        if (err.error == QJsonParseError::NoError && onDiskDoc.isArray()) {
+            const QJsonArray onDisk = onDiskDoc.array();
+            if (onDisk.size() > expectedPriorSize) {
+                QJsonArray merged = onDisk;
+                for (const QJsonValue& v : std::as_const(m_unsyncedMessages))
+                    merged.append(v);
+                toWrite = merged;
+                qDebug() << "AIConversation::saveToStorage: reconciled" << (onDisk.size() - expectedPriorSize)
+                          << "message(s) appended by another writer for key:" << m_storageKey;
+            }
+        }
+    }
+
     settings.setValue(prefix + "systemPrompt", m_systemPrompt);
 
-    QJsonDocument doc(m_messages);
-    settings.setValue(prefix + "messages", doc.toJson(QJsonDocument::Compact));
+    settings.setValue(prefix + "messages", QJsonDocument(toWrite).toJson(QJsonDocument::Compact));
 
     settings.setValue(prefix + "timestamp", QDateTime::currentDateTime().toString(Qt::ISODate));
+    m_unsyncedMessages = QJsonArray();
+    // Only adopt the reconciled array when it actually differs — avoids
+    // undoing trimHistory()'s compaction of m_messages on the common path
+    // where no other writer touched this key.
+    if (toWrite.size() != m_messages.size())
+        m_messages = toWrite;
 
     emit savedConversationChanged();
     qDebug() << "AIConversation: Saved conversation with" << m_messages.size() << "messages to key:" << m_storageKey;
@@ -959,6 +1005,7 @@ void AIConversation::loadFromStorage()
             break;
         }
     }
+    m_unsyncedMessages = QJsonArray();
 
     emit historyChanged();
     emit canRetryChanged();

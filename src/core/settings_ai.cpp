@@ -1,8 +1,13 @@
 #include "settings_ai.h"
+#include "settings.h"
 
 SettingsAI::SettingsAI(QObject* parent)
     : QObject(parent)
+#ifdef DECENZA_TESTING
+    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
+#else
     , m_settings("DecentEspresso", "DE1Qt")
+#endif
 {
 }
 

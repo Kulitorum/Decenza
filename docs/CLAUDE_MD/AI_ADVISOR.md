@@ -17,16 +17,16 @@
 | Provider | Model | Caching | Cost |
 |----------|-------|---------|------|
 | Anthropic | User-selected (Sonnet 4.6 default, or Sonnet 5) | Explicit `cache_control` on system prompt. 5-min TTL, ~90% discount on cached input | Cloud |
-| OpenAI | User-selected (GPT-5.4 mini default, or GPT-5.4); `reasoning_effort: minimal` | Automatic for prefixes >1024 tokens. ~90% discount on cached input | Cloud |
+| OpenAI | User-selected (GPT-5.4 default, or GPT-5.4 mini); `reasoning_effort: minimal` | Automatic for prefixes >1024 tokens. ~90% discount on cached input | Cloud |
 | Google Gemini | 3.5 Flash | Implicit caching automatic (stable system prompt sent first); explicit Context Caching not implemented | Cloud |
 | OpenRouter | User-selected | Passes through to underlying provider | Cloud |
 | Ollama | User-selected | N/A — local, no cost | Local/free |
 
 #### Model-selection rationale (Anthropic / OpenAI catalogs)
 
-Each provider's `availableModels()` catalog lists the cheaper model first (the recommended default; existing users keep it until they explicitly opt into the more capable one). The catalogs are deliberately two entries — a low-cost default plus one "more capable" opt-in — matching Gemini's shape.
+Each provider's `availableModels()` catalog lists the recommended model first (existing users keep their explicitly-chosen model regardless of order; only users who never picked a model get the first entry). The catalogs are deliberately two entries — a quality-recommended default plus one cheaper/faster opt-in — matching Gemini's shape.
 
-- **OpenAI**: `gpt-5.4-mini` ($0.75/$4.50 per 1M in/out) default → `gpt-5.4` ($2.50/$15, ~3.3× the cost) opt-in. **GPT-5.5** (frontier, ~7× the mini's input cost, aimed at complex reasoning this task doesn't need) and **GPT-5.4 nano** (weaker than the current default) are intentionally omitted. GPT-5 models are reasoning models, so both request paths send `reasoning_effort: "minimal"` — dial-in advice needs little chain-of-thought, and it keeps hidden reasoning tokens from eating the shared `max_tokens` (1024) output cap (which would risk truncating the trailing `nextShot` JSON). This assumes every catalog model is a reasoning model that accepts `reasoning_effort`; revisit if a non-reasoning model is ever added.
+- **OpenAI**: `gpt-5.4` ($2.50/$15 per 1M in/out) default → `gpt-5.4-mini` ($0.75/$4.50, ~3.3× cheaper) opt-in. A blind-judged, real-provider A/B test (see `fix-multishot-advice-tracking` OpenSpec change) found GPT-5.4 mini specifically — not GPT-5.4 — missed a genuine multi-shot pressure trend and never asked for taste feedback before declaring a shot successful, both caught correctly by full GPT-5.4 and by Claude on the same data. That capability gap is why GPT-5.4 leads; mini remains a legitimate opt-in for cost-conscious users who accept weaker dial-in reasoning. **GPT-5.5** (frontier, ~7× the mini's input cost, aimed at complex reasoning this task doesn't need) and **GPT-5.4 nano** (weaker than mini) are intentionally omitted. GPT-5 models are reasoning models, so both request paths send `reasoning_effort: "minimal"` — dial-in advice needs little chain-of-thought, and it keeps hidden reasoning tokens from eating the shared `max_tokens` (1024) output cap (which would risk truncating the trailing `nextShot` JSON). This assumes every catalog model is a reasoning model that accepts `reasoning_effort`; revisit if a non-reasoning model is ever added.
 - **Anthropic**: `claude-sonnet-4-6` default → `claude-sonnet-5` opt-in. No `thinking` field is sent, so extended thinking stays off by default (the Messages API opt-in behavior).
 
 Pricing figures are current as of the change that added these catalogs and will drift — treat them as guidance, not a live source of truth.

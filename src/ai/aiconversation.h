@@ -169,7 +169,7 @@ public:
      * a prior advisor recommendation to the shot it was about, and the
      * follow-up shot lookup has no anchor.
      */
-    void setShotIdForCurrentTurn(qint64 shotId);
+    Q_INVOKABLE void setShotIdForCurrentTurn(qint64 shotId);
 
     /**
      * Return the shotId stored on the turn at `index`, or 0 when the
@@ -324,6 +324,22 @@ private:
     // legacy conversations saved before their respective changes — the
     // readers return 0 / nullopt without erroring.
     QJsonArray m_messages;
+    // Raw messages appended via addUserMessage/addAssistantMessage since the
+    // last successful loadFromStorage()/saveToStorage() — i.e. exactly what
+    // this object added that isn't confirmed to be on disk yet. Deliberately
+    // tracked separately from m_messages (not as a size/count) because
+    // trimHistory() rewrites m_messages — compacting older verbatim turns
+    // into a synthetic summary — which would desync a simple "messages
+    // synced so far" counter from m_messages.size() and silently break the
+    // splice below. saveToStorage() compares this against the current disk
+    // contents to detect when another writer (AIConversation::
+    // appendAssistantTurnForKey, used by the MCP ai_advisor_invoke path) has
+    // appended turns to the same storage key since we last synced, so it can
+    // splice these onto the current disk contents instead of blindly
+    // overwriting them away. Cleared by loadFromStorage() (freshly synced)
+    // and by ask()/clearHistory()/resetInMemory() (starting over — nothing
+    // pending to splice).
+    QJsonArray m_unsyncedMessages;
     // Latch for setShotIdForCurrentTurn: when non-zero, the next
     // addAssistantMessage call stamps the same shotId onto the new
     // assistant entry so the user/assistant pair shares it. Reset after

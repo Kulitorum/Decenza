@@ -1226,6 +1226,140 @@ private slots:
     }
 
     // =====================================================================
+    // fix-multishot-advice-tracking: emitRecentShotContext renders the
+    // `## Recent Advice Tracking` markdown section from the same
+    // recentAdvice QJsonArray shape DialingBlocks::buildRecentAdviceBlock
+    // produces for the MCP `ai_advisor_invoke` path — see
+    // tst_dialing_blocks.cpp for the block-builder's own DB-backed
+    // coverage. These tests exercise the in-app renderer directly (friend-
+    // class access to emitRecentShotContext) rather than duplicating that
+    // DB fixture.
+    // =====================================================================
+
+    // Builds one recentAdvice entry matching buildRecentAdviceBlock's shape
+    // (dialing_blocks.cpp) so the renderer tests below exercise the exact
+    // field set the real block builder emits.
+    static QJsonObject makeRecentAdviceEntry(int turnsAgo, const QString& adherence,
+                                              int outcomeRating = -1)
+    {
+        QJsonObject sn;
+        sn["grinderSetting"] = QStringLiteral("4.75");
+        sn["expectedDurationSec"] = QJsonArray{ 32, 38 };
+        sn["expectedFlowMlPerSec"] = QJsonArray{ 1.0, 1.5 };
+        sn["successCondition"] = QStringLiteral("durationSec in [32,38]");
+        sn["reasoning"] = QStringLiteral("Slow flow toward profile target");
+
+        QJsonObject resp;
+        resp["actualNextShotId"] = 105;
+        resp["grinderSetting"] = QStringLiteral("4.75");
+        resp["doseG"] = 18.0;
+        resp["adherence"] = adherence;
+        if (outcomeRating >= 0)
+            resp["outcomeRating0to100"] = outcomeRating;
+        QJsonObject inRange;
+        inRange["duration"] = true;
+        inRange["flow"] = false;
+        resp["outcomeInPredictedRange"] = inRange;
+
+        QJsonObject entry;
+        entry["turnsAgo"] = turnsAgo;
+        entry["recommendation"] = sn.value("reasoning").toString();
+        entry["structuredNext"] = sn;
+        entry["userResponse"] = resp;
+        return entry;
+    }
+
+    void emitRecentShotContext_appendsRecentAdviceTrackingSection()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 50;
+
+        QJsonArray recentAdvice;
+        recentAdvice.append(makeRecentAdviceEntry(1, QStringLiteral("followed"), 75));
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        mgr.emitRecentShotContext({}, GrinderContext{}, {}, 50, QJsonObject(), recentAdvice);
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QVERIFY2(payload.contains(QStringLiteral("## Recent Advice Tracking")),
+                 "section header missing");
+        QVERIFY2(payload.contains(QStringLiteral("Slow flow toward profile target")),
+                 "recommendation text missing");
+        QVERIFY2(payload.contains(QStringLiteral("grinder 4.75")),
+                 "predicted grinderSetting missing");
+        QVERIFY2(payload.contains(QStringLiteral("adherence: **followed**")),
+                 "adherence value missing");
+        QVERIFY2(payload.contains(QStringLiteral("75/100")),
+                 "outcome rating missing");
+    }
+
+    void emitRecentShotContext_omitsRecentAdviceSectionWhenEmpty()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 51;
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        mgr.emitRecentShotContext({}, GrinderContext{}, {}, 51, QJsonObject(), QJsonArray());
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        QVERIFY2(!payload.contains(QStringLiteral("Recent Advice Tracking")),
+                 "no qualifying recentAdvice entries must produce no section at all — "
+                 "not even an empty placeholder header");
+    }
+
+    // Parity intent (advisor-user-prompt spec, "Parity between in-app
+    // advisor and ai_advisor_invoke"): the in-app markdown and the MCP
+    // `recentAdvice` JSON array are two renderings of the SAME QJsonArray
+    // — this pins that the in-app renderer doesn't drop or mangle any of
+    // the underlying turnsAgo/adherence/outcome fields relative to the
+    // JSON a caller would see under `userPromptUsed.recentAdvice`.
+    void emitRecentShotContext_recentAdviceSection_matchesUnderlyingJsonFields()
+    {
+        QNetworkAccessManager nam;
+        Settings settings;
+        AIManager mgr(&nam, &settings);
+        mgr.m_contextSerial = 52;
+
+        QJsonArray recentAdvice;
+        recentAdvice.append(makeRecentAdviceEntry(1, QStringLiteral("ignored")));  // no rating
+        recentAdvice.append(makeRecentAdviceEntry(2, QStringLiteral("partial"), 40));
+
+        QSignalSpy spy(&mgr, &AIManager::recentShotContextReady);
+        mgr.emitRecentShotContext({}, GrinderContext{}, {}, 52, QJsonObject(), recentAdvice);
+        QCOMPARE(spy.count(), 1);
+        const QString payload = spy.takeFirst().at(0).toString();
+
+        for (const QJsonValue& v : recentAdvice) {
+            const QJsonObject entry = v.toObject();
+            const QJsonObject resp = entry.value("userResponse").toObject();
+            const int turnsAgo = entry.value("turnsAgo").toInt();
+            const QString adherence = resp.value("adherence").toString();
+            QVERIFY2(payload.contains(QStringLiteral("%1 shot").arg(turnsAgo)),
+                     qPrintable(QStringLiteral("turnsAgo=%1 label missing").arg(turnsAgo)));
+            QVERIFY2(payload.contains(QStringLiteral("adherence: **%1**").arg(adherence)),
+                     qPrintable(QStringLiteral("adherence=%1 missing for turnsAgo=%2")
+                                    .arg(adherence).arg(turnsAgo)));
+            if (resp.contains(QStringLiteral("outcomeRating0to100"))) {
+                QVERIFY2(payload.contains(QStringLiteral("%1/100")
+                             .arg(resp.value("outcomeRating0to100").toInt())),
+                         "rated entry's score missing from rendered text");
+            }
+        }
+        // Unrated entry (turnsAgo=1) must not show a Score line derived
+        // from the rated entry (turnsAgo=2) — i.e. no cross-entry bleed.
+        QVERIFY2(!payload.section(QStringLiteral("### 1 shot"), 1)
+                      .section(QStringLiteral("### 2 shots"), 0, 0)
+                      .contains(QStringLiteral("Score:")),
+                 "unrated entry must not carry a Score line");
+    }
+
+    // =====================================================================
     // AIConversation::extractShotFields — issue #1039
     // Pins the structured-field migration: dose / yield / duration /
     // grinder / score / notes are now read directly from the JSON
@@ -1743,6 +1877,144 @@ private slots:
         settings.clear();
     }
 
+    // fix-multishot-advice-tracking manual verification: a real, on-screen
+    // in-app response never made it into persisted storage. Root cause:
+    // saveToStorage() did a blind full-array overwrite from m_messages,
+    // discarding any turn appendAssistantTurnForKey (the MCP ai_advisor_invoke
+    // path) had written to the same key in the meantime. Reproduces the race
+    // directly and asserts saveToStorage() now reconciles instead of clobbering.
+    void aiConversation_saveToStorage_reconcilesTurnsAppendedByAnotherWriter()
+    {
+        QSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        AIConversation conv(&mgr);
+        conv.setStorageKey("test_save_race");
+        conv.m_systemPrompt = QStringLiteral("system");
+
+        conv.addUserMessage(QStringLiteral("u1"));
+        conv.addAssistantMessage(QStringLiteral("a1"));
+        conv.saveToStorage();
+        QVERIFY2(conv.m_unsyncedMessages.isEmpty(), "saveToStorage must clear the pending-unsynced queue");
+
+        // Another writer (simulating ai_advisor_invoke) appends a turn to the
+        // SAME key, bypassing conv's in-memory state entirely — exactly what
+        // appendAssistantTurnForKey does in production.
+        AIConversation::appendAssistantTurnForKey(
+            QStringLiteral("test_save_race"), 999,
+            QStringLiteral("external user"), QStringLiteral("external assistant"), std::nullopt);
+
+        // conv is unaware of the external turn — its own in-memory state is
+        // still just [u1, a1] when it adds a further turn of its own.
+        conv.addUserMessage(QStringLiteral("u2"));
+        conv.addAssistantMessage(QStringLiteral("a2"));
+        conv.saveToStorage();
+
+        AIConversation conv2(&mgr);
+        conv2.setStorageKey("test_save_race");
+        conv2.loadFromStorage();
+
+        QCOMPARE(conv2.messageCount(), 6);
+        const QString text = conv2.getConversationText();
+        QVERIFY2(text.contains("external user"),
+                 "the externally-appended turn must survive conv's later save, not be clobbered");
+        QVERIFY2(text.contains("u2"),
+                 "conv's own new turn must also survive the reconciliation");
+        QCOMPARE(conv2.shotIdForTurn(2), qint64(999));  // external user turn retains its shotId
+
+        settings.clear();
+    }
+
+    // Root-cause regression: a conversation object that never called
+    // loadFromStorage() at all (m_unsyncedMessages empty for the "never
+    // synced" reason, not the "intentionally discarded" reason) must still
+    // reconcile rather than blindly overwrite. This is the exact shape of
+    // the bug found in manual verification — AIManager::switchConversation
+    // used to skip loadFromStorage() for a key not yet in its own in-app
+    // index, even though the MCP path had already written real turns there.
+    void aiConversation_saveToStorage_reconcilesEvenWhenNeverLoaded()
+    {
+        QSettings settings;
+        settings.clear();
+
+        // AIManager's ctor runs a one-time clearAllConversationsOnce
+        // migration that wipes the whole ai/conversations group — must
+        // construct it BEFORE writing the "external" data below, or the
+        // migration deletes what we're about to write (see
+        // mcpAiConversationGet_orphanedKey_fallsBackToStoredTimestamp for
+        // the same gotcha).
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        // Real content already on disk, written entirely by "another writer"
+        // (simulating ai_advisor_invoke) before this AIConversation object
+        // ever touches the key.
+        AIConversation::appendAssistantTurnForKey(
+            QStringLiteral("test_never_loaded"), 111,
+            QStringLiteral("mcp user"), QStringLiteral("mcp assistant"), std::nullopt);
+
+        AIConversation conv(&mgr);
+        conv.setStorageKey("test_never_loaded");
+        conv.m_systemPrompt = QStringLiteral("system");
+        // Deliberately no loadFromStorage() call — conv has no idea the key
+        // already has 2 messages on disk, exactly like a freshly-constructed
+        // conversation switched to via the pre-fix switchConversation().
+
+        conv.addUserMessage(QStringLiteral("fresh user"));
+        conv.addAssistantMessage(QStringLiteral("fresh assistant"));
+        conv.saveToStorage();
+
+        AIConversation conv2(&mgr);
+        conv2.setStorageKey("test_never_loaded");
+        conv2.loadFromStorage();
+
+        QCOMPARE(conv2.messageCount(), 4);
+        const QString text = conv2.getConversationText();
+        QVERIFY2(text.contains("mcp user"),
+                 "pre-existing disk content must survive a save from an object that never loaded first");
+        QVERIFY2(text.contains("fresh user"),
+                 "conv's own new turn must also be present");
+
+        settings.clear();
+    }
+
+    // Root-cause fix: AIManager::switchConversation must load real disk
+    // content for a key even when that key was never added to
+    // m_conversationIndex (i.e. only ever written by the MCP
+    // ai_advisor_invoke path's AIConversation::appendAssistantTurnForKey,
+    // which doesn't touch the index). Before this fix, hasHistory() read
+    // false for such a key and the in-app flow would call ask() — silently
+    // discarding the real turns on the next save.
+    void switchConversation_loadsRealDiskContentNotInIndex()
+    {
+        QSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString key = AIManager::conversationKey(
+            QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"), QStringLiteral("D-Flow"));
+        // Written entirely by "another writer" — never touches m_conversationIndex.
+        AIConversation::appendAssistantTurnForKey(
+            key, 222, QStringLiteral("mcp-only user"), QStringLiteral("mcp-only assistant"), std::nullopt);
+
+        // This AIManager's index has never heard of this key.
+        mgr.switchConversation(QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"),
+                                QStringLiteral("D-Flow"));
+
+        QVERIFY2(mgr.conversation()->hasHistory(),
+                 "switchConversation must load real disk content even for a key absent from m_conversationIndex");
+        QCOMPARE(mgr.conversation()->messageCount(), 2);
+
+        settings.clear();
+    }
+
     // -------------------------------------------------------------
     // Per-turn shot linkage on AIConversation (issue #1053 Part A)
     // -------------------------------------------------------------
@@ -1771,6 +2043,63 @@ private slots:
         QCOMPARE(conv.shotIdForTurn(1), 0);
         QCOMPARE(conv.shotIdForTurn(2), 8473);  // user turn of pair 2
         QCOMPARE(conv.shotIdForTurn(3), 8473);  // assistant turn of pair 2
+    }
+
+    // fix-multishot-advice-tracking, task 5.1: pins the exact sequence
+    // ConversationOverlay.qml's sendFollowUp() performs — stamp shotId
+    // BEFORE the turn is sent, guarded on shotId > 0 — for both the
+    // ask() (new conversation) and followUp() (existing conversation)
+    // branches sendFollowUp() dispatches to. ask()/followUp() themselves
+    // require a live provider (network), so this mirrors their internal
+    // effect via addUserMessage/addAssistantMessage, exactly like the
+    // test above.
+    void sendFollowUpEquivalent_stampsShotIdBeforeAskAndFollowUp()
+    {
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        AIConversation conv(&mgr);
+        conv.m_systemPrompt = "system";
+
+        // ask() branch: new conversation, overlay.shotId resolved (>0).
+        const qint64 overlayShotId1 = 555;
+        if (overlayShotId1 > 0)
+            conv.setShotIdForCurrentTurn(overlayShotId1);
+        conv.addUserMessage("first message");
+        conv.addAssistantMessage("first reply");
+        QCOMPARE(conv.shotIdForTurn(0), overlayShotId1);
+        QCOMPARE(conv.shotIdForTurn(1), overlayShotId1);
+
+        // followUp() branch: existing conversation, a later shot resolved.
+        const qint64 overlayShotId2 = 556;
+        if (overlayShotId2 > 0)
+            conv.setShotIdForCurrentTurn(overlayShotId2);
+        conv.addUserMessage("second message");
+        conv.addAssistantMessage("second reply");
+        QCOMPARE(conv.shotIdForTurn(2), overlayShotId2);
+        QCOMPARE(conv.shotIdForTurn(3), overlayShotId2);
+    }
+
+    // The QML guard (`if (overlay.shotId > 0)`) must skip the stamp for a
+    // free-form follow-up with no resolved shot — a stale/wrong id must
+    // NOT get attached, matching the guard's purpose in
+    // ConversationOverlay.qml's sendFollowUp().
+    void sendFollowUpEquivalent_unresolvedShotIdSkipsStamp()
+    {
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+        AIConversation conv(&mgr);
+        conv.m_systemPrompt = "system";
+
+        const qint64 overlayShotId = 0;  // no resolved shot
+        if (overlayShotId > 0)
+            conv.setShotIdForCurrentTurn(overlayShotId);
+        conv.addUserMessage("general question");
+        conv.addAssistantMessage("general reply");
+
+        QCOMPARE(conv.shotIdForTurn(0), qint64(0));
+        QCOMPARE(conv.shotIdForTurn(1), qint64(0));
     }
 
     void aiConversation_recentAssistantTurns_skipsLegacyAndQuestionTurns()

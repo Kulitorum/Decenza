@@ -537,7 +537,16 @@ Rectangle {
                                 id: dismissShotArea
                                 anchors.fill: parent
                                 anchors.margins: -Theme.scaled(4)
-                                onClicked: overlay.pendingShotSummaryCleared()
+                                onClicked: {
+                                    // User explicitly declined to attach this shot —
+                                    // the next message is a genuine free-form question,
+                                    // not about overlay.shotId. Without this, sendFollowUp()
+                                    // would still stamp the dismissed shot's id onto an
+                                    // unrelated turn (setShotIdForCurrentTurn guard only
+                                    // checks shotId > 0, not "still relevant").
+                                    overlay.shotId = 0
+                                    overlay.pendingShotSummaryCleared()
+                                }
                             }
                         }
                     }
@@ -591,6 +600,14 @@ Rectangle {
                                     message = shotSection
                                 }
                             }
+
+                            // Stamp the resolved shot onto this turn pair before
+                            // sending, so recentAdvice can attribute the advisor's
+                            // reply back to the shot it was about (issue #1053).
+                            // Guarded on > 0: a free-form follow-up with no
+                            // resolved shot must not stamp a stale/wrong id.
+                            if (overlay.shotId > 0)
+                                conversation.setShotIdForCurrentTurn(overlay.shotId)
 
                             // Use ask() for new conversation, followUp() for existing
                             var sent = false

@@ -1,5 +1,6 @@
 #include "accessibilitymanager.h"
 #include "translationmanager.h"
+#include "settings.h"
 #include <QDebug>
 #include <QCoreApplication>
 #include <QLocale>
@@ -16,8 +17,13 @@ AccessibilityManager::AccessibilityManager(QObject *parent)
     // Primary store, matching every settings_*.cpp domain class. Was
     // QSettings("Decenza","DE1") — an isolated third store that broke
     // accessibility backup/restore and survived factory reset. Existing
-    // values are carried over by migrateLegacyStore().
+    // values are carried over by migrateLegacyStore(). Isolated under
+    // DECENZA_TESTING so tests never touch a developer's real store.
+#ifdef DECENZA_TESTING
+    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
+#else
     , m_settings("DecentEspresso", "DE1Qt")
+#endif
 {
     migrateLegacyStore();
     loadSettings();
@@ -33,7 +39,7 @@ AccessibilityManager::AccessibilityManager(QObject *parent)
 #ifdef DECENZA_TESTING
 AccessibilityManager::AccessibilityManager(TestSkipAudioInit, QObject *parent)
     : QObject(parent)
-    , m_settings("DecentEspresso", "DE1Qt")
+    , m_settings(Settings::testQSettingsPath(), QSettings::IniFormat)
 {
     // Deliberately skip migrateLegacyStore()/loadSettings() so tests
     // don't inherit whatever the dev machine has persisted. Member
