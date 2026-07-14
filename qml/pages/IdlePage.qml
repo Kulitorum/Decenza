@@ -1157,24 +1157,21 @@ Page {
         anchors.bottom: parent.bottom
         // Auto-grow to fit large item-size; standard bar height otherwise.
         height: Math.max(Theme.bottomBarHeight, blZone.implicitHeight, brZone.implicitHeight)
-        // Semi-transparent scrim (keeping the bar's own hue) when a custom
-        // background image is active, so the image extends behind the bar
-        // instead of stopping at its edge — mirrors StatusBar.qml.
+        // When a custom background image is active, use the same neutral surface
+        // scrim as StatusBar and the shared BottomBar so every bar reads
+        // consistently and the wallpaper shows through; otherwise keep the
+        // standard bottom-bar hue.
         color: Settings.theme.backgroundImagePath.length > 0
-               ? Theme.scrimColor(Theme.bottomBarColor)
+               ? Theme.scrimColor(Theme.surfaceColor)
                : Theme.bottomBarColor
-
-        // TEMPORARY diagnostic for the Android-only opaque-bottom-bar report
-        // (add-custom-background follow-up) — remove once root-caused.
-        onColorChanged: console.log("[bottomBar-diag] pathLen=" + Settings.theme.backgroundImagePath.length
-            + " bottomBarColor=" + Theme.bottomBarColor + " a=" + Theme.bottomBarColor.a
-            + " scrimResult=" + Theme.scrimColor(Theme.bottomBarColor) + " a=" + Theme.scrimColor(Theme.bottomBarColor).a
-            + " finalColor=" + color + " a=" + color.a + " itemOpacity=" + opacity + " itemZ=" + z)
-        Component.onCompleted: {
-            colorChanged()
-            console.log("[gfx-diag] api=" + GraphicsInfo.api + " shaderType=" + GraphicsInfo.shaderType
-                + " shaderCompilationType=" + GraphicsInfo.shaderCompilationType + " renderableType=" + GraphicsInfo.renderableType)
-        }
+        // A translucent, full-width bar flush against the window's bottom edge
+        // with only the page background behind it gets mis-sorted into the Qt
+        // Quick scene graph's OPAQUE batch (a cross-platform renderer quirk), so
+        // its alpha is dropped and the wallpaper can't show through. An opacity
+        // node forces the subtree through the alpha pass and restores blending;
+        // layer.enabled does not. Only needed while the scrim is active.
+        // (opaque-bottom-bar fix.)
+        opacity: Settings.theme.backgroundImagePath.length > 0 ? 0.99 : 1.0
 
         RowLayout {
             anchors.fill: parent

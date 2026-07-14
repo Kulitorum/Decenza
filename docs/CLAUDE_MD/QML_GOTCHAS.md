@@ -99,3 +99,28 @@ JavaScript `||` treats `0` as falsy, so `value || 0.6` returns `0.6` when `value
 ## No Unicode symbols as icons
 
 Never use Unicode symbols as icons in text (e.g., `"✎"`, `"✗"`, `"☰"`). These render as tofu squares on devices without the right font glyphs. Use SVG icons from `qrc:/icons/` with `Image` instead. For buttons/menu items, use a `Row { Image {} Text {} }` contentItem. Safe Unicode characters (°, ·, —, →, ×) that are in standard fonts are OK.
+
+## Translucent element renders opaque (scene-graph opaque batch)
+
+A `Rectangle` with a translucent color (e.g. a `Theme.scrimColor(...)` fill at alpha 0.4) can render **fully opaque** — the wallpaper behind it doesn't show through — when it sits over the page background with no other geometry overlapping it. Qt Quick's renderer mis-sorts it into the *opaque* batch and drops its alpha. This is platform-independent (seen on Metal/macOS, and reported on Android), so it is **not** an RHI-backend bug.
+
+Symptom seen in practice: the bottom bars and the compact preset-pill popups painted as solid colored slabs over a custom background image, while the top `StatusBar`, the content cards, and the center preset pills (which overlap other content) blended correctly.
+
+What does **not** fix it: a translucent material color alone, or `layer.enabled` (its composite lands at the same spot and hits the same mis-sort).
+
+What **does** fix it: give the item an `opacity < 1`, which inserts a `QSGOpacityNode` and forces the subtree through the alpha pass.
+
+```qml
+// BAD - flush against the window edge / alone over the background => renders opaque
+Rectangle {
+    color: Theme.scrimColor(Theme.surfaceColor)   // alpha 0.4, but paints as 1.0
+}
+
+// GOOD - opacity node forces the alpha pass; scope it to when the scrim is active
+Rectangle {
+    color: Settings.theme.backgroundImagePath.length > 0
+           ? Theme.scrimColor(Theme.surfaceColor)
+           : Theme.surfaceColor
+    opacity: Settings.theme.backgroundImagePath.length > 0 ? 0.99 : 1.0
+}
+```
