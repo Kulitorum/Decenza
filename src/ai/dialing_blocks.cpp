@@ -588,8 +588,16 @@ QString synthesizeRecommendationSummary(const QJsonObject& sn)
     QString head = s.predictedParts.isEmpty()
         ? QStringLiteral("Hold settings")
         : QStringLiteral("Try ") + s.predictedParts.join(QStringLiteral(", "));
-    if (!s.expectedParts.isEmpty())
-        head += QStringLiteral("; expect ") + s.expectedParts.join(QStringLiteral(", "));
+    // Preserve the original both-or-nothing gate: only state an "expect"
+    // window when BOTH duration and flow are present together, not from a
+    // single asymmetric range — summarizeStructuredNext's expectedParts is
+    // per-field independent (correct for the fuller recentAdvice rendering
+    // this now shares with), so gate on the raw fields here instead of on
+    // s.expectedParts to keep this one-line fallback's wording unchanged.
+    const bool hasDuration = sn.contains(QStringLiteral("expectedDurationSec"));
+    const bool hasFlow = sn.contains(QStringLiteral("expectedFlowMlPerSec"));
+    if (hasDuration && hasFlow && s.expectedParts.size() >= 2)
+        head += QStringLiteral("; expect ") + s.expectedParts.mid(0, 2).join(QStringLiteral(", "));
     return head;
 }
 

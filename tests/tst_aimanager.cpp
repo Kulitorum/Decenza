@@ -1898,7 +1898,7 @@ private slots:
         conv.addUserMessage(QStringLiteral("u1"));
         conv.addAssistantMessage(QStringLiteral("a1"));
         conv.saveToStorage();
-        QCOMPARE(conv.m_syncedMessageCount, qsizetype(2));
+        QVERIFY2(conv.m_unsyncedMessages.isEmpty(), "saveToStorage must clear the pending-unsynced queue");
 
         // Another writer (simulating ai_advisor_invoke) appends a turn to the
         // SAME key, bypassing conv's in-memory state entirely — exactly what
@@ -1924,6 +1924,93 @@ private slots:
         QVERIFY2(text.contains("u2"),
                  "conv's own new turn must also survive the reconciliation");
         QCOMPARE(conv2.shotIdForTurn(2), qint64(999));  // external user turn retains its shotId
+
+        settings.clear();
+    }
+
+    // Root-cause regression: a conversation object that never called
+    // loadFromStorage() at all (m_unsyncedMessages empty for the "never
+    // synced" reason, not the "intentionally discarded" reason) must still
+    // reconcile rather than blindly overwrite. This is the exact shape of
+    // the bug found in manual verification — AIManager::switchConversation
+    // used to skip loadFromStorage() for a key not yet in its own in-app
+    // index, even though the MCP path had already written real turns there.
+    void aiConversation_saveToStorage_reconcilesEvenWhenNeverLoaded()
+    {
+        QSettings settings;
+        settings.clear();
+
+        // AIManager's ctor runs a one-time clearAllConversationsOnce
+        // migration that wipes the whole ai/conversations group — must
+        // construct it BEFORE writing the "external" data below, or the
+        // migration deletes what we're about to write (see
+        // mcpAiConversationGet_orphanedKey_fallsBackToStoredTimestamp for
+        // the same gotcha).
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        // Real content already on disk, written entirely by "another writer"
+        // (simulating ai_advisor_invoke) before this AIConversation object
+        // ever touches the key.
+        AIConversation::appendAssistantTurnForKey(
+            QStringLiteral("test_never_loaded"), 111,
+            QStringLiteral("mcp user"), QStringLiteral("mcp assistant"), std::nullopt);
+
+        AIConversation conv(&mgr);
+        conv.setStorageKey("test_never_loaded");
+        conv.m_systemPrompt = QStringLiteral("system");
+        // Deliberately no loadFromStorage() call — conv has no idea the key
+        // already has 2 messages on disk, exactly like a freshly-constructed
+        // conversation switched to via the pre-fix switchConversation().
+
+        conv.addUserMessage(QStringLiteral("fresh user"));
+        conv.addAssistantMessage(QStringLiteral("fresh assistant"));
+        conv.saveToStorage();
+
+        AIConversation conv2(&mgr);
+        conv2.setStorageKey("test_never_loaded");
+        conv2.loadFromStorage();
+
+        QCOMPARE(conv2.messageCount(), 4);
+        const QString text = conv2.getConversationText();
+        QVERIFY2(text.contains("mcp user"),
+                 "pre-existing disk content must survive a save from an object that never loaded first");
+        QVERIFY2(text.contains("fresh user"),
+                 "conv's own new turn must also be present");
+
+        settings.clear();
+    }
+
+    // Root-cause fix: AIManager::switchConversation must load real disk
+    // content for a key even when that key was never added to
+    // m_conversationIndex (i.e. only ever written by the MCP
+    // ai_advisor_invoke path's AIConversation::appendAssistantTurnForKey,
+    // which doesn't touch the index). Before this fix, hasHistory() read
+    // false for such a key and the in-app flow would call ask() — silently
+    // discarding the real turns on the next save.
+    void switchConversation_loadsRealDiskContentNotInIndex()
+    {
+        QSettings settings;
+        settings.clear();
+
+        QNetworkAccessManager nam;
+        Settings appSettings;
+        AIManager mgr(&nam, &appSettings);
+
+        const QString key = AIManager::conversationKey(
+            QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"), QStringLiteral("D-Flow"));
+        // Written entirely by "another writer" — never touches m_conversationIndex.
+        AIConversation::appendAssistantTurnForKey(
+            key, 222, QStringLiteral("mcp-only user"), QStringLiteral("mcp-only assistant"), std::nullopt);
+
+        // This AIManager's index has never heard of this key.
+        mgr.switchConversation(QStringLiteral("Rogue Wave"), QStringLiteral("Ethiopia Yirgacheffe"),
+                                QStringLiteral("D-Flow"));
+
+        QVERIFY2(mgr.conversation()->hasHistory(),
+                 "switchConversation must load real disk content even for a key absent from m_conversationIndex");
+        QCOMPARE(mgr.conversation()->messageCount(), 2);
 
         settings.clear();
     }

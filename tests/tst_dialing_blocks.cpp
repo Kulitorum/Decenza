@@ -789,6 +789,61 @@ private slots:
         });
     }
 
+    // synthesizeRecommendationSummary's fallback (used when the prior turn's
+    // structuredNext omits `reasoning`) was previously untested — the shared
+    // DialingBlocks::summarizeStructuredNext extraction risked silently
+    // widening its both-duration-and-flow-required gate for the "expect"
+    // clause into a per-field-independent one. Pins the original gate: a
+    // single range alone must NOT produce a partial "expect" clause.
+    void recentAdvice_synthesizedRecommendation_requiresBothDurationAndFlowForExpectClause()
+    {
+        const QString dbPath = freshDbPath();
+        initAndClose(dbPath);
+
+        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+        const qint64 priorTs = nowSec - 2 * 3600;
+        const qint64 nextTs = nowSec - 1 * 3600;
+
+        withRawDb(dbPath, "rec_advice_synth_summary", [&](QSqlDatabase& db) {
+            const qint64 priorId = insertShot(db, ShotRow{
+                .uuid = "uuid-prior-synth", .timestamp = priorTs,
+                .profileName = "80's Espresso", .profileKbId = "kb-80s-synth",
+                .duration = 28.0, .finalWeight = 36.0, .doseWeight = 18.0,
+                .grinderSetting = "5.0", .enjoyment = 0
+            });
+            QVERIFY(priorId > 0);
+            const qint64 nextId = insertShot(db, ShotRow{
+                .uuid = "uuid-next-synth", .timestamp = nextTs,
+                .profileName = "80's Espresso", .profileKbId = "kb-80s-synth",
+                .duration = 35.0, .finalWeight = 42.0, .doseWeight = 18.0,
+                .grinderSetting = "4.75", .enjoyment = 0
+            });
+            QVERIFY(nextId > 0);
+
+            // No `reasoning` — forces the synthesized-summary fallback.
+            // Only expectedDurationSec present, no expectedFlowMlPerSec.
+            const QJsonObject durationOnly{
+                {"grinderSetting", "4.75"},
+                {"expectedDurationSec", QJsonArray{32, 38}},
+                {"successCondition", "OK"}
+            };
+            DialingBlocks::RecentAdviceInputs in;
+            in.turns = QList<AIConversation::HistoricalAssistantTurn>{
+                AIConversation::HistoricalAssistantTurn{priorId, "unused prose", durationOnly}
+            };
+            in.currentProfileKbId = "kb-80s-synth";
+            in.currentShotId = 99999;
+
+            const QJsonArray out = DialingBlocks::buildRecentAdviceBlock(db, in);
+            QCOMPARE(out.size(), 1);
+            const QString recommendation = out.first().toObject().value("recommendation").toString();
+            QVERIFY2(recommendation.contains(QStringLiteral("grinder 4.75")),
+                     "predicted field must still be summarized");
+            QVERIFY2(!recommendation.contains(QStringLiteral("expect")),
+                     "a single range (duration without flow) must not produce a partial expect clause");
+        });
+    }
+
     void recentAdvice_omitsRatingWhenUnrated()
     {
         const QString dbPath = freshDbPath();

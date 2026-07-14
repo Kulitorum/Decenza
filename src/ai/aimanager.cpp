@@ -1827,12 +1827,22 @@ QString AIManager::switchConversation(const QString& beanBrand, const QString& b
         }
     }
 
-    // Set new storage key and load if exists
+    // Set new storage key and load whatever is actually on disk for it —
+    // regardless of `exists` (m_conversationIndex only tracks conversations
+    // the IN-APP flow has touched before; it's never updated by the MCP
+    // ai_advisor_invoke path's AIConversation::appendAssistantTurnForKey,
+    // which writes turns directly to QSettings). Without this, a key with
+    // real MCP-written turns but no in-app history looks empty here,
+    // hasHistory() reads false, QML calls ask() instead of followUp(), and
+    // the next saveToStorage() silently destroys those turns — the root
+    // cause of the persistence gap found in manual verification of
+    // fix-multishot-advice-tracking (loadFromStorage is a safe no-op when
+    // the key genuinely has nothing on disk).
     m_conversation->setStorageKey(key);
     m_conversation->setContextLabel(beanBrand, beanType, profileName);
+    m_conversation->loadFromStorage();
 
     if (exists) {
-        m_conversation->loadFromStorage();
         touchConversationEntry(key);
     } else {
         // Evict oldest if at capacity
