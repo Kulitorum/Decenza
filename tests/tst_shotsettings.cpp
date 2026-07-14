@@ -42,6 +42,7 @@ private:
     };
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ===== Wire format length =====
 

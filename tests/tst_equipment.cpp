@@ -53,6 +53,7 @@ private:
     QString freshDbPath() { return m_dir.filePath(QString("eq_%1.db").arg(++m_seq)); }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     // --- splitGrindAndRpm ---
     void splitGrindRpm_data() {
         QTest::addColumn<QString>("input");

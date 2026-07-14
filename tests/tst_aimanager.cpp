@@ -127,6 +127,7 @@ class tst_AIManager : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     // parseBagExtraction: the "Get info" response contract — JSON possibly
     // wrapped in markdown fences, whitelisted to the blob vocabulary keys.
     void parseBagExtractionHandlesFencesWhitelistAndGarbage()

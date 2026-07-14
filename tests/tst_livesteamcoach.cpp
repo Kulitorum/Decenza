@@ -92,7 +92,7 @@ private:
 
 private slots:
 
-    void init() {
+    void init() { QTest::failOnWarning();
         m_origCoachVisual  = m_realSettings.value("steam/steamCoachVisualEnabled");
         m_origCoachAudio   = m_realSettings.value("steam/steamCoachAudioEnabled");
         m_origSteamTimeout = m_realSettings.value("steam/timeout");

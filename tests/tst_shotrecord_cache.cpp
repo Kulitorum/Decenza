@@ -95,6 +95,7 @@ class tst_ShotRecordCache : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     // Sentinel test: when cachedAnalysis is populated, convertShotRecord
     // MUST emit those exact lines without recomputing. The sentinel is a
     // string no real detector would produce — if recomputation fired, the

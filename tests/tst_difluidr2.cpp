@@ -108,6 +108,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // === Device name matching ===
 

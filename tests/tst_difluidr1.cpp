@@ -65,6 +65,7 @@ class tst_DiFluidR1 : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // === Pure helpers — captured vectors ===
 

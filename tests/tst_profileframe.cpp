@@ -31,6 +31,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ==========================================
     // JSON nested exit round-trip (de1app v2 format)

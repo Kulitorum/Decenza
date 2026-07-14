@@ -80,6 +80,7 @@ class tst_ShotSummarizer : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     // Puck-failure shape: peak pressure ~1.0 bar across the entire pour
     // window. Without the cascade, dC/dt and temp detectors on
     // ShotSummarizer's old code path would have read off the (nonexistent)

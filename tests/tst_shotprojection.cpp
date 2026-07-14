@@ -18,6 +18,7 @@ class TstShotProjection : public QObject
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     void coerce_gadgetVariant_passesThroughIntact();
     void coerce_plainMap_reconstructsValidProjection();
     void coerce_emptyVariant_yieldsInvalidProjection();

@@ -107,6 +107,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // === Profile state after load ===
 

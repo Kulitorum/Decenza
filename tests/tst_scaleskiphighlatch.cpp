@@ -22,6 +22,7 @@ class tst_ScaleSkipHighLatch : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     void defaultIsUnlatchedAndEmpty() {
         BLEManager::ScaleSkipHighLatch l;
         QVERIFY(!l.latched);

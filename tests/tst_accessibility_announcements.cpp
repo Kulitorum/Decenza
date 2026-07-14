@@ -91,7 +91,7 @@ private:
     QVariant m_origExtractionMode;
 
 private slots:
-    void init() {
+    void init() { QTest::failOnWarning();
         // Snapshot every key AccessibilityManager::saveSettings() touches so
         // setEnabled / setTtsEnabled writes during a test don't permanently
         // mutate the developer's real preferences.

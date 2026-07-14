@@ -67,6 +67,7 @@ class tst_FirmwareHeader : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ===== parseHeader: pure byte → struct =====
 

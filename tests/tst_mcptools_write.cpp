@@ -156,6 +156,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ===== settings_set temperature triggers BLE upload =====
 

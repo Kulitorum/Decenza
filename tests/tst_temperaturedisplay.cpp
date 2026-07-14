@@ -15,6 +15,7 @@ class tst_TemperatureDisplay : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     // ----- distinctCount -----
     void distinctCount_data() {
         QTest::addColumn<QVector<double>>("temps");

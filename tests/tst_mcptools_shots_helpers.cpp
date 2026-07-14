@@ -10,6 +10,7 @@ class TstMcpToolsShotsHelpers : public QObject
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     void noDetectorResults_isNoOp();
     void cleanShot_pourEnvelope_peakPressureBarIsNull();
     void truncatedShot_pourEnvelope_peakPressureBarPopulated();

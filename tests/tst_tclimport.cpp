@@ -29,6 +29,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ==========================================
     // Data-driven: one row per TCL profile

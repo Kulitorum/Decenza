@@ -13,6 +13,7 @@ class tst_RecipeSelectionModel : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     void defaultsToNone() {
         RecipeSelectionModel m;
         QCOMPARE(m.selected(), qint64(-1));

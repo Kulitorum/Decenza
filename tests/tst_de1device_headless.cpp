@@ -22,6 +22,7 @@ private:
     };
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     void defaultsToHeadless() {
         // A freshly constructed device (no GHC read yet) must allow app starts.
         DE1Device device;

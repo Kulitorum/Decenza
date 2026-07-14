@@ -87,7 +87,7 @@ private slots:
         m_settings.setAutoWakeStayAwakeMinutes(m_origStayMinutes);
     }
 
-    void init() {
+    void init() { QTest::failOnWarning();
         // Every test fully establishes the schedule/duration it needs in
         // its own body; this just guarantees a deterministic enabled flag
         // regardless of what the previous test left behind.

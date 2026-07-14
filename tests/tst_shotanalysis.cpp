@@ -55,6 +55,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     void skipFirstFrameDetection()
     {
         expectSkipDetection({}, -1, false);

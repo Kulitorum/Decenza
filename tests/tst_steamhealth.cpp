@@ -24,7 +24,7 @@ private:
 
 private slots:
 
-    void init() {
+    void init() { QTest::failOnWarning();
         m_origHistory = m_settings.value("steam/sessionHistory").toByteArray();
         m_origLastWarned = m_settings.value("steam/lastWarnedSession");
         m_origLastFlow = m_settings.value("steam/lastTrackedFlow");

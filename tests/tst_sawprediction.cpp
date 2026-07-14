@@ -19,6 +19,7 @@ class tst_SawPrediction : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ===== σ constant lock-in =====
 

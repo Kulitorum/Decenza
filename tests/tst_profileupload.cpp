@@ -54,6 +54,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ===== Happy path: all ACKs arrive, in order =====
 

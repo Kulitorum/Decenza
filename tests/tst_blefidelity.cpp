@@ -48,6 +48,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ==========================================
     // Verify profiles directory exists and has files

@@ -91,6 +91,7 @@ private:
     QString freshDbPath() { return m_dir.filePath(QString("rec_%1.db").arg(++m_seq)); }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // --- variant map round-trip ---
 

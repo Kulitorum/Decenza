@@ -89,6 +89,7 @@ private:
     }
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ==========================================
     // DecentScale: weight parsing

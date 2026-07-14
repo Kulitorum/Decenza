@@ -116,7 +116,7 @@ private slots:
     // Suppress the expected "[Scale] <name> DISCONNECTED" warning from
     // ScaleDevice::setConnected(false) that fires when the test's driver
     // is torn down at scope exit.
-    void init() {
+    void init() { QTest::failOnWarning();
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
     }
 

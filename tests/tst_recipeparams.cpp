@@ -12,6 +12,7 @@ class tst_RecipeParams : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ==========================================
     // JSON round-trip

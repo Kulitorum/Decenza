@@ -112,6 +112,7 @@ class TstKbSchema : public QObject
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     // The precondition every corruption test leans on: the validator must
     // actually be runnable and must accept well-formed input. If this
     // fails, every "fails as expected" test below is meaningless (a

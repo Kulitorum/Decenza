@@ -20,6 +20,7 @@ class TstBasketAliases : public QObject
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     // Data integrity
     void everyEntry_is58mm();
     void everyEntry_hasSaneDoseRange();

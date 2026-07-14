@@ -32,6 +32,7 @@ private:
 
 void TstRoastDate::init()
 {
+    QTest::failOnWarning();
     m_saved = QLocale();
     // Pin a month-first locale so non-locale tests are deterministic.
     QLocale::setDefault(QLocale(QLocale::English, QLocale::UnitedStates));

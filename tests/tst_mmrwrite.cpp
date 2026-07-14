@@ -26,6 +26,7 @@ private:
     };
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ===== Basic accept path =====
 

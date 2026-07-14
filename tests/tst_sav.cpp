@@ -66,6 +66,7 @@ private:
     };
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // ===== SAV fires when pourVolume >= targetVolume =====
 

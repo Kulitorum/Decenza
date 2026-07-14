@@ -12,6 +12,7 @@ class tst_WifiScaleDiscovery : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     // localhost resolves on every platform — exercises the success edge.
     void resolvedHostnameEmitsScaleFound() {
         WifiScaleDiscovery disc;

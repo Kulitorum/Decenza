@@ -13,6 +13,7 @@ class tst_ScaleBlePriority : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
     void de1FaultClusterTriggersBackoff() {
         BlePriorityDetector d;
         d.armWindow(1000);

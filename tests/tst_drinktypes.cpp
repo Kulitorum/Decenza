@@ -8,6 +8,7 @@ class tst_DrinkTypes : public QObject {
     Q_OBJECT
 
 private slots:
+    void init() { QTest::failOnWarning(); }
 
     // Grind-bearing drink types (fix-recipe-grind-integrity): the tea family
     // stores no grind — a dial edit while a tea recipe is active must not
