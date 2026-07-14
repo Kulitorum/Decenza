@@ -23,7 +23,7 @@ Rectangle {
     readonly property bool selected: pkg && pkg.id !== undefined && pkg.id === Settings.dye.activeEquipmentId
     readonly property bool hasReferences: pkg && (pkg.shotCount ?? 0) > 0
 
-    color: Theme.surfaceColor
+    color: Theme.cardBackgroundColor
     radius: Theme.cardRadius
     border.width: selected ? 2 : 1
     border.color: selected ? Theme.primaryColor : Theme.borderColor

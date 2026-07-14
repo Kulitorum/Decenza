@@ -37,7 +37,7 @@ KeyboardAwareContainer {
                     objectName: "batteryCharging"
                     Layout.fillWidth: true
                     implicitHeight: batteryContent.implicitHeight + Theme.scaled(20)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -238,7 +238,7 @@ KeyboardAwareContainer {
                     objectName: "steamHeater"
                     Layout.fillWidth: true
                     implicitHeight: steamContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -368,7 +368,7 @@ KeyboardAwareContainer {
                     objectName: "grinder"
                     Layout.fillWidth: true
                     implicitHeight: grinderContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -430,7 +430,7 @@ KeyboardAwareContainer {
                     objectName: "shotMap"
                     Layout.fillWidth: true
                     implicitHeight: shotMapContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -598,7 +598,7 @@ KeyboardAwareContainer {
                     objectName: "themeMode"
                     Layout.fillWidth: true
                     implicitHeight: themeModeColumn.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -690,6 +690,33 @@ KeyboardAwareContainer {
                                 onActivated: Settings.theme.applyLightTheme(Settings.theme.themeNames[currentIndex])
                             }
                         }
+
+                        // Background image (same image behind idle + 6 other pages, both modes)
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(15)
+
+                            Text {
+                                text: TranslationManager.translate("settings.preferences.background", "Background")
+                                color: Theme.textColor
+                                font.family: Theme.bodyFont.family
+                                font.pixelSize: Theme.scaled(14)
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            AccessibleButton {
+                                text: Settings.theme.backgroundImagePath.length > 0
+                                    ? TranslationManager.translate("settings.preferences.backgroundChange", "Change…")
+                                    : TranslationManager.translate("settings.preferences.backgroundChoose", "Choose…")
+                                accessibleName: TranslationManager.translate("settings.preferences.background", "Background")
+                                onClicked: backgroundPickerDialog.open()
+                            }
+                        }
+                    }
+
+                    BackgroundPickerDialog {
+                        id: backgroundPickerDialog
                     }
                 }
 
@@ -698,7 +725,7 @@ KeyboardAwareContainer {
                     objectName: "extractionView"
                     Layout.fillWidth: true
                     implicitHeight: extractionViewContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -821,7 +848,7 @@ KeyboardAwareContainer {
                     objectName: "shotReviewTimer"
                     Layout.fillWidth: true
                     implicitHeight: postShotContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -879,7 +906,7 @@ KeyboardAwareContainer {
                     objectName: "screenZoom"
                     Layout.fillWidth: true
                     implicitHeight: scaleContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -950,7 +977,7 @@ KeyboardAwareContainer {
                     objectName: "launcherMode"
                     Layout.fillWidth: true
                     implicitHeight: launcherContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
                     visible: Qt.platform.os === "android"
 
@@ -1025,7 +1052,7 @@ KeyboardAwareContainer {
                     objectName: "waterLevel"
                     Layout.fillWidth: true
                     implicitHeight: waterLevelContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     property bool refillKitActive: Settings.app.refillKitOverride === 1 ||
@@ -1163,7 +1190,7 @@ KeyboardAwareContainer {
                     objectName: "temperatureUnit"
                     Layout.fillWidth: true
                     implicitHeight: tempUnitContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -1211,7 +1238,7 @@ KeyboardAwareContainer {
                     objectName: "waterRefillThreshold"
                     Layout.fillWidth: true
                     implicitHeight: refillContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
                     visible: {
                         var override = Settings.app.refillKitOverride
@@ -1264,7 +1291,7 @@ KeyboardAwareContainer {
                     objectName: "refillKit"
                     Layout.fillWidth: true
                     implicitHeight: refillKitContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     property bool kitAvailable: DE1Device.refillKitDetected > 0
@@ -1370,7 +1397,7 @@ KeyboardAwareContainer {
                     objectName: "pocketIntegration"
                     Layout.fillWidth: true
                     implicitHeight: pocketContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -1426,7 +1453,7 @@ KeyboardAwareContainer {
                     objectName: "simulationMode"
                     Layout.fillWidth: true
                     implicitHeight: offlineContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {

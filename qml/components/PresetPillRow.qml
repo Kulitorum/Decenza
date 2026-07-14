@@ -277,7 +277,7 @@ FocusScope {
 
                         color: isSelected
                             ? (isDisabled ? Theme.textSecondaryColor : Theme.primaryColor)
-                            : Theme.backgroundColor
+                            : Theme.insetBackgroundColor
                         border.color: isSelected && !isDisabled ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
 

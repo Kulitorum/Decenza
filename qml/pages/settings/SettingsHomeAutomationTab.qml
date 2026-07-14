@@ -18,7 +18,7 @@ KeyboardAwareContainer {
             objectName: "mqtt"
             Layout.preferredWidth: Theme.scaled(300)
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
             Flickable {
@@ -162,7 +162,7 @@ KeyboardAwareContainer {
                     Rectangle {
                         Layout.fillWidth: true
                         height: Theme.scaled(40)
-                        color: Theme.backgroundColor
+                        color: Theme.insetBackgroundColor
                         radius: Theme.scaled(8)
 
                         RowLayout {
@@ -215,7 +215,7 @@ KeyboardAwareContainer {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
             Flickable {
@@ -263,7 +263,7 @@ KeyboardAwareContainer {
                         }
 
                         background: Rectangle {
-                            color: Theme.backgroundColor
+                            color: Theme.insetBackgroundColor
                             radius: Theme.scaled(4)
                             border.color: Theme.borderColor
                             border.width: 1
@@ -388,7 +388,7 @@ KeyboardAwareContainer {
                     Rectangle {
                         Layout.fillWidth: true
                         height: apiColumn.height + Theme.scaled(16)
-                        color: Theme.backgroundColor
+                        color: Theme.insetBackgroundColor
                         radius: Theme.scaled(8)
                         visible: MainController.shotServer.running
 

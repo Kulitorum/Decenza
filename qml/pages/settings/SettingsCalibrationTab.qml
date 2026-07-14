@@ -31,7 +31,7 @@ Item {
                     objectName: "flowCalibration"
                     Layout.fillWidth: true
                     implicitHeight: flowCalContent.implicitHeight + Theme.scaled(20)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -122,7 +122,7 @@ Item {
                     objectName: "weightStopTiming"
                     Layout.fillWidth: true
                     implicitHeight: sawContent.implicitHeight + Theme.scaled(24)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -233,7 +233,7 @@ Item {
                     objectName: "heaterCalibration"
                     Layout.fillWidth: true
                     implicitHeight: calibrateContent.implicitHeight + Theme.scaled(24)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -295,7 +295,7 @@ Item {
                     objectName: "virtualScale"
                     Layout.fillWidth: true
                     implicitHeight: flowScaleContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -348,7 +348,7 @@ Item {
                     objectName: "preferWeight"
                     Layout.fillWidth: true
                     implicitHeight: ignoreVolumeContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -396,7 +396,7 @@ Item {
                     objectName: "steamHealth"
                     Layout.fillWidth: true
                     implicitHeight: steamHealthContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {

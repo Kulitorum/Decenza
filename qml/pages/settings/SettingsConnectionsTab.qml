@@ -513,7 +513,7 @@ Item {
             objectName: "machineConnection"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
             ColumnLayout {
@@ -610,7 +610,7 @@ Item {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        color: Qt.darker(Theme.surfaceColor, 1.2)
+                        color: Qt.darker(Theme.cardBackgroundColor, 1.2)
                         radius: Theme.scaled(4)
 
                         ScrollView {
@@ -875,7 +875,7 @@ Item {
             objectName: "scaleConnection"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
             clip: true
 

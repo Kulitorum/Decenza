@@ -33,6 +33,12 @@ class SettingsTheme : public QObject {
     Q_PROPERTY(bool isDarkMode READ isDarkMode NOTIFY isDarkModeChanged)
     Q_PROPERTY(QString editingPalette READ editingPalette WRITE setEditingPalette NOTIFY editingPaletteChanged)
 
+    // Custom background image (idle + the 6 other pages covered by add-custom-background).
+    // Absolute filesystem path; empty = today's flat Theme.backgroundColor. Same image in
+    // both light and dark mode. Sourced from the screensaver media library (personal
+    // uploads + locally-cached catalog images) — see ScreensaverVideoManager.
+    Q_PROPERTY(QString backgroundImagePath READ backgroundImagePath WRITE setBackgroundImagePath NOTIFY backgroundImagePathChanged)
+
     // Screen shaders
     Q_PROPERTY(QString activeShader READ activeShader WRITE setActiveShader NOTIFY activeShaderChanged)
     Q_PROPERTY(QVariantMap shaderParams READ shaderParams NOTIFY shaderParamsChanged)
@@ -75,6 +81,9 @@ public:
 
     QString editingPalette() const { return m_editingPalette; }
     void setEditingPalette(const QString& palette);
+
+    QString backgroundImagePath() const;
+    void setBackgroundImagePath(const QString& path);
     Q_INVOKABLE QVariantMap editingPaletteColors() const;
     Q_INVOKABLE void setEditingPaletteColor(const QString& colorName, const QString& colorValue);
 
@@ -128,6 +137,7 @@ signals:
     void themeModeChanged();
     void isDarkModeChanged();
     void editingPaletteChanged();
+    void backgroundImagePathChanged();
     void activeShaderChanged();
     void shaderParamsChanged();
     void customFontSizesChanged();

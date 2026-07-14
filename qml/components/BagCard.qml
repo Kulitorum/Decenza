@@ -185,7 +185,7 @@ Rectangle {
         return bits.join(", ")
     }
 
-    color: Theme.surfaceColor
+    color: Theme.cardBackgroundColor
     radius: Theme.cardRadius
     border.width: selected ? 2 : 1
     border.color: selected ? Theme.primaryColor : Theme.borderColor

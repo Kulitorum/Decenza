@@ -87,7 +87,7 @@ Item {
                 width: rowDelegate.width
                 height: rowDelegate.height
                 radius: Theme.scaled(8)
-                color: rowDelegate.selected ? Theme.primaryColor : Theme.backgroundColor
+                color: rowDelegate.selected ? Theme.primaryColor : Theme.insetBackgroundColor
                 border.color: dragArea.drag.active ? Theme.primaryColor : Theme.textSecondaryColor
                 border.width: dragArea.drag.active ? 2 : 1
                 scale: dragArea.drag.active ? 1.03 : 1.0

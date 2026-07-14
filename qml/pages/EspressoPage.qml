@@ -8,7 +8,7 @@ import "../components"
 Page {
     id: espressoPage
     objectName: "espressoPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     // Local weight property - updated directly in signal handler for immediate display
     property real currentWeight: 0.0
@@ -384,7 +384,7 @@ Page {
         width: Theme.scaled(44)
         height: Theme.scaled(44)
         radius: Theme.scaled(22)
-        color: Theme.surfaceColor
+        color: Theme.cardBackgroundColor
         border.color: Theme.borderColor
         border.width: Theme.scaled(1)
 

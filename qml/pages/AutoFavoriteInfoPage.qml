@@ -7,7 +7,7 @@ import "../components"
 Page {
     id: autoFavoriteInfoPage
     objectName: "autoFavoriteInfoPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     // Properties passed from AutoFavoritesPage
     property int shotId: 0
@@ -176,7 +176,7 @@ Page {
                 id: graphCard
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.max(Theme.scaled(100), Math.min(Theme.scaled(400), autoFavoriteInfoPage.graphHeight))
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 clip: true
                 visible: shotId > 0
@@ -381,7 +381,7 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: analysisColumn.height + Theme.spacingLarge
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 visible: (groupDetails.avgTds || 0) > 0 || (groupDetails.avgEy || 0) > 0
                 Accessible.role: Accessible.Grouping
@@ -468,7 +468,7 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: beanColumn.height + Theme.spacingMedium
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 visible: _hasBeanCardData
                 Accessible.role: Accessible.Grouping

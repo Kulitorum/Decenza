@@ -8,7 +8,7 @@ import "../components"
 Page {
     id: settingsPage
     objectName: "settingsPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     Component.onCompleted: root.currentPageTitle = TranslationManager.translate("settings.title", "Settings")
 
@@ -122,7 +122,11 @@ Page {
         }
 
         background: Rectangle {
-            color: "transparent"
+            // Scrim the whole bar (not just the active tab) when a custom background
+            // image is set — unselected tab labels otherwise sit directly on the photo
+            // with no surface behind them, hurting legibility.
+            color: Settings.theme.backgroundImagePath.length > 0 ? Theme.cardBackgroundColor : "transparent"
+
             // Bottom border line (active tab extends below to cover its portion)
             Rectangle {
                 anchors.left: parent.left
@@ -165,7 +169,7 @@ Page {
                     Text {
                         text: tabBtn.text
                         font: tabBtn.font
-                        color: tabBtn.checked ? Theme.textColor : Theme.textSecondaryColor
+                        color: tabBtn.checked ? Theme.textColor : Theme.textSecondaryOnBackgroundColor
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                         anchors.verticalCenter: parent.verticalCenter

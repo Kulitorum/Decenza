@@ -22,7 +22,7 @@ Switch {
         width: Theme.scaled(44)
         height: Theme.scaled(24)
         radius: height / 2
-        color: control.checked ? Theme.primaryColor : Theme.backgroundColor
+        color: control.checked ? Theme.primaryColor : Theme.insetBackgroundColor
         border.color: control.checked ? Theme.primaryColor : Theme.textSecondaryColor
         border.width: 1
 

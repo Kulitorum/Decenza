@@ -9,7 +9,7 @@ import "../components/graphs"
 Page {
     id: calibrationPage
     objectName: "flowCalibrationPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("flowCalibration.title", "Flow Calibration")
@@ -144,7 +144,7 @@ Page {
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: multiplierContent.implicitHeight + Theme.scaled(20)
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
             ColumnLayout {

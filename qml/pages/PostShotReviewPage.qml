@@ -10,7 +10,7 @@ import "../components/layout/ShotPlanConfig.js" as ShotPlanConfig
 Page {
     id: postShotReviewPage
     objectName: "postShotReviewPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     Component.onCompleted: {
         root.currentPageTitle = TranslationManager.translate("postshotreview.title", "Shot Review")
@@ -1065,7 +1065,7 @@ Page {
                     Layout.preferredHeight: Theme.scaled(36)
                     Layout.alignment: Qt.AlignVCenter
                     radius: Theme.scaled(12)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     border.width: 1
                     border.color: Theme.textSecondaryColor
                     opacity: refMeasuring ? 0.5 : 1.0
@@ -1111,7 +1111,7 @@ Page {
                     Layout.preferredHeight: Theme.scaled(36)
                     Layout.alignment: Qt.AlignVCenter
                     radius: Theme.scaled(18)
-                    color: postShotReviewPage.advancedMode ? Theme.accentColor : Theme.surfaceColor
+                    color: postShotReviewPage.advancedMode ? Theme.accentColor : Theme.cardBackgroundColor
                     border.color: Theme.borderColor
                     border.width: Theme.scaled(1)
 
@@ -1201,7 +1201,7 @@ Page {
                 id: graphCard
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.max(Theme.scaled(100), Math.min(Theme.scaled(400), postShotReviewPage.graphHeight))
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 visible: !!(editShotData.pressure && editShotData.pressure.length > 0)
                 Accessible.role: Accessible.Graphic
@@ -1351,7 +1351,7 @@ Page {
                     Layout.fillWidth: true
                     height: Theme.scaled(44)
                     radius: Theme.scaled(12)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     border.width: 1
                     border.color: Theme.textSecondaryColor
 
@@ -1527,7 +1527,7 @@ Page {
                             // No fixed preferredHeight — its implicitHeight is 36 in
                             // normal mode (matching the steppers) but grows for the
                             // accessibility button row when a screen reader is on.
-                            fieldColor: Theme.surfaceColor   // match the Dose/Out steppers
+                            fieldColor: Theme.cardBackgroundColor   // match the Dose/Out steppers
                             label: ""
                             text: editGrinderSetting
                             suggestions: {
@@ -1558,7 +1558,7 @@ Page {
                             Layout.fillWidth: true
                             // No fixed preferredHeight — lets the a11y button row
                             // expand under a screen reader (implicitHeight is 36 otherwise).
-                            fieldColor: Theme.surfaceColor   // match the Dose/Out steppers
+                            fieldColor: Theme.cardBackgroundColor   // match the Dose/Out steppers
                             label: ""
                             text: editRpm > 0 ? String(editRpm) : ""
                             suggestions: []
@@ -1790,7 +1790,7 @@ Page {
                     Layout.columnSpan: 3
                     Layout.fillWidth: true
                     Layout.preferredHeight: recipeColumn.implicitHeight + Theme.scaled(24)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
                     border.width: 1
                     border.color: Theme.borderColor
@@ -1984,7 +1984,7 @@ Page {
                     visible: (editShotData.recipeId || -1) <= 0
                     readonly property bool hasEquipment: editEquipmentName.length > 0
                                                          || editGrinderBrand.length > 0 || editGrinderModel.length > 0
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
                     border.width: 1
                     border.color: Theme.borderColor
@@ -2294,7 +2294,7 @@ Page {
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
             color: MainController.aiManager && MainController.aiManager.isConfigured
-                   ? Theme.primaryColor : Theme.surfaceColor
+                   ? Theme.primaryColor : Theme.cardBackgroundColor
             opacity: MainController.aiManager && MainController.aiManager.isAnalyzing ? 0.6 : 1.0
 
             Accessible.role: Accessible.Button
@@ -2423,7 +2423,7 @@ Page {
             Layout.preferredWidth: emailPromptContent.width + 32
             Layout.preferredHeight: Theme.scaled(44)
             radius: Theme.scaled(8)
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
 
             Accessible.role: Accessible.Button
             Accessible.name: TranslationManager.translate("postshotreview.accessible.emailprompt", "Email AI prompt to yourself")

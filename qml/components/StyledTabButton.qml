@@ -26,7 +26,7 @@ TabButton {
     contentItem: Text {
         text: root.text
         font: root.font
-        color: root.checked ? Theme.textColor : Theme.textSecondaryColor
+        color: root.checked ? Theme.textColor : Theme.textSecondaryOnBackgroundColor
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
     }
@@ -39,7 +39,7 @@ TabButton {
             visible: root.checked
             anchors.fill: parent
             anchors.bottomMargin: -1  // extend below to cover tab bar border
-            color: Theme.backgroundColor
+            color: Theme.insetBackgroundColor
             border.color: Theme.borderColor
             border.width: 1
             radius: Theme.scaled(4)
@@ -52,7 +52,7 @@ TabButton {
                 anchors.leftMargin: 1
                 anchors.rightMargin: 1
                 height: Theme.scaled(5)
-                color: Theme.backgroundColor
+                color: Theme.insetBackgroundColor
             }
         }
     }

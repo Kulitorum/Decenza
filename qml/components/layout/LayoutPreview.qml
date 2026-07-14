@@ -18,6 +18,14 @@ Item {
     id: previewRoot
     clip: true
 
+    // Background image shown behind the mockup. Defaults to the real saved
+    // setting so every plain `LayoutPreview {}` (e.g. SettingsLayoutTab's
+    // layout-only preview) automatically matches what the actual idle screen
+    // looks like. BackgroundPickerDialog overrides this with the currently
+    // highlighted (not yet saved) thumbnail path while picking — an explicit
+    // binding at the instantiation site always wins over this default.
+    property string backgroundImageSource: Settings.theme.backgroundImagePath
+
     readonly property var _cfg: Settings.network.layoutConfiguration
     function _items(z) { var d = _cfg; return Settings.network.getZoneItems(z) }   // d: dependency tap, keep
     function _scale(z) { var d = _cfg; return Settings.network.getZoneScale(z) }   // d: dependency tap, keep
@@ -36,6 +44,19 @@ Item {
         Rectangle {
             anchors.fill: parent
             color: Theme.backgroundColor
+            visible: previewRoot.backgroundImageSource.length === 0 || bgPreviewImage.status !== Image.Ready
+        }
+
+        Image {
+            id: bgPreviewImage
+            anchors.fill: parent
+            visible: previewRoot.backgroundImageSource.length > 0 && status === Image.Ready
+            source: previewRoot.backgroundImageSource.length > 0 ? "file:///" + previewRoot.backgroundImageSource : ""
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            sourceSize.width: width
+            sourceSize.height: height
+            Accessible.ignored: true
         }
 
         // ---- Status bar (StatusBar.qml) ----
@@ -46,7 +67,11 @@ Item {
             anchors.right: parent.right
             height: Theme.statusBarHeight
             property string _style: previewRoot._opt("statusBar", "style", "standard")
-            color: _style !== "standard" ? Theme.zoneBackgroundColor(_style) : Theme.surfaceColor
+            property color _opaqueColor: _style !== "standard" ? Theme.zoneBackgroundColor(_style) : Theme.surfaceColor
+            // Mirrors StatusBar.qml's scrim so the preview matches what ships.
+            color: previewRoot.backgroundImageSource.length > 0
+                   ? Theme.scrimColor(_opaqueColor)
+                   : _opaqueColor
 
             LayoutBarZone {
                 anchors.fill: parent
@@ -176,7 +201,10 @@ Item {
                 anchors.bottom: parent.bottom
                 // Auto-grow to fit large item-size, matching IdlePage.
                 height: Math.max(Theme.bottomBarHeight, blPreviewZone.implicitHeight, brPreviewZone.implicitHeight)
-                color: Theme.bottomBarColor
+                // Mirrors IdlePage's bottom-bar scrim so the preview matches what ships.
+                color: previewRoot.backgroundImageSource.length > 0
+                       ? Theme.scrimColor(Theme.bottomBarColor)
+                       : Theme.bottomBarColor
 
                 RowLayout {
                     anchors.fill: parent

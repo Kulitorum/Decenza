@@ -9,7 +9,7 @@ import "../components/layout/ShotPlanConfig.js" as ShotPlanConfig
 Page {
     id: shotDetailPage
     objectName: "shotDetailPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     property int shotId: 0
     property var shotData: ({})
@@ -423,7 +423,7 @@ Page {
                     Layout.preferredHeight: Theme.scaled(36)
                     Layout.alignment: Qt.AlignVCenter
                     radius: Theme.scaled(18)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     border.color: Theme.borderColor
                     border.width: Theme.scaled(1)
 
@@ -461,7 +461,7 @@ Page {
                     Layout.preferredHeight: Theme.scaled(36)
                     Layout.alignment: Qt.AlignVCenter
                     radius: Theme.scaled(18)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     border.color: Theme.borderColor
                     border.width: Theme.scaled(1)
 
@@ -499,7 +499,7 @@ Page {
                     Layout.preferredHeight: Theme.scaled(36)
                     Layout.alignment: Qt.AlignVCenter
                     radius: Theme.scaled(18)
-                    color: shotDetailPage.advancedMode ? Theme.accentColor : Theme.surfaceColor
+                    color: shotDetailPage.advancedMode ? Theme.accentColor : Theme.cardBackgroundColor
                     border.color: Theme.borderColor
                     border.width: Theme.scaled(1)
 
@@ -595,7 +595,7 @@ Page {
                 id: graphCard
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.max(Theme.scaled(100), Math.min(Theme.scaled(400), shotDetailPage.graphHeight))
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 clip: true
 
@@ -940,7 +940,7 @@ Page {
                 id: recipeCard
                 Layout.fillWidth: true
                 Layout.preferredHeight: recipeColumn.height + Theme.spacingLarge
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 border.color: Theme.borderColor
                 border.width: Theme.scaled(1)
@@ -1111,7 +1111,7 @@ Page {
                     Layout.preferredWidth: 1  // Equal weight
                     Layout.preferredHeight: beanColumn.height + Theme.spacingLarge
                     Layout.alignment: Qt.AlignTop
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     // Grind is bag-scoped without a recipe, so it lives on this
@@ -1197,7 +1197,7 @@ Page {
                     Layout.preferredWidth: 1  // Equal weight
                     Layout.preferredHeight: equipmentColumn.height + Theme.spacingLarge
                     Layout.alignment: Qt.AlignTop
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
                     // Grind/rpm is a per-shot dial-in, not equipment — it lives on
                     // the recipe card (recipe used) or the bean card, never here. The
@@ -1247,7 +1247,7 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: analysisColumn.height + Theme.spacingLarge
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 visible: shotDetailPage.advancedMode && (shotData.drinkTdsPct > 0 || shotData.drinkEyPct > 0)
                 Accessible.role: Accessible.Grouping
@@ -1291,7 +1291,7 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: baristaRow.height + Theme.spacingLarge
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 visible: !!shotData.barista && shotData.barista !== ""
                 Accessible.role: Accessible.Grouping
@@ -1352,7 +1352,7 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(50)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 visible: !!shotData.visualizerId && shotData.visualizerId !== ""
                 Accessible.role: Accessible.StaticText

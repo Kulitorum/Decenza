@@ -8,7 +8,7 @@ import "../components"
 Page {
     id: profileSelectorPage
     objectName: "profileSelectorPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     Component.onCompleted: root.currentPageTitle = TranslationManager.translate("profileselector.title", "Profiles")
     StackView.onActivated: root.currentPageTitle = TranslationManager.translate("profileselector.title", "Profiles")
@@ -24,7 +24,7 @@ Page {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
             ColumnLayout {
@@ -44,7 +44,7 @@ Page {
                     // Sized off captionFont so the strip scales with the user's
                     // customFontSizes.captionSize accessibility override.
                     Layout.preferredHeight: Math.round(Theme.captionFont.pixelSize * 2.4)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     border.color: Theme.borderColor
                     border.width: 1
                     radius: Theme.cardRadius
@@ -627,7 +627,7 @@ Page {
         Rectangle {
             Layout.preferredWidth: Theme.scaled(380)
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
             ColumnLayout {
@@ -1109,7 +1109,7 @@ Page {
                     Layout.rightMargin: Theme.scaled(12)
                     Layout.preferredHeight: Theme.scaled(48)
                     radius: Theme.scaled(6)
-                    color: typeMouseArea.containsMouse ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : Theme.backgroundColor
+                    color: typeMouseArea.containsMouse ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g, Theme.primaryColor.b, 0.2) : Theme.insetBackgroundColor
                     Accessible.role: Accessible.Button
                     Accessible.name: modelData.label
                     Accessible.focusable: true

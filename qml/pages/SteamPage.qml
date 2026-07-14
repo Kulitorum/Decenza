@@ -9,7 +9,7 @@ import "../components"
 Page {
     id: steamPage
     objectName: "steamPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     property string pageTitle: steamPageTitle.text
     Tr { id: steamPageTitle; key: "steam.title"; fallback: "Steam"; visible: false }
@@ -1092,7 +1092,7 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(60)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 visible: isHeatingUp
 
@@ -1157,7 +1157,7 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(90)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 RowLayout {
@@ -1201,7 +1201,7 @@ Page {
                                     radius: Theme.scaled(18)
                                     color: pitcherSelected
                                         ? (pitcherDisabled ? Theme.textSecondaryColor : Theme.primaryColor)
-                                        : Theme.backgroundColor
+                                        : Theme.insetBackgroundColor
                                     border.color: pitcherSelected && !pitcherDisabled ? Theme.primaryColor : Theme.textSecondaryColor
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
@@ -1414,7 +1414,7 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 Flickable {

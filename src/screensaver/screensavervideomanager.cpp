@@ -10,6 +10,7 @@
 #include <QDebug>
 #include <QRandomGenerator>
 #include <QFileInfo>
+#include <QSet>
 #include <utility>
 
 #ifdef Q_OS_ANDROID
@@ -1947,6 +1948,47 @@ QVariantList ScreensaverVideoManager::getPersonalMediaList() const
         map["path"] = personalDir + "/" + item.path;
         map["bytes"] = item.bytes;
         map["author"] = item.author;
+        list.append(map);
+    }
+    return list;
+}
+
+QVariantList ScreensaverVideoManager::getCachedCatalogImages() const
+{
+    QVariantList list;
+
+    // Iterate m_cacheIndex directly rather than m_catalog: m_catalog only
+    // holds the *currently selected* category's manifest (replaced wholesale
+    // on category switch — see setSelectedCategoryId()), but m_cacheIndex
+    // accumulates every downloaded file across every category ever visited,
+    // and survives category switches. Filtering on m_catalog meant images
+    // cached under a previously-selected category silently disappeared from
+    // the picker the moment the user switched categories, even though the
+    // files were still on disk. getCachePath() only ever writes catalog
+    // images with these three extensions, so extension is a reliable
+    // image/video discriminator here without needing the original VideoItem
+    // (author is left blank — not otherwise available once the owning
+    // category's catalog has been replaced).
+    static const QSet<QString> kImageExtensions = {"jpg", "jpeg", "png"};
+
+    for (auto it = m_cacheIndex.constBegin(); it != m_cacheIndex.constEnd(); ++it) {
+        const CachedVideo& cv = it.value();
+        if (!QFile::exists(cv.localPath)) {
+            continue;
+        }
+
+        QString ext = QFileInfo(cv.localPath).suffix().toLower();
+        if (!kImageExtensions.contains(ext)) {
+            continue;
+        }
+
+        QVariantMap map;
+        map["id"] = cv.catalogId;
+        map["type"] = "image";
+        map["filename"] = QFileInfo(cv.localPath).fileName();
+        map["path"] = cv.localPath;
+        map["bytes"] = cv.bytes;
+        map["author"] = QString();
         list.append(map);
     }
     return list;

@@ -7,7 +7,7 @@ import "../components"
 Page {
     id: profileEditorPage
     objectName: "profileEditorPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     property var profile: null
     property int selectedStepIndex: -1
@@ -206,7 +206,7 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
@@ -216,7 +216,7 @@ Page {
 
                     // Frame toolbar wrapper
                     Rectangle {
-                        color: Theme.surfaceColor
+                        color: Theme.cardBackgroundColor
                         Layout.fillWidth: true
                         implicitHeight: toolbarRow.implicitHeight
                         z: 1  // Above graph
@@ -327,7 +327,7 @@ Page {
             Rectangle {
                 Layout.preferredWidth: Theme.scaled(320)
                 Layout.fillHeight: true
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {
@@ -1234,7 +1234,7 @@ Page {
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: Theme.scaled(28)
                         radius: Theme.scaled(6)
-                        color: step && step.sensor !== "water" ? Theme.temperatureColor : Theme.backgroundColor
+                        color: step && step.sensor !== "water" ? Theme.temperatureColor : Theme.insetBackgroundColor
                         border.width: step && step.sensor !== "water" ? 0 : 1; border.color: Theme.borderColor
                         Accessible.role: Accessible.Button; Accessible.name: "Sensor: Coffee"; Accessible.focusable: true
                         Accessible.onPressAction: sensorCoffeeArea.clicked(null)
@@ -1244,7 +1244,7 @@ Page {
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: Theme.scaled(28)
                         radius: Theme.scaled(6)
-                        color: step && step.sensor === "water" ? Theme.flowColor : Theme.backgroundColor
+                        color: step && step.sensor === "water" ? Theme.flowColor : Theme.insetBackgroundColor
                         border.width: step && step.sensor === "water" ? 0 : 1; border.color: Theme.borderColor
                         Accessible.role: Accessible.Button; Accessible.name: "Sensor: Water"; Accessible.focusable: true
                         Accessible.onPressAction: sensorWaterArea.clicked(null)
@@ -1270,7 +1270,7 @@ Page {
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: Theme.scaled(28)
                         radius: Theme.scaled(6)
-                        color: step && step.pump === "pressure" ? Theme.pressureColor : Theme.backgroundColor
+                        color: step && step.pump === "pressure" ? Theme.pressureColor : Theme.insetBackgroundColor
                         border.width: step && step.pump === "pressure" ? 0 : 1; border.color: Theme.borderColor
                         Accessible.role: Accessible.Button; Accessible.name: "Goal: Pressure"; Accessible.focusable: true
                         Accessible.onPressAction: goalPressureArea.clicked(null)
@@ -1280,7 +1280,7 @@ Page {
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: Theme.scaled(28)
                         radius: Theme.scaled(6)
-                        color: step && step.pump === "flow" ? Theme.flowColor : Theme.backgroundColor
+                        color: step && step.pump === "flow" ? Theme.flowColor : Theme.insetBackgroundColor
                         border.width: step && step.pump === "flow" ? 0 : 1; border.color: Theme.borderColor
                         Accessible.role: Accessible.Button; Accessible.name: "Goal: Flow"; Accessible.focusable: true
                         Accessible.onPressAction: goalFlowArea.clicked(null)
@@ -1318,7 +1318,7 @@ Page {
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: Theme.scaled(28)
                         radius: Theme.scaled(6)
-                        color: step && step.transition !== "smooth" ? Theme.primaryColor : Theme.backgroundColor
+                        color: step && step.transition !== "smooth" ? Theme.primaryColor : Theme.insetBackgroundColor
                         border.width: step && step.transition !== "smooth" ? 0 : 1; border.color: Theme.borderColor
                         Accessible.role: Accessible.Button; Accessible.name: "Transition: Fast"; Accessible.focusable: true
                         Accessible.onPressAction: transitionFastArea.clicked(null)
@@ -1328,7 +1328,7 @@ Page {
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredHeight: Theme.scaled(28)
                         radius: Theme.scaled(6)
-                        color: step && step.transition === "smooth" ? Theme.primaryColor : Theme.backgroundColor
+                        color: step && step.transition === "smooth" ? Theme.primaryColor : Theme.insetBackgroundColor
                         border.width: step && step.transition === "smooth" ? 0 : 1; border.color: Theme.borderColor
                         Accessible.role: Accessible.Button; Accessible.name: "Transition: Smooth"; Accessible.focusable: true
                         Accessible.onPressAction: transitionSmoothArea.clicked(null)

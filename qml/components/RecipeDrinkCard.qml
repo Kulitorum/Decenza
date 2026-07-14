@@ -117,7 +117,7 @@ Rectangle {
 
     implicitHeight: cardColumn.implicitHeight + 2 * Theme.spacingMedium
     radius: Theme.cardRadius
-    color: Theme.surfaceColor
+    color: Theme.cardBackgroundColor
     border.color: active ? Theme.accentColor : Theme.borderColor
     border.width: active ? 2 : 1
 

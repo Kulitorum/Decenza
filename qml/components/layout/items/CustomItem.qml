@@ -50,8 +50,14 @@ Item {
         || longPressAction === "brewSettings" || doubleclickAction === "brewSettings"
     readonly property bool _brewOverrideActive:
         MainController.temperatureIsRealOverride || MainController.yieldIsRealOverride
-    readonly property color _effectiveBackground:
+    readonly property color _baseBackground:
         (_isBrewSettingsWidget && _brewOverrideActive) ? Theme.highlightColor : _parsedBgColor
+    // Idle-screen action tiles (Recipes/Beans/Steam/Hot Water/Flush/Equipment/
+    // etc. — all compiled to CustomItem, see LayoutItemDelegate.compileToCustom)
+    // and user-authored Custom widgets share this rendering path; scrim
+    // uniformly like every other fill in the app when a background image is set.
+    readonly property color _effectiveBackground:
+        Settings.theme.backgroundImagePath.length > 0 ? Theme.scrimColor(_baseBackground) : _baseBackground
     // Content color for text and icon tinting on the button background
     readonly property color _contentColor: Theme.primaryContrastColor
 

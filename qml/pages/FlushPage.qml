@@ -6,7 +6,7 @@ import "../components"
 
 Page {
     objectName: "flushPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     property string pageTitle: TranslationManager.translate("flush.title", "Flush")
 
@@ -87,7 +87,7 @@ Page {
                         width: livePresetText.implicitWidth + 24
                         height: Theme.scaled(36)
                         radius: Theme.scaled(18)
-                        color: index === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.surfaceColor
+                        color: index === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.cardBackgroundColor
                         border.color: index === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.textSecondaryColor
                         border.width: 1
 
@@ -250,7 +250,7 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.scaled(90)
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 RowLayout {
@@ -289,7 +289,7 @@ Page {
                                     width: presetText.implicitWidth + 24
                                     height: Theme.scaled(36)
                                     radius: Theme.scaled(18)
-                                    color: presetDelegate.presetIndex === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.backgroundColor
+                                    color: presetDelegate.presetIndex === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.insetBackgroundColor
                                     border.color: presetDelegate.presetIndex === Settings.brew.selectedFlushPreset ? Theme.primaryColor : Theme.textSecondaryColor
                                     border.width: 1
                                     opacity: dragArea.drag.active ? 0.8 : 1.0
@@ -495,7 +495,7 @@ Page {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
 
                 ColumnLayout {

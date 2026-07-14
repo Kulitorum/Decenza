@@ -42,6 +42,17 @@ void SettingsTheme::setSkin(const QString& skin) {
     }
 }
 
+QString SettingsTheme::backgroundImagePath() const {
+    return m_settings.value("theme/backgroundImagePath", "").toString();
+}
+
+void SettingsTheme::setBackgroundImagePath(const QString& path) {
+    if (backgroundImagePath() != path) {
+        m_settings.setValue("theme/backgroundImagePath", path);
+        emit backgroundImagePathChanged();
+    }
+}
+
 QString SettingsTheme::skinPath() const {
     // Look for skins in standard locations
     QStringList searchPaths = {

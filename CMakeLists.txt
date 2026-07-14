@@ -817,6 +817,8 @@ set(QML_FILES
     qml/components/DrinkType.qml
     qml/components/ProfileKnowledgeDialog.qml
     qml/components/BeanThumbnail.qml
+    qml/components/ThemedPageBackground.qml
+    qml/components/BackgroundPickerDialog.qml
     qml/components/PresetButton.qml
     qml/components/AccessibleLabel.qml
     qml/components/ComparisonGraph.qml

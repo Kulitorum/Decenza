@@ -145,6 +145,12 @@ Each sub-object's `mutable QSettings m_settings("DecentEspresso", "DE1Qt")` open
 
 Do **not** rename keys when moving a property between domains — that silently loses every user's saved value.
 
+## `SettingsTheme.backgroundImagePath`
+
+Optional custom background image (Idle, Beans, Recipes, Steam, Hot Water, Flush, Equipment, Settings; both light and dark mode). Empty = today's flat `Theme.backgroundColor`. Sourced entirely from the screensaver media library (`ScreensaverVideoManager`/`ScreensaverManager`): personal (web-uploaded) images always show up, but stock/catalog images only appear once they've been downloaded to disk by the existing rate-limited background download (`startBackgroundDownload()`), across every category ever selected — `getCachedCatalogImages()` reads `m_cacheIndex` directly rather than the currently-selected category's `m_catalog`, since the catalog list is replaced wholesale on every category switch but the on-disk cache index isn't. `ScreensaverVideoManager::getCachedCatalogImages()` deliberately does **not** force a download — a sparse `BackgroundPickerDialog` grid right after install or a fresh category is expected behavior, not a bug; it fills in over time.
+
+On the 8 covered pages, the shared chrome (`StatusBar.qml`, `BottomBar.qml`, and `IdlePage`'s own bottom nav bar) automatically goes semi-transparent when a background image is active, via `root.currentPageHasThemedBackground` in `main.qml` — gated per-page so uncovered pages keep fully opaque bars. No separate setting for this; see `openspec/changes/add-custom-background/design.md` Decision 6.
+
 ## When in doubt
 
 The `openspec/changes/split-headers-by-domain/` folder has the proposal, design notes, and tasks list documenting why the architecture looks the way it does and what's still pending.

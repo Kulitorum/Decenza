@@ -8,7 +8,7 @@ import "../components"
 Page {
     id: shotComparisonPage
     objectName: "shotComparisonPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     property var comparisonModel: MainController.shotComparison
 
@@ -81,7 +81,7 @@ Page {
                     Layout.preferredWidth: Theme.scaled(36)
                     Layout.preferredHeight: Theme.scaled(36)
                     radius: Theme.scaled(18)
-                    color: shotComparisonPage.advancedMode ? Theme.accentColor : Theme.surfaceColor
+                    color: shotComparisonPage.advancedMode ? Theme.accentColor : Theme.cardBackgroundColor
                     border.color: Theme.borderColor
                     border.width: Theme.scaled(1)
 
@@ -121,7 +121,7 @@ Page {
                 id: graphCard
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.max(Theme.scaled(150), Math.min(Theme.scaled(500), shotComparisonPage.graphHeight))
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 clip: true
 
@@ -320,7 +320,7 @@ Page {
             // Card: crosshair data table + phase pills
             Rectangle {
                 Layout.fillWidth: true
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 implicitHeight: dataTableCard.implicitHeight + Theme.spacingMedium * 2
 
@@ -401,7 +401,7 @@ Page {
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.spacingSmall
                 Layout.bottomMargin: Theme.spacingSmall
-                color: Theme.surfaceColor
+                color: Theme.cardBackgroundColor
                 radius: Theme.cardRadius
                 implicitHeight: shotTable.implicitHeight + Theme.spacingMedium * 2
 

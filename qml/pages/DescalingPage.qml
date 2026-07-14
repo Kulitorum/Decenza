@@ -7,7 +7,7 @@ import "../components"
 Page {
     id: descalingPage
     objectName: "descalingPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     Component.onCompleted: root.currentPageTitle = TranslationManager.translate("descaling.title", "Descaling")
     StackView.onActivated: root.currentPageTitle = TranslationManager.translate("descaling.title", "Descaling")
@@ -93,7 +93,7 @@ Page {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Theme.scaled(200)
-                        color: Theme.surfaceColor
+                        color: Theme.cardBackgroundColor
                         radius: Theme.cardRadius
 
                         ColumnLayout {
@@ -205,7 +205,7 @@ Page {
                     id: rinseCard
                     Layout.fillWidth: true
                     implicitHeight: rinseContent.implicitHeight + Theme.scaled(32)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {
@@ -482,7 +482,7 @@ Page {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: solutionContent.implicitHeight + Theme.scaled(24)
-                        color: Theme.surfaceColor
+                        color: Theme.cardBackgroundColor
                         radius: Theme.cardRadius
 
                         ColumnLayout {
@@ -578,7 +578,7 @@ Page {
                     Rectangle {
                         Layout.preferredWidth: Theme.scaled(160)
                         Layout.fillHeight: true
-                        color: Theme.surfaceColor
+                        color: Theme.cardBackgroundColor
                         radius: Theme.cardRadius
 
                         ColumnLayout {
@@ -641,7 +641,7 @@ Page {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: stepsContent.implicitHeight + Theme.scaled(24)
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     radius: Theme.cardRadius
 
                     ColumnLayout {

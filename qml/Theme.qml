@@ -302,10 +302,60 @@ QtObject {
     // Wrapped in _c() for flash-to-identify from web theme editor
     property color backgroundColor: _c("backgroundColor", Settings.theme.customThemeColors.backgroundColor || "#1a1a2e")
     property color surfaceColor: _c("surfaceColor", Settings.theme.customThemeColors.surfaceColor || "#303048")
+
+    // Single translucency level for every "scrim" used when a custom background
+    // image is active (cards, bars, inset controls, action-button tiles) — a
+    // tinted-glass wash, not a heavy dimmer. Started at 0.25 to match the AI
+    // Provider tab's pre-existing "configured" chip look, but that left
+    // secondary text (textSecondaryColor) illegible against busy/bright photo
+    // regions — bold primary text had enough weight to survive, lighter
+    // secondary text didn't. Bumped once to 0.4: still visibly lighter than a
+    // heavy dimmer, but enough to give secondary text real contrast. Fixing
+    // contrast here (uniformly, for all text) rather than special-casing
+    // textSecondaryColor to match primary when a background is active — the
+    // latter would erase the app's text-hierarchy convention specifically in
+    // this one state instead of just fixing the underlying contrast problem.
+    readonly property real backgroundScrimAlpha: 0.4
+
+    // Scrim a color for use over a custom background image: same hue, reduced
+    // opacity so the wallpaper shows through. Use this instead of hand-rolling
+    // Qt.rgba(...) at each call site — keeps every scrim in the app at the same
+    // translucency level tuned by backgroundScrimAlpha above.
+    function scrimColor(baseColor) {
+        return Qt.rgba(baseColor.r, baseColor.g, baseColor.b, backgroundScrimAlpha)
+    }
+
+    // Card fill for page-level content cards (NOT dialogs/popups, which already
+    // sit above a dim Overlay and don't need the wallpaper showing through them).
+    // Opaque surfaceColor when no background image is set — zero visual change.
+    readonly property color cardBackgroundColor: Settings.theme.backgroundImagePath.length > 0
+        ? scrimColor(surfaceColor)
+        : surfaceColor
+
+    // Recessed/inset fill for controls that use flat backgroundColor to "blend
+    // into" the page rather than stand out as a surface — text field boxes,
+    // switch tracks, tab-button active states, unselected pills. Opaque
+    // backgroundColor otherwise, so nothing changes with no background set.
+    readonly property color insetBackgroundColor: Settings.theme.backgroundImagePath.length > 0
+        ? scrimColor(backgroundColor)
+        : backgroundColor
     property color primaryColor: _c("primaryColor", Settings.theme.customThemeColors.primaryColor || "#4e85f4")
     property color secondaryColor: _c("secondaryColor", Settings.theme.customThemeColors.secondaryColor || "#c0c5e3")
     property color textColor: _c("textColor", Settings.theme.customThemeColors.textColor || "#ffffff")
-    property color textSecondaryColor: _c("textSecondaryColor", Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8")
+    // Brightened whenever a background image is active. Originally tried scoping
+    // this to only bare-background text (Settings tab bar) on the theory that text
+    // already sitting on a cardBackgroundColor/insetBackgroundColor scrim had
+    // enough contrast from that scrim alone — wrong in practice: bean inventory
+    // cards (roaster/origin/tasting-note text on a scrimmed card, still over a
+    // busy photo) were just as hard to read. Applies everywhere textSecondaryColor
+    // is read, uniformly. Unchanged with no background image set.
+    property color textSecondaryColor: _c("textSecondaryColor", Settings.theme.backgroundImagePath.length > 0
+        ? Qt.lighter(Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8", 1.4)
+        : (Settings.theme.customThemeColors.textSecondaryColor || "#a0a8b8"))
+
+    // Kept as an alias so call sites that already migrated to the more specific
+    // name don't need to churn back — both now resolve to the same brightened value.
+    readonly property color textSecondaryOnBackgroundColor: textSecondaryColor
     property color accentColor: _c("accentColor", Settings.theme.customThemeColors.accentColor || "#e94560")
     property color successColor: _c("successColor", Settings.theme.customThemeColors.successColor || "#00cc6d")
     property color warningColor: _c("warningColor", Settings.theme.customThemeColors.warningColor || "#ffaa00")

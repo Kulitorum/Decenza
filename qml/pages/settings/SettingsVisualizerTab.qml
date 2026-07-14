@@ -23,7 +23,7 @@ KeyboardAwareContainer {
             objectName: "visualizer"
             Layout.preferredWidth: Theme.scaled(350)
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
             // Scrollable so the account card stays usable on short screens —
@@ -168,7 +168,7 @@ KeyboardAwareContainer {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: Theme.surfaceColor
+            color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
             ColumnLayout {

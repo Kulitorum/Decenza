@@ -7,7 +7,7 @@ import "../../components"
 Page {
     id: addLanguagePage
     objectName: "addLanguagePage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     Component.onCompleted: root.currentPageTitle = "Add Language"
     StackView.onActivated: root.currentPageTitle = "Add Language"
@@ -101,7 +101,7 @@ Page {
                     anchors.fill: parent
                     anchors.margins: Theme.scaled(6)
                     radius: Theme.buttonRadius
-                    color: langMouseArea.pressed ? Theme.primaryColor : Theme.surfaceColor
+                    color: langMouseArea.pressed ? Theme.primaryColor : Theme.cardBackgroundColor
                     border.width: 1
                     border.color: Qt.rgba(1, 1, 1, 0.3)
 

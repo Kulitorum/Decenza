@@ -11,7 +11,7 @@ import "../components"
 Page {
     id: recipesPage
     objectName: "recipesPage"
-    background: Rectangle { color: Theme.backgroundColor }
+    background: ThemedPageBackground {}
 
     StackView.onActivated: root.currentPageTitle = TranslationManager.translate("recipes.title", "Recipes")
 
@@ -428,7 +428,7 @@ Page {
                     }
                     implicitHeight: tileColumn.implicitHeight + 2 * Theme.spacingLarge
                     radius: Theme.cardRadius
-                    color: Theme.surfaceColor
+                    color: Theme.cardBackgroundColor
                     border.color: Theme.borderColor
                     border.width: 1
                     ColumnLayout {
