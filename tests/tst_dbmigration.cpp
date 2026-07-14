@@ -1076,7 +1076,6 @@ private slots:
             QVERIFY(s.initialize(path));
             QCOMPARE(s.lastSavedShotId(), qint64(0));
             s.close();
-            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
         }
 
         // Insert three shots, then construct a SECOND instance — modelling an
@@ -1099,7 +1098,6 @@ private slots:
             QVERIFY(s.initialize(path));
             QCOMPARE(s.lastSavedShotId(), newestId);
             s.close();
-            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
         }
 
         // Delete the newest row; a fresh instance must seed the surviving
@@ -1114,7 +1112,6 @@ private slots:
             QVERIFY(s.initialize(path));
             QCOMPARE(s.lastSavedShotId(), newestId - 1);
             s.close();
-            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
         }
     }
 
@@ -1535,7 +1532,6 @@ private slots:
             shotId = s.importShotRecord(rec);
             QVERIFY(shotId > 0);
             s.close();
-            for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
         }
         withRawDb(path, "v23_import_verify", [&](QSqlDatabase& db) {
             const ShotRecord r = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
@@ -1597,7 +1593,6 @@ private slots:
         QCOMPARE(spy.last().at(2).toInt(), 0);
 
         s.close();
-        for (int i = 0; i < 20; i++) { QCoreApplication::processEvents(); QThread::msleep(25); }
     }
 };
 

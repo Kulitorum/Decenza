@@ -17,6 +17,7 @@
 
 #include <QtTest>
 #include <QSet>
+#include <QFile>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -191,20 +192,36 @@ private:
         return m_tempDir.path() + QStringLiteral("/dialing_%1.db").arg(++counter);
     }
 
-    // Stand up a fresh DB at `path` with the full ShotHistoryStorage
-    // schema, then close so callers can attach a raw connection.
-    // initialize() launches a bg-thread distinct-cache prewarm; we drain
-    // it the same way tst_dbmigration does so the connection cleanup
-    // does not race the worker thread.
+    QString m_templateDbPath;
+
+    // Stand up a fresh DB at `path` with the full ShotHistoryStorage schema.
+    // The schema template is built exactly once in initTestCase(); each test's
+    // DB is a file copy of it (a few ms) rather than a fresh
+    // createTables()+migration-chain run (~300ms each) — 37 call sites × the
+    // migration chain was the bulk of this binary's runtime.
     void initAndClose(const QString& path)
     {
-        ShotHistoryStorage storage;
-        QVERIFY(storage.initialize(path));
-        storage.close();
-        for (int i = 0; i < 20; ++i) {
-            QCoreApplication::processEvents();
-            QThread::msleep(25);
+        QVERIFY(!m_templateDbPath.isEmpty());
+        QVERIFY(QFile::copy(m_templateDbPath, path));
+        // Copy any WAL/SHM sidecars so the schema copy is complete even if the
+        // template wasn't fully checkpointed on close.
+        for (const QString& suffix : {QStringLiteral("-wal"), QStringLiteral("-shm")}) {
+            if (QFile::exists(m_templateDbPath + suffix))
+                QFile::copy(m_templateDbPath + suffix, path + suffix);
         }
+        // Self-check the copy actually carried the schema. Today the schema is
+        // durably checkpointed into the main .db before the copy (see
+        // initTestCase), so this always holds — but if that ever changes (schema
+        // migrates into an uncopied/torn WAL) an empty-schema DB would let the
+        // read-only "empty DB" tests pass silently. Fail loudly instead.
+        bool schemaOk = false;
+        withRawDb(path, QStringLiteral("tmpl_verify"), [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            schemaOk = q.exec(QStringLiteral(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='shots'"))
+                && q.next();
+        });
+        QVERIFY2(schemaOk, "copied template DB is missing the 'shots' schema");
     }
 
 private slots:
@@ -215,6 +232,18 @@ private slots:
         // happens here (in initTestCase) rather than inside individual tests.
         // ai.qrc is linked by this binary, so the load succeeds silently.
         ShotSummarizer::computeProfileKbId(QStringLiteral("dummy"), QStringLiteral("advanced"));
+
+        // Build the schema template ONCE. initAndClose() copies this file per
+        // test instead of re-running the migration chain each time. initialize()
+        // creates the tables/runs migrations and then durably checkpoints them
+        // into the main .db (PRAGMA wal_checkpoint(TRUNCATE)) before spawning its
+        // read-only distinct-cache prewarm — so the copied .db carries the full
+        // schema regardless of that detached prewarm thread (which the destructor
+        // does NOT join; it's read-only and m_destroyed-guarded, so harmless).
+        m_templateDbPath = m_tempDir.path() + QStringLiteral("/dialing_template.db");
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(m_templateDbPath));
+        storage.close();
     }
 
     // -------------------------------------------------------------------
