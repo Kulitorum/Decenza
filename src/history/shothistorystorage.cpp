@@ -1564,14 +1564,22 @@ bool ShotHistoryStorage::runMigrations()
     if (currentVersion >= 31 && currentVersion < 32) {
         qDebug() << "ShotHistoryStorage: Running migration to version 32 (storage hint + opened date)";
 
-        if (!hasColumn("coffee_bags", "storage_hint"))
-            query.exec ("ALTER TABLE coffee_bags ADD COLUMN storage_hint TEXT");
-        if (!hasColumn("coffee_bags", "opened_date"))
-            query.exec ("ALTER TABLE coffee_bags ADD COLUMN opened_date TEXT");
-        if (!hasColumn("shots", "storage_hint"))
-            query.exec ("ALTER TABLE shots ADD COLUMN storage_hint TEXT");
-        if (!hasColumn("shots", "opened_date"))
-            query.exec ("ALTER TABLE shots ADD COLUMN opened_date TEXT");
+        if (!hasColumn("coffee_bags", "storage_hint")
+            && !query.exec ("ALTER TABLE coffee_bags ADD COLUMN storage_hint TEXT"))
+            qWarning() << "ShotHistoryStorage: migration 32 add coffee_bags.storage_hint failed -"
+                       << query.lastError().text();
+        if (!hasColumn("coffee_bags", "opened_date")
+            && !query.exec ("ALTER TABLE coffee_bags ADD COLUMN opened_date TEXT"))
+            qWarning() << "ShotHistoryStorage: migration 32 add coffee_bags.opened_date failed -"
+                       << query.lastError().text();
+        if (!hasColumn("shots", "storage_hint")
+            && !query.exec ("ALTER TABLE shots ADD COLUMN storage_hint TEXT"))
+            qWarning() << "ShotHistoryStorage: migration 32 add shots.storage_hint failed -"
+                       << query.lastError().text();
+        if (!hasColumn("shots", "opened_date")
+            && !query.exec ("ALTER TABLE shots ADD COLUMN opened_date TEXT"))
+            qWarning() << "ShotHistoryStorage: migration 32 add shots.opened_date failed -"
+                       << query.lastError().text();
 
         if (hasColumn("coffee_bags", "storage_hint") && hasColumn("coffee_bags", "opened_date")
             && hasColumn("shots", "storage_hint") && hasColumn("shots", "opened_date")) {

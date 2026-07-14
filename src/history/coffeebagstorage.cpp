@@ -254,6 +254,26 @@ TeaBrewingData CoffeeBag::teaBrewingFromBlob(const QString& beanBaseData)
     return data;
 }
 
+// static
+const QStringList& CoffeeBag::storageHintValues()
+{
+    // Mirror in QML: ChangeBeansDialog `hintValues`. No "frozen" — frozen state
+    // is defined solely by frozenDate (bean-freshness-followup design).
+    static const QStringList values = {
+        QStringLiteral("counter"),
+        QStringLiteral("airtight"),
+        QStringLiteral("vacuum-sealed"),
+        QStringLiteral("fridge"),
+    };
+    return values;
+}
+
+// static
+bool CoffeeBag::isValidStorageHint(const QString& hint)
+{
+    return hint.isEmpty() || storageHintValues().contains(hint);
+}
+
 CoffeeBagStorage::CoffeeBagStorage(QObject* parent)
     : QObject(parent)
 {

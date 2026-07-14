@@ -429,6 +429,69 @@ private slots:
     }
 
     // -------------------------------------------------------------------
+    // dialInSessionsBlock — bean-freshness-followup: the storage-lifecycle
+    // fields hoist/override through the REAL block builder, not just the pure
+    // hoistSessionContext helper. Exercises the projection->ShotIdentity copy
+    // (dialing_blocks.cpp), the context emission, and the per-shot override in
+    // shotToJson — the three segments the pure-function test can't reach.
+    // -------------------------------------------------------------------
+    void dialInSessionsBlock_hoistsLifecycleAndOverridesOnThaw()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+        const qint64 base = now - 2 * kSecPerDay;
+
+        withRawDb(path, QStringLiteral("dial_lifecycle"), [&](QSqlDatabase& db) {
+            // One session, three shots within ~30 min. All share a storageHint
+            // (should hoist to context); shots 1-2 share a defrostDate and shot
+            // 3 was pulled after a new thaw (should override per-shot).
+            ShotRow b;
+            b.profileName = QStringLiteral("80's Espresso");
+            b.profileKbId = QStringLiteral("kb-lc2");
+            b.beanBrand = QStringLiteral("Northbound");
+            b.grinderModel = QStringLiteral("Zero");
+            b.storageHint = QStringLiteral("airtight");
+
+            ShotRow s1 = b; s1.uuid = QStringLiteral("lc-s1");
+            s1.timestamp = base - 30 * 60; s1.defrostDate = QStringLiteral("2026-05-01");
+            QVERIFY(insertShot(db, s1) > 0);
+            ShotRow s2 = b; s2.uuid = QStringLiteral("lc-s2");
+            s2.timestamp = base - 15 * 60; s2.defrostDate = QStringLiteral("2026-05-01");
+            QVERIFY(insertShot(db, s2) > 0);
+            ShotRow s3 = b; s3.uuid = QStringLiteral("lc-s3");
+            s3.timestamp = base; s3.defrostDate = QStringLiteral("2026-05-13");
+            QVERIFY(insertShot(db, s3) > 0);
+
+            const QJsonArray sessions = DialingBlocks::buildDialInSessionsBlock(
+                db, QStringLiteral("kb-lc2"), -1, 10);
+            QCOMPARE(sessions.size(), 1);
+            const QJsonObject session = sessions[0].toObject();
+            const QJsonObject context = session.value(QStringLiteral("context")).toObject();
+            const QJsonArray shots = session.value(QStringLiteral("shots")).toArray();
+            QCOMPARE(shots.size(), 3);
+
+            // storageHint is uniform -> hoisted to context, absent per-shot.
+            QCOMPARE(context.value(QStringLiteral("storageHint")).toString(),
+                     QStringLiteral("airtight"));
+            for (const QJsonValue& v : shots)
+                QVERIFY2(!v.toObject().contains(QStringLiteral("storageHint")),
+                         "uniform storageHint must hoist to context");
+
+            // defrostDate: shared value hoists; the differing (newest) shot
+            // overrides. Shots are ASC (oldest first): [0]=s1,[1]=s2,[2]=s3.
+            QCOMPARE(context.value(QStringLiteral("defrostDate")).toString(),
+                     QStringLiteral("2026-05-01"));
+            QVERIFY2(!shots[0].toObject().contains(QStringLiteral("defrostDate")),
+                     "shot matching context must not carry an override");
+            QVERIFY2(!shots[1].toObject().contains(QStringLiteral("defrostDate")),
+                     "shot matching context must not carry an override");
+            QCOMPARE(shots[2].toObject().value(QStringLiteral("defrostDate")).toString(),
+                     QStringLiteral("2026-05-13"));
+        });
+    }
+
+    // -------------------------------------------------------------------
     // dialInSessionsBlock — empty when no rows.
     // -------------------------------------------------------------------
     void dialInSessionsBlock_emptyWhenNoRows()
@@ -534,6 +597,12 @@ private slots:
             best.duration = 30.0;
             best.enjoyment = 92;
             best.defrostDate = QStringLiteral("2026-05-01");
+            // Also set the non-frozen lifecycle fields so the appended
+            // positional read (cols 50/51 in loadShotRecordStatic) and the
+            // block-emission branch are both exercised across a real DB read,
+            // not just defrostDate.
+            best.storageHint = QStringLiteral("airtight");
+            best.openedDate = QStringLiteral("2026-05-02");
             const qint64 bestId = insertShot(db, best);
             QVERIFY(bestId > 0);
 
@@ -556,6 +625,14 @@ private slots:
             QCOMPARE(best_.value(QStringLiteral("defrostDate")).toString(),
                      QStringLiteral("2026-05-01"));
             QCOMPARE(currentProj.defrostDate, QStringLiteral("2026-05-13"));
+            // storageHint/openedDate survive the DB read (cols 50/51) and reach
+            // both the projection and the emitted block.
+            QCOMPARE(best_.value(QStringLiteral("storageHint")).toString(),
+                     QStringLiteral("airtight"));
+            QCOMPARE(best_.value(QStringLiteral("openedDate")).toString(),
+                     QStringLiteral("2026-05-02"));
+            QCOMPARE(currentProj.storageHint, QStringLiteral("airtight"));
+            QCOMPARE(currentProj.openedDate, QStringLiteral("2026-05-02"));
         });
     }
 

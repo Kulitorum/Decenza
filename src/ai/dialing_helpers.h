@@ -215,7 +215,8 @@ inline constexpr const char* kBeanFreshnessKnownInstruction =
 // Build the `currentBean.beanFreshness` block. Replaces the deprecated
 // `daysSinceRoast` + `daysSinceRoastNote` fields. Returns an empty object
 // (caller suppresses the parent assignment) only when there is nothing to say
-// — no `roastDate` AND no freeze/thaw dates.
+// — no `roastDate`, no freeze/thaw/open date, AND no `storageHint` (a lone
+// `storageHint` still emits the block; see state 2 below).
 //
 // `freshnessKnown` is `true` when the bag carries a `frozenDate`, `defrostDate`,
 // and/or `openedDate` — a precise aging-anchor date exists, so the AI ages the

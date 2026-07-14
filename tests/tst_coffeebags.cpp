@@ -933,6 +933,21 @@ private slots:
         });
     }
 
+    // bean-freshness-followup: the canonical storageHint set is the single
+    // C++ source of truth the MCP write boundary validates against. "" (unset)
+    // is valid; "frozen" is deliberately NOT — freeze state is frozenDate.
+    void storageHintValidation() {
+        QVERIFY(CoffeeBag::isValidStorageHint(QString()));           // unset
+        QVERIFY(CoffeeBag::isValidStorageHint(QStringLiteral("counter")));
+        QVERIFY(CoffeeBag::isValidStorageHint(QStringLiteral("airtight")));
+        QVERIFY(CoffeeBag::isValidStorageHint(QStringLiteral("vacuum-sealed")));
+        QVERIFY(CoffeeBag::isValidStorageHint(QStringLiteral("fridge")));
+        QVERIFY2(!CoffeeBag::isValidStorageHint(QStringLiteral("frozen")),
+                 "'frozen' must be rejected — freeze state is defined by frozenDate");
+        QVERIFY(!CoffeeBag::isValidStorageHint(QStringLiteral("Fridge")));   // case-sensitive
+        QVERIFY(!CoffeeBag::isValidStorageHint(QStringLiteral("junk")));
+    }
+
     void rankedProfilesForBean() {
         const QString path = freshDb();
         withRawDb(path, "ranked", [&](QSqlDatabase& db) {

@@ -557,7 +557,8 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
                json_extract(eg.attrs, '$.burrs') AS grinder_burrs,
                s.grinder_setting, s.drink_tds, s.drink_ey, s.enjoyment,
                s.espresso_notes, s.roast_date, s.temperature_override, s.yield_override, s.profile_json, s.beverage_type,
-               s.stopped_by
+               s.stopped_by,
+               s.frozen_date, s.defrost_date, s.storage_hint, s.opened_date
         FROM shots s
         LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder'
         WHERE s.profile_kb_id = ?
@@ -604,6 +605,20 @@ QVariantList ShotHistoryStorage::loadRecentShotsByKbIdStatic(QSqlDatabase& db, c
             shot["targetWeightG"] = query.value("yield_override").toDouble();
             shot["profileJson"] = query.value("profile_json").toString();
             shot["beverageType"] = query.value("beverage_type").toString();
+            // Bean storage lifecycle (bean-freshness-followup): needed for the
+            // dialInSessions per-shot hoist/override. Sparse-emit so an unset
+            // field stays absent from the map (ShotProjection::fromVariantMap
+            // defaults it empty), matching the toVariantMap sparse convention.
+            {
+                const QString fd = query.value("frozen_date").toString();
+                if (!fd.isEmpty()) shot["frozenDate"] = fd;
+                const QString dd = query.value("defrost_date").toString();
+                if (!dd.isEmpty()) shot["defrostDate"] = dd;
+                const QString sh = query.value("storage_hint").toString();
+                if (!sh.isEmpty()) shot["storageHint"] = sh;
+                const QString od = query.value("opened_date").toString();
+                if (!od.isEmpty()) shot["openedDate"] = od;
+            }
             // #1161: sparse-emit (see ShotProjection::toVariantMap) so a
             // future consumer of this map can't surface "profileEnd"/"".
             {

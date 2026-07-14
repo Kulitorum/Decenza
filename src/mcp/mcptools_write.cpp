@@ -1668,6 +1668,19 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 respond(QJsonObject{{"error", "Valid bagId is required"}});
                 return;
             }
+            // Reject an off-list storageHint loudly rather than writing junk the
+            // AI freshness block would then surface verbatim. "" clears it;
+            // "frozen" is intentionally invalid (freeze state = frozenDate).
+            if (args.contains("storageHint")) {
+                const QString hint = args["storageHint"].toString();
+                if (!CoffeeBag::isValidStorageHint(hint)) {
+                    respond(QJsonObject{{"error",
+                        QStringLiteral("storageHint must be one of %1 (or '' to clear); "
+                                       "there is no 'frozen' value — set frozenDate instead")
+                            .arg(CoffeeBag::storageHintValues().join(QStringLiteral(", ")))}});
+                    return;
+                }
+            }
             QVariantMap fields;
             static const QStringList kEditable = {
                 "roasterName", "coffeeName", "roastDate", "roastLevel",
