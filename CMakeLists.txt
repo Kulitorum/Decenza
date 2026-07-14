@@ -357,6 +357,7 @@ set(SOURCES
     src/mcp/mcptools_write.cpp
     src/mcp/mcptools_agent.cpp
     src/mcp/mcptools_ai.cpp
+    src/mcp/mcptools_ai_conversations.cpp
     src/network/mqttclient.cpp
     src/network/mdnsresolver.cpp
     src/network/webdebuglogger.cpp

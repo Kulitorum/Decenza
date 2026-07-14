@@ -318,6 +318,8 @@ qt_add_resources(TST_AIMANAGER_AI_RESOURCES
     ${CMAKE_SOURCE_DIR}/resources/ai.qrc)
 add_decenza_test(tst_aimanager
     tst_aimanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcptools_ai_conversations.cpp
+    ${CMAKE_SOURCE_DIR}/src/mcp/mcptoolregistry.h
     ${CMAKE_SOURCE_DIR}/src/ai/aimanager.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/aiprovider.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/aiconversation.cpp
