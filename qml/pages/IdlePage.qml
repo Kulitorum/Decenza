@@ -1164,13 +1164,9 @@ Page {
         color: Settings.theme.backgroundImagePath.length > 0
                ? Theme.scrimColor(Theme.surfaceColor)
                : Theme.bottomBarColor
-        // A translucent, full-width bar flush against the window's bottom edge
-        // with only the page background behind it gets mis-sorted into the Qt
-        // Quick scene graph's OPAQUE batch (a cross-platform renderer quirk), so
-        // its alpha is dropped and the wallpaper can't show through. An opacity
-        // node forces the subtree through the alpha pass and restores blending;
-        // layer.enabled does not. Only needed while the scrim is active.
-        // (opaque-bottom-bar fix.)
+        // opacity < 1 forces the scrim through the alpha pass; without it this
+        // bar renders opaque and the wallpaper can't show through. See
+        // docs/CLAUDE_MD/QML_GOTCHAS.md "Translucent element renders opaque".
         opacity: Settings.theme.backgroundImagePath.length > 0 ? 0.99 : 1.0
 
         RowLayout {

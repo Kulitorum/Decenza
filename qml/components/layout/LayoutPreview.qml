@@ -207,8 +207,8 @@ Item {
                 color: previewRoot.backgroundImageSource.length > 0
                        ? Theme.scrimColor(Theme.surfaceColor)
                        : Theme.bottomBarColor
-                // Force the alpha pass so the translucent scrim blends instead of
-                // being mis-sorted into the opaque batch. (opaque-bottom-bar fix.)
+                // opacity < 1 forces the scrim through the alpha pass (see
+                // docs/CLAUDE_MD/QML_GOTCHAS.md "Translucent element renders opaque").
                 opacity: previewRoot.backgroundImageSource.length > 0 ? 0.99 : 1.0
 
                 RowLayout {

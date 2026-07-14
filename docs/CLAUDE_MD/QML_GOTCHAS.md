@@ -102,13 +102,13 @@ Never use Unicode symbols as icons in text (e.g., `"✎"`, `"✗"`, `"☰"`). Th
 
 ## Translucent element renders opaque (scene-graph opaque batch)
 
-A `Rectangle` with a translucent color (e.g. a `Theme.scrimColor(...)` fill at alpha 0.4) can render **fully opaque** — the wallpaper behind it doesn't show through — when it sits over the page background with no other geometry overlapping it. Qt Quick's renderer mis-sorts it into the *opaque* batch and drops its alpha. This is platform-independent (seen on Metal/macOS, and reported on Android), so it is **not** an RHI-backend bug.
+A `Rectangle` with a translucent color (e.g. a `Theme.scrimColor(...)` fill at alpha 0.4) can render **fully opaque** — the wallpaper behind it doesn't show through — even though the computed color is correct. Qt Quick's renderer mis-sorts it into the *opaque* batch and drops its alpha. This is platform-independent (seen on Metal/macOS, and reported on Android), so it is **not** an RHI-backend bug.
 
-Symptom seen in practice: the bottom bars and the compact preset-pill popups painted as solid colored slabs over a custom background image, while the top `StatusBar`, the content cards, and the center preset pills (which overlap other content) blended correctly.
+Symptom seen in practice: the in-page bottom bars and the compact preset-pill popups painted as solid colored slabs over a custom background image, while the top `StatusBar` (a sibling of the StackView pages, composited over the already-rendered page) and elements that overlap other content (the cards, the center preset pills) blended correctly. The exact scene-graph batch-sort trigger was **not** fully pinned down — treat the diagnosis as empirical: if a translucent surface renders opaque over the background, reach for the fix below rather than assuming a specific geometric cause. In particular, being flush against a window edge is *not* the deciding factor — `StatusBar` is edge-flush and blends fine.
 
 What does **not** fix it: a translucent material color alone, or `layer.enabled` (its composite lands at the same spot and hits the same mis-sort).
 
-What **does** fix it: give the item an `opacity < 1`, which inserts a `QSGOpacityNode` and forces the subtree through the alpha pass.
+What **does** fix it: give the item an `opacity < 1`, which inserts a `QSGOpacityNode` and forces the subtree through the alpha pass. The exact value only needs to be just under 1 — `0.99` is visually imperceptible but still trips the alpha pass; don't let a "cleanup" round it back to `1.0`.
 
 ```qml
 // BAD - flush against the window edge / alone over the background => renders opaque
