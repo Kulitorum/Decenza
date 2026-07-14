@@ -8,7 +8,7 @@ import "layout"
 // Lets the user pick a background image (from the screensaver media library —
 // personal uploads plus already-cached stock images, never videos) for the
 // idle screen and the other pages ThemedPageBackground covers. Tapping a
-// thumbnail only updates the live preview; nothing is saved until "Choose".
+// thumbnail only updates the live preview; nothing is saved until "Apply".
 // Modal shell modeled on CustomEditorPopup.qml; thumbnail grid modeled on
 // EmojiPicker.qml's delegate.
 Dialog {
@@ -158,6 +158,7 @@ Dialog {
                 delegate: Rectangle {
                     id: tile
                     required property var modelData
+                    required property int index
 
                     readonly property bool isNone: modelData.path.length === 0
                     readonly property bool isSelected: popup.candidatePath === modelData.path
@@ -213,9 +214,15 @@ Dialog {
 
                     AccessibleMouseArea {
                         anchors.fill: parent
-                        accessibleName: tile.isNone
+                        // Catalog/personal photos carry no usable label (author is blank for
+                        // stock images, filenames are cache-generated) — position-in-grid is
+                        // the only thing that lets a screen reader distinguish otherwise-
+                        // identical "Background image" tiles from one another.
+                        accessibleName: (tile.isNone
                             ? TranslationManager.translate("backgroundPicker.none", "None")
-                            : TranslationManager.translate("backgroundPicker.accessible.thumbnail", "Background image")
+                            : TranslationManager.translate("backgroundPicker.accessible.thumbnail", "Background image %1 of %2")
+                                  .arg(tile.index + 1).arg(popup._images.length))
+                            + (tile.isSelected ? ", " + TranslationManager.translate("accessibility.selected", "selected") : "")
                         accessibleItem: tile
                         onAccessibleClicked: popup.candidatePath = tile.modelData.path
                     }
