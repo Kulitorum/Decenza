@@ -88,9 +88,12 @@ public:
     // identity (state dir), then re-evaluate settings so a still-enabled node
     // comes back up with a fresh login. This is the recovery path for a stored
     // nodekey that belongs to a different/deleted tailnet — the state where the
-    // login otherwise loops on "device already exists" / 403. No-op when no
-    // embedded tunnel exists (custom-URL mode or a build without tsnet).
-    Q_INVOKABLE void forgetTailscale();
+    // login otherwise loops on "device already exists" / 403. The wipe is
+    // path-based, so a stale identity is cleared even when no node is currently
+    // live (e.g. the listener never bound). Returns true if the state dir is gone
+    // afterwards (including "was already absent"); false if removal failed, so
+    // the UI can avoid claiming success it didn't achieve.
+    Q_INVOKABLE bool forgetTailscale();
 
 signals:
     void statusChanged();
@@ -112,6 +115,10 @@ private:
     // Start / stop the embedded Tailscale node for Mode A.
     void startTunnel();
     void stopTunnel();
+    // Canonical on-disk location of the tsnet node identity. Single source of
+    // truth for both startTunnel() and forgetTailscale() so the sign-out wipe
+    // targets exactly the dir the node persists to, with or without a live node.
+    QString tsnetStateDir() const;
 
     // Mode A public-reachability probe: actually fetch the Funnel connector URL
     // from the app and only treat the connector as Active once it responds — the

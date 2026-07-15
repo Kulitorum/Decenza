@@ -47,11 +47,9 @@ public:
 
     // Bring the node down and tear down the worker (async, then blocks briefly
     // on join). Keeps the persisted state so the next start() reuses the identity.
+    // To forget the tailnet, stop() and then delete the state dir — McpRemoteAccess
+    // owns that path (it supplies stateDir here) and does the wipe.
     void stop();
-
-    // "Forget this tailnet": stop(), then delete the state directory so the next
-    // start() logs in fresh.
-    void wipeState();
 
     State state() const { return m_state; }
     QString authUrl() const { return m_authUrl; }       // login URL (empty unless NeedsLogin)
@@ -84,5 +82,4 @@ private:
     QString m_authUrl;
     QString m_certDomain;
     QString m_lastError;
-    QString m_stateDir;              // remembered for wipeState()
 };

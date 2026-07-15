@@ -1444,9 +1444,11 @@ KeyboardAwareContainer {
                     accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.accessible", "Sign out of Tailscale and clear this device's tailnet identity")
                     destructive: true
                     onClicked: {
-                        RemoteMcpAccess.forgetTailscale()
+                        var wiped = RemoteMcpAccess.forgetTailscale()
                         tailscaleSignoutDialog.close()
-                        AccessibilityManager.announce(TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.done", "Signed out of Tailscale. Sign in again to use remote access."))
+                        AccessibilityManager.announce(wiped
+                            ? TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.done", "Signed out of Tailscale. Sign in again to use remote access.")
+                            : TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.failed", "Could not clear the Tailscale identity. Please try again."))
                     }
                 }
             }

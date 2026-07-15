@@ -76,7 +76,6 @@ void McpTunnelTsnet::start(const QString& stateDir, const QString& hostname, qui
         }
     }
     m_stopRequested = false;
-    m_stateDir = stateDir;
     const quint64 epoch = ++m_epoch;
     applyUpdate(epoch, Starting, QString(), QString(), QString());
 
@@ -241,12 +240,4 @@ void McpTunnelTsnet::stop()
     }
     applyUpdate(epoch, Stopped, QString(), QString(), QString());
 #endif
-}
-
-void McpTunnelTsnet::wipeState()
-{
-    const QString dir = m_stateDir;
-    stop();
-    if (!dir.isEmpty() && !QDir(dir).removeRecursively())
-        qWarning() << "McpTunnelTsnet: failed to wipe tsnet state dir" << dir;
 }
