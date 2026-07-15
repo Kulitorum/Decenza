@@ -1532,6 +1532,8 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         if (!bag.roastLevel.isEmpty()) obj["roastLevel"] = bag.roastLevel;
         if (!bag.frozenDate.isEmpty()) obj["frozenDate"] = bag.frozenDate;
         if (!bag.defrostDate.isEmpty()) obj["defrostDate"] = bag.defrostDate;
+        if (!bag.storageHint.isEmpty()) obj["storageHint"] = bag.storageHint;
+        if (!bag.openedDate.isEmpty()) obj["openedDate"] = bag.openedDate;
         if (!bag.notes.isEmpty()) obj["notes"] = bag.notes;
         obj["inInventory"] = bag.inInventory;
         if (!bag.grinderBrand.isEmpty()) obj["grinderBrand"] = bag.grinderBrand;
@@ -1604,8 +1606,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "origin/variety/process/tasting notes/product URL). Only provided fields change. Pass an "
         "empty string to clear a text/date field. Setting inInventory=false marks the bag empty "
         "(removes it from the inventory view; shots keep their snapshots). Setting defrostDate "
-        "records a thaw (the latest portion leaving the freezer). Bean-detail edits keep a "
-        "canonical Bean Base link intact and sync to the user's Visualizer bag when one is linked.",
+        "records a thaw (the latest portion leaving the freezer); openedDate is the non-frozen "
+        "analogue (when a never-frozen portion started being used). storageHint is the non-frozen "
+        "storage type (counter/airtight/vacuum-sealed/fridge — never 'frozen'). Bean-detail edits "
+        "keep a canonical Bean Base link intact and sync to the user's Visualizer bag when linked.",
         QJsonObject{
             {"type", "object"},
             {"properties", QJsonObject{
@@ -1616,6 +1620,10 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"roastLevel", QJsonObject{{"type", "string"}}},
                 {"frozenDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear"}}},
                 {"defrostDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear"}}},
+                {"storageHint", QJsonObject{{"type", "string"},
+                    {"description", "Non-frozen storage: counter/airtight/vacuum-sealed/fridge, '' to clear"}}},
+                {"openedDate", QJsonObject{{"type", "string"},
+                    {"description", "YYYY-MM-DD the non-frozen portion was opened, '' to clear"}}},
                 {"notes", QJsonObject{{"type", "string"}}},
                 {"grinderBrand", QJsonObject{{"type", "string"}}},
                 {"grinderModel", QJsonObject{{"type", "string"}}},
@@ -1660,10 +1668,23 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 respond(QJsonObject{{"error", "Valid bagId is required"}});
                 return;
             }
+            // Reject an off-list storageHint loudly rather than writing junk the
+            // AI freshness block would then surface verbatim. "" clears it;
+            // "frozen" is intentionally invalid (freeze state = frozenDate).
+            if (args.contains("storageHint")) {
+                const QString hint = args["storageHint"].toString();
+                if (!CoffeeBag::isValidStorageHint(hint)) {
+                    respond(QJsonObject{{"error",
+                        QStringLiteral("storageHint must be one of %1 (or '' to clear); "
+                                       "there is no 'frozen' value — set frozenDate instead")
+                            .arg(CoffeeBag::storageHintValues().join(QStringLiteral(", ")))}});
+                    return;
+                }
+            }
             QVariantMap fields;
             static const QStringList kEditable = {
                 "roasterName", "coffeeName", "roastDate", "roastLevel",
-                "frozenDate", "defrostDate", "notes",
+                "frozenDate", "defrostDate", "storageHint", "openedDate", "notes",
                 "grinderBrand", "grinderModel", "grinderBurrs", "grinderSetting",
                 "doseWeightG", "yieldOverrideG", "inInventory"};
             for (const QString& key : kEditable) {

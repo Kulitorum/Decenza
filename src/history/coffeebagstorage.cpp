@@ -132,6 +132,14 @@ const BagCol kCols[] = {
     COL_STR  ("beanbase_json",         beanBaseData,        true),
     COL_STR  ("frozen_date",           frozenDate,          true),
     COL_STR  ("defrost_date",          defrostDate,         true),
+    // Non-frozen storage lifecycle (bean-freshness-followup). Local-only
+    // (visualizer=false): the AI reads them, but Visualizer's coffee-bag
+    // record has no equivalent field, so an edit touching only these two
+    // must NOT trigger a bag PATCH (touchesVisualizerFields stays false).
+    // Unlike frozen_date/defrost_date above (visualizer=true — they map to
+    // Visualizer's frozen_date/defrosted_date), these have no remote home.
+    COL_STR  ("storage_hint",          storageHint,         false),
+    COL_STR  ("opened_date",           openedDate,          false),
     COL_STR  ("notes",                 notes,               true),
     COL_DBL  ("start_weight_g",        startWeightG),
     COL_BOOL ("in_inventory",          inInventory),
@@ -244,6 +252,26 @@ TeaBrewingData CoffeeBag::teaBrewingFromBlob(const QString& beanBaseData)
     data.leafGramsPer100Ml = num(QStringLiteral("leafGramsPer100Ml"));
     data.steepTime = obj.value(QStringLiteral("steepTime")).toString();
     return data;
+}
+
+// static
+const QStringList& CoffeeBag::storageHintValues()
+{
+    // Mirror in QML: ChangeBeansDialog `hintValues`. No "frozen" — frozen state
+    // is defined solely by frozenDate (bean-freshness-followup design).
+    static const QStringList values = {
+        QStringLiteral("counter"),
+        QStringLiteral("airtight"),
+        QStringLiteral("vacuum-sealed"),
+        QStringLiteral("fridge"),
+    };
+    return values;
+}
+
+// static
+bool CoffeeBag::isValidStorageHint(const QString& hint)
+{
+    return hint.isEmpty() || storageHintValues().contains(hint);
 }
 
 CoffeeBagStorage::CoffeeBagStorage(QObject* parent)
@@ -454,6 +482,8 @@ bool CoffeeBagStorage::ensureTableStatic(QSqlDatabase& db)
             beanbase_json TEXT,
             frozen_date TEXT,
             defrost_date TEXT,
+            storage_hint TEXT,
+            opened_date TEXT,
             notes TEXT,
             start_weight_g REAL,
             in_inventory INTEGER NOT NULL DEFAULT 1,

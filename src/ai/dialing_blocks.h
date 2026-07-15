@@ -187,11 +187,15 @@ struct CurrentBeanBlockInputs {
     QString roastLevel;
     QString roastDate;
     // Bean storage lifecycle (bean-bag-inventory), snapshotted at shot time.
-    // When either is set, buildBeanFreshness reports storage as KNOWN and ages
-    // the beans from the thaw date instead of asking the user. Empty = no
-    // freeze history recorded for this shot.
+    // When any is set, buildBeanFreshness reports storage as KNOWN and ages
+    // the beans from the most recent thaw/open date instead of asking the
+    // user. Empty = no storage history recorded for this shot.
+    // storageHint/openedDate (bean-freshness-followup) are the non-frozen
+    // analogues of frozenDate/defrostDate.
     QString frozenDate;
     QString defrostDate;
+    QString storageHint;
+    QString openedDate;
     QString grinderBrand;
     QString grinderModel;
     QString grinderBurrs;
@@ -233,6 +237,8 @@ inline CurrentBeanBlockInputs beanInputsFromProjection(const ShotProjection& sd)
     in.roastDate = sd.roastDate;
     in.frozenDate = sd.frozenDate;
     in.defrostDate = sd.defrostDate;
+    in.storageHint = sd.storageHint;
+    in.openedDate = sd.openedDate;
     in.grinderBrand = sd.grinderBrand;
     in.grinderModel = sd.grinderModel;
     in.grinderBurrs = sd.grinderBurrs;
@@ -302,7 +308,7 @@ inline QJsonObject buildCurrentBeanBlock(const CurrentBeanBlockInputs& in)
     }
 
     const QJsonObject freshness = DialingHelpers::buildBeanFreshness(
-        in.roastDate, in.frozenDate, in.defrostDate);
+        in.roastDate, in.frozenDate, in.defrostDate, in.storageHint, in.openedDate);
     if (!freshness.isEmpty())
         bean["beanFreshness"] = freshness;
 

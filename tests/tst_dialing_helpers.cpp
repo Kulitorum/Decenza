@@ -26,6 +26,12 @@ private slots:
     void buildBeanFreshness_freezeDates_setKnownAndUseThawInstruction();
     void buildBeanFreshness_emptyRoastButFrozen_stillEmitsKnownBlock();
     void buildBeanFreshness_defrostOnly_isKnown();
+    // bean-freshness-followup
+    void buildBeanFreshness_openedDate_isKnownWithoutFreeze();
+    void buildBeanFreshness_storageHintOnly_surfacedButNotKnown();
+    void buildBeanFreshness_unknownInstruction_teachesUpperBound();
+    void buildBeanFreshness_defrostAndOpened_bothSurfaced();
+    void buildBeanFreshness_knownInstruction_carriesUnderRestedGuidance();
 
     // hoistSessionContext (openspec optimize-dialing-context-payload, task 1)
     void hoistSessionContext_emptySession_returnsEmpty();
@@ -34,6 +40,8 @@ private slots:
     void hoistSessionContext_singleShotSession_contextCarriesIdentity();
     void hoistSessionContext_firstShotEmptyForField_fallsBackToFirstNonEmpty();
     void hoistSessionContext_allShotsEmptyForField_contextOmitsField();
+    // bean-freshness-followup: lifecycle fields hoist like identity fields
+    void hoistSessionContext_sessionSpansThaw_differingShotOverridesDefrost();
 
     // buildShotChangeDiff (issue #1020 — also drives changeFromPrev)
     void buildShotChangeDiff_identicalShots_emptyDiff();
@@ -236,6 +244,111 @@ void TstDialingHelpers::buildBeanFreshness_defrostOnly_isKnown()
     QCOMPARE(block["defrostDate"].toString(), QStringLiteral("2026-06-20"));
 }
 
+// ---- bean-freshness-followup ----
+
+void TstDialingHelpers::buildBeanFreshness_openedDate_isKnownWithoutFreeze()
+{
+    // A never-frozen bag that carries an openedDate (with an airtight storage
+    // hint) reports storage as KNOWN — the common non-freezer user must not be
+    // asked about storage forever. openedDate is the non-frozen analogue of
+    // defrostDate.
+    const QJsonObject block = buildBeanFreshness(QStringLiteral("2026-04-15"),
+                                                 QString(), QString(),
+                                                 QStringLiteral("airtight"),
+                                                 QStringLiteral("2026-06-20"));
+    QCOMPARE(block["freshnessKnown"].toBool(), true);
+    QCOMPARE(block["storageHint"].toString(), QStringLiteral("airtight"));
+    QCOMPARE(block["openedDate"].toString(), QStringLiteral("2026-06-20"));
+    QVERIFY2(!block.contains(QStringLiteral("frozenDate")),
+             "frozenDate must be omitted for a never-frozen bag");
+    QVERIFY2(!block.contains(QStringLiteral("defrostDate")),
+             "defrostDate must be omitted for a never-frozen bag");
+    const QString instruction = block["instruction"].toString();
+    QVERIFY2(!instruction.contains(QStringLiteral("ASK")),
+             "known-storage instruction must NOT ask the user about storage");
+    QVERIFY2(instruction.contains(QStringLiteral("openedDate")),
+             "known instruction must anchor aging on openedDate when present");
+}
+
+void TstDialingHelpers::buildBeanFreshness_storageHintOnly_surfacedButNotKnown()
+{
+    // A storageHint with no dates is surfaced (advisory context) and keeps the
+    // block alive, but does NOT by itself flip freshnessKnown — only a
+    // frozen/defrost/opened DATE anchors the aging clock.
+    const QJsonObject block = buildBeanFreshness(QStringLiteral("2026-07-01"),
+                                                 QString(), QString(),
+                                                 QStringLiteral("vacuum-sealed"),
+                                                 QString());
+    QVERIFY2(!block.isEmpty(),
+             "storageHint alone must keep the block (not omitted)");
+    QCOMPARE(block["storageHint"].toString(), QStringLiteral("vacuum-sealed"));
+    QCOMPARE(block["freshnessKnown"].toBool(), false);
+    // When the storage TYPE is known (but no date), the instruction must NOT
+    // tell the AI to re-ask how the beans are stored — it must name the hint
+    // and, at most, ask only for the aging-start date and only if roast is old.
+    const QString instruction = block["instruction"].toString();
+    QVERIFY2(instruction.contains(QStringLiteral("vacuum-sealed")),
+             "instruction must name the known storage type so the AI doesn't re-ask it");
+    QVERIFY2(instruction.contains(QStringLiteral("do NOT ask how")),
+             "instruction must tell the AI not to re-ask the storage method");
+}
+
+void TstDialingHelpers::buildBeanFreshness_unknownInstruction_teachesUpperBound()
+{
+    // The no-date instruction must teach the asymmetry: roastDate caps
+    // staleness (storage only preserves), so the ask is conditional on the
+    // roast being OLD — recent-roast beans are fresh regardless of storage.
+    const QJsonObject block = buildBeanFreshness(QStringLiteral("2026-07-01"));
+    QCOMPARE(block["freshnessKnown"].toBool(), false);
+    const QString instruction = block["instruction"].toString();
+    QVERIFY2(instruction.contains(QStringLiteral("UPPER BOUND"))
+             || instruction.contains(QStringLiteral("upper bound")),
+             "unknown instruction must frame roastDate as the staleness ceiling");
+    QVERIFY2(instruction.contains(QStringLiteral("recent")),
+             "unknown instruction must carve out the recent-roast = fresh case");
+    QVERIFY2(instruction.contains(QStringLiteral("old")),
+             "unknown instruction must gate the ask on an OLD roast");
+    // A bare storageHint-free block must NOT carry the storage-hint clause.
+    QVERIFY2(!instruction.contains(QStringLiteral("already told you")),
+             "no-hint block must not claim a known storage type");
+}
+
+void TstDialingHelpers::buildBeanFreshness_defrostAndOpened_bothSurfaced()
+{
+    // When both a defrostDate and an openedDate are present (frozen, thawed,
+    // later moved to a jar), both are surfaced distinctly — the AI picks the
+    // most recent as the aging anchor (no precomputed anchor field).
+    const QJsonObject block = buildBeanFreshness(QStringLiteral("2026-04-15"),
+                                                 QStringLiteral("2026-04-16"),
+                                                 QStringLiteral("2026-06-01"),
+                                                 QStringLiteral("counter"),
+                                                 QStringLiteral("2026-06-20"));
+    QCOMPARE(block["freshnessKnown"].toBool(), true);
+    QCOMPARE(block["defrostDate"].toString(), QStringLiteral("2026-06-01"));
+    QCOMPARE(block["openedDate"].toString(), QStringLiteral("2026-06-20"));
+    QCOMPARE(block["storageHint"].toString(), QStringLiteral("counter"));
+    // Still no precomputed day count anywhere.
+    for (const QString& key : block.keys())
+        QVERIFY2(!key.contains(QStringLiteral("Day")),
+                 qPrintable(QString("unexpected day-related key: %1").arg(key)));
+}
+
+void TstDialingHelpers::buildBeanFreshness_knownInstruction_carriesUnderRestedGuidance()
+{
+    // The known-storage instruction must teach the REVERSE direction: a recent
+    // thaw/open can mean under-rested/gassy (coarser grind), not just "fresher."
+    const QJsonObject block = buildBeanFreshness(QStringLiteral("2026-04-15"),
+                                                 QString(),
+                                                 QStringLiteral("2026-06-20"));
+    const QString instruction = block["instruction"].toString();
+    QVERIFY2(instruction.contains(QStringLiteral("gassy"))
+             || instruction.contains(QStringLiteral("under-rested")),
+             "known instruction must warn a recent date can mean under-rested/gassy");
+    QVERIFY2(instruction.contains(QStringLiteral("COARSER"))
+             || instruction.contains(QStringLiteral("coarser")),
+             "known instruction must mention the coarser-grind direction");
+}
+
 // ---- hoistSessionContext (openspec optimize-dialing-context-payload, task 1) ----
 //
 // Empirical anchor: the Northbound 80's Espresso conversation has a 4-shot
@@ -394,6 +507,35 @@ void TstDialingHelpers::hoistSessionContext_allShotsEmptyForField_contextOmitsFi
     for (const auto& override : out.perShotOverrides) {
         QVERIFY(override.grinderBurrs.isEmpty());
     }
+}
+
+void TstDialingHelpers::hoistSessionContext_sessionSpansThaw_differingShotOverridesDefrost()
+{
+    // bean-freshness-followup: a 3-shot session where shots 1-2 were pulled on
+    // one thaw and shot 3 after a new thaw. defrostDate hoists to the shared
+    // value (first shot + majority) and only the differing shot overrides it —
+    // the same mechanism beanBrand/grinderBrand already use, giving the AI the
+    // raw signal that shot 3 came from a different portion.
+    auto withDefrost = [](const QString& defrost) {
+        DialingHelpers::ShotIdentity id;
+        id.grinderBrand = QStringLiteral("Niche");
+        id.beanBrand = QStringLiteral("Northbound");
+        id.defrostDate = defrost;
+        return id;
+    };
+    const QList<DialingHelpers::ShotIdentity> shots{
+        withDefrost(QStringLiteral("2026-05-01")),
+        withDefrost(QStringLiteral("2026-05-01")),
+        withDefrost(QStringLiteral("2026-05-13"))};
+
+    const auto out = hoistSessionContext(shots);
+
+    QCOMPARE(out.context.defrostDate, QStringLiteral("2026-05-01"));
+    QVERIFY2(out.perShotOverrides[0].defrostDate.isEmpty(),
+             "shot 0 matches the context → no override");
+    QVERIFY2(out.perShotOverrides[1].defrostDate.isEmpty(),
+             "shot 1 matches the context → no override");
+    QCOMPARE(out.perShotOverrides[2].defrostDate, QStringLiteral("2026-05-13"));
 }
 
 // ---- buildShotChangeDiff (issue #1020) ----

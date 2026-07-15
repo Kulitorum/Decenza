@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QHash>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QVector>
@@ -53,10 +54,17 @@ struct CoffeeBag {
     // brewTempC, leafGramsPer100Ml, …) live in the beanBaseData blob.
     QString kind = QStringLiteral("coffee");
 
-    // Lifecycle. frozenDate/defrostDate describe the CURRENT portion only —
-    // the defrost history lives in per-shot snapshots.
+    // Lifecycle. frozenDate/defrostDate/storageHint/openedDate describe the
+    // CURRENT portion only — the full history lives in per-shot snapshots.
+    // storageHint is a non-frozen storage category (counter / airtight /
+    // vacuum-sealed / fridge — never "frozen"; frozen state is defined solely
+    // by frozenDate being set). openedDate is the non-frozen analogue of
+    // defrostDate: when the current portion started being actively used at
+    // room temperature. Both are local-only (never synced to Visualizer).
     QString frozenDate;
     QString defrostDate;
+    QString storageHint;
+    QString openedDate;
     QString notes;
     double startWeightG = 0; // 0 = unset; local-only, never synced to Visualizer
     bool inInventory = true;
@@ -101,6 +109,17 @@ struct CoffeeBag {
     // Parse the tea brewing keys out of a beanBaseData blob string. Tolerant:
     // empty/invalid JSON or absent keys land on the struct defaults.
     static TeaBrewingData teaBrewingFromBlob(const QString& beanBaseData);
+
+    // Canonical non-frozen storageHint values (bean-freshness-followup). The
+    // single C++ source of truth for the enum; the QML dropdown
+    // (ChangeBeansDialog `hintValues`) must mirror it. "frozen" is deliberately
+    // NOT a value — frozen state is defined solely by `frozenDate` being set,
+    // so the two can never disagree.
+    static const QStringList& storageHintValues();
+    // Accepts "" (unset) or any canonical value; rejects "frozen" and junk.
+    // The write boundary uses this so an off-list value from an MCP client
+    // can't reach the DB (and thence the AI freshness block) unvalidated.
+    static bool isValidStorageHint(const QString& hint);
 };
 
 // An inventory row: a bag plus its shot count. The count is NOT a CoffeeBag

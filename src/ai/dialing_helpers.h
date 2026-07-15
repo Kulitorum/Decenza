@@ -50,18 +50,29 @@ inline QList<QList<qsizetype>> groupSessions(const QList<qint64>& timestampsDesc
     return sessions;
 }
 
-// The five shot-identity fields hoistable to a session-level `context`
-// object. These describe the user's *setup* (which grinder, which bean) —
-// shot-INVARIANT across a single dial-in session in the typical case.
-// Shot-VARIABLE fields (`grinderSetting`, `doseWeightG`, `finalWeightG`,
-// `durationSec`, `enjoyment0to100`, `notes`) are NOT hoisted; they are
-// what the user is iterating on.
+// The shot-identity fields hoistable to a session-level `context` object.
+// These describe the user's *setup* (which grinder, which bean) plus the bean
+// storage lifecycle — shot-INVARIANT across a single dial-in session in the
+// typical case. Shot-VARIABLE fields (`grinderSetting`, `doseWeightG`,
+// `finalWeightG`, `durationSec`, `enjoyment0to100`, `notes`) are NOT hoisted;
+// they are what the user is iterating on.
 struct ShotIdentity {
     QString grinderBrand;
     QString grinderModel;
     QString grinderBurrs;
     QString beanBrand;
     QString beanType;
+    // Bean storage lifecycle (bean-freshness-followup). Hoisted with the same
+    // "shared → context, differing → per-shot override" discipline as the
+    // identity fields: a session that spans a thaw/open event carries the
+    // shared date in `context` and the differing shot overrides it, giving the
+    // AI the raw data to notice a best-rated anchor came from a different,
+    // longer-rested portion. No precomputed "different portion" flag — the raw
+    // dates are the whole signal.
+    QString frozenDate;
+    QString defrostDate;
+    QString storageHint;
+    QString openedDate;
 };
 
 // Output of `hoistSessionContext`: the field values that go on the
@@ -126,59 +137,136 @@ inline HoistedSession hoistSessionContext(const QList<ShotIdentity>& shots)
     fillField([](const ShotIdentity& s) { return s.beanType; },
               [](ShotIdentity& c, const QString& v) { c.beanType = v; },
               [](ShotIdentity& o, const QString& v) { o.beanType = v; });
+    fillField([](const ShotIdentity& s) { return s.frozenDate; },
+              [](ShotIdentity& c, const QString& v) { c.frozenDate = v; },
+              [](ShotIdentity& o, const QString& v) { o.frozenDate = v; });
+    fillField([](const ShotIdentity& s) { return s.defrostDate; },
+              [](ShotIdentity& c, const QString& v) { c.defrostDate = v; },
+              [](ShotIdentity& o, const QString& v) { o.defrostDate = v; });
+    fillField([](const ShotIdentity& s) { return s.storageHint; },
+              [](ShotIdentity& c, const QString& v) { c.storageHint = v; },
+              [](ShotIdentity& o, const QString& v) { o.storageHint = v; });
+    fillField([](const ShotIdentity& s) { return s.openedDate; },
+              [](ShotIdentity& c, const QString& v) { c.openedDate = v; },
+              [](ShotIdentity& o, const QString& v) { o.openedDate = v; });
 
     return out;
 }
 
-// Instruction shipped when the bag's storage history is UNKNOWN (no freeze
-// or thaw dates recorded). Reads as imperative, not advisory — calendar age
-// is a category-mistake against actual bean freshness when storage history is
-// unknown (frozen, thawed weekly, vacuum-sealed, etc.). The previous advisory
-// note was demonstrably skimmed past; this one tells the AI explicitly to ASK
-// before quoting age.
+// Instruction shipped when no aging-anchor date (frozen/defrost/opened) is
+// recorded. The key teaching is the ASYMMETRY: roastDate is the UPPER BOUND on
+// staleness — freezing / airtight / vacuum storage only PAUSE staling, so beans
+// are never OLDER than their calendar age since roast, only fresher. That makes
+// the ask conditional, not automatic:
+//   - Recent roast  → the beans are fresh no matter how they were stored (the
+//     ceiling is low). Do NOT ask about storage; there's nothing storage could
+//     reveal that changes "fresh."
+//   - Old roast     → genuinely ambiguous (frozen-since-roast and still fresh,
+//     vs left out and stale). ONLY here is the storage/aging question worth
+//     asking. The AI judges "recent vs old" itself — we ship no day count
+//     (same no-precompute rule as the rest of the block).
+// buildBeanFreshness appends a storageHint clause when the storage TYPE is known
+// but no date is: then the AI must not re-ask how the beans are stored (it was
+// told), only — and only if the roast is old — when the current portion started
+// aging.
 inline constexpr const char* kBeanFreshnessInstruction =
-    "Calendar age from roastDate is NOT freshness — many users freeze and "
-    "thaw weekly. ASK the user about storage before applying any "
-    "bean-aging guidance.";
+    "roastDate is the UPPER BOUND on staleness: freezing and airtight/vacuum "
+    "storage only pause staling, so these beans can never be older than their "
+    "calendar age since roast — only fresher. So if the roast date is recent, "
+    "treat the beans as fresh and do NOT ask about storage; nothing storage "
+    "could reveal would make recently-roasted beans stale. ONLY when the roast "
+    "date is old is freshness ambiguous (frozen since roast and still fresh, vs "
+    "left out and staled) — only then ASK how the beans have been stored and "
+    "when this portion started being used, before reasoning about age.";
 
-// Instruction shipped when the bag DOES carry storage history (a frozenDate
-// and/or defrostDate is present). Storage is no longer a missing variable, so
-// the AI must NOT ask about it — and must not treat calendar days from
-// roastDate as staleness. Freezing pauses staling, so the aging clock runs
-// from defrostDate (the thaw), not roastDate: beans frozen since roast and
-// recently thawed are fresh regardless of calendar age.
+// Appended to kBeanFreshnessInstruction (the no-date case) when a storageHint
+// IS known: the storage TYPE is no longer a missing variable, so the AI must
+// not re-ask it. %1 is the storage hint (e.g. "vacuum-sealed").
+inline constexpr const char* kBeanFreshnessStorageHintClause =
+    " The user already told you the storage type (%1), which pauses staling — "
+    "do NOT ask how they store the beans. If the roast is recent, they are "
+    "fresh; only if the roast is old, ask solely when this portion started "
+    "being used (its aging-start date), nothing else.";
+
+// Instruction shipped when the bag DOES carry storage history (a frozenDate,
+// defrostDate, and/or openedDate is present). Storage is no longer a missing
+// variable, so the AI must NOT ask about it — and must not treat calendar days
+// from roastDate as staleness. Freezing/sealing pauses staling, so the aging
+// clock runs from the most recent thaw/open date, not roastDate: beans frozen
+// since roast and recently thawed are fresh regardless of calendar age.
+//
+// It ALSO teaches the reverse direction (bean-freshness-followup): a *recent*
+// thaw/open date does NOT unconditionally mean "fresher is better." Freshly
+// thawed or just-opened beans are often UNDER-RESTED and gassy — they choke the
+// puck, run long, and over-extract, and typically want a COARSER grind that
+// settles back over the following few days as the CO2 degasses. Recent ≠
+// simply better; it can cut in either direction.
 inline constexpr const char* kBeanFreshnessKnownInstruction =
     "Storage history is known from the dates below — do NOT ask the user "
-    "about storage. Freezing pauses staling: count bean age from defrostDate "
-    "(the thaw), not roastDate. Beans frozen since roast and recently thawed "
-    "are fresh regardless of how many calendar days have passed since roast.";
+    "about storage. Freezing (and airtight/vacuum storage) pauses staling: "
+    "count bean age from the most recent of defrostDate/openedDate, not "
+    "roastDate. Beans frozen since roast and recently thawed are fresh "
+    "regardless of how many calendar days have passed since roast. But a "
+    "recent thaw/open cuts BOTH ways: freshly thawed or just-opened beans are "
+    "often under-rested and gassy (they choke the puck, run long, over-extract) "
+    "and usually want a COARSER grind that settles back over the next few days "
+    "as they degas — do NOT assume a recent date just means 'fresher is better.'";
 
 // Build the `currentBean.beanFreshness` block. Replaces the deprecated
 // `daysSinceRoast` + `daysSinceRoastNote` fields. Returns an empty object
 // (caller suppresses the parent assignment) only when there is nothing to say
-// — no `roastDate` AND no freeze/thaw dates.
+// — no `roastDate`, no freeze/thaw/open date, AND no `storageHint` (a lone
+// `storageHint` still emits the block; see state 2 below).
 //
-// `freshnessKnown` is `true` when the bag carries a `frozenDate` and/or
-// `defrostDate`: that storage history is the variable whose absence the
-// unknown-case instruction asks the user to supply, so its presence flips the
-// guidance from "ASK about storage" to "age from the thaw date." The block
-// still contains NO precomputed day count under any field name — the AI does
-// the subtraction itself (from `defrostDate` when freshness is known).
+// `freshnessKnown` is `true` when the bag carries a `frozenDate`, `defrostDate`,
+// and/or `openedDate` — a precise aging-anchor date exists, so the AI ages the
+// beans from the most recent thaw/open date rather than asking. `openedDate`
+// (bean-freshness-followup) is the non-frozen analogue of `defrostDate` — a
+// never-frozen bag that has simply been opened reports KNOWN too, so the common
+// non-freezer user isn't asked about storage forever.
+//
+// The instruction has THREE states, not two:
+//   1. No date, no storageHint → upper-bound instruction: roastDate caps
+//      staleness (storage only preserves), so ask about storage ONLY when the
+//      roast is old; recent roast = fresh, no question needed.
+//   2. No date, storageHint set → (1) plus a clause telling the AI the storage
+//      TYPE is already known (don't re-ask it) — at most ask for the aging-start
+//      date, and only if the roast is old. `freshnessKnown` stays false: a hint
+//      without a date is not a precise anchor.
+//   3. A date is set → the known-storage instruction (age from the thaw/open
+//      date, with the under-rested/gassy reverse-direction guidance).
+// `storageHint` is surfaced verbatim whenever set. The block still contains NO
+// precomputed day count under any field name — the AI judges "recent vs old"
+// and does the subtraction itself.
 //
 // Pure function: easy to unit-test, no DB / Settings dependency.
 inline QJsonObject buildBeanFreshness(const QString& roastDate,
                                       const QString& frozenDate = QString(),
-                                      const QString& defrostDate = QString())
+                                      const QString& defrostDate = QString(),
+                                      const QString& storageHint = QString(),
+                                      const QString& openedDate = QString())
 {
-    const bool known = !frozenDate.isEmpty() || !defrostDate.isEmpty();
-    if (roastDate.isEmpty() && !known) return QJsonObject();
+    const bool known = !frozenDate.isEmpty() || !defrostDate.isEmpty()
+                       || !openedDate.isEmpty();
+    if (roastDate.isEmpty() && !known && storageHint.isEmpty()) return QJsonObject();
     QJsonObject block;
     if (!roastDate.isEmpty()) block["roastDate"] = roastDate;
     if (!frozenDate.isEmpty()) block["frozenDate"] = frozenDate;
     if (!defrostDate.isEmpty()) block["defrostDate"] = defrostDate;
+    if (!storageHint.isEmpty()) block["storageHint"] = storageHint;
+    if (!openedDate.isEmpty()) block["openedDate"] = openedDate;
     block["freshnessKnown"] = known;
-    block["instruction"] = QString::fromUtf8(
-        known ? kBeanFreshnessKnownInstruction : kBeanFreshnessInstruction);
+    if (known) {
+        block["instruction"] = QString::fromUtf8(kBeanFreshnessKnownInstruction);
+    } else {
+        // No aging-anchor date. Teach the upper-bound asymmetry (ask only when
+        // the roast is old); when the storage TYPE is known but the date isn't,
+        // append the clause that tells the AI not to re-ask the storage method.
+        QString instruction = QString::fromUtf8(kBeanFreshnessInstruction);
+        if (!storageHint.isEmpty())
+            instruction += QString::fromUtf8(kBeanFreshnessStorageHintClause).arg(storageHint);
+        block["instruction"] = instruction;
+    }
     return block;
 }
 

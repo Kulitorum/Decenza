@@ -88,6 +88,11 @@ struct ShotRecord {
     qint64 bagId = -1;
     QString frozenDate;
     QString defrostDate;
+    // Non-frozen storage lifecycle snapshot (bean-freshness-followup,
+    // migration 32): the bag's storage_hint / opened_date at shot time, the
+    // non-frozen analogue of frozenDate/defrostDate. "" = unset.
+    QString storageHint;
+    QString openedDate;
 
     // Recipe provenance (add-recipes, migration 25): the recipe active at
     // shot start (<= 0 = none / pre-recipe shot) and the steam-spec snapshot
@@ -282,6 +287,10 @@ struct ShotSaveData {
     qint64 bagId = -1;
     QString frozenDate;
     QString defrostDate;
+    // Non-frozen storage lifecycle snapshot (bean-freshness-followup): see
+    // ShotRecord. "" = unset.
+    QString storageHint;
+    QString openedDate;
 
     // Recipe provenance (add-recipes): see ShotRecord. <= 0 = none.
     qint64 recipeId = -1;
