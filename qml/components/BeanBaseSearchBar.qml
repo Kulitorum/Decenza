@@ -79,7 +79,13 @@ Item {
         MainController.beanbase.search(t)
     }
 
+    // These change handlers can fire while the object is being destroyed
+    // (this bar lives in ChangeBeansDialog on StackView pages; popping the page
+    // re-evaluates the `linked` binding as `root` unwinds). During teardown the
+    // component's JS method table is already gone, so calling _setInputText
+    // throws "is not a function" — guard on it before the call.
     onLinkedChanged: {
+        if (typeof _setInputText !== "function") return  // teardown
         if (linked) {
             resultsPopup.close()
             _setInputText(linkedLabel)
@@ -87,7 +93,7 @@ Item {
             _setInputText("")
         }
     }
-    onLinkedLabelChanged: if (linked) _setInputText(linkedLabel)
+    onLinkedLabelChanged: if (linked && typeof _setInputText === "function") _setInputText(linkedLabel)
     Component.onCompleted: if (linked) _setInputText(linkedLabel)
     onVisibleChanged: if (!visible) resultsPopup.close()
 
