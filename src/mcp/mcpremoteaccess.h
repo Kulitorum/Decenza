@@ -84,6 +84,14 @@ public:
     // connection so the previous URL stops working at once.
     Q_INVOKABLE void rotateToken();
 
+    // Sign out of Tailscale (Mode A): wipe the embedded tsnet node's persisted
+    // identity (state dir), then re-evaluate settings so a still-enabled node
+    // comes back up with a fresh login. This is the recovery path for a stored
+    // nodekey that belongs to a different/deleted tailnet — the state where the
+    // login otherwise loops on "device already exists" / 403. No-op when no
+    // embedded tunnel exists (custom-URL mode or a build without tsnet).
+    Q_INVOKABLE void forgetTailscale();
+
 signals:
     void statusChanged();
     void connectorUrlChanged();

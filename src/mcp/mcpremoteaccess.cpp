@@ -677,6 +677,19 @@ void McpRemoteAccess::rotateToken()
     emit connectorUrlChanged();
 }
 
+void McpRemoteAccess::forgetTailscale()
+{
+    if (!m_tunnel)
+        return;  // custom-URL mode / no tsnet: nothing persisted to wipe
+    // wipeState() stops the node (joins its worker) and removes the state dir,
+    // clearing the stored nodekey. The tunnel's Stopped update clears authUrl
+    // and certDomain, firing loginUrlChanged/connectorUrlChanged for the UI.
+    m_tunnel->wipeState();
+    // If remote MCP is still enabled in Tailscale mode, bring a fresh node up so
+    // the user immediately gets a new login URL under the intended account.
+    refresh();
+}
+
 void McpRemoteAccess::onReaperTick()
 {
     const QDateTime now = QDateTime::currentDateTimeUtc();

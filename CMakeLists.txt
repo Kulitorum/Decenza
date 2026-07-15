@@ -57,8 +57,17 @@ option(ENABLE_QUICK3D "Enable Qt Quick3D for 3D screensavers" ON)
 
 # Embedded Tailscale (tsnet + Funnel) for the Remote MCP connector Mode A.
 # Pulls prebuilt libtailscale artifacts from the fork (no Go toolchain needed).
-# Default OFF: normal builds are unaffected; Mode C (BYO URL) always works.
-option(ENABLE_TSNET "Embed Tailscale (tsnet) for the remote MCP connector" OFF)
+# Default ON for the platforms with a prebuilt artifact (macOS, iOS, Android) so
+# local dev builds match what ships (CI passes -DENABLE_TSNET=ON for those). OFF
+# on Windows/Linux — tsnet.cmake has no artifact there and Mode C (BYO URL)
+# always works regardless. The download happens at configure time; turn this off
+# explicitly for an offline/minimal Apple or Android build.
+if(APPLE OR ANDROID)
+    set(_tsnet_default ON)
+else()
+    set(_tsnet_default OFF)
+endif()
+option(ENABLE_TSNET "Embed Tailscale (tsnet) for the remote MCP connector" ${_tsnet_default})
 
 # Qt 6 modules - core required components
 find_package(Qt6 REQUIRED COMPONENTS
