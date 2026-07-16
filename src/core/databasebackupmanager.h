@@ -8,6 +8,7 @@
 #include <memory>
 
 class Settings;
+class TranslationManager;
 class ShotHistoryStorage;
 class ProfileStorage;
 class ScreensaverVideoManager;
@@ -32,6 +33,14 @@ public:
                                    ScreensaverVideoManager* screensaverManager = nullptr,
                                    QObject* parent = nullptr);
     ~DatabaseBackupManager();
+
+    // Inject the TranslationManager so user-visible backup/restore error strings
+    // localize. Wired in main.cpp. Until injected, tr_() returns the English
+    // fallback. IMPORTANT: TranslationManager::translate is NOT thread-safe, so
+    // tr_() (and joinErrors) must only ever be called on the main thread — all
+    // error emits here are either synchronous (main) or marshaled back to the
+    // main thread via QMetaObject::invokeMethod, so worker threads never call it.
+    void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
 
     /// Start the backup scheduler (call after app initialization)
     void start();
@@ -105,6 +114,13 @@ private slots:
     void onTimerFired();
 
 private:
+    // Translate a user-visible string via the injected TranslationManager,
+    // falling back to the English source when none is set. Main thread only.
+    QString tr_(const char* key, const char* fallback) const;
+    // Translate + join a worker-accumulated (key, fallback) error list on the
+    // main thread (the worker can't safely translate). "; "-separated.
+    QString joinErrors(const QVector<QPair<QString, QString>>& errs) const;
+
     void scheduleNextCheck();
     bool shouldBackupNow() const;
     QString getBackupDirectory() const;
@@ -115,6 +131,7 @@ private:
     static bool copyDirectory(const QString& srcDir, const QString& destDir, bool overwrite = false);
 
     Settings* m_settings;
+    TranslationManager* m_translationManager = nullptr;
     ShotHistoryStorage* m_storage;
     ProfileStorage* m_profileStorage;
     ScreensaverVideoManager* m_screensaverManager;
