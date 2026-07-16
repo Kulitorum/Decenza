@@ -96,6 +96,11 @@ add_library(decenza_testlib STATIC
     ${CORE_SOURCES}
     ${CONTROLLER_SOURCES}
     ${SIMULATOR_SOURCES}
+    # TranslationManager is needed by per-target sources that link this lib
+    # (VisualizerUploader via HISTORY_SOURCES; LiveSteamCoach) now that they
+    # route user-visible strings through translate(). Compiling it into the lib
+    # provides the symbol once instead of each target adding translationmanager.cpp.
+    ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
 )
 set_target_properties(decenza_testlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
@@ -217,7 +222,6 @@ add_decenza_test(tst_machinestate
 add_decenza_test(tst_livesteamcoach
     tst_livesteamcoach.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/livesteamcoach.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
 )
 
 # --- tst_machinestatussnapshot: widget snapshot schema + temp coalescing ---
@@ -737,7 +741,6 @@ add_decenza_test(tst_mcptools_write
     ${PROFILEMANAGER_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/core/accessibilitymanager.cpp
     ${CMAKE_SOURCE_DIR}/src/screensaver/screensavervideomanager.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/core/batterymanager.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
@@ -763,7 +766,6 @@ add_decenza_test(tst_mcptools_presets
     ${PROFILEMANAGER_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/core/accessibilitymanager.cpp
     ${CMAKE_SOURCE_DIR}/src/screensaver/screensavervideomanager.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/core/batterymanager.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
@@ -873,7 +875,6 @@ find_package(Qt6 REQUIRED COMPONENTS TextToSpeech Multimedia Quick Network)
 add_decenza_test(tst_accessibility_announcements
     tst_accessibility_announcements.cpp
     ${CMAKE_SOURCE_DIR}/src/core/accessibilitymanager.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
 )
 target_link_libraries(tst_accessibility_announcements PRIVATE
     Qt6::TextToSpeech Qt6::Multimedia Qt6::Quick Qt6::Network
