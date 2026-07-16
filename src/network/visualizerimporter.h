@@ -116,8 +116,12 @@ private:
     };
     // Page GET /api/shots collecting in-window ids, then start downloads.
     void recoverFetchListPage(int page);
-    // Download the next queued shot's full record + profile, parse, insert.
+    // Advance to the next queued shot (resets the per-shot retry counter) and
+    // kick off its download.
     void recoverNextShot();
+    // Download the current shot's full record (with bounded transient retry) +
+    // profile, then parse and insert.
+    void recoverDownloadCurrent();
     // Finish the run: emit recoveryComplete and reset state.
     void finishRecovery();
 
@@ -127,6 +131,7 @@ private:
     qint64 m_recoverToEpoch = 0;
     QVector<RecoveryShot> m_recoverQueue;   // in-window shots still to fetch
     RecoveryShot m_recoverCurrent;          // shot whose download is in flight
+    int m_recoverAttempts = 0;              // download attempts for m_recoverCurrent (bounded retry)
     int m_recoverTotal = 0;
     int m_recoverImported = 0;
     int m_recoverSkipped = 0;

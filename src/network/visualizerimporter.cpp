@@ -856,8 +856,18 @@ void VisualizerImporter::recoverNextShot()
     }
 
     m_recoverCurrent = m_recoverQueue.takeFirst();
+    m_recoverAttempts = 0;
+    recoverDownloadCurrent();
+}
 
-    // Step 1: download the full shot record (telemetry + metadata).
+void VisualizerImporter::recoverDownloadCurrent()
+{
+    // Step 1: download the full shot record (telemetry + metadata). A transient
+    // network/server failure is retried a bounded number of times (mirrors the
+    // uploader's transient-retry policy) so one blip mid-run doesn't permanently
+    // drop an otherwise-recoverable shot; a definitive client error (4xx, e.g. a
+    // deleted shot) is not retried. Retries re-fetch the SAME shot without
+    // advancing the queue.
     QUrl url(QString(VISUALIZER_SHOT_DOWNLOAD_API).arg(m_recoverCurrent.visualizerId));
     QNetworkRequest request(url);
     request.setRawHeader("Authorization", authHeader().toUtf8());
@@ -869,6 +879,17 @@ void VisualizerImporter::recoverNextShot()
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
+            constexpr int kMaxAttempts = 3;   // 1 initial + up to 2 retries
+            const int sc = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            const bool transient = (sc == 0 || sc >= 500);  // transport error or 5xx
+            m_recoverAttempts++;
+            if (transient && m_recoverAttempts < kMaxAttempts) {
+                qWarning() << "VisualizerImporter: shot download transient failure for"
+                           << m_recoverCurrent.visualizerId << reply->errorString()
+                           << "- retrying" << m_recoverAttempts << "of" << (kMaxAttempts - 1);
+                recoverDownloadCurrent();   // retry the same shot
+                return;
+            }
             qWarning() << "VisualizerImporter: shot download failed for"
                        << m_recoverCurrent.visualizerId << reply->errorString();
             m_recoverFailed++;

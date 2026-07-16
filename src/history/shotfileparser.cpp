@@ -381,14 +381,25 @@ ShotFileParser::ParseResult ShotFileParser::parseVisualizerShot(const QJsonObjec
     // Frame boundaries: the download has no de1app timers block, but it does
     // carry espresso_state_change — a per-sample array that flips sign
     // (+/-10000000) at each frame transition (the same convention Decenza
-    // uploads; see VISUALIZER.md "state_change Array"). Emit a phase marker
-    // at each sign change so the shot-detail view still draws frame lines.
+    // uploads; see VISUALIZER.md "state_change Array"). Emit a phase marker at
+    // the start of frame 0 and at each subsequent sign change, numbered 0,1,2,…
+    // to match the live-shot convention (MainController / ShotDataModel):
+    //   - shot_phases.label is NOT NULL, so every marker MUST carry a non-empty
+    //     label or its INSERT is rejected and the shot silently loses all frame
+    //     lines. Labels are internal (the detail view draws lines by
+    //     time/frameNumber, not text), so a generic "Frame N" is sufficient; it
+    //     must NOT be "Start", which ShotAnalysis::detectSkipFirstFrame treats as
+    //     a synthetic leading marker to skip.
+    //   - a frameNumber==0 marker MUST exist: detectSkipFirstFrame keys off it
+    //     (sawFrameZero). Without it, every recovered shot takes the strict
+    //     firmware-bug branch and is spuriously badged "skipped first frame".
     const QVector<double> stateChange = jsonArrayToDoubles(data.value("espresso_state_change").toArray());
     if (stateChange.size() >= 2 && stateChange.size() <= elapsed.size()) {
         int frameNumber = 0;
-        // Real downloads start the series at 0.0; seed the reference sign from the
-        // first *non-zero* sample so the leading 0 -> ±1e7 step isn't recorded as
-        // a phantom frame boundary at t≈0.
+        // Real downloads start the series at 0.0; the first *non-zero* sample is
+        // where extraction (frame 0) actually begins — emit the frame-0 boundary
+        // there and seed the reference sign, so the leading 0 -> ±1e7 step isn't
+        // double-counted as an extra frame transition.
         bool havePrev = false;
         bool prevPos = false;
         for (qsizetype i = 0; i < stateChange.size(); ++i) {
@@ -396,6 +407,11 @@ ShotFileParser::ParseResult ShotFileParser::parseVisualizerShot(const QJsonObjec
                 continue;
             const bool curPos = stateChange[i] > 0;
             if (!havePrev) {
+                HistoryPhaseMarker marker;
+                marker.time = elapsed[i];
+                marker.frameNumber = 0;             // start of frame 0
+                marker.label = QStringLiteral("Frame 1");
+                result.record.phases.append(marker);
                 prevPos = curPos;
                 havePrev = true;
                 continue;
@@ -404,6 +420,7 @@ ShotFileParser::ParseResult ShotFileParser::parseVisualizerShot(const QJsonObjec
                 HistoryPhaseMarker marker;
                 marker.time = elapsed[i];
                 marker.frameNumber = ++frameNumber;
+                marker.label = QStringLiteral("Frame %1").arg(frameNumber + 1);
                 result.record.phases.append(marker);
                 prevPos = curPos;
             }

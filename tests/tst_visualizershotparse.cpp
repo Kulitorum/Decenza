@@ -92,19 +92,27 @@ private slots:
         QVERIFY2(qAbs(maxWater - 81.685) < 0.1,
                  qPrintable(QStringLiteral("water-dispensed x10 wrong: %1").arg(maxWater)));
 
-        // Real frame detection: the fixture's state_change series flips sign 4
-        // times. A positive count (not just "no phantom") proves the frame-marker
-        // loop actually fires — a regression to zero frames would pass the
-        // phantom guard vacuously.
-        QCOMPARE(res.record.phases.size(), qsizetype(4));
-        QCOMPARE(res.record.phases.first().frameNumber, 1);
-
-        // Phantom-frame guard: the state_change series starts at 0.0, which must
-        // NOT register a phase boundary at t≈0.
-        for (const auto& ph : res.record.phases)
-            QVERIFY2(ph.time > 0.1,
-                     qPrintable(QStringLiteral("phantom frame marker at t=%1")
-                                .arg(ph.time)));
+        // Frame detection: a frame-0 boundary at extraction start, then one
+        // marker per sign change (the fixture flips sign 4 times) → 5 markers
+        // numbered 0..4, each with a non-empty label.
+        QCOMPARE(res.record.phases.size(), qsizetype(5));
+        // A frameNumber==0 marker MUST lead: ShotAnalysis::detectSkipFirstFrame
+        // keys off it, else recovered shots are spuriously badged "skip first
+        // frame".
+        QCOMPARE(res.record.phases.first().frameNumber, 0);
+        for (qsizetype i = 0; i < res.record.phases.size(); ++i) {
+            QCOMPARE(res.record.phases[i].frameNumber, int(i));
+            // shot_phases.label is NOT NULL — a null/empty label would make the
+            // phase INSERT fail and silently drop every frame line.
+            QVERIFY2(!res.record.phases[i].label.isEmpty(),
+                     qPrintable(QStringLiteral("phase %1 has empty label").arg(i)));
+        }
+        // The leading 0.0 samples must not spawn a spurious extra boundary: every
+        // transition marker (after frame 0) advances well past t≈0.
+        for (qsizetype i = 1; i < res.record.phases.size(); ++i)
+            QVERIFY2(res.record.phases[i].time > 0.1,
+                     qPrintable(QStringLiteral("transition marker %1 at t=%2")
+                                .arg(i).arg(res.record.phases[i].time)));
     }
 
     // Taste taps round-trip: the uploader maps tasteBalance/tasteBody to the CVA

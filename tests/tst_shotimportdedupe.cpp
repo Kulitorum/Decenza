@@ -15,9 +15,11 @@
 #include <QCoreApplication>
 #include <QThread>
 #include <QPointF>
+#include <QSqlQuery>
 
 #include "history/shothistorystorage.h"
 #include "history/shothistory_types.h"
+#include "core/dbutils.h"
 
 class TstShotImportDedupe : public QObject
 {
@@ -100,6 +102,42 @@ private slots:
 
         storage.close();
         drain();
+    }
+
+    // Phase markers must survive import. shot_phases.label is NOT NULL, so a
+    // marker with a null/empty label makes its INSERT fail — and the import
+    // ignores that failure, silently dropping every frame line. A recovered
+    // shot's markers (built in parseVisualizerShot) must carry a label; this
+    // verifies the rows actually land in the DB.
+    void phase_markers_persist()
+    {
+        QVERIFY(m_dir.isValid());
+        const QString path = m_dir.filePath("import_phases.db");
+        ShotHistoryStorage storage;
+        QVERIFY(storage.initialize(path));
+
+        ShotRecord r = makeShot("phase-shot", 1752000000, "Profile P", QStringLiteral("VIZ-P"));
+        HistoryPhaseMarker m0; m0.time = 0.01; m0.frameNumber = 0; m0.label = QStringLiteral("Frame 1");
+        HistoryPhaseMarker m1; m1.time = 2.0;  m1.frameNumber = 1; m1.label = QStringLiteral("Frame 2");
+        r.phases = { m0, m1 };
+
+        const qint64 id = storage.importShotRecord(r, false);
+        QVERIFY2(id > 0, "import should insert");
+
+        storage.close();
+        drain();
+
+        // A null-label marker would have failed the NOT NULL constraint and been
+        // silently skipped, leaving 0 rows.
+        int phaseCount = -1;
+        withTempDb(path, "shs_test_phases", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            q.prepare(QStringLiteral("SELECT COUNT(*) FROM shot_phases WHERE shot_id = ?"));
+            q.bindValue(0, id);
+            if (q.exec() && q.next())
+                phaseCount = q.value(0).toInt();
+        });
+        QCOMPARE(phaseCount, 2);
     }
 };
 
