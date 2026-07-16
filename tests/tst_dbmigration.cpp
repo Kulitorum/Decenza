@@ -1558,6 +1558,35 @@ private slots:
         });
     }
 
+    // add-ai-taste-intake: loadShotRecordStatic reads taste_balance/taste_body by
+    // positional index (52/53, appended to the SELECT), and convertShotRecord
+    // copies them into the projection. Guard the full write→read→project round-trip
+    // so a SELECT-list edit that shifts those columns fails loudly.
+    void v33_tasteAxesReadRoundTrip() {
+        const QString path = freshDbPath();
+        { ShotHistoryStorage s; initAndClose(path, s); }
+        qint64 shotId = -1;
+        withRawDb(path, "v33_rt_seed", [&](QSqlDatabase& db) {
+            QSqlQuery q(db);
+            QVERIFY(q.exec("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds) "
+                           "VALUES ('taste-rt', 1000, 'P', 30)"));
+            shotId = q.lastInsertId().toLongLong();
+            QVariantMap meta;
+            meta["tasteBalance"] = QStringLiteral("sour");
+            meta["tasteBody"] = QStringLiteral("heavy");
+            QVERIFY(ShotHistoryStorage::updateShotMetadataStatic(db, shotId, meta));
+        });
+        QVERIFY(shotId > 0);
+        withRawDb(path, "v33_rt_load", [&](QSqlDatabase& db) {
+            const ShotRecord r = ShotHistoryStorage::loadShotRecordStatic(db, shotId);
+            QCOMPARE(r.tasteBalance, QStringLiteral("sour"));
+            QCOMPARE(r.tasteBody, QStringLiteral("heavy"));
+            const ShotProjection p = ShotHistoryStorage::convertShotRecord(r);
+            QCOMPARE(p.tasteBalance, QStringLiteral("sour"));
+            QCOMPARE(p.tasteBody, QStringLiteral("heavy"));
+        });
+    }
+
     // loadShotRecordStatic resolves grinder brand/model/burrs through the
     // equipment_id JOIN (the per-shot columns are gone — migration 23) and
     // derives equipmentState from the package's in_inventory + superseded_by

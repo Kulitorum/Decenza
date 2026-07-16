@@ -125,16 +125,17 @@ The mapping is one-directional (Decenza → Visualizer). The local chip enum is 
 source of truth; we do not reverse-map CVA scores back into a chip.
 
 **Upload happens at capture time via the existing auto-sync gates — no new
-trigger.** A taste tap persists through the same `saveEditedShot` /
-`requestUpdateShotMetadata` path the review page already uses, and that path
-already PATCHes Visualizer when `Settings.visualizer.visualizerAutoUpdate` is on
-(`PostShotReviewPage.qml:832`) and CREATE-uploads when
-`Settings.visualizer.visualizerAutoUpload` is on. So, with the user's Visualizer
-auto-sync enabled, tapping a taste chip pushes the mapped CVA fields to Visualizer
-immediately — the only wiring required is adding `taste_balance` / `taste_body` to
-`touchesVisualizerFields()` so a taste-only edit counts as a syncable change. With
-auto-sync off, the taps persist locally and upload on the next manual push, exactly
-like every other shot field.
+trigger.** A taste tap on the **post-shot review page** persists through
+`saveEditedShot`, which sets `pendingVisualizerUpdate` and lets
+`maybeAutoUpdateVisualizer` PATCH the shot when `visualizerAutoUpdate` is on — so
+the mapped CVA fields push to Visualizer at capture time, with no new trigger.
+(There is no shot-level `touchesVisualizerFields()` — that helper is a
+coffee-bag concept; the shot path is `pendingVisualizerUpdate` +
+`buildVisualizerOverrides`, which now carries the two taste keys.) A tap made in
+the **AI intake dialog** persists to the DB via `requestUpdateShotMetadata` but
+does NOT itself fire a Visualizer PATCH; it syncs on the next review-page edit or
+manual upload. With auto-sync off, all taps persist locally and upload on the next
+push, like every other shot field.
 
 ## Risks / open questions
 

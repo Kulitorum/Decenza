@@ -117,6 +117,11 @@ add_decenza_test(tst_aborted_shot_classifier
     tst_aborted_shot_classifier.cpp
 )
 
+# --- tst_tastecvamap: header-only taste-tap → Visualizer CVA mapping (add-ai-taste-intake) ---
+add_decenza_test(tst_tastecvamap
+    tst_tastecvamap.cpp
+)
+
 # --- tst_dialing_helpers: pure session-grouping algorithm (issue #1009) ---
 add_decenza_test(tst_dialing_helpers
     tst_dialing_helpers.cpp

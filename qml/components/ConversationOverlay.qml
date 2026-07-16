@@ -82,10 +82,13 @@ Rectangle {
         if (overlay.shotId > 0 && Object.keys(meta).length > 0 && MainController.shotHistory)
             MainController.shotHistory.requestUpdateShotMetadata(overlay.shotId, meta)
 
+        // Send first, then dismiss only if it actually went through. Dismissing
+        // up front would, on mobile (where conversationInput is hidden), silently
+        // discard the composed question if the send were refused.
         var msg = composeIntakeMessage()
-        overlay.intakeVisible = false
         conversationInput.text = msg
-        conversationInput.sendFollowUp()
+        if (conversationInput.sendFollowUp())
+            overlay.intakeVisible = false
     }
 
     // Emitted when the overlay clears pendingShotSummary (parent must handle)
@@ -651,10 +654,12 @@ Rectangle {
                         Keys.onReturnPressed: sendFollowUp()
                         Keys.onEnterPressed: sendFollowUp()
 
+                        // Returns true if the message was actually sent, so callers
+                        // (e.g. submitIntake) can avoid dismissing UI on a refused send.
                         function sendFollowUp() {
                             Qt.inputMethod.commit()
-                            if (text.length === 0) return
-                            if (!MainController.aiManager || !MainController.aiManager.conversation) return
+                            if (text.length === 0) return false
+                            if (!MainController.aiManager || !MainController.aiManager.conversation) return false
 
                             var conversation = MainController.aiManager.conversation
                             var message = text
@@ -707,6 +712,7 @@ Rectangle {
                                 if (hasShotData)
                                     overlay.pendingShotSummaryCleared()
                             }
+                            return sent
                         }
                     }
 
@@ -785,9 +791,10 @@ Rectangle {
     }
 
     // Tap-only taste intake layer (add-ai-taste-intake). Covers the conversation
-    // content on first open; the BottomBar (declared after this) stays on top so
-    // Back still works. Declared before the input dialog so it never overlaps the
-    // (mobile) compose dialog.
+    // content on first open. `anchors.bottomMargin: Theme.bottomBarHeight` keeps
+    // this layer clear of the BottomBar's strip so Back stays tappable — the
+    // z:50 here would otherwise sit ABOVE the (z:0) BottomBar, so it's the
+    // geometry, not declaration order, that protects the bar.
     Rectangle {
         id: intakeLayer
         visible: overlay.intakeVisible

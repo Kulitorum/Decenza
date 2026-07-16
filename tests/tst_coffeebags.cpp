@@ -629,9 +629,9 @@ private slots:
             QSqlQuery q(db);
             q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
                       "bean_brand, bean_type, bag_id, stopped_by, beanbase_json, frozen_date, "
-                      "storage_hint, opened_date) "
+                      "storage_hint, opened_date, taste_balance, taste_body) "
                       "VALUES ('src-uuid-1', 2000, 'P', 30, 'Transfer', 'Roast', :bag, 'weight', "
-                      "'{\"id\":\"canon-9\"}', '2026-06-01', 'airtight', '2026-06-05')");
+                      "'{\"id\":\"canon-9\"}', '2026-06-01', 'airtight', '2026-06-05', 'sour', 'heavy')");
             q.bindValue(":bag", srcBagId);
             QVERIFY(q.exec());
         });
@@ -650,7 +650,8 @@ private slots:
         withRawDb(destPath, "imp_check", [&](QSqlDatabase& db) {
             QSqlQuery q(db);
             QVERIFY(q.exec("SELECT s.bag_id, s.stopped_by, s.beanbase_json, s.beanbase_id, s.frozen_date, "
-                           "b.roaster_name, s.storage_hint, s.opened_date, b.storage_hint, b.opened_date "
+                           "b.roaster_name, s.storage_hint, s.opened_date, b.storage_hint, b.opened_date, "
+                           "s.taste_balance, s.taste_body "
                            "FROM shots s JOIN coffee_bags b ON b.id = s.bag_id "
                            "WHERE s.uuid = 'src-uuid-1'"));
             QVERIFY(q.next());
@@ -664,6 +665,11 @@ private slots:
             QCOMPARE(q.value(7).toString(), QString("2026-06-05")); // shot opened_date carried
             QCOMPARE(q.value(8).toString(), QString("airtight"));   // bag storage_hint carried
             QCOMPARE(q.value(9).toString(), QString("2026-06-05")); // bag opened_date carried
+            // add-ai-taste-intake: taste columns carry across transfer. This also
+            // guards the positional bind-order in importDatabaseStatic — a shifted
+            // bind would corrupt these or the adjacent recipe/steam columns.
+            QCOMPARE(q.value(10).toString(), QString("sour"));      // taste_balance carried
+            QCOMPARE(q.value(11).toString(), QString("heavy"));     // taste_body carried
         });
     }
 

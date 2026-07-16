@@ -1596,8 +1596,10 @@ bool ShotHistoryStorage::runMigrations()
     // dial-in taste axes the shot curve can't reveal, tapped in the AI taste
     // intake picker or on the review page. Shots-only — taste is a per-shot
     // observation, not a coffee_bags attribute. Empty-string = unset (matching
-    // enjoyment0to100 == 0), so an ADD COLUMN with no default reads as unset for
-    // existing rows. Written only via requestUpdateShotMetadata (a post-hoc edit),
+    // enjoyment0to100 == 0); an ADD COLUMN with no default leaves existing rows
+    // NULL, which surfaces as "" on read (QSqlQuery::value().toString()) — the
+    // same "unset" sentinel new writes use. Written only via
+    // requestUpdateShotMetadata (a post-hoc edit),
     // so no shot-save INSERT binding is needed — but the shot-read SELECT and the
     // device-transfer INSERT name them. Idempotent, gated ">= 32 && < 33".
     // Whitespace before the open-paren dodges the QSqlQuery permission-hook
@@ -2929,9 +2931,16 @@ bool ShotHistoryStorage::updateShotMetadataStatic(QSqlDatabase& db, qint64 shotI
     static const QStringList kTasteBodyValues    = {"thin", "medium", "heavy"};
     const auto sanitizeTaste = [&](const QString& key, const QStringList& allowed) {
         if (!metadata.contains(key)) return;
-        const QString v = metadata.value(key).toString();
-        if (!v.isEmpty() && !allowed.contains(v)) {
-            qWarning() << "ShotHistoryStorage: dropping invalid" << key << "value" << v;
+        const QString raw = metadata.value(key).toString();
+        if (raw.isEmpty()) return;  // "" = unset/clear, always valid
+        // Normalize case/whitespace so a drifted producer ("Balanced", " sour ")
+        // is corrected rather than silently discarded. Only a genuinely
+        // out-of-set value is dropped (with a warning).
+        const QString norm = raw.trimmed().toLower();
+        if (allowed.contains(norm)) {
+            metadata.insert(key, norm);
+        } else {
+            qWarning() << "ShotHistoryStorage: dropping invalid" << key << "value" << raw;
             metadata.remove(key);
         }
     };

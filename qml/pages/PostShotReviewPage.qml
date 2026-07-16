@@ -576,6 +576,11 @@ Page {
         ratingInput.value = Qt.binding(function() { return editEnjoyment })
         doseInput.value = Qt.binding(function() { return editDoseWeight })
         outInput.value = Qt.binding(function() { return editDrinkWeight })
+        // TastePicker chips self-assign root.tasteBalance/tasteBody on tap, which
+        // severs the `tasteBalance: editTasteBalance` bindings — re-establish them
+        // so Undo visually reverts the chips (same pattern as the rating slider).
+        tastePicker.tasteBalance = Qt.binding(function() { return editTasteBalance })
+        tastePicker.tasteBody = Qt.binding(function() { return editTasteBody })
     }
 
     // Persist current edits if dirty.
@@ -698,6 +703,7 @@ Page {
             barista: src.barista, doseWeightG: src.doseWeightG,
             finalWeightG: src.finalWeightG, drinkTdsPct: src.drinkTdsPct,
             drinkEyPct: src.drinkEyPct, enjoyment0to100: src.enjoyment0to100,
+            tasteBalance: src.tasteBalance, tasteBody: src.tasteBody,
             espressoNotes: src.espressoNotes, beverageType: src.beverageType,
             beanBaseJson: src.beanBaseJson
         }
@@ -1392,6 +1398,7 @@ Page {
             // no parallel UI. Same TastePicker component as the AI intake dialog,
             // writing the same shot columns.
             TastePicker {
+                id: tastePicker
                 Layout.fillWidth: true
                 showOverall: false
                 tasteBalance: editTasteBalance

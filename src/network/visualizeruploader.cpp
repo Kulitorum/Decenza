@@ -25,6 +25,7 @@
 #include "visualizeruploader.h"
 #include "beanbase_blob.h"
 #include "roastdate.h"
+#include "tastecvamap.h"
 #include "../history/coffeebagstorage.h"
 #include "../core/dbutils.h"
 #include "../models/shotdatamodel.h"
@@ -290,23 +291,6 @@ void VisualizerUploader::updateShotOnVisualizerWithOverrides(
     updateShotOnVisualizer(visualizerId, shot);
 }
 
-// add-ai-taste-intake: map the coarse taste taps onto Visualizer's SCA CVA
-// descriptive attributes (intensity 0-15). ONLY writes a field when the local
-// tap is set — never null — so an untapped shot never clears a CVA value the
-// user scored by hand in Visualizer's assessment form (design decision 7). The
-// five CVA attributes the taps don't speak to (sweetness, aftertaste, aroma,
-// flavor, fragrance) are never touched.
-static void applyTasteCvaMapping(QJsonObject& obj, const ShotProjection& s)
-{
-    if (s.tasteBalance == QLatin1String("sour"))          { obj["acidity"] = 12; obj["bitterness"] = 4;  }
-    else if (s.tasteBalance == QLatin1String("balanced")) { obj["acidity"] = 8;  obj["bitterness"] = 8;  }
-    else if (s.tasteBalance == QLatin1String("bitter"))   { obj["acidity"] = 4;  obj["bitterness"] = 12; }
-
-    if (s.tasteBody == QLatin1String("thin"))        obj["mouthfeel"] = 4;
-    else if (s.tasteBody == QLatin1String("medium")) obj["mouthfeel"] = 8;
-    else if (s.tasteBody == QLatin1String("heavy"))  obj["mouthfeel"] = 12;
-}
-
 void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData)
 {
     if (visualizerId.isEmpty()) {
@@ -386,7 +370,7 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     setStr("profile_title", &ShotProjection::profileName);
     // Structured taste taps → CVA (add-ai-taste-intake). Only-when-tapped /
     // never-null so this PATCH cannot clear a hand-entered CVA score.
-    applyTasteCvaMapping(shotObj, shotData);
+    applyTasteCvaMapping(shotObj, shotData.tasteBalance, shotData.tasteBody);
 
     // Canonical bean linkage (5C): when the shot's Bean Base snapshot was
     // picked via Visualizer's canonical autocomplete, the blob carries
@@ -1566,7 +1550,7 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
     if (!shotData.espressoNotes.isEmpty()) settings["espresso_notes"] = shotData.espressoNotes;
     // Structured taste taps → CVA (add-ai-taste-intake), best-effort on the
     // initial .shot upload settings; the authoritative sync is the PATCH path.
-    applyTasteCvaMapping(settings, shotData);
+    applyTasteCvaMapping(settings, shotData.tasteBalance, shotData.tasteBody);
 
     if (!shotData.barista.isEmpty()) settings["barista"] = shotData.barista;
 
