@@ -72,6 +72,7 @@ public:
     Q_INVOKABLE QVariantList getConductanceDerivativeData(int index) const;
     Q_INVOKABLE QVariantList getDarcyResistanceData(int index) const;
     Q_INVOKABLE QVariantList getTemperatureMixData(int index) const;
+    Q_INVOKABLE QVariantList getTemperatureMixGoalData(int index) const;
     Q_INVOKABLE QVariantList getPhaseMarkers(int index) const;
 
     Q_INVOKABLE QVariantMap getShotInfo(int index) const;
@@ -126,6 +127,7 @@ private:
         QVector<QPointF> conductanceDerivative;
         QVector<QPointF> darcyResistance;
         QVector<QPointF> temperatureMix;
+        QVector<QPointF> temperatureMixGoal;
 
         struct PhaseMarker {
             double time = 0;

@@ -32,6 +32,7 @@ class ShotDataModel : public QObject {
     Q_PROPERTY(QVariantList pressureGoalSegments READ pressureGoalSegmentsVariant NOTIFY goalCurvesChanged)
     Q_PROPERTY(QVariantList flowGoalSegments READ flowGoalSegmentsVariant NOTIFY goalCurvesChanged)
     Q_PROPERTY(QVariantList temperatureGoalPoints READ temperatureGoalPointsVariant NOTIFY goalCurvesChanged)
+    Q_PROPERTY(QVariantList temperatureMixGoalPoints READ temperatureMixGoalPointsVariant NOTIFY goalCurvesChanged)
 
 public:
     explicit ShotDataModel(QObject* parent = nullptr);
@@ -46,6 +47,7 @@ public:
     QVariantList pressureGoalSegmentsVariant() const;
     QVariantList flowGoalSegmentsVariant() const;
     QVariantList temperatureGoalPointsVariant() const;
+    QVariantList temperatureMixGoalPointsVariant() const;
 
     // Register fast renderers for live data series (QSGGeometryNode - pre-allocated VBO)
     Q_INVOKABLE void registerFastSeries(FastLineRenderer* pressure, FastLineRenderer* flow,
@@ -69,6 +71,7 @@ public:
     QVector<QPointF> pressureGoalData() const;  // Combines all segments
     QVector<QPointF> flowGoalData() const;      // Combines all segments
     const QVector<QPointF>& temperatureGoalData() const { return m_temperatureGoalPoints; }
+    const QVector<QPointF>& temperatureMixGoalData() const { return m_temperatureMixGoalPoints; }
     const QVector<QPointF>& weightData() const { return m_weightPoints; }  // Cumulative weight (g) for graph
     const QVector<QPointF>& cumulativeWeightData() const { return m_cumulativeWeightPoints; }  // Cumulative weight for export
     const QVector<QPointF>& weightFlowRateData() const { return m_weightFlowRatePoints; }  // Flow rate from scale (g/s) for export
@@ -85,6 +88,7 @@ public slots:
     void addSample(double time, double pressure, double flow, double temperature,
                    double mixTemp,
                    double pressureGoal, double flowGoal, double temperatureGoal,
+                   double temperatureMixGoal,
                    int frameNumber = -1, bool isFlowMode = false);
     void addWeightSample(double time, double weight, double flowRate);
     void addWeightSample(double time, double weight);  // Overload without flowRate (from ShotTimingController)
@@ -122,7 +126,8 @@ private:
     QVector<QPointF> m_waterDispensedPoints;
     QVector<QVector<QPointF>> m_pressureGoalSegments;  // Separate segments for clean breaks
     QVector<QVector<QPointF>> m_flowGoalSegments;      // Separate segments for clean breaks
-    QVector<QPointF> m_temperatureGoalPoints;
+    QVector<QPointF> m_temperatureGoalPoints;      // SetHeadTemp (basket target)
+    QVector<QPointF> m_temperatureMixGoalPoints;   // SetMixTemp (water-in target)
     QVector<QPointF> m_weightPoints;  // Cumulative weight (g) - for graphing
     QVector<QPointF> m_cumulativeWeightPoints;  // Cumulative weight (g) - for export
     QVector<QPointF> m_weightFlowRatePoints;  // Flow rate from scale (g/s) - for visualizer export

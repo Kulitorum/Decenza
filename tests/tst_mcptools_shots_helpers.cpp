@@ -1,9 +1,11 @@
 #include <QTest>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QJsonValue>
 #include "mcp/mcptools_shots_helpers.h"
 
 using McpShotsHelpers::reshapeDetectorEnvelopes;
+using McpShotsHelpers::stripTimeSeriesFields;
 
 class TstMcpToolsShotsHelpers : public QObject
 {
@@ -18,6 +20,10 @@ private slots:
     void verdictCategory_isWrappedAsObject();
     void oldKeysAreRemoved();
     void wrappedDetectorsAreUntouched();
+    void strip_dropsTimeSeries();
+    void strip_dropsAnUnknownSeries();
+    void strip_keepsSummaryArraysAndScalars();
+    void strip_dropsHeavyStrings();
 };
 
 // Minimal helper to build the inline-scalar shape that the serializer
@@ -126,6 +132,80 @@ void TstMcpToolsShotsHelpers::wrappedDetectorsAreUntouched()
     QCOMPARE(reshaped.value("grind").toObject().value("direction").toString(),
              QStringLiteral("onTarget"));
     QCOMPARE(reshaped.value("channeling").toObject().value("checked").toBool(), false);
+}
+
+// A time series as ShotProjection emits it: a list of {x,y} point objects.
+static QJsonArray pointSeries()
+{
+    return QJsonArray{
+        QJsonObject{{"x", 0.0}, {"y", 9.0}},
+        QJsonObject{{"x", 0.2}, {"y", 8.8}},
+    };
+}
+
+void TstMcpToolsShotsHelpers::strip_dropsTimeSeries()
+{
+    QJsonObject obj{
+        {"pressure", pointSeries()},
+        {"temperatureGoal", pointSeries()},
+        {"temperatureMixGoal", pointSeries()},
+    };
+    stripTimeSeriesFields(obj);
+
+    QVERIFY(!obj.contains("pressure"));
+    QVERIFY(!obj.contains("temperatureGoal"));
+    QVERIFY(!obj.contains("temperatureMixGoal"));
+}
+
+// The reason this is an allowlist. A series added to ShotProjection tomorrow —
+// one this function has never heard of — must not reach an LLM just because
+// nobody remembered to name it here. That is how temperatureMixGoal leaked.
+void TstMcpToolsShotsHelpers::strip_dropsAnUnknownSeries()
+{
+    QJsonObject obj{{"someFutureSeries", pointSeries()}};
+    stripTimeSeriesFields(obj);
+
+    QVERIFY(!obj.contains("someFutureSeries"));
+}
+
+void TstMcpToolsShotsHelpers::strip_keepsSummaryArraysAndScalars()
+{
+    QJsonObject obj{
+        {"summaryLines", QJsonArray{QStringLiteral("Clean extraction")}},
+        {"phases", QJsonArray{QJsonObject{{"time", 0.0}, {"label", QStringLiteral("preinfusion")}}}},
+        {"phaseSummaries", QJsonArray{QJsonObject{{"name", QStringLiteral("pour")}}}},
+        {"detectorResults", QJsonObject{{"verdictCategory", QStringLiteral("clean")}}},
+        {"id", 42},
+        {"profileName", QStringLiteral("D-Flow/Q")},
+        {"enjoyment0to100", 80},
+    };
+    stripTimeSeriesFields(obj);
+
+    // The summary's own arrays survive — they are the payload, not the ballast.
+    QCOMPARE(obj.value("summaryLines").toArray().size(), 1);
+    QCOMPARE(obj.value("phases").toArray().size(), 1);
+    QCOMPARE(obj.value("phaseSummaries").toArray().size(), 1);
+    // detectorResults is an object, so the array sweep must not touch it.
+    QVERIFY(obj.contains("detectorResults"));
+    // Scalars are untouched: adding one must not require an edit here.
+    QCOMPARE(obj.value("id").toInt(), 42);
+    QCOMPARE(obj.value("profileName").toString(), QStringLiteral("D-Flow/Q"));
+    QCOMPARE(obj.value("enjoyment0to100").toInt(), 80);
+}
+
+void TstMcpToolsShotsHelpers::strip_dropsHeavyStrings()
+{
+    QJsonObject obj{
+        {"debugLog", QStringLiteral("...50K of log...")},
+        {"profileJson", QStringLiteral("{...}")},
+        {"espressoNotes", QStringLiteral("tasted good")},
+    };
+    stripTimeSeriesFields(obj);
+
+    QVERIFY(!obj.contains("debugLog"));
+    QVERIFY(!obj.contains("profileJson"));
+    // Not heavy — a note is exactly what the advisor wants.
+    QCOMPARE(obj.value("espressoNotes").toString(), QStringLiteral("tasted good"));
 }
 
 QTEST_APPLESS_MAIN(TstMcpToolsShotsHelpers)

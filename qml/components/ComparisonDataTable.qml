@@ -53,6 +53,7 @@ ColumnLayout {
             case "dCdt":        return sv.hasConductanceDerivative ? sv.conductanceDerivative.toFixed(1) : "\u2014"
             case "darcyR":      return sv.hasDarcyResistance       ? sv.darcyResistance.toFixed(1)       : "\u2014"
             case "mixTemp":     return sv.hasTemperatureMix        ? Theme.cToDisplay(sv.temperatureMix).toFixed(1) + (compact ? "" : " " + Theme.tempUnitSuffix()) : "\u2014"
+            case "mixTempGoal": return sv.hasTemperatureMixGoal    ? Theme.cToDisplay(sv.temperatureMixGoal).toFixed(1) + (compact ? "" : " " + Theme.tempUnitSuffix()) : "\u2014"
         }
         return "\u2014"
     }
@@ -68,7 +69,8 @@ ColumnLayout {
         "showConductance": "graph/showConductance",
         "showConductanceDerivative": "graph/showConductanceDerivative",
         "showDarcyResistance":       "graph/showDarcyResistance",
-        "showTemperatureMix":        "graph/showTemperatureMix"
+        "showTemperatureMix":        "graph/showTemperatureMix",
+        "showTemperatureMixGoal":    "graph/showTemperatureMixGoal"
     })
 
     function toggleCurve(key) {
@@ -85,6 +87,7 @@ ColumnLayout {
         { key: "showFlow",        dataKey: "flow",        label: "F",    dotColor: Theme.flowColor,                 advanced: false },
         { key: "showTemperature", dataKey: "temp",        label: "T",    dotColor: Theme.temperatureColor,          advanced: false },
         { key: "showTemperatureMix",        dataKey: "mixTemp",label: "Tmix", dotColor: Theme.temperatureMixColor,         advanced: true  },
+        { key: "showTemperatureMixGoal",    dataKey: "mixTempGoal",label: "Tmixg", dotColor: Theme.temperatureMixGoalColor, advanced: true  },
         { key: "showWeight",      dataKey: "weight",      label: "W",    dotColor: Theme.weightColor,               advanced: false },
         { key: "showWeightFlow",  dataKey: "weightFlow",  label: "WF",   dotColor: Theme.weightFlowColor,           advanced: false },
         { key: "showResistance",  dataKey: "resistance",  label: "R",    dotColor: Theme.resistanceColor,           advanced: true  },

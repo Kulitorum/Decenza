@@ -19,13 +19,13 @@ private:
     void populateWithSettlingData(ShotDataModel& model, int realSamples, int zeroSamples) {
         for (int i = 0; i < realSamples; i++) {
             double t = i * 0.2;  // 5Hz
-            model.addSample(t, 9.0, 2.0, 93.0, 88.0, 9.0, 0.0, 93.0);
+            model.addSample(t, 9.0, 2.0, 93.0, 88.0, 9.0, 0.0, 93.0, 94.0);
             model.addWeightSample(t, i * 0.4, 2.0);
         }
         double lastRealTime = realSamples * 0.2;
         for (int i = 0; i < zeroSamples; i++) {
             double t = lastRealTime + (i + 1) * 0.2;
-            model.addSample(t, 0.0, 0.0, 90.0, 85.0, 0.0, 0.0, 90.0);
+            model.addSample(t, 0.0, 0.0, 90.0, 85.0, 0.0, 0.0, 90.0, 91.0);
             // Weight continues during settling
             model.addWeightSample(t, realSamples * 0.4 + i * 0.1, 0.5);
         }
@@ -45,6 +45,11 @@ private slots:
         QCOMPARE(model.pressureData().size(), 50);
         QCOMPARE(model.flowData().size(), 50);
         QCOMPARE(model.temperatureData().size(), 50);
+        // The goal series trim on a time cutoff rather than an index, so they
+        // desync silently: a missed trim leaves the goal lines trailing past
+        // every other series into the settling region.
+        QCOMPARE(model.temperatureGoalData().size(), 50);
+        QCOMPARE(model.temperatureMixGoalData().size(), 50);
     }
 
     void trimPreservesWeightData() {
@@ -61,7 +66,7 @@ private slots:
         ShotDataModel model;
         // All samples have non-zero pressure
         for (int i = 0; i < 20; i++) {
-            model.addSample(i * 0.2, 9.0, 2.0, 93.0, 88.0, 9.0, 0.0, 93.0);
+            model.addSample(i * 0.2, 9.0, 2.0, 93.0, 88.0, 9.0, 0.0, 93.0, 94.0);
         }
 
         qsizetype sizeBefore = model.pressureData().size();
@@ -73,7 +78,7 @@ private slots:
         ShotDataModel model;
         // All samples have zero pressure (failed shot)
         for (int i = 0; i < 20; i++) {
-            model.addSample(i * 0.2, 0.0, 0.0, 90.0, 85.0, 0.0, 0.0, 90.0);
+            model.addSample(i * 0.2, 0.0, 0.0, 90.0, 85.0, 0.0, 0.0, 90.0, 91.0);
         }
 
         qsizetype sizeBefore = model.pressureData().size();

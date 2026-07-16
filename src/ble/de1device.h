@@ -47,7 +47,13 @@ struct ShotSample {
     double groupFlow = 0.0;
     double mixTemp = 0.0;
     double headTemp = 0.0;
+    // The DE1 reports two temperature setpoints at adjacent offsets, both in °C —
+    // easy to transpose, and a swap decodes to plausible values either way.
+    // setTempGoal is SetHeadTemp (basket target); setMixTempGoal is SetMixTemp,
+    // the target for water entering the group, which typically runs above the
+    // basket target to offset group heat loss.
     double setTempGoal = 0.0;
+    double setMixTempGoal = 0.0;
     double setFlowGoal = 0.0;
     double setPressureGoal = 0.0;
     int frameNumber = 0;
@@ -516,5 +522,6 @@ private:
     friend class tst_MachineStatusSnapshot;
     friend class tst_MMRWrite;
     friend class tst_DE1DeviceFirmware;
+    friend class tst_ShotSampleDecode;
 #endif
 };

@@ -16,6 +16,7 @@ ShotDataModel::ShotDataModel(QObject* parent)
     m_darcyResistancePoints.reserve(INITIAL_CAPACITY);
     m_waterDispensedPoints.reserve(INITIAL_CAPACITY);
     m_temperatureGoalPoints.reserve(INITIAL_CAPACITY);
+    m_temperatureMixGoalPoints.reserve(INITIAL_CAPACITY);
     m_weightPoints.reserve(INITIAL_CAPACITY);
     m_cumulativeWeightPoints.reserve(INITIAL_CAPACITY);
     m_weightFlowRatePoints.reserve(INITIAL_CAPACITY);
@@ -125,6 +126,7 @@ void ShotDataModel::clear() {
     m_conductanceDerivativePoints.clear();
     m_waterDispensedPoints.clear();
     m_temperatureGoalPoints.clear();
+    m_temperatureMixGoalPoints.clear();
     m_weightPoints.clear();
     m_cumulativeWeightPoints.clear();
     m_weightFlowRatePoints.clear();
@@ -198,6 +200,7 @@ void ShotDataModel::clearWeightData() {
 void ShotDataModel::addSample(double time, double pressure, double flow, double temperature,
                               double mixTemp,
                               double pressureGoal, double flowGoal, double temperatureGoal,
+                              double temperatureMixGoal,
                               int frameNumber, bool isFlowMode) {
     Q_UNUSED(frameNumber);
 
@@ -269,6 +272,7 @@ void ShotDataModel::addSample(double time, double pressure, double flow, double 
         m_goalCurvesDirty = true;
     }
     m_temperatureGoalPoints.append(QPointF(time, temperatureGoal));
+    m_temperatureMixGoalPoints.append(QPointF(time, temperatureMixGoal));
     m_goalCurvesDirty = true;
 
     // Update raw time - QML uses this to calculate axis max with pixel-based padding
@@ -447,6 +451,8 @@ void ShotDataModel::trimSettlingData() {
     }
     while (!m_temperatureGoalPoints.isEmpty() && m_temperatureGoalPoints.last().x() > cutoffTime)
         m_temperatureGoalPoints.removeLast();
+    while (!m_temperatureMixGoalPoints.isEmpty() && m_temperatureMixGoalPoints.last().x() > cutoffTime)
+        m_temperatureMixGoalPoints.removeLast();
     while (!m_weightFlowRatePoints.isEmpty() && m_weightFlowRatePoints.last().x() > cutoffTime)
         m_weightFlowRatePoints.removeLast();
     while (!m_weightFlowRateRawPoints.isEmpty() && m_weightFlowRateRawPoints.last().x() > cutoffTime)
@@ -606,4 +612,8 @@ QVariantList ShotDataModel::flowGoalSegmentsVariant() const {
 
 QVariantList ShotDataModel::temperatureGoalPointsVariant() const {
     return pointsToVariantList(m_temperatureGoalPoints);
+}
+
+QVariantList ShotDataModel::temperatureMixGoalPointsVariant() const {
+    return pointsToVariantList(m_temperatureMixGoalPoints);
 }

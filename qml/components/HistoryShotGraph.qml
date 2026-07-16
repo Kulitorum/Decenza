@@ -36,6 +36,7 @@ Item {
     property bool showConductanceDerivative: Settings.boolValue("graph/showConductanceDerivative", false)
     property bool showDarcyResistance: Settings.boolValue("graph/showDarcyResistance", false)
     property bool showTemperatureMix: Settings.boolValue("graph/showTemperatureMix", false)
+    property bool showTemperatureMixGoal: Settings.boolValue("graph/showTemperatureMixGoal", false)
 
     property bool advancedMode: false
 
@@ -67,6 +68,7 @@ Item {
     property var pressureGoalData: []
     property var flowGoalData: []
     property var temperatureGoalData: []
+    property var temperatureMixGoalData: []
     property var phaseMarkers: []
     property double maxTime: 60
 
@@ -191,6 +193,7 @@ Item {
             { key: "flow", name: "Flow", data: flowData, unit: "mL/s" },
             { key: "temperature", name: "Temp", data: temperatureData, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
             { key: "mixTemp", name: "Mix temp", data: temperatureMixData, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
+            { key: "mixTempGoal", name: "Mix temp goal", data: temperatureMixGoalData, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
             { key: "weight", name: "Weight", data: weightData, unit: "g" },
             { key: "weightFlow", name: "Weight flow", data: weightFlowRateData, unit: "g/s" },
             { key: "resistance", name: "Resistance", data: resistanceData, unit: "" },
@@ -240,6 +243,7 @@ Item {
             { name: "Flow", data: flowData, show: showFlow, unit: "mL/s" },
             { name: "Temp", data: temperatureData, show: showTemperature, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
             { name: "Mix temp", data: temperatureMixData, show: showTemperatureMix && advancedMode, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
+            { name: "Mix temp goal", data: temperatureMixGoalData, show: showTemperatureMixGoal && advancedMode, unit: Theme.tempUnitSuffix(), convert: function(c){ return Theme.cToDisplay(c) } },
             { name: "Weight", data: weightData, show: showWeight, unit: "g" },
             { name: "Weight flow", data: weightFlowRateData, show: showWeightFlow, unit: "g/s" },
             { name: "Resistance", data: resistanceData, show: showResistance && advancedMode, unit: "" },
@@ -521,6 +525,18 @@ Item {
         strokeColor: Theme.temperatureGoalColor
         strokeWidth: Theme.scaled(2)
         visible: chart.showTemperature
+    }
+
+    // Mix temperature goal (SetMixTemp) — advanced. Shots recorded before this
+    // series existed carry an empty array, so the line is hidden, not drawn at zero.
+    DashedLineSeries {
+        graphsView: chart.graphsViewRef
+        axisX: timeAxis
+        axisY: tempAxis
+        points: chart.temperatureMixGoalData
+        strokeColor: Theme.temperatureMixGoalColor
+        strokeWidth: Theme.scaled(2)
+        visible: chart.showTemperatureMixGoal && chart.advancedMode && chart.temperatureMixGoalData.length > 0
     }
 
     // === VERTICAL PHASE / FRAME MARKER LINES ===

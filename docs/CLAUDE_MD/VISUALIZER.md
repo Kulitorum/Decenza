@@ -21,6 +21,20 @@ Supported metadata fields:
 - **Update**: `PATCH https://visualizer.coffee/api/shots/{id}` (JSON body)
 - **Two paths**: `buildShotJson()` for live shots, `buildHistoryShotJson()` for history re-uploads
 
+**Keep the two builders in step.** They construct the same payload from
+different sources (`ShotDataModel*` vs `ShotProjection`) and have drifted
+before: `buildHistoryShotJson()` omitted `temperature.mix` entirely, so
+re-uploading a shot silently dropped a line the live upload had sent. Any
+series added to one belongs in the other.
+
+**Optional series are omitted, never zero-filled.** `interpolateGoalData()`
+returns an array of zeros for an empty input vector, so an unguarded
+`temperature["mix_goal"] = interpolateGoalData(...)` would upload a flat 0 °C
+goal line for every shot that predates the series — and for every shot imported
+from a de1app `.shot` file, since de1app has no `espresso_temperature_mix_goal`
+vector. Guard each optional series with `!isEmpty()`; Visualizer reads a missing
+key as legacy data and draws nothing.
+
 #### Result persistence (authoritative C++ path)
 
 The returned Visualizer shot id is persisted to the originating local
@@ -64,7 +78,7 @@ The upload JSON matches de1app v2 format:
   "elapsed": [<seconds>...],
   "pressure": { "pressure": [...], "goal": [...] },
   "flow": { "flow": [...], "goal": [...], "by_weight": [...], "by_weight_raw": [...] },
-  "temperature": { "basket": [...], "mix": [...], "goal": [...] },
+  "temperature": { "basket": [...], "mix": [...], "goal": [...], "mix_goal": [...] },
   "totals": { "weight": [...], "water_dispensed": [...] },
   "resistance": { "resistance": [...] },
   "state_change": [...],
@@ -80,6 +94,25 @@ The upload JSON matches de1app v2 format:
   }
 }
 ```
+
+#### The two temperature goals
+
+The DE1 shot sample carries two setpoints, and Visualizer plots both:
+
+| JSON key | DE1 field | Visualizer label | Source |
+|---|---|---|---|
+| `temperature.goal` | `SetHeadTemp` | Basket Temperature Goal | `ShotSample::setTempGoal` |
+| `temperature.mix_goal` | `SetMixTemp` | Mix Temperature Goal | `ShotSample::setMixTempGoal` |
+
+`temperature.goal` is `SetHeadTemp` — matching de1app, whose
+`espresso_temperature_goal` vector is fed from `SetHeadTemp`. **Do not "fix"
+this to the mix target**: it would silently relabel every Decenza shot already
+on Visualizer. (reaprime had this one wrong and corrected it in
+tadelv/reaprime#472; Decenza never did.)
+
+`mix_goal` is newer than the rest of the temperature block — Visualizer added it
+in `0bba67e`, and it has no de1app counterpart, so imported `.shot` files never
+carry one.
 
 #### app.data.settings — Critical for Visualizer Profile Extraction
 

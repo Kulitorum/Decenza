@@ -15,23 +15,6 @@
 #include <QMetaObject>
 #include <QCoreApplication>
 
-// Drop heavy fields (time-series, debugLog, profileJson) from a shot projection
-// JSON object so it fits within typical LLM context windows. The full payload
-// for a single shot is ~85K chars (mostly time-series); the summary is ~3K and
-// covers every dialing/comparison use case (scalars, phaseSummaries,
-// summaryLines, detectorResults, ratings).
-static void stripTimeSeriesFields(QJsonObject& obj)
-{
-    static const char* heavyFields[] = {
-        "pressure", "flow", "temperature", "temperatureMix",
-        "resistance", "conductance", "darcyResistance", "conductanceDerivative",
-        "waterDispensed", "pressureGoal", "flowGoal", "temperatureGoal",
-        "weight", "weightFlowRate",
-        "debugLog", "profileJson"
-    };
-    for (const char* key : heavyFields)
-        obj.remove(QString::fromLatin1(key));
-}
 
 // Strip per-detector implementation-detail blocks (currently `gates`) from
 // detectorResults so MCP responses only expose the user-facing scalars the
@@ -58,6 +41,7 @@ static void stripDetectorInternals(QJsonObject& obj)
 }
 
 using McpShotsHelpers::reshapeDetectorEnvelopes;
+using McpShotsHelpers::stripTimeSeriesFields;
 
 // Resolve the detail argument. Default "summary" — drops time-series, debugLog,
 // profileJson. "full" — return the complete projection. Unknown values fall

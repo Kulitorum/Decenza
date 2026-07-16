@@ -1669,6 +1669,7 @@ QByteArray ShotHistoryStorage::compressSampleData(ShotDataModel* shotData, const
     root["pressureGoal"] = pointsToJsonObject(shotData->pressureGoalData());
     root["flowGoal"] = pointsToJsonObject(shotData->flowGoalData());
     root["temperatureGoal"] = pointsToJsonObject(shotData->temperatureGoalData());
+    root["temperatureMixGoal"] = pointsToJsonObject(shotData->temperatureMixGoalData());
 
     root["temperatureMix"] = pointsToJsonObject(shotData->temperatureMixData());
     root["resistance"] = pointsToJsonObject(shotData->resistanceData());
@@ -1722,6 +1723,10 @@ void ShotHistoryStorage::decompressSampleData(const QByteArray& blob, ShotRecord
     record->pressureGoal = arrayToPoints(root["pressureGoal"].toObject());
     record->flowGoal = arrayToPoints(root["flowGoal"].toObject());
     record->temperatureGoal = arrayToPoints(root["temperatureGoal"].toObject());
+    // Absent for shots recorded before the mix goal series existed — leave empty
+    // rather than defaulting, so consumers can tell "no data" from "goal was 0".
+    if (root.contains("temperatureMixGoal"))
+        record->temperatureMixGoal = arrayToPoints(root["temperatureMixGoal"].toObject());
     if (root.contains("temperatureMix"))
         record->temperatureMix = arrayToPoints(root["temperatureMix"].toObject());
     if (root.contains("resistance"))

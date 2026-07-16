@@ -88,6 +88,8 @@ Item {
                 pressureGoalData: root.shotData.pressureGoal || []
                 flowGoalData: root.shotData.flowGoal || []
                 temperatureGoalData: root.shotData.temperatureGoal || []
+                temperatureMixData: root.shotData.temperatureMix || []
+                temperatureMixGoalData: root.shotData.temperatureMixGoal || []
                 phaseMarkers: root.shotData.phases || []
                 maxTime: root.shotData.durationSec || 60
                 showLabels: root.shotShowLabels
@@ -144,6 +146,8 @@ Item {
                     pressureGoalData: root.shotData.pressureGoal || []
                     flowGoalData: root.shotData.flowGoal || []
                     temperatureGoalData: root.shotData.temperatureGoal || []
+                    temperatureMixData: root.shotData.temperatureMix || []
+                    temperatureMixGoalData: root.shotData.temperatureMixGoal || []
                     phaseMarkers: root.shotData.phases || []
                     maxTime: root.shotData.durationSec || 60
                     showLabels: root.shotShowLabels

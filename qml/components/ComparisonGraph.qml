@@ -24,6 +24,7 @@ Item {
     property bool showConductanceDerivative: Settings.boolValue("graph/showConductanceDerivative", false)
     property bool showDarcyResistance: Settings.boolValue("graph/showDarcyResistance", false)
     property bool showTemperatureMix: Settings.boolValue("graph/showTemperatureMix", false)
+    property bool showTemperatureMixGoal: Settings.boolValue("graph/showTemperatureMixGoal", false)
 
     property bool advancedMode: false
 
@@ -85,7 +86,8 @@ Item {
         { key: "conductance",           axisKey: "pressure", color: Theme.conductanceColor,          width: Math.max(1, Theme.graphLineWidth-1),  advanced: true,  showFlag: "showConductance" },
         { key: "conductanceDerivative", axisKey: "dCdt",     color: Theme.conductanceDerivativeColor,width: Math.max(1, Theme.graphLineWidth-1),  advanced: true,  showFlag: "showConductanceDerivative" },
         { key: "darcyResistance",       axisKey: "pressure", color: Theme.darcyResistanceColor,      width: Math.max(1, Theme.graphLineWidth-1),  advanced: true,  showFlag: "showDarcyResistance" },
-        { key: "temperatureMix",        axisKey: "temp",     color: Theme.temperatureMixColor,       width: Math.max(1, Theme.graphLineWidth-1),  advanced: true,  showFlag: "showTemperatureMix" }
+        { key: "temperatureMix",        axisKey: "temp",     color: Theme.temperatureMixColor,       width: Math.max(1, Theme.graphLineWidth-1),  advanced: true,  showFlag: "showTemperatureMix" },
+        { key: "temperatureMixGoal",    axisKey: "temp",     color: Theme.temperatureMixGoalColor,   width: Math.max(1, Theme.graphLineWidth-1),  advanced: true,  showFlag: "showTemperatureMixGoal" }
     ]
 
     function _axisFor(axisKey) {
@@ -127,6 +129,7 @@ Item {
             case "conductanceDerivative": data = comparisonModel.getConductanceDerivativeData(shotIdx); break
             case "darcyResistance":       data = comparisonModel.getDarcyResistanceData(shotIdx); break
             case "temperatureMix":        data = comparisonModel.getTemperatureMixData(shotIdx); break
+            case "temperatureMixGoal":    data = comparisonModel.getTemperatureMixGoalData(shotIdx); break
             default:                      return []
         }
         if (key === "weight") {

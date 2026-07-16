@@ -801,6 +801,13 @@ QByteArray VisualizerUploader::buildShotJson(ShotDataModel* shotData,
     if (!temperatureMixData.isEmpty()) {
         temperature["mix"] = interpolateGoalData(temperatureMixData, pressureData);
     }
+    // Mix temperature goal (SetMixTemp). Omit the key entirely when absent —
+    // interpolateGoalData() would otherwise fill a zero array, and Visualizer
+    // would draw a 0 °C goal line. Missing means "legacy shot" to Visualizer.
+    const auto& temperatureMixGoalData = shotData->temperatureMixGoalData();
+    if (!temperatureMixGoalData.isEmpty()) {
+        temperature["mix_goal"] = interpolateGoalData(temperatureMixGoalData, pressureData);
+    }
     root["temperature"] = temperature;
 
     // Totals object
@@ -1369,6 +1376,8 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
     QVector<QPointF> pressureGoalData = toPointVector(shotData.pressureGoal);
     QVector<QPointF> flowGoalData = toPointVector(shotData.flowGoal);
     QVector<QPointF> tempGoalData = toPointVector(shotData.temperatureGoal);
+    QVector<QPointF> tempMixData = toPointVector(shotData.temperatureMix);
+    QVector<QPointF> tempMixGoalData = toPointVector(shotData.temperatureMixGoal);
     QVector<QPointF> weightData = toPointVector(shotData.weight);
     QVector<QPointF> weightFlowRateData = toPointVector(shotData.weightFlowRate);
 
@@ -1391,10 +1400,19 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
     }
     root["flow"] = flow;
 
-    // Temperature object
+    // Temperature object. Keep this in step with buildShotJson()'s temperature
+    // block — a shot re-uploaded from history must carry the same series the
+    // live upload sent, or re-uploading silently degrades it.
     QJsonObject temperature;
     temperature["basket"] = extractValues(tempData);
     temperature["goal"] = interpolateGoalData(tempGoalData, pressureData);
+    if (!tempMixData.isEmpty()) {
+        temperature["mix"] = interpolateGoalData(tempMixData, pressureData);
+    }
+    // Omit rather than zero-fill when absent — see buildShotJson().
+    if (!tempMixGoalData.isEmpty()) {
+        temperature["mix_goal"] = interpolateGoalData(tempMixGoalData, pressureData);
+    }
     root["temperature"] = temperature;
 
     // Totals object

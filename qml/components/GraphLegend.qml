@@ -33,6 +33,8 @@ Item {
                   tip: TranslationManager.translate("graph.tip.temp2", "Basket temperature in %1. The temperature at the group head thermocouple.").arg(Theme.tempUnitSuffix()) },
                 { label: TranslationManager.translate("graph.mixTemp", "Mix temp"), sColor: Theme.temperatureMixColor, key: "showTemperatureMix", advanced: true,
                   tip: TranslationManager.translate("graph.tip.mixTemp2", "Mix temperature in %1. The actual water temperature reaching the puck. Difference from basket temp reveals group head thermal stability.").arg(Theme.tempUnitSuffix()) },
+                { label: TranslationManager.translate("graph.mixTempGoal", "Mix temp goal"), sColor: Theme.temperatureMixGoalColor, key: "showTemperatureMixGoal", advanced: true,
+                  tip: TranslationManager.translate("graph.tip.mixTempGoal", "Mix temperature target in %1. What the machine aimed the incoming water at. Read against Mix temp to see how well it held that target. Not recorded on older shots.").arg(Theme.tempUnitSuffix()) },
                 { label: TranslationManager.translate("graph.weight", "Weight"), sColor: Theme.weightColor, key: "showWeight",
                   tip: TranslationManager.translate("graph.tip.weight", "Cumulative beverage weight in grams from the scale.") },
                 { label: TranslationManager.translate("graph.wtFlow", "Wt flow"), sColor: Theme.weightFlowColor, key: "showWeightFlow",

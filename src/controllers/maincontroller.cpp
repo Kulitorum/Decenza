@@ -3402,9 +3402,9 @@ void MainController::generateFakeShotData() {
         double weightFlowRate = (i > 0) ? (weight - prevWeight) / sampleRate : 0.0;
         prevWeight = weight;
 
-        // addSample(time, pressure, flow, temperature, mixTemp, pressureGoal, flowGoal, temperatureGoal, frameNumber, isFlowMode)
+        // addSample(time, pressure, flow, temperature, mixTemp, pressureGoal, flowGoal, temperatureGoal, temperatureMixGoal, frameNumber, isFlowMode)
         // Simulation uses pressure mode (isFlowMode = false)
-        m_shotDataModel->addSample(t, pressure, flow, temperature, temperature, pressureGoal, flowGoal, 92.0, frameNumber, false);
+        m_shotDataModel->addSample(t, pressure, flow, temperature, temperature, pressureGoal, flowGoal, 92.0, 93.0, frameNumber, false);
         m_shotDataModel->addWeightSample(t, weight, weightFlowRate);
     }
 
@@ -3756,10 +3756,16 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
     }
 
     // Add sample data to graph
+    // Two transposable pairs of same-typed °C args: (headTemp, mixTemp) and
+    // (setTempGoal, setMixTempGoal). A consistent swap of both stays plausible
+    // — mix does run above basket — so label them at the call site.
     m_shotDataModel->addSample(time, sample.groupPressure,
-                               sample.groupFlow, sample.headTemp,
-                               sample.mixTemp,
-                               pressureGoal, flowGoal, sample.setTempGoal,
+                               sample.groupFlow,
+                               /*temperature*/ sample.headTemp,
+                               /*mixTemp*/ sample.mixTemp,
+                               pressureGoal, flowGoal,
+                               /*temperatureGoal*/ sample.setTempGoal,
+                               /*temperatureMixGoal*/ sample.setMixTempGoal,
                                sample.frameNumber, isFlowMode);
 
     // Log tracking delta every 10 shot samples for debug (at the DE1's ~5Hz sample rate,
