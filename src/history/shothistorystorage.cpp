@@ -2806,11 +2806,9 @@ ShotRecord ShotHistoryStorage::loadShotRecordStatic(QSqlDatabase& db, qint64 sho
     return record;
 }
 
-bool ShotHistoryStorage::deleteShot(qint64 shotId)
+bool ShotHistoryStorage::deleteShotStatic(QSqlDatabase& db, qint64 shotId)
 {
-    if (!m_ready) return false;
-
-    QSqlQuery query(m_db);
+    QSqlQuery query(db);
     query.prepare("DELETE FROM shots WHERE id = ?");
     query.bindValue(0, shotId);
 
@@ -2820,8 +2818,8 @@ bool ShotHistoryStorage::deleteShot(qint64 shotId)
     }
 
     // Note: no updateTotalShots()/invalidateDistinctCache()/shotDeleted() here.
-    // This method is only called from importShotRecord() during overwrite, which
-    // handles refresh via ShotImporter::refreshTotalShots() after the full batch.
+    // This is only called from the import overwrite path, which handles refresh
+    // (refreshTotalShots) after the full batch.
     qDebug() << "ShotHistoryStorage: Deleted shot" << shotId;
     return true;
 }
@@ -3775,16 +3773,64 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
         qWarning() << "ShotHistoryStorage: Cannot import - not ready";
         return -1;
     }
+    return importShotRecordStatic(m_db, record, overwriteExisting);
+}
+
+void ShotHistoryStorage::importShotRecordAsync(const ShotRecord& record, bool overwriteExisting,
+                                               std::function<void(qint64)> onDone)
+{
+    const QString dbPath = m_dbPath;
+    auto destroyed = m_destroyed;
+    runOnDbThread([this, dbPath, record, overwriteExisting,
+                   onDone = std::move(onDone), destroyed]() {
+        qint64 result = -1;
+        withTempDb(dbPath, "shs_import", [&](QSqlDatabase& db) {
+            result = importShotRecordStatic(db, record, overwriteExisting);
+        });
+        if (*destroyed) return;
+        QMetaObject::invokeMethod(this, [onDone = std::move(onDone), result, destroyed]() {
+            if (*destroyed) return;
+            if (onDone) onDone(result);
+        }, Qt::QueuedConnection);
+    });
+}
+
+qint64 ShotHistoryStorage::importShotRecordStatic(QSqlDatabase& db, const ShotRecord& record,
+                                                  bool overwriteExisting)
+{
+    QSqlQuery query(db);
+
+    // Check for duplicate by Visualizer id first, when the incoming record has
+    // one (only the Visualizer recovery import sets it; .shot-file imports leave
+    // it empty, so this probe is a no-op for them). This is the strongest key for
+    // the sync-gap case: a shot that was pulled ON THIS DEVICE has a local uuid
+    // keyed on its filename, so the recovery's visualizer-id-keyed uuid can never
+    // match it — but if that local shot was uploaded, its visualizer_id column is
+    // set to the same id we're importing, and matches here. Without this, dedupe
+    // would fall through to the timestamp+profile_name check, which a shot with a
+    // differently-formatted or later-renamed profile title can slip past and
+    // re-import as a duplicate row.
+    if (!record.visualizerId.isEmpty()) {
+        query.prepare("SELECT id FROM shots WHERE visualizer_id = ?");
+        query.bindValue(0, record.visualizerId);
+        if (query.exec() && query.next()) {
+            if (overwriteExisting) {
+                deleteShotStatic(db, query.value(0).toLongLong());
+            } else {
+                // Already have this exact Visualizer shot, skip
+                return 0;
+            }
+        }
+    }
 
     // Check for duplicate by UUID
-    QSqlQuery query(m_db);
     query.prepare("SELECT id FROM shots WHERE uuid = ?");
     query.bindValue(0, record.summary.uuid);
     if (query.exec() && query.next()) {
         if (overwriteExisting) {
             // Delete existing record to allow re-import
             qint64 existingId = query.value(0).toLongLong();
-            deleteShot(existingId);
+            deleteShotStatic(db, existingId);
         } else {
             // Duplicate found, skip
             return 0;
@@ -3799,7 +3845,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
         if (overwriteExisting) {
             // Delete existing record to allow re-import
             qint64 existingId = query.value(0).toLongLong();
-            deleteShot(existingId);
+            deleteShotStatic(db, existingId);
         } else {
             // Near-duplicate found, skip
             return 0;
@@ -3807,7 +3853,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     }
 
     // Begin transaction
-    m_db.transaction();
+    db.transaction();
 
     // Resolve the parsed grinder identity to an equipment package so the
     // imported shot keeps its grinder (the per-shot grinder_brand/model/burrs
@@ -3817,11 +3863,11 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     qint64 importEquipmentId = 0;
     if (!(record.grinderBrand.isEmpty() && record.grinderModel.isEmpty() && record.grinderBurrs.isEmpty())) {
         importEquipmentId = EquipmentStorage::findPackageByGrinderIdentityStatic(
-            m_db, record.grinderBrand, record.grinderModel, record.grinderBurrs);
+            db, record.grinderBrand, record.grinderModel, record.grinderBurrs);
         if (importEquipmentId <= 0) {
             EquipmentPackage pkg;
             importEquipmentId = EquipmentStorage::createPackageWithGrinderStatic(
-                m_db, pkg, record.grinderBrand, record.grinderModel, record.grinderBurrs);
+                db, pkg, record.grinderBrand, record.grinderModel, record.grinderBurrs);
         }
     }
 
@@ -3833,6 +3879,8 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             bean_brand, bean_type, roast_date, roast_level,
             grinder_setting, equipment_id, rpm,
             drink_tds, drink_ey, enjoyment, espresso_notes, bean_notes, barista,
+            taste_balance, taste_body,
+            visualizer_id, visualizer_url,
             profile_notes, debug_log,
             temperature_override, yield_override, profile_kb_id,
             channeling_detected, grind_issue_detected,
@@ -3843,6 +3891,8 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
             :bean_brand, :bean_type, :roast_date, :roast_level,
             :grinder_setting, :equipment_id, :rpm,
             :drink_tds, :drink_ey, :enjoyment, :espresso_notes, :bean_notes, :barista,
+            :taste_balance, :taste_body,
+            :visualizer_id, :visualizer_url,
             :profile_notes, :debug_log,
             :temperature_override, :yield_override, :profile_kb_id,
             :channeling_detected, :grind_issue_detected,
@@ -3875,6 +3925,10 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
     query.bindValue(":espresso_notes", record.espressoNotes);
     query.bindValue(":bean_notes", record.beanNotes);
     query.bindValue(":barista", record.barista);
+    query.bindValue(":taste_balance", record.tasteBalance);
+    query.bindValue(":taste_body", record.tasteBody);
+    query.bindValue(":visualizer_id", record.visualizerId);
+    query.bindValue(":visualizer_url", record.visualizerUrl);
     query.bindValue(":profile_notes", record.profileNotes);
     query.bindValue(":debug_log", QString());  // No debug log for imported shots
 
@@ -3889,7 +3943,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to import shot:" << query.lastError().text();
-        m_db.rollback();
+        db.rollback();
         return -1;
     }
 
@@ -3920,7 +3974,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
 
     if (!query.exec()) {
         qWarning() << "ShotHistoryStorage: Failed to insert imported samples:" << query.lastError().text();
-        m_db.rollback();
+        db.rollback();
         return -1;
     }
 
@@ -3939,7 +3993,7 @@ qint64 ShotHistoryStorage::importShotRecord(const ShotRecord& record, bool overw
         query.exec();  // Non-critical if markers fail
     }
 
-    m_db.commit();
+    db.commit();
 
     return shotId;
 }
