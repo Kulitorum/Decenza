@@ -11,6 +11,10 @@ Item {
     property bool showBackButton: true
     property string rightText: ""  // Simple right-aligned text
     default property alias content: contentRow.data  // Custom content goes here
+    // Content that belongs with the page title rather than the actions — it sits
+    // before the stretch, so it stays put next to the title instead of being pushed
+    // across the bar to sit against the buttons.
+    property alias leftContent: leftContentRow.data
 
     signal backClicked()
 
@@ -57,60 +61,74 @@ Item {
         anchors.rightMargin: Theme.spacingLarge
         spacing: Theme.spacingMedium
 
-        // Back button (square hitbox, full bar height)
-        Item {
-            id: backButton
-            visible: root.showBackButton
-            Layout.preferredWidth: Theme.bottomBarHeight
-            Layout.preferredHeight: Theme.bottomBarHeight
+        // spacing 0: when the back button is shown, its hitbox is deliberately a full
+        // bar-height wide around a much narrower glyph, so it already supplies the gap
+        // before the title. (With no back button the row collapses and the outer
+        // leftMargin is the only inset.)
+        RowLayout {
+            spacing: 0
 
-            activeFocusOnTab: true
+            // Back button (square hitbox, full bar height)
+            Item {
+                id: backButton
+                visible: root.showBackButton
+                Layout.preferredWidth: Theme.bottomBarHeight
+                Layout.preferredHeight: Theme.bottomBarHeight
 
-            // Accessibility: Let AccessibleTapHandler handle screen reader interaction
-            // to avoid duplicate focus elements
-            Accessible.ignored: true
+                activeFocusOnTab: true
 
-            // Focus indicator
-            Rectangle {
-                anchors.fill: parent
-                anchors.margins: -Theme.focusMargin
-                visible: backButton.activeFocus
-                color: "transparent"
-                border.width: Theme.focusBorderWidth
-                border.color: Theme.focusColor
-                radius: Theme.scaled(4)
-            }
-
-            ThemedIcon {
-                anchors.centerIn: parent
-                source: "qrc:/icons/back.svg"
-                iconSize: Theme.scaled(28)
-                color: root.contentColor
-                // Decorative - accessibility handled by AccessibleTapHandler
+                // Accessibility: Let AccessibleTapHandler handle screen reader interaction
+                // to avoid duplicate focus elements
                 Accessible.ignored: true
+
+                // Focus indicator
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -Theme.focusMargin
+                    visible: backButton.activeFocus
+                    color: "transparent"
+                    border.width: Theme.focusBorderWidth
+                    border.color: Theme.focusColor
+                    radius: Theme.scaled(4)
+                }
+
+                ThemedIcon {
+                    anchors.centerIn: parent
+                    source: "qrc:/icons/back.svg"
+                    iconSize: Theme.scaled(28)
+                    color: root.contentColor
+                    // Decorative - accessibility handled by AccessibleTapHandler
+                    Accessible.ignored: true
+                }
+
+                Keys.onReturnPressed: root.backClicked()
+                Keys.onEnterPressed: root.backClicked()
+                Keys.onEscapePressed: root.backClicked()
+
+                // Using TapHandler for better touch responsiveness
+                AccessibleTapHandler {
+                    anchors.fill: parent
+                    accessibleName: TranslationManager.translate("bottombar.button.back.accessible", "Back. Return to previous screen")
+                    accessibleItem: backButton
+                    onAccessibleClicked: root.backClicked()
+                }
             }
 
-            Keys.onReturnPressed: root.backClicked()
-            Keys.onEnterPressed: root.backClicked()
-            Keys.onEscapePressed: root.backClicked()
-
-            // Using TapHandler for better touch responsiveness
-            AccessibleTapHandler {
-                anchors.fill: parent
-                accessibleName: TranslationManager.translate("bottombar.button.back.accessible", "Back. Return to previous screen")
-                accessibleItem: backButton
-                onAccessibleClicked: root.backClicked()
+            Text {
+                visible: root.title !== ""
+                text: root.title
+                color: root.contentColor
+                font.pixelSize: Theme.scaled(20)
+                font.bold: true
+                Layout.maximumWidth: root.width * 0.5
+                elide: Text.ElideRight
             }
         }
 
-        Text {
-            visible: root.title !== ""
-            text: root.title
-            color: root.contentColor
-            font.pixelSize: Theme.scaled(20)
-            font.bold: true
-            Layout.maximumWidth: root.width * 0.5
-            elide: Text.ElideRight
+        // Title-side custom content
+        RowLayout {
+            id: leftContentRow
+            spacing: Theme.spacingMedium
         }
 
         Item { Layout.fillWidth: true }

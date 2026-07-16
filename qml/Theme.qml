@@ -325,6 +325,34 @@ QtObject {
         return Qt.rgba(baseColor.r, baseColor.g, baseColor.b, backgroundScrimAlpha)
     }
 
+    // Black or white, whichever is actually more readable on fillColor.
+    //
+    // Picks by comparing the two real WCAG contrast ratios rather than thresholding a
+    // brightness value. Brightness and contrast are different measures and they disagree
+    // for mid-range fills — thresholding brightness picks white for #ff4444 (3.4:1) when
+    // black would give 6.2:1. A threshold also leaves any fill sitting near it one
+    // imperceptible tweak away from flipping every button that uses it; comparing ratios
+    // has no threshold to sit near.
+    //
+    // Opaque fills only: alpha is ignored, so a translucent fill derives from its
+    // unblended colour rather than what shows through it.
+    function contrastColorFor(fillColor: color): color {
+        var l = _relativeLuminance(fillColor)
+        var ratioOnBlack = (l + 0.05) / 0.05
+        var ratioOnWhite = 1.05 / (l + 0.05)
+        return ratioOnBlack >= ratioOnWhite ? "#000000" : "#FFFFFF"
+    }
+
+    // WCAG 2.x relative luminance: sRGB channels linearised, then weighted. Not the same
+    // as the cheaper BT.601 brightness weights — see contrastColorFor.
+    function _relativeLuminance(c) {
+        function linearise(channel) {
+            return channel <= 0.03928 ? channel / 12.92
+                                      : Math.pow((channel + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linearise(c.r) + 0.7152 * linearise(c.g) + 0.0722 * linearise(c.b)
+    }
+
     // Card fill for page-level content cards (NOT dialogs/popups, which already
     // sit above a dim Overlay and don't need the wallpaper showing through them).
     // Opaque surfaceColor when no background image is set — zero visual change.

@@ -1366,10 +1366,10 @@ Page {
 
                     Row {
                         spacing: Theme.scaled(4)
-                        Image {
-                            source: "qrc:/emoji/2601.svg"
-                            sourceSize.width: Theme.labelFont.pixelSize
-                            sourceSize.height: Theme.labelFont.pixelSize
+                        ThemedIcon {
+                            source: "qrc:/icons/CloudUpload.svg"
+                            iconSize: Theme.labelFont.pixelSize
+                            color: Theme.successColor
                             anchors.verticalCenter: parent.verticalCenter
                             Accessible.ignored: true
                         }
@@ -1567,8 +1567,9 @@ Page {
         onBackClicked: root.goBack()
 
         // Profile name + date in the bottom bar remain visible while the user scrolls,
-        // providing context when the header is off-screen.
-        ColumnLayout {
+        // providing context when the header is off-screen. It reads as a subtitle to
+        // the page title, so it lives in leftContent and stays beside it.
+        leftContent: ColumnLayout {
             visible: !!(shotData.profileName)
             spacing: 0
             Layout.alignment: Qt.AlignVCenter
@@ -1595,241 +1596,66 @@ Page {
             }
         }
 
-        // Upload / Re-Upload to Visualizer button
-        Rectangle {
-            id: uploadButton
-            visible: shotData.durationSec > 0 && !MainController.visualizer.uploading
-            Layout.preferredWidth: uploadButtonContent.width + 32
-            Layout.preferredHeight: Theme.scaled(44)
-            radius: Theme.scaled(8)
-            color: uploadButtonArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-
-            Accessible.role: Accessible.Button
-            Accessible.name: shotData.visualizerId
-                ? TranslationManager.translate("shotdetail.button.reupload", "Re-Upload to Visualizer")
-                : TranslationManager.translate("shotdetail.button.upload", "Upload to Visualizer")
-            Accessible.focusable: true
-            Accessible.onPressAction: uploadButtonArea.clicked(null)
-
-            Row {
-                id: uploadButtonContent
-                anchors.centerIn: parent
-                spacing: Theme.scaled(6)
-
-                Image {
-                    source: "qrc:/emoji/2601.svg"  // Cloud icon
-                    sourceSize.width: Theme.scaled(16)
-                    sourceSize.height: Theme.scaled(16)
-                    anchors.verticalCenter: parent.verticalCenter
-                    Accessible.ignored: true
-                }
-
-                Tr {
-                    key: shotData.visualizerId
-                         ? "shotdetail.button.reupload"
-                         : "shotdetail.button.upload"
-                    fallback: shotData.visualizerId
-                              ? "Re-Upload"
-                              : "Upload"
-                    color: Theme.primaryContrastColor
-                    font: Theme.bodyFont
-                    anchors.verticalCenter: parent.verticalCenter
-                    Accessible.ignored: true
-                }
-            }
-
-            MouseArea {
-                id: uploadButtonArea
-                anchors.fill: parent
-                onClicked: {
-                    if (shotData.visualizerId) {
-                        MainController.visualizer.updateShotOnVisualizer(
-                            shotData.visualizerId, shotData)
-                    } else {
-                        MainController.visualizer.uploadShotFromHistory(shotData)
-                    }
-                }
-            }
-        }
-
-        // Uploading/Updating indicator
-        Tr {
-            visible: MainController.visualizer.uploading
-            key: shotData.visualizerId
-                 ? "shotdetail.status.updating"
-                 : "shotdetail.status.uploading"
-            fallback: shotData.visualizerId ? "Updating..." : "Uploading..."
-            color: Theme.textSecondaryColor
-            font: Theme.labelFont
-        }
+        // No upload button here by design: this page is read-only, and the edit icon
+        // is one tap from PostShotReviewPage, which owns uploading (and is the only
+        // page that can produce the metadata overrides an upload should carry).
+        // Upload state is still shown, read-only, by the Visualizer status card above.
 
         // AI Advice button
-        Rectangle {
+        AccessibleButton {
             id: aiButton
             visible: MainController.aiManager && MainController.aiManager.isConfigured && shotData.durationSec > 0
-            Layout.preferredWidth: aiButtonContent.width + 32
-            Layout.preferredHeight: Theme.scaled(44)
-            radius: Theme.scaled(8)
-            color: aiButtonArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-
-            Accessible.role: Accessible.Button
-            Accessible.name: TranslationManager.translate("shotdetail.aiadvice", "AI Advice")
-            Accessible.focusable: true
-            Accessible.onPressAction: aiButtonArea.clicked(null)
-
-            Row {
-                id: aiButtonContent
-                anchors.centerIn: parent
-                spacing: Theme.scaled(6)
-
-                Image {
-                    source: "qrc:/icons/sparkle.svg"
-                    width: Theme.scaled(18)
-                    height: Theme.scaled(18)
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: status === Image.Ready
-                    Accessible.ignored: true
-                }
-
-                Tr {
-                    key: "shotdetail.aiadvice"
-                    fallback: "AI Advice"
-                    color: Theme.primaryContrastColor
-                    font: Theme.bodyFont
-                    anchors.verticalCenter: parent.verticalCenter
-                    Accessible.ignored: true
-                }
-            }
-
-            MouseArea {
-                id: aiButtonArea
-                anchors.fill: parent
-                onClicked: {
-                    conversationOverlay.openWithShot(shotData, shotData.beanBrand, shotData.beanType, shotData.profileName, shotDetailPage.shotId)
-                }
+            primary: true
+            icon.source: "qrc:/icons/sparkle.svg"
+            tintIcon: true
+            text: TranslationManager.translate("shotdetail.aiadvice", "AI Advice")
+            accessibleName: TranslationManager.translate("shotdetail.aiadvice", "AI Advice")
+            onClicked: {
+                conversationOverlay.openWithShot(shotData, shotData.beanBrand, shotData.beanType, shotData.profileName, shotDetailPage.shotId)
             }
         }
 
         // Discuss button - opens external AI app
-        Rectangle {
+        AccessibleButton {
             id: discussButton
             readonly property bool isClaudeDesktopReady:
                 Settings.network.discussShotApp !== Settings.network.discussAppClaudeDesktop
                 || Settings.network.claudeRcSessionUrl.length > 0
             visible: shotData.durationSec > 0 && Settings.network.discussShotApp !== Settings.network.discussAppNone
             enabled: isClaudeDesktopReady
-            opacity: enabled ? 1.0 : 0.5
-            Layout.preferredWidth: discussContent.width + 32
-            Layout.preferredHeight: Theme.scaled(44)
-            radius: Theme.scaled(8)
-            color: discussArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-
-            Accessible.role: Accessible.Button
-            Accessible.name: TranslationManager.translate("shotdetail.accessible.discuss", "Discuss shot with external AI app")
-            Accessible.focusable: true
-            Accessible.onPressAction: discussArea.clicked(null)
-
-            Row {
-                id: discussContent
-                anchors.centerIn: parent
-                spacing: Theme.scaled(6)
-
-                Image {
-                    source: "qrc:/icons/sparkle.svg"
-                    width: Theme.scaled(18)
-                    height: Theme.scaled(18)
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: status === Image.Ready
-                    Accessible.ignored: true
+            primary: true
+            icon.source: "qrc:/icons/sparkle.svg"
+            tintIcon: true
+            text: TranslationManager.translate("shotdetail.discuss", "Discuss")
+            accessibleName: TranslationManager.translate("shotdetail.accessible.discuss", "Discuss shot with external AI app")
+            onClicked: {
+                if (!Settings.mcp.mcpEnabled && MainController.aiManager) {
+                    // Prose, not the JSON envelope — the user is pasting this into
+                    // an external AI tool, where prose is more readable and avoids
+                    // double-shipping the structured fields.
+                    var summary = MainController.aiManager.buildShotAnalysisProseForShot(shotData)
+                    if (summary.length > 0) MainController.copyToClipboard(summary)
                 }
-
-                Tr {
-                    key: "shotdetail.discuss"
-                    fallback: "Discuss"
-                    color: Theme.primaryContrastColor
-                    font: Theme.bodyFont
-                    anchors.verticalCenter: parent.verticalCenter
-                    Accessible.ignored: true
-                }
-            }
-
-            MouseArea {
-                id: discussArea
-                anchors.fill: parent
-                enabled: discussButton.isClaudeDesktopReady
-                onClicked: {
-                    if (!Settings.mcp.mcpEnabled && MainController.aiManager) {
-                        // Prose, not the JSON envelope — the user is pasting this into
-                        // an external AI tool, where prose is more readable and avoids
-                        // double-shipping the structured fields.
-                        var summary = MainController.aiManager.buildShotAnalysisProseForShot(shotData)
-                        if (summary.length > 0) MainController.copyToClipboard(summary)
-                    }
-                    var url = Settings.network.discussShotUrl()
-                    if (url.length > 0) Settings.network.openDiscussUrl(url)
-                }
+                var url = Settings.network.discussShotUrl()
+                if (url.length > 0) Settings.network.openDiscussUrl(url)
             }
         }
 
         // Email Prompt button - fallback for users without API keys
-        Rectangle {
+        AccessibleButton {
             id: emailButton
             visible: MainController.aiManager && !MainController.aiManager.isConfigured && shotData.durationSec > 0
-            Layout.preferredWidth: emailButtonContent.width + 32
-            Layout.preferredHeight: Theme.scaled(44)
-            radius: Theme.scaled(8)
-            color: emailButtonArea.pressed ? Qt.darker(Theme.surfaceColor, 1.1) : Theme.surfaceColor
-            border.color: Theme.borderColor
-            border.width: 1
-
-            Accessible.role: Accessible.Button
-            Accessible.name: TranslationManager.translate("shotdetail.emailprompt", "Email Prompt")
-            Accessible.focusable: true
-            Accessible.onPressAction: emailButtonArea.clicked(null)
-
-            Row {
-                id: emailButtonContent
-                anchors.centerIn: parent
-                spacing: Theme.scaled(6)
-
-                Image {
-                    source: "qrc:/icons/sparkle.svg"
-                    width: Theme.scaled(18)
-                    height: Theme.scaled(18)
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: status === Image.Ready
-                    opacity: 0.6
-                    Accessible.ignored: true
-
-                    layer.enabled: true
-                    layer.smooth: true
-                    layer.effect: MultiEffect {
-                        colorization: 1.0
-                        colorizationColor: Theme.textSecondaryColor
-                    }
-                }
-
-                Tr {
-                    key: "shotdetail.email"
-                    fallback: "Email"
-                    color: Theme.textColor
-                    font: Theme.bodyFont
-                    anchors.verticalCenter: parent.verticalCenter
-                    Accessible.ignored: true
-                }
-            }
-
-            MouseArea {
-                id: emailButtonArea
-                anchors.fill: parent
-                onClicked: {
-                    // Prose, not the JSON envelope — the email body lands in the
-                    // user's mail client; prose is readable and the prior JSON shape
-                    // double-shipped structured fields (#1042).
-                    var prompt = MainController.aiManager.buildShotAnalysisProseForShot(shotData)
-                    var subject = "Espresso AI Analysis - " + (shotData.profileName || "Shot")
-                    Qt.openUrlExternally("mailto:?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(prompt))
-                }
+            icon.source: "qrc:/icons/sparkle.svg"
+            tintIcon: true
+            text: TranslationManager.translate("shotdetail.email", "Email")
+            accessibleName: TranslationManager.translate("shotdetail.emailprompt", "Email Prompt")
+            onClicked: {
+                // Prose, not the JSON envelope — the email body lands in the
+                // user's mail client; prose is readable and the prior JSON shape
+                // double-shipped structured fields (#1042).
+                var prompt = MainController.aiManager.buildShotAnalysisProseForShot(shotData)
+                var subject = "Espresso AI Analysis - " + (shotData.profileName || "Shot")
+                Qt.openUrlExternally("mailto:?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(prompt))
             }
         }
     }
