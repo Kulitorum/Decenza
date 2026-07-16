@@ -25,6 +25,12 @@ Dialog {
     readonly property bool canSizeItems: zoneName === "lowerMidBar"
         || zoneName.indexOf("top") === 0 || zoneName.indexOf("bottom") === 0
 
+    // Distribution applies to the bar zones only. A center zone sizes items from a
+    // fixed cell so its buttons never stretch (LayoutCenterZone's buttonWidth cap),
+    // which is exactly what equalWidth/spaced would need — so no value there can
+    // change the layout. Hide the control rather than offer a dead option.
+    readonly property bool canDistribute: zoneName.indexOf("center") !== 0
+
     function openForZone(name, label) {
         popup.zoneName = name
         popup.zoneLabel = label
@@ -49,7 +55,11 @@ Dialog {
             { type: "milkWeight",       id: "lmb_milk" }
         ]
         Settings.network.setZoneItems(popup.zoneName, items)
-        setOption("distribution", "equalWidth"); popup.distribution = "equalWidth"
+        // equalWidth spreads the five readouts evenly across a bar. Center zones have no
+        // distribution (see canDistribute), so don't write a value they would ignore.
+        if (popup.canDistribute) {
+            setOption("distribution", "equalWidth"); popup.distribution = "equalWidth"
+        }
         setOption("style", "accentBar");        popup.zoneStyle = "accentBar"
     }
 
@@ -174,6 +184,7 @@ Dialog {
                 spacing: Theme.spacingMedium
 
                 OptionRow {
+                    visible: popup.canDistribute
                     title: TranslationManager.translate("layoutEditor.zoneDistribution", "Distribution")
                     current: popup.distribution
                     choices: [

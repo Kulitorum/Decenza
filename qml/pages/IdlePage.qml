@@ -97,21 +97,20 @@ Page {
     // Center zone scales (user-configurable sizing)
     property real centerStatusScale: layoutConfig.scales ? (layoutConfig.scales.centerStatus || 1.0) : 1.0
     property real centerTopScale: layoutConfig.scales ? (layoutConfig.scales.centerTop || 1.0) : 1.0
-    // Center-zone horizontal alignment (per-zone "alignment" option; "center" default). Each center zone
-    // honors the same alignment option the bar zones do, so its row can be left / center / right justified
-    // (e.g. right-justify the action buttons against a right-side panel).
-    property string centerStatusAlignment: (layoutConfig.zoneOptions && layoutConfig.zoneOptions.centerStatus)
-                                        ? (layoutConfig.zoneOptions.centerStatus.alignment || "center") : "center"
-    property string centerTopAlignment: (layoutConfig.zoneOptions && layoutConfig.zoneOptions.centerTop)
-                                        ? (layoutConfig.zoneOptions.centerTop.alignment || "center") : "center"
-    property string centerMiddleAlignment: (layoutConfig.zoneOptions && layoutConfig.zoneOptions.centerMiddle)
-                                        ? (layoutConfig.zoneOptions.centerMiddle.alignment || "center") : "center"
     property real centerMiddleScale: layoutConfig.scales ? (layoutConfig.scales.centerMiddle || 1.0) : 1.0
+
+    // Per-zone options map ({} when a zone has none). Every zone rendered here reads its
+    // distribution / alignment / style / itemSize through this one accessor, so the idle
+    // screen honors the same options LayoutPreview shows. Zones must be wired explicitly:
+    // an unpassed option silently falls back to the zone component's default, which is how
+    // the top/bottom bars ignored distribution/alignment/style before.
+    function zoneOpts(zone) {
+        return (layoutConfig.zoneOptions && layoutConfig.zoneOptions[zone]) || ({})
+    }
 
     // Per-zone item size ("compact" | "large"); bars grow to fit large items.
     function zoneItemSize(zone) {
-        return (layoutConfig.zoneOptions && layoutConfig.zoneOptions[zone]
-                && layoutConfig.zoneOptions[zone].itemSize) || "compact"
+        return zoneOpts(zone).itemSize || "compact"
     }
 
     Component.onCompleted: {
@@ -571,6 +570,9 @@ Page {
             LayoutBarZone {
                 zoneName: "topLeft"
                 items: idlePage.topLeftItems
+                distribution: idlePage.zoneOpts("topLeft").distribution || "packed"
+                alignment: idlePage.zoneOpts("topLeft").alignment || "center"
+                zoneStyle: idlePage.zoneOpts("topLeft").style || "standard"
                 itemSize: idlePage.zoneItemSize("topLeft")
             }
 
@@ -579,6 +581,9 @@ Page {
             LayoutBarZone {
                 zoneName: "topRight"
                 items: idlePage.topRightItems
+                distribution: idlePage.zoneOpts("topRight").distribution || "packed"
+                alignment: idlePage.zoneOpts("topRight").alignment || "center"
+                zoneStyle: idlePage.zoneOpts("topRight").style || "standard"
                 itemSize: idlePage.zoneItemSize("topRight")
             }
         }
@@ -604,7 +609,8 @@ Page {
             items: idlePage.centerStatusItems
             visible: idlePage.centerStatusItems.length > 0
             zoneScale: idlePage.centerStatusScale
-            alignment: idlePage.centerStatusAlignment
+            alignment: idlePage.zoneOpts("centerStatus").alignment || "center"
+            zoneStyle: idlePage.zoneOpts("centerStatus").style || "standard"
         }
 
         // Main action buttons from centerTop zone
@@ -615,7 +621,8 @@ Page {
             zoneName: "centerTop"
             items: idlePage.centerTopItems
             zoneScale: idlePage.centerTopScale
-            alignment: idlePage.centerTopAlignment
+            alignment: idlePage.zoneOpts("centerTop").alignment || "center"
+            zoneStyle: idlePage.zoneOpts("centerTop").style || "standard"
         }
 
         // Inline preset rows (for center-zone action buttons)
@@ -1108,7 +1115,8 @@ Page {
             zoneName: "centerMiddle"
             items: idlePage.centerMiddleItems
             zoneScale: idlePage.centerMiddleScale
-            alignment: idlePage.centerMiddleAlignment
+            alignment: idlePage.zoneOpts("centerMiddle").alignment || "center"
+            zoneStyle: idlePage.zoneOpts("centerMiddle").style || "standard"
         }
     }
 
@@ -1121,7 +1129,7 @@ Page {
     // vertically-centered center content reaching under the bar on mid-height
     // viewports; raise the threshold if overlap is seen.
     // ============================================================
-    property var lowerMidBarOptions: layoutConfig.zoneOptions ? (layoutConfig.zoneOptions.lowerMidBar || ({})) : ({})
+    readonly property var lowerMidBarOptions: zoneOpts("lowerMidBar")
     // Lower-mid bar position (offset) + scale, matching the center-zone controls.
     readonly property int lowerMidBarYOffset: layoutConfig.offsets ? (layoutConfig.offsets.lowerMidBar || 0) : 0
     readonly property real lowerMidBarScale: layoutConfig.scales ? (layoutConfig.scales.lowerMidBar || 1.0) : 1.0
@@ -1191,6 +1199,9 @@ Page {
                 id: blZone
                 zoneName: "bottomLeft"
                 items: idlePage.bottomLeftItems
+                distribution: idlePage.zoneOpts("bottomLeft").distribution || "packed"
+                alignment: idlePage.zoneOpts("bottomLeft").alignment || "center"
+                zoneStyle: idlePage.zoneOpts("bottomLeft").style || "standard"
                 itemSize: idlePage.zoneItemSize("bottomLeft")
                 Layout.fillHeight: true
             }
@@ -1201,6 +1212,9 @@ Page {
                 id: brZone
                 zoneName: "bottomRight"
                 items: idlePage.bottomRightItems
+                distribution: idlePage.zoneOpts("bottomRight").distribution || "packed"
+                alignment: idlePage.zoneOpts("bottomRight").alignment || "center"
+                zoneStyle: idlePage.zoneOpts("bottomRight").style || "standard"
                 itemSize: idlePage.zoneItemSize("bottomRight")
                 Layout.fillHeight: true
             }
