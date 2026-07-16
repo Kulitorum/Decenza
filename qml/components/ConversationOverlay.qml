@@ -82,6 +82,11 @@ Rectangle {
         if (overlay.shotId > 0 && Object.keys(meta).length > 0 && MainController.shotHistory)
             MainController.shotHistory.requestUpdateShotMetadata(overlay.shotId, meta)
 
+        // Reflect the taps back to the host page right away so its rating slider
+        // and taste chips update, and its per-shot intake gate sees the feedback
+        // on the next Ask (the overlay only ever reads the host's shot snapshot).
+        overlay.tasteIntakeSubmitted(intakeTasteBalance, intakeTasteBody, intakeOverall)
+
         // Send first, then dismiss only if it actually went through. Dismissing
         // up front would, on mobile (where conversationInput is hidden), silently
         // discard the composed question if the send were refused.
@@ -94,6 +99,13 @@ Rectangle {
     // Emitted when the overlay clears pendingShotSummary (parent must handle)
     signal pendingShotSummaryCleared()
     signal closed()
+
+    // Emitted when the tap-only intake is submitted, carrying the tapped axes so
+    // the host page (e.g. PostShotReviewPage) can mirror them into its live edit
+    // fields immediately — the overlay has already persisted them to the DB, so
+    // the host advances its baseline rather than re-saving. Empty string / 0
+    // means "not tapped" and should be left untouched by the host.
+    signal tasteIntakeSubmitted(string tasteBalance, string tasteBody, int overall)
 
     property bool isMobile: Qt.platform.os === "android" || Qt.platform.os === "ios"
 

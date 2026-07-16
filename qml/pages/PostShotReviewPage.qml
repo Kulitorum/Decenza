@@ -2386,7 +2386,16 @@ Page {
                 anchors.fill: parent
                 enabled: MainController.aiManager && MainController.aiManager.isConfigured && !MainController.aiManager.isAnalyzing
                 onClicked: {
-                    conversationOverlay.openWithShot(editShotData, editBeanBrand, editBeanType, editShotData.profileName, editShotId)
+                    // editShotData is the DB-load snapshot and is NOT updated as
+                    // the user rates the shot on this page (or in the advisor's
+                    // own intake). Hand the advisor the LIVE taste so its per-shot
+                    // intake gate sees feedback the user already gave and doesn't
+                    // re-ask "how did this shot taste?".
+                    var shotForAdvisor = clonePersistedShot(editShotData)
+                    shotForAdvisor.tasteBalance = editTasteBalance
+                    shotForAdvisor.tasteBody = editTasteBody
+                    shotForAdvisor.enjoyment0to100 = editEnjoyment
+                    conversationOverlay.openWithShot(shotForAdvisor, editBeanBrand, editBeanType, editShotData.profileName, editShotId)
                 }
             }
         }
@@ -2534,6 +2543,19 @@ Page {
         id: conversationOverlay
         anchors.fill: parent
         overlayTitle: TranslationManager.translate("postshotreview.conversation.title", "Dialing Conversation")
+
+        // Taste tapped in the advisor's intake flows back to this page at once so
+        // the rating slider + taste chips reflect it. The overlay already
+        // persisted the taps to the DB, so advance the baseline via applyEditState
+        // rather than triggering another autosave. Empty axes are left untouched.
+        onTasteIntakeSubmitted: function(tasteBalance, tasteBody, overall) {
+            var s = captureEditState()
+            if (tasteBalance.length > 0) s.tasteBalance = tasteBalance
+            if (tasteBody.length > 0) s.tasteBody = tasteBody
+            if (overall > 0) s.enjoyment = overall
+            applyEditState(s)
+            _committedState = captureEditState()
+        }
     }
 
 }
