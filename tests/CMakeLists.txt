@@ -122,6 +122,12 @@ add_decenza_test(tst_tastecvamap
     tst_tastecvamap.cpp
 )
 
+# --- tst_visualizershotlist: header-only shared paginator decision logic
+# (window filter / newest-first early-stop / page-ceiling guard) ---
+add_decenza_test(tst_visualizershotlist
+    tst_visualizershotlist.cpp
+)
+
 # --- tst_dialing_helpers: pure session-grouping algorithm (issue #1009) ---
 add_decenza_test(tst_dialing_helpers
     tst_dialing_helpers.cpp
@@ -561,6 +567,16 @@ add_decenza_test(tst_shotrecord_cache
 )
 target_link_libraries(tst_shotrecord_cache PRIVATE Qt6::Graphs Qt6::Quick)
 target_include_directories(tst_shotrecord_cache PRIVATE ${CMAKE_BINARY_DIR})
+
+# --- tst_shotimportdedupe: importShotRecord dedupe by visualizer_id (the
+# Visualizer-recovery sync-gap case) ---
+add_decenza_test(tst_shotimportdedupe
+    tst_shotimportdedupe.cpp
+    ${HISTORY_SOURCES}
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_shotimportdedupe PRIVATE Qt6::Graphs Qt6::Quick)
+target_include_directories(tst_shotimportdedupe PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_scaleprotocol: Scale BLE packet parsing (Decent, Bookoo) ---
 add_decenza_test(tst_scaleprotocol

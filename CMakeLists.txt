@@ -508,6 +508,7 @@ set(HEADERS
     src/ui/jscanvascontext.h
     src/network/visualizeruploader.h
     src/network/visualizerimporter.h
+    src/network/visualizershotlist.h
     src/network/beanbaseclient.h
     src/network/beanbase_blob.h
     src/ai/aimanager.h

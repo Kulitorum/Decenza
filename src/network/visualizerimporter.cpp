@@ -4,6 +4,7 @@
 #include "../core/profilestorage.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotfileparser.h"
+#include "visualizershotlist.h"
 #include "../profile/profilesavehelper.h"
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -13,7 +14,6 @@
 #include <QDir>
 #include <QUrl>
 #include <QDebug>
-#include <limits>
 
 // Sanitize JSON to fix malformed numbers from Visualizer API
 // Fixes: .5 -> 0.5, 9. -> 9.0
@@ -776,11 +776,12 @@ void VisualizerImporter::recoverShots(qint64 fromEpoch, qint64 toEpoch)
 
 void VisualizerImporter::recoverFetchListPage(int page)
 {
-    // GET /api/shots?page=N&items=100 — authenticated => the user's own
-    // shots. Response: { data:[{id, clock, updated_at}], paging:{pages,...} }.
-    // Default sort is newest-first by start time, so once a whole page is
-    // older than the window we can stop paging. A defensive page ceiling
-    // bounds the loop regardless.
+    // GET /api/shots?page=N&items=100 — authenticated => the user's own shots.
+    // The page body is processed by the shared VisualizerShotList::processPage
+    // (see visualizershotlist.h): it parses the response, filters each entry's
+    // `clock` against the window, and returns a verdict (keep paging / done /
+    // fail). The same helper drives the uploader's back-sync, so the paging /
+    // early-stop / ceiling policy lives in exactly one place.
     constexpr int kMaxPages = 50;      // 50 * 100 = 5000 shots hard cap
     constexpr int kItemsPerPage = 100;
 
@@ -796,83 +797,51 @@ void VisualizerImporter::recoverFetchListPage(int page)
     QNetworkReply* reply = m_networkManager->get(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, page]() {
         reply->deleteLater();
+
+        auto fail = [this](const QString& msg) {
+            m_recovering = false;
+            emit recoveringChanged();
+            emit recoveryFailed(msg);
+        };
+
         if (reply->error() != QNetworkReply::NoError) {
             const int sc = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            m_recovering = false;
-            emit recoveringChanged();
-            emit recoveryFailed(QStringLiteral("Could not list your shots (HTTP %1): %2")
-                                .arg(sc).arg(reply->errorString()));
+            fail(QStringLiteral("Could not list your shots (HTTP %1): %2")
+                 .arg(sc).arg(reply->errorString()));
             return;
         }
 
-        const QByteArray body = reply->readAll();
-        QJsonParseError perr{};
-        const QJsonDocument doc = QJsonDocument::fromJson(body, &perr);
-        if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
-            m_recovering = false;
-            emit recoveringChanged();
-            emit recoveryFailed(QStringLiteral("Shot list response parse error: %1")
-                                .arg(perr.errorString()));
+        using namespace VisualizerShotList;
+        const PageResult pr = processPage(reply->readAll(), page, kMaxPages,
+                                          m_recoverFromEpoch, m_recoverToEpoch);
+        switch (pr.reason) {
+        case FailReason::ParseError:
+            fail(QStringLiteral("Shot list response parse error: %1").arg(pr.parseError));
             return;
-        }
-
-        const QJsonObject root = doc.object();
-        const QJsonValue pagingVal = root.value("paging");
-        // A 200 without paging metadata is almost certainly an auth/error
-        // envelope, not a legitimately empty library — fail rather than
-        // silently report "nothing to import".
-        if (!pagingVal.isObject() || !pagingVal.toObject().value("pages").isDouble()) {
-            m_recovering = false;
-            emit recoveringChanged();
-            emit recoveryFailed(QStringLiteral(
+        case FailReason::MissingPaging:
+            fail(QStringLiteral(
                 "Unexpected response from Visualizer (check your credentials)."));
             return;
-        }
-        const int totalPages = pagingVal.toObject().value("pages").toInt(page);
-
-        const QJsonArray data = root.value("data").toArray();
-        qint64 minClockThisPage = std::numeric_limits<qint64>::max();
-        for (const QJsonValue& v : data) {
-            const QJsonObject s = v.toObject();
-            const QString id = s.value("id").toString();
-            const qint64 clock = s.value("clock").toVariant().toLongLong();
-            if (id.isEmpty() || clock <= 0) continue;
-            minClockThisPage = qMin(minClockThisPage, clock);
-            if (clock < m_recoverFromEpoch || clock > m_recoverToEpoch)
-                continue;  // outside the requested window
-            m_recoverQueue.append({id, clock});
-        }
-
-        // Newest-first sort: once a whole page predates the window start, every
-        // later page is older too, so we've collected all in-window shots.
-        const bool wholePageOlder =
-            !data.isEmpty() && minClockThisPage < m_recoverFromEpoch;
-
-        // Hitting the page ceiling BEFORE reaching the window (and before we've
-        // paged past it) means older in-window shots may exist beyond the cap.
-        // Reporting the partial result as "complete" would be silent data loss,
-        // so fail loudly instead (mirrors VisualizerUploader's abnormal-exit
-        // policy). This can't trip for a recent range — wholePageOlder stops us
-        // within a few pages regardless of library size.
-        if (page >= kMaxPages && page < totalPages && !wholePageOlder) {
-            m_recovering = false;
-            emit recoveringChanged();
-            emit recoveryFailed(QStringLiteral(
+        case FailReason::PageCeiling:
+            fail(QStringLiteral(
                 "Too many shots to search through (over %1). "
                 "Pick a more recent date range.")
                 .arg(kMaxPages * kItemsPerPage));
             return;
+        case FailReason::None:
+            break;
         }
 
-        const bool pagedOut = page >= totalPages;
-        if (pagedOut || wholePageOlder) {
+        for (const Entry& e : pr.inWindow)
+            m_recoverQueue.append({e.visualizerId, e.clockEpoch});
+
+        if (pr.verdict == Verdict::Done) {
             m_recoverTotal = static_cast<int>(m_recoverQueue.size());
             emit recoveryProgress(m_recoverTotal, 0, 0, 0);
-            if (m_recoverQueue.isEmpty()) {
+            if (m_recoverQueue.isEmpty())
                 finishRecovery();
-            } else {
+            else
                 recoverNextShot();
-            }
             return;
         }
         recoverFetchListPage(page + 1);
@@ -931,39 +900,53 @@ void VisualizerImporter::recoverNextShot()
                            << m_recoverCurrent.visualizerId << preply->errorString()
                            << "- importing shot without a profile";
 
-            // Step 3: parse and insert (importShotRecord dedupes). Run the body
-            // through sanitizeVisualizerJson first: visualizer.coffee can emit the
+            // Step 3: parse and insert (dedupes). Run the body through
+            // sanitizeVisualizerJson first: visualizer.coffee can emit the
             // malformed number tokens (.5, 9.) that QJsonDocument rejects outright,
             // which would otherwise drop the whole shot (the sibling profile path
             // sanitizes for the same reason).
+
+            // Emit progress and move to the next shot. Shared by every outcome so
+            // the loop advances exactly once per shot whether it succeeded, was a
+            // duplicate, or failed.
+            auto advance = [this]() {
+                emit recoveryProgress(m_recoverTotal, m_recoverImported,
+                                      m_recoverSkipped, m_recoverFailed);
+                recoverNextShot();
+            };
+
             QJsonParseError perr{};
             const QJsonDocument doc = QJsonDocument::fromJson(sanitizeVisualizerJson(shotBody), &perr);
             if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
                 qWarning() << "VisualizerImporter: shot parse error for"
                            << m_recoverCurrent.visualizerId << perr.errorString();
                 m_recoverFailed++;
-            } else {
-                ShotFileParser::ParseResult res = ShotFileParser::parseVisualizerShot(
-                    doc.object(), profileJson, m_recoverCurrent.visualizerId,
-                    m_recoverCurrent.clockEpoch);
-                if (!res.success) {
-                    qWarning() << "VisualizerImporter: could not build shot record for"
-                               << m_recoverCurrent.visualizerId << res.errorMessage;
-                    m_recoverFailed++;
-                } else {
-                    // overwriteExisting = false => existing shots are skipped
-                    // (dedupe), which is exactly the idempotent recovery we want.
-                    const qint64 shotId =
-                        m_controller->shotHistory()->importShotRecord(res.record, false);
+                advance();
+                return;
+            }
+
+            ShotFileParser::ParseResult res = ShotFileParser::parseVisualizerShot(
+                doc.object(), profileJson, m_recoverCurrent.visualizerId,
+                m_recoverCurrent.clockEpoch);
+            if (!res.success) {
+                qWarning() << "VisualizerImporter: could not build shot record for"
+                           << m_recoverCurrent.visualizerId << res.errorMessage;
+                m_recoverFailed++;
+                advance();
+                return;
+            }
+
+            // Insert on the DB worker thread (no DB I/O on the main thread) and
+            // continue the loop from the completion callback. overwriteExisting
+            // = false => existing shots are skipped (dedupe), which is exactly the
+            // idempotent recovery we want.
+            m_controller->shotHistory()->importShotRecordAsync(
+                res.record, false, [this, advance](qint64 shotId) {
                     if (shotId > 0)       m_recoverImported++;
                     else if (shotId == 0) m_recoverSkipped++;   // duplicate
                     else                  m_recoverFailed++;     // DB error
-                }
-            }
-
-            emit recoveryProgress(m_recoverTotal, m_recoverImported,
-                                  m_recoverSkipped, m_recoverFailed);
-            recoverNextShot();
+                    advance();
+                });
         });
     });
 }

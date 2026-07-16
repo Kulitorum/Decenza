@@ -55,12 +55,17 @@ KeyboardAwareContainer {
                 .arg(imported).arg(total).arg(skipped).arg(failed)
         }
         function onRecoveryComplete(total, imported, skipped, failed) {
-            visualizerTab.recoverStatusError = false
             if (total === 0) {
+                visualizerTab.recoverStatusError = false
                 visualizerTab.recoverStatus = TranslationManager.translate(
                     "settings.visualizer.recoverNothing",
                     "No shots found in that date range.")
             } else {
+                // Style as an error when nothing came through but shots were
+                // found — otherwise a wholesale failure (schema change, a run of
+                // server errors) reads identically to a clean success. Any
+                // non-zero failure count is worth flagging too.
+                visualizerTab.recoverStatusError = failed > 0
                 visualizerTab.recoverStatus = TranslationManager.translate(
                     "settings.visualizer.recoverDone",
                     "Done: %1 imported, %2 already present, %3 failed (of %4).")
@@ -588,7 +593,7 @@ KeyboardAwareContainer {
                             ? TranslationManager.translate("settings.visualizer.recovering", "Retrieving…")
                             : TranslationManager.translate("settings.visualizer.recoverButton", "Retrieve")
                         accessibleName: TranslationManager.translate(
-                            "settings.visualizer.recoverButton", "Retrieve shots from Visualizer")
+                            "settings.visualizer.recoverButtonA11y", "Retrieve shots from Visualizer")
                         primary: true
                         enabled: visualizerTab.visualizerConnected &&
                                  !MainController.visualizerImporter.recovering

@@ -66,10 +66,10 @@ public:
     //   2. for each in-range shot, downloads the full record
     //      (GET /api/shots/{id}/download) and its profile
     //      (GET /api/shots/{id}/profile?format=json);
-    //   3. parses via ShotFileParser::parseVisualizerShot and inserts through
-    //      ShotHistoryStorage::importShotRecord, which DEDUPES against local
-    //      history (by uuid, then timestamp+profile) so a shot the user still
-    //      has is skipped and re-running is idempotent.
+    //   3. parses via ShotFileParser::parseVisualizerShot and inserts (on a
+    //      background DB thread via importShotRecordAsync), which DEDUPES against
+    //      local history (by visualizer_id, then uuid, then timestamp+profile) so
+    //      a shot the user still has is skipped and re-running is idempotent.
     // Emits recoveryProgress after each shot and recoveryComplete when done.
     // Requires Visualizer credentials; fails clearly via recoveryFailed if
     // they are not configured. A no-op if a recovery is already running.
