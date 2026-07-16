@@ -35,6 +35,59 @@ Rectangle {
     property string savedBeanType: ""
     property string savedProfileName: ""
 
+    // Tap-only taste intake (add-ai-taste-intake): shown as a first-open gate over
+    // the conversation when Settings.ai.tasteIntakeOnAsk is on, this shot hasn't
+    // been offered the intake yet, and at least one taste axis is unfilled.
+    // Tapping Ask composes a question from the taps + attaches the shot; Skip
+    // drops straight into the normal text conversation. Fully text-free.
+    property bool intakeVisible: false
+    property string intakeTasteBalance: ""
+    property string intakeTasteBody: ""
+    property int intakeOverall: 0
+    property bool intakeShowExtraction: true
+    property bool intakeShowBody: true
+    property bool intakeShowOverall: true
+
+    // Build the AI-facing first-turn question from the tapped axes. English by
+    // design: this is a message to the advisor, whose system prompt and dial-in
+    // reference are English; the visible chip labels are localized via Tr.
+    function composeIntakeMessage() {
+        var parts = []
+        if (intakeTasteBalance === "sour") parts.push("a bit sour")
+        else if (intakeTasteBalance === "balanced") parts.push("nicely balanced")
+        else if (intakeTasteBalance === "bitter") parts.push("a bit bitter")
+        if (intakeTasteBody === "thin") parts.push("thin-bodied")
+        else if (intakeTasteBody === "medium") parts.push("medium-bodied")
+        else if (intakeTasteBody === "heavy") parts.push("heavy-bodied")
+
+        var tail = " What do you think, and how should I adjust the next shot?"
+        if (parts.length > 0) {
+            var msg = "Here's how this shot tasted: " + parts.join(", ") + "."
+            if (intakeOverall > 0) msg += " I'd rate it " + intakeOverall + "/100."
+            return msg + tail
+        }
+        if (intakeOverall > 0)
+            return "I'd rate this shot " + intakeOverall + "/100." + tail
+        return "What do you think of this shot, and how should I adjust the next one?"
+    }
+
+    // Persist the tapped axes to the shot (durable storage + Visualizer sync via
+    // the metadata-update path), then compose + send the first turn and dismiss
+    // the intake.
+    function submitIntake() {
+        var meta = ({})
+        if (intakeTasteBalance.length > 0) meta.tasteBalance = intakeTasteBalance
+        if (intakeTasteBody.length > 0) meta.tasteBody = intakeTasteBody
+        if (intakeOverall > 0) meta.enjoyment = intakeOverall
+        if (overlay.shotId > 0 && Object.keys(meta).length > 0 && MainController.shotHistory)
+            MainController.shotHistory.requestUpdateShotMetadata(overlay.shotId, meta)
+
+        var msg = composeIntakeMessage()
+        overlay.intakeVisible = false
+        conversationInput.text = msg
+        conversationInput.sendFollowUp()
+    }
+
     // Emitted when the overlay clears pendingShotSummary (parent must handle)
     signal pendingShotSummaryCleared()
     signal closed()
@@ -127,6 +180,25 @@ Rectangle {
         overlay.beverageType = bevType
         overlay.isMistakeShot = isMistake
         overlay.shotDebugLog = shotData.debugLog || ""
+
+        // First-open taste intake gate. Show once per shot (whether the user
+        // then taps Ask or Skip) when the setting is on and it's not a mistake
+        // shot. Only the still-unfilled axes are shown; a fully-rated shot
+        // collapses to the lone "Ask" button (the one-tap question).
+        var canIntake = Settings.ai.tasteIntakeOnAsk && !isMistake && shotId > 0
+                        && !Settings.ai.tasteIntakeSeen(shotId)
+        if (canIntake) {
+            overlay.intakeTasteBalance = ""
+            overlay.intakeTasteBody = ""
+            overlay.intakeOverall = 0
+            overlay.intakeShowExtraction = ((shotData.tasteBalance || "").length === 0)
+            overlay.intakeShowBody = ((shotData.tasteBody || "").length === 0)
+            overlay.intakeShowOverall = ((shotData.enjoyment0to100 || 0) <= 0)
+            overlay.intakeVisible = true
+            Settings.ai.markTasteIntakeSeen(shotId)
+        } else {
+            overlay.intakeVisible = false
+        }
         overlay.open()
     }
 
@@ -707,6 +779,91 @@ Rectangle {
                             onClicked: conversationInput.sendFollowUp()
                         }
                     }
+                }
+            }
+        }
+    }
+
+    // Tap-only taste intake layer (add-ai-taste-intake). Covers the conversation
+    // content on first open; the BottomBar (declared after this) stays on top so
+    // Back still works. Declared before the input dialog so it never overlaps the
+    // (mobile) compose dialog.
+    Rectangle {
+        id: intakeLayer
+        visible: overlay.intakeVisible
+        anchors.fill: parent
+        anchors.topMargin: Theme.pageTopMargin
+        anchors.bottomMargin: Theme.bottomBarHeight
+        color: Theme.backgroundColor
+        z: 50
+
+        // Swallow taps so nothing behind the layer reacts.
+        MouseArea { anchors.fill: parent }
+
+        Tr { id: trIntakeTitle; key: "tasteIntake.title"; fallback: "How did this shot taste?"; visible: false }
+        Tr { id: trIntakeSubtitle; key: "tasteIntake.subtitle"; fallback: "Tap what fits — or just ask."; visible: false }
+        Tr { id: trIntakeSkip; key: "tasteIntake.skip"; fallback: "Skip"; visible: false }
+        Tr { id: trIntakeAsk; key: "tasteIntake.ask"; fallback: "Ask"; visible: false }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: Theme.standardMargin
+            spacing: Theme.spacingMedium
+
+            Text {
+                text: trIntakeTitle.text
+                font: Theme.titleFont
+                color: Theme.textColor
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                Accessible.role: Accessible.StaticText
+                Accessible.name: trIntakeTitle.text
+            }
+            Text {
+                text: trIntakeSubtitle.text
+                font.pixelSize: Theme.scaled(13)
+                color: Theme.textSecondaryColor
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                Accessible.ignored: true
+            }
+
+            TastePicker {
+                id: intakePicker
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacingSmall
+                showExtraction: overlay.intakeShowExtraction
+                showBody: overlay.intakeShowBody
+                showOverall: overlay.intakeShowOverall
+                tasteBalance: overlay.intakeTasteBalance
+                tasteBody: overlay.intakeTasteBody
+                overall: overlay.intakeOverall
+                onTasteBalanceModified: function(value) { overlay.intakeTasteBalance = value }
+                onTasteBodyModified: function(value) { overlay.intakeTasteBody = value }
+                onOverallModified: function(value) { overlay.intakeOverall = value }
+            }
+
+            Item { Layout.fillHeight: true }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingMedium
+
+                AccessibleButton {
+                    text: trIntakeSkip.text
+                    accessibleName: trIntakeSkip.text
+                    accessibleDescription: TranslationManager.translate("tasteIntake.skip.desc", "Skip and type your own question")
+                    onClicked: overlay.intakeVisible = false
+                }
+                Item { Layout.fillWidth: true }
+                AccessibleButton {
+                    text: trIntakeAsk.text
+                    accessibleName: trIntakeAsk.text
+                    primary: true
+                    // Wait until any background context load finishes and the
+                    // conversation is idle, so the composed turn sends cleanly.
+                    enabled: inputRow.canSend
+                    onClicked: overlay.submitIntake()
                 }
             }
         }

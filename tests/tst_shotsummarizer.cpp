@@ -81,6 +81,61 @@ class tst_ShotSummarizer : public QObject {
 
 private slots:
     void init() { QTest::failOnWarning(); }
+
+    // add-ai-taste-intake: a tapped taste axis counts as tasting feedback.
+    // tastingFeedback.hasTasteAxis must be true and carry the tapped values, and
+    // the prose must surface the taste — so the advisor reasons on it instead of
+    // opening by asking "how did it taste?".
+    void tasteAxis_countsAsTastingFeedbackAndRendersInProse()
+    {
+        QVariantMap shot;
+        shot["beverageType"] = QStringLiteral("espresso");
+        shot["durationSec"] = 30.0;
+        shot["doseWeightG"] = 18.0;
+        shot["finalWeightG"] = 36.0;
+        shot["profileName"] = QStringLiteral("80's Espresso");
+        shot["tasteBalance"] = QStringLiteral("sour");
+        shot["tasteBody"] = QStringLiteral("thin");
+        // No enjoyment / notes — taste taps are the ONLY feedback signal here.
+
+        QVariantList pressure, flow, temperature, temperatureGoal, derivative, weight;
+        appendFlat(pressure, 0.0, 8.0, 2.0);
+        appendFlat(pressure, 8.0, 30.0, 9.0);
+        appendFlat(flow, 0.0, 30.0, 1.8);
+        appendFlat(temperature, 0.0, 30.0, 92.0);
+        appendFlat(temperatureGoal, 0.0, 30.0, 92.0);
+        appendFlat(derivative, 0.0, 30.0, 0.0);
+        appendFlat(weight, 0.0, 30.0, 36.0);
+        QVariantList phases;
+        appendPhase(phases, 0.0, QStringLiteral("Preinfusion"), 0);
+        appendPhase(phases, 8.0, QStringLiteral("Pour"), 1);
+        shot["pressure"] = pressure;
+        shot["flow"] = flow;
+        shot["temperature"] = temperature;
+        shot["temperatureGoal"] = temperatureGoal;
+        shot["conductanceDerivative"] = derivative;
+        shot["weight"] = weight;
+        shot["phases"] = phases;
+        shot["pressureGoal"] = QVariantList();
+        shot["flowGoal"] = QVariantList();
+
+        ShotSummarizer summarizer;
+        const ShotSummary summary = summarizer.summarizeFromHistory(ShotProjection::fromVariantMap(shot));
+        const QString prompt = summarizer.buildUserPrompt(summary);
+        const QJsonObject payload = QJsonDocument::fromJson(prompt.toUtf8()).object();
+
+        const QJsonObject tf = payload.value(QStringLiteral("tastingFeedback")).toObject();
+        QVERIFY2(tf.value(QStringLiteral("hasTasteAxis")).toBool(),
+                 "a tapped taste axis must set tastingFeedback.hasTasteAxis");
+        QCOMPARE(tf.value(QStringLiteral("tasteBalance")).toString(), QStringLiteral("sour"));
+        QCOMPARE(tf.value(QStringLiteral("tasteBody")).toString(), QStringLiteral("thin"));
+
+        const QString prose = payload.value(QStringLiteral("shotAnalysis")).toString();
+        QVERIFY2(prose.contains(QStringLiteral("sour")),
+                 "taste must surface in the shotAnalysis prose");
+        QVERIFY2(!prose.contains(QStringLiteral("No tasting feedback provided")),
+                 "a tapped taste axis must not read as 'no tasting feedback'");
+    }
     // Puck-failure shape: peak pressure ~1.0 bar across the entire pour
     // window. Without the cascade, dC/dt and temp detectors on
     // ShotSummarizer's old code path would have read off the (nonexistent)

@@ -123,6 +123,13 @@ QJsonObject shotToJson(const ShotProjection& shot,
     if (!override.openedDate.isEmpty())
         h["openedDate"] = override.openedDate;
     h["notes"] = shot.espressoNotes;
+    // Structured taste taps (add-ai-taste-intake): emitted per history shot so
+    // the advisor can see how a prior shot tasted (e.g. "last time you tapped
+    // sour, you went finer and it balanced"). "" = untapped → omitted.
+    if (!shot.tasteBalance.isEmpty())
+        h["tasteBalance"] = shot.tasteBalance;
+    if (!shot.tasteBody.isEmpty())
+        h["tasteBody"] = shot.tasteBody;
     // #1161: why the shot ended. stoppedBy varies shot-to-shot (a session
     // can mix a SAW shot and a manually-aborted one), so it is NOT hoisted
     // — emit per-shot. Omit the common "profileEnd"/"" (no signal: the AI
@@ -384,6 +391,11 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
     if (!best.openedDate.isEmpty())
         b["openedDate"] = best.openedDate;
     b["notes"] = best.espressoNotes;
+    // Structured taste taps (add-ai-taste-intake) on the best-rated anchor shot.
+    if (!best.tasteBalance.isEmpty())
+        b["tasteBalance"] = best.tasteBalance;
+    if (!best.tasteBody.isEmpty())
+        b["tasteBody"] = best.tasteBody;
     if (best.doseWeightG > 0)
         b["ratio"] = QString("1:%1").arg(best.finalWeightG / best.doseWeightG, 0, 'f', 2);
     if (best.timestamp > 0) {

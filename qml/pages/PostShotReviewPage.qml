@@ -292,6 +292,8 @@ Page {
                     editDrinkEy = editShotData.drinkEyPct ?? 0
                 }
                 editEnjoyment = editShotData.enjoyment0to100 ?? 0
+                editTasteBalance = editShotData.tasteBalance || ""
+                editTasteBody = editShotData.tasteBody || ""
                 editNotes = editShotData.espressoNotes || ""
                 editBeverageType = editShotData.beverageType || "espresso"
                 editBeanBaseJson = editShotData.beanBaseJson || ""
@@ -387,6 +389,9 @@ Page {
     property double editDrinkTds: 0
     property double editDrinkEy: 0
     property int editEnjoyment: 0  // 0 = unrated
+    // Structured taste axes (add-ai-taste-intake): "" = unset.
+    property string editTasteBalance: ""
+    property string editTasteBody: ""
 
     property string editNotes: ""
     property string editBeverageType: "espresso"
@@ -483,6 +488,8 @@ Page {
         editDrinkTds !== (editShotData.drinkTdsPct ?? 0) ||
         editDrinkEy !== (editShotData.drinkEyPct ?? 0) ||
         editEnjoyment !== (editShotData.enjoyment0to100 ?? 0) ||
+        editTasteBalance !== (editShotData.tasteBalance || "") ||
+        editTasteBody !== (editShotData.tasteBody || "") ||
         editNotes !== (editShotData.espressoNotes || "") ||
         editBeverageType !== (editShotData.beverageType || "espresso") ||
         editBeanBaseJson !== (editShotData.beanBaseJson || "") ||
@@ -531,6 +538,7 @@ Page {
             barista: editBarista, doseWeight: editDoseWeight,
             drinkWeight: editDrinkWeight, drinkTds: editDrinkTds,
             drinkEy: editDrinkEy, enjoyment: editEnjoyment,
+            tasteBalance: editTasteBalance, tasteBody: editTasteBody,
             notes: editNotes, beverageType: editBeverageType,
             beanBaseJson: editBeanBaseJson
         }
@@ -550,6 +558,8 @@ Page {
         editBarista = s.barista; editDoseWeight = s.doseWeight
         editDrinkWeight = s.drinkWeight; editDrinkTds = s.drinkTds
         editDrinkEy = s.drinkEy; editEnjoyment = s.enjoyment
+        editTasteBalance = s.tasteBalance !== undefined ? s.tasteBalance : ""
+        editTasteBody = s.tasteBody !== undefined ? s.tasteBody : ""
         editNotes = s.notes; editBeverageType = s.beverageType
         editBeanBaseJson = s.beanBaseJson !== undefined ? s.beanBaseJson : ""
         // RatingInput (internal `root.value = …`) and the dose/out ValueInputs
@@ -759,6 +769,8 @@ Page {
             "beanBaseJson": editBeanBaseJson
         }
         metadata["enjoyment"] = editEnjoyment
+        metadata["tasteBalance"] = editTasteBalance
+        metadata["tasteBody"] = editTasteBody
         MainController.shotHistory.requestUpdateShotMetadata(editShotId, metadata)
 
         runStickySync()
@@ -794,6 +806,8 @@ Page {
         nb.drinkEyPct = editDrinkEy
         nb.beanBaseJson = editBeanBaseJson
         nb.enjoyment0to100 = editEnjoyment
+        nb.tasteBalance = editTasteBalance
+        nb.tasteBody = editTasteBody
         nb.espressoNotes = editNotes
         nb.beverageType = editBeverageType
         editShotData = nb
@@ -818,7 +832,10 @@ Page {
             "drinkTdsPct": editDrinkTds,
             "drinkEyPct": editDrinkEy,
             "espressoNotes": editNotes,
-            "enjoyment0to100": editEnjoyment
+            "enjoyment0to100": editEnjoyment,
+            // Structured taste taps → mapped to CVA in visualizeruploader.
+            "tasteBalance": editTasteBalance,
+            "tasteBody": editTasteBody
         }
         // Only include profileName when non-empty; an empty string would cause
         // setStr to send null, clearing profile_title on visualizer.coffee.
@@ -1367,6 +1384,25 @@ Page {
                         }
                         onActiveFocusChanged: if (!activeFocus) postShotReviewPage.finalizeEdit()
                     }
+                }
+            }
+
+            // Structured taste axes (add-ai-taste-intake). Overall is hidden here
+            // because the rating slider above already owns it — one rating widget,
+            // no parallel UI. Same TastePicker component as the AI intake dialog,
+            // writing the same shot columns.
+            TastePicker {
+                Layout.fillWidth: true
+                showOverall: false
+                tasteBalance: editTasteBalance
+                tasteBody: editTasteBody
+                onTasteBalanceModified: function(value) {
+                    editTasteBalance = value
+                    postShotReviewPage.autosave("tasteBalance")
+                }
+                onTasteBodyModified: function(value) {
+                    editTasteBody = value
+                    postShotReviewPage.autosave("tasteBody")
                 }
             }
 

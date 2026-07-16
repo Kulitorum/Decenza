@@ -67,6 +67,10 @@ QVariantMap ShotProjection::toVariantMap() const
         m["storageHint"] = storageHint;
     if (!openedDate.isEmpty())
         m["openedDate"] = openedDate;
+    if (!tasteBalance.isEmpty())
+        m["tasteBalance"] = tasteBalance;
+    if (!tasteBody.isEmpty())
+        m["tasteBody"] = tasteBody;
     // Recipe provenance (add-recipes) — sparse-emit like the bag snapshot.
     if (recipeId > 0)
         m["recipeId"] = recipeId;
@@ -166,6 +170,8 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.defrostDate = m.value("defrostDate").toString();
     p.storageHint = m.value("storageHint").toString();
     p.openedDate = m.value("openedDate").toString();
+    p.tasteBalance = m.value("tasteBalance").toString();
+    p.tasteBody = m.value("tasteBody").toString();
     p.recipeId = m.value("recipeId", -1).toLongLong();
     p.steamJson = m.value("steamJson").toString();
     p.hotWaterJson = m.value("hotWaterJson").toString();

@@ -492,6 +492,40 @@ KeyboardAwareContainer {
                     }
                 }
 
+                // Taste intake toggle (add-ai-taste-intake)
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(12)
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(4)
+
+                        Tr {
+                            key: "settings.ai.tasteIntake"
+                            fallback: "Ask how it tasted"
+                            color: Theme.textColor
+                            font.pixelSize: Theme.scaled(14)
+                            font.bold: true
+                        }
+
+                        Tr {
+                            key: "settings.ai.tasteIntakeDesc"
+                            fallback: "When opening the assistant for a shot, first show a quick tap-only taste panel (Sour/Balanced/Bitter, body, rating) instead of the keyboard. Turn off to open the chat directly."
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(12)
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    StyledSwitch {
+                        checked: Settings.ai.tasteIntakeOnAsk
+                        accessibleName: TranslationManager.translate("settings.ai.tasteIntakeAccessible", "Ask how the shot tasted before chatting")
+                        onToggled: Settings.ai.tasteIntakeOnAsk = checked
+                    }
+                }
+
                 // ═══════════════════════════════════════════
                 // SECTION 2: MCP Server (AI Remote Control)
                 // ═══════════════════════════════════════════

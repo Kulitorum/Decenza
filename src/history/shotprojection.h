@@ -94,6 +94,10 @@ class ShotProjection {
     // category + opened date at shot time (ISO date, "" = unset).
     Q_PROPERTY(QString storageHint MEMBER storageHint)
     Q_PROPERTY(QString openedDate MEMBER openedDate)
+    // Structured taste axes (add-ai-taste-intake): "sour"|"balanced"|"bitter"
+    // and "thin"|"medium"|"heavy". "" = unset.
+    Q_PROPERTY(QString tasteBalance MEMBER tasteBalance)
+    Q_PROPERTY(QString tasteBody MEMBER tasteBody)
     // Recipe provenance (add-recipes): the recipe active at shot time
     // (<= 0 = none) and the steam-spec snapshot — the composer's
     // promote-from-shot prefill reads these.
@@ -184,6 +188,8 @@ public:
     QString defrostDate;
     QString storageHint;
     QString openedDate;
+    QString tasteBalance;
+    QString tasteBody;
 
     bool channelingDetected = false;
     bool grindIssueDetected = false;

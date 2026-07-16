@@ -11,6 +11,33 @@
 | `src/ai/aiconversation.h/cpp` | Multi-turn conversation with persistent storage (QSettings). Follow-ups, shot context injection, history trimming |
 | `src/ai/shotsummarizer.h/cpp` | Extracts structured shot data (phases, curves, anomalies) and builds text prompts. Separate system prompts for espresso vs filter |
 | `src/network/shotserver_ai.cpp` | Web API endpoints for AI assistant |
+| `qml/components/TastePicker.qml` | Tap-only taste intake (add-ai-taste-intake): Extraction / Body / Overall rows, shared by the AI intake dialog and the review page |
+
+### Taste intake (tap-only) — add-ai-taste-intake
+
+When `Settings.ai.tasteIntakeOnAsk` is on (default), the first time the advisor is
+opened for a shot (`ConversationOverlay.openWithShot`) a fully text-free intake
+appears over the conversation. It shows only the still-unfilled axes — Extraction
+(`Sour`/`Balanced`/`Bitter` → `taste_balance`), Body (`Thin`/`Medium`/`Heavy` →
+`taste_body`), Overall (reused `RatingInput` → `enjoyment0to100`); a fully-rated
+shot collapses to the lone **Ask** button. **Ask** persists the taps via
+`requestUpdateShotMetadata`, composes a first-person question, and sends it with
+the shot attached; **Skip** drops into the normal text conversation. A per-shot
+`SettingsAI::tasteIntakeSeen` flag gates it to first-open only.
+
+The taps are structured shot columns (`taste_balance`/`taste_body`, migration 33),
+not free text — so the same picker also appears on the post-shot review page (no
+parallel UI), the values flow into the advisor prompt and the dial-in history
+blocks (`shotToJson`/`bestRecentShot`), and they map to Visualizer's SCA CVA
+descriptive attributes on upload (`applyTasteCvaMapping`: sour→acidity 12/
+bitterness 4, etc.; only-when-tapped, never-null so hand-entered CVA is never
+cleared).
+
+**Layer-1 handoff is emergent:** the advisor asks "how did it taste?" only when
+`tastingFeedback` has no signal. A tapped axis sets `hasTasteAxis` true and rides
+the composed first message, so the model already has taste and won't re-ask.
+Skipping leaves feedback absent → the advisor asks and the reactive rating capture
+still works, exactly as before.
 
 ### Providers
 
