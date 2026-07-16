@@ -33,10 +33,11 @@ public:
         m_writes.append(value);
     }
     void readCharacteristic(const QBluetoothUuid&, const QBluetoothUuid&) override {}
-    bool isConnected() const override { return true; }
+    bool isConnected() const override { return m_isConnected; }
 
     int m_notifyEnableCount = 0;
     int m_disconnectCount = 0;
+    bool m_isConnected = true;
     QList<QByteArray> m_writes;
 };
 
@@ -648,6 +649,72 @@ private slots:
         QCOMPARE(transport->m_disconnectCount, 1);
         QVERIFY(!scale.isConnected());
         QCOMPARE(spy.count(), 1);
+    }
+
+    void transientErrorOnLiveLinkKeepsConnection() {
+        // A per-operation transport error (e.g. one failed write) on a live
+        // link must not flip the scale to disconnected: the transport is
+        // still connected and streaming, and the scan-based reconnect ladder
+        // cannot recover a connected (non-advertising) peripheral. The
+        // watchdog supervises the actual feed.
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        QVERIFY(scale.isConnected());
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport error.*"));
+        emit transport->error("transient write failure");
+
+        QVERIFY(scale.isConnected());
+        QVERIFY(scale.m_watchdogTimer && scale.m_watchdogTimer->isActive());
+
+        // Teardown: ~ScaleDevice warn-logs DISCONNECTED for a still-connected scale
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
+    }
+
+    void errorOnDeadLinkCleansUp() {
+        // When the transport reports the link is gone, an error must run the
+        // full disconnect handling (propagates connectedChanged so the
+        // auto-reconnect ladder arms).
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        QVERIFY(scale.isConnected());
+
+        transport->m_isConnected = false;
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport error.*"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
+        emit transport->error("controller error, link dead");
+
+        QVERIFY(!scale.isConnected());
+        QVERIFY(!scale.m_watchdogTimer || !scale.m_watchdogTimer->isActive());
+        QVERIFY(!scale.m_heartbeatTimer || !scale.m_heartbeatTimer->isActive());
+    }
+
+    void strayDataDoesNotRestartStoppedWatchdog() {
+        // A late notification arriving after the watchdog was stopped
+        // (post-disconnect or sleep()) must not resurrect supervision — a
+        // tickle-restarted watchdog on a silent feed exhausts and
+        // force-disconnects a deliberately sleeping scale.
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        scale.stopWatchdog();
+
+        auto pkt = buildDecentWeightPacket(21.0);
+        scale.onCharacteristicChanged(Scale::Decent::READ, pkt);
+
+        QVERIFY(!scale.m_watchdogTimer || !scale.m_watchdogTimer->isActive());
+
+        // Teardown: ~ScaleDevice warn-logs DISCONNECTED for a still-connected scale
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
     }
 
     void serviceNotFoundPropagatesDisconnect() {

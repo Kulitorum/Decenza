@@ -49,6 +49,14 @@ void DecentScale::connectToDevice(const QBluetoothDeviceInfo& device) {
         return;
     }
 
+    // A fresh connect invalidates any previous session's supervision. Without
+    // this, a connect issued over a live connection clears
+    // m_characteristicsReady while the watchdog keeps running: its guard then
+    // stops it mid-session and command writes drop silently while weight
+    // still flows.
+    stopWatchdog();
+    stopHeartbeat();
+
     m_name = device.name();
     m_serviceFound = false;
     m_characteristicsReady = false;
@@ -89,7 +97,17 @@ void DecentScale::onTransportDisconnected() {
 
 void DecentScale::onTransportError(const QString& message) {
     DECENT_WARN(QString("Transport error: %1").arg(message));
-    setConnected(false);
+    // error() covers both fatal link deaths and transient per-operation
+    // failures (e.g. a single characteristic-write error on a live link).
+    // Only tear down when the transport reports the link is actually gone —
+    // a blanket setConnected(false) here parks the app on "disconnected"
+    // over a live, streaming link (the scan-based reconnect ladder can't
+    // recover that: a connected peripheral doesn't advertise). On a live
+    // link the watchdog supervises the weight feed and forces a propagated
+    // disconnect if data actually stopped (#1519).
+    if (!m_transport || !m_transport->isConnected()) {
+        onTransportDisconnected();
+    }
 }
 
 void DecentScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
@@ -325,7 +343,11 @@ void DecentScale::stopWatchdog() {
 }
 
 void DecentScale::tickleWatchdog() {
-    if (!m_watchdogTimer) return;
+    // startWatchdog() is the only legitimate arm point. A stray notification
+    // arriving after stopWatchdog() (post-disconnect, or sleep()) must not
+    // resurrect supervision — a tickle-restarted watchdog on a sleeping scale
+    // exhausts its retries against the silent feed and force-disconnects it.
+    if (!m_watchdogTimer || !m_watchdogTimer->isActive()) return;
     m_watchdogUpdatesSeen = true;
     m_watchdogRetries = 0;
     // Reset to subsequent timeout: 2s until next expected update
@@ -382,7 +404,14 @@ void DecentScale::onWatchdogFired() {
 }
 
 void DecentScale::sendCommand(const QByteArray& command) {
-    if (!m_transport || !m_characteristicsReady) return;
+    if (!m_transport || !m_characteristicsReady) {
+        // Not silent: a dropped tare/timer command is invisible in the UI, so
+        // leave a trace for triage.
+        DECENT_LOG(QString("Command 0x%1 dropped - not connected")
+                   .arg(command.isEmpty() ? 0 : static_cast<uint8_t>(command[0]),
+                        2, 16, QChar('0')));
+        return;
+    }
 
     QByteArray packet(7, 0);
     packet[0] = 0x03;  // Model byte
