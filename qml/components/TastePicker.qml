@@ -64,9 +64,9 @@ ColumnLayout {
             spacing: Theme.spacingSmall
             Repeater {
                 model: [
-                    { value: "sour",     label: trSour.text },
-                    { value: "balanced", label: trBalanced.text },
-                    { value: "bitter",   label: trBitter.text }
+                    { value: "sour",     label: trSour.text,     icon: "qrc:/icons/taste-sour.svg" },
+                    { value: "balanced", label: trBalanced.text, icon: "qrc:/icons/taste-balanced.svg" },
+                    { value: "bitter",   label: trBitter.text,   icon: "qrc:/icons/taste-bitter.svg" }
                 ]
                 delegate: chipComponent
             }
@@ -90,9 +90,9 @@ ColumnLayout {
             spacing: Theme.spacingSmall
             Repeater {
                 model: [
-                    { value: "thin",   label: trThin.text },
-                    { value: "medium", label: trMedium.text },
-                    { value: "heavy",  label: trHeavy.text }
+                    { value: "thin",   label: trThin.text,   icon: "qrc:/icons/body-thin.svg" },
+                    { value: "medium", label: trMedium.text, icon: "qrc:/icons/body-medium.svg" },
+                    { value: "heavy",  label: trHeavy.text,  icon: "qrc:/icons/body-heavy.svg" }
                 ]
                 delegate: bodyChipComponent
             }
@@ -125,34 +125,12 @@ ColumnLayout {
     // Extraction chip: sets tasteBalance (toggles off if re-tapped).
     Component {
         id: chipComponent
-        Rectangle {
-            required property var modelData
-            readonly property bool selected: root.tasteBalance === modelData.value
-            Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(44)
-            radius: Theme.scaled(6)
-            color: selected ? Theme.primaryColor : Theme.surfaceColor
-            border.color: selected ? Theme.primaryColor : Theme.borderColor
-            border.width: 1
-
-            Text {
-                anchors.centerIn: parent
-                text: parent.modelData.label
-                font: Theme.bodyFont
-                color: parent.selected ? Theme.primaryContrastColor : Theme.textColor
-                Accessible.ignored: true
-            }
-
-            AccessibleMouseArea {
-                anchors.fill: parent
-                accessibleName: parent.modelData.label
-                accessibleItem: parent
-                accessibleChecked: parent.selected
-                onAccessibleClicked: {
-                    var v = parent.selected ? "" : parent.modelData.value
-                    root.tasteBalance = v
-                    root.tasteBalanceModified(v)
-                }
+        TasteChip {
+            selected: root.tasteBalance === modelData.value
+            onTapped: {
+                var v = selected ? "" : modelData.value
+                root.tasteBalance = v
+                root.tasteBalanceModified(v)
             }
         }
     }
@@ -160,35 +138,59 @@ ColumnLayout {
     // Body chip: sets tasteBody (toggles off if re-tapped).
     Component {
         id: bodyChipComponent
-        Rectangle {
-            required property var modelData
-            readonly property bool selected: root.tasteBody === modelData.value
-            Layout.fillWidth: true
-            Layout.preferredHeight: Theme.scaled(44)
-            radius: Theme.scaled(6)
-            color: selected ? Theme.primaryColor : Theme.surfaceColor
-            border.color: selected ? Theme.primaryColor : Theme.borderColor
-            border.width: 1
+        TasteChip {
+            selected: root.tasteBody === modelData.value
+            onTapped: {
+                var v = selected ? "" : modelData.value
+                root.tasteBody = v
+                root.tasteBodyModified(v)
+            }
+        }
+    }
 
+    // Shared icon+label chip card. Card style mirrors the recipe wizard's
+    // selectable option cards: border-highlighted (not filled) when selected,
+    // with a subtle primary tint and the icon/label tinted to the primary color.
+    component TasteChip: Rectangle {
+        required property var modelData
+        property bool selected: false
+        signal tapped()
+
+        Layout.fillWidth: true
+        Layout.preferredHeight: Theme.scaled(56)
+        radius: Theme.cardRadius
+        color: selected ? Qt.rgba(Theme.primaryColor.r, Theme.primaryColor.g,
+                                  Theme.primaryColor.b, 0.14)
+                        : Theme.cardBackgroundColor
+        border.color: selected ? Theme.primaryColor : Theme.borderColor
+        border.width: selected ? 2 : 1
+
+        RowLayout {
+            anchors.centerIn: parent
+            spacing: Theme.spacingSmall
+
+            ColoredIcon {
+                Layout.preferredWidth: Theme.scaled(22)
+                Layout.preferredHeight: Theme.scaled(22)
+                source: modelData.icon
+                iconWidth: Theme.scaled(22)
+                iconHeight: Theme.scaled(22)
+                iconColor: selected ? Theme.primaryColor : Theme.textSecondaryColor
+            }
             Text {
-                anchors.centerIn: parent
-                text: parent.modelData.label
+                text: modelData.label
                 font: Theme.bodyFont
-                color: parent.selected ? Theme.primaryContrastColor : Theme.textColor
+                color: selected ? Theme.primaryColor : Theme.textColor
                 Accessible.ignored: true
             }
+        }
 
-            AccessibleMouseArea {
-                anchors.fill: parent
-                accessibleName: parent.modelData.label
-                accessibleItem: parent
-                accessibleChecked: parent.selected
-                onAccessibleClicked: {
-                    var v = parent.selected ? "" : parent.modelData.value
-                    root.tasteBody = v
-                    root.tasteBodyModified(v)
-                }
-            }
+        AccessibleMouseArea {
+            anchors.fill: parent
+            accessibleName: modelData.label
+            accessibleItem: parent
+            accessibleChecked: selected
+            onAccessibleClicked: tapped()
         }
     }
 }

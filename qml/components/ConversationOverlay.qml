@@ -867,6 +867,8 @@ Rectangle {
                     text: trIntakeAsk.text
                     accessibleName: trIntakeAsk.text
                     primary: true
+                    icon.source: "qrc:/icons/sparkle.svg"
+                    tintIcon: true
                     // Wait until any background context load finishes and the
                     // conversation is idle, so the composed turn sends cleanly.
                     enabled: inputRow.canSend

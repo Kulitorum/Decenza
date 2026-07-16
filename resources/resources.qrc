@@ -30,6 +30,12 @@
         <file>icons/settings.svg</file>
         <file>icons/back.svg</file>
         <file>icons/edit.svg</file>
+        <file>icons/taste-sour.svg</file>
+        <file>icons/taste-balanced.svg</file>
+        <file>icons/taste-bitter.svg</file>
+        <file>icons/body-thin.svg</file>
+        <file>icons/body-medium.svg</file>
+        <file>icons/body-heavy.svg</file>
         <file>icons/SortAscending.svg</file>
         <file>icons/SortDescending.svg</file>
         <file>icons/AlignLeft.svg</file>
