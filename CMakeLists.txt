@@ -300,7 +300,6 @@ set(SOURCES
     src/controllers/maincontroller.cpp
     src/controllers/autoflowcalclassifier.cpp
     src/controllers/profilemanager.cpp
-    src/controllers/directcontroller.cpp
     src/controllers/shottimingcontroller.cpp
     src/controllers/firmwareupdater.cpp
     src/screensaver/screensavervideomanager.cpp
@@ -498,7 +497,6 @@ set(HEADERS
     src/machine/steamhealthtracker.h
     src/controllers/maincontroller.h
     src/controllers/profilemanager.h
-    src/controllers/directcontroller.h
     src/controllers/shottimingcontroller.h
     src/screensaver/screensavervideomanager.h
     src/screensaver/iosbrightness.h
@@ -508,6 +506,7 @@ set(HEADERS
     src/ui/jscanvascontext.h
     src/network/visualizeruploader.h
     src/network/visualizerimporter.h
+    src/network/visualizershotlist.h
     src/network/beanbaseclient.h
     src/network/beanbase_blob.h
     src/ai/aimanager.h

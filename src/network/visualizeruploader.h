@@ -12,6 +12,7 @@ class ShotDataModel;
 class Settings;
 class Profile;
 class DE1Device;
+class TranslationManager;
 
 // DYE (Describe Your Espresso) metadata for shot uploads
 struct ShotMetadata {
@@ -75,6 +76,12 @@ public:
     QString lastShotUrl() const { return m_lastShotUrl; }
 
     void setDevice(DE1Device* device) { m_device = device; }
+
+    // Inject the TranslationManager so user-visible upload/status/error strings
+    // localize (mirrors VisualizerImporter). Wired from
+    // MainController::setTranslationManager. Until injected, tr_() returns the
+    // English fallback.
+    void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
 
     // Upload shot data to visualizer.coffee.
     // `dbShotId` is the local shots.id this upload is for, so a successful
@@ -226,6 +233,10 @@ private:
     QByteArray buildMultipartData(const QByteArray& jsonData, const QString& boundary);
     QString authHeader() const;
 
+    // Translate a user-visible string via the injected TranslationManager,
+    // falling back to the English source when none is set.
+    QString tr_(const char* key, const char* fallback) const;
+
     static QJsonObject buildAppInfoJson();
     static QJsonObject buildProfileSettings(const Profile* profile);
     bool validateUpload(const QString& beverageType, double duration);
@@ -298,6 +309,7 @@ private:
     Settings* m_settings;
     QNetworkAccessManager* m_networkManager;
     DE1Device* m_device = nullptr;
+    TranslationManager* m_translationManager = nullptr;
     bool m_uploading = false;
     QString m_lastUploadStatus;
     QString m_lastShotUrl;

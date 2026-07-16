@@ -26,6 +26,8 @@
 #include "beanbase_blob.h"
 #include "roastdate.h"
 #include "tastecvamap.h"
+#include "visualizershotlist.h"
+#include "../core/translationmanager.h"
 #include "../history/coffeebagstorage.h"
 #include "../core/dbutils.h"
 #include "../models/shotdatamodel.h"
@@ -74,6 +76,13 @@ VisualizerUploader::VisualizerUploader(QNetworkAccessManager* networkManager, Se
     , m_networkManager(networkManager)
 {
     Q_ASSERT(networkManager);
+}
+
+QString VisualizerUploader::tr_(const char* key, const char* fallback) const {
+    if (m_translationManager)
+        return m_translationManager->translate(QString::fromUtf8(key),
+                                               QString::fromUtf8(fallback));
+    return QString::fromUtf8(fallback);
 }
 
 // Helper: Interpolate goal data to match elapsed timestamps
@@ -158,7 +167,7 @@ void VisualizerUploader::uploadShot(ShotDataModel* shotData,
                                      qint64 dbShotId)
 {
     if (!shotData) {
-        emit uploadFailed("No shot data available");
+        emit uploadFailed(tr_("visualizer.upload.noShotData", "No shot data available"));
         return;
     }
 
@@ -175,7 +184,7 @@ void VisualizerUploader::uploadShot(ShotDataModel* shotData,
 void VisualizerUploader::uploadShotFromHistory(const ShotProjection& shotData)
 {
     if (!shotData.isValid()) {
-        emit uploadFailed("No shot data available");
+        emit uploadFailed(tr_("visualizer.upload.noShotData", "No shot data available"));
         return;
     }
 
@@ -202,7 +211,7 @@ void VisualizerUploader::uploadShotFromHistoryWithOverrides(
 {
     ShotProjection shot = ShotProjection::coerce(baseShot);
     if (!shot.isValid()) {
-        emit uploadFailed("No shot data available");
+        emit uploadFailed(tr_("visualizer.upload.noShotData", "No shot data available"));
         return;
     }
     auto applyStr    = [&](QString       ShotProjection::*f, const char* k) {
@@ -251,7 +260,7 @@ void VisualizerUploader::updateShotOnVisualizerWithOverrides(
     // catch a coerce miss here — otherwise a PATCH could go out with id=0 /
     // durationSec=0 / empty curves.
     if (!shot.isValid()) {
-        emit uploadFailed("No shot data available");
+        emit uploadFailed(tr_("visualizer.upload.noShotData", "No shot data available"));
         emit updateFailed(visualizerId, false, "No shot data available");
         return;
     }
@@ -294,7 +303,7 @@ void VisualizerUploader::updateShotOnVisualizerWithOverrides(
 void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, const ShotProjection& shotData)
 {
     if (visualizerId.isEmpty()) {
-        emit uploadFailed("No visualizer ID for update");
+        emit uploadFailed(tr_("visualizer.error.noVizId", "No visualizer ID for update"));
         emit updateFailed(visualizerId, false, "No visualizer ID for update");
         return;
     }
@@ -304,16 +313,16 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     QString password = m_settings->value("visualizer/password", "").toString();
 
     if (username.isEmpty() || password.isEmpty()) {
-        m_lastUploadStatus = "No credentials configured";
+        m_lastUploadStatus = tr_("visualizer.upload.noCredentials", "No credentials configured");
         emit lastUploadStatusChanged();
-        emit uploadFailed("Visualizer credentials not configured");
+        emit uploadFailed(tr_("visualizer.upload.credentialsMissing", "Visualizer credentials not configured"));
         emit updateFailed(visualizerId, false, "Visualizer credentials not configured");
         return;
     }
 
     m_uploading = true;
     emit uploadingChanged();
-    m_lastUploadStatus = "Updating...";
+    m_lastUploadStatus = tr_("visualizer.status.updating", "Updating...");
     emit lastUploadStatusChanged();
 
     // Build JSON body: {"shot": {"bean_brand": "...", ...}}
@@ -428,7 +437,7 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
     QByteArray response = reply->readAll();
 
     if (reply->error() == QNetworkReply::NoError) {
-        m_lastUploadStatus = "Update successful";
+        m_lastUploadStatus = tr_("visualizer.status.updateSuccess", "Update successful");
         emit lastUploadStatusChanged();
         emit updateSuccess(visualizerId);
         qDebug() << "Visualizer: Update successful for shot" << visualizerId;
@@ -436,21 +445,21 @@ void VisualizerUploader::onUpdateFinished(QNetworkReply* reply, const QString& v
         QString errorMsg;
 
         if (statusCode == 401) {
-            errorMsg = "Invalid credentials";
+            errorMsg = tr_("visualizer.error.invalidCredentials", "Invalid credentials");
         } else if (statusCode == 404) {
-            errorMsg = "Shot not found on Visualizer";
+            errorMsg = tr_("visualizer.error.shotNotFound", "Shot not found on Visualizer");
         } else if (statusCode == 422) {
             QJsonDocument doc = QJsonDocument::fromJson(response);
             QJsonObject obj = doc.object();
             errorMsg = obj["error"].toString();
             if (errorMsg.isEmpty()) {
-                errorMsg = "Invalid data (422)";
+                errorMsg = tr_("visualizer.error.invalidData422", "Invalid data (422)");
             }
         } else {
-            errorMsg = QString("HTTP %1: %2").arg(statusCode).arg(reply->errorString());
+            errorMsg = tr_("visualizer.error.http", "HTTP %1: %2").arg(statusCode).arg(reply->errorString());
         }
 
-        m_lastUploadStatus = "Failed: " + errorMsg;
+        m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(errorMsg);
         emit lastUploadStatusChanged();
         emit uploadFailed(errorMsg);
         // 404 is the one terminal outcome: the shot is gone from (or was
@@ -474,7 +483,7 @@ void VisualizerUploader::testConnection()
     QString password = m_settings->value("visualizer/password", "").toString();
 
     if (username.isEmpty() || password.isEmpty()) {
-        emit connectionTestResult(false, "Username or password not set");
+        emit connectionTestResult(false, tr_("visualizer.test.noUserPass", "Username or password not set"));
         return;
     }
 
@@ -518,7 +527,7 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
         QString shotId = obj["id"].toString();
         if (!shotId.isEmpty()) {
             m_lastShotUrl = QString(VISUALIZER_SHOT_URL) + shotId;
-            m_lastUploadStatus = "Upload successful";
+            m_lastUploadStatus = tr_("visualizer.status.uploadSuccess", "Upload successful");
             emit lastShotUrlChanged();
             emit lastUploadStatusChanged();
             emit uploadSuccess(shotId, m_lastShotUrl);
@@ -536,7 +545,7 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
             // local shot row never gets its visualizer_id and the bag sync
             // chain never runs. Surface it so the user sees an error and a
             // retry path, instead of a benign-looking "completed" status.
-            m_lastUploadStatus = "Upload returned no shot id (unexpected response)";
+            m_lastUploadStatus = tr_("visualizer.error.noShotIdReturned", "Upload returned no shot id (unexpected response)");
             emit lastUploadStatusChanged();
             qWarning() << "Visualizer: upload succeeded (HTTP" << statusCode
                        << ") but response had no shot id:" << response.left(200);
@@ -562,19 +571,19 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
         QString errorMsg;
 
         if (statusCode == 401) {
-            errorMsg = "Invalid credentials";
+            errorMsg = tr_("visualizer.error.invalidCredentials", "Invalid credentials");
         } else if (statusCode == 422) {
             QJsonDocument doc = QJsonDocument::fromJson(response);
             QJsonObject obj = doc.object();
             errorMsg = obj["error"].toString();
             if (errorMsg.isEmpty()) {
-                errorMsg = "Invalid shot data (422)";
+                errorMsg = tr_("visualizer.error.invalidShotData422", "Invalid shot data (422)");
             }
         } else {
-            errorMsg = QString("HTTP %1: %2").arg(statusCode).arg(reply->errorString());
+            errorMsg = tr_("visualizer.error.http", "HTTP %1: %2").arg(statusCode).arg(reply->errorString());
         }
 
-        m_lastUploadStatus = "Failed: " + errorMsg;
+        m_lastUploadStatus = tr_("visualizer.status.failed", "Failed: %1").arg(errorMsg);
         emit lastUploadStatusChanged();
         emit uploadFailed(errorMsg);
         qDebug() << "Visualizer: Upload failed -" << errorMsg << "Response:" << response;
@@ -592,13 +601,13 @@ void VisualizerUploader::onUploadFinished(QNetworkReply* reply)
 void VisualizerUploader::onTestFinished(QNetworkReply* reply)
 {
     if (reply->error() == QNetworkReply::NoError) {
-        emit connectionTestResult(true, "Connection successful!");
+        emit connectionTestResult(true, tr_("visualizer.test.success", "Connection successful!"));
     } else {
         int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         QString errorMsg;
 
         if (statusCode == 401) {
-            errorMsg = "Invalid username or password";
+            errorMsg = tr_("visualizer.test.invalidUserPass", "Invalid username or password");
         } else {
             errorMsg = reply->errorString();
         }
@@ -625,13 +634,11 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
 {
     // GET /api/shots?page=N&items=100 — authenticated => own shots.
     // Response shape { data: [{id, clock, updated_at}], paging:
-    // {count,page,limit,pages} } is confirmed against OpenAPI 1.8.2;
-    // the default sort is ASSUMED newest-first by start time (not
-    // spec-pinned). The wholePageOlder early-stop relies on that
-    // assumption only as an optimisation — if the sort differs it just
-    // stops paging early; the kMaxPages ceiling still bounds the loop
-    // and turns a ceiling hit into a fail-safe retry (below), and all
-    // in-window matches on fetched pages are still accumulated.
+    // {count,page,limit,pages} } is confirmed against OpenAPI 1.8.2, and the
+    // default newest-first-by-start-time sort the wholePageOlder early-stop
+    // relies on is confirmed against the visualizer.coffee source (see the note
+    // in visualizershotlist.h). The kMaxPages ceiling still bounds the loop and
+    // turns a ceiling hit into a fail-safe retry (below) regardless.
     constexpr int kMaxPages = 50;          // 50 * 100 = 5000 shots hard cap
     constexpr int kItemsPerPage = 100;
 
@@ -662,64 +669,49 @@ void VisualizerUploader::fetchShotListPage(int page, qint64 windowStartEpoch,
         const QByteArray body = reply->readAll();
         reply->deleteLater();
 
-        QJsonParseError perr{};
-        const QJsonDocument doc = QJsonDocument::fromJson(body, &perr);
-        if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
+        // Parse + window-filter + terminate via the shared page processor (see
+        // visualizershotlist.h). The recovery importer runs the identical policy;
+        // keeping it in one place stops the two copies from drifting.
+        using namespace VisualizerShotList;
+        const PageResult pr = processPage(body, page, kMaxPages,
+                                          windowStartEpoch,
+                                          std::numeric_limits<qint64>::max());
+        switch (pr.reason) {
+        case FailReason::ParseError:
             emit shotListFailed(QStringLiteral("Shot list response parse error: %1")
-                                .arg(perr.errorString()));
+                                .arg(pr.parseError));
             return;
-        }
-        const QJsonObject root = doc.object();
-        // A valid list response MUST carry a `paging` object with a
-        // numeric `pages`. A 200 lacking it is almost certainly an
-        // auth/error envelope (e.g. expired session returning {}), NOT
-        // a legitimately empty library — treating it as success would
-        // permanently burn the run-once flag. Fail safe instead.
-        const QJsonValue pagingVal = root.value("paging");
-        if (!pagingVal.isObject() || !pagingVal.toObject().value("pages").isDouble()) {
+        case FailReason::MissingPaging:
+            // A 200 without paging metadata is almost certainly an auth/error
+            // envelope (e.g. expired session returning {}), NOT a legitimately
+            // empty library — treating it as success would permanently burn the
+            // run-once flag. Fail safe instead.
             emit shotListFailed(QStringLiteral(
                 "Shot list response missing paging metadata (likely auth/error envelope)"));
             return;
-        }
-        const QJsonArray data = root.value("data").toArray();
-        const QJsonObject paging = pagingVal.toObject();
-        const int totalPages = paging.value("pages").toInt(page);
-
-        qint64 minClockThisPage = std::numeric_limits<qint64>::max();
-        for (const QJsonValue& v : data) {
-            const QJsonObject s = v.toObject();
-            const QString id = s.value("id").toString();
-            const qint64 clock = s.value("clock").toVariant().toLongLong();
-            if (id.isEmpty() || clock <= 0) continue;
-            minClockThisPage = std::min(minClockThisPage, clock);
-            if (clock < windowStartEpoch) continue;   // outside window — skip
-            QVariantMap m;
-            m["visualizerId"] = id;
-            m["url"] = QString(VISUALIZER_SHOT_URL) + id;
-            m["clockEpoch"] = clock;
-            accumulated.append(m);
-        }
-
-        // Hitting the defensive page ceiling without reaching the real
-        // end is an ABNORMAL exit (oversized library, or the assumed
-        // newest-first sort was violated so wholePageOlder never fired).
-        // Emitting a truncated list as "success" would permanently mark
-        // the backfill done with missing shots. Fail safe so it retries.
-        if (page >= kMaxPages && page < totalPages) {
+        case FailReason::PageCeiling:
+            // Hitting the defensive page ceiling without reaching the real end is
+            // an ABNORMAL exit (oversized library, or the assumed newest-first
+            // sort was violated). Emitting a truncated list as "success" would
+            // permanently mark the backfill done with missing shots. Fail safe.
             emit shotListFailed(QStringLiteral(
                 "Shot list exceeded page ceiling (%1) before end (%2 pages) — "
                 "backfill incomplete, will retry next boot")
-                .arg(kMaxPages).arg(totalPages));
+                .arg(kMaxPages).arg(pr.totalPages));
             return;
+        case FailReason::None:
+            break;
         }
 
-        // Stop when: paging exhausted, or (relying on newest-first sort)
-        // this whole page is already older than the window — nothing
-        // older can be in-window.
-        const bool pagedOut = page >= totalPages;
-        const bool wholePageOlder =
-            !data.isEmpty() && minClockThisPage < windowStartEpoch;
-        if (pagedOut || wholePageOlder) {
+        for (const Entry& e : pr.inWindow) {
+            QVariantMap m;
+            m["visualizerId"] = e.visualizerId;
+            m["url"] = QString(VISUALIZER_SHOT_URL) + e.visualizerId;
+            m["clockEpoch"] = e.clockEpoch;
+            accumulated.append(m);
+        }
+
+        if (pr.verdict == Verdict::Done) {
             emit shotListFetched(accumulated);
             return;
         }
@@ -1234,8 +1226,8 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
 {
     // Skip maintenance profiles (shared tier — see Profile::isMaintenanceBeverageType)
     if (Profile::isMaintenanceBeverageType(beverageType)) {
-        const QString reason = QString("maintenance profile (%1)").arg(beverageType);
-        m_lastUploadStatus = QString("Skipped: %1").arg(reason);
+        const QString reason = tr_("visualizer.skip.maintenance", "maintenance profile (%1)").arg(beverageType);
+        m_lastUploadStatus = tr_("visualizer.status.skipped", "Skipped: %1").arg(reason);
         emit lastUploadStatusChanged();
         // Policy skip, not an error — uploadSkipped lets the page clear its
         // in-flight flags without surfacing a red error to UI listeners that
@@ -1251,17 +1243,17 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
     QString username = m_settings->value("visualizer/username", "").toString();
     QString password = m_settings->value("visualizer/password", "").toString();
     if (username.isEmpty() || password.isEmpty()) {
-        m_lastUploadStatus = "No credentials configured";
+        m_lastUploadStatus = tr_("visualizer.upload.noCredentials", "No credentials configured");
         emit lastUploadStatusChanged();
-        emit uploadFailed("Visualizer credentials not configured");
+        emit uploadFailed(tr_("visualizer.upload.credentialsMissing", "Visualizer credentials not configured"));
         return false;
     }
 
     // Check minimum duration
     double minDuration = m_settings->value("visualizer/minDuration", 6.0).toDouble();
     if (duration < minDuration) {
-        const QString reason = QString("shot too short (%1s < %2s)").arg(duration, 0, 'f', 1).arg(minDuration, 0, 'f', 0);
-        m_lastUploadStatus = QString("Skipped: %1").arg(reason);
+        const QString reason = tr_("visualizer.skip.tooShort", "shot too short (%1s < %2s)").arg(duration, 0, 'f', 1).arg(minDuration, 0, 'f', 0);
+        m_lastUploadStatus = tr_("visualizer.status.skipped", "Skipped: %1").arg(reason);
         emit lastUploadStatusChanged();
         // Policy skip, not an error — see uploadSkipped rationale on the
         // maintenance branch above. Emit just the reason payload.
@@ -1272,7 +1264,7 @@ bool VisualizerUploader::validateUpload(const QString& beverageType, double dura
 
     m_uploading = true;
     emit uploadingChanged();
-    m_lastUploadStatus = "Uploading...";
+    m_lastUploadStatus = tr_("visualizer.status.uploading", "Uploading...");
     emit lastUploadStatusChanged();
     return true;
 }
@@ -2158,7 +2150,7 @@ void VisualizerUploader::patchRemoteBag(const QVariantMap& bag, const QString& r
             const QJsonObject err = QJsonDocument::fromJson(reply->readAll()).object();
             QString message = err.value(QStringLiteral("error")).toString();
             if (message.isEmpty())
-                message = QStringLiteral("Visualizer rejected the bag update");
+                message = tr_("visualizer.bag.rejected", "Visualizer rejected the bag update");
             emit bagPushRejected(localBagId, bagDisplayName, message);
             qDebug() << "Visualizer CM: bag update 422 for bag" << localBagId
                      << "(" << bagDisplayName << ") -" << message;

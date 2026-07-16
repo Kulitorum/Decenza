@@ -1077,6 +1077,10 @@ int main(int argc, char *argv[])
     // Create and wire AI Manager
     AIManager aiManager(&sharedNetworkManager, &settings);
     mainController.setAiManager(&aiManager);
+    // Localize AI error strings. Wired here (not via MainController's fan-out)
+    // because MainController::setTranslationManager already ran above, before
+    // the AIManager was attached. Forwards to every provider + the conversation.
+    aiManager.setTranslationManager(&translationManager);
 
     // Register the per-provider model-hint strings with the translation
     // registry. SettingsAITab.qml builds these keys dynamically
@@ -1252,6 +1256,7 @@ int main(int argc, char *argv[])
     DatabaseBackupManager backupManager(&settings, mainController.shotHistory(),
                                        &profileStorage, &screensaverManager);
     mainController.setBackupManager(&backupManager);
+    backupManager.setTranslationManager(&translationManager);
     QObject::connect(&backupManager, &DatabaseBackupManager::backupCreated,
                      [](const QString& path) {
         qDebug() << "DatabaseBackupManager: Backup created successfully:" << path;
@@ -2264,6 +2269,14 @@ int main(int argc, char *argv[])
         QObject::connect(refractometer.get(), &RefractometerDevice::logMessage,
                          &bleManager, &BLEManager::appendScaleLog);
 
+        // Surface actionable measurement errors ("No liquid detected", "Beyond
+        // range", …) to the error dialog, mirroring the physical scale's
+        // errorOccurred → BLEManager::errorOccurred wiring. requestMeasurement()
+        // is user-initiated (Post-Shot Review / Settings buttons), so an error
+        // here is a direct response to a tap, not background-scan noise.
+        QObject::connect(refractometer.get(), &RefractometerDevice::errorOccurred,
+                         &bleManager, &BLEManager::errorOccurred);
+
         qDebug() << "[Refractometer] Created and connecting to" << device.name();
     });
 
@@ -2391,6 +2404,13 @@ int main(int argc, char *argv[])
                          &mainController, &MainController::onScaleWeightChanged);
         QObject::connect(usbScale, &ScaleDevice::weightSampleReceived,
                          &weightProcessor, &WeightProcessor::processWeight);
+
+        // Surface USB scale connection errors (open/port-lost) to the error
+        // dialog, mirroring the physical (BLE/WiFi) scale's errorOccurred wiring
+        // — the USB scale has its own scaleDiscovered handler and is never set as
+        // physicalScale, so that connect doesn't cover it.
+        QObject::connect(usbScale, &ScaleDevice::errorOccurred,
+                         &bleManager, &BLEManager::errorOccurred);
 
         // Register in the known-scales registry + set as primary, using the
         // stable USB identifier "usb:decent". addKnownScale + setPrimaryScale

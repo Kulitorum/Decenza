@@ -121,6 +121,11 @@ add_library(decenza_testlib STATIC
     ${CONTROLLER_SOURCES}
     ${SIMULATOR_SOURCES}
     ${ANALYSIS_SOURCES}
+    # TranslationManager is needed by sources that link this lib (VisualizerUploader
+    # via decenza_shotlib; LiveSteamCoach) now that they route user-visible strings
+    # through translate(). Compiling it into the lib provides the symbol once
+    # instead of each target adding translationmanager.cpp.
+    ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
 )
 set_target_properties(decenza_testlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
@@ -181,6 +186,12 @@ add_decenza_test(tst_tastecvamap
     tst_tastecvamap.cpp
 )
 
+# --- tst_visualizershotlist: header-only shared paginator decision logic
+# (window filter / newest-first early-stop / page-ceiling guard) ---
+add_decenza_test(tst_visualizershotlist
+    tst_visualizershotlist.cpp
+)
+
 # --- tst_dialing_helpers: pure session-grouping algorithm (issue #1009) ---
 add_decenza_test(tst_dialing_helpers
     tst_dialing_helpers.cpp
@@ -233,6 +244,17 @@ add_decenza_test(tst_profile
     tst_profile.cpp
 )
 
+# --- tst_visualizershotparse: JSON->ShotRecord recovery parser (string-encoded
+# DYE scalars must not zero; hollow-shot guard; phantom-frame guard). ---
+add_decenza_test(tst_visualizershotparse
+    tst_visualizershotparse.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotfileparser.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
+)
+target_compile_definitions(tst_visualizershotparse PRIVATE
+    TST_VIS_PARSE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
 # --- tst_temperaturedisplay: adaptive temp-override display formatter ---
 add_decenza_test(tst_temperaturedisplay
     tst_temperaturedisplay.cpp
@@ -259,7 +281,6 @@ add_decenza_test(tst_machinestate
 add_decenza_test(tst_livesteamcoach
     tst_livesteamcoach.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/livesteamcoach.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
 )
 
 # --- tst_machinestatussnapshot: widget snapshot schema + temp coalescing ---
@@ -553,6 +574,15 @@ add_decenza_test(tst_shotrecord_cache
 target_link_libraries(tst_shotrecord_cache PRIVATE decenza_shotlib)
 target_include_directories(tst_shotrecord_cache PRIVATE ${CMAKE_BINARY_DIR})
 
+# --- tst_shotimportdedupe: importShotRecord dedupe by visualizer_id (the
+# Visualizer-recovery sync-gap case) ---
+add_decenza_test(tst_shotimportdedupe
+    tst_shotimportdedupe.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_shotimportdedupe PRIVATE decenza_shotlib)
+target_include_directories(tst_shotimportdedupe PRIVATE ${CMAKE_BINARY_DIR})
+
 # --- tst_scaleprotocol: Scale BLE packet parsing (Decent, Bookoo) ---
 add_decenza_test(tst_scaleprotocol
     tst_scaleprotocol.cpp
@@ -725,7 +755,6 @@ add_decenza_test(tst_mcptools_write
     ${PROFILEMANAGER_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/core/accessibilitymanager.cpp
     ${CMAKE_SOURCE_DIR}/src/screensaver/screensavervideomanager.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/core/batterymanager.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
@@ -743,7 +772,6 @@ add_decenza_test(tst_mcptools_presets
     ${PROFILEMANAGER_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/core/accessibilitymanager.cpp
     ${CMAKE_SOURCE_DIR}/src/screensaver/screensavervideomanager.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/core/batterymanager.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
@@ -821,7 +849,6 @@ find_package(Qt6 REQUIRED COMPONENTS TextToSpeech Multimedia Quick Network)
 add_decenza_test(tst_accessibility_announcements
     tst_accessibility_announcements.cpp
     ${CMAKE_SOURCE_DIR}/src/core/accessibilitymanager.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
 )
 target_link_libraries(tst_accessibility_announcements PRIVATE
     Qt6::TextToSpeech Qt6::Multimedia Qt6::Quick Qt6::Network

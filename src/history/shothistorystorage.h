@@ -264,10 +264,23 @@ public:
     // any explicit "re-evaluate this one shot" use case (e.g., a future bulk-resweep UI).
     Q_INVOKABLE void requestReanalyzeBadges(qint64 shotId);
 
-    // Import a shot record directly (for .shot file import)
-    // Returns: shot ID on success, 0 if duplicate (skipped), -1 on error
-    // If overwriteExisting is true, duplicates will be replaced instead of skipped
+    // Import a shot record directly (for .shot file import).
+    // Returns: shot ID on success, 0 if duplicate (skipped), -1 on error.
+    // If overwriteExisting is true, duplicates will be replaced instead of skipped.
+    // SYNCHRONOUS DB I/O on the caller's thread — call only from the main thread
+    // (the .shot batch importer does; see ShotImporter). Off-thread callers use
+    // importShotRecordAsync instead.
     qint64 importShotRecord(const ShotRecord& record, bool overwriteExisting = false);
+
+    // Async variant: runs the insert on the shared serial DB worker thread (its
+    // own withTempDb connection), then delivers the result code to `onDone` on
+    // the main thread — >0 imported, 0 duplicate/skipped, -1 error. Used by the
+    // Visualizer recovery import so its per-shot inserts never block the main
+    // thread. `onDone` may capture the caller; the storage guards its own
+    // lifetime, and both objects here are MainController-owned for the app's
+    // lifetime, so the callback is safe to fire.
+    void importShotRecordAsync(const ShotRecord& record, bool overwriteExisting,
+                               std::function<void(qint64 resultCode)> onDone);
 
     // Refresh the total shots count (call after bulk import)
     Q_INVOKABLE void refreshTotalShots();
@@ -375,8 +388,13 @@ private:
     void requestDistinctValueAsync(const QString& cacheKey, const QString& sql,
                                     const QVariantList& bindValues = {});
 
-    // Internal sync delete — only called from importShotRecord() (main-thread, see TODO)
-    bool deleteShot(qint64 shotId);
+    // Connection-parameterised core of importShotRecord, so the import logic can
+    // run on either the main-thread m_db (importShotRecord) or a background
+    // withTempDb connection (importShotRecordAsync) from one implementation.
+    // deleteShotStatic is the internal row delete used by the overwrite path.
+    static qint64 importShotRecordStatic(QSqlDatabase& db, const ShotRecord& record,
+                                         bool overwriteExisting);
+    static bool deleteShotStatic(QSqlDatabase& db, qint64 shotId);
 
     // Backfill beverage_type from profile_json for existing rows
     void backfillBeverageType();

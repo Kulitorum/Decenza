@@ -22,6 +22,7 @@ class ShotDataModel;
 class Profile;
 class Settings;
 class ShotHistoryStorage;
+class TranslationManager;
 class ProfileManager;
 
 class AIManager : public QObject {
@@ -138,6 +139,12 @@ public:
 
     // Shot history access for contextual recommendations
     void setShotHistoryStorage(ShotHistoryStorage* storage);
+
+    // Inject the TranslationManager so user-visible error strings localize.
+    // Forwards to every owned provider and the conversation. Wired directly in
+    // main.cpp (after MainController::setAiManager, since MainController's own
+    // setTranslationManager runs before the AIManager is attached).
+    void setTranslationManager(TranslationManager* tm);
     // ProfileManager hookup for the SAW prediction block (needs
     // baseProfileName + profile target metadata at user-prompt enrichment
     // time). Wired from MainController::setAiManager. Optional — falls
@@ -304,6 +311,9 @@ private slots:
 
 private:
     void createProviders();
+    // Translate a user-visible string via the injected TranslationManager,
+    // falling back to the English source when none is set.
+    QString tr_(const char* key, const char* fallback) const;
     AIProvider* providerById(const QString& providerId) const;
     AIProvider* currentProvider() const;
 
@@ -369,6 +379,7 @@ private:
 
     // Conversation for multi-turn interactions
     AIConversation* m_conversation = nullptr;
+    TranslationManager* m_translationManager = nullptr;
     QList<ConversationEntry> m_conversationIndex;
     bool m_isConversationRequest = false;
     bool m_isBagExtractionRequest = false;

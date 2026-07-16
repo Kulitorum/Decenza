@@ -1,4 +1,5 @@
 #include "aiprovider.h"
+#include "../core/translationmanager.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -25,22 +26,30 @@ void AIProvider::setStatus(Status status)
     }
 }
 
-QString AIProvider::friendlyNetworkError(QNetworkReply* reply)
+QString AIProvider::tr_(const char* key, const char* fallback) const
+{
+    if (m_translationManager)
+        return m_translationManager->translate(QString::fromUtf8(key),
+                                               QString::fromUtf8(fallback));
+    return QString::fromUtf8(fallback);
+}
+
+QString AIProvider::friendlyNetworkError(QNetworkReply* reply) const
 {
     switch (reply->error()) {
     case QNetworkReply::ConnectionRefusedError:
     case QNetworkReply::RemoteHostClosedError:
     case QNetworkReply::HostNotFoundError:
-        return "Could not connect to the AI service. Check your internet connection.";
+        return tr_("ai.error.noConnection", "Could not connect to the AI service. Check your internet connection.");
     case QNetworkReply::TimeoutError:
     case QNetworkReply::OperationCanceledError:
-        return "Request timed out. The AI service may be slow — please try again.";
+        return tr_("ai.error.timeout", "Request timed out. The AI service may be slow — please try again.");
     case QNetworkReply::AuthenticationRequiredError:
-        return "Authentication failed. Please check your API key in Settings.";
+        return tr_("ai.error.authFailed", "Authentication failed. Please check your API key in Settings.");
     case QNetworkReply::ContentAccessDenied:
-        return "Access denied. Your API key may not have permission for this model.";
+        return tr_("ai.error.accessDenied", "Access denied. Your API key may not have permission for this model.");
     default:
-        return "Request failed: " + reply->errorString();
+        return tr_("ai.error.requestFailed", "Request failed: %1").arg(reply->errorString());
     }
 }
 
@@ -207,7 +216,7 @@ void OpenAIProvider::sendRequest(const QJsonObject& requestBody)
 void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPrompt)
 {
     if (!isConfigured()) {
-        emit analysisFailed("OpenAI API key not configured");
+        emit analysisFailed(tr_("ai.openai.keyMissing", "OpenAI API key not configured"));
         return;
     }
 
@@ -249,7 +258,7 @@ void OpenAIProvider::analyze(const QString& systemPrompt, const QString& userPro
 void OpenAIProvider::analyzeUrl(const QString& systemPrompt, const QString& userPrompt)
 {
     if (!isConfigured()) {
-        emit analysisFailed("OpenAI API key not configured");
+        emit analysisFailed(tr_("ai.openai.keyMissing", "OpenAI API key not configured"));
         return;
     }
 
@@ -309,7 +318,7 @@ void OpenAIProvider::onResponsesReply(QNetworkReply* reply)
             if (!apiError.isEmpty()) {
                 int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
                 qWarning() << "OpenAI Responses API error" << status << "-" << apiError;
-                emit analysisFailed("OpenAI error: " + apiError);
+                emit analysisFailed(tr_("ai.openai.error", "OpenAI error: %1").arg(apiError));
                 return;
             }
             qWarning() << "AI request failed"
@@ -326,7 +335,7 @@ void OpenAIProvider::onResponsesReply(QNetworkReply* reply)
     if (root.contains("error") && root["error"].isObject()) {
         QString errorMsg = root["error"].toObject()["message"].toString();
         if (!errorMsg.isEmpty()) {
-            emit analysisFailed("OpenAI error: " + errorMsg);
+            emit analysisFailed(tr_("ai.openai.error", "OpenAI error: %1").arg(errorMsg));
             return;
         }
     }
@@ -349,7 +358,7 @@ void OpenAIProvider::onResponsesReply(QNetworkReply* reply)
     if (text.isEmpty()) {
         qWarning() << "OpenAI Responses: no output_text (status"
                    << root["status"].toString() << ")";
-        emit analysisFailed("OpenAI returned empty response content");
+        emit analysisFailed(tr_("ai.openai.emptyContent", "OpenAI returned empty response content"));
         return;
     }
     emit analysisComplete(text);
@@ -358,7 +367,7 @@ void OpenAIProvider::onResponsesReply(QNetworkReply* reply)
 void OpenAIProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
 {
     if (!isConfigured()) {
-        emit analysisFailed("OpenAI API key not configured");
+        emit analysisFailed(tr_("ai.openai.keyMissing", "OpenAI API key not configured"));
         return;
     }
 
@@ -389,7 +398,7 @@ void OpenAIProvider::onAnalysisReply(QNetworkReply* reply)
             if (!apiError.isEmpty()) {
                 int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
                 qWarning() << "OpenAI API error" << status << "-" << apiError;
-                emit analysisFailed("OpenAI error: " + apiError);
+                emit analysisFailed(tr_("ai.openai.error", "OpenAI error: %1").arg(apiError));
                 return;
             }
             qWarning() << "AI request failed"
@@ -405,19 +414,19 @@ void OpenAIProvider::onAnalysisReply(QNetworkReply* reply)
 
     if (root.contains("error")) {
         QString errorMsg = root["error"].toObject()["message"].toString();
-        emit analysisFailed("OpenAI error: " + errorMsg);
+        emit analysisFailed(tr_("ai.openai.error", "OpenAI error: %1").arg(errorMsg));
         return;
     }
 
     QJsonArray choices = root["choices"].toArray();
     if (choices.isEmpty()) {
-        emit analysisFailed("OpenAI returned no response");
+        emit analysisFailed(tr_("ai.openai.noResponse", "OpenAI returned no response"));
         return;
     }
 
     QString content = choices[0].toObject()["message"].toObject()["content"].toString();
     if (content.isEmpty()) {
-        emit analysisFailed("OpenAI returned empty response content");
+        emit analysisFailed(tr_("ai.openai.emptyContent", "OpenAI returned empty response content"));
         return;
     }
     emit analysisComplete(content);
@@ -426,7 +435,7 @@ void OpenAIProvider::onAnalysisReply(QNetworkReply* reply)
 void OpenAIProvider::testConnection()
 {
     if (!isConfigured()) {
-        emit testResult(false, "API key not configured");
+        emit testResult(false, tr_("ai.test.keyNotConfigured", "API key not configured"));
         return;
     }
 
@@ -462,11 +471,11 @@ void OpenAIProvider::onTestReply(QNetworkReply* reply)
             QJsonValue errVal = doc.object()["error"];
             QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
             if (!errorMsg.isEmpty()) {
-                emit testResult(false, "Authentication failed: " + errorMsg);
+                emit testResult(false, tr_("ai.test.authFailed", "Authentication failed: %1").arg(errorMsg));
                 return;
             }
         }
-        emit testResult(false, "Invalid API key");
+        emit testResult(false, tr_("ai.test.invalidKey", "Invalid API key"));
         return;
     }
 
@@ -476,11 +485,11 @@ void OpenAIProvider::onTestReply(QNetworkReply* reply)
             QJsonValue errVal = doc.object()["error"];
             QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
             if (!errorMsg.isEmpty()) {
-                emit testResult(false, "API error: " + errorMsg);
+                emit testResult(false, tr_("ai.test.apiError", "API error: %1").arg(errorMsg));
                 return;
             }
         }
-        emit testResult(false, "Connection failed: " + reply->errorString());
+        emit testResult(false, tr_("ai.test.connectionFailed", "Connection failed: %1").arg(reply->errorString()));
         return;
     }
 
@@ -489,12 +498,12 @@ void OpenAIProvider::onTestReply(QNetworkReply* reply)
         QJsonValue errVal = doc.object()["error"];
         QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
         if (errorMsg.isEmpty())
-            errorMsg = "Unknown API error";
-        emit testResult(false, "API error: " + errorMsg);
+            errorMsg = tr_("ai.test.unknownError", "Unknown API error");
+        emit testResult(false, tr_("ai.test.apiError", "API error: %1").arg(errorMsg));
         return;
     }
 
-    emit testResult(true, "Connected to OpenAI successfully");
+    emit testResult(true, tr_("ai.openai.connected", "Connected to OpenAI successfully"));
 }
 
 // ============================================================================
@@ -581,7 +590,7 @@ void AnthropicProvider::sendRequest(const QJsonObject& requestBody)
 void AnthropicProvider::analyze(const QString& systemPrompt, const QString& userPrompt)
 {
     if (!isConfigured()) {
-        emit analysisFailed("Anthropic API key not configured");
+        emit analysisFailed(tr_("ai.anthropic.keyMissing", "Anthropic API key not configured"));
         return;
     }
 
@@ -606,7 +615,7 @@ void AnthropicProvider::analyze(const QString& systemPrompt, const QString& user
 void AnthropicProvider::analyzeUrl(const QString& systemPrompt, const QString& userPrompt)
 {
     if (!isConfigured()) {
-        emit analysisFailed("Anthropic API key not configured");
+        emit analysisFailed(tr_("ai.anthropic.keyMissing", "Anthropic API key not configured"));
         return;
     }
 
@@ -641,7 +650,7 @@ void AnthropicProvider::analyzeUrl(const QString& systemPrompt, const QString& u
 void AnthropicProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
 {
     if (!isConfigured()) {
-        emit analysisFailed("Anthropic API key not configured");
+        emit analysisFailed(tr_("ai.anthropic.keyMissing", "Anthropic API key not configured"));
         return;
     }
 
@@ -729,7 +738,7 @@ void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
             if (!apiError.isEmpty()) {
                 int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
                 qWarning() << "Anthropic API error" << status << "-" << apiError;
-                emit analysisFailed("Anthropic error: " + apiError);
+                emit analysisFailed(tr_("ai.anthropic.error", "Anthropic error: %1").arg(apiError));
                 return;
             }
             qWarning() << "AI request failed"
@@ -745,13 +754,13 @@ void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
 
     if (root.contains("error")) {
         QString errorMsg = root["error"].toObject()["message"].toString();
-        emit analysisFailed("Anthropic error: " + errorMsg);
+        emit analysisFailed(tr_("ai.anthropic.error", "Anthropic error: %1").arg(errorMsg));
         return;
     }
 
     QJsonArray content = root["content"].toArray();
     if (content.isEmpty()) {
-        emit analysisFailed("Anthropic returned no response");
+        emit analysisFailed(tr_("ai.anthropic.noResponse", "Anthropic returned no response"));
         return;
     }
 
@@ -766,7 +775,7 @@ void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
             text += obj["text"].toString();
     }
     if (text.isEmpty()) {
-        emit analysisFailed("Anthropic returned empty response content");
+        emit analysisFailed(tr_("ai.anthropic.emptyContent", "Anthropic returned empty response content"));
         return;
     }
     emit analysisComplete(text);
@@ -775,7 +784,7 @@ void AnthropicProvider::onAnalysisReply(QNetworkReply* reply)
 void AnthropicProvider::testConnection()
 {
     if (!isConfigured()) {
-        emit testResult(false, "API key not configured");
+        emit testResult(false, tr_("ai.test.keyNotConfigured", "API key not configured"));
         return;
     }
 
@@ -824,11 +833,11 @@ void AnthropicProvider::onTestReply(QNetworkReply* reply)
             QJsonValue errVal = doc.object()["error"];
             QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
             if (!errorMsg.isEmpty()) {
-                emit testResult(false, "Authentication failed: " + errorMsg);
+                emit testResult(false, tr_("ai.test.authFailed", "Authentication failed: %1").arg(errorMsg));
                 return;
             }
         }
-        emit testResult(false, "Invalid API key");
+        emit testResult(false, tr_("ai.test.invalidKey", "Invalid API key"));
         return;
     }
 
@@ -838,11 +847,11 @@ void AnthropicProvider::onTestReply(QNetworkReply* reply)
             QJsonValue errVal = doc.object()["error"];
             QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
             if (!errorMsg.isEmpty()) {
-                emit testResult(false, "API error: " + errorMsg);
+                emit testResult(false, tr_("ai.test.apiError", "API error: %1").arg(errorMsg));
                 return;
             }
         }
-        emit testResult(false, "Connection failed: " + reply->errorString());
+        emit testResult(false, tr_("ai.test.connectionFailed", "Connection failed: %1").arg(reply->errorString()));
         return;
     }
 
@@ -851,12 +860,12 @@ void AnthropicProvider::onTestReply(QNetworkReply* reply)
         QJsonValue errVal = doc.object()["error"];
         QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
         if (errorMsg.isEmpty())
-            errorMsg = "Unknown API error";
-        emit testResult(false, "API error: " + errorMsg);
+            errorMsg = tr_("ai.test.unknownError", "Unknown API error");
+        emit testResult(false, tr_("ai.test.apiError", "API error: %1").arg(errorMsg));
         return;
     }
 
-    emit testResult(true, "Connected to Anthropic successfully");
+    emit testResult(true, tr_("ai.anthropic.connected", "Connected to Anthropic successfully"));
 }
 
 // ============================================================================
@@ -967,7 +976,7 @@ void GeminiProvider::sendRequest(const QJsonObject& requestBody)
 void GeminiProvider::analyze(const QString& systemPrompt, const QString& userPrompt)
 {
     if (!isConfigured()) {
-        emit analysisFailed("Gemini API key not configured");
+        emit analysisFailed(tr_("ai.gemini.keyMissing", "Gemini API key not configured"));
         return;
     }
 
@@ -1005,7 +1014,7 @@ void GeminiProvider::analyze(const QString& systemPrompt, const QString& userPro
 void GeminiProvider::analyzeUrl(const QString& systemPrompt, const QString& userPrompt)
 {
     if (!isConfigured()) {
-        emit analysisFailed("Gemini API key not configured");
+        emit analysisFailed(tr_("ai.gemini.keyMissing", "Gemini API key not configured"));
         return;
     }
 
@@ -1046,7 +1055,7 @@ void GeminiProvider::analyzeUrl(const QString& systemPrompt, const QString& user
 void GeminiProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
 {
     if (!isConfigured()) {
-        emit analysisFailed("Gemini API key not configured");
+        emit analysisFailed(tr_("ai.gemini.keyMissing", "Gemini API key not configured"));
         return;
     }
 
@@ -1102,7 +1111,7 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
             if (!apiError.isEmpty()) {
                 int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
                 qWarning() << "Gemini API error" << status << "-" << apiError;
-                emit analysisFailed("Gemini error: " + apiError);
+                emit analysisFailed(tr_("ai.gemini.error", "Gemini error: %1").arg(apiError));
                 return;
             }
             qWarning() << "AI request failed"
@@ -1118,7 +1127,7 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
 
     if (root.contains("error")) {
         QString errorMsg = root["error"].toObject()["message"].toString();
-        emit analysisFailed("Gemini error: " + errorMsg);
+        emit analysisFailed(tr_("ai.gemini.error", "Gemini error: %1").arg(errorMsg));
         return;
     }
 
@@ -1130,13 +1139,13 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
 
     QJsonArray candidates = root["candidates"].toArray();
     if (candidates.isEmpty()) {
-        emit analysisFailed("Gemini returned no response");
+        emit analysisFailed(tr_("ai.gemini.noResponse", "Gemini returned no response"));
         return;
     }
 
     QJsonArray parts = candidates[0].toObject()["content"].toObject()["parts"].toArray();
     if (parts.isEmpty()) {
-        emit analysisFailed("Gemini returned empty content");
+        emit analysisFailed(tr_("ai.gemini.emptyContent2", "Gemini returned empty content"));
         return;
     }
 
@@ -1151,7 +1160,7 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
         text += part["text"].toString();
     }
     if (text.isEmpty()) {
-        emit analysisFailed("Gemini returned empty response content");
+        emit analysisFailed(tr_("ai.gemini.emptyContent", "Gemini returned empty response content"));
         return;
     }
     emit analysisComplete(text);
@@ -1160,7 +1169,7 @@ void GeminiProvider::onAnalysisReply(QNetworkReply* reply)
 void GeminiProvider::testConnection()
 {
     if (!isConfigured()) {
-        emit testResult(false, "API key not configured");
+        emit testResult(false, tr_("ai.test.keyNotConfigured", "API key not configured"));
         return;
     }
 
@@ -1207,11 +1216,11 @@ void GeminiProvider::onTestReply(QNetworkReply* reply)
             QJsonValue errVal = doc.object()["error"];
             QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
             if (!errorMsg.isEmpty()) {
-                emit testResult(false, "Authentication failed: " + errorMsg);
+                emit testResult(false, tr_("ai.test.authFailed", "Authentication failed: %1").arg(errorMsg));
                 return;
             }
         }
-        emit testResult(false, "Invalid API key");
+        emit testResult(false, tr_("ai.test.invalidKey", "Invalid API key"));
         return;
     }
 
@@ -1221,11 +1230,11 @@ void GeminiProvider::onTestReply(QNetworkReply* reply)
             QJsonValue errVal = doc.object()["error"];
             QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
             if (!errorMsg.isEmpty()) {
-                emit testResult(false, "API error: " + errorMsg);
+                emit testResult(false, tr_("ai.test.apiError", "API error: %1").arg(errorMsg));
                 return;
             }
         }
-        emit testResult(false, "Connection failed: " + reply->errorString());
+        emit testResult(false, tr_("ai.test.connectionFailed", "Connection failed: %1").arg(reply->errorString()));
         return;
     }
 
@@ -1234,12 +1243,12 @@ void GeminiProvider::onTestReply(QNetworkReply* reply)
         QJsonValue errVal = doc.object()["error"];
         QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
         if (errorMsg.isEmpty())
-            errorMsg = "Unknown API error";
-        emit testResult(false, "API error: " + errorMsg);
+            errorMsg = tr_("ai.test.unknownError", "Unknown API error");
+        emit testResult(false, tr_("ai.test.apiError", "API error: %1").arg(errorMsg));
         return;
     }
 
-    emit testResult(true, "Connected to Gemini successfully");
+    emit testResult(true, tr_("ai.gemini.connected", "Connected to Gemini successfully"));
 }
 
 // ============================================================================
@@ -1280,7 +1289,7 @@ void OpenRouterProvider::sendRequest(const QJsonObject& requestBody)
 void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& userPrompt)
 {
     if (!isConfigured()) {
-        emit analysisFailed("OpenRouter API key or model not configured");
+        emit analysisFailed(tr_("ai.openrouter.keyOrModelMissing", "OpenRouter API key or model not configured"));
         return;
     }
 
@@ -1309,7 +1318,7 @@ void OpenRouterProvider::analyze(const QString& systemPrompt, const QString& use
 void OpenRouterProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
 {
     if (!isConfigured()) {
-        emit analysisFailed("OpenRouter API key or model not configured");
+        emit analysisFailed(tr_("ai.openrouter.keyOrModelMissing", "OpenRouter API key or model not configured"));
         return;
     }
 
@@ -1339,7 +1348,7 @@ void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
             if (!apiError.isEmpty()) {
                 int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
                 qWarning() << "OpenRouter API error" << status << "-" << apiError;
-                emit analysisFailed("OpenRouter error: " + apiError);
+                emit analysisFailed(tr_("ai.openrouter.error", "OpenRouter error: %1").arg(apiError));
                 return;
             }
             qWarning() << "AI request failed"
@@ -1355,19 +1364,19 @@ void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
 
     if (root.contains("error")) {
         QString errorMsg = root["error"].toObject()["message"].toString();
-        emit analysisFailed("OpenRouter error: " + errorMsg);
+        emit analysisFailed(tr_("ai.openrouter.error", "OpenRouter error: %1").arg(errorMsg));
         return;
     }
 
     QJsonArray choices = root["choices"].toArray();
     if (choices.isEmpty()) {
-        emit analysisFailed("OpenRouter returned no response");
+        emit analysisFailed(tr_("ai.openrouter.noResponse", "OpenRouter returned no response"));
         return;
     }
 
     QString content = choices[0].toObject()["message"].toObject()["content"].toString();
     if (content.isEmpty()) {
-        emit analysisFailed("OpenRouter returned empty response content");
+        emit analysisFailed(tr_("ai.openrouter.emptyContent", "OpenRouter returned empty response content"));
         return;
     }
     emit analysisComplete(content);
@@ -1376,7 +1385,7 @@ void OpenRouterProvider::onAnalysisReply(QNetworkReply* reply)
 void OpenRouterProvider::testConnection()
 {
     if (!isConfigured()) {
-        emit testResult(false, "API key or model not configured");
+        emit testResult(false, tr_("ai.openrouter.testKeyOrModel", "API key or model not configured"));
         return;
     }
 
@@ -1423,11 +1432,11 @@ void OpenRouterProvider::onTestReply(QNetworkReply* reply)
             QJsonValue errVal = doc.object()["error"];
             QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
             if (!errorMsg.isEmpty()) {
-                emit testResult(false, "Authentication failed: " + errorMsg);
+                emit testResult(false, tr_("ai.test.authFailed", "Authentication failed: %1").arg(errorMsg));
                 return;
             }
         }
-        emit testResult(false, "Invalid API key");
+        emit testResult(false, tr_("ai.test.invalidKey", "Invalid API key"));
         return;
     }
 
@@ -1437,11 +1446,11 @@ void OpenRouterProvider::onTestReply(QNetworkReply* reply)
             QJsonValue errVal = doc.object()["error"];
             QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
             if (!errorMsg.isEmpty()) {
-                emit testResult(false, "API error: " + errorMsg);
+                emit testResult(false, tr_("ai.test.apiError", "API error: %1").arg(errorMsg));
                 return;
             }
         }
-        emit testResult(false, "Connection failed: " + reply->errorString());
+        emit testResult(false, tr_("ai.test.connectionFailed", "Connection failed: %1").arg(reply->errorString()));
         return;
     }
 
@@ -1450,12 +1459,12 @@ void OpenRouterProvider::onTestReply(QNetworkReply* reply)
         QJsonValue errVal = doc.object()["error"];
         QString errorMsg = errVal.isObject() ? errVal.toObject()["message"].toString() : errVal.toString();
         if (errorMsg.isEmpty())
-            errorMsg = "Unknown API error";
-        emit testResult(false, "API error: " + errorMsg);
+            errorMsg = tr_("ai.test.unknownError", "Unknown API error");
+        emit testResult(false, tr_("ai.test.apiError", "API error: %1").arg(errorMsg));
         return;
     }
 
-    emit testResult(true, "Connected to OpenRouter successfully");
+    emit testResult(true, tr_("ai.openrouter.connected", "Connected to OpenRouter successfully"));
 }
 
 // ============================================================================
@@ -1491,7 +1500,7 @@ void OllamaProvider::sendRequest(const QUrl& url, const QJsonObject& requestBody
 void OllamaProvider::analyze(const QString& systemPrompt, const QString& userPrompt)
 {
     if (!isConfigured()) {
-        emit analysisFailed("Ollama not configured (need endpoint and model)");
+        emit analysisFailed(tr_("ai.ollama.notConfigured", "Ollama not configured (need endpoint and model)"));
         return;
     }
 
@@ -1515,7 +1524,7 @@ void OllamaProvider::analyze(const QString& systemPrompt, const QString& userPro
 void OllamaProvider::analyzeConversation(const QString& systemPrompt, const QJsonArray& messages)
 {
     if (!isConfigured()) {
-        emit analysisFailed("Ollama not configured (need endpoint and model)");
+        emit analysisFailed(tr_("ai.ollama.notConfigured", "Ollama not configured (need endpoint and model)"));
         return;
     }
 
@@ -1556,7 +1565,7 @@ void OllamaProvider::onAnalysisReply(QNetworkReply* reply)
     QJsonObject root = doc.object();
 
     if (root.contains("error")) {
-        emit analysisFailed("Ollama error: " + root["error"].toString());
+        emit analysisFailed(tr_("ai.ollama.error", "Ollama error: %1").arg(root["error"].toString()));
         return;
     }
 
@@ -1569,7 +1578,7 @@ void OllamaProvider::onAnalysisReply(QNetworkReply* reply)
         }
     }
     if (response.isEmpty()) {
-        emit analysisFailed("Ollama returned empty response");
+        emit analysisFailed(tr_("ai.ollama.emptyResponse", "Ollama returned empty response"));
         return;
     }
 
@@ -1579,7 +1588,7 @@ void OllamaProvider::onAnalysisReply(QNetworkReply* reply)
 void OllamaProvider::testConnection()
 {
     if (m_endpoint.isEmpty()) {
-        emit testResult(false, "Ollama endpoint not configured");
+        emit testResult(false, tr_("ai.ollama.endpointMissing", "Ollama endpoint not configured"));
         return;
     }
 
@@ -1592,11 +1601,11 @@ void OllamaProvider::onTestReply(QNetworkReply* reply)
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
-        emit testResult(false, "Cannot connect to Ollama: " + reply->errorString());
+        emit testResult(false, tr_("ai.ollama.cannotConnect", "Cannot connect to Ollama: %1").arg(reply->errorString()));
         return;
     }
 
-    emit testResult(true, "Connected to Ollama successfully");
+    emit testResult(true, tr_("ai.ollama.connected", "Connected to Ollama successfully"));
 }
 
 void OllamaProvider::refreshModels()
@@ -1620,7 +1629,7 @@ void OllamaProvider::onModelsReply(QNetworkReply* reply)
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
-        emit testResult(false, "Cannot list Ollama models: " + reply->errorString());
+        emit testResult(false, tr_("ai.ollama.cannotList", "Cannot list Ollama models: %1").arg(reply->errorString()));
         emit modelsRefreshed({});
         return;
     }
@@ -1636,8 +1645,8 @@ void OllamaProvider::onModelsReply(QNetworkReply* reply)
     emit modelsRefreshed(modelNames);
 
     if (!modelNames.isEmpty()) {
-        emit testResult(true, QString("Found %1 Ollama model(s)").arg(modelNames.size()));
+        emit testResult(true, tr_("ai.ollama.foundModels", "Found %1 Ollama model(s)").arg(modelNames.size()));
     } else {
-        emit testResult(false, "No models found. Run: ollama pull llama3.2");
+        emit testResult(false, tr_("ai.ollama.noModels", "No models found. Run: ollama pull llama3.2"));
     }
 }

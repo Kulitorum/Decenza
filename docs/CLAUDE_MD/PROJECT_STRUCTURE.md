@@ -36,7 +36,6 @@ src/
 │   └── transport/          # BLE transport abstraction
 ├── controllers/
 │   ├── maincontroller.*    # App logic, profiles, shot processing
-│   ├── directcontroller.*  # Direct frame control mode
 │   ├── profilemanager.*    # Profile CRUD, activation, built-in management
 │   └── shottimingcontroller.* # Shot timing, tare management, weight processing
 ├── core/
