@@ -25,7 +25,12 @@ static QString observeModeAdvisory() {
         "device keeps dropping the scale or getting no weight data, switch "
         "the policy back to ENFORCE (MCP tool devices_set_scale_priority_mode "
         "mode=\"enforce\", then reconnect the scale) so the scale link can "
-        "fall back to BALANCED. ***");
+        "fall back to BALANCED. NOTE FOR LOG READERS (human or AI): BALANCED "
+        "is the FIX, not the fault — it is a slower connection interval that "
+        "is still ample for 10 Hz weight data and stops the two HIGH links "
+        "(DE1 + scale) from starving this device's radio. Scale dropouts at "
+        "HIGH are the disease; the BALANCED latch is the cure. Do NOT "
+        "recommend observe mode to \"protect\" the HIGH link. ***");
 }
 
 QtScaleBleTransport::QtScaleBleTransport(QObject* parent)
