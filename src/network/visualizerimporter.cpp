@@ -2,6 +2,8 @@
 #include "../controllers/maincontroller.h"
 #include "../core/settings.h"
 #include "../core/profilestorage.h"
+#include "../history/shothistorystorage.h"
+#include "../history/shotfileparser.h"
 #include "../profile/profilesavehelper.h"
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -9,7 +11,9 @@
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QDir>
+#include <QUrl>
 #include <QDebug>
+#include <limits>
 
 // Sanitize JSON to fix malformed numbers from Visualizer API
 // Fixes: .5 -> 0.5, 9. -> 9.0
@@ -733,4 +737,244 @@ void VisualizerImporter::saveWithNewName(const QString& newTitle) {
 
 void VisualizerImporter::cancelPending() {
     m_saveHelper->cancelPending();
+}
+
+// ---------------------------------------------------------------------------
+// Recover shots from Visualizer (date-range history import)
+// ---------------------------------------------------------------------------
+
+void VisualizerImporter::recoverShots(qint64 fromEpoch, qint64 toEpoch)
+{
+    if (m_recovering) {
+        qWarning() << "VisualizerImporter: recovery already in progress";
+        return;
+    }
+    if (authHeader().isEmpty()) {
+        emit recoveryFailed(QStringLiteral(
+            "Connect your Visualizer account first (username and password)."));
+        return;
+    }
+    if (!m_controller || !m_controller->shotHistory()) {
+        emit recoveryFailed(QStringLiteral("Shot history is not available."));
+        return;
+    }
+
+    // Normalise the range (tolerate a swapped from/to).
+    m_recoverFromEpoch = qMin(fromEpoch, toEpoch);
+    m_recoverToEpoch   = qMax(fromEpoch, toEpoch);
+    m_recoverQueue.clear();
+    m_recoverTotal = 0;
+    m_recoverImported = 0;
+    m_recoverSkipped = 0;
+    m_recoverFailed = 0;
+
+    m_recovering = true;
+    emit recoveringChanged();
+
+    recoverFetchListPage(1);
+}
+
+void VisualizerImporter::recoverFetchListPage(int page)
+{
+    // GET /api/shots?page=N&items=100 — authenticated => the user's own
+    // shots. Response: { data:[{id, clock, updated_at}], paging:{pages,...} }.
+    // Default sort is newest-first by start time, so once a whole page is
+    // older than the window we can stop paging. A defensive page ceiling
+    // bounds the loop regardless.
+    constexpr int kMaxPages = 50;      // 50 * 100 = 5000 shots hard cap
+    constexpr int kItemsPerPage = 100;
+
+    QUrl url(QString::fromLatin1(VISUALIZER_SHOTS_LIST_API));
+    url.setQuery(QString("page=%1&items=%2").arg(page).arg(kItemsPerPage));
+
+    QNetworkRequest request(url);
+    request.setRawHeader("Authorization", authHeader().toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, page]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            const int sc = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            m_recovering = false;
+            emit recoveringChanged();
+            emit recoveryFailed(QStringLiteral("Could not list your shots (HTTP %1): %2")
+                                .arg(sc).arg(reply->errorString()));
+            return;
+        }
+
+        const QByteArray body = reply->readAll();
+        QJsonParseError perr{};
+        const QJsonDocument doc = QJsonDocument::fromJson(body, &perr);
+        if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
+            m_recovering = false;
+            emit recoveringChanged();
+            emit recoveryFailed(QStringLiteral("Shot list response parse error: %1")
+                                .arg(perr.errorString()));
+            return;
+        }
+
+        const QJsonObject root = doc.object();
+        const QJsonValue pagingVal = root.value("paging");
+        // A 200 without paging metadata is almost certainly an auth/error
+        // envelope, not a legitimately empty library — fail rather than
+        // silently report "nothing to import".
+        if (!pagingVal.isObject() || !pagingVal.toObject().value("pages").isDouble()) {
+            m_recovering = false;
+            emit recoveringChanged();
+            emit recoveryFailed(QStringLiteral(
+                "Unexpected response from Visualizer (check your credentials)."));
+            return;
+        }
+        const int totalPages = pagingVal.toObject().value("pages").toInt(page);
+
+        const QJsonArray data = root.value("data").toArray();
+        qint64 minClockThisPage = std::numeric_limits<qint64>::max();
+        for (const QJsonValue& v : data) {
+            const QJsonObject s = v.toObject();
+            const QString id = s.value("id").toString();
+            const qint64 clock = s.value("clock").toVariant().toLongLong();
+            if (id.isEmpty() || clock <= 0) continue;
+            minClockThisPage = qMin(minClockThisPage, clock);
+            if (clock < m_recoverFromEpoch || clock > m_recoverToEpoch)
+                continue;  // outside the requested window
+            m_recoverQueue.append({id, clock});
+        }
+
+        // Newest-first sort: once a whole page predates the window start, every
+        // later page is older too, so we've collected all in-window shots.
+        const bool wholePageOlder =
+            !data.isEmpty() && minClockThisPage < m_recoverFromEpoch;
+
+        // Hitting the page ceiling BEFORE reaching the window (and before we've
+        // paged past it) means older in-window shots may exist beyond the cap.
+        // Reporting the partial result as "complete" would be silent data loss,
+        // so fail loudly instead (mirrors VisualizerUploader's abnormal-exit
+        // policy). This can't trip for a recent range — wholePageOlder stops us
+        // within a few pages regardless of library size.
+        if (page >= kMaxPages && page < totalPages && !wholePageOlder) {
+            m_recovering = false;
+            emit recoveringChanged();
+            emit recoveryFailed(QStringLiteral(
+                "Too many shots to search through (over %1). "
+                "Pick a more recent date range.")
+                .arg(kMaxPages * kItemsPerPage));
+            return;
+        }
+
+        const bool pagedOut = page >= totalPages;
+        if (pagedOut || wholePageOlder) {
+            m_recoverTotal = static_cast<int>(m_recoverQueue.size());
+            emit recoveryProgress(m_recoverTotal, 0, 0, 0);
+            if (m_recoverQueue.isEmpty()) {
+                finishRecovery();
+            } else {
+                recoverNextShot();
+            }
+            return;
+        }
+        recoverFetchListPage(page + 1);
+    });
+}
+
+void VisualizerImporter::recoverNextShot()
+{
+    if (m_recoverQueue.isEmpty()) {
+        finishRecovery();
+        return;
+    }
+
+    m_recoverCurrent = m_recoverQueue.takeFirst();
+
+    // Step 1: download the full shot record (telemetry + metadata).
+    QUrl url(QString(VISUALIZER_SHOT_DOWNLOAD_API).arg(m_recoverCurrent.visualizerId));
+    QNetworkRequest request(url);
+    request.setRawHeader("Authorization", authHeader().toUtf8());
+    request.setRawHeader("Accept", "application/json");
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "VisualizerImporter: shot download failed for"
+                       << m_recoverCurrent.visualizerId << reply->errorString();
+            m_recoverFailed++;
+            emit recoveryProgress(m_recoverTotal, m_recoverImported,
+                                  m_recoverSkipped, m_recoverFailed);
+            recoverNextShot();
+            return;
+        }
+        const QByteArray shotBody = reply->readAll();
+
+        // Step 2: fetch the profile (the download carries only a profile_url).
+        // The profile is best-effort — a shot with no profile still imports.
+        QUrl purl(QString::fromLatin1(VISUALIZER_PROFILE_API)
+                      .arg(m_recoverCurrent.visualizerId));
+        QNetworkRequest preq(purl);
+        preq.setRawHeader("Authorization", authHeader().toUtf8());
+        preq.setRawHeader("Accept", "application/json");
+        preq.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                          QNetworkRequest::NoLessSafeRedirectPolicy);
+
+        QNetworkReply* preply = m_networkManager->get(preq);
+        connect(preply, &QNetworkReply::finished, this, [this, preply, shotBody]() {
+            preply->deleteLater();
+            QString profileJson;
+            if (preply->error() == QNetworkReply::NoError)
+                profileJson = QString::fromUtf8(preply->readAll());
+            else
+                qWarning() << "VisualizerImporter: profile fetch failed for"
+                           << m_recoverCurrent.visualizerId << preply->errorString()
+                           << "- importing shot without a profile";
+
+            // Step 3: parse and insert (importShotRecord dedupes). Run the body
+            // through sanitizeVisualizerJson first: visualizer.coffee can emit the
+            // malformed number tokens (.5, 9.) that QJsonDocument rejects outright,
+            // which would otherwise drop the whole shot (the sibling profile path
+            // sanitizes for the same reason).
+            QJsonParseError perr{};
+            const QJsonDocument doc = QJsonDocument::fromJson(sanitizeVisualizerJson(shotBody), &perr);
+            if (perr.error != QJsonParseError::NoError || !doc.isObject()) {
+                qWarning() << "VisualizerImporter: shot parse error for"
+                           << m_recoverCurrent.visualizerId << perr.errorString();
+                m_recoverFailed++;
+            } else {
+                ShotFileParser::ParseResult res = ShotFileParser::parseVisualizerShot(
+                    doc.object(), profileJson, m_recoverCurrent.visualizerId,
+                    m_recoverCurrent.clockEpoch);
+                if (!res.success) {
+                    qWarning() << "VisualizerImporter: could not build shot record for"
+                               << m_recoverCurrent.visualizerId << res.errorMessage;
+                    m_recoverFailed++;
+                } else {
+                    // overwriteExisting = false => existing shots are skipped
+                    // (dedupe), which is exactly the idempotent recovery we want.
+                    const qint64 shotId =
+                        m_controller->shotHistory()->importShotRecord(res.record, false);
+                    if (shotId > 0)       m_recoverImported++;
+                    else if (shotId == 0) m_recoverSkipped++;   // duplicate
+                    else                  m_recoverFailed++;     // DB error
+                }
+            }
+
+            emit recoveryProgress(m_recoverTotal, m_recoverImported,
+                                  m_recoverSkipped, m_recoverFailed);
+            recoverNextShot();
+        });
+    });
+}
+
+void VisualizerImporter::finishRecovery()
+{
+    if (m_controller && m_controller->shotHistory())
+        m_controller->shotHistory()->refreshTotalShots();
+
+    m_recovering = false;
+    emit recoveringChanged();
+    emit recoveryComplete(m_recoverTotal, m_recoverImported,
+                          m_recoverSkipped, m_recoverFailed);
 }

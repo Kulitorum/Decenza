@@ -4,6 +4,7 @@
 #include <QVector>
 #include <QPointF>
 #include <QVariantMap>
+#include <QJsonObject>
 #include "shothistory_types.h"
 
 /**
@@ -29,6 +30,33 @@ public:
      * Parse a .shot file from disk
      */
     static ParseResult parseFile(const QString& filePath);
+
+    /**
+     * Build a ShotRecord from a visualizer.coffee shot download.
+     *
+     * Unlike parse()/parseFile() (which read the original DE1 Tcl .shot
+     * file), this consumes the JSON that GET /api/shots/{id}/download
+     * returns: a flat `data` object of `espresso_*` sample arrays aligned
+     * to a `timeframe` array, plus DYE metadata at the top level. Used by
+     * the "Recover shots from Visualizer" import (VisualizerImporter).
+     *
+     * @param shotJson    The parsed download response object.
+     * @param profileJson The profile JSON fetched separately from
+     *                    GET /api/shots/{id}/profile?format=json (the
+     *                    download response carries only a profile_url).
+     *                    May be empty — the record is still usable.
+     * @param visualizerId The shot's Visualizer UUID. Combined with the
+     *                    shot start time to derive a stable, deterministic
+     *                    ShotRecord uuid so re-running the recovery
+     *                    dedupes idempotently.
+     * @param clockEpoch  The shot start time in Unix seconds, taken from
+     *                    the shot-list entry (the download response's
+     *                    `clock` is null; `start_time` is an ISO string).
+     */
+    static ParseResult parseVisualizerShot(const QJsonObject& shotJson,
+                                            const QString& profileJson,
+                                            const QString& visualizerId,
+                                            qint64 clockEpoch);
 
 private:
     // Parse Tcl list format: {value1 value2 value3 ...}

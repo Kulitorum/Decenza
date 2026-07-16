@@ -13,6 +13,80 @@ KeyboardAwareContainer {
     property string testResultMessage: ""
     property bool testResultSuccess: false
 
+    // --- Recover shots from Visualizer (date-range history import) ---
+    // Visualizer is "connected" when both credentials are present.
+    readonly property bool visualizerConnected:
+        Settings.visualizer.visualizerUsername.length > 0 &&
+        Settings.visualizer.visualizerPassword.length > 0
+
+    // Format a JS Date as a local YYYY-MM-DD string.
+    function jsDateToIso(d) {
+        var mm = String(d.getMonth() + 1).padStart(2, '0')
+        var dd = String(d.getDate()).padStart(2, '0')
+        return d.getFullYear() + "-" + mm + "-" + dd
+    }
+
+    // Selected range as YYYY-MM-DD strings (defaults: 30 days ago .. today).
+    property string recoverFromDate: jsDateToIso(
+        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
+    property string recoverToDate: jsDateToIso(new Date())
+
+    // Progress line shown while / after a recovery runs.
+    property string recoverStatus: ""
+    property bool recoverStatusError: false
+
+    // Convert a YYYY-MM-DD string to Unix seconds. `endOfDay` pushes to
+    // 23:59:59 local so the "To" bound is inclusive of the whole day.
+    function recoverDateToEpoch(dateStr, endOfDay) {
+        var parts = dateStr.split("-")
+        if (parts.length !== 3) return 0
+        var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]),
+                         endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0)
+        return Math.floor(d.getTime() / 1000)
+    }
+
+    Connections {
+        target: MainController.visualizerImporter
+        function onRecoveryProgress(total, imported, skipped, failed) {
+            visualizerTab.recoverStatusError = false
+            visualizerTab.recoverStatus = TranslationManager.translate(
+                "settings.visualizer.recoverProgress",
+                "Imported %1 of %2 — %3 skipped (already have), %4 failed")
+                .arg(imported).arg(total).arg(skipped).arg(failed)
+        }
+        function onRecoveryComplete(total, imported, skipped, failed) {
+            visualizerTab.recoverStatusError = false
+            if (total === 0) {
+                visualizerTab.recoverStatus = TranslationManager.translate(
+                    "settings.visualizer.recoverNothing",
+                    "No shots found in that date range.")
+            } else {
+                visualizerTab.recoverStatus = TranslationManager.translate(
+                    "settings.visualizer.recoverDone",
+                    "Done: %1 imported, %2 already present, %3 failed (of %4).")
+                    .arg(imported).arg(skipped).arg(failed).arg(total)
+            }
+        }
+        function onRecoveryFailed(error) {
+            visualizerTab.recoverStatusError = true
+            visualizerTab.recoverStatus = error
+        }
+    }
+
+    DatePickerDialog {
+        id: recoverFromPicker
+        onDateSelected: function(dateString) {
+            if (dateString.length === 10) visualizerTab.recoverFromDate = dateString
+        }
+    }
+
+    DatePickerDialog {
+        id: recoverToPicker
+        onDateSelected: function(dateString) {
+            if (dateString.length === 10) visualizerTab.recoverToDate = dateString
+        }
+    }
+
     RowLayout {
         width: parent.width
         height: parent.height
@@ -171,10 +245,25 @@ KeyboardAwareContainer {
             color: Theme.cardBackgroundColor
             radius: Theme.cardRadius
 
-            ColumnLayout {
+            // Scrollable: this card holds upload + backup + the Recover-shots
+            // section, which together overflow a tablet's height. Without a
+            // Flickable the bottom (recovery) was clipped and unreachable —
+            // matches the left account card's scroll pattern.
+            Flickable {
+                id: visualizerRightFlick
                 anchors.fill: parent
                 anchors.margins: Theme.scaled(15)
-                spacing: Theme.scaled(12)
+                contentWidth: width
+                contentHeight: visualizerRightColumn.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                ColumnLayout {
+                    id: visualizerRightColumn
+                    width: visualizerRightFlick.width
+                    spacing: Theme.scaled(12)
 
                 Tr {
                     key: "settings.visualizer.uploadSettings"
@@ -411,7 +500,131 @@ KeyboardAwareContainer {
                     }
                 }
 
-                Item { Layout.fillHeight: true }
+                // Divider before the recovery section
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.scaled(6)
+                    height: 1
+                    color: Theme.borderColor
+                }
+
+                // --- Recover shots from Visualizer ---
+                Tr {
+                    key: "settings.visualizer.recoverTitle"
+                    fallback: "Recover Shots from Visualizer"
+                    color: Theme.textColor
+                    font.pixelSize: Theme.scaled(16)
+                    font.bold: true
+                }
+
+                Tr {
+                    Layout.fillWidth: true
+                    key: "settings.visualizer.recoverDesc"
+                    fallback: "Import your uploaded shot history back into this device for a date range. Shots you already have are skipped."
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(12)
+                    wrapMode: Text.WordWrap
+                }
+
+                // From / To date pickers
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(15)
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(4)
+
+                        Tr {
+                            key: "settings.visualizer.recoverFrom"
+                            fallback: "From"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(12)
+                        }
+
+                        AccessibleButton {
+                            Layout.fillWidth: true
+                            enabled: !MainController.visualizerImporter.recovering
+                            text: visualizerTab.recoverFromDate
+                            accessibleName: TranslationManager.translate(
+                                "settings.visualizer.recoverFromPick",
+                                "Recovery start date. Currently %1")
+                                .arg(visualizerTab.recoverFromDate)
+                            onClicked: recoverFromPicker.openWithDate(visualizerTab.recoverFromDate)
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(4)
+
+                        Tr {
+                            key: "settings.visualizer.recoverTo"
+                            fallback: "To"
+                            color: Theme.textSecondaryColor
+                            font.pixelSize: Theme.scaled(12)
+                        }
+
+                        AccessibleButton {
+                            Layout.fillWidth: true
+                            enabled: !MainController.visualizerImporter.recovering
+                            text: visualizerTab.recoverToDate
+                            accessibleName: TranslationManager.translate(
+                                "settings.visualizer.recoverToPick",
+                                "Recovery end date. Currently %1")
+                                .arg(visualizerTab.recoverToDate)
+                            onClicked: recoverToPicker.openWithDate(visualizerTab.recoverToDate)
+                        }
+                    }
+                }
+
+                // Retrieve button + progress line
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.scaled(10)
+
+                    AccessibleButton {
+                        text: MainController.visualizerImporter.recovering
+                            ? TranslationManager.translate("settings.visualizer.recovering", "Retrieving…")
+                            : TranslationManager.translate("settings.visualizer.recoverButton", "Retrieve")
+                        accessibleName: TranslationManager.translate(
+                            "settings.visualizer.recoverButton", "Retrieve shots from Visualizer")
+                        primary: true
+                        enabled: visualizerTab.visualizerConnected &&
+                                 !MainController.visualizerImporter.recovering
+                        onClicked: {
+                            visualizerTab.recoverStatusError = false
+                            visualizerTab.recoverStatus = TranslationManager.translate(
+                                "settings.visualizer.recoverStarting", "Looking up your shots…")
+                            MainController.visualizerImporter.recoverShots(
+                                visualizerTab.recoverDateToEpoch(visualizerTab.recoverFromDate, false),
+                                visualizerTab.recoverDateToEpoch(visualizerTab.recoverToDate, true))
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: visualizerTab.recoverStatus
+                        color: visualizerTab.recoverStatusError ? Theme.errorColor : Theme.textSecondaryColor
+                        font.pixelSize: Theme.scaled(12)
+                        wrapMode: Text.WordWrap
+                        visible: visualizerTab.recoverStatus.length > 0
+                    }
+                }
+
+                // Hint shown when not connected
+                Tr {
+                    Layout.fillWidth: true
+                    key: "settings.visualizer.recoverNotConnected"
+                    fallback: "Connect your Visualizer account above to recover shots."
+                    color: Theme.textSecondaryColor
+                    font.pixelSize: Theme.scaled(12)
+                    wrapMode: Text.WordWrap
+                    visible: !visualizerTab.visualizerConnected
+                }
+
+                    Item { Layout.fillHeight: true }
+                }
             }
         }
     }
