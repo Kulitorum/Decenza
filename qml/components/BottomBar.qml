@@ -57,60 +57,70 @@ Item {
         anchors.rightMargin: Theme.spacingLarge
         spacing: Theme.spacingMedium
 
-        // Back button (square hitbox, full bar height)
-        Item {
-            id: backButton
-            visible: root.showBackButton
-            Layout.preferredWidth: Theme.bottomBarHeight
-            Layout.preferredHeight: Theme.bottomBarHeight
+        // Back button + title are grouped at spacing 0 so the title sits close to
+        // the arrow. The back button's square hitbox is a full bar-height wide but
+        // its glyph is only iconSize wide, so it already contributes
+        // (bottomBarHeight - iconSize) / 2 of visual gap; the row's spacingMedium
+        // on top of that pushed the title away from the arrow and wasted width the
+        // custom content area needs.
+        RowLayout {
+            spacing: 0
 
-            activeFocusOnTab: true
+            // Back button (square hitbox, full bar height)
+            Item {
+                id: backButton
+                visible: root.showBackButton
+                Layout.preferredWidth: Theme.bottomBarHeight
+                Layout.preferredHeight: Theme.bottomBarHeight
 
-            // Accessibility: Let AccessibleTapHandler handle screen reader interaction
-            // to avoid duplicate focus elements
-            Accessible.ignored: true
+                activeFocusOnTab: true
 
-            // Focus indicator
-            Rectangle {
-                anchors.fill: parent
-                anchors.margins: -Theme.focusMargin
-                visible: backButton.activeFocus
-                color: "transparent"
-                border.width: Theme.focusBorderWidth
-                border.color: Theme.focusColor
-                radius: Theme.scaled(4)
-            }
-
-            ThemedIcon {
-                anchors.centerIn: parent
-                source: "qrc:/icons/back.svg"
-                iconSize: Theme.scaled(28)
-                color: root.contentColor
-                // Decorative - accessibility handled by AccessibleTapHandler
+                // Accessibility: Let AccessibleTapHandler handle screen reader interaction
+                // to avoid duplicate focus elements
                 Accessible.ignored: true
+
+                // Focus indicator
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -Theme.focusMargin
+                    visible: backButton.activeFocus
+                    color: "transparent"
+                    border.width: Theme.focusBorderWidth
+                    border.color: Theme.focusColor
+                    radius: Theme.scaled(4)
+                }
+
+                ThemedIcon {
+                    anchors.centerIn: parent
+                    source: "qrc:/icons/back.svg"
+                    iconSize: Theme.scaled(28)
+                    color: root.contentColor
+                    // Decorative - accessibility handled by AccessibleTapHandler
+                    Accessible.ignored: true
+                }
+
+                Keys.onReturnPressed: root.backClicked()
+                Keys.onEnterPressed: root.backClicked()
+                Keys.onEscapePressed: root.backClicked()
+
+                // Using TapHandler for better touch responsiveness
+                AccessibleTapHandler {
+                    anchors.fill: parent
+                    accessibleName: TranslationManager.translate("bottombar.button.back.accessible", "Back. Return to previous screen")
+                    accessibleItem: backButton
+                    onAccessibleClicked: root.backClicked()
+                }
             }
 
-            Keys.onReturnPressed: root.backClicked()
-            Keys.onEnterPressed: root.backClicked()
-            Keys.onEscapePressed: root.backClicked()
-
-            // Using TapHandler for better touch responsiveness
-            AccessibleTapHandler {
-                anchors.fill: parent
-                accessibleName: TranslationManager.translate("bottombar.button.back.accessible", "Back. Return to previous screen")
-                accessibleItem: backButton
-                onAccessibleClicked: root.backClicked()
+            Text {
+                visible: root.title !== ""
+                text: root.title
+                color: root.contentColor
+                font.pixelSize: Theme.scaled(20)
+                font.bold: true
+                Layout.maximumWidth: root.width * 0.5
+                elide: Text.ElideRight
             }
-        }
-
-        Text {
-            visible: root.title !== ""
-            text: root.title
-            color: root.contentColor
-            font.pixelSize: Theme.scaled(20)
-            font.bold: true
-            Layout.maximumWidth: root.width * 0.5
-            elide: Text.ElideRight
         }
 
         Item { Layout.fillWidth: true }

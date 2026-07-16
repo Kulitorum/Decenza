@@ -2239,21 +2239,27 @@ Page {
                 anchors.centerIn: parent
                 spacing: Theme.scaled(6)
 
+                // Cloud-with-up-arrow glyph carries "upload"; the label is just the
+                // destination. Accessible.name on the button keeps the
+                // upload/re-upload distinction the visible label drops.
                 Image {
-                    source: "qrc:/emoji/2601.svg"  // Cloud icon
+                    source: "qrc:/icons/Upload.svg"
                     sourceSize.width: Theme.scaled(16)
                     sourceSize.height: Theme.scaled(16)
                     anchors.verticalCenter: parent.verticalCenter
                     Accessible.ignored: true
+
+                    layer.enabled: true
+                    layer.smooth: true
+                    layer.effect: MultiEffect {
+                        colorization: 1.0
+                        colorizationColor: Theme.primaryContrastColor
+                    }
                 }
 
                 Tr {
-                    key: _visualizerId
-                         ? "postshotreview.button.reupload"
-                         : "postshotreview.button.upload"
-                    fallback: _visualizerId
-                              ? "Re-Upload to Visualizer"
-                              : "Upload to Visualizer"
+                    key: "postshotreview.button.visualizer"
+                    fallback: "Visualizer"
                     color: Theme.primaryContrastColor
                     font: Theme.bodyFont
                     anchors.verticalCenter: parent.verticalCenter
