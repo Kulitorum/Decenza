@@ -19,12 +19,13 @@ When `Settings.ai.tasteIntakeOnAsk` is on (default), opening the advisor for a
 shot (`ConversationOverlay.openWithShot`) shows a fully text-free intake over the
 conversation — Extraction (`Sour`/`Balanced`/`Bitter` → `taste_balance`), Body
 (`Thin`/`Medium`/`Heavy` → `taste_body`), Overall (reused `RatingInput` →
-`enjoyment0to100`) — **unless there's already something to return to**: a saved
-conversation for the shot's context (`conversation.hasHistory`) or taste feedback
-already saved on the shot (any of `taste_balance` / `taste_body` /
-`enjoyment0to100`). So a new / cleared / backed-out-without-asking conversation
-re-shows the intake; once the user has asked the AI or recorded any taste it goes
-straight to the text conversation. **Ask** persists the taps via
+`enjoyment0to100`) — **whenever that shot has no taste feedback saved yet** (any of
+`taste_balance` / `taste_body` / `enjoyment0to100` set suppresses it). The gate is
+**per shot, independent of conversation history**: the conversation is keyed by
+bean+profile and shared across shots, so an ongoing conversation must NOT suppress
+the intake for a new, unrated shot — each new shot has its own qualities worth
+capturing. So a shot you've rated/tasted goes straight to the chat; a new or
+backed-out-without-entering shot re-shows the intake. **Ask** persists the taps via
 `requestUpdateShotMetadata`, composes a first-person question, and sends it with
 the shot attached; **Skip** drops into the normal text conversation.
 

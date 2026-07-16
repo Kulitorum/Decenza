@@ -3,37 +3,39 @@
 ## Purpose
 TBD - created by archiving change add-ai-taste-intake. Update Purpose after archive.
 ## Requirements
-### Requirement: Tap-only taste intake for a fresh advisor session
+### Requirement: Tap-only taste intake, gated per shot
 
 When `Settings.ai.tasteIntakeOnAsk` is true, the system SHALL present a text-free,
-tap-only taste intake on opening the AI advisor for a shot **unless** there is
-already something to return to — namely a **saved conversation** for the shot's
-context (`conversation.hasHistory`) **or** taste feedback already saved on the
-shot (a non-empty `taste_balance`, `taste_body`, or a non-zero `enjoyment0to100`).
-When shown, the intake SHALL contain no free-text input of any kind and SHALL
-offer three rows — Extraction (`Sour` / `Balanced` / `Bitter`), Body (`Thin` /
-`Medium` / `Heavy`), and Overall (the existing `RatingInput`, values 25/50/75/100)
-— an "Ask" action, and a "Skip" action.
+tap-only taste intake on opening the AI advisor for a shot **whenever that shot has
+no taste feedback saved yet** — a non-empty `taste_balance`, `taste_body`, or a
+non-zero `enjoyment0to100` suppresses it; otherwise it is shown. The gate SHALL be
+**per shot and independent of conversation history**: the conversation is keyed by
+bean+profile and shared across many shots, so an ongoing conversation SHALL NOT
+suppress the intake for a new, unrated shot. When shown, the intake SHALL contain
+no free-text input of any kind and SHALL offer three rows — Extraction (`Sour` /
+`Balanced` / `Bitter`), Body (`Thin` / `Medium` / `Heavy`), and Overall (the
+existing `RatingInput`, values 25/50/75/100) — an "Ask" action, and a "Skip"
+action.
 
-#### Scenario: Fresh shot with no conversation and no feedback
-- **WHEN** the user opens the advisor for a shot with no saved conversation and no saved enjoyment/taste, with the setting ON
+#### Scenario: Fresh shot with no saved feedback
+- **WHEN** the user opens the advisor for a shot with no saved enjoyment/taste, with the setting ON
 - **THEN** the intake SHALL be shown with all three rows and an "Ask" button
 - **AND** no keyboard or text field SHALL be presented
+
+#### Scenario: New shot during an ongoing conversation still shows the intake
+- **WHEN** the user has an active bean+profile conversation with history, then opens the advisor for a NEW shot of the same bean+profile that has no saved taste feedback
+- **THEN** the intake SHALL still be shown — the shared conversation history SHALL NOT suppress it — so the new shot's qualities can be captured
 
 #### Scenario: Setting off
 - **WHEN** `Settings.ai.tasteIntakeOnAsk` is false
 - **THEN** opening the advisor SHALL go directly to the text conversation with the shot attached, with no intake shown
 
-#### Scenario: Empty conversation re-shows the intake
-- **WHEN** the user opened the advisor (intake shown), backed out without asking or cleared the conversation, so it has no history, and no taste feedback was saved
-- **THEN** re-opening the advisor SHALL show the intake again
-
-#### Scenario: Saved conversation suppresses the intake
-- **WHEN** the shot's conversation already has history (the user asked the AI before)
-- **THEN** opening the advisor SHALL go straight to the text conversation, with no intake
+#### Scenario: Backed out without entering anything re-shows the intake
+- **WHEN** the user opened the advisor (intake shown), backed out without tapping/asking, so the shot still has no saved taste feedback
+- **THEN** re-opening the advisor for that shot SHALL show the intake again
 
 #### Scenario: Saved taste feedback suppresses the intake
-- **WHEN** the shot already has a saved rating and/or taste axis (data entered and saved), even with no conversation
+- **WHEN** the shot already has a saved rating and/or taste axis (data entered and saved)
 - **THEN** opening the advisor SHALL go straight to the text conversation, with no intake
 
 ### Requirement: Ask composes a question from taps and attaches the shot

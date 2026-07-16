@@ -184,20 +184,20 @@ Rectangle {
         overlay.isMistakeShot = isMistake
         overlay.shotDebugLog = shotData.debugLog || ""
 
-        // Taste intake gate. Show the intake unless there's already something to
-        // go back to: a SAVED CONVERSATION for this shot's context, or taste
-        // feedback already entered + saved on the shot. So a new / cleared /
-        // backed-out-without-asking conversation (all empty) re-shows the intake
-        // next time; once the user has asked the AI or recorded any taste, it
-        // goes straight to the text conversation. (switchConversation ran above,
-        // so `conversation` reflects this shot's context.)
-        var conv = MainController.aiManager.conversation
-        var hasConversation = conv && conv.hasHistory
+        // Taste intake gate — per SHOT, not per conversation. Show the intake
+        // whenever THIS shot has no taste feedback saved yet, even if a
+        // conversation for this bean+profile is already going: the conversation
+        // is shared across many shots, so its history is not a per-shot signal,
+        // and each new shot has its own qualities worth capturing. Once this shot
+        // has any saved feedback (a rating or a taste axis), the intake is
+        // suppressed for it — so backing out without entering anything re-shows it
+        // next time, while a shot you've already rated/tasted goes straight to the
+        // text conversation.
         var hasSavedFeedback = ((shotData.tasteBalance || "").length > 0)
                             || ((shotData.tasteBody || "").length > 0)
                             || ((shotData.enjoyment0to100 || 0) > 0)
         var canIntake = Settings.ai.tasteIntakeOnAsk && !isMistake && shotId > 0
-                        && !hasConversation && !hasSavedFeedback
+                        && !hasSavedFeedback
         if (canIntake) {
             overlay.intakeTasteBalance = ""
             overlay.intakeTasteBody = ""
