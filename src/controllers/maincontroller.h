@@ -143,6 +143,7 @@ public:
     // Injects the TranslationManager into the live steam coach for cue i18n.
     void setTranslationManager(TranslationManager* tm) {
         if (m_liveSteamCoach) m_liveSteamCoach->setTranslationManager(tm);
+        if (m_visualizerImporter) m_visualizerImporter->setTranslationManager(tm);
     }
     void setAiManager(AIManager* aiManager) {
         m_aiManager = aiManager;

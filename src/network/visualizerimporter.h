@@ -10,6 +10,7 @@
 class MainController;
 class ProfileSaveHelper;
 class Settings;
+class TranslationManager;
 
 class VisualizerImporter : public QObject {
     Q_OBJECT
@@ -23,6 +24,12 @@ class VisualizerImporter : public QObject {
 
 public:
     explicit VisualizerImporter(QNetworkAccessManager* networkManager, MainController* controller, Settings* settings, QObject* parent = nullptr);
+
+    // Inject the TranslationManager so user-visible error strings can be
+    // localized (mirrors AccessibilityManager/LiveSteamCoach). Wired from
+    // MainController::setTranslationManager. Until injected, tr_() returns the
+    // English fallback.
+    void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
 
     bool isImporting() const { return m_importing; }
     bool isFetching() const { return m_fetching; }
@@ -108,6 +115,10 @@ private:
     // Auth header for API requests
     QString authHeader() const;
 
+    // Translate a user-visible string via the injected TranslationManager,
+    // falling back to the English source when none is set.
+    QString tr_(const char* key, const char* fallback) const;
+
     // --- Recovery internals ---
     // A shot to recover: its Visualizer id and start time (from the list).
     struct RecoveryShot {
@@ -148,6 +159,7 @@ private:
 
     MainController* m_controller;
     Settings* m_settings;
+    TranslationManager* m_translationManager = nullptr;
     QNetworkAccessManager* m_networkManager;
     ProfileSaveHelper* m_saveHelper;
     bool m_importing = false;

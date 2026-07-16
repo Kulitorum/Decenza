@@ -4,6 +4,7 @@
 #include "../core/profilestorage.h"
 #include "../history/shothistorystorage.h"
 #include "../history/shotfileparser.h"
+#include "../core/translationmanager.h"
 #include "visualizershotlist.h"
 #include "../profile/profilesavehelper.h"
 #include <QJsonDocument>
@@ -45,6 +46,13 @@ VisualizerImporter::VisualizerImporter(QNetworkAccessManager* networkManager, Ma
     connect(m_saveHelper, &ProfileSaveHelper::duplicateFound, this, &VisualizerImporter::duplicateFound);
 }
 
+QString VisualizerImporter::tr_(const char* key, const char* fallback) const {
+    if (m_translationManager)
+        return m_translationManager->translate(QString::fromUtf8(key),
+                                               QString::fromUtf8(fallback));
+    return QString::fromUtf8(fallback);
+}
+
 QString VisualizerImporter::authHeader() const {
     if (!m_settings) return QString();
 
@@ -73,7 +81,7 @@ QString VisualizerImporter::extractShotId(const QString& url) const {
 
 void VisualizerImporter::importFromShotId(const QString& shotId) {
     if (shotId.isEmpty()) {
-        m_lastError = "No shot ID provided";
+        m_lastError = tr_("visualizer.error.noShotId", "No shot ID provided");
         emit lastErrorChanged();
         emit importFailed(m_lastError);
         return;
@@ -102,7 +110,7 @@ void VisualizerImporter::importFromShotId(const QString& shotId) {
 
 void VisualizerImporter::importFromShotIdWithName(const QString& shotId, const QString& customName) {
     if (shotId.isEmpty() || customName.isEmpty()) {
-        m_lastError = "Shot ID and name are required";
+        m_lastError = tr_("visualizer.error.shotIdAndName", "Shot ID and name are required");
         emit lastErrorChanged();
         emit importFailed(m_lastError);
         return;
@@ -134,7 +142,7 @@ void VisualizerImporter::importFromShareCode(const QString& shareCode) {
     QString code = shareCode.trimmed();
 
     if (code.isEmpty()) {
-        m_lastError = "No share code provided";
+        m_lastError = tr_("visualizer.error.noShareCode", "No share code provided");
         emit lastErrorChanged();
         emit importFailed(m_lastError);
         return;
@@ -173,7 +181,7 @@ void VisualizerImporter::fetchSharedShots() {
 
     QString auth = authHeader();
     if (auth.isEmpty()) {
-        m_lastError = "Visualizer credentials not configured";
+        m_lastError = tr_("visualizer.error.credentialsMissing", "Visualizer credentials not configured");
         emit lastErrorChanged();
         emit importFailed(m_lastError);
         return;
@@ -243,9 +251,9 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
         emit fetchingChanged();
 
         if (statusCode == 401) {
-            m_lastError = "Invalid Visualizer credentials";
+            m_lastError = tr_("visualizer.error.credentialsInvalid", "Invalid Visualizer credentials");
         } else {
-            m_lastError = QString("Network error: %1").arg(reply->errorString());
+            m_lastError = tr_("visualizer.error.network", "Network error: %1").arg(reply->errorString());
         }
         qWarning() << "Visualizer request failed:" << m_lastError;
         emit lastErrorChanged();
@@ -273,8 +281,9 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
             m_requestType = RequestType::None;
             emit importingChanged();
             QString title = profile.title();
-            if (title.isEmpty()) title = "This profile";
-            m_lastError = QString("%1 is not available - the shot was uploaded without complete profile data. Try the built-in profiles or import from a different source.").arg(title);
+            if (title.isEmpty()) title = tr_("visualizer.error.thisProfile", "This profile");
+            m_lastError = tr_("visualizer.error.profileUnavailable",
+                              "%1 is not available - the shot was uploaded without complete profile data. Try the built-in profiles or import from a different source.").arg(title);
             emit lastErrorChanged();
             emit importFailed(m_lastError);
             return;
@@ -291,7 +300,7 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
             qDebug() << "Successfully imported TCL profile:" << profile.title();
             emit importSuccess(profile.title());
         } else if (result == ProfileSaveHelper::SaveResult::Failed) {
-            m_lastError = "Failed to save profile";
+            m_lastError = tr_("visualizer.error.saveFailed", "Failed to save profile");
             emit lastErrorChanged();
             emit importFailed(m_lastError);
         }
@@ -310,7 +319,7 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
         m_requestType = RequestType::None;
         emit importingChanged();
         emit fetchingChanged();
-        m_lastError = QString("JSON parse error: %1 (at position %2)")
+        m_lastError = tr_("visualizer.error.jsonParse", "JSON parse error: %1 (at position %2)")
             .arg(parseError.errorString())
             .arg(parseError.offset);
         qWarning() << "Visualizer JSON parse failed:" << m_lastError;
@@ -325,7 +334,7 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
         if (!doc.isArray()) {
             m_fetching = false;
             emit fetchingChanged();
-            m_lastError = "Expected array of shared shots";
+            m_lastError = tr_("visualizer.error.expectedArray", "Expected array of shared shots");
             emit lastErrorChanged();
             emit importFailed(m_lastError);
             return;
@@ -385,7 +394,7 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
             m_importing = false;
             m_requestType = RequestType::None;
             emit importingChanged();
-            m_lastError = "No shared shots found";
+            m_lastError = tr_("visualizer.error.noSharedShots", "No shared shots found");
             emit lastErrorChanged();
             emit importFailed(m_lastError);
             return;
@@ -399,7 +408,7 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
         m_importing = false;
         m_requestType = RequestType::None;
         emit importingChanged();
-        m_lastError = json["error"].toString("Unknown error");
+        m_lastError = json["error"].toString(tr_("visualizer.error.unknownServer", "Unknown error"));
         qWarning() << "Visualizer API error:" << m_lastError;
         emit lastErrorChanged();
         emit importFailed(m_lastError);
@@ -413,7 +422,7 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
             m_importing = false;
             m_requestType = RequestType::None;
             emit importingChanged();
-            m_lastError = "Share code response missing shot ID";
+            m_lastError = tr_("visualizer.error.shareMissingId", "Share code response missing shot ID");
             emit lastErrorChanged();
             emit importFailed(m_lastError);
             return;
@@ -457,7 +466,8 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
     Profile profile = parseVisualizerProfile(json);
 
     if (!profile.isValid()) {
-        m_lastError = "Invalid profile: " + profile.validationErrors().join(", ");
+        m_lastError = tr_("visualizer.error.invalidProfile", "Invalid profile: %1")
+                          .arg(profile.validationErrors().join(", "));
         qWarning() << "Visualizer import failed:" << m_lastError;
         emit lastErrorChanged();
         emit importFailed(m_lastError);
@@ -475,7 +485,7 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
             emit importSuccess(customName);
             fetchSharedShots();
         } else if (result == ProfileSaveHelper::SaveResult::Failed) {
-            m_lastError = "Failed to save profile";
+            m_lastError = tr_("visualizer.error.saveFailed", "Failed to save profile");
             emit lastErrorChanged();
             emit importFailed(m_lastError);
         }
@@ -491,7 +501,7 @@ void VisualizerImporter::onFetchFinished(QNetworkReply* reply) {
         // Refresh shared shots list to update status
         fetchSharedShots();
     } else if (result == ProfileSaveHelper::SaveResult::Failed) {
-        m_lastError = "Failed to save profile";
+        m_lastError = tr_("visualizer.error.saveFailed", "Failed to save profile");
         emit lastErrorChanged();
         emit importFailed(m_lastError);
     }
@@ -750,12 +760,12 @@ void VisualizerImporter::recoverShots(qint64 fromEpoch, qint64 toEpoch)
         return;
     }
     if (authHeader().isEmpty()) {
-        emit recoveryFailed(QStringLiteral(
+        emit recoveryFailed(tr_("visualizer.error.connectFirst",
             "Connect your Visualizer account first (username and password)."));
         return;
     }
     if (!m_controller || !m_controller->shotHistory()) {
-        emit recoveryFailed(QStringLiteral("Shot history is not available."));
+        emit recoveryFailed(tr_("visualizer.error.historyUnavailable", "Shot history is not available."));
         return;
     }
 
@@ -806,7 +816,7 @@ void VisualizerImporter::recoverFetchListPage(int page)
 
         if (reply->error() != QNetworkReply::NoError) {
             const int sc = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            fail(QStringLiteral("Could not list your shots (HTTP %1): %2")
+            fail(tr_("visualizer.error.listFailed", "Could not list your shots (HTTP %1): %2")
                  .arg(sc).arg(reply->errorString()));
             return;
         }
@@ -816,14 +826,14 @@ void VisualizerImporter::recoverFetchListPage(int page)
                                           m_recoverFromEpoch, m_recoverToEpoch);
         switch (pr.reason) {
         case FailReason::ParseError:
-            fail(QStringLiteral("Shot list response parse error: %1").arg(pr.parseError));
+            fail(tr_("visualizer.error.listParse", "Shot list response parse error: %1").arg(pr.parseError));
             return;
         case FailReason::MissingPaging:
-            fail(QStringLiteral(
+            fail(tr_("visualizer.error.listEnvelope",
                 "Unexpected response from Visualizer (check your credentials)."));
             return;
         case FailReason::PageCeiling:
-            fail(QStringLiteral(
+            fail(tr_("visualizer.error.tooMany",
                 "Too many shots to search through (over %1). "
                 "Pick a more recent date range.")
                 .arg(kMaxPages * kItemsPerPage));
