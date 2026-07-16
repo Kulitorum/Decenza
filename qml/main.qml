@@ -4163,6 +4163,62 @@ ApplicationWindow {
         onTriggered: autoLoadStaleToast.opacity = 0
     }
 
+    // Surface ShotHistoryStorage errors to the user. ShotHistoryStorage::errorOccurred
+    // previously had NO consumer, so every DB failure — failed shot save, failed
+    // metadata write (e.g. a taste tap or rating that never persisted), failed
+    // delete/import — was silent: the user assumed their data was saved when it
+    // wasn't. One connection surfaces all emit sites as a non-blocking error toast.
+    Rectangle {
+        id: shotHistoryErrorToast
+        property string message: ""
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Theme.scaled(40)
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(parent.width - Theme.scaled(48), Theme.scaled(400))
+        height: shotHistoryErrorToastLabel.implicitHeight + Theme.scaled(16)
+        radius: Theme.cardRadius
+        color: Theme.surfaceColor
+        border.color: Theme.errorColor
+        border.width: 1
+        opacity: 0
+        visible: opacity > 0
+        z: 600
+        Accessible.ignored: true
+
+        Behavior on opacity {
+            NumberAnimation { duration: 300 }
+        }
+
+        Text {
+            id: shotHistoryErrorToastLabel
+            anchors.centerIn: parent
+            width: shotHistoryErrorToast.width - Theme.scaled(24)
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            text: shotHistoryErrorToast.message
+            color: Theme.errorColor
+            font.pixelSize: Theme.scaled(13)
+            Accessible.ignored: true
+        }
+    }
+
+    Timer {
+        id: shotHistoryErrorToastTimer
+        interval: 5000
+        onTriggered: shotHistoryErrorToast.opacity = 0
+    }
+
+    Connections {
+        target: MainController.shotHistory
+        function onErrorOccurred(message) {
+            shotHistoryErrorToast.message = message
+            shotHistoryErrorToast.opacity = 1
+            shotHistoryErrorToastTimer.restart()
+            if (AccessibilityManager.enabled)
+                AccessibilityManager.announce(message, true)
+        }
+    }
+
     Connections {
         target: ShotHistoryExporter
         function onBulkExportFinished(written, skipped, failed) {

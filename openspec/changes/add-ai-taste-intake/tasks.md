@@ -41,6 +41,11 @@
 - [x] 6.3 Never-clear guarantee: a mapped CVA field is written only when the local tap is set and never sent as null, so an untapped shot never clears/overwrites hand-entered CVA. (Cannot detect a remote hand-entry on a shot the user *does* tap without a remote read — the tap is authoritative there; spec/design updated to state this honestly.)
 - [x] 6.4 A taste edit triggers the shot PATCH via the existing `PostShotReviewPage.maybeAutoUpdateVisualizer` path (gated on `visualizerAutoUpdate`) — wired by including `tasteBalance`/`tasteBody` in `buildVisualizerOverrides()` and setting `pendingVisualizerUpdate` on a taste change (done in Section 3). No shot-level `touchesVisualizerFields()` exists — that is a coffee-bag concept, not shots.
 
+## 6b. Pre-existing fix: surface silent DB errors (found in review)
+
+- [ ] 6b.1 `ShotHistoryStorage::errorOccurred` had **no consumer** — every DB failure (failed shot save, failed metadata write incl. a taste tap/rating, failed delete/import) was silent, so taste now rode that silent path. Wired it to a non-blocking error toast in `main.qml` (one `Connections` covers all 11 emit sites), mirroring the DE1 `errorOccurred` precedent (#1309).
+- [ ] 6b.2 Reworded the two surfaced messages that leaked the internal shot id / used "metadata" jargon (save-metadata, delete) to user-friendly, id-free text; the id + success stay in the qDebug/qWarning diagnostic log.
+
 ## 7. Docs
 
 - [x] 7.1 Updated the wiki Manual §12 (AI Assistant) with a **"Taste intake (tap, don't type)"** subsection: the three rows, Ask/Skip, first-open-once behavior, metadata persistence + Visualizer CVA upload, the review-page rows, and the "Ask how it tasted" setting. Drafted locally in `../Decenza.wiki/Manual.md` (separate repo) — **not yet pushed** (awaiting go-ahead).

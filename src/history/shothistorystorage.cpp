@@ -2913,7 +2913,8 @@ void ShotHistoryStorage::requestDeleteShot(qint64 shotId)
                 qDebug() << "ShotHistoryStorage: Async deleted shot" << shotId;
             } else {
                 qWarning() << "ShotHistoryStorage: Failed to async delete shot" << shotId;
-                emit errorOccurred(QString("Failed to delete shot %1").arg(shotId));
+                // User-facing (toast): no internal shot id — logged above.
+                emit errorOccurred(QStringLiteral("Couldn't delete the shot — please try again."));
             }
         }, Qt::QueuedConnection);
     });
@@ -3058,7 +3059,9 @@ void ShotHistoryStorage::requestUpdateShotMetadata(qint64 shotId, const QVariant
             if (success) {
                 invalidateDistinctCache();
             } else {
-                emit errorOccurred(QString("Failed to save metadata for shot %1").arg(shotId));
+                // User-facing (surfaced as a toast): no internal shot id, no
+                // "metadata" jargon. The id + success are logged at qDebug below.
+                emit errorOccurred(QStringLiteral("Couldn't save your shot changes — please try again."));
             }
             emit shotMetadataUpdated(shotId, success);
             qDebug() << "ShotHistoryStorage: Async updated metadata for shot" << shotId << "success:" << success;
