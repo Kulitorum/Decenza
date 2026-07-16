@@ -24,4 +24,4 @@
 
 ## 5. Archive
 
-- [ ] 5.1 As the final commit on the branch before merge, run `/opsx:archive` for `add-tailscale-signout` so the archive + spec promotion lands in the PR.
+- [x] 5.1 As the final commit on the branch before merge, run `/opsx:archive` for `add-tailscale-signout` so the archive + spec promotion lands in the PR.
