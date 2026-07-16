@@ -34,8 +34,12 @@ The overlay reads only the host page's shot *snapshot* for the gate, and
 (it would clobber in-progress edits). So on Ask the overlay also emits
 `tasteIntakeSubmitted(tasteBalance, tasteBody, overall)`; the review page mirrors
 those axes into its live `editTaste*` / `editEnjoyment` fields (via
-`applyEditState`, advancing the baseline rather than re-saving) so the rating
-slider and taste chips update at once and the next Ask sees the feedback — the
+`applyEditState`) and advances **both** review-page baselines — `editShotData`
+(what `hasUnsavedChanges` compares against) and `_committedState` (the undo
+baseline) — mirroring the `ChangeBeansDialog.onBagSelected` external-flow
+pattern, so no redundant re-save/Visualizer PATCH or phantom undo frame fires on
+the next flush. The rating slider and taste chips update at once and the next
+Ask sees the feedback — the
 review page's AI-Advice click passes the *live* taste, not the stale snapshot, to
 `openWithShot`.
 
