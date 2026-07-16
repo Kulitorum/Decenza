@@ -1399,18 +1399,31 @@ void BLEManager::abortScaleDirectConnectIfPending(const QString& reason) {
 void BLEManager::onScaleConnectionTimeout() {
     m_scaleDirectAbortTimer->stop();
 
-    // If a foreground direct-connect is still parked at the overall timeout (the
-    // ~4s abort cleared the flag, so this only runs when that abort hasn't), tear
-    // its transport controller down before the WiFi/FlowScale fallback so it
-    // can't keep the radio held. Clear the flag FIRST so any signal emitted
-    // during teardown can't re-enter abortScaleDirectConnectIfPending.
-    const bool wasParked = m_directConnectInProgress
-            && !(m_scaleDevice && m_scaleDevice->isConnected());
+    // A transport still holding anything at the overall timeout is stuck and
+    // must be torn down before the retry/fallback below. Two shapes:
+    //  - a parked foreground direct-connect (controller held in Connecting,
+    //    #1303) — the ~4s abort usually clears this, so this only runs when
+    //    that abort hasn't;
+    //  - a connect (foreground or background) whose link came up but whose
+    //    setup stalled (e.g. a discovery error before the scale became ready —
+    //    the driver's watchdog isn't armed pre-ready, so nothing else recovers
+    //    it, and a connected peripheral doesn't advertise, so the retry scans
+    //    below can never find it while the link is held) (#1519).
+    // Clear the direct-connect flag FIRST so any signal emitted during
+    // teardown can't re-enter abortScaleDirectConnectIfPending.
+    const bool notConnected = !(m_scaleDevice && m_scaleDevice->isConnected());
+    const bool wasParked = m_directConnectInProgress && notConnected;
     m_directConnectInProgress = false;
     m_directConnectAddress.clear();
-    if (wasParked) {
-        appendScaleLog("Scale connection timeout — tearing down parked direct-connect controller");
-        if (auto* transport = m_scaleDevice ? m_scaleDevice->bleTransport() : nullptr) {
+    if (notConnected) {
+        auto* transport = m_scaleDevice ? m_scaleDevice->bleTransport() : nullptr;
+        // Gate on the transport actually holding something — the perpetual 60s
+        // retry ladder hits this timeout on every cycle while the scale is
+        // simply absent, and must not log/churn a teardown of nothing.
+        if (transport && (wasParked || transport->isConnected())) {
+            appendScaleLog(wasParked
+                ? QStringLiteral("Scale connection timeout — tearing down parked direct-connect controller")
+                : QStringLiteral("Scale connection timeout — tearing down stuck connection setup"));
             transport->disconnectFromDevice();
         }
     }

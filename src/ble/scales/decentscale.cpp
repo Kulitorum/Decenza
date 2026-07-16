@@ -102,9 +102,15 @@ void DecentScale::onTransportError(const QString& message) {
     // Only tear down when the transport reports the link is actually gone —
     // a blanket setConnected(false) here parks the app on "disconnected"
     // over a live, streaming link (the scan-based reconnect ladder can't
-    // recover that: a connected peripheral doesn't advertise). On a live
-    // link the watchdog supervises the weight feed and forces a propagated
-    // disconnect if data actually stopped (#1519).
+    // recover that: a connected peripheral doesn't advertise). Don't treat
+    // isConnected() as the dead-link detector: both transports' connected
+    // flags lag the async disconnect callback, so at error() time this
+    // check almost always still reads "connected". The watchdog is the real
+    // detector — it supervises the weight feed and forces a propagated
+    // disconnect if data actually stopped. Errors before the watchdog is
+    // armed (setup phase) are bounded by BLEManager's 20s connection
+    // timeout, which tears down a stuck link so retry scans can see the
+    // scale again (#1519).
     if (!m_transport || !m_transport->isConnected()) {
         onTransportDisconnected();
     }
