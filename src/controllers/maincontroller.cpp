@@ -3756,11 +3756,16 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
     }
 
     // Add sample data to graph
+    // Two transposable pairs of same-typed °C args: (headTemp, mixTemp) and
+    // (setTempGoal, setMixTempGoal). A consistent swap of both stays plausible
+    // — mix does run above basket — so label them at the call site.
     m_shotDataModel->addSample(time, sample.groupPressure,
-                               sample.groupFlow, sample.headTemp,
-                               sample.mixTemp,
-                               pressureGoal, flowGoal, sample.setTempGoal,
-                               sample.setMixTempGoal,
+                               sample.groupFlow,
+                               /*temperature*/ sample.headTemp,
+                               /*mixTemp*/ sample.mixTemp,
+                               pressureGoal, flowGoal,
+                               /*temperatureGoal*/ sample.setTempGoal,
+                               /*temperatureMixGoal*/ sample.setMixTempGoal,
                                sample.frameNumber, isFlowMode);
 
     // Log tracking delta every 10 shot samples for debug (at the DE1's ~5Hz sample rate,

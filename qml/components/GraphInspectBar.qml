@@ -74,6 +74,7 @@ Flow {
                         case "Darcy R": return Theme.darcyResistanceColor
                         case "dC/dt": return Theme.conductanceDerivativeColor
                         case "Mix temp": return Theme.temperatureMixColor
+                        case "Mix temp goal": return Theme.temperatureMixGoalColor
                         default: return Theme.textColor
                     }
                 }

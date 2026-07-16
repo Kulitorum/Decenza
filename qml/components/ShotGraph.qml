@@ -203,7 +203,6 @@ Item {
     }
 
     // Mix temperature goal (SetMixTemp) — advanced, reads against the Mix temp line.
-    // Hidden when the shot carries no mix goal data rather than drawn at zero.
     DashedLineSeries {
         graphsView: chart.graphsViewRef
         axisX: timeAxis

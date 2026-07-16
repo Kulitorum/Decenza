@@ -45,6 +45,11 @@ private slots:
         QCOMPARE(model.pressureData().size(), 50);
         QCOMPARE(model.flowData().size(), 50);
         QCOMPARE(model.temperatureData().size(), 50);
+        // The goal series trim on a time cutoff rather than an index, so they
+        // desync silently: a missed trim leaves the goal lines trailing past
+        // every other series into the settling region.
+        QCOMPARE(model.temperatureGoalData().size(), 50);
+        QCOMPARE(model.temperatureMixGoalData().size(), 50);
     }
 
     void trimPreservesWeightData() {

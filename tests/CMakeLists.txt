@@ -1,5 +1,13 @@
 find_package(Qt6 REQUIRED COMPONENTS Test Core Bluetooth Sql Network WebSockets)
 
+# Every test links decenza_testlib directly (see add_decenza_test), and the
+# targets that also link decenza_shotlib get it a second time through that
+# library's PUBLIC interface. Without de-duplication the Apple linker emits
+# "ignoring duplicate libraries" for each such target.
+if(POLICY CMP0156)
+    cmake_policy(SET CMP0156 NEW)
+endif()
+
 # Disable AUTOMOC path prefix so MOC includes use plain filenames
 # instead of relative paths that break for out-of-tree builds.
 set(CMAKE_AUTOMOC_PATH_PREFIX OFF)
@@ -77,6 +85,9 @@ set(CONTROLLER_SOURCES
 # Quick-dependent half lives in decenza_shotlib below.
 set(ANALYSIS_SOURCES
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
+    # shotprojection.h is listed so AUTOMOC generates the Q_GADGET meta-object —
+    # without it ShotProjection::staticMetaObject is undefined and gadget users
+    # fail to link.
     ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
@@ -124,16 +135,18 @@ target_include_directories(decenza_testlib PUBLIC
 
 # ---------------------------------------------------------------------------
 # decenza_shotlib: the shot-history / live-model / upload layer, compiled ONCE
-# instead of into each of ~15 targets. Split from decenza_testlib because every
-# source here pulls in Qt Quick + Graphs (via shotdatamodel.h), and linking
-# those into every small test — tst_binarycodec, tst_shotprojection — would be
-# pure cost. Link this instead of listing the sources; the analysis/projection
-# half is already in decenza_testlib via ANALYSIS_SOURCES.
+# instead of into every target that needs it. Split from decenza_testlib because
+# it drags in Qt Quick, which the small tests (tst_binarycodec, tst_shotprojection)
+# have no reason to link. The Quick edge is fastlinerenderer.h (QQuickItem,
+# QSGGeometryNode), included by shotdatamodel.cpp and fastlinerenderer.cpp —
+# NOT shotdatamodel.h, which is Qt Core only and forward-declares the renderer.
+# Link this instead of listing the sources; the plain-Core analysis/projection
+# half is in decenza_testlib via ANALYSIS_SOURCES.
 #
 # Tests that link this still need version_code.cpp and, if they touch the KB
 # loaders, the ai.qrc resource — neither belongs in a shared static lib.
 # ---------------------------------------------------------------------------
-find_package(Qt6 REQUIRED COMPONENTS Quick Graphs)
+find_package(Qt6 REQUIRED COMPONENTS Quick)
 add_library(decenza_shotlib STATIC
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
     ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
@@ -148,7 +161,7 @@ set_target_properties(decenza_shotlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX 
 target_compile_definitions(decenza_shotlib PUBLIC DECENZA_TESTING)
 target_link_libraries(decenza_shotlib PUBLIC
     decenza_testlib
-    Qt6::Quick Qt6::Graphs
+    Qt6::Quick
 )
 # ${CMAKE_BINARY_DIR} for the generated version.h, which visualizeruploader.cpp
 # includes. PUBLIC so linking targets inherit it and don't each repeat it.
@@ -262,8 +275,6 @@ add_decenza_test(tst_recipeparams
 )
 
 # --- tst_shotprojection: ShotProjection::coerce() (QVariant → gadget) ---
-# shotprojection.h listed explicitly so AUTOMOC generates the Q_GADGET
-# meta-object (ShotProjection::staticMetaObject), required for QVariant::fromValue.
 add_decenza_test(tst_shotprojection
     tst_shotprojection.cpp
 )
@@ -455,11 +466,6 @@ set(PROFILEMANAGER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/profile/profilesavehelper.cpp
 )
 
-# History sources (ShotHistoryStorage + transitive deps)
-# shotprojection.h is listed explicitly so AUTOMOC generates the Q_GADGET
-# meta-object — without it, ShotProjection::staticMetaObject is undefined and
-# tests using the gadget fail to link.
-
 # --- tst_coffeebags: coffee bag storage, preset->bag migration, transfer
 # survival, and the unified bean search merge logic (bean-bag-inventory) ---
 find_package(Qt6 REQUIRED COMPONENTS Quick)
@@ -488,7 +494,6 @@ add_decenza_test(tst_equipment
     tst_equipment.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_equipment PRIVATE decenza_shotlib)
 target_include_directories(tst_equipment PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_recipestorage: recipe storage statics + lifecycle (add-recipes) —
@@ -510,7 +515,6 @@ add_decenza_test(tst_recipepromotion
     tst_recipepromotion.cpp
     ${CMAKE_SOURCE_DIR}/src/history/recipepromotion.cpp
 )
-target_link_libraries(tst_recipepromotion PRIVATE decenza_shotlib)
 
 # --- tst_dialing_blocks: DB-backed coverage for the four shared
 # block builders that drive both `dialing_get_context` (MCP) and the
@@ -639,10 +643,8 @@ add_decenza_test(tst_saw
     ${CMAKE_SOURCE_DIR}/src/machine/weightprocessor.cpp
     ${CMAKE_SOURCE_DIR}/src/machine/stepexitarbiter.cpp
 )
-target_link_libraries(tst_saw PRIVATE decenza_shotlib)
 
 # --- tst_visualizermixgoal: temperature.mix_goal / mix present-vs-absent in upload JSON ---
-# shotprojection.h listed explicitly so AUTOMOC generates the Q_GADGET metatype.
 add_decenza_test(tst_visualizermixgoal
     tst_visualizermixgoal.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp

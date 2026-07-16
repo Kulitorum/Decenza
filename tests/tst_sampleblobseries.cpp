@@ -4,7 +4,9 @@
 
 #include "history/shothistorystorage.h"
 #include "history/shothistory_types.h"
+#include "history/shotprojection.h"
 #include "models/shotdatamodel.h"
+#include "network/visualizeruploader.h"
 
 // Guards the mix temperature goal's trip through the sample blob.
 //
@@ -17,6 +19,12 @@ class tst_SampleBlobSeries : public QObject {
     Q_OBJECT
 
 private:
+    // convertShotRecord() early-returns an empty projection for id == 0, so a
+    // record built by hand needs one or every assertion below passes vacuously.
+    static void giveIdentity(ShotRecord& record) {
+        record.summary.id = 1;
+    }
+
     // Feed the model a few samples with distinct basket/mix goals.
     static void populate(ShotDataModel& model) {
         for (int i = 0; i < 5; i++) {
@@ -65,6 +73,54 @@ private slots:
         // Every other series must still load.
         QVERIFY(!record.temperatureGoal.isEmpty());
         QVERIFY(!record.pressure.isEmpty());
+    }
+
+    // The seam between the blob and the upload/chart surfaces. Without this,
+    // dropping the one convertShotRecord() line leaves every other test green
+    // while no stored shot ever uploads mix_goal and no detail page plots it —
+    // and re-upload from history is the path that runs forever, unlike the
+    // single live upload.
+    void mixGoalSurvivesRecordToProjectionToJson() {
+        ShotHistoryStorage storage;
+        ShotDataModel model;
+        populate(model);
+
+        ShotRecord record;
+        giveIdentity(record);
+        ShotHistoryStorage::decompressSampleData(storage.compressSampleData(&model), &record);
+        ShotProjection p = ShotHistoryStorage::convertShotRecord(record);
+
+        QVERIFY(!p.temperatureMixGoal.isEmpty());
+
+        QJsonObject temp = QJsonDocument::fromJson(VisualizerUploader::buildHistoryShotJson(p))
+                               .object()["temperature"].toObject();
+        QVERIFY(temp.contains("mix_goal"));
+    }
+
+    // Same seam for a shot recorded before the series existed: absence has to
+    // survive the whole chain too, or old shots upload a 0 °C goal line.
+    void legacyShotStaysAbsentThroughProjectionToJson() {
+        ShotHistoryStorage storage;
+        ShotDataModel model;
+        populate(model);
+
+        QJsonObject root = QJsonDocument::fromJson(qUncompress(storage.compressSampleData(&model))).object();
+        root.remove("temperatureMixGoal");
+
+        ShotRecord record;
+        giveIdentity(record);
+        ShotHistoryStorage::decompressSampleData(
+            qCompress(QJsonDocument(root).toJson(QJsonDocument::Compact), 9), &record);
+        ShotProjection p = ShotHistoryStorage::convertShotRecord(record);
+
+        QVERIFY(p.temperatureMixGoal.isEmpty());
+        // The conversion ran for real — otherwise the assertion above would
+        // hold for an empty projection and prove nothing.
+        QVERIFY(!p.temperatureGoal.isEmpty());
+
+        QJsonObject temp = QJsonDocument::fromJson(VisualizerUploader::buildHistoryShotJson(p))
+                               .object()["temperature"].toObject();
+        QVERIFY(!temp.contains("mix_goal"));
     }
 };
 

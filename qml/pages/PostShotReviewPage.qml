@@ -691,6 +691,7 @@ Page {
             waterDispensed: src.waterDispensed,
             pressureGoal: src.pressureGoal, flowGoal: src.flowGoal,
             temperatureGoal: src.temperatureGoal,
+            temperatureMixGoal: src.temperatureMixGoal,
             weight: src.weight, weightFlowRate: src.weightFlowRate,
             // Editable fields — included so a clone that isn't followed by a
             // saveEditedShot field-override (e.g. onShotBadgesUpdated) still

@@ -22,10 +22,13 @@
 // summaryLines, detectorResults, ratings).
 static void stripTimeSeriesFields(QJsonObject& obj)
 {
+    // Denylist: every series ShotProjection gains must be added here, or it
+    // silently starts riding along in every summary response.
     static const char* heavyFields[] = {
         "pressure", "flow", "temperature", "temperatureMix",
         "resistance", "conductance", "darcyResistance", "conductanceDerivative",
         "waterDispensed", "pressureGoal", "flowGoal", "temperatureGoal",
+        "temperatureMixGoal",
         "weight", "weightFlowRate",
         "debugLog", "profileJson"
     };

@@ -408,8 +408,8 @@ QtObject {
     property color conductanceDerivativeColor: _c("conductanceDerivativeColor", Settings.theme.customThemeColors.conductanceDerivativeColor || "#e056a0")
     property color darcyResistanceColor: _c("darcyResistanceColor", Settings.theme.customThemeColors.darcyResistanceColor || "#f0a500")
     property color temperatureMixColor: _c("temperatureMixColor", Settings.theme.customThemeColors.temperatureMixColor || "#ce93d8")
-    // Dimmed partner to temperatureMixColor, mirroring how temperatureGoalColor relates
-    // to temperatureColor — the goal line reads as the washed-out twin of its measurement.
+    // Washed-out twin of temperatureMixColor, mirroring how temperatureGoalColor
+    // relates to temperatureColor: lighter and desaturated, not darker.
     property color temperatureMixGoalColor: _c("temperatureMixGoalColor", Settings.theme.customThemeColors.temperatureMixGoalColor || "#e6c3ec")
     property color waterLevelColor: _c("waterLevelColor", Settings.theme.customThemeColors.waterLevelColor || "#4e85f4")
 
