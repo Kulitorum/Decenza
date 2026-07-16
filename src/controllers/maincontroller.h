@@ -140,9 +140,12 @@ public:
     ProfileStorage* profileStorage() const { return m_profileStorage; }
     AIManager* aiManager() const { return m_aiManager; }
     LiveSteamCoach* liveSteamCoach() const { return m_liveSteamCoach; }
-    // Injects the TranslationManager into the live steam coach for cue i18n.
+    // Injects the TranslationManager into the components that localize
+    // user-visible strings: the live steam coach (cue i18n) and the Visualizer
+    // importer (error messages).
     void setTranslationManager(TranslationManager* tm) {
         if (m_liveSteamCoach) m_liveSteamCoach->setTranslationManager(tm);
+        if (m_visualizerImporter) m_visualizerImporter->setTranslationManager(tm);
     }
     void setAiManager(AIManager* aiManager) {
         m_aiManager = aiManager;
