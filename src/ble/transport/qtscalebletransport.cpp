@@ -13,6 +13,21 @@
 // Helper macro for consistent logging
 #define QT_TRANSPORT_LOG(msg) log(msg)
 
+// Strong, grep-able advisory emitted at every site where OBSERVE mode
+// suppresses the dual-HIGH mitigation (would-backoff events, and connect-time
+// override of a persisted BALANCED latch). Field debug logs are usually read
+// long after the mode was set — the reader must see, at the failure line
+// itself, that a fix exists and how to re-enable it (#1519 follow-up).
+static QString observeModeAdvisory() {
+    return QStringLiteral(
+        "[observe] *** ADVISORY: connection-priority backoff is in OBSERVE "
+        "(log-only) mode — the dual-HIGH mitigation was NOT applied. If this "
+        "device keeps dropping the scale or getting no weight data, switch "
+        "the policy back to ENFORCE (MCP tool devices_set_scale_priority_mode "
+        "mode=\"enforce\", then reconnect the scale) so the scale link can "
+        "fall back to BALANCED. ***");
+}
+
 QtScaleBleTransport::QtScaleBleTransport(QObject* parent)
     : ScaleBleTransport(parent)
 {
@@ -327,6 +342,14 @@ void QtScaleBleTransport::onControllerConnected() {
             warn(QStringLiteral("Scale connection-priority: OBSERVE mode — "
                  "forcing HIGH (any backoff latch overridden, not erased); "
                  "detection runs but logs only, no disconnect/latch"));
+            // A latch means a previous run PROVED this device suffers the
+            // dual-HIGH contention — enforce would skip HIGH right here.
+            // Field logs are read long after the mode was set; the advisory
+            // must sit at the suppression site itself (#1519 follow-up).
+            if (m_priority.skipHighPriority()
+                    || (mgr && mgr->scaleSkipHighPriority())) {
+                warn(observeModeAdvisory());
+            }
             QLowEnergyConnectionParameters params;
             m_controller->requestConnectionUpdate(params);
             m_priority.armWindow(nowMs(), /*observe=*/true);
@@ -473,6 +496,7 @@ void QtScaleBleTransport::logWouldBackoff(const QString& reason,
     warn(QStringLiteral("[observe] WOULD back off (trigger=%1): %2 — observe "
          "mode, NO action taken; link stays HIGH")
          .arg(triggerKind, reason));
+    warn(observeModeAdvisory());
     // The factory clamps a negative (n/a) stallSec to 0 and stamps the time.
     if (auto* mgr = BLEManager::instance())
         mgr->recordObserveEvent(
