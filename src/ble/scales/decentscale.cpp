@@ -49,6 +49,14 @@ void DecentScale::connectToDevice(const QBluetoothDeviceInfo& device) {
         return;
     }
 
+    // A fresh connect invalidates any previous session's supervision. Without
+    // this, a connect issued over a live connection clears
+    // m_characteristicsReady while the watchdog keeps running: its guard then
+    // stops it mid-session and command writes drop silently while weight
+    // still flows.
+    stopWatchdog();
+    stopHeartbeat();
+
     m_name = device.name();
     m_serviceFound = false;
     m_characteristicsReady = false;
@@ -64,6 +72,14 @@ void DecentScale::onTransportDisconnected() {
     DECENT_WARN("Transport disconnected");
     stopWatchdog();
     stopHeartbeat();
+    // The discovered characteristics don't outlive the link. Clearing
+    // m_characteristicsReady blocks writes to a dead transport and keeps
+    // wake() (DE1 wake path) from restarting the heartbeat/watchdog on a
+    // disconnected scale (#1519); m_serviceFound is cleared alongside so the
+    // next discovery starts clean. Both are set again by the next connect's
+    // discovery callbacks.
+    m_serviceFound = false;
+    m_characteristicsReady = false;
     if (m_checksumDisabled) {
         DECENT_LOG("Checksum validation re-enabled on disconnect");
     }
@@ -81,7 +97,23 @@ void DecentScale::onTransportDisconnected() {
 
 void DecentScale::onTransportError(const QString& message) {
     DECENT_WARN(QString("Transport error: %1").arg(message));
-    setConnected(false);
+    // error() covers both fatal link deaths and transient per-operation
+    // failures (e.g. a single characteristic-write error on a live link).
+    // Only tear down when the transport reports the link is actually gone —
+    // a blanket setConnected(false) here parks the app on "disconnected"
+    // over a live, streaming link (the scan-based reconnect ladder can't
+    // recover that: a connected peripheral doesn't advertise). Don't treat
+    // isConnected() as the dead-link detector: both transports' connected
+    // flags lag the async disconnect callback, so at error() time this
+    // check almost always still reads "connected". The watchdog is the real
+    // detector — it supervises the weight feed and forces a propagated
+    // disconnect if data actually stopped. Errors before the watchdog is
+    // armed (setup phase) are bounded by BLEManager's 20s connection
+    // timeout, which tears down a stuck link so retry scans can see the
+    // scale again (#1519).
+    if (!m_transport || !m_transport->isConnected()) {
+        onTransportDisconnected();
+    }
 }
 
 void DecentScale::onServiceDiscovered(const QBluetoothUuid& uuid) {
@@ -94,6 +126,10 @@ void DecentScale::onServicesDiscoveryFinished() {
     if (!m_serviceFound) {
         DECENT_WARN("Decent Scale service not found");
         m_transport->disconnectFromDevice();
+        // The Qt transport's disconnectFromDevice() never emits
+        // disconnected(), so run the disconnect handling directly — see the
+        // watchdog-exhaustion comment in onWatchdogFired() (#1519).
+        onTransportDisconnected();
         return;
     }
     m_transport->discoverCharacteristics(Scale::Decent::SERVICE);
@@ -313,7 +349,11 @@ void DecentScale::stopWatchdog() {
 }
 
 void DecentScale::tickleWatchdog() {
-    if (!m_watchdogTimer) return;
+    // startWatchdog() is the only legitimate arm point. A stray notification
+    // arriving after stopWatchdog() (post-disconnect, or sleep()) must not
+    // resurrect supervision — a tickle-restarted watchdog on a sleeping scale
+    // exhausts its retries against the silent feed and force-disconnects it.
+    if (!m_watchdogTimer || !m_watchdogTimer->isActive()) return;
     m_watchdogUpdatesSeen = true;
     m_watchdogRetries = 0;
     // Reset to subsequent timeout: 2s until next expected update
@@ -344,6 +384,21 @@ void DecentScale::onWatchdogFired() {
         stopWatchdog();
         stopHeartbeat();
         m_transport->disconnectFromDevice();
+        // The Qt transport's disconnectFromDevice() tears the link down
+        // without emitting disconnected() — it severs the controller's
+        // signals first (see QtScaleBleTransport::disconnectFromDevice; its
+        // connection-priority backoff path compensates likewise, by emitting
+        // disconnected() itself after teardown). Run the disconnect handling
+        // directly: it drives setConnected(false) → connectedChanged, which
+        // the auto-reconnect ladder in main.cpp is gated on. Without this the
+        // app keeps believing the scale is connected — no reconnect is ever
+        // scheduled and the Connections scan filters the scale out as already
+        // known (#1519). The CoreBluetooth transport, by contrast, DOES
+        // deliver a late queued disconnected() after its cancel, so on
+        // iOS/macOS onTransportDisconnected() runs a second time — it must
+        // stay idempotent (setConnected change-guards; the timer stops and
+        // flag clears are no-ops on repeat).
+        onTransportDisconnected();
         return;
     }
 
@@ -355,7 +410,14 @@ void DecentScale::onWatchdogFired() {
 }
 
 void DecentScale::sendCommand(const QByteArray& command) {
-    if (!m_transport || !m_characteristicsReady) return;
+    if (!m_transport || !m_characteristicsReady) {
+        // Not silent: a dropped tare/timer command is invisible in the UI, so
+        // leave a trace for triage.
+        DECENT_LOG(QString("Command 0x%1 dropped - not connected")
+                   .arg(command.isEmpty() ? 0 : static_cast<uint8_t>(command[0]),
+                        2, 16, QChar('0')));
+        return;
+    }
 
     QByteArray packet(7, 0);
     packet[0] = 0x03;  // Model byte
