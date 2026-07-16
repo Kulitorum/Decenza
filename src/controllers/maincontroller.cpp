@@ -3402,9 +3402,9 @@ void MainController::generateFakeShotData() {
         double weightFlowRate = (i > 0) ? (weight - prevWeight) / sampleRate : 0.0;
         prevWeight = weight;
 
-        // addSample(time, pressure, flow, temperature, mixTemp, pressureGoal, flowGoal, temperatureGoal, frameNumber, isFlowMode)
+        // addSample(time, pressure, flow, temperature, mixTemp, pressureGoal, flowGoal, temperatureGoal, temperatureMixGoal, frameNumber, isFlowMode)
         // Simulation uses pressure mode (isFlowMode = false)
-        m_shotDataModel->addSample(t, pressure, flow, temperature, temperature, pressureGoal, flowGoal, 92.0, frameNumber, false);
+        m_shotDataModel->addSample(t, pressure, flow, temperature, temperature, pressureGoal, flowGoal, 92.0, 93.0, frameNumber, false);
         m_shotDataModel->addWeightSample(t, weight, weightFlowRate);
     }
 
@@ -3760,6 +3760,7 @@ void MainController::onShotSampleReceived(const ShotSample& sample) {
                                sample.groupFlow, sample.headTemp,
                                sample.mixTemp,
                                pressureGoal, flowGoal, sample.setTempGoal,
+                               sample.setMixTempGoal,
                                sample.frameNumber, isFlowMode);
 
     // Log tracking delta every 10 shot samples for debug (at the DE1's ~5Hz sample rate,

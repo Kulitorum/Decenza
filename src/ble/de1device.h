@@ -47,7 +47,12 @@ struct ShotSample {
     double groupFlow = 0.0;
     double mixTemp = 0.0;
     double headTemp = 0.0;
+    // The DE1 reports two temperature setpoints. setTempGoal is SetHeadTemp (basket
+    // target, what Visualizer calls the basket temperature goal); setMixTempGoal is
+    // SetMixTemp, the target for water entering the group, which the machine drives
+    // above the basket target to compensate for group heat loss.
     double setTempGoal = 0.0;
+    double setMixTempGoal = 0.0;
     double setFlowGoal = 0.0;
     double setPressureGoal = 0.0;
     int frameNumber = 0;
@@ -516,5 +521,6 @@ private:
     friend class tst_MachineStatusSnapshot;
     friend class tst_MMRWrite;
     friend class tst_DE1DeviceFirmware;
+    friend class tst_ShotSampleDecode;
 #endif
 };

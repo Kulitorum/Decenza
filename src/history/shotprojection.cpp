@@ -91,6 +91,7 @@ QVariantMap ShotProjection::toVariantMap() const
     m["pressureGoal"] = pressureGoal;
     m["flowGoal"] = flowGoal;
     m["temperatureGoal"] = temperatureGoal;
+    m["temperatureMixGoal"] = temperatureMixGoal;
     m["weight"] = weight;
     m["weightFlowRate"] = weightFlowRate;
 
@@ -193,6 +194,7 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.pressureGoal = m.value("pressureGoal").toList();
     p.flowGoal = m.value("flowGoal").toList();
     p.temperatureGoal = m.value("temperatureGoal").toList();
+    p.temperatureMixGoal = m.value("temperatureMixGoal").toList();
     p.weight = m.value("weight").toList();
     p.weightFlowRate = m.value("weightFlowRate").toList();
 

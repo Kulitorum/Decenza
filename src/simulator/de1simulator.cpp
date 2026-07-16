@@ -414,6 +414,11 @@ void DE1Simulator::onSimulationTimerTick()
         if (m_currentFrameIndex < m_profile.steps().size()) {
             const ProfileFrame& frame = m_profile.steps()[m_currentFrameIndex];
             sample.setTempGoal = frame.temperature;
+            // Real firmware drives the mix target above the basket target to offset
+            // group heat loss. The offset is a nominal stand-in, not a model of the
+            // firmware's controller — it exists so the mix goal is distinguishable
+            // from the basket goal when exercising the path against the simulator.
+            sample.setMixTempGoal = frame.temperature + 1.0;
             if (frame.isFlowControl()) {
                 sample.setFlowGoal = frame.flow;
                 sample.setPressureGoal = 0;

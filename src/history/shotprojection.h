@@ -122,6 +122,7 @@ class ShotProjection {
     Q_PROPERTY(QVariantList pressureGoal MEMBER pressureGoal)
     Q_PROPERTY(QVariantList flowGoal MEMBER flowGoal)
     Q_PROPERTY(QVariantList temperatureGoal MEMBER temperatureGoal)
+    Q_PROPERTY(QVariantList temperatureMixGoal MEMBER temperatureMixGoal)
     Q_PROPERTY(QVariantList weight MEMBER weight)
     Q_PROPERTY(QVariantList weightFlowRate MEMBER weightFlowRate)
 
@@ -208,6 +209,7 @@ public:
     QVariantList pressureGoal;
     QVariantList flowGoal;
     QVariantList temperatureGoal;
+    QVariantList temperatureMixGoal;
     QVariantList weight;
     QVariantList weightFlowRate;
 

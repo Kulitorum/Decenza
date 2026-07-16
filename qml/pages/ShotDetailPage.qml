@@ -628,6 +628,7 @@ Page {
                     pressureGoalData: shotData.pressureGoal || []
                     flowGoalData: shotData.flowGoal || []
                     temperatureGoalData: shotData.temperatureGoal || []
+                    temperatureMixGoalData: shotData.temperatureMixGoal || []
                     phaseMarkers: shotData.phases || []
                     maxTime: shotData.durationSec || 60
                     Accessible.ignored: true

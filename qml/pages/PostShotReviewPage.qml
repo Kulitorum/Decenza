@@ -1252,6 +1252,7 @@ Page {
                     pressureGoalData: editShotData.pressureGoal || []
                     flowGoalData: editShotData.flowGoal || []
                     temperatureGoalData: editShotData.temperatureGoal || []
+                    temperatureMixGoalData: editShotData.temperatureMixGoal || []
                     phaseMarkers: editShotData.phases || []
                     maxTime: editShotData.durationSec || 60
                 }

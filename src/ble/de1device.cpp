@@ -445,6 +445,7 @@ void DE1Device::parseShotSample(const QByteArray& data) {
         sample.mixTemp = BinaryCodec::decodeShortBE(data, 6) / 256.0;
         // HeadTemp is 24-bit: U24P16 format
         sample.headTemp = BinaryCodec::decode3CharToU24P16(d[8], d[9], d[10]);
+        sample.setMixTempGoal = BinaryCodec::decodeShortBE(data, 11) / 256.0;  // SetMixTemp
         sample.setTempGoal = BinaryCodec::decodeShortBE(data, 13) / 256.0;  // SetHeadTemp
         sample.setPressureGoal = d[15] / 16.0;
         sample.setFlowGoal = d[16] / 16.0;
@@ -457,6 +458,7 @@ void DE1Device::parseShotSample(const QByteArray& data) {
         sample.groupFlow = d[3] / 16.0;
         sample.mixTemp = BinaryCodec::decodeShortBE(data, 4) / 256.0;
         sample.headTemp = BinaryCodec::decodeShortBE(data, 6) / 256.0;
+        sample.setMixTempGoal = BinaryCodec::decodeShortBE(data, 8) / 256.0;  // SetMixTemp
         sample.setTempGoal = BinaryCodec::decodeShortBE(data, 10) / 256.0;  // SetHeadTemp
         sample.setPressureGoal = d[12] / 16.0;
         sample.setFlowGoal = d[13] / 16.0;

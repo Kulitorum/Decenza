@@ -71,6 +71,19 @@ set(CONTROLLER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/controllers/shottimingcontroller.cpp
 )
 
+# Shot analysis / projection layer. Plain Qt Core — no Quick or Graphs — so it
+# belongs in decenza_testlib and lightweight tests (tst_shotprojection,
+# tst_shotanalysis) can use it without dragging in the GUI frameworks. The
+# Quick-dependent half lives in decenza_shotlib below.
+set(ANALYSIS_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
+    ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
+    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer_kb.cpp
+)
+
 set(SIMULATOR_SOURCES
     ${CMAKE_SOURCE_DIR}/src/simulator/de1simulator.cpp
 )
@@ -96,6 +109,7 @@ add_library(decenza_testlib STATIC
     ${CORE_SOURCES}
     ${CONTROLLER_SOURCES}
     ${SIMULATOR_SOURCES}
+    ${ANALYSIS_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
 )
 set_target_properties(decenza_testlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
@@ -107,6 +121,38 @@ target_include_directories(decenza_testlib PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
+# ---------------------------------------------------------------------------
+# decenza_shotlib: the shot-history / live-model / upload layer, compiled ONCE
+# instead of into each of ~15 targets. Split from decenza_testlib because every
+# source here pulls in Qt Quick + Graphs (via shotdatamodel.h), and linking
+# those into every small test — tst_binarycodec, tst_shotprojection — would be
+# pure cost. Link this instead of listing the sources; the analysis/projection
+# half is already in decenza_testlib via ANALYSIS_SOURCES.
+#
+# Tests that link this still need version_code.cpp and, if they touch the KB
+# loaders, the ai.qrc resource — neither belongs in a shared static lib.
+# ---------------------------------------------------------------------------
+find_package(Qt6 REQUIRED COMPONENTS Quick Graphs)
+add_library(decenza_shotlib STATIC
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
+    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
+)
+set_target_properties(decenza_shotlib PROPERTIES AUTOMOC ON AUTOMOC_PATH_PREFIX OFF)
+target_compile_definitions(decenza_shotlib PUBLIC DECENZA_TESTING)
+target_link_libraries(decenza_shotlib PUBLIC
+    decenza_testlib
+    Qt6::Quick Qt6::Graphs
+)
+# ${CMAKE_BINARY_DIR} for the generated version.h, which visualizeruploader.cpp
+# includes. PUBLIC so linking targets inherit it and don't each repeat it.
+target_include_directories(decenza_shotlib PUBLIC ${CMAKE_BINARY_DIR})
 
 add_decenza_test(tst_binarycodec
     tst_binarycodec.cpp
@@ -220,8 +266,6 @@ add_decenza_test(tst_recipeparams
 # meta-object (ShotProjection::staticMetaObject), required for QVariant::fromValue.
 add_decenza_test(tst_shotprojection
     tst_shotprojection.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
 )
 
 # --- tst_roastdate: RoastDate::toIso() roast-date normalizer (header-only) ---
@@ -270,7 +314,6 @@ add_decenza_test(tst_recipegenerator
 # --- tst_shotanalysis: ShotAnalysis quality heuristics ---
 add_decenza_test(tst_shotanalysis
     tst_shotanalysis.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
 )
 
 # --- tst_shotsummarizer: AI-prompt suppression cascade (issue #921) ---
@@ -290,19 +333,10 @@ qt_add_resources(TST_SHOTSUMMARIZER_AI_RESOURCES
     ${CMAKE_SOURCE_DIR}/resources/ai.qrc)
 add_decenza_test(tst_shotsummarizer
     tst_shotsummarizer.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer_kb.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
-    ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
-    ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
     ${TST_SHOTSUMMARIZER_AI_RESOURCES}
 )
-target_link_libraries(tst_shotsummarizer PRIVATE Qt6::Quick Qt6::Graphs)
+target_link_libraries(tst_shotsummarizer PRIVATE decenza_shotlib)
 target_include_directories(tst_shotsummarizer PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_aimanager: canonical-source separation end-to-end (task 10.5) ---
@@ -320,25 +354,11 @@ add_decenza_test(tst_aimanager
     ${CMAKE_SOURCE_DIR}/src/ai/aimanager.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/aiprovider.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/aiconversation.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer_kb.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
     ${CMAKE_SOURCE_DIR}/src/ai/dialing_blocks.cpp
-    ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
-    ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
     ${TST_AIMANAGER_AI_RESOURCES}
 )
-target_link_libraries(tst_aimanager PRIVATE Qt6::Quick Qt6::Graphs)
+target_link_libraries(tst_aimanager PRIVATE decenza_shotlib)
 target_include_directories(tst_aimanager PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_aiproviders: per-provider model catalog + setModel guard contract ---
@@ -394,6 +414,11 @@ add_decenza_test(tst_de1device_headless
     mocks/MockTransport.h
 )
 
+# --- tst_shotsampledecode: SetMixTemp/SetHeadTemp offsets in both BLE specs ---
+add_decenza_test(tst_shotsampledecode
+    tst_shotsampledecode.cpp
+)
+
 # --- tst_de1device_firmware: firmware-update BLE extensions on DE1Device ---
 add_decenza_test(tst_de1device_firmware
     tst_de1device_firmware.cpp
@@ -427,15 +452,6 @@ target_compile_definitions(tst_blefidelity PRIVATE
 set(PROFILEMANAGER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/controllers/profilemanager.cpp
     ${CMAKE_SOURCE_DIR}/src/core/profilestorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer_kb.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
-    ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
-    ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
     ${CMAKE_SOURCE_DIR}/src/profile/profilesavehelper.cpp
 )
 
@@ -443,22 +459,6 @@ set(PROFILEMANAGER_SOURCES
 # shotprojection.h is listed explicitly so AUTOMOC generates the Q_GADGET
 # meta-object — without it, ShotProjection::staticMetaObject is undefined and
 # tests using the gadget fail to link.
-set(HISTORY_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
-    ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer.cpp
-    ${CMAKE_SOURCE_DIR}/src/ai/shotsummarizer_kb.cpp
-    ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
-    ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
-    ${CMAKE_SOURCE_DIR}/src/network/visualizeruploader.cpp
-)
 
 # --- tst_coffeebags: coffee bag storage, preset->bag migration, transfer
 # survival, and the unified bean search merge logic (bean-bag-inventory) ---
@@ -467,20 +467,18 @@ add_decenza_test(tst_coffeebags
     tst_coffeebags.cpp
     ${CMAKE_SOURCE_DIR}/src/history/unifiedbeansearchmodel.cpp
     ${CMAKE_SOURCE_DIR}/src/network/beanbaseclient.cpp
-    ${HISTORY_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_coffeebags PRIVATE Qt6::Graphs Qt6::Quick)
+target_link_libraries(tst_coffeebags PRIVATE decenza_shotlib)
 target_include_directories(tst_coffeebags PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_dbmigration: DB schema creation and migration chain ---
 find_package(Qt6 REQUIRED COMPONENTS Quick)
 add_decenza_test(tst_dbmigration
     tst_dbmigration.cpp
-    ${HISTORY_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_dbmigration PRIVATE Qt6::Graphs Qt6::Quick)
+target_link_libraries(tst_dbmigration PRIVATE decenza_shotlib)
 target_include_directories(tst_dbmigration PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_equipment: equipment package storage statics — grind/rpm split,
@@ -490,6 +488,7 @@ add_decenza_test(tst_equipment
     tst_equipment.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
+target_link_libraries(tst_equipment PRIVATE decenza_shotlib)
 target_include_directories(tst_equipment PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_recipestorage: recipe storage statics + lifecycle (add-recipes) —
@@ -498,9 +497,9 @@ target_include_directories(tst_equipment PRIVATE ${CMAKE_BINARY_DIR})
 # CoffeeBagStorage rides along for the bag-resolution cases. ---
 add_decenza_test(tst_recipestorage
     tst_recipestorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
+target_link_libraries(tst_recipestorage PRIVATE decenza_shotlib)
 target_include_directories(tst_recipestorage PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_recipepromotion: RecipePromotion::fieldsFromShotRecord — the shared
@@ -511,6 +510,7 @@ add_decenza_test(tst_recipepromotion
     tst_recipepromotion.cpp
     ${CMAKE_SOURCE_DIR}/src/history/recipepromotion.cpp
 )
+target_link_libraries(tst_recipepromotion PRIVATE decenza_shotlib)
 
 # --- tst_dialing_blocks: DB-backed coverage for the four shared
 # block builders that drive both `dialing_get_context` (MCP) and the
@@ -527,11 +527,10 @@ qt_add_resources(TST_DIALING_BLOCKS_AI_RESOURCES
 add_decenza_test(tst_dialing_blocks
     tst_dialing_blocks.cpp
     ${CMAKE_SOURCE_DIR}/src/ai/dialing_blocks.cpp
-    ${HISTORY_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
     ${TST_DIALING_BLOCKS_AI_RESOURCES}
 )
-target_link_libraries(tst_dialing_blocks PRIVATE Qt6::Graphs Qt6::Quick)
+target_link_libraries(tst_dialing_blocks PRIVATE decenza_shotlib)
 target_include_directories(tst_dialing_blocks PRIVATE ${CMAKE_BINARY_DIR})
 # Built-in profile corpus, for the KB-coverage gate (every shipped profile
 # must resolve to a KB entry — restructure-kb-as-validated-json, task 5.2/6.6).
@@ -545,10 +544,9 @@ target_compile_definitions(tst_dialing_blocks PRIVATE
 # --- tst_shotrecord_cache: ShotRecord::cachedAnalysis dedup + fallback ---
 add_decenza_test(tst_shotrecord_cache
     tst_shotrecord_cache.cpp
-    ${HISTORY_SOURCES}
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_shotrecord_cache PRIVATE Qt6::Graphs Qt6::Quick)
+target_link_libraries(tst_shotrecord_cache PRIVATE decenza_shotlib)
 target_include_directories(tst_shotrecord_cache PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_scaleprotocol: Scale BLE packet parsing (Decent, Bookoo) ---
@@ -641,17 +639,32 @@ add_decenza_test(tst_saw
     ${CMAKE_SOURCE_DIR}/src/machine/weightprocessor.cpp
     ${CMAKE_SOURCE_DIR}/src/machine/stepexitarbiter.cpp
 )
+target_link_libraries(tst_saw PRIVATE decenza_shotlib)
+
+# --- tst_visualizermixgoal: temperature.mix_goal / mix present-vs-absent in upload JSON ---
+# shotprojection.h listed explicitly so AUTOMOC generates the Q_GADGET metatype.
+add_decenza_test(tst_visualizermixgoal
+    tst_visualizermixgoal.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_visualizermixgoal PRIVATE decenza_shotlib)
+target_include_directories(tst_visualizermixgoal PRIVATE ${CMAKE_BINARY_DIR})
+
+# --- tst_sampleblobseries: mix goal series round-trip + legacy blob without the key ---
+add_decenza_test(tst_sampleblobseries
+    tst_sampleblobseries.cpp
+    ${CMAKE_BINARY_DIR}/version_code.cpp
+)
+target_link_libraries(tst_sampleblobseries PRIVATE decenza_shotlib)
+target_include_directories(tst_sampleblobseries PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_settling: SAW settling trimSettlingData(), m_sawSettling flag, shot save ordering ---
 find_package(Qt6 REQUIRED COMPONENTS Graphs Quick)
 add_decenza_test(tst_settling
     tst_settling.cpp
     mocks/MockScaleDevice.h
-    ${CMAKE_SOURCE_DIR}/src/ai/conductance.cpp
-    ${CMAKE_SOURCE_DIR}/src/models/shotdatamodel.cpp
-    ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
 )
-target_link_libraries(tst_settling PRIVATE Qt6::Graphs Qt6::Quick)
+target_link_libraries(tst_settling PRIVATE decenza_shotlib)
 
 # --- tst_sav: MachineState SAV tests ---
 add_decenza_test(tst_sav
@@ -677,7 +690,7 @@ add_decenza_test(tst_profilemanager
     ${CMAKE_SOURCE_DIR}/src/core/memorymonitor.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_profilemanager PRIVATE Qt6::Graphs Qt6::Quick Qt6::Qml paho-mqtt3a-static)
+target_link_libraries(tst_profilemanager PRIVATE decenza_shotlib Qt6::Qml paho-mqtt3a-static)
 target_include_directories(tst_profilemanager PRIVATE ${CMAKE_BINARY_DIR})
 target_compile_definitions(tst_profilemanager PRIVATE SRCDIR="${CMAKE_SOURCE_DIR}/tests")
 # Add built-in profiles QRC so isBuiltInFilename() works in tests
@@ -712,17 +725,9 @@ add_decenza_test(tst_mcptools_write
     ${CMAKE_SOURCE_DIR}/src/screensaver/screensavervideomanager.cpp
     ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/core/batterymanager.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
-    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcptools_write PRIVATE Qt6::Graphs Qt6::Quick Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
+target_link_libraries(tst_mcptools_write PRIVATE decenza_shotlib Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
 target_include_directories(tst_mcptools_write PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_mcptools_presets: steam-pitcher / water-vessel preset MCP tools ---
@@ -738,17 +743,9 @@ add_decenza_test(tst_mcptools_presets
     ${CMAKE_SOURCE_DIR}/src/screensaver/screensavervideomanager.cpp
     ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/core/batterymanager.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
-    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcptools_presets PRIVATE Qt6::Graphs Qt6::Quick Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
+target_link_libraries(tst_mcptools_presets PRIVATE decenza_shotlib Qt6::TextToSpeech Qt6::Multimedia paho-mqtt3a-static)
 target_include_directories(tst_mcptools_presets PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_mcpserver_session: Session management, ping, subscribe/unsubscribe ---
@@ -762,17 +759,9 @@ add_decenza_test(tst_mcpserver_session
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpserver.h
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpsession.h
     ${PROFILEMANAGER_SOURCES}
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
-    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcpserver_session PRIVATE Qt6::Graphs Qt6::Quick paho-mqtt3a-static)
+target_link_libraries(tst_mcpserver_session PRIVATE decenza_shotlib paho-mqtt3a-static)
 target_include_directories(tst_mcpserver_session PRIVATE ${CMAKE_BINARY_DIR})
 
 # --- tst_mcpserver_protocol: 2025-11-25 spec compliance (version negotiation,
@@ -787,17 +776,9 @@ add_decenza_test(tst_mcpserver_protocol
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpserver.h
     ${CMAKE_SOURCE_DIR}/src/mcp/mcpsession.h
     ${PROFILEMANAGER_SOURCES}
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
-    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcpserver_protocol PRIVATE Qt6::Graphs Qt6::Quick paho-mqtt3a-static)
+target_link_libraries(tst_mcpserver_protocol PRIVATE decenza_shotlib paho-mqtt3a-static)
 target_include_directories(tst_mcpserver_protocol PRIVATE ${CMAKE_BINARY_DIR})
 
 # Compile the production qrc so :/icons/* paths resolve at runtime — the
@@ -822,17 +803,9 @@ add_decenza_test(tst_mcpremoteaccess
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptunnel_tsnet.cpp
     ${CMAKE_SOURCE_DIR}/src/mcp/mcptunnel_tsnet.h
     ${PROFILEMANAGER_SOURCES}
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_internal.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_serialize.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shothistorystorage_queries.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/recipestorage.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.cpp
-    ${CMAKE_SOURCE_DIR}/src/history/shotprojection.h
-    ${CMAKE_SOURCE_DIR}/src/ai/shotanalysis.cpp
     ${CMAKE_BINARY_DIR}/version_code.cpp
 )
-target_link_libraries(tst_mcpremoteaccess PRIVATE Qt6::Graphs Qt6::Quick paho-mqtt3a-static)
+target_link_libraries(tst_mcpremoteaccess PRIVATE decenza_shotlib paho-mqtt3a-static)
 target_include_directories(tst_mcpremoteaccess PRIVATE ${CMAKE_BINARY_DIR})
 target_sources(tst_mcpremoteaccess PRIVATE ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
 set_target_properties(tst_mcpremoteaccess PROPERTIES AUTORCC ON)
@@ -857,9 +830,8 @@ add_decenza_test(tst_steamhealth
     tst_steamhealth.cpp
     ${CMAKE_SOURCE_DIR}/src/models/steamdatamodel.cpp
     ${CMAKE_SOURCE_DIR}/src/machine/steamhealthtracker.cpp
-    ${CMAKE_SOURCE_DIR}/src/rendering/fastlinerenderer.cpp
 )
-target_link_libraries(tst_steamhealth PRIVATE Qt6::Quick Qt6::Graphs)
+target_link_libraries(tst_steamhealth PRIVATE decenza_shotlib)
 
 # --- tst_kb_schema: build-time KB validator (tools/validate_kb.py) coverage
 # (change: restructure-kb-as-validated-json, task 5.1). Shells out to the

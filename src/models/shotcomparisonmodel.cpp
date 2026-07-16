@@ -230,6 +230,7 @@ void ShotComparisonModel::scheduleLoad()
                 shot.conductanceDerivative = record.conductanceDerivative;
                 shot.darcyResistance = record.darcyResistance;
                 shot.temperatureMix = record.temperatureMix;
+                shot.temperatureMixGoal = record.temperatureMixGoal;
 
                 for (const auto& phase : record.phases) {
                     ComparisonShot::PhaseMarker marker;
@@ -368,6 +369,12 @@ QVariantList ShotComparisonModel::getTemperatureMixData(int index) const
     return pointsToVariant(m_displayShots[index].temperatureMix);
 }
 
+QVariantList ShotComparisonModel::getTemperatureMixGoalData(int index) const
+{
+    if (index < 0 || index >= m_displayShots.size()) return QVariantList();
+    return pointsToVariant(m_displayShots[index].temperatureMixGoal);
+}
+
 QVariantList ShotComparisonModel::getPhaseMarkers(int index) const
 {
     if (index < 0 || index >= m_displayShots.size()) return QVariantList();
@@ -462,6 +469,7 @@ QVariantMap ShotComparisonModel::getValuesAtTime(int index, double time) const
     double conductance = findNearest(shot.conductance, time);
     double darcy       = findNearest(shot.darcyResistance, time);
     double mixTemp     = findNearest(shot.temperatureMix, time);
+    double mixTempGoal = findNearest(shot.temperatureMixGoal, time);
 
     // dC/dt uses a sentinel distinct from flow/pressure (it legitimately ranges
     // negative). findNearest returns -1.0 for "missing", but a real dC/dt value
@@ -488,6 +496,9 @@ QVariantMap ShotComparisonModel::getValuesAtTime(int index, double time) const
     result["hasConductance"] = conductance >= 0.0;
     result["hasDarcyResistance"] = darcy   >= 0.0;
     result["hasTemperatureMix"]  = mixTemp >= 0.0;
+    // False for shots recorded before the mix goal series existed — findNearest
+    // returns the -1.0 "missing" sentinel for an empty series.
+    result["hasTemperatureMixGoal"] = mixTempGoal >= 0.0;
     result["hasConductanceDerivative"] = hasDcdt;
     result["pressure"]       = pressure;
     result["flow"]           = flow;
@@ -498,6 +509,7 @@ QVariantMap ShotComparisonModel::getValuesAtTime(int index, double time) const
     result["conductance"]    = conductance;
     result["darcyResistance"] = darcy;
     result["temperatureMix"]  = mixTemp;
+    result["temperatureMixGoal"] = mixTempGoal;
     result["conductanceDerivative"] = dcdt;
 
     return result;

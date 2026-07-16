@@ -438,5 +438,8 @@ public:
     // absent, so the worker's withTempDb open fails while the !m_ready guard is
     // bypassed — exercising requestShot's open-failure gate directly.
     friend class tst_CoffeeBags;
+    // Exercises the sample-blob round-trip directly (compressSampleData /
+    // decompressSampleData) without standing up a database.
+    friend class tst_SampleBlobSeries;
 #endif
 };

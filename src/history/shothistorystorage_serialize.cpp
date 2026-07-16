@@ -106,6 +106,7 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.pressureGoal = pointsToVariant(record.pressureGoal);
     p.flowGoal = pointsToVariant(record.flowGoal);
     p.temperatureGoal = pointsToVariant(record.temperatureGoal);
+    p.temperatureMixGoal = pointsToVariant(record.temperatureMixGoal);
     p.weight = pointsToVariant(record.weight);
     p.weightFlowRate = pointsToVariant(record.weightFlowRate);
 

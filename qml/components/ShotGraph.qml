@@ -35,6 +35,7 @@ Item {
     property bool showConductanceDerivative: Settings.boolValue("graph/showConductanceDerivative", false)
     property bool showDarcyResistance: Settings.boolValue("graph/showDarcyResistance", false)
     property bool showTemperatureMix: Settings.boolValue("graph/showTemperatureMix", false)
+    property bool showTemperatureMixGoal: Settings.boolValue("graph/showTemperatureMixGoal", false)
 
     property bool advancedMode: false
 
@@ -199,6 +200,18 @@ Item {
         strokeColor: Theme.temperatureGoalColor
         strokeWidth: Theme.scaled(2)
         visible: chart.showTemperature
+    }
+
+    // Mix temperature goal (SetMixTemp) — advanced, reads against the Mix temp line.
+    // Hidden when the shot carries no mix goal data rather than drawn at zero.
+    DashedLineSeries {
+        graphsView: chart.graphsViewRef
+        axisX: timeAxis
+        axisY: tempAxis
+        points: ShotDataModel.temperatureMixGoalPoints
+        strokeColor: Theme.temperatureMixGoalColor
+        strokeWidth: Theme.scaled(2)
+        visible: chart.showTemperatureMixGoal && chart.advancedMode && points.length > 0
     }
 
     // === VERTICAL PHASE / FRAME MARKER LINES ===

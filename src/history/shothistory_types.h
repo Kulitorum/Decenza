@@ -117,6 +117,7 @@ struct ShotRecord {
     QVector<QPointF> pressureGoal;
     QVector<QPointF> flowGoal;
     QVector<QPointF> temperatureGoal;
+    QVector<QPointF> temperatureMixGoal;  // Empty for shots recorded before this series existed
     QVector<QPointF> temperatureMix;
     QVector<QPointF> resistance;
     QVector<QPointF> conductance;

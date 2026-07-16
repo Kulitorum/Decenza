@@ -31,7 +31,8 @@ Flow {
             var g = inspectBar.graph
             var _deps = [g.showPressure, g.showFlow, g.showTemperature, g.showWeight, g.showWeightFlow,
                          g.showResistance, g.showConductance, g.showDarcyResistance,
-                         g.showConductanceDerivative, g.showTemperatureMix, g.advancedMode]
+                         g.showConductanceDerivative, g.showTemperatureMix, g.showTemperatureMixGoal,
+                         g.advancedMode]
             var vals = g.inspectValues
             // Order matches the legend: temperature pair, scale pair, resistance
             // pair, conductance pair.
@@ -40,6 +41,7 @@ Flow {
                 { key: "flow",            show: g.showFlow },
                 { key: "temperature",     show: g.showTemperature },
                 { key: "mixTemp",         show: g.showTemperatureMix && g.advancedMode },
+                { key: "mixTempGoal",     show: g.showTemperatureMixGoal && g.advancedMode },
                 { key: "weight",          show: g.showWeight },
                 { key: "weightFlow",      show: g.showWeightFlow },
                 { key: "resistance",      show: g.showResistance && g.advancedMode },
