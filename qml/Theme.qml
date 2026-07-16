@@ -325,6 +325,17 @@ QtObject {
         return Qt.rgba(baseColor.r, baseColor.g, baseColor.b, backgroundScrimAlpha)
     }
 
+    // Readable foreground for text/icons drawn on an arbitrary fill. primaryContrastColor
+    // is white by default, which is only legible on dark fills — on warningButtonColor
+    // (#FFA500) white lands around 2.1:1, well under the 4.5:1 minimum. Custom themes can
+    // set any fill they like, so the foreground has to be derived rather than assumed.
+    // Perceived-luminance weights (ITU-R BT.601), matching the existing hand-rolled copies
+    // in ValueInput.qml.
+    function contrastColorFor(fillColor) {
+        var luminance = 0.299 * fillColor.r + 0.587 * fillColor.g + 0.114 * fillColor.b
+        return luminance > 0.5 ? "#000000" : "#FFFFFF"
+    }
+
     // Card fill for page-level content cards (NOT dialogs/popups, which already
     // sit above a dim Overlay and don't need the wallpaper showing through them).
     // Opaque surfaceColor when no background image is set — zero visual change.

@@ -26,6 +26,28 @@ Button {
     // the press. Bind custom background visuals to this instead of `down`.
     readonly property alias isPressed: touchArea.pressed
 
+    // The current variant's fill, before press darkening. Split out so the foreground
+    // can be derived from it instead of assumed.
+    readonly property color _fillColor: {
+        if (root.subtle) return Qt.rgba(1, 1, 1, 0.2)
+        if (root.destructive) return Theme.errorColor
+        if (root.warning) return Theme.warningButtonColor
+        if (root.primary) return Theme.primaryColor
+        return Theme.surfaceColor
+    }
+
+    // Foreground (icon + label) for the enabled state. destructive/warning fills are
+    // theme-settable and can be light — amber in particular leaves white at ~2.1:1 —
+    // so their foreground is derived from the fill's luminance. primary keeps
+    // primaryContrastColor: the default blue sits right on the luminance threshold, so
+    // deriving it would flip every primary button in the app to black text on a hair's
+    // difference in theme colour.
+    readonly property color _foregroundColor: {
+        if (root.destructive || root.warning) return Theme.contrastColorFor(root._fillColor)
+        if (root.primary || root.subtle) return Theme.primaryContrastColor
+        return Theme.textColor
+    }
+
     // Optional font overrides (0/-1 = use defaults)
     property int _customFontSize: 0
     property int _customFontWeight: -1
@@ -43,12 +65,11 @@ Button {
     icon.color: {
         if (!root.enabled) {
             // Disabled primary/colored buttons: use semi-transparent contrast color
-            if (root.primary || root.destructive || root.warning) return Qt.rgba(Theme.primaryContrastColor.r, Theme.primaryContrastColor.g, Theme.primaryContrastColor.b, 0.5)
-            if (root.subtle) return Qt.rgba(Theme.primaryContrastColor.r, Theme.primaryContrastColor.g, Theme.primaryContrastColor.b, 0.4)
+            if (root.primary || root.destructive || root.warning) return Qt.rgba(root._foregroundColor.r, root._foregroundColor.g, root._foregroundColor.b, 0.5)
+            if (root.subtle) return Qt.rgba(root._foregroundColor.r, root._foregroundColor.g, root._foregroundColor.b, 0.4)
             return Theme.textSecondaryColor
         }
-        if (root.primary || root.subtle || root.destructive || root.warning) return Theme.primaryContrastColor
-        return Theme.textColor
+        return root._foregroundColor
     }
 
     contentItem: Item {
@@ -93,20 +114,16 @@ Button {
 
     background: Rectangle {
         implicitHeight: Theme.scaled(44)
+        // isPressed, not down: touchArea accepts every press, so Button.down never
+        // goes true and every press-darkening branch here was dead.
         color: {
             if (root.subtle) {
-                return root.down ? Qt.rgba(1, 1, 1, 0.3) : Qt.rgba(1, 1, 1, 0.2)
+                return root.isPressed ? Qt.rgba(1, 1, 1, 0.3) : Qt.rgba(1, 1, 1, 0.2)
             }
-            if (root.destructive) {
-                return root.down ? Qt.darker(Theme.errorColor, 1.1) : Theme.errorColor
+            if (root.destructive || root.warning || root.primary) {
+                return root.isPressed ? Qt.darker(root._fillColor, 1.1) : root._fillColor
             }
-            if (root.warning) {
-                return root.down ? Qt.darker(Theme.warningButtonColor, 1.1) : Theme.warningButtonColor
-            }
-            if (root.primary) {
-                return root.down ? Qt.darker(Theme.primaryColor, 1.1) : Theme.primaryColor
-            }
-            return root.down ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
+            return root.isPressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
         }
         border.width: (root.primary || root.subtle || root.destructive || root.warning) ? 0 : 1
         border.color: (root.primary || root.subtle || root.destructive || root.warning) ? "transparent" : (root.enabled ? Theme.borderColor : Qt.darker(Theme.borderColor, 1.2))

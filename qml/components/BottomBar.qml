@@ -57,12 +57,10 @@ Item {
         anchors.rightMargin: Theme.spacingLarge
         spacing: Theme.spacingMedium
 
-        // Back button + title are grouped at spacing 0 so the title sits close to
-        // the arrow. The back button's square hitbox is a full bar-height wide but
-        // its glyph is only iconSize wide, so it already contributes
-        // (bottomBarHeight - iconSize) / 2 of visual gap; the row's spacingMedium
-        // on top of that pushed the title away from the arrow and wasted width the
-        // custom content area needs.
+        // spacing 0: the back button's hitbox is deliberately a full bar-height wide
+        // around a much narrower glyph, so it already supplies the gap before the
+        // title. Re-adding row spacing here just pushes the title away from the arrow
+        // and costs the custom content area width it needs.
         RowLayout {
             spacing: 0
 

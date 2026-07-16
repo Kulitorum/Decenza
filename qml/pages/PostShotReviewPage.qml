@@ -2189,121 +2189,71 @@ Page {
         AccessibleButton {
             id: undoButton
             visible: postShotReviewPage._undoDepth > 0
-            Layout.preferredWidth: undoButtonContent.implicitWidth + Theme.scaled(40)
-            Layout.preferredHeight: Theme.scaled(44)
+            icon.source: "qrc:/icons/history.svg"
+            tintIcon: true
             text: TranslationManager.translate("postshotreview.button.undo", "Undo")
             accessibleName: TranslationManager.translate("postshotreview.accessible.undo", "Undo last change")
             onClicked: postShotReviewPage.undoLastChange()
-
-            contentItem: Row {
-                id: undoButtonContent
-                spacing: Theme.scaled(6)
-
-                Image {
-                    source: "qrc:/icons/history.svg"
-                    sourceSize.width: Theme.scaled(16)
-                    sourceSize.height: Theme.scaled(16)
-                    anchors.verticalCenter: parent.verticalCenter
-                    Accessible.ignored: true
-                }
-
-                Tr {
-                    key: "postshotreview.button.undo"
-                    fallback: "Undo"
-                    color: Theme.textColor
-                    font: Theme.bodyFont
-                    anchors.verticalCenter: parent.verticalCenter
-                    Accessible.ignored: true
-                }
-            }
         }
 
         // Upload / Re-Upload to Visualizer button
-        Rectangle {
+        AccessibleButton {
             id: uploadButton
             visible: editShotData.durationSec > 0 && !MainController.visualizer.uploading
-            Layout.preferredWidth: uploadButtonContent.width + 32
-            Layout.preferredHeight: Theme.scaled(44)
-            radius: Theme.scaled(8)
-            color: uploadArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
 
-            Accessible.role: Accessible.Button
-            Accessible.name: _visualizerId
+            // Everything this shot knows is already on Visualizer: nothing to push.
+            // Anything else — never uploaded, or a local edit saved but not yet
+            // PATCHed — means a tap would actually send something, which is what
+            // the warning fill signals. Screen readers get the same state via
+            // accessibleDescription, since colour alone can't carry it.
+            readonly property bool inSync: !!_visualizerId && !pendingVisualizerUpdate
+            primary: inSync
+            warning: !inSync
+
+            icon.source: "qrc:/icons/CloudUpload.svg"
+            tintIcon: true
+            text: TranslationManager.translate("common.button.visualizer", "Visualizer")
+
+            accessibleName: _visualizerId
                 ? TranslationManager.translate("postshotreview.button.reupload", "Re-Upload to Visualizer")
                 : TranslationManager.translate("postshotreview.button.upload", "Upload to Visualizer")
-            Accessible.focusable: true
-            Accessible.onPressAction: uploadArea.clicked(null)
+            accessibleDescription: (!!_visualizerId && pendingVisualizerUpdate)
+                ? TranslationManager.translate("postshotreview.accessible.changespending", "Changes pending upload")
+                : ""
 
-            Row {
-                id: uploadButtonContent
-                anchors.centerIn: parent
-                spacing: Theme.scaled(6)
+            onClicked: {
+                // Flush any pending edit before uploading
+                autosave()
+                // Clear the pending flag before dispatching — auto-update on destruction
+                // must not fire a second request while this one is in flight. On failure
+                // pendingVisualizerUpdate remains false (it was cleared here), so
+                // auto-update on close will not retry; the user must tap the button again.
+                pendingVisualizerUpdate = false
 
-                // Cloud-with-up-arrow glyph carries "upload"; the label is just the
-                // destination. Accessible.name on the button keeps the
-                // upload/re-upload distinction the visible label drops.
-                Image {
-                    source: "qrc:/icons/Upload.svg"
-                    sourceSize.width: Theme.scaled(16)
-                    sourceSize.height: Theme.scaled(16)
-                    anchors.verticalCenter: parent.verticalCenter
-                    Accessible.ignored: true
-
-                    layer.enabled: true
-                    layer.smooth: true
-                    layer.effect: MultiEffect {
-                        colorization: 1.0
-                        colorizationColor: Theme.primaryContrastColor
-                    }
-                }
-
-                Tr {
-                    key: "postshotreview.button.visualizer"
-                    fallback: "Visualizer"
-                    color: Theme.primaryContrastColor
-                    font: Theme.bodyFont
-                    anchors.verticalCenter: parent.verticalCenter
-                    Accessible.ignored: true
-                }
-            }
-
-            MouseArea {
-                id: uploadArea
-                anchors.fill: parent
-                onClicked: {
-                    // Flush any pending edit before uploading
-                    autosave()
-                    // Clear the pending flag before dispatching — auto-update on destruction
-                    // must not fire a second request while this one is in flight. On failure
-                    // pendingVisualizerUpdate remains false (it was cleared here), so
-                    // auto-update on close will not retry; the user must tap the button again.
-                    pendingVisualizerUpdate = false
-
-                    uploadError = ""
-                    uploadSkipReason = ""
-                    if (_visualizerId) {
-                        // Re-upload: PATCH metadata from current edit fields. Reuse
-                        // buildVisualizerOverrides() so the manual and auto-update paths
-                        // stay in sync as fields evolve.
-                        var patchOverrides = buildVisualizerOverrides()
-                        _patchInFlight = true
-                        // editShotData may be a plain-JS clone (badges/save) or the
-                        // raw gadget; the C++ method takes QVariant and coerces it,
-                        // so id/duration/frame arrays survive either way. Edited
-                        // fields ride in patchOverrides.
-                        MainController.visualizer.updateShotOnVisualizerWithOverrides(
-                            _visualizerId, editShotData, patchOverrides)
-                    } else {
-                        // First upload: pass editShotData (a clone after badges/save,
-                        // or the raw gadget if untouched) plus current edit-field
-                        // overrides. The C++ method takes QVariant and coerces via
-                        // ShotProjection::coerce(), so id, durationSec, and frame
-                        // arrays survive isValid().
-                        var uploadOverrides = buildVisualizerOverrides()
-                        _firstUploadInFlight = true
-                        MainController.visualizer.uploadShotFromHistoryWithOverrides(
-                            editShotData, uploadOverrides)
-                    }
+                uploadError = ""
+                uploadSkipReason = ""
+                if (_visualizerId) {
+                    // Re-upload: PATCH metadata from current edit fields. Reuse
+                    // buildVisualizerOverrides() so the manual and auto-update paths
+                    // stay in sync as fields evolve.
+                    var patchOverrides = buildVisualizerOverrides()
+                    _patchInFlight = true
+                    // editShotData may be a plain-JS clone (badges/save) or the
+                    // raw gadget; the C++ method takes QVariant and coerces it,
+                    // so id/duration/frame arrays survive either way. Edited
+                    // fields ride in patchOverrides.
+                    MainController.visualizer.updateShotOnVisualizerWithOverrides(
+                        _visualizerId, editShotData, patchOverrides)
+                } else {
+                    // First upload: pass editShotData (a clone after badges/save,
+                    // or the raw gadget if untouched) plus current edit-field
+                    // overrides. The C++ method takes QVariant and coerces via
+                    // ShotProjection::coerce(), so id, durationSec, and frame
+                    // arrays survive isValid().
+                    var uploadOverrides = buildVisualizerOverrides()
+                    _firstUploadInFlight = true
+                    MainController.visualizer.uploadShotFromHistoryWithOverrides(
+                        editShotData, uploadOverrides)
                 }
             }
         }
@@ -2338,202 +2288,75 @@ Page {
         }
 
         // AI Advice button - visible when AI is configured and we have shot data
-        Rectangle {
+        AccessibleButton {
             id: aiAdviceButton
             visible: MainController.aiManager && MainController.aiManager.isConfigured && editShotData.durationSec > 0
-            Layout.preferredWidth: aiAdviceContent.width + 32
-            Layout.preferredHeight: Theme.scaled(44)
-            radius: Theme.scaled(8)
-            color: MainController.aiManager && MainController.aiManager.isConfigured
-                   ? Theme.primaryColor : Theme.cardBackgroundColor
-            opacity: MainController.aiManager && MainController.aiManager.isAnalyzing ? 0.6 : 1.0
-
-            Accessible.role: Accessible.Button
-            Accessible.name: TranslationManager.translate("postshotreview.accessible.getaiadvice", "Get AI Advice")
-            Accessible.focusable: true
-            Accessible.onPressAction: aiAdviceArea.clicked(null)
-
-            Row {
-                id: aiAdviceContent
-                anchors.centerIn: parent
-                spacing: Theme.scaled(6)
-
-                Image {
-                    source: "qrc:/icons/sparkle.svg"
-                    width: Theme.scaled(18)
-                    height: Theme.scaled(18)
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: status === Image.Ready
-                    Accessible.ignored: true
-
-                    layer.enabled: true
-                    layer.smooth: true
-                    layer.effect: MultiEffect {
-                        colorization: 1.0
-                        colorizationColor: Theme.textColor
-                    }
-                }
-
-                Tr {
-                    key: MainController.aiManager && MainController.aiManager.isAnalyzing
-                          ? "postshotreview.button.analyzing" : "postshotreview.button.aiadvice"
-                    fallback: MainController.aiManager && MainController.aiManager.isAnalyzing
-                          ? "Analyzing..." : "AI Advice"
-                    color: MainController.aiManager && MainController.aiManager.isConfigured
-                           ? Theme.primaryContrastColor : Theme.textColor
-                    font: Theme.bodyFont
-                    anchors.verticalCenter: parent.verticalCenter
-                    Accessible.ignored: true
-                }
-            }
-
-                MouseArea {
-                id: aiAdviceArea
-                anchors.fill: parent
-                enabled: MainController.aiManager && MainController.aiManager.isConfigured && !MainController.aiManager.isAnalyzing
-                onClicked: {
-                    // editShotData is the DB-load snapshot and is NOT updated as
-                    // the user rates the shot on this page (or in the advisor's
-                    // own intake). Hand the advisor the LIVE taste so its per-shot
-                    // intake gate sees feedback the user already gave and doesn't
-                    // re-ask "how did this shot taste?".
-                    var shotForAdvisor = clonePersistedShot(editShotData)
-                    shotForAdvisor.tasteBalance = editTasteBalance
-                    shotForAdvisor.tasteBody = editTasteBody
-                    shotForAdvisor.enjoyment0to100 = editEnjoyment
-                    conversationOverlay.openWithShot(shotForAdvisor, editBeanBrand, editBeanType, editShotData.profileName, editShotId)
-                }
+            enabled: MainController.aiManager && MainController.aiManager.isConfigured && !MainController.aiManager.isAnalyzing
+            primary: true
+            icon.source: "qrc:/icons/sparkle.svg"
+            tintIcon: true
+            text: MainController.aiManager && MainController.aiManager.isAnalyzing
+                  ? TranslationManager.translate("postshotreview.button.analyzing", "Analyzing...")
+                  : TranslationManager.translate("postshotreview.button.aiadvice", "AI Advice")
+            accessibleName: TranslationManager.translate("postshotreview.accessible.getaiadvice", "Get AI Advice")
+            onClicked: {
+                // editShotData is the DB-load snapshot and is NOT updated as
+                // the user rates the shot on this page (or in the advisor's
+                // own intake). Hand the advisor the LIVE taste so its per-shot
+                // intake gate sees feedback the user already gave and doesn't
+                // re-ask "how did this shot taste?".
+                var shotForAdvisor = clonePersistedShot(editShotData)
+                shotForAdvisor.tasteBalance = editTasteBalance
+                shotForAdvisor.tasteBody = editTasteBody
+                shotForAdvisor.enjoyment0to100 = editEnjoyment
+                conversationOverlay.openWithShot(shotForAdvisor, editBeanBrand, editBeanType, editShotData.profileName, editShotId)
             }
         }
 
         // Discuss button - opens external AI app
-        Rectangle {
+        AccessibleButton {
             id: discussButton
             readonly property bool isClaudeDesktopReady:
                 Settings.network.discussShotApp !== Settings.network.discussAppClaudeDesktop
                 || Settings.network.claudeRcSessionUrl.length > 0
             visible: editShotData.durationSec > 0 && Settings.network.discussShotApp !== Settings.network.discussAppNone
             enabled: isClaudeDesktopReady
-            opacity: enabled ? 1.0 : 0.5
-            Layout.preferredWidth: discussContent.width + 32
-            Layout.preferredHeight: Theme.scaled(44)
-            radius: Theme.scaled(8)
-            color: discussArea.pressed ? Qt.darker(Theme.primaryColor, 1.2) : Theme.primaryColor
-
-            Accessible.role: Accessible.Button
-            Accessible.name: TranslationManager.translate("postshotreview.accessible.discuss", "Discuss shot with external AI app")
-            Accessible.focusable: true
-            Accessible.onPressAction: discussArea.clicked(null)
-
-            Row {
-                id: discussContent
-                anchors.centerIn: parent
-                spacing: Theme.scaled(6)
-
-                Image {
-                    source: "qrc:/icons/sparkle.svg"
-                    width: Theme.scaled(18)
-                    height: Theme.scaled(18)
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: status === Image.Ready
-                    Accessible.ignored: true
-
-                    layer.enabled: true
-                    layer.smooth: true
-                    layer.effect: MultiEffect {
-                        colorization: 1.0
-                        colorizationColor: Theme.primaryContrastColor
-                    }
+            primary: true
+            icon.source: "qrc:/icons/sparkle.svg"
+            tintIcon: true
+            text: TranslationManager.translate("postshotreview.button.discuss", "Discuss")
+            accessibleName: TranslationManager.translate("postshotreview.accessible.discuss", "Discuss shot with external AI app")
+            onClicked: {
+                // Copy shot summary to clipboard if MCP is not connected
+                if (!Settings.mcp.mcpEnabled && MainController.aiManager) {
+                    // Prose, not the JSON envelope — the user is pasting this into
+                    // an external AI tool. See #1042 / ShotDetailPage clipboard
+                    // path for rationale.
+                    var summary = MainController.aiManager.buildShotAnalysisProseForShot(editShotData)
+                    if (summary.length > 0) MainController.copyToClipboard(summary)
                 }
-
-                Tr {
-                    key: "postshotreview.button.discuss"
-                    fallback: "Discuss"
-                    color: Theme.primaryContrastColor
-                    font: Theme.bodyFont
-                    anchors.verticalCenter: parent.verticalCenter
-                    Accessible.ignored: true
-                }
-            }
-
-            MouseArea {
-                id: discussArea
-                anchors.fill: parent
-                enabled: discussButton.isClaudeDesktopReady
-                onClicked: {
-                    // Copy shot summary to clipboard if MCP is not connected
-                    if (!Settings.mcp.mcpEnabled && MainController.aiManager) {
-                        // Prose, not the JSON envelope — the user is pasting this into
-                        // an external AI tool. See #1042 / ShotDetailPage clipboard
-                        // path for rationale.
-                        var summary = MainController.aiManager.buildShotAnalysisProseForShot(editShotData)
-                        if (summary.length > 0) MainController.copyToClipboard(summary)
-                    }
-                    // Open configured AI app
-                    var url = Settings.network.discussShotUrl()
-                    if (url.length > 0) Settings.network.openDiscussUrl(url)
-                }
+                // Open configured AI app
+                var url = Settings.network.discussShotUrl()
+                if (url.length > 0) Settings.network.openDiscussUrl(url)
             }
         }
 
         // Email Prompt button - fallback for users without API keys
-        Rectangle {
+        AccessibleButton {
             id: emailPromptButton
             visible: MainController.aiManager && !MainController.aiManager.isConfigured && editShotData.durationSec > 0
-            Layout.preferredWidth: emailPromptContent.width + 32
-            Layout.preferredHeight: Theme.scaled(44)
-            radius: Theme.scaled(8)
-            color: Theme.cardBackgroundColor
-
-            Accessible.role: Accessible.Button
-            Accessible.name: TranslationManager.translate("postshotreview.accessible.emailprompt", "Email AI prompt to yourself")
-            Accessible.focusable: true
-            Accessible.onPressAction: emailPromptArea.clicked(null)
-
-            Row {
-                id: emailPromptContent
-                anchors.centerIn: parent
-                spacing: Theme.scaled(6)
-
-                Image {
-                    source: "qrc:/icons/sparkle.svg"
-                    width: Theme.scaled(18)
-                    height: Theme.scaled(18)
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: status === Image.Ready
-                    opacity: 0.6
-                    Accessible.ignored: true
-
-                    layer.enabled: true
-                    layer.smooth: true
-                    layer.effect: MultiEffect {
-                        colorization: 1.0
-                        colorizationColor: Theme.textSecondaryColor
-                    }
-                }
-
-                Tr {
-                    key: "postshotreview.button.emailprompt"
-                    fallback: "Email Prompt"
-                    color: Theme.textColor
-                    font: Theme.bodyFont
-                    anchors.verticalCenter: parent.verticalCenter
-                    Accessible.ignored: true
-                }
-            }
-
-            MouseArea {
-                id: emailPromptArea
-                anchors.fill: parent
-                onClicked: {
-                    // Prose, not the JSON envelope — the email body lands in the
-                    // user's mail client; the JSON shape double-shipped structured
-                    // fields (#1042).
-                    var prompt = MainController.aiManager.buildShotAnalysisProseForShot(editShotData)
-                    // Open mailto: with prompt in body
-                    Qt.openUrlExternally("mailto:?subject=" + encodeURIComponent("Espresso Shot Analysis") +
-                                        "&body=" + encodeURIComponent(prompt))
-                }
+            icon.source: "qrc:/icons/sparkle.svg"
+            tintIcon: true
+            text: TranslationManager.translate("postshotreview.button.emailprompt", "Email Prompt")
+            accessibleName: TranslationManager.translate("postshotreview.accessible.emailprompt", "Email AI prompt to yourself")
+            onClicked: {
+                // Prose, not the JSON envelope — the email body lands in the
+                // user's mail client; the JSON shape double-shipped structured
+                // fields (#1042).
+                var prompt = MainController.aiManager.buildShotAnalysisProseForShot(editShotData)
+                // Open mailto: with prompt in body
+                Qt.openUrlExternally("mailto:?subject=" + encodeURIComponent("Espresso Shot Analysis") +
+                                    "&body=" + encodeURIComponent(prompt))
             }
         }
 
