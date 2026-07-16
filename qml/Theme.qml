@@ -408,9 +408,12 @@ QtObject {
     property color conductanceDerivativeColor: _c("conductanceDerivativeColor", Settings.theme.customThemeColors.conductanceDerivativeColor || "#e056a0")
     property color darcyResistanceColor: _c("darcyResistanceColor", Settings.theme.customThemeColors.darcyResistanceColor || "#f0a500")
     property color temperatureMixColor: _c("temperatureMixColor", Settings.theme.customThemeColors.temperatureMixColor || "#ce93d8")
-    // Washed-out twin of temperatureMixColor, mirroring how temperatureGoalColor
-    // relates to temperatureColor: lighter and desaturated, not darker.
-    property color temperatureMixGoalColor: _c("temperatureMixGoalColor", Settings.theme.customThemeColors.temperatureMixGoalColor || "#e6c3ec")
+    // Deliberately a DEEPER violet, not the washed-out twin the other goal colors
+    // are. Both goal lines are dashed pastels sitting within ~1°C of each other in
+    // the same band, so a paler mix goal reads as a second temperatureGoalColor
+    // rather than as the goal for the violet mix line. Visualizer separates the
+    // same pair the same way (#EE3377 basket goal vs the deeper #AA3477 mix goal).
+    property color temperatureMixGoalColor: _c("temperatureMixGoalColor", Settings.theme.customThemeColors.temperatureMixGoalColor || "#a678b8")
     property color waterLevelColor: _c("waterLevelColor", Settings.theme.customThemeColors.waterLevelColor || "#4e85f4")
 
     // Tracking status colors (profile goal vs actual)
