@@ -1,6 +1,7 @@
 #include "aiconversation.h"
 #include "aimanager.h"
 #include "shotsummarizer.h"
+#include "../core/translationmanager.h"
 
 #include <QDateTime>
 #include <QDebug>
@@ -34,6 +35,14 @@ const QRegularExpression AIConversation::s_profileRe("\\*\\*Profile\\*\\*:\\s*(.
 const QRegularExpression AIConversation::s_scoreRe("\\*\\*Score\\*\\*:\\s*(\\d+)");
 const QRegularExpression AIConversation::s_notesRe("\\*\\*Notes\\*\\*:\\s*\"([^\"]+)\"");
 
+QString AIConversation::tr_(const char* key, const char* fallback) const
+{
+    if (m_translationManager)
+        return m_translationManager->translate(QString::fromUtf8(key),
+                                               QString::fromUtf8(fallback));
+    return QString::fromUtf8(fallback);
+}
+
 AIConversation::AIConversation(AIManager* aiManager, QObject* parent)
     : QObject(parent)
     , m_aiManager(aiManager)
@@ -65,7 +74,7 @@ void AIConversation::ask(const QString& systemPrompt, const QString& userMessage
 {
     if (!m_aiManager) {
         qWarning() << "AIConversation::ask called without AIManager";
-        m_errorMessage = "AI not available";
+        m_errorMessage = tr_("ai.error.notAvailable", "AI not available");
         emit errorOccurred(m_errorMessage);
         return;
     }
@@ -91,7 +100,7 @@ bool AIConversation::followUp(const QString& userMessage)
 {
     if (!m_aiManager) {
         qWarning() << "AIConversation::followUp called without AIManager";
-        m_errorMessage = "AI not available";
+        m_errorMessage = tr_("ai.error.notAvailable", "AI not available");
         emit errorOccurred(m_errorMessage);
         return false;
     }
@@ -101,7 +110,7 @@ bool AIConversation::followUp(const QString& userMessage)
     }
     if (m_systemPrompt.isEmpty()) {
         qWarning() << "AIConversation::followUp called without prior ask()";
-        m_errorMessage = "Please start a new conversation first";
+        m_errorMessage = tr_("ai.error.startNewFirst", "Please start a new conversation first");
         emit errorOccurred(m_errorMessage);
         return false;
     }
@@ -399,7 +408,7 @@ void AIConversation::dropTrailingFailedUserTurn()
 void AIConversation::sendRequest()
 {
     if (!m_aiManager || !m_aiManager->isConfigured()) {
-        m_errorMessage = "AI not configured";
+        m_errorMessage = tr_("ai.error.notConfigured", "AI not configured");
         emit errorOccurred(m_errorMessage);
         return;
     }
@@ -560,7 +569,7 @@ void AIConversation::addShotContext(const QString& shotSummary, const QString& s
 {
     if (m_busy) {
         qWarning() << "AIConversation::addShotContext ignored — already busy";
-        m_errorMessage = "Please wait for the current request to complete";
+        m_errorMessage = tr_("ai.error.waitForRequest", "Please wait for the current request to complete");
         emit errorOccurred(m_errorMessage);
         return;
     }
@@ -986,7 +995,7 @@ void AIConversation::loadFromStorage()
         if (parseError.error != QJsonParseError::NoError) {
             qWarning() << "AIConversation::loadFromStorage: JSON parse error for key" << m_storageKey
                         << ":" << parseError.errorString();
-            m_errorMessage = "Could not load conversation history";
+            m_errorMessage = tr_("ai.error.loadHistoryFailed", "Could not load conversation history");
             emit errorOccurred(m_errorMessage);
         } else if (doc.isArray()) {
             m_messages = doc.array();

@@ -1077,6 +1077,10 @@ int main(int argc, char *argv[])
     // Create and wire AI Manager
     AIManager aiManager(&sharedNetworkManager, &settings);
     mainController.setAiManager(&aiManager);
+    // Localize AI error strings. Wired here (not via MainController's fan-out)
+    // because MainController::setTranslationManager already ran above, before
+    // the AIManager was attached. Forwards to every provider + the conversation.
+    aiManager.setTranslationManager(&translationManager);
 
     // Register the per-provider model-hint strings with the translation
     // registry. SettingsAITab.qml builds these keys dynamically

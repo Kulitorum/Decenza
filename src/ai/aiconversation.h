@@ -7,6 +7,7 @@
 #include <optional>
 
 class AIManager;
+class TranslationManager;
 
 /**
  * AIConversation - Manages a multi-turn conversation with an AI provider
@@ -41,6 +42,11 @@ class AIConversation : public QObject {
 
 public:
     explicit AIConversation(AIManager* aiManager, QObject* parent = nullptr);
+
+    // Inject the TranslationManager so user-visible error strings localize.
+    // Set by AIManager::setTranslationManager; until injected, tr_() returns
+    // the English fallback.
+    void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
 
     bool isBusy() const { return m_busy; }
     bool hasHistory() const { return !m_messages.isEmpty(); }
@@ -252,6 +258,9 @@ private slots:
 
 private:
     void sendRequest();
+    // Translate a user-visible string via the injected TranslationManager,
+    // falling back to the English source when none is set.
+    QString tr_(const char* key, const char* fallback) const;
     // Drop a trailing unanswered user turn (a turn kept by onAnalysisFailed for
     // retry) before appending a new user message, so we never send two
     // consecutive user-role messages. No-op unless the last entry is a user turn.
@@ -315,6 +324,7 @@ private:
         s_grinderRe, s_profileRe, s_scoreRe, s_notesRe;
 
     AIManager* m_aiManager;
+    TranslationManager* m_translationManager = nullptr;
     QString m_systemPrompt;
     // Array of {role, content[, shotId?, structuredNext?]} objects.
     // shotId is the resolved shot id the advisor was asked about for
