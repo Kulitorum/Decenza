@@ -64,10 +64,12 @@ void DecentScale::onTransportDisconnected() {
     DECENT_WARN("Transport disconnected");
     stopWatchdog();
     stopHeartbeat();
-    // The discovered characteristics don't outlive the link. Clearing these
-    // blocks writes to a dead transport and keeps wake() (DE1 wake path) from
-    // restarting the heartbeat/watchdog on a disconnected scale (#1519);
-    // connectToDevice() re-arms both on the next connect.
+    // The discovered characteristics don't outlive the link. Clearing
+    // m_characteristicsReady blocks writes to a dead transport and keeps
+    // wake() (DE1 wake path) from restarting the heartbeat/watchdog on a
+    // disconnected scale (#1519); m_serviceFound is cleared alongside so the
+    // next discovery starts clean. Both are set again by the next connect's
+    // discovery callbacks.
     m_serviceFound = false;
     m_characteristicsReady = false;
     if (m_checksumDisabled) {
@@ -100,9 +102,9 @@ void DecentScale::onServicesDiscoveryFinished() {
     if (!m_serviceFound) {
         DECENT_WARN("Decent Scale service not found");
         m_transport->disconnectFromDevice();
-        // disconnectFromDevice() never emits disconnected() (it severs the
-        // controller's signals before teardown), so run the disconnect
-        // handling directly — same compensation as the watchdog path (#1519).
+        // The Qt transport's disconnectFromDevice() never emits
+        // disconnected(), so run the disconnect handling directly — see the
+        // watchdog-exhaustion comment in onWatchdogFired() (#1519).
         onTransportDisconnected();
         return;
     }
@@ -354,15 +356,20 @@ void DecentScale::onWatchdogFired() {
         stopWatchdog();
         stopHeartbeat();
         m_transport->disconnectFromDevice();
-        // disconnectFromDevice() tears the link down without emitting
-        // disconnected() — it severs the controller's signals first (see
-        // QtScaleBleTransport::disconnectFromDevice; the connection-priority
-        // backoff path compensates the same way). Run the disconnect handling
+        // The Qt transport's disconnectFromDevice() tears the link down
+        // without emitting disconnected() — it severs the controller's
+        // signals first (see QtScaleBleTransport::disconnectFromDevice; its
+        // connection-priority backoff path compensates likewise, by emitting
+        // disconnected() itself after teardown). Run the disconnect handling
         // directly: it drives setConnected(false) → connectedChanged, which
         // the auto-reconnect ladder in main.cpp is gated on. Without this the
         // app keeps believing the scale is connected — no reconnect is ever
         // scheduled and the Connections scan filters the scale out as already
-        // known (#1519).
+        // known (#1519). The CoreBluetooth transport, by contrast, DOES
+        // deliver a late queued disconnected() after its cancel, so on
+        // iOS/macOS onTransportDisconnected() runs a second time — it must
+        // stay idempotent (setConnected change-guards; the timer stops and
+        // flag clears are no-ops on repeat).
         onTransportDisconnected();
         return;
     }

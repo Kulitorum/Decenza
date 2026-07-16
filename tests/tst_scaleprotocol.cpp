@@ -650,6 +650,59 @@ private slots:
         QCOMPARE(spy.count(), 1);
     }
 
+    void serviceNotFoundPropagatesDisconnect() {
+        // #1519: the service-not-found bailout uses the same silent
+        // disconnectFromDevice(); the direct disconnect handling is what
+        // resets per-connect state that connectToDevice() does not touch —
+        // e.g. the #630 checksum auto-disable must not leak from a failed
+        // connect into a later session against a different scale.
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_checksumDisabled = true;
+        scale.m_serviceFound = false;
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*service not found.*"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
+        scale.onServicesDiscoveryFinished();
+
+        QCOMPARE(transport->m_disconnectCount, 1);
+        QVERIFY(!scale.m_checksumDisabled);
+        QVERIFY(!scale.isConnected());
+    }
+
+    void reconnectAfterWatchdogExhaustion() {
+        // #1519 round trip: after the watchdog-forced disconnect, a normal
+        // connectToDevice() + discovery cycle must bring the scale back —
+        // pins that the duplicate-callback guard in
+        // onCharacteristicsDiscoveryFinished doesn't swallow the re-setup.
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        QVERIFY(scale.isConnected());
+
+        for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
+        for (int i = 0; i < DecentScale::kWatchdogMaxRetries; i++)
+            scale.onWatchdogFired();
+        QVERIFY(!scale.isConnected());
+
+        // Reconnect through the same discovery path
+        scale.connectToDevice(QBluetoothDeviceInfo());
+        scale.onServiceDiscovered(Scale::Decent::SERVICE);
+        scale.onServicesDiscoveryFinished();
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+
+        QVERIFY(scale.isConnected());
+
+        // Teardown: ~ScaleDevice warn-logs DISCONNECTED for a still-connected scale
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
+    }
+
     void wakeDoesNotReviveDeadLink() {
         // #1519: DE1 wake calls scale wake(); after a watchdog-forced
         // disconnect this must not write to the dead transport or restart
