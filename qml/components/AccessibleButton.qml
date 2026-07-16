@@ -114,16 +114,19 @@ Button {
 
     background: Rectangle {
         implicitHeight: Theme.scaled(44)
-        // isPressed, not down: touchArea accepts every press, so Button.down never
-        // goes true and every press-darkening branch here was dead.
+        // Both, deliberately: touchArea only covers contentItem, so a press on the
+        // button's padding never reaches it and only sets Button.down, while a press
+        // on the label is taken by touchArea and only sets isPressed. Binding either
+        // one alone leaves half the button's surface with no press feedback.
+        readonly property bool showPressed: root.down || root.isPressed
         color: {
             if (root.subtle) {
-                return root.isPressed ? Qt.rgba(1, 1, 1, 0.3) : Qt.rgba(1, 1, 1, 0.2)
+                return showPressed ? Qt.rgba(1, 1, 1, 0.3) : Qt.rgba(1, 1, 1, 0.2)
             }
             if (root.destructive || root.warning || root.primary) {
-                return root.isPressed ? Qt.darker(root._fillColor, 1.1) : root._fillColor
+                return showPressed ? Qt.darker(root._fillColor, 1.1) : root._fillColor
             }
-            return root.isPressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
+            return showPressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
         }
         border.width: (root.primary || root.subtle || root.destructive || root.warning) ? 0 : 1
         border.color: (root.primary || root.subtle || root.destructive || root.warning) ? "transparent" : (root.enabled ? Theme.borderColor : Qt.darker(Theme.borderColor, 1.2))

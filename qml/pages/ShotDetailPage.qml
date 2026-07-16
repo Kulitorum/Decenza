@@ -1567,8 +1567,9 @@ Page {
         onBackClicked: root.goBack()
 
         // Profile name + date in the bottom bar remain visible while the user scrolls,
-        // providing context when the header is off-screen.
-        ColumnLayout {
+        // providing context when the header is off-screen. It reads as a subtitle to
+        // the page title, so it lives in leftContent and stays beside it.
+        leftContent: ColumnLayout {
             visible: !!(shotData.profileName)
             spacing: 0
             Layout.alignment: Qt.AlignVCenter
@@ -1595,45 +1596,10 @@ Page {
             }
         }
 
-        // Upload / Re-Upload to Visualizer button
-        AccessibleButton {
-            id: uploadButton
-            visible: shotData.durationSec > 0 && !MainController.visualizer.uploading
-
-            // This page has no editable fields, so "in sync" is simply "already on
-            // Visualizer" — unlike PostShotReviewPage, nothing here can dirty a shot
-            // after upload. Warning fill means a tap would push a shot that isn't up yet.
-            primary: !!shotData.visualizerId
-            warning: !shotData.visualizerId
-
-            icon.source: "qrc:/icons/CloudUpload.svg"
-            tintIcon: true
-            text: TranslationManager.translate("common.button.visualizer", "Visualizer")
-
-            accessibleName: shotData.visualizerId
-                ? TranslationManager.translate("shotdetail.button.reupload", "Re-Upload to Visualizer")
-                : TranslationManager.translate("shotdetail.button.upload", "Upload to Visualizer")
-
-            onClicked: {
-                if (shotData.visualizerId) {
-                    MainController.visualizer.updateShotOnVisualizer(
-                        shotData.visualizerId, shotData)
-                } else {
-                    MainController.visualizer.uploadShotFromHistory(shotData)
-                }
-            }
-        }
-
-        // Uploading/Updating indicator
-        Tr {
-            visible: MainController.visualizer.uploading
-            key: shotData.visualizerId
-                 ? "shotdetail.status.updating"
-                 : "shotdetail.status.uploading"
-            fallback: shotData.visualizerId ? "Updating..." : "Uploading..."
-            color: Theme.textSecondaryColor
-            font: Theme.labelFont
-        }
+        // No upload button here by design: this page is read-only, and the edit icon
+        // is one tap from PostShotReviewPage, which owns uploading (and is the only
+        // page that can produce the metadata overrides an upload should carry).
+        // Upload state is still shown, read-only, by the Visualizer status card above.
 
         // AI Advice button
         AccessibleButton {

@@ -11,6 +11,10 @@ Item {
     property bool showBackButton: true
     property string rightText: ""  // Simple right-aligned text
     default property alias content: contentRow.data  // Custom content goes here
+    // Content that belongs with the page title rather than the actions — it sits
+    // before the stretch, so it stays put next to the title instead of being pushed
+    // across the bar to sit against the buttons.
+    property alias leftContent: leftContentRow.data
 
     signal backClicked()
 
@@ -119,6 +123,12 @@ Item {
                 Layout.maximumWidth: root.width * 0.5
                 elide: Text.ElideRight
             }
+        }
+
+        // Title-side custom content
+        RowLayout {
+            id: leftContentRow
+            spacing: Theme.spacingMedium
         }
 
         Item { Layout.fillWidth: true }

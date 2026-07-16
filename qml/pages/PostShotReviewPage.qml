@@ -2155,9 +2155,10 @@ Page {
         title: TranslationManager.translate("postshotreview.title", "Shot Review")
         onBackClicked: handleBack()
 
-        // Profile name + date remain visible while the user scrolls,
-        // providing context when the header is off-screen.
-        ColumnLayout {
+        // Profile name + date remain visible while the user scrolls, providing context
+        // when the header is off-screen. It reads as a subtitle to the page title, so
+        // it lives in leftContent and stays beside it.
+        leftContent: ColumnLayout {
             visible: !!(editShotData.profileName)
             spacing: 0
             Layout.alignment: Qt.AlignVCenter
