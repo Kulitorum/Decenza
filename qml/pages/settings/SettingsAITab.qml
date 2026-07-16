@@ -1187,6 +1187,45 @@ KeyboardAwareContainer {
                             onClicked: rotateTokenDialog.open()
                         }
                     }
+
+                    // Sign out of Tailscale — wipes the embedded node's identity so
+                    // a stored nodekey bound to the wrong/deleted tailnet can't keep
+                    // looping the login ("device already exists" / 403). Kept at the
+                    // panel level (not nested under the login/connector blocks) so it
+                    // stays reachable while the node is still waiting for login.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.scaled(12)
+                        visible: Settings.mcp.remoteMcpMode === "tailscale"
+                            && RemoteMcpAccess.tunnelAvailable
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.scaled(2)
+                            Tr {
+                                key: "settings.ai.remoteMcp.tailscaleSignout.label"
+                                fallback: "Sign out of Tailscale"
+                                color: Theme.textColor
+                                font.pixelSize: Theme.scaled(13)
+                                font.bold: true
+                            }
+                            Tr {
+                                key: "settings.ai.remoteMcp.tailscaleSignout.hint"
+                                fallback: "Clears this device's tailnet identity. Use this if login keeps failing (\"device already exists\" or a 403 error) — then sign in again with the account you want."
+                                color: Theme.textSecondaryColor
+                                font.pixelSize: Theme.scaled(11)
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        AccessibleButton {
+                            text: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.button", "Sign out")
+                            accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.accessible", "Sign out of Tailscale and clear this device's tailnet identity")
+                            destructive: true
+                            onClicked: tailscaleSignoutDialog.open()
+                        }
+                    }
                 }
 
 
@@ -1347,6 +1386,69 @@ KeyboardAwareContainer {
                         RemoteMcpAccess.rotateToken()
                         rotateTokenDialog.close()
                         AccessibilityManager.announce(TranslationManager.translate("settings.ai.remoteMcp.rotated", "Token rotated. New connector URL generated."))
+                    }
+                }
+            }
+        }
+    }
+
+    // Confirm signing out of Tailscale (wipes the embedded node's identity).
+    Dialog {
+        id: tailscaleSignoutDialog
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(parent ? parent.width - Theme.scaled(32) : Theme.scaled(360), Theme.scaled(420))
+        modal: true
+        closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+
+        onOpened: AccessibilityManager.announce(tailscaleSignoutTitle.text)
+
+        background: Rectangle {
+            color: Theme.surfaceColor
+            radius: Theme.scaled(12)
+            border.color: Theme.borderColor
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.scaled(12)
+
+            Text {
+                id: tailscaleSignoutTitle
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.confirmTitle", "Sign out of Tailscale?")
+                color: Theme.textColor
+                font.family: Theme.subtitleFont.family
+                font.pixelSize: Theme.subtitleFont.pixelSize
+                font.bold: true
+                wrapMode: Text.WordWrap
+            }
+            Text {
+                Layout.fillWidth: true
+                text: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.confirmBody", "This clears this device's Tailscale identity. Remote access stops working until you sign in again, and you'll get a fresh login link. Use this to recover from a login that keeps failing.")
+                color: Theme.textSecondaryColor
+                font.pixelSize: Theme.scaled(12)
+                wrapMode: Text.WordWrap
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.scaled(8)
+                Item { Layout.fillWidth: true }
+                AccessibleButton {
+                    text: TranslationManager.translate("common.button.cancel", "Cancel")
+                    accessibleName: TranslationManager.translate("common.button.cancel", "Cancel")
+                    onClicked: tailscaleSignoutDialog.close()
+                }
+                AccessibleButton {
+                    text: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.button", "Sign out")
+                    accessibleName: TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.accessible", "Sign out of Tailscale and clear this device's tailnet identity")
+                    destructive: true
+                    onClicked: {
+                        var wiped = RemoteMcpAccess.forgetTailscale()
+                        tailscaleSignoutDialog.close()
+                        AccessibilityManager.announce(wiped
+                            ? TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.done", "Signed out of Tailscale. Sign in again to use remote access.")
+                            : TranslationManager.translate("settings.ai.remoteMcp.tailscaleSignout.failed", "Could not clear the Tailscale identity. Please try again."))
                     }
                 }
             }

@@ -226,8 +226,7 @@ void McpRemoteAccess::startTunnel()
         connect(m_tunnel, &McpTunnelTsnet::certDomainChanged, this, &McpRemoteAccess::connectorUrlChanged);
         connect(m_tunnel, &McpTunnelTsnet::authUrlChanged, this, &McpRemoteAccess::loginUrlChanged);
     }
-    const QString stateDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-                             + QStringLiteral("/tsnet");
+    const QString stateDir = tsnetStateDir();
     // Node name → Funnel subdomain. Include the device name so multiple Decenza
     // instances on one tailnet get distinct, recognisable node names (and
     // distinct Funnel URLs). Tailscale node names allow only [a-z0-9-];
@@ -675,6 +674,35 @@ void McpRemoteAccess::rotateToken()
     // connection so any in-flight session on the previous token is severed.
     closeAllSockets();
     emit connectorUrlChanged();
+}
+
+bool McpRemoteAccess::forgetTailscale()
+{
+    // Stop any running node first so its worker isn't touching the state dir we
+    // are about to delete (stop() closes the handle and joins the worker; the
+    // Stopped update clears authUrl/certDomain, firing the URL-changed signals).
+    if (m_tunnel)
+        m_tunnel->stop();
+
+    // Wipe by path, not through the tunnel object: the stale identity must be
+    // clearable even when no node is live (e.g. the loopback listener failed to
+    // bind, so startTunnel() never ran and m_tunnel is null). "Already absent"
+    // counts as success — there is nothing left to clear.
+    const QString dir = tsnetStateDir();
+    const bool wiped = !QDir(dir).exists() || QDir(dir).removeRecursively();
+    if (!wiped)
+        qWarning() << "McpRemoteAccess: failed to wipe tsnet state dir" << dir;
+
+    // Bring a fresh node up (new identity → new login URL) if remote MCP is still
+    // enabled in Tailscale mode; otherwise refresh() just settles to Off.
+    refresh();
+    return wiped;
+}
+
+QString McpRemoteAccess::tsnetStateDir() const
+{
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+           + QStringLiteral("/tsnet");
 }
 
 void McpRemoteAccess::onReaperTick()
