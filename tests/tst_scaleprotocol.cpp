@@ -607,6 +607,8 @@ private slots:
         // Expect watchdog warnings: 10 retry warnings + 1 "max retries exhausted" = 11 total
         for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
             QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
+        // Exhaustion runs the disconnect handling directly (#1519)
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
 
         int baseNotifyCount = transport->m_notifyEnableCount;
 
@@ -618,6 +620,59 @@ private slots:
         QCOMPARE(transport->m_disconnectCount, 1);
         // Should have re-enabled notifications for retries 1-9 (10th triggers disconnect)
         QCOMPARE(transport->m_notifyEnableCount - baseNotifyCount, DecentScale::kWatchdogMaxRetries - 1);
+    }
+
+    void watchdogExhaustionPropagatesDisconnect() {
+        // #1519: the transport never emits disconnected() on the watchdog's
+        // forced disconnect, so exhaustion must drive setConnected(false)
+        // itself — the auto-reconnect ladder (main.cpp) is gated on
+        // connectedChanged, and without it the app parks on a zombie scale.
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        // Drive the real connect path so the scale reports connected
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+        QVERIFY(scale.isConnected());
+
+        QSignalSpy spy(&scale, &ScaleDevice::connectedChanged);
+
+        for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
+
+        for (int i = 0; i < DecentScale::kWatchdogMaxRetries; i++)
+            scale.onWatchdogFired();
+
+        QCOMPARE(transport->m_disconnectCount, 1);
+        QVERIFY(!scale.isConnected());
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void wakeDoesNotReviveDeadLink() {
+        // #1519: DE1 wake calls scale wake(); after a watchdog-forced
+        // disconnect this must not write to the dead transport or restart
+        // the heartbeat/watchdog on a link that no longer exists.
+        auto* transport = new MockScaleBleTransport;
+        DecentScale scale(transport);
+
+        scale.m_serviceFound = true;
+        scale.onCharacteristicsDiscoveryFinished(Scale::Decent::SERVICE);
+
+        for (int i = 0; i < DecentScale::kWatchdogMaxRetries + 1; i++)
+            QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Watchdog.*"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*Transport disconnected.*"));
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(".*DISCONNECTED.*"));
+        for (int i = 0; i < DecentScale::kWatchdogMaxRetries; i++)
+            scale.onWatchdogFired();
+
+        const qsizetype writesBefore = transport->m_writes.size();
+        scale.wake();
+
+        QCOMPARE(transport->m_writes.size(), writesBefore);
+        QVERIFY(!scale.m_watchdogTimer || !scale.m_watchdogTimer->isActive());
+        QVERIFY(!scale.m_heartbeatTimer || !scale.m_heartbeatTimer->isActive());
     }
 
     void watchdogRetryCountResetsOnData() {

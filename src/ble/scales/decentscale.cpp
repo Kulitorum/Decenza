@@ -64,6 +64,12 @@ void DecentScale::onTransportDisconnected() {
     DECENT_WARN("Transport disconnected");
     stopWatchdog();
     stopHeartbeat();
+    // The discovered characteristics don't outlive the link. Clearing these
+    // blocks writes to a dead transport and keeps wake() (DE1 wake path) from
+    // restarting the heartbeat/watchdog on a disconnected scale (#1519);
+    // connectToDevice() re-arms both on the next connect.
+    m_serviceFound = false;
+    m_characteristicsReady = false;
     if (m_checksumDisabled) {
         DECENT_LOG("Checksum validation re-enabled on disconnect");
     }
@@ -94,6 +100,10 @@ void DecentScale::onServicesDiscoveryFinished() {
     if (!m_serviceFound) {
         DECENT_WARN("Decent Scale service not found");
         m_transport->disconnectFromDevice();
+        // disconnectFromDevice() never emits disconnected() (it severs the
+        // controller's signals before teardown), so run the disconnect
+        // handling directly — same compensation as the watchdog path (#1519).
+        onTransportDisconnected();
         return;
     }
     m_transport->discoverCharacteristics(Scale::Decent::SERVICE);
@@ -344,6 +354,16 @@ void DecentScale::onWatchdogFired() {
         stopWatchdog();
         stopHeartbeat();
         m_transport->disconnectFromDevice();
+        // disconnectFromDevice() tears the link down without emitting
+        // disconnected() — it severs the controller's signals first (see
+        // QtScaleBleTransport::disconnectFromDevice; the connection-priority
+        // backoff path compensates the same way). Run the disconnect handling
+        // directly: it drives setConnected(false) → connectedChanged, which
+        // the auto-reconnect ladder in main.cpp is gated on. Without this the
+        // app keeps believing the scale is connected — no reconnect is ever
+        // scheduled and the Connections scan filters the scale out as already
+        // known (#1519).
+        onTransportDisconnected();
         return;
     }
 
