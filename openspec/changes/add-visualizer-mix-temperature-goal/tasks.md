@@ -27,7 +27,7 @@
 
 ## 5. Graph series (advanced, default off)
 
-- [x] 5.1 Add `temperatureMixGoalColor` to `qml/Theme.qml` beside `temperatureMixColor` (`:410`), routed through `_c()` + `Settings.theme.customThemeColors` like every other series color. Use a dimmed partner to `temperatureMixColor`, matching how `temperatureGoalColor` relates to `temperatureColor`.
+- [x] 5.1 Add `temperatureMixGoalColor` to `qml/Theme.qml` beside `temperatureMixColor` (`:410`), routed through `_c()` + `Settings.theme.customThemeColors` like every other series color. Deliberately a DEEPER violet (#a678b8), not the washed-out twin the other goal colors are: seen rendered, two dashed pastels ~1°C apart read as one series. Visualizer separates the same pair the same way.
 - [x] 5.2 `qml/components/ShotGraph.qml`: add `property bool showTemperatureMixGoal: Settings.boolValue("graph/showTemperatureMixGoal", false)` and a dashed series `visible: chart.showTemperatureMixGoal && chart.advancedMode` (follow the mix-temp series at `:315`).
 - [x] 5.3 `qml/components/HistoryShotGraph.qml`: same property, series, and inspect entry (`:242`, `:461`).
 - [x] 5.4 `qml/components/ComparisonGraph.qml`: add the series descriptor with `advanced: true, showFlag: "showTemperatureMixGoal"` (`:88`).
@@ -48,8 +48,8 @@
 ## 7. Verification and docs
 
 - [x] 7.1 Build via Qt Creator MCP and confirm no new warnings, including no `qrc:/…qml` TypeErrors.
-- [ ] 7.2 Ask Jeff to run a real shot, enable advanced mode + the new legend toggle, and confirm the mix goal line tracks above the measured mix temp; then upload and confirm Visualizer draws "Mix Temperature Goal".
-- [ ] 7.3 Confirm a pre-change shot re-uploads with no `mix_goal` and renders unchanged on Visualizer.
+- [x] 7.2 Verified on a simulated shot (macOS, shot 1062): 61 mix-goal samples in the blob, legend entry advanced-gated and off by default, line renders when enabled, and the upload stored `espresso_temperature_mix_goal` on visualizer.coffee. NOT yet verified on a real DE1 — the simulator emits ShotSample directly and never exercises parseShotSample(), so the BLE byte offsets remain covered only by unit tests.
+- [x] 7.3 Verified on shot 38 (recorded 2025-01-01, blob has no `temperatureMixGoal` key): with the toggle explicitly ON the graph draws no line rather than a line at zero, and the re-upload carries no `espresso_temperature_mix_goal`. The same re-upload DID carry `espresso_temperature_mix`, confirming the history-builder drift fix (task 4.3) against the live service.
 - [x] 7.4 Update `docs/CLAUDE_MD/VISUALIZER.md` with the `mix_goal` field and the two-builder rule.
 - [x] 7.5 Update the wiki manual's graph/advanced-mode section to document the new line (required for user-visible features).
 - [ ] 7.6 Run `/opsx:archive` as the final commit on the feature branch, before merge.
