@@ -2,6 +2,7 @@
 #include "crashhandler.h"
 #include "settings.h"
 #include "settings_app.h"
+#include "translationmanager.h"
 #include "version.h"
 
 #include <algorithm>
@@ -206,6 +207,13 @@ UpdateChecker::UpdateChecker(QNetworkAccessManager* networkManager, Settings* se
     });
 }
 
+QString UpdateChecker::tr_(const char* key, const char* fallback) const {
+    if (m_translationManager)
+        return m_translationManager->translate(QString::fromUtf8(key),
+                                               QString::fromUtf8(fallback));
+    return QString::fromUtf8(fallback);
+}
+
 UpdateChecker::~UpdateChecker()
 {
     if (m_currentReply) {
@@ -232,7 +240,7 @@ void UpdateChecker::checkForUpdates()
 {
 #if defined(Q_OS_IOS)
     // iOS updates come from App Store only
-    m_errorMessage = "Updates are handled by the App Store";
+    m_errorMessage = tr_("update.error.appStore", "Updates are handled by the App Store");
     emit errorMessageChanged();
     return;
 #endif
@@ -261,7 +269,7 @@ void UpdateChecker::onReleaseInfoReceived()
     if (!m_currentReply) return;
 
     if (m_currentReply->error() != QNetworkReply::NoError) {
-        m_errorMessage = "Failed to check for updates: " + m_currentReply->errorString();
+        m_errorMessage = tr_("update.error.checkFailed", "Failed to check for updates: %1").arg(m_currentReply->errorString());
         emit errorMessageChanged();
         qWarning() << "UpdateChecker:" << m_errorMessage;
         m_currentReply->deleteLater();
@@ -280,7 +288,7 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
 {
     QJsonDocument doc = QJsonDocument::fromJson(data);
     if (!doc.isArray()) {
-        m_errorMessage = "Invalid response from GitHub";
+        m_errorMessage = tr_("update.error.invalidResponse", "Invalid response from GitHub");
         qWarning() << "UpdateChecker:" << m_errorMessage << "- response:" << data.left(200);
         emit errorMessageChanged();
         return;
@@ -303,7 +311,7 @@ void UpdateChecker::parseReleaseInfo(const QByteArray& data)
     }
 
     if (!found) {
-        m_errorMessage = "No releases found";
+        m_errorMessage = tr_("update.error.noReleases", "No releases found");
         emit errorMessageChanged();
         return;
     }
@@ -484,14 +492,15 @@ void UpdateChecker::downloadAndInstall()
         qWarning() << "UpdateChecker: downloadAndInstall called but no update available (current:"
                    << currentVersion() << "latest:" << m_latestVersion
                    << "downloadUrl:" << (m_downloadUrl.isEmpty() ? "<empty>" : m_downloadUrl) << ")";
-        m_errorMessage = "No update available";
+        m_errorMessage = tr_("update.error.noUpdate", "No update available");
         emit errorMessageChanged();
         return;
     }
     if (m_downloading || m_checking) return;
     if (m_installInFlight) {
-        m_errorMessage = "Install already in progress. If no confirmation dialog is visible, "
-                         "restart the app and try again.";
+        m_errorMessage = tr_("update.install.inProgress",
+                             "Install already in progress. If no confirmation dialog is visible, "
+                             "restart the app and try again.");
         emit errorMessageChanged();
         return;
     }
@@ -501,14 +510,15 @@ void UpdateChecker::downloadAndInstall()
     // rejected by ApkInstaller.install() at the end.
     if (QJniObject::callStaticMethod<jboolean>(
             "io/github/kulitorum/decenza_de1/ApkInstaller", "isInFlight", "()Z") == JNI_TRUE) {
-        m_errorMessage = "Install already in progress. If no confirmation dialog is visible, "
-                         "restart the app and try again.";
+        m_errorMessage = tr_("update.install.inProgress",
+                             "Install already in progress. If no confirmation dialog is visible, "
+                             "restart the app and try again.");
         emit errorMessageChanged();
         return;
     }
 #endif
     if (m_downloadUrl.isEmpty()) {
-        m_errorMessage = "No download available for this platform";
+        m_errorMessage = tr_("update.error.noDownload", "No download available for this platform");
         qWarning() << "UpdateChecker:" << m_errorMessage;
         emit errorMessageChanged();
         return;
@@ -563,7 +573,7 @@ void UpdateChecker::startDownload()
     savePath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
 #endif
     if (!QDir().mkpath(savePath)) {
-        m_errorMessage = "Failed to create download directory: " + savePath;
+        m_errorMessage = tr_("update.error.createDir", "Failed to create download directory: %1").arg(savePath);
         qWarning() << "UpdateChecker:" << m_errorMessage;
         m_downloading = false;
         emit downloadingChanged();
@@ -576,7 +586,7 @@ void UpdateChecker::startDownload()
 
     m_downloadFile = new QFile(fullPath);
     if (!m_downloadFile->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        m_errorMessage = "Failed to create download file: " + m_downloadFile->errorString();
+        m_errorMessage = tr_("update.error.createFile", "Failed to create download file: %1").arg(m_downloadFile->errorString());
         m_downloading = false;
         emit downloadingChanged();
         emit errorMessageChanged();
@@ -645,7 +655,7 @@ void UpdateChecker::startDownload()
             qWarning() << "UpdateChecker: Write failed during download:" << m_downloadFile->errorString();
             // Set the real error before aborting — abort() triggers onDownloadFinished
             // with OperationCanceledError, which would show a misleading message
-            m_errorMessage = "Download failed: could not write file (" + m_downloadFile->errorString() + ")";
+            m_errorMessage = tr_("update.error.writeFile", "Download failed: could not write file (%1)").arg(m_downloadFile->errorString());
             m_currentReply->abort();
         }
     });
@@ -681,7 +691,7 @@ void UpdateChecker::onDownloadFinished()
     if (!m_currentReply || !m_downloadFile) {
         qWarning() << "UpdateChecker: onDownloadFinished called with null reply or file"
                     << "reply=" << m_currentReply << "file=" << m_downloadFile;
-        m_errorMessage = "Download failed unexpectedly. Please try again.";
+        m_errorMessage = tr_("update.error.downloadUnexpected", "Download failed unexpectedly. Please try again.");
         emit errorMessageChanged();
         m_downloading = false;
         emit downloadingChanged();
@@ -693,7 +703,7 @@ void UpdateChecker::onDownloadFinished()
     if (!remaining.isEmpty()) {
         if (m_downloadFile->write(remaining) != remaining.size()) {
             qWarning() << "UpdateChecker: Final write failed:" << m_downloadFile->errorString();
-            m_errorMessage = "Download failed: could not write file (" + m_downloadFile->errorString() + ")";
+            m_errorMessage = tr_("update.error.writeFile", "Download failed: could not write file (%1)").arg(m_downloadFile->errorString());
             emit errorMessageChanged();
             const QString fileToRemove = m_downloadFile->fileName();
             const int capturedGen = s_downloadGeneration.loadAcquire();
@@ -749,8 +759,8 @@ void UpdateChecker::onDownloadFinished()
         if (m_errorMessage.isEmpty()) {
             const bool isTimeout = (m_currentReply->error() == QNetworkReply::TimeoutError);
             m_errorMessage = isTimeout
-                ? "Download timed out — check your network connection and tap Download & Install to try again."
-                : "Download failed: " + m_currentReply->errorString();
+                ? tr_("update.error.downloadTimeout", "Download timed out — check your network connection and tap Download & Install to try again.")
+                : tr_("update.error.downloadFailed", "Download failed: %1").arg(m_currentReply->errorString());
         }
         emit errorMessageChanged();
         {
@@ -775,7 +785,7 @@ void UpdateChecker::onDownloadFinished()
     // actualSize was captured from m_downloadFile->pos() before close() above.
     qint64 expectedSize = m_currentReply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
     if (expectedSize > 0 && actualSize < expectedSize) {
-        m_errorMessage = QString("Download incomplete: got %1 of %2 bytes")
+        m_errorMessage = tr_("update.error.downloadIncomplete", "Download incomplete: got %1 of %2 bytes")
                              .arg(actualSize).arg(expectedSize);
         qWarning() << "UpdateChecker:" << m_errorMessage;
         emit errorMessageChanged();
@@ -801,7 +811,7 @@ void UpdateChecker::onDownloadFinished()
     // page from a failed redirect or severe truncation
     const qint64 MIN_APK_SIZE = 1024 * 1024;
     if (actualSize < MIN_APK_SIZE) {
-        m_errorMessage = QString("Downloaded file too small (%1 bytes) — download may have failed")
+        m_errorMessage = tr_("update.error.fileTooSmall", "Downloaded file too small (%1 bytes) — download may have failed")
                              .arg(actualSize);
         qWarning() << "UpdateChecker:" << m_errorMessage;
         emit errorMessageChanged();
@@ -976,7 +986,7 @@ bool UpdateChecker::installApk(const QString& apkPath)
 {
 #ifdef Q_OS_ANDROID
     if (s_nativeRegistrationFailed) {
-        m_errorMessage = "Install bridge failed to initialize. Please restart the app and try again.";
+        m_errorMessage = tr_("update.install.bridgeFailed", "Install bridge failed to initialize. Please restart the app and try again.");
         emit errorMessageChanged();
         return false;
     }
@@ -990,7 +1000,7 @@ bool UpdateChecker::installApk(const QString& apkPath)
 
     if (!activity.isValid()) {
         qWarning() << "UpdateChecker: Failed to get Android activity";
-        m_errorMessage = "Failed to get Android activity";
+        m_errorMessage = tr_("update.install.noActivity", "Failed to get Android activity");
         emit errorMessageChanged();
         return false;
     }
@@ -1027,11 +1037,13 @@ bool UpdateChecker::installApk(const QString& apkPath)
         jboolean inFlight = QJniObject::callStaticMethod<jboolean>(
             "io/github/kulitorum/decenza_de1/ApkInstaller", "isInFlight", "()Z");
         if (inFlight == JNI_TRUE) {
-            m_errorMessage = "Install already in progress. If no confirmation dialog is visible, "
-                             "restart the app and try again.";
+            m_errorMessage = tr_("update.install.inProgress",
+                                 "Install already in progress. If no confirmation dialog is visible, "
+                                 "restart the app and try again.");
         } else {
-            m_errorMessage = "Could not start install. If this is a first install, enable "
-                             "'Install Unknown Apps' for Decenza in Android Settings, then try again.";
+            m_errorMessage = tr_("update.install.couldNotStart",
+                                 "Could not start install. If this is a first install, enable "
+                                 "'Install Unknown Apps' for Decenza in Android Settings, then try again.");
         }
         emit errorMessageChanged();
         return false;
@@ -1043,7 +1055,7 @@ bool UpdateChecker::installApk(const QString& apkPath)
     return true;
 #else
     qDebug() << "UpdateChecker: APK installation only supported on Android. File saved to:" << apkPath;
-    m_errorMessage = "APK installation only supported on Android";
+    m_errorMessage = tr_("update.error.androidOnly", "APK installation only supported on Android");
     emit errorMessageChanged();
     return false;
 #endif
@@ -1123,35 +1135,36 @@ void UpdateChecker::onInstallStatus(int status, const QString& message)
             }
             return;
         case 2:  // STATUS_FAILURE_BLOCKED
-            userMessage = "Install blocked by device policy.";
+            userMessage = tr_("update.install.blocked", "Install blocked by device policy.");
             break;
         case 4:  // STATUS_FAILURE_INVALID
-            userMessage = "The downloaded APK is invalid. Please try again.";
+            userMessage = tr_("update.install.invalid", "The downloaded APK is invalid. Please try again.");
             break;
         case 5:  // STATUS_FAILURE_CONFLICT
-            userMessage = "Install conflicts with an existing app. Please uninstall and retry.";
+            userMessage = tr_("update.install.conflict", "Install conflicts with an existing app. Please uninstall and retry.");
             break;
         case 6:  // STATUS_FAILURE_STORAGE
-            userMessage = "Not enough storage to install the update.";
+            userMessage = tr_("update.install.storage", "Not enough storage to install the update.");
             break;
         case 7:  // STATUS_FAILURE_INCOMPATIBLE
-            userMessage = "Update is incompatible with this device.";
+            userMessage = tr_("update.install.incompatible", "Update is incompatible with this device.");
             break;
         case 8:  // STATUS_FAILURE_TIMEOUT
-            userMessage = "Install timed out. Please try again.";
+            userMessage = tr_("update.install.timeout", "Install timed out. Please try again.");
             break;
         case INTERNAL_STATUS_CREATE_FAILED:
-            userMessage = "Could not start install session. Check that 'Install Unknown Apps' "
-                          "is enabled for Decenza in Android Settings, then try again.";
+            userMessage = tr_("update.install.createSessionFailed",
+                              "Could not start install session. Check that 'Install Unknown Apps' "
+                              "is enabled for Decenza in Android Settings, then try again.");
             break;
         case INTERNAL_STATUS_WRITE_FAILED:
-            userMessage = "Failed to write the update package. Please try again.";
+            userMessage = tr_("update.install.writePackageFailed", "Failed to write the update package. Please try again.");
             break;
         case INTERNAL_STATUS_NO_CONFIRM_INTENT:
-            userMessage = "Install dialog could not be launched. Please try again.";
+            userMessage = tr_("update.install.noConfirmIntent", "Install dialog could not be launched. Please try again.");
             break;
         default:  // STATUS_FAILURE (1) and anything unexpected.
-            userMessage = "Install failed.";
+            userMessage = tr_("update.install.failed", "Install failed.");
             if (!message.isEmpty()) {
                 userMessage += " (" + message + ")";
             }

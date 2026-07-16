@@ -146,6 +146,8 @@ public:
     void setTranslationManager(TranslationManager* tm) {
         if (m_liveSteamCoach) m_liveSteamCoach->setTranslationManager(tm);
         if (m_visualizerImporter) m_visualizerImporter->setTranslationManager(tm);
+        if (m_visualizer) m_visualizer->setTranslationManager(tm);
+        if (m_updateChecker) m_updateChecker->setTranslationManager(tm);
     }
     void setAiManager(AIManager* aiManager) {
         m_aiManager = aiManager;

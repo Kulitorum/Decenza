@@ -8,6 +8,7 @@
 #include <QFileInfo>
 
 class Settings;
+class TranslationManager;
 
 class UpdateChecker : public QObject {
     Q_OBJECT
@@ -48,6 +49,12 @@ class UpdateChecker : public QObject {
 public:
     explicit UpdateChecker(QNetworkAccessManager* networkManager, Settings* settings, QObject* parent = nullptr);
     ~UpdateChecker();
+
+    // Inject the TranslationManager so user-visible error messages localize
+    // (mirrors VisualizerImporter/VisualizerUploader). Wired from
+    // MainController::setTranslationManager. Until injected, tr_() returns the
+    // English fallback.
+    void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
 
     bool isChecking() const { return m_checking; }
     bool isDownloading() const { return m_downloading; }
@@ -141,7 +148,12 @@ private:
     int extractBuildNumber(const QString& version) const;
     bool isNewerVersion(const QString& latest, const QString& current) const;
 
+    // Translate a user-visible string via the injected TranslationManager,
+    // falling back to the English source when none is set.
+    QString tr_(const char* key, const char* fallback) const;
+
     Settings* m_settings = nullptr;
+    TranslationManager* m_translationManager = nullptr;
     QNetworkAccessManager* m_network = nullptr;
     QNetworkReply* m_currentReply = nullptr;
     QFile* m_downloadFile = nullptr;
