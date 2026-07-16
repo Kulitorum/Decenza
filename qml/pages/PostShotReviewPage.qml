@@ -2205,8 +2205,12 @@ Page {
             // Everything this shot knows is already on Visualizer: nothing to push.
             // Anything else — never uploaded, or a local edit saved but not yet
             // PATCHed — means a tap would actually send something, which is what
-            // the warning fill signals. Screen readers get the same state via
-            // accessibleDescription, since colour alone can't carry it.
+            // the warning fill signals.
+            //
+            // The two not-in-sync cases are announced differently, since colour alone
+            // can't carry state: never-uploaded is already implied by accessibleName
+            // ("Upload" vs "Re-Upload"), but a pending edit needs accessibleDescription
+            // — the name reads the same either way.
             readonly property bool inSync: !!_visualizerId && !pendingVisualizerUpdate
             primary: inSync
             warning: !inSync

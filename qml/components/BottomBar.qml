@@ -61,10 +61,10 @@ Item {
         anchors.rightMargin: Theme.spacingLarge
         spacing: Theme.spacingMedium
 
-        // spacing 0: the back button's hitbox is deliberately a full bar-height wide
-        // around a much narrower glyph, so it already supplies the gap before the
-        // title. Re-adding row spacing here just pushes the title away from the arrow
-        // and costs the custom content area width it needs.
+        // spacing 0: when the back button is shown, its hitbox is deliberately a full
+        // bar-height wide around a much narrower glyph, so it already supplies the gap
+        // before the title. (With no back button the row collapses and the outer
+        // leftMargin is the only inset.)
         RowLayout {
             spacing: 0
 

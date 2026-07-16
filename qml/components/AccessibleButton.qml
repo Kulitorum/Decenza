@@ -26,8 +26,7 @@ Button {
     // the press. Bind custom background visuals to this instead of `down`.
     readonly property alias isPressed: touchArea.pressed
 
-    // The current variant's fill, before press darkening. Split out so the foreground
-    // can be derived from it instead of assumed.
+    // The current variant's fill, before press darkening.
     readonly property color _fillColor: {
         if (root.subtle) return Qt.rgba(1, 1, 1, 0.2)
         if (root.destructive) return Theme.errorColor
@@ -36,15 +35,17 @@ Button {
         return Theme.surfaceColor
     }
 
-    // Foreground (icon + label) for the enabled state. destructive/warning fills are
-    // theme-settable and can be light — amber in particular leaves white at ~2.1:1 —
-    // so their foreground is derived from the fill's luminance. primary keeps
-    // primaryContrastColor: the default blue sits right on the luminance threshold, so
-    // deriving it would flip every primary button in the app to black text on a hair's
-    // difference in theme colour.
+    // Foreground (icon + label) for the enabled state.
+    //
+    // Only warning derives its foreground: amber is the one fill here that white fails
+    // outright on (white on #FFA500 is 1.97:1, against a 4.5:1 minimum), and both black
+    // and white are unambiguous choices for it. Every other variant keeps
+    // primaryContrastColor — deriving them would change established looks across the
+    // whole app. That leaves errorColor's white at 3.4:1, a real gap, but one that
+    // belongs to its own change rather than riding along here.
     readonly property color _foregroundColor: {
-        if (root.destructive || root.warning) return Theme.contrastColorFor(root._fillColor)
-        if (root.primary || root.subtle) return Theme.primaryContrastColor
+        if (root.warning) return Theme.contrastColorFor(root._fillColor)
+        if (root.primary || root.subtle || root.destructive) return Theme.primaryContrastColor
         return Theme.textColor
     }
 
@@ -114,19 +115,24 @@ Button {
 
     background: Rectangle {
         implicitHeight: Theme.scaled(44)
-        // Both, deliberately: touchArea only covers contentItem, so a press on the
-        // button's padding never reaches it and only sets Button.down, while a press
-        // on the label is taken by touchArea and only sets isPressed. Binding either
-        // one alone leaves half the button's surface with no press feedback.
+        // Needs both: touchArea fills the whole button and accepts every pointer press
+        // (see isPressed above), so `down` never goes true for a pointer — but keyboard
+        // activation sets `down` without touchArea ever seeing it.
         readonly property bool showPressed: root.down || root.isPressed
         color: {
+            var fill
             if (root.subtle) {
-                return showPressed ? Qt.rgba(1, 1, 1, 0.3) : Qt.rgba(1, 1, 1, 0.2)
+                fill = showPressed ? Qt.rgba(1, 1, 1, 0.3) : Qt.rgba(1, 1, 1, 0.2)
+            } else if (root.destructive || root.warning || root.primary) {
+                fill = showPressed ? Qt.darker(root._fillColor, 1.1) : root._fillColor
+            } else {
+                fill = showPressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
             }
-            if (root.destructive || root.warning || root.primary) {
-                return showPressed ? Qt.darker(root._fillColor, 1.1) : root._fillColor
-            }
-            return showPressed ? Qt.darker(Theme.surfaceColor, 1.2) : Theme.surfaceColor
+            // Fade the fill when disabled, not just the label. Filled variants draw no
+            // border, so without this a disabled button keeps a full-strength background
+            // and reads as active — only its text goes half-transparent, which looks more
+            // like low-contrast text than a disabled control.
+            return root.enabled ? fill : Qt.rgba(fill.r, fill.g, fill.b, fill.a * 0.5)
         }
         border.width: (root.primary || root.subtle || root.destructive || root.warning) ? 0 : 1
         border.color: (root.primary || root.subtle || root.destructive || root.warning) ? "transparent" : (root.enabled ? Theme.borderColor : Qt.darker(Theme.borderColor, 1.2))
@@ -182,7 +188,7 @@ Button {
                 } else {
                     // First tap = announce only
                     AccessibilityManager.lastAnnouncedItem = root
-                    AccessibilityManager.announce(root.accessibleName)
+                    AccessibilityManager.announce(root.Accessible.name)
                 }
             } else {
                 // Normal mode: activate immediately
@@ -191,11 +197,13 @@ Button {
         }
     }
 
-    // Announce button name when focused via keyboard (for accessibility)
+    // Announce button name when focused via keyboard (for accessibility).
+    // Accessible.name, not accessibleName: the former folds in accessibleDescription,
+    // and callers use that to carry state the label itself doesn't say.
     onActiveFocusChanged: {
         if (activeFocus && typeof AccessibilityManager !== "undefined" && AccessibilityManager.enabled) {
             AccessibilityManager.lastAnnouncedItem = root
-            AccessibilityManager.announce(root.accessibleName)
+            AccessibilityManager.announce(root.Accessible.name)
         }
     }
 }
