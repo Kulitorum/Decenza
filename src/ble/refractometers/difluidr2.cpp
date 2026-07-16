@@ -327,17 +327,22 @@ void DiFluidR2::handlePacket(const QByteArray& packet) {
             uint8_t errClass = dataLen > 0 ? static_cast<uint8_t>(packet[5]) : 0;
             uint8_t errCode = dataLen > 1 ? static_cast<uint8_t>(packet[6]) : 0;
             R2_WARN(QString("R2 error: class=%1 code=%2").arg(errClass).arg(errCode));
+            // Surface ONLY the user-actionable measurement failures. Class-2 are
+            // the measurement errors; other class/code combos (notably 0/2) are
+            // benign device status the R2 also emits around a SUCCESSFUL read, so
+            // surfacing them spams the error dialog (they carry no useful info —
+            // the data already arrived). Log-only for those; still clear the
+            // measuring state so the UI doesn't hang.
             if (errClass == 2 && errCode == 3) emit errorOccurred("No liquid detected");
             else if (errClass == 2 && errCode == 4) emit errorOccurred("Beyond range");
-            else emit errorOccurred(QString("R2 error %1/%2").arg(errClass).arg(errCode));
             m_measurementTimer.stop();
             m_measuring = false;
             emit measuringChanged();
             return;
         }
         if (cmd == 255) {
+            // Non-actionable — log only (see the cmd==254 note above).
             R2_WARN("R2 unknown error");
-            emit errorOccurred("Unknown R2 error");
             m_measurementTimer.stop();
             m_measuring = false;
             emit measuringChanged();

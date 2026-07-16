@@ -378,12 +378,34 @@ private slots:
         QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
         QSignalSpy measSpy(&r2, &DiFluidR2::measuringChanged);
 
-        // Cmd=255 = unknown error
+        // Cmd=255 = unknown error: non-actionable, so it is logged but NOT
+        // surfaced to the UI (errorOccurred is wired to the error dialog —
+        // surfacing unknown/benign device errors spams it). Measuring state is
+        // still cleared so the UI doesn't hang.
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 unknown error"));
         r2.handlePacket(buildR2Packet(0x03, 0xFF, QByteArray()));
 
-        QCOMPARE(errorSpy.count(), 1);
-        QVERIFY(errorSpy.at(0).at(0).toString().contains("Unknown"));
+        QCOMPARE(errorSpy.count(), 0);
+        QCOMPARE(measSpy.count(), 1);
+        QVERIFY(!r2.isMeasuring());
+    }
+
+    void parseErrorNonActionableNotSurfaced() {
+        // Regression: the R2 emits a benign `class=0 code=2` error around a
+        // SUCCESSFUL read. It carries no useful info (the data already arrived),
+        // so it must be logged but NOT surfaced — before this gate it spammed
+        // the error dialog once errorOccurred was wired to the UI. Only the
+        // class-2 measurement failures (no-liquid / beyond-range) surface.
+        DiFluidR2 r2(nullptr);
+        QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
+        QSignalSpy measSpy(&r2, &DiFluidR2::measuringChanged);
+
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 error: class=0 code=2"));
+        r2.handlePacket(buildErrorPacket(0, 2));
+
+        QCOMPARE(errorSpy.count(), 0);
+        // Not surfaced, but the measuring state is still cleared so the UI
+        // doesn't hang on a benign status error.
         QCOMPARE(measSpy.count(), 1);
         QVERIFY(!r2.isMeasuring());
     }
