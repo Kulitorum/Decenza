@@ -32,7 +32,7 @@
 
 - [x] 5.1 `ShotSummarizer` renders `tasteBalance` / `tasteBody` as prose (## Tasting Feedback) and in the standalone shot JSON; history dial-in blocks (`shotToJson`, `bestRecentShot`) also emit them so the advisor sees prior-shot taste.
 - [x] 5.2 Extend the taste-feedback signal: `tastingFeedback` now carries `hasTasteAxis` + values; the empty-feedback gate and system-prompt teaching treat a set taste tap as "user has told us how it tasted" so the advisor doesn't re-ask.
-- [ ] 5.3 Verify (manually, in-app) the emergent Layer-1 handoff: fill → advisor gives advice without asking "how did it taste?"; skip → advisor asks and Layer 1 still captures a typed reply.
+- [x] 5.3 Verify (manually, in-app) the emergent Layer-1 handoff: fill → advisor gives advice without asking "how did it taste?"; skip → advisor asks and Layer 1 still captures a typed reply.
 
 ## 6. Visualizer CVA mapping (upload)
 
@@ -43,8 +43,8 @@
 
 ## 6b. Pre-existing fix: surface silent DB errors (found in review)
 
-- [ ] 6b.1 `ShotHistoryStorage::errorOccurred` had **no consumer** — every DB failure (failed shot save, failed metadata write incl. a taste tap/rating, failed delete/import) was silent, so taste now rode that silent path. Wired it to a non-blocking error toast in `main.qml` (one `Connections` covers all 11 emit sites), mirroring the DE1 `errorOccurred` precedent (#1309).
-- [ ] 6b.2 Reworded the two surfaced messages that leaked the internal shot id / used "metadata" jargon (save-metadata, delete) to user-friendly, id-free text; the id + success stay in the qDebug/qWarning diagnostic log.
+- [x] 6b.1 `ShotHistoryStorage::errorOccurred` had **no consumer** — every DB failure (failed shot save, failed metadata write incl. a taste tap/rating, failed delete/import) was silent, so taste now rode that silent path. Wired it to a non-blocking error toast in `main.qml` (one `Connections` covers all 11 emit sites), mirroring the DE1 `errorOccurred` precedent (#1309).
+- [x] 6b.2 Reworded the two surfaced messages that leaked the internal shot id / used "metadata" jargon (save-metadata, delete) to user-friendly, id-free text; the id + success stay in the qDebug/qWarning diagnostic log.
 
 ## 7. Docs
 
