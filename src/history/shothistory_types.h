@@ -94,6 +94,14 @@ struct ShotRecord {
     QString storageHint;
     QString openedDate;
 
+    // Structured taste axes (add-ai-taste-intake, migration 33): the two dial-in
+    // taste signals the shot curve can't reveal, tapped in the AI intake picker
+    // or on the review page. tasteBalance: "sour"|"balanced"|"bitter";
+    // tasteBody: "thin"|"medium"|"heavy". "" = unset. Mapped to Visualizer CVA
+    // fields (acidity/bitterness/mouthfeel) on upload.
+    QString tasteBalance;
+    QString tasteBody;
+
     // Recipe provenance (add-recipes, migration 25): the recipe active at
     // shot start (<= 0 = none / pre-recipe shot) and the steam-spec snapshot
     // in effect, so promote-from-shot round-trips the whole drink. hotWaterJson

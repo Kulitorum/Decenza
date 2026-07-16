@@ -11,6 +11,36 @@
 | `src/ai/aiconversation.h/cpp` | Multi-turn conversation with persistent storage (QSettings). Follow-ups, shot context injection, history trimming |
 | `src/ai/shotsummarizer.h/cpp` | Extracts structured shot data (phases, curves, anomalies) and builds text prompts. Separate system prompts for espresso vs filter |
 | `src/network/shotserver_ai.cpp` | Web API endpoints for AI assistant |
+| `qml/components/TastePicker.qml` | Tap-only taste intake (add-ai-taste-intake): Extraction / Body / Overall rows, shared by the AI intake dialog and the review page |
+
+### Taste intake (tap-only) — add-ai-taste-intake
+
+When `Settings.ai.tasteIntakeOnAsk` is on (default), opening the advisor for a
+shot (`ConversationOverlay.openWithShot`) shows a fully text-free intake over the
+conversation — Extraction (`Sour`/`Balanced`/`Bitter` → `taste_balance`), Body
+(`Thin`/`Medium`/`Heavy` → `taste_body`), Overall (reused `RatingInput` →
+`enjoyment0to100`) — **unless there's already something to return to**: a saved
+conversation for the shot's context (`conversation.hasHistory`) or taste feedback
+already saved on the shot (any of `taste_balance` / `taste_body` /
+`enjoyment0to100`). So a new / cleared / backed-out-without-asking conversation
+re-shows the intake; once the user has asked the AI or recorded any taste it goes
+straight to the text conversation. **Ask** persists the taps via
+`requestUpdateShotMetadata`, composes a first-person question, and sends it with
+the shot attached; **Skip** drops into the normal text conversation.
+
+The taps are structured shot columns (`taste_balance`/`taste_body`, migration 33),
+not free text — so the same picker also appears on the post-shot review page (no
+parallel UI), the values flow into the advisor prompt and the dial-in history
+blocks (`shotToJson`/`bestRecentShot`), and they map to Visualizer's SCA CVA
+descriptive attributes on upload (`applyTasteCvaMapping`: sour→acidity 12/
+bitterness 4, etc.; only-when-tapped, never-null so hand-entered CVA is never
+cleared).
+
+**Layer-1 handoff is emergent:** the advisor asks "how did it taste?" only when
+`tastingFeedback` has no signal. A tapped axis sets `hasTasteAxis` true and rides
+the composed first message, so the model already has taste and won't re-ask.
+Skipping leaves feedback absent → the advisor asks and the reactive rating capture
+still works, exactly as before.
 
 ### Providers
 

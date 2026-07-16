@@ -122,6 +122,11 @@ struct ShotSummary {
     double drinkEy = 0;
     int enjoymentScore = 0;
     QString tastingNotes;
+    // Structured taste axes (add-ai-taste-intake): "sour"|"balanced"|"bitter"
+    // and "thin"|"medium"|"heavy". "" = unset. Count as tasting feedback for
+    // the advisor's "did the user tell us how it tasted?" gate.
+    QString tasteBalance;
+    QString tasteBody;
 
     // Why the shot ended (#1161 surface, #1280 prompt anchor): one of
     // "weight" | "volume" | "manual" | "profileEnd" | "". Emitted into the

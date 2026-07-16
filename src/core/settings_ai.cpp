@@ -107,6 +107,17 @@ void SettingsAI::setOpenrouterModel(const QString& model) {
     }
 }
 
+bool SettingsAI::tasteIntakeOnAsk() const {
+    return m_settings.value("ai/tasteIntakeOnAsk", true).toBool();
+}
+
+void SettingsAI::setTasteIntakeOnAsk(bool enabled) {
+    if (tasteIntakeOnAsk() != enabled) {
+        m_settings.setValue("ai/tasteIntakeOnAsk", enabled);
+        emit tasteIntakeOnAskChanged();
+    }
+}
+
 QString SettingsAI::providerModel(const QString& providerId) const {
     if (providerId.isEmpty()) return QString();
     return m_settings.value("ai/model/" + providerId, "").toString();

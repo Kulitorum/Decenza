@@ -247,6 +247,8 @@ ShotSummary ShotSummarizer::summarizeFromHistory(const ShotProjection& shotData)
     summary.drinkEy = shotData.drinkEyPct;
     summary.enjoymentScore = shotData.enjoyment0to100;
     summary.tastingNotes = shotData.espressoNotes;
+    summary.tasteBalance = shotData.tasteBalance;
+    summary.tasteBody = shotData.tasteBody;
 
     // Canonical currentBean inputs — single shared mapping. Carries the
     // puck-prep, basket, and freeze/thaw fields the old per-surface hand-roll
@@ -400,6 +402,14 @@ static QJsonObject buildTastingFeedbackBlock(const ShotSummary& summary)
     tf["hasEnjoymentScore"] = summary.enjoymentScore > 0;
     tf["hasNotes"] = !summary.tastingNotes.isEmpty();
     tf["hasRefractometer"] = summary.drinkTds > 0 || summary.drinkEy > 0;
+    // Structured taste taps (add-ai-taste-intake) count as tasting feedback:
+    // when either is set the user HAS told us how it tasted, so the advisor
+    // must not open by asking "how did it taste?". Also carry the values so the
+    // model reasons on them directly.
+    const bool hasTasteAxis = !summary.tasteBalance.isEmpty() || !summary.tasteBody.isEmpty();
+    tf["hasTasteAxis"] = hasTasteAxis;
+    if (!summary.tasteBalance.isEmpty()) tf["tasteBalance"] = summary.tasteBalance;
+    if (!summary.tasteBody.isEmpty()) tf["tasteBody"] = summary.tasteBody;
     return tf;
 }
 
@@ -553,6 +563,10 @@ static QJsonObject buildShotBlock(const ShotSummary& summary)
     // bounded values. Mirrors `dialing_get_context.bestRecentShot.enjoyment0to100`.
     if (summary.enjoymentScore > 0) shot["enjoyment0to100"] = summary.enjoymentScore;
     if (!summary.tastingNotes.isEmpty()) shot["notes"] = summary.tastingNotes;
+    // Structured taste taps (add-ai-taste-intake): the two dial-in axes the
+    // curve can't reveal, so the model reasons on them directly.
+    if (!summary.tasteBalance.isEmpty()) shot["tasteBalance"] = summary.tasteBalance;
+    if (!summary.tasteBody.isEmpty()) shot["tasteBody"] = summary.tasteBody;
     // #1280: stop-reason anchor. Allowlist matches dialing_blocks.cpp so the
     // standalone shot block carries the same field set as bestRecentShot /
     // dialInSessions[].history. "profileEnd" and empty are intentionally
@@ -787,7 +801,16 @@ QString ShotSummarizer::renderShotAnalysisProse(const ShotSummary& summary, Rend
     if (!summary.tastingNotes.isEmpty()) {
         out << "- **Notes**: \"" << summary.tastingNotes << "\"\n";
     }
-    if (summary.enjoymentScore == 0 && summary.tastingNotes.isEmpty()) {
+    // Structured taste taps (add-ai-taste-intake) — the user's coarse
+    // single-tap impression of the two dial-in axes the curve can't reveal.
+    if (!summary.tasteBalance.isEmpty()) {
+        out << "- **Taste (extraction balance)**: " << summary.tasteBalance << "\n";
+    }
+    if (!summary.tasteBody.isEmpty()) {
+        out << "- **Body**: " << summary.tasteBody << "\n";
+    }
+    if (summary.enjoymentScore == 0 && summary.tastingNotes.isEmpty()
+        && summary.tasteBalance.isEmpty() && summary.tasteBody.isEmpty()) {
         out << "- No tasting feedback provided\n";
     }
     out << "\n";
@@ -987,12 +1010,20 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "brand/model/burrs. Only the per-shot variable `Grind setting:`\n"
         "appears in prose.\n\n"
         "**`tastingFeedback`**: carries booleans `hasEnjoymentScore`, `hasNotes`,\n"
-        "`hasRefractometer`. When ALL three are false, ASK the user how the shot\n"
+        "`hasRefractometer`, `hasTasteAxis`, plus the values `tasteBalance`\n"
+        "(sour/balanced/bitter) and `tasteBody` (thin/medium/heavy) when the user\n"
+        "tapped them. `tasteBalance` is the extraction axis — sour ⇒ likely\n"
+        "under-extracted (grind finer / hotter / longer), bitter ⇒ likely\n"
+        "over-extracted (grind coarser / cooler / shorter); `tasteBody` is the\n"
+        "concentration/mouthfeel axis. When ALL of `hasEnjoymentScore`, `hasNotes`,\n"
+        "`hasRefractometer`, `hasTasteAxis` are false, ASK the user how the shot\n"
         "tasted (score 1–100, 1–2 lines of flavor notes, TDS reading if available)\n"
         "before suggesting changes. Curve-only analysis without taste feedback\n"
-        "misses the variable that matters most.\n\n"
+        "misses the variable that matters most. If `hasTasteAxis` is true, the user\n"
+        "HAS told you how it tasted — do NOT open by asking how it tasted; reason\n"
+        "from the tapped axes.\n\n"
         "**Repeated untasted shots (stricter than the rule above)**: when tasting\n"
-        "feedback (score or notes) has been absent for the LAST 2 OR MORE shots in\n"
+        "feedback (score, notes, or a taste tap) has been absent for the LAST 2 OR MORE shots in\n"
         "this conversation, ask the user for a taste score before using\n"
         "success/quality language (\"successful\", \"optimal\", \"excellent\", \"dialed\n"
         "in\") to characterize those shots from pressure/flow curve data alone. You\n"

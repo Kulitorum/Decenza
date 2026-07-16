@@ -88,6 +88,8 @@ ShotProjection ShotHistoryStorage::convertShotRecord(const ShotRecord& record)
     p.defrostDate = record.defrostDate;
     p.storageHint = record.storageHint;
     p.openedDate = record.openedDate;
+    p.tasteBalance = record.tasteBalance;
+    p.tasteBody = record.tasteBody;
     p.recipeId = record.recipeId;
     p.steamJson = record.steamJson;
     p.hotWaterJson = record.hotWaterJson;

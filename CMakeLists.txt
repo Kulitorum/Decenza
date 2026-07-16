@@ -779,6 +779,7 @@ set(QML_FILES
     qml/components/PresetPillRow.qml
     qml/components/ValueInput.qml
     qml/components/RatingInput.qml
+    qml/components/TastePicker.qml
     qml/components/ShotGraph.qml
     qml/components/SteamGraph.qml
     qml/components/StatusBar.qml

@@ -25,6 +25,7 @@
 #include "visualizeruploader.h"
 #include "beanbase_blob.h"
 #include "roastdate.h"
+#include "tastecvamap.h"
 #include "../history/coffeebagstorage.h"
 #include "../core/dbutils.h"
 #include "../models/shotdatamodel.h"
@@ -234,6 +235,8 @@ void VisualizerUploader::uploadShotFromHistoryWithOverrides(
     applyDouble(&ShotProjection::drinkTdsPct,     "drinkTdsPct");
     applyDouble(&ShotProjection::drinkEyPct,      "drinkEyPct");
     applyInt   (&ShotProjection::enjoyment0to100, "enjoyment0to100");
+    applyStr   (&ShotProjection::tasteBalance,    "tasteBalance");
+    applyStr   (&ShotProjection::tasteBody,       "tasteBody");
 
     uploadShotFromHistory(shot);
 }
@@ -282,6 +285,8 @@ void VisualizerUploader::updateShotOnVisualizerWithOverrides(
     applyDouble(&ShotProjection::drinkTdsPct,     "drinkTdsPct");
     applyDouble(&ShotProjection::drinkEyPct,      "drinkEyPct");
     applyInt   (&ShotProjection::enjoyment0to100, "enjoyment0to100");
+    applyStr   (&ShotProjection::tasteBalance,    "tasteBalance");
+    applyStr   (&ShotProjection::tasteBody,       "tasteBody");
 
     updateShotOnVisualizer(visualizerId, shot);
 }
@@ -363,6 +368,9 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
     setStr("espresso_notes", &ShotProjection::espressoNotes);
     setStr("barista", &ShotProjection::barista);
     setStr("profile_title", &ShotProjection::profileName);
+    // Structured taste taps → CVA (add-ai-taste-intake). Only-when-tapped /
+    // never-null so this PATCH cannot clear a hand-entered CVA score.
+    applyTasteCvaMapping(shotObj, shotData.tasteBalance, shotData.tasteBody);
 
     // Canonical bean linkage (5C): when the shot's Bean Base snapshot was
     // picked via Visualizer's canonical autocomplete, the blob carries
@@ -1540,6 +1548,9 @@ QByteArray VisualizerUploader::buildHistoryShotJson(const ShotProjection& shotDa
     if (shotData.drinkEyPct > 0) settings["drink_ey"] = shotData.drinkEyPct;
     if (shotData.enjoyment0to100 > 0) settings["espresso_enjoyment"] = shotData.enjoyment0to100;
     if (!shotData.espressoNotes.isEmpty()) settings["espresso_notes"] = shotData.espressoNotes;
+    // Structured taste taps → CVA (add-ai-taste-intake), best-effort on the
+    // initial .shot upload settings; the authoritative sync is the PATCH path.
+    applyTasteCvaMapping(settings, shotData.tasteBalance, shotData.tasteBody);
 
     if (!shotData.barista.isEmpty()) settings["barista"] = shotData.barista;
 

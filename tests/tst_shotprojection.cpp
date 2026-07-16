@@ -25,6 +25,7 @@ private slots:
     void coerce_nonMapScalar_yieldsInvalidProjection();
     void hasBag_followsSentinelRule();
     void toVariantMap_sparseEmitsBagIdOnlyWhenPresent();
+    void toVariantMap_roundTripsTasteAxes();
 };
 
 static ShotProjection makeSampleShot()
@@ -137,6 +138,27 @@ void TstShotProjection::toVariantMap_sparseEmitsBagIdOnlyWhenPresent()
     const QVariantMap withBag = p.toVariantMap();
     QVERIFY(withBag.contains(QStringLiteral("bagId")));
     QCOMPARE(withBag.value(QStringLiteral("bagId")).toLongLong(), qint64(42));
+}
+
+// Structured taste axes (add-ai-taste-intake) sparse-emit when unset and round-
+// trip through toVariantMap()/fromVariantMap() when set.
+void TstShotProjection::toVariantMap_roundTripsTasteAxes()
+{
+    ShotProjection p = makeSampleShot();
+    QVERIFY2(!p.toVariantMap().contains(QStringLiteral("tasteBalance")),
+             "unset tasteBalance must be omitted");
+    QVERIFY2(!p.toVariantMap().contains(QStringLiteral("tasteBody")),
+             "unset tasteBody must be omitted");
+
+    p.tasteBalance = QStringLiteral("sour");
+    p.tasteBody = QStringLiteral("thin");
+    const QVariantMap m = p.toVariantMap();
+    QCOMPARE(m.value(QStringLiteral("tasteBalance")).toString(), QStringLiteral("sour"));
+    QCOMPARE(m.value(QStringLiteral("tasteBody")).toString(), QStringLiteral("thin"));
+
+    const ShotProjection back = ShotProjection::fromVariantMap(m);
+    QCOMPARE(back.tasteBalance, QStringLiteral("sour"));
+    QCOMPARE(back.tasteBody, QStringLiteral("thin"));
 }
 
 QTEST_APPLESS_MAIN(TstShotProjection)

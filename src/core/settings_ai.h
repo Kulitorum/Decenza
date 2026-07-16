@@ -16,6 +16,10 @@ class SettingsAI : public QObject {
     Q_PROPERTY(QString ollamaModel READ ollamaModel WRITE setOllamaModel NOTIFY ollamaModelChanged)
     Q_PROPERTY(QString openrouterApiKey READ openrouterApiKey WRITE setOpenrouterApiKey NOTIFY openrouterApiKeyChanged)
     Q_PROPERTY(QString openrouterModel READ openrouterModel WRITE setOpenrouterModel NOTIFY openrouterModelChanged)
+    // When true (default), tapping AI Advice opens the tap-only taste intake
+    // picker before the conversation; when false, it opens the conversation
+    // directly (pre-existing behavior). See add-ai-taste-intake.
+    Q_PROPERTY(bool tasteIntakeOnAsk READ tasteIntakeOnAsk WRITE setTasteIntakeOnAsk NOTIFY tasteIntakeOnAskChanged)
 
 public:
     explicit SettingsAI(QObject* parent = nullptr);
@@ -44,6 +48,9 @@ public:
     QString openrouterModel() const;
     void setOpenrouterModel(const QString& model);
 
+    bool tasteIntakeOnAsk() const;
+    void setTasteIntakeOnAsk(bool enabled);
+
     // Per-provider selected model, stored generically under ai/model/<providerId>.
     // Works for any provider that exposes multiple models (see
     // AIProvider::availableModels). Empty string = unset → the provider uses its
@@ -61,6 +68,7 @@ signals:
     void ollamaModelChanged();
     void openrouterApiKeyChanged();
     void openrouterModelChanged();
+    void tasteIntakeOnAskChanged();
     void providerModelChanged();
 
     // Aggregate signal — emitted whenever any AI setting changes. Lets consumers
