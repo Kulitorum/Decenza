@@ -2864,8 +2864,13 @@ QString ShotServer::generateLayoutPage() const
                 return s + '</select>';
             }
             html += '<div class="zone-opts-row">';
-            html += optSel(zone.key, "distribution", zopts.distribution || "packed",
-                [["packed","Packed"],["equalWidth","Equal width"],["spaced","Spaced"]]);
+            // Distribution applies to the bar zones only. A center zone (hasOffset) sizes
+            // items from a fixed cell so its buttons never stretch, which is what
+            // equalWidth/spaced would need — no value there can change the layout, so don't
+            // offer a dead control. Mirrors ZoneOptionsPopup.qml's canDistribute.
+            if (!zone.hasOffset)
+                html += optSel(zone.key, "distribution", zopts.distribution || "packed",
+                    [["packed","Packed"],["equalWidth","Equal width"],["spaced","Spaced"]]);
             html += optSel(zone.key, "alignment", zopts.alignment || "center",
                 [["left","Left"],["center","Center"],["right","Right"]]);
             html += optSel(zone.key, "style", zopts.style || "standard",
@@ -3016,10 +3021,16 @@ QString ShotServer::generateLayoutPage() const
 
     // Distribution/alignment -> flex justify-content, approximating the
     // in-app zone layout modes (packed/equalWidth/spaced, left/center/right).
-    function pvJustify(zopts) {
-        var dist = zopts.distribution || "packed";
-        if (dist === "spaced") return "space-around";
-        if (dist === "equalWidth") return "space-between";
+    // Center zones have no distribution (their fixed-cell sizing owns item widths —
+    // see LayoutCenterZone.qml), so they honor alignment only; honorDistribution is
+    // false for them, otherwise a stale stored value would preview an effect the
+    // idle screen never applies.
+    function pvJustify(zopts, honorDistribution) {
+        if (honorDistribution) {
+            var dist = zopts.distribution || "packed";
+            if (dist === "spaced") return "space-around";
+            if (dist === "equalWidth") return "space-between";
+        }
         var align = zopts.alignment || "center";
         if (align === "left") return "flex-start";
         if (align === "right") return "flex-end";
@@ -3041,7 +3052,8 @@ QString ShotServer::generateLayoutPage() const
         var zopts = (layoutData && layoutData.zoneOptions && layoutData.zoneOptions[zoneKey]) ? layoutData.zoneOptions[zoneKey] : {};
         var inner = "";
         for (var i = 0; i < items.length; i++) inner += pvItemHtml(items[i], "row");
-        return '<div style="display:flex;align-items:center;gap:3px;justify-content:' + pvJustify(zopts)
+        var honorDistribution = zoneKey.indexOf("center") !== 0;
+        return '<div style="display:flex;align-items:center;gap:3px;justify-content:' + pvJustify(zopts, honorDistribution)
              + ';overflow:hidden;' + pvZoneStyle(zopts) + (extraStyle || '') + '">' + inner + '</div>';
     }
 

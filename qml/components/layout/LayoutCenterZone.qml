@@ -8,6 +8,22 @@ Item {
     required property string zoneName
     required property var items
     property real zoneScale: 1.0
+    // Horizontal alignment of the row within the zone: "center" (default) | "left" | "right".
+    // Reads the same per-zone "alignment" option the bar zones read (Settings.network zone
+    // options), but the gating differs: a center zone has no distribution, so alignment is
+    // suppressed only by a user spacer (hasSpacer) — not by LayoutBarZone's wider fillRow
+    // (fillWidthMode || hasSpacer). Default "center" = unchanged behavior.
+    property string alignment: "center"
+    // Zone style preset: "standard" (default) | "surface" | "accentBar". Applies to item
+    // text only. Like the top/bottom bar zones, a center zone paints no background of its
+    // own — only statusBar and lowerMidBar do. Default "standard" = unchanged behavior.
+    property string zoneStyle: "standard"
+
+    // No "distribution" option by design. A center zone sizes every item from a fixed cell
+    // (buttonWidth, capped at Theme.scaled(150) * zoneScale) so action buttons never stretch,
+    // while equalWidth and spaced both require items to expand to fill the zone. With the cap
+    // kept, the two would collapse into each other and do nothing on a button-only row, so the
+    // editors hide the control here rather than offer a value that cannot apply.
 
     // Items that size to their content instead of using fixed button width
     // Action buttons (espresso, steam, etc.) use fixed buttonWidth; readouts auto-size
@@ -58,9 +74,6 @@ Item {
 
     implicitHeight: contentRow.implicitHeight
 
-    Component.onCompleted: {
-    }
-
     RowLayout {
         id: contentRow
         width: root.width
@@ -68,13 +81,16 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         spacing: root.scaledSpacing
 
-        // Auto-centering spacer (hides when user has their own spacers)
-        Item { Layout.fillWidth: true; visible: !root.hasSpacer }
+        // Leading auto-spacer: present for center + right alignment (absent for left → row hugs the left).
+        // Hides when the user has their own spacers (they position manually).
+        Item { Layout.fillWidth: true; visible: !root.hasSpacer && (root.alignment === "center" || root.alignment === "right") }
 
         Repeater {
             model: root.items
             delegate: LayoutItemDelegate {
                 zoneName: root.zoneName
+                zoneTextColor: Theme.zoneTextColor(root.zoneStyle)
+                zoneValueBold: Theme.zoneValueBold(root.zoneStyle)
                 Layout.preferredWidth: {
                     // Flip clock: interpolate between buttonWidth and wide based on clockScale
                     if (modelData.type === "screensaverFlipClock") {
@@ -105,7 +121,7 @@ Item {
             }
         }
 
-        // Auto-centering spacer (hides when user has their own spacers)
-        Item { Layout.fillWidth: true; visible: !root.hasSpacer }
+        // Trailing auto-spacer: present for center + left alignment (absent for right → row hugs the right).
+        Item { Layout.fillWidth: true; visible: !root.hasSpacer && (root.alignment === "center" || root.alignment === "left") }
     }
 }
