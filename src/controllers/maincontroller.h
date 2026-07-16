@@ -141,8 +141,9 @@ public:
     AIManager* aiManager() const { return m_aiManager; }
     LiveSteamCoach* liveSteamCoach() const { return m_liveSteamCoach; }
     // Injects the TranslationManager into the components that localize
-    // user-visible strings: the live steam coach (cue i18n) and the Visualizer
-    // importer (error messages).
+    // user-visible strings: the live steam coach (cue i18n), the Visualizer
+    // importer and uploader (error/status messages), and the update checker
+    // (update error messages).
     void setTranslationManager(TranslationManager* tm) {
         if (m_liveSteamCoach) m_liveSteamCoach->setTranslationManager(tm);
         if (m_visualizerImporter) m_visualizerImporter->setTranslationManager(tm);

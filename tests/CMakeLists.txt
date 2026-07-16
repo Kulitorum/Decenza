@@ -96,9 +96,10 @@ add_library(decenza_testlib STATIC
     ${CORE_SOURCES}
     ${CONTROLLER_SOURCES}
     ${SIMULATOR_SOURCES}
-    # TranslationManager is used by shared sources here (e.g. VisualizerUploader
-    # via HISTORY_SOURCES, LiveSteamCoach) that now route user-visible strings
-    # through translate(); provide it once instead of per-target.
+    # TranslationManager is needed by per-target sources that link this lib
+    # (VisualizerUploader via HISTORY_SOURCES; LiveSteamCoach) now that they
+    # route user-visible strings through translate(). Compiling it into the lib
+    # provides the symbol once instead of each target adding translationmanager.cpp.
     ${CMAKE_SOURCE_DIR}/src/core/translationmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/ble/de1transport.h
 )
