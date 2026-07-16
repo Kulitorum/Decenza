@@ -29,6 +29,20 @@ backed-out-without-entering shot re-shows the intake. **Ask** persists the taps 
 `requestUpdateShotMetadata`, composes a first-person question, and sends it with
 the shot attached; **Skip** drops into the normal text conversation.
 
+The overlay reads only the host page's shot *snapshot* for the gate, and
+`PostShotReviewPage` deliberately does not reload that snapshot on metadata save
+(it would clobber in-progress edits). So on Ask the overlay also emits
+`tasteIntakeSubmitted(tasteBalance, tasteBody, overall)`; the review page mirrors
+those axes into its live `editTaste*` / `editEnjoyment` fields (via
+`applyEditState`) and advances **both** review-page baselines — `editShotData`
+(what `hasUnsavedChanges` compares against) and `_committedState` (the undo
+baseline) — mirroring the `ChangeBeansDialog.onBagSelected` external-flow
+pattern, so no redundant re-save/Visualizer PATCH or phantom undo frame fires on
+the next flush. The rating slider and taste chips update at once and the next
+Ask sees the feedback — the
+review page's AI-Advice click passes the *live* taste, not the stale snapshot, to
+`openWithShot`.
+
 The taps are structured shot columns (`taste_balance`/`taste_body`, migration 33),
 not free text — so the same picker also appears on the post-shot review page (no
 parallel UI), the values flow into the advisor prompt and the dial-in history
