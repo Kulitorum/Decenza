@@ -398,11 +398,16 @@ private slots:
         // class-2 measurement failures (no-liquid / beyond-range) surface.
         DiFluidR2 r2(nullptr);
         QSignalSpy errorSpy(&r2, &DiFluidR2::errorOccurred);
+        QSignalSpy measSpy(&r2, &DiFluidR2::measuringChanged);
 
         QTest::ignoreMessage(QtWarningMsg, QRegularExpression("R2 error: class=0 code=2"));
         r2.handlePacket(buildErrorPacket(0, 2));
 
         QCOMPARE(errorSpy.count(), 0);
+        // Not surfaced, but the measuring state is still cleared so the UI
+        // doesn't hang on a benign status error.
+        QCOMPARE(measSpy.count(), 1);
+        QVERIFY(!r2.isMeasuring());
     }
 
     // === Invalid packets ===
