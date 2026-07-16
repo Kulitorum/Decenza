@@ -52,4 +52,4 @@
 - [x] 7.3 Verified on shot 38 (recorded 2025-01-01, blob has no `temperatureMixGoal` key): with the toggle explicitly ON the graph draws no line rather than a line at zero, and the re-upload carries no `espresso_temperature_mix_goal`. The same re-upload DID carry `espresso_temperature_mix`, confirming the history-builder drift fix (task 4.3) against the live service.
 - [x] 7.4 Update `docs/CLAUDE_MD/VISUALIZER.md` with the `mix_goal` field and the two-builder rule.
 - [x] 7.5 Update the wiki manual's graph/advanced-mode section to document the new line (required for user-visible features).
-- [ ] 7.6 Run `/opsx:archive` as the final commit on the feature branch, before merge.
+- [x] 7.6 Run `/opsx:archive` as the final commit on the feature branch, before merge.
