@@ -8,6 +8,8 @@
 #include <QNetworkReply>
 #include <functional>
 
+class TranslationManager;
+
 // Abstract base class for AI providers
 class AIProvider : public QObject {
     Q_OBJECT
@@ -25,6 +27,11 @@ public:
 
     explicit AIProvider(QNetworkAccessManager* networkManager, QObject* parent = nullptr);
     virtual ~AIProvider() = default;
+
+    // Inject the TranslationManager so user-visible error/status strings
+    // localize. Set by AIManager for every provider it owns; until injected,
+    // tr_() returns the English fallback.
+    void setTranslationManager(TranslationManager* tm) { m_translationManager = tm; }
 
     virtual QString name() const = 0;
     virtual QString id() const = 0;  // "openai", "anthropic", "gemini", "ollama"
@@ -63,7 +70,7 @@ public:
     virtual bool supportsUrlAnalysis() const { return false; }
     virtual void analyzeUrl(const QString& systemPrompt, const QString& userPrompt) {
         Q_UNUSED(systemPrompt); Q_UNUSED(userPrompt);
-        emit analysisFailed(QStringLiteral("URL analysis not supported by this provider"));
+        emit analysisFailed(tr_("ai.error.urlNotSupported", "URL analysis not supported by this provider"));
     }
 
     // Test connection
@@ -78,8 +85,12 @@ signals:
 protected:
     void setStatus(Status status);
 
-    // Map Qt network errors to user-friendly messages
-    static QString friendlyNetworkError(QNetworkReply* reply);
+    // Map Qt network errors to user-friendly messages (localized via tr_).
+    QString friendlyNetworkError(QNetworkReply* reply) const;
+
+    // Translate a user-visible string via the injected TranslationManager,
+    // falling back to the English source when none is set.
+    QString tr_(const char* key, const char* fallback) const;
 
     // Build OpenAI-compatible messages array: system message + conversation messages
     static QJsonArray buildOpenAIMessages(const QString& systemPrompt, const QJsonArray& messages);
@@ -92,6 +103,7 @@ protected:
     static constexpr int MAX_RETRIES = 3;                // max retries for 429/502/503/504
 
     QNetworkAccessManager* m_networkManager = nullptr;
+    TranslationManager* m_translationManager = nullptr;
     Status m_status = Status::Ready;
     std::function<void()> m_retryFn;  // set by each sendRequest() to re-send the pending request
     int m_retryCount = 0;             // reset to 0 before each new analyze() / analyzeConversation() call
