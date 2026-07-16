@@ -2,42 +2,38 @@
 
 ## ADDED Requirements
 
-### Requirement: Tap-only taste intake on first advisor open
+### Requirement: Tap-only taste intake for a fresh advisor session
 
-The system SHALL present a text-free, tap-only taste intake the first time the AI
-advisor is opened for a given shot, when `Settings.ai.tasteIntakeOnAsk` is true.
-The intake SHALL contain no free-text input of any kind. It SHALL offer up to
-three optional rows — Extraction (`Sour` / `Balanced` / `Bitter`), Body (`Thin` /
-`Medium` / `Heavy`), and Overall (the existing `RatingInput`, values
-25/50/75/100) — an "Ask" action, and a "Skip" action.
+When `Settings.ai.tasteIntakeOnAsk` is true, the system SHALL present a text-free,
+tap-only taste intake on opening the AI advisor for a shot **unless** there is
+already something to return to — namely a **saved conversation** for the shot's
+context (`conversation.hasHistory`) **or** taste feedback already saved on the
+shot (a non-empty `taste_balance`, `taste_body`, or a non-zero `enjoyment0to100`).
+When shown, the intake SHALL contain no free-text input of any kind and SHALL
+offer three rows — Extraction (`Sour` / `Balanced` / `Bitter`), Body (`Thin` /
+`Medium` / `Heavy`), and Overall (the existing `RatingInput`, values 25/50/75/100)
+— an "Ask" action, and a "Skip" action.
 
-#### Scenario: First open with an unrated, un-tasted shot
-- **WHEN** the user opens the advisor for a shot that has no enjoyment score and no taste/body set, with the setting ON
-- **THEN** the intake SHALL show all three rows and an "Ask" button
+#### Scenario: Fresh shot with no conversation and no feedback
+- **WHEN** the user opens the advisor for a shot with no saved conversation and no saved enjoyment/taste, with the setting ON
+- **THEN** the intake SHALL be shown with all three rows and an "Ask" button
 - **AND** no keyboard or text field SHALL be presented
 
 #### Scenario: Setting off
 - **WHEN** `Settings.ai.tasteIntakeOnAsk` is false
 - **THEN** opening the advisor SHALL go directly to the text conversation with the shot attached, with no intake shown
 
-#### Scenario: Intake gates on first open only
-- **WHEN** the user has already been shown the intake for a shot (whether they tapped Ask or Skip)
-- **THEN** subsequent opens of the advisor for that same shot SHALL NOT show the intake again
+#### Scenario: Empty conversation re-shows the intake
+- **WHEN** the user opened the advisor (intake shown), backed out without asking or cleared the conversation, so it has no history, and no taste feedback was saved
+- **THEN** re-opening the advisor SHALL show the intake again
 
-### Requirement: Adaptive display of unfilled axes only
+#### Scenario: Saved conversation suppresses the intake
+- **WHEN** the shot's conversation already has history (the user asked the AI before)
+- **THEN** opening the advisor SHALL go straight to the text conversation, with no intake
 
-The intake SHALL display only the axes whose values are unset. Overall SHALL be
-shown only when `enjoyment0to100 == 0`; Taste only when `taste_balance` is empty;
-Body only when `taste_body` is empty. When all three are already set, the intake
-SHALL collapse to a single "Ask → What do you think?" action.
-
-#### Scenario: Partially rated shot
-- **WHEN** the shot already has an enjoyment score but no taste/body
-- **THEN** the intake SHALL show only the Taste and Body rows plus "Ask"
-
-#### Scenario: Fully rated shot collapses to one tap
-- **WHEN** the shot already has enjoyment, taste, and body set
-- **THEN** the intake SHALL show only a single "Ask → What do you think?" button and no rows
+#### Scenario: Saved taste feedback suppresses the intake
+- **WHEN** the shot already has a saved rating and/or taste axis (data entered and saved), even with no conversation
+- **THEN** opening the advisor SHALL go straight to the text conversation, with no intake
 
 ### Requirement: Ask composes a question from taps and attaches the shot
 

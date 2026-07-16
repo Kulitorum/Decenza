@@ -184,21 +184,29 @@ Rectangle {
         overlay.isMistakeShot = isMistake
         overlay.shotDebugLog = shotData.debugLog || ""
 
-        // First-open taste intake gate. Show once per shot (whether the user
-        // then taps Ask or Skip) when the setting is on and it's not a mistake
-        // shot. Only the still-unfilled axes are shown; a fully-rated shot
-        // collapses to the lone "Ask" button (the one-tap question).
+        // Taste intake gate. Show the intake unless there's already something to
+        // go back to: a SAVED CONVERSATION for this shot's context, or taste
+        // feedback already entered + saved on the shot. So a new / cleared /
+        // backed-out-without-asking conversation (all empty) re-shows the intake
+        // next time; once the user has asked the AI or recorded any taste, it
+        // goes straight to the text conversation. (switchConversation ran above,
+        // so `conversation` reflects this shot's context.)
+        var conv = MainController.aiManager.conversation
+        var hasConversation = conv && conv.hasHistory
+        var hasSavedFeedback = ((shotData.tasteBalance || "").length > 0)
+                            || ((shotData.tasteBody || "").length > 0)
+                            || ((shotData.enjoyment0to100 || 0) > 0)
         var canIntake = Settings.ai.tasteIntakeOnAsk && !isMistake && shotId > 0
-                        && !Settings.ai.tasteIntakeSeen(shotId)
+                        && !hasConversation && !hasSavedFeedback
         if (canIntake) {
             overlay.intakeTasteBalance = ""
             overlay.intakeTasteBody = ""
             overlay.intakeOverall = 0
-            overlay.intakeShowExtraction = ((shotData.tasteBalance || "").length === 0)
-            overlay.intakeShowBody = ((shotData.tasteBody || "").length === 0)
-            overlay.intakeShowOverall = ((shotData.enjoyment0to100 || 0) <= 0)
+            // No saved feedback here (gate guarantees it), so all rows are unset.
+            overlay.intakeShowExtraction = true
+            overlay.intakeShowBody = true
+            overlay.intakeShowOverall = true
             overlay.intakeVisible = true
-            Settings.ai.markTasteIntakeSeen(shotId)
         } else {
             overlay.intakeVisible = false
         }

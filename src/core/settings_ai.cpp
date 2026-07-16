@@ -118,16 +118,6 @@ void SettingsAI::setTasteIntakeOnAsk(bool enabled) {
     }
 }
 
-bool SettingsAI::tasteIntakeSeen(qint64 shotId) const {
-    if (shotId <= 0) return false;
-    return m_settings.value(QString("ai/tasteIntakeSeen/%1").arg(shotId), false).toBool();
-}
-
-void SettingsAI::markTasteIntakeSeen(qint64 shotId) {
-    if (shotId <= 0) return;
-    m_settings.setValue(QString("ai/tasteIntakeSeen/%1").arg(shotId), true);
-}
-
 QString SettingsAI::providerModel(const QString& providerId) const {
     if (providerId.isEmpty()) return QString();
     return m_settings.value("ai/model/" + providerId, "").toString();

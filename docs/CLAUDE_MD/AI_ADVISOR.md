@@ -15,15 +15,18 @@
 
 ### Taste intake (tap-only) — add-ai-taste-intake
 
-When `Settings.ai.tasteIntakeOnAsk` is on (default), the first time the advisor is
-opened for a shot (`ConversationOverlay.openWithShot`) a fully text-free intake
-appears over the conversation. It shows only the still-unfilled axes — Extraction
-(`Sour`/`Balanced`/`Bitter` → `taste_balance`), Body (`Thin`/`Medium`/`Heavy` →
-`taste_body`), Overall (reused `RatingInput` → `enjoyment0to100`); a fully-rated
-shot collapses to the lone **Ask** button. **Ask** persists the taps via
+When `Settings.ai.tasteIntakeOnAsk` is on (default), opening the advisor for a
+shot (`ConversationOverlay.openWithShot`) shows a fully text-free intake over the
+conversation — Extraction (`Sour`/`Balanced`/`Bitter` → `taste_balance`), Body
+(`Thin`/`Medium`/`Heavy` → `taste_body`), Overall (reused `RatingInput` →
+`enjoyment0to100`) — **unless there's already something to return to**: a saved
+conversation for the shot's context (`conversation.hasHistory`) or taste feedback
+already saved on the shot (any of `taste_balance` / `taste_body` /
+`enjoyment0to100`). So a new / cleared / backed-out-without-asking conversation
+re-shows the intake; once the user has asked the AI or recorded any taste it goes
+straight to the text conversation. **Ask** persists the taps via
 `requestUpdateShotMetadata`, composes a first-person question, and sends it with
-the shot attached; **Skip** drops into the normal text conversation. A per-shot
-`SettingsAI::tasteIntakeSeen` flag gates it to first-open only.
+the shot attached; **Skip** drops into the normal text conversation.
 
 The taps are structured shot columns (`taste_balance`/`taste_body`, migration 33),
 not free text — so the same picker also appears on the post-shot review page (no

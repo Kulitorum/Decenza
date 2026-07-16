@@ -15,10 +15,10 @@ curve already tells it (duration, ratio, channeling, etc.).
 
 ## Key decisions
 
-### 1. Tap-only, first-open gate — no text in the picker
+### 1. Tap-only gate — no text in the picker
 
-The picker is presented the first time the advisor opens for a shot and is
-**entirely tap-driven**. There is deliberately no note field. Rationale:
+The picker is presented on opening the advisor and is **entirely tap-driven**.
+There is deliberately no note field. Rationale:
 
 - The value proposition is "get better advice without typing." A text box
   reintroduces the keyboard — and the keyboard is exactly what has caused this
@@ -27,26 +27,33 @@ The picker is presented the first time the advisor opens for a shot and is
 - Users who want to type already have the normal compose box; Skip drops them
   there in one tap.
 
-### 2. Adaptive display — show only unfilled axes
+### 2. Gate on "is there something to return to?", not a seen-flag
 
-Each row appears only when its value is unset (`enjoyment0to100 == 0`,
-`taste_balance` empty, `taste_body` empty). This means the user is only ever asked
-for signals the AI is actually missing, and a fully-rated shot (common when
-revisiting an old shot on the detail page) collapses the dialog to a single
-"Ask → What do you think?" button — which is precisely the one-tap question from
-issue #914. The same surface is both the guided intake and the plain one-tap ask.
+The intake shows unless the shot already has a **saved conversation**
+(`conversation.hasHistory`) **or** saved taste feedback (any of `taste_balance` /
+`taste_body` / `enjoyment0to100`). An earlier design used a per-shot "seen" flag
+set when the intake was *shown* — but that suppressed it after a user opened,
+backed out without asking, and returned (the conversation was still empty and no
+feedback existed, yet the intake never came back). Gating on emptiness fixes that:
+new / cleared / backed-out sessions re-show the intake; asking the AI or recording
+any taste sends the user straight to the text conversation thereafter. This also
+removes the unbounded per-shot QSettings keys the flag would have accrued.
 
-### 3. Structured columns, not free-text — forced by the adaptive UX
+Because the gate requires *no* saved feedback, all three rows are always unset
+when the intake is shown (no partial/adaptive-row case to handle).
+
+### 3. Structured columns, not free-text
 
 Taste could have been encoded into the existing `espressoNotes` free-text field
-(cheaper, no migration). It is stored as structured columns instead because the
-adaptive display **requires** it: to show a row "only if unset" and to
-pre-select a prior value, the code must reliably answer "is taste set?" and read
-the value back — which is trivial against a column with an empty sentinel and
-unreliable against prose. Free-text would also be a **second, informal**
-representation of a concept that already has a structured widget (the rating
-slider), i.e. the parallel-interface trap. The double-win (dial-in history, SAW
-context, "last time you said sour you went finer") also needs queryable columns.
+(cheaper, no migration). It is stored as structured columns instead because
+several consumers must reliably answer "is taste set, and to what?": the intake
+gate reads saved-feedback to decide whether to show (decision 2), the Visualizer
+CVA mapping keys off the exact value, and the review-page picker pre-selects a
+prior value — all trivial against a column with an empty sentinel and unreliable
+against prose. Free-text would also be a **second, informal** representation of a
+concept that already has a structured widget (the rating slider), i.e. the
+parallel-interface trap. The double-win (dial-in history, SAW context, "last time
+you said sour you went finer") also needs queryable columns.
 
 Bar applied (drawn from why `remove-inferred-shot-ratings` failed): *add a shots
 column only if the signal can't be gotten another way AND changes the AI's

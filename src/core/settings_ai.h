@@ -51,13 +51,6 @@ public:
     bool tasteIntakeOnAsk() const;
     void setTasteIntakeOnAsk(bool enabled);
 
-    // Per-shot "the taste intake has been shown for this shot" flag, so the
-    // intake is a first-open gate: once shown (whether the user tapped Ask or
-    // Skip) it does not reappear on subsequent opens of the same shot. Mirrors
-    // the old QuickRatingRow per-shot dismissal. See add-ai-taste-intake.
-    Q_INVOKABLE bool tasteIntakeSeen(qint64 shotId) const;
-    Q_INVOKABLE void markTasteIntakeSeen(qint64 shotId);
-
     // Per-provider selected model, stored generically under ai/model/<providerId>.
     // Works for any provider that exposes multiple models (see
     // AIProvider::availableModels). Empty string = unset → the provider uses its

@@ -40,14 +40,15 @@ grind/temperature/time; the thin↔strong axis drives ratio/dose.
     **not** a new rating widget.
   - The picker contains **no text field** — there is no free-text/note affordance.
     Users who want to type use the normal compose box after the first turn.
-- **NEW** the intake is presented the **first time** the advisor is opened for a
-  given shot (from the AI Advice button on `PostShotReviewPage` and
-  `ShotDetailPage`). It shows **only the axes that are still unset**:
-  - Overall shown only when `enjoyment0to100 == 0` (unrated).
-  - Taste shown only when `taste_balance` is unset.
-  - Body shown only when `taste_body` is unset.
-  - When every axis is already filled, the dialog collapses to a single
-    **"Ask → What do you think?"** button (the pure one-tap question).
+- **NEW** the intake is presented on opening the advisor (from the AI Advice
+  button on `PostShotReviewPage` and `ShotDetailPage`) **unless there is already
+  something to return to**: a saved conversation for the shot's context
+  (`conversation.hasHistory`) or taste feedback already saved on the shot (any of
+  `taste_balance` / `taste_body` / `enjoyment0to100`). So a new / cleared /
+  backed-out-without-asking conversation re-shows the intake; asking the AI or
+  recording any taste sends the user straight to the text conversation
+  thereafter. When shown, all three rows are offered (the gate guarantees no
+  saved feedback yet).
 - **NEW** an "Ask" action composes a natural-language sentence from the tapped
   values (e.g. "It tasted sour and a bit thin, I'd rate it 50. What do you think
   and how should I adjust the next shot?") and sends it with the shot attached,

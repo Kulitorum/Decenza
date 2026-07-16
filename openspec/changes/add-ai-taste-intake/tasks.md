@@ -22,11 +22,11 @@
 ## 4. Advisor first-open gate
 
 - [x] 4.1 Add `SettingsAI::tasteIntakeOnAsk` (bool, default `true`); expose as `Settings.ai.tasteIntakeOnAsk`; add the **"Ask how it tasted"** `StyledSwitch` to `SettingsAITab.qml` so users can turn it off.
-- [x] 4.2 `ConversationOverlay.openWithShot` gates the intake on `Settings.ai.tasteIntakeOnAsk && !mistake && !tasteIntakeSeen(shotId)`, seeding the `show*` flags from which axes are unfilled; OFF → opens conversation directly as today. (Both PostShotReviewPage and ShotDetailPage route through `openWithShot`, so both are covered.)
-- [x] 4.3 All axes filled → all `show*` flags false → picker renders no rows, leaving the lone "Ask" (+ Skip) — the one-tap question.
+- [x] 4.2 `ConversationOverlay.openWithShot` gates the intake on `Settings.ai.tasteIntakeOnAsk && !mistake && !conversation.hasHistory && !hasSavedFeedback` (feedback = any of `taste_balance` / `taste_body` / `enjoyment0to100`); OFF → opens conversation directly as today. (Both PostShotReviewPage and ShotDetailPage route through `openWithShot`.)
+- [x] 4.3 The gate guarantees no saved feedback when shown, so all three rows appear. A shot with a saved conversation OR any saved feedback goes straight to text (no intake).
 - [x] 4.4 "Ask" (`submitIntake()`) persists tapped values via `requestUpdateShotMetadata`, composes a first-person question (English, AI-facing), and sends with the shot attached through the existing `sendFollowUp()`. Nothing selected → sends the plain "What do you think?".
 - [x] 4.5 "Skip" sets `intakeVisible = false`, dropping into the normal text conversation with the shot attached.
-- [x] 4.6 `SettingsAI::tasteIntakeSeen`/`markTasteIntakeSeen` (QSettings, per shot id) gate the intake to first-open only.
+- [x] 4.6 Gate on "something to return to" (empty conversation + no saved feedback), NOT a per-shot flag — so new / cleared / backed-out sessions re-show the intake. (Replaced the earlier `tasteIntakeSeen` QSettings flag, which suppressed the intake after a back-out; removing it also drops the unbounded per-shot keys.)
 
 ## 5. Prompt + gate wiring
 
