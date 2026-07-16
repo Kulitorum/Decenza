@@ -1256,6 +1256,7 @@ int main(int argc, char *argv[])
     DatabaseBackupManager backupManager(&settings, mainController.shotHistory(),
                                        &profileStorage, &screensaverManager);
     mainController.setBackupManager(&backupManager);
+    backupManager.setTranslationManager(&translationManager);
     QObject::connect(&backupManager, &DatabaseBackupManager::backupCreated,
                      [](const QString& path) {
         qDebug() << "DatabaseBackupManager: Backup created successfully:" << path;
