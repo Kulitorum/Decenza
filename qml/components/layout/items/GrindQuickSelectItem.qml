@@ -69,7 +69,7 @@ Item {
         if (grindSetting.length > 0)
             parts.push(grindSetting)
         if (showRpm)
-            parts.push(rpmValue + " RPM")
+            parts.push(rpmValue + " " + TranslationManager.translate("grind.quickSelect.rpmLabel", "RPM"))
         return parts.length > 0 ? parts.join(", ")
             : TranslationManager.translate("grind.quickSelect.unset", "—")
     }
@@ -262,6 +262,15 @@ Item {
         var cur = root.grindSetting
         var step = root.grindStep
 
+        // Canonical current = the current value reformatted to the step's
+        // decimals (exactly what n === 0 produces). Highlight whichever surviving
+        // row equals it, rather than the n === 0 iteration directly: at the low
+        // or letter clamp edge, negative n's clamp to the same string and are
+        // pushed first, consuming the n === 0 slot in the dedup — comparing to
+        // the canonical value keeps the current row highlighted anyway. (This
+        // still matches reformatted values, e.g. "30" -> "30.0", because the
+        // canonical form is itself reformatted.)
+        var canonicalCurrent = root.stepGrind(cur, 0, step)
         var generated = []
         var seen = ({})
         for (var n = -5; n <= 5; n++) {
@@ -269,9 +278,7 @@ Item {
             if (v === "" || v === undefined) continue
             if (seen[v]) continue
             seen[v] = true
-            // Highlight the current row by n === 0 (string equality would miss
-            // reformatted values, e.g. "30" -> "30.0" at step 0.5).
-            generated.push({ value: v, isCurrent: n === 0 })
+            generated.push({ value: v, isCurrent: v === canonicalCurrent })
         }
 
         if (generated.length <= 2)
