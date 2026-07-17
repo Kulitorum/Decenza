@@ -122,14 +122,32 @@ The system SHALL resolve the effective yield spec to grams **before** `MachineSt
 - **WHEN** a shot pulled under a ratio anchor is analysed
 - **THEN** the yield-overshoot and yield-shortfall arms compute against the resolved gram target exactly as for an absolute anchor, with no ratio-specific branch
 
-### Requirement: The dose is latched for the duration of a shot
+### Requirement: The resolved target is latched for the duration of a shot
 
-The system SHALL latch the dose used for ratio resolution when the espresso cycle starts, and SHALL release it when the shot ends. A dose write arriving during a shot SHALL NOT move the live stop-at-weight target. The latch SHALL be driven by the cycle-start/cycle-end events, never by a timer.
+The system SHALL latch the **resolved gram target** — not merely the dose — when the espresso cycle starts, and SHALL release it when the espresso cycle **ends**. While latched, a write to ANY input of the resolution ladder (the dose, the session anchor, an anchor clear, a bag switch, a recipe activation, a profile load) SHALL NOT move the live stop-at-weight target. The latch SHALL be event-driven, never a timer.
+
+Latching only the dose is insufficient and SHALL NOT be treated as satisfying this requirement: every *other* ladder input stays live during a shot, and each re-resolves and pushes a new value at the machine. This is not hypothetical — a bag switch during a pour dropped a 45 g target to 36 g and cut the shot short.
+
+The release SHALL be driven by the espresso cycle's **exit**, not by extraction ending. The two are different events: a cycle can be entered and left without ever flowing (the user stops during preheat, the machine aborts, the connection drops), and a release gated on flow having started never fires for such a cycle — leaving the latch armed and every subsequent shot pinned to a stale target. The release SHALL therefore also fire when the connection is lost mid-cycle, which likewise leaves the cycle.
+
+Latching SHALL resolve the target against live state, never through a still-armed latch: an implementation that reads its own latched value while re-arming turns a one-shot leak into a permanent one.
+
+The latched target SHALL be pushed to the machine at latch time, so the value the machine stops at and the value the shot records cannot disagree.
 
 #### Scenario: A mid-shot dose write does not move the target
 - **WHEN** a shot is running under a `{2.0, ratio}` anchor latched at an 18 g dose
 - **AND** any surface writes a dose of 20 g while the shot is in progress
 - **THEN** the stop target remains 36 g for the remainder of that shot
+
+#### Scenario: A mid-shot anchor clear does not move the target
+- **WHEN** a shot is running at a latched 45 g target
+- **AND** a bean switch clears the session anchor mid-pour (or any surface writes a new anchor)
+- **THEN** the stop target remains 45 g for the remainder of that shot
+
+#### Scenario: A cycle aborted before flow releases the latch
+- **WHEN** an espresso cycle is started and stopped during preheat, without ever flowing
+- **THEN** the latch SHALL be released, and a subsequent target change SHALL move the machine's target normally
+- **AND** the next shot SHALL resolve its own target from live state rather than re-latching the aborted shot's
 
 #### Scenario: The next shot picks up the new dose
 - **WHEN** that shot ends and a new dose of 20 g stands
@@ -138,6 +156,12 @@ The system SHALL latch the dose used for ratio resolution when the espresso cycl
 ### Requirement: Shots record the anchor that produced their target
 
 The system SHALL record, on every saved shot, both the resolved gram target (existing behaviour) and the anchor that produced it: the anchor's mode and its value. The anchor value SHALL be stored, never derived at read time from the recorded target and dose.
+
+These values SHALL be read from the shot's **start-of-shot snapshot**, not from live session state at save time. The save path runs after stop-at-weight settling — i.e. after the latch has released — so a live read would record whatever the dial drifted to during the pour rather than what the shot actually ran at. The snapshot SHALL therefore outlive the latch it was taken with.
+
+#### Scenario: A mid-shot dose write does not reach the shot record
+- **WHEN** a shot runs at a latched 45 g target and a dose capture lands while the cup is still filling
+- **THEN** the saved shot records the 45 g target the shot ran at, not a target re-derived from the new dose
 
 #### Scenario: A ratio shot records its ratio
 - **WHEN** a shot is pulled at a `{2.0, ratio}` anchor with an 18 g dose

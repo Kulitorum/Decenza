@@ -135,5 +135,5 @@ The end-user manual lives at https://github.com/Kulitorum/Decenza/wiki/Manual (s
 - [x] 11.1 Full `--target all` build (MCP register-stub signatures are duplicated in `tst_mcpserver_session`/`tst_mcpserver_protocol` and externed in `tst_mcptools_*`)
 - [x] 11.2 Clear all warnings, including QML TypeErrors in the running app
 - [x] 11.3 Ask Jeff to launch and verify on the real app: ratio recipe tracks a dose capture; absolute recipe does not; the button moves; a bean switch does not clobber an active recipe
-- [ ] 11.4 `/opsx:archive` as the last commit on the branch, so the archive + spec promotion land inside the PR
+- [x] 11.4 `/opsx:archive` as the last commit on the branch, so the archive + spec promotion land inside the PR
 - [ ] 11.5 Close issue #1533 on merge
