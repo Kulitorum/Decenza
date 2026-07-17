@@ -602,6 +602,14 @@ Dialog {
         if (formMode !== "edit")
             fields["kind"] = bagKind
         if (formMode === "edit") {
+            // defrostDate follows the freeze toggle, unlike storageHint/openedDate
+            // below — and that asymmetry is deliberate, not the bug this change
+            // fixed. frozenDate and defrostDate are the SAME axis (the freezer):
+            // turning the toggle off says this bag is not stored frozen, which
+            // retires that axis as a unit, and a thaw date without a freeze date
+            // would be a thaw from a freezer the bag was never in. The bug was
+            // freezing clearing OTHER axes. Cross-axis clearing is the error;
+            // within-axis is coherent.
             fields["defrostDate"] = fFreeze ? (fDefrostDate.length === 10 ? fDefrostDate : "") : ""
             // openedDate marks the current portion leaving airtight storage —
             // the sibling of defrostDate (leaving the freezer), not its

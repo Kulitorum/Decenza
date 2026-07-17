@@ -280,6 +280,13 @@ signals:
     void bagReady(qint64 bagId, const QVariantMap& bag);   // bag empty if not found
     void bagCreated(qint64 bagId, const QVariantMap& bag); // bagId -1 on failure
     void bagUpdated(qint64 bagId, bool success);
+    // A write failed in a way the user must know about. bagUpdated carries the
+    // same status, but it is a terminal signal for programmatic callers (the
+    // MCP tool arms a one-shot to send its response) — the UI never consumed
+    // it, so a failed save closed the dialog silently and the user read the
+    // unchanged card as their own mistake. Mirrors
+    // ShotHistoryStorage::errorOccurred; main.qml surfaces both as a toast.
+    void errorOccurred(const QString& message);
     // The bag left inventory (requestMarkEmpty, or any update carrying
     // inInventory=false — card, MCP, web all funnel through requestUpdateBag).
     // The recipe roll-on-finish relink hooks onto this event

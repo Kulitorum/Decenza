@@ -19,7 +19,7 @@ The force-clears are unconditional loss on the *save* path: a `storageHint`/`ope
   **Naming correction (user, during apply):** beans are frozen in PORTIONS and pulled out one at a time, so the bag keeps portions in the freezer indefinitely and `defrostDate` tracks only the CURRENT PORTION. The original task text here said to name the predicate for "no portion currently in the freezer" (`portionInFreezer`) — that name asserts something never true of a frozen bag. Same truth table, wrong concept; renamed to `portionOutOfFreezer`. "Thaw" therefore stays available on a thawed bag for the next portion, and is a recurring action rather than a state transition.
 - [x] 3.2 Leave the "Thaw" button's `visible: card.isFrozen` (`:440`) alone — re-thawing a later portion is legitimate on a thawed bag; a thawed bag intentionally shows both actions
 - [x] 3.3 Update the comment above the "Mark Opened" button (`:450-452`, "Non-frozen bag: ...") to describe the new eligibility rule
-- [ ] 3.4 Check the two buttons fit the card width on the tablet's layout (design.md Risks) — the both-visible case only occurs on frozen-and-thawed bags
+- [x] 3.4 Check the two buttons fit the card width on the tablet's layout (design.md Risks) — the both-visible case only occurs on frozen-and-thawed bags
 
 ## 4. Tests
 
@@ -34,11 +34,11 @@ The force-clears are unconditional loss on the *save* path: a `storageHint`/`ope
 
 ## 5. Manual verification
 
-- [ ] 5.1 Create a bag with the freeze toggle ON and a storage hint selected — confirm the hint persists on save and is still there on reopen (this is the exact case the old build silently cleared)
-- [ ] 5.2 On a thawed bag (`frozenDate` + `defrostDate`), confirm both "Thaw" and "Mark Opened" appear and each sets only its own field
-- [ ] 5.3 On a frozen, never-thawed bag, confirm "Mark Opened" does NOT appear
+- [x] 5.1 Create a bag with the freeze toggle ON and a storage hint selected — confirm the hint persists on save and is still there on reopen (this is the exact case the old build silently cleared)
+- [x] 5.2 On a thawed bag (`frozenDate` + `defrostDate`), confirm both "Thaw" and "Mark Opened" appear and each sets only its own field
+- [x] 5.3 On a frozen, never-thawed bag, confirm "Mark Opened" does NOT appear
 - [ ] 5.4 Confirm all four fields survive an app restart
-- [ ] 5.5 Carries the regression 4.1-4.3 could not automate: set `storageHint` + `openedDate` on a FROZEN bag via the `bag_update` MCP tool, then open that bag in the Change Beans dialog and save WITHOUT touching either field. Re-read via `bag_list` and assert both values are still present — on the pre-fix build this is exactly the path that silently wiped them
+- [x] 5.5 Carries the regression 4.1-4.3 could not automate: set `storageHint` + `openedDate` on a FROZEN bag via the `bag_update` MCP tool, then open that bag in the Change Beans dialog and save WITHOUT touching either field. Re-read via `bag_list` and assert both values are still present — on the pre-fix build this is exactly the path that silently wiped them
 
 ## 6. Docs & housekeeping
 
