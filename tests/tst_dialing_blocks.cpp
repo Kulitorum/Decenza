@@ -884,6 +884,91 @@ private slots:
         });
     }
 
+    // stepSize — the step is grinder-model-wide, NOT scoped to the bean
+    // argument. Split a grinder's settings across two beans: bean A alone is
+    // coarse (would give 1.0), bean B contributes the fine 0.25 gaps. Passing
+    // bean A must still yield 0.25, proving the step pools all beans.
+    void grinderContextBlock_stepSizeIsGrinderWideAcrossBeans()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("grinder_wide"), [&](QSqlDatabase& db) {
+            auto add = [&](const QString& bean, const QString& setting) {
+                ShotRow r;
+                r.uuid = QStringLiteral("uuid-gw-") + bean + setting;
+                r.profileName = QStringLiteral("p");
+                r.beanBrand = bean;
+                r.grinderModel = QStringLiteral("Zero");
+                r.grinderSetting = setting;
+                QVERIFY(insertShot(db, r) > 0);
+            };
+            // Bean A: coarse only (8, 9 → a single 1.0 gap → no repeat).
+            add(QStringLiteral("BeanA"), QStringLiteral("8"));
+            add(QStringLiteral("BeanA"), QStringLiteral("9"));
+            // Bean B: the fine steps (8.25, 8.5 → with 8 give two 0.25 gaps).
+            add(QStringLiteral("BeanB"), QStringLiteral("8.25"));
+            add(QStringLiteral("BeanB"), QStringLiteral("8.5"));
+
+            // Scope the query to Bean A; the grinder-wide step still sees Bean B.
+            const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
+                db, QStringLiteral("Zero"), QStringLiteral("espresso"),
+                QStringLiteral("BeanA"));
+            const double step = ctx.value(QStringLiteral("stepSize")).toDouble();
+            QVERIFY2(qAbs(step - 0.25) < 0.0001,
+                     qPrintable(QString("grinder-wide step expected 0.25, got %1").arg(step)));
+        });
+    }
+
+    // stepSize — a repeated gap below the 0.05 floor clamps up to 0.05.
+    void grinderContextBlock_stepSizeFloorClamps()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("grinder_floor"), [&](QSqlDatabase& db) {
+            int i = 0;
+            for (const auto& s : {QStringLiteral("8"), QStringLiteral("8.02"),
+                                   QStringLiteral("8.04")}) {  // two 0.02 gaps
+                ShotRow r;
+                r.uuid = QStringLiteral("uuid-floor-%1").arg(i++);
+                r.profileName = QStringLiteral("p");
+                r.grinderModel = QStringLiteral("Zero");
+                r.grinderSetting = s;
+                QVERIFY(insertShot(db, r) > 0);
+            }
+            const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
+                db, QStringLiteral("Zero"), QStringLiteral("espresso"), QString());
+            const double step = ctx.value(QStringLiteral("stepSize")).toDouble();
+            QVERIFY2(qAbs(step - 0.05) < 0.0001,
+                     qPrintable(QString("sub-floor gap should clamp to 0.05, got %1").arg(step)));
+        });
+    }
+
+    // stepSize — when NO gap repeats (scattered history), fall back to the
+    // smallest gap rather than omitting or picking a coarse one.
+    void grinderContextBlock_stepSizeFallsBackToSmallestWhenNoRepeat()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("grinder_norepeat"), [&](QSqlDatabase& db) {
+            int i = 0;
+            // Gaps 1, 2, 3 — all distinct, none repeats → smallest = 1.0.
+            for (const auto& s : {QStringLiteral("5"), QStringLiteral("6"),
+                                   QStringLiteral("8"), QStringLiteral("11")}) {
+                ShotRow r;
+                r.uuid = QStringLiteral("uuid-nr-%1").arg(i++);
+                r.profileName = QStringLiteral("p");
+                r.grinderModel = QStringLiteral("Zero");
+                r.grinderSetting = s;
+                QVERIFY(insertShot(db, r) > 0);
+            }
+            const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
+                db, QStringLiteral("Zero"), QStringLiteral("espresso"), QString());
+            const double step = ctx.value(QStringLiteral("stepSize")).toDouble();
+            QVERIFY2(qAbs(step - 1.0) < 0.0001,
+                     qPrintable(QString("no-repeat fallback expected 1.0, got %1").arg(step)));
+        });
+    }
+
     // -------------------------------------------------------------------
     // End-to-end parity (issue #1044's headline test) — the four blocks
     // should be byte-equivalent regardless of which "surface" assembled

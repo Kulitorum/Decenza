@@ -235,11 +235,12 @@ struct GrinderContext {
     // 0 when fewer than 2 distinct numeric settings are available.
     double stepSize = 0;
     // RPM axis (variable-RPM grinders): the second half of the dial-in. Empty /
-    // 0 when the grinder has no recorded RPM history. rpmStepSize uses the same
-    // noise-filtered estimator as stepSize.
+    // 0 when the grinder has no recorded RPM history. RPM is an integer domain,
+    // so min/max are int; rpmStepSize stays double (reuses the same estimator as
+    // stepSize) and is grinder-model-wide, not bean-scoped.
     QList<int> rpmsObserved;
-    double rpmMin = 0;
-    double rpmMax = 0;
+    int rpmMin = 0;
+    int rpmMax = 0;
     double rpmStepSize = 0;
 };
 

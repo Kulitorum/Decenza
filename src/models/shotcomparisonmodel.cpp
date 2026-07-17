@@ -407,7 +407,7 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
     result["grinderModel"] = shot.grinderModel;
     result["grinderBurrs"] = shot.grinderBurrs;
     result["grinderSetting"] = shot.grinderSetting;
-    result["rpm"] = static_cast<double>(shot.rpm);
+    result["rpm"] = static_cast<qint64>(shot.rpm);  // integer RPM — avoid "1200.0"
     result["durationSec"] = shot.duration;
     result["doseWeightG"] = shot.doseWeight;
     result["finalWeightG"] = shot.finalWeight;

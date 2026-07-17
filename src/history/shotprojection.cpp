@@ -29,7 +29,7 @@ QVariantMap ShotProjection::toVariantMap() const
     // Motor RPM is the second half of the dial-in for variable-RPM grinders.
     // Sparse-emit (only when set) so non-RPM shots surface no rpm field — keeps
     // legacy/manual grinders clean and matches the sparse convention used for
-    // yieldMode/stoppedBy above. This is the linchpin that carries rpm into
+    // yieldMode/stoppedBy below. This is the linchpin that carries rpm into
     // shots_get_detail / shots_compare, the QML history row, and the clone
     // round-trip (fromVariantMap reads it back below).
     if (rpm > 0)

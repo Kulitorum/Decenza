@@ -8,10 +8,11 @@ import Decenza
 // so it shows up to two wheels SIDE BY SIDE — Grind (always) and RPM (when the
 // grinder is RPM-capable) — under a shared selection band.
 //
-// Each wheel opens centred on the grinder's current value. Because a two-axis
-// dial-in needs both a grind AND an RPM chosen, nothing is applied until the
-// user presses Done: that reads whatever each wheel has settled on and applies
-// both halves at once. Dismissing by Escape / tap-outside cancels (no change).
+// Each wheel opens centred on the grinder's current value (an RPM-capable
+// grinder with no RPM set yet centres on a neutral mid-range default). Because a
+// two-axis dial-in needs both a grind AND an RPM, nothing is applied until Done,
+// which applies whatever both wheels show. Cancel discards; Escape / tap-outside
+// are disabled (NoAutoClose) so a stray tap can't silently drop a change.
 //
 // Rows are ordered fine -> coarse (smallest value / lowest RPM first), so the
 // top of the wheel is the finest setting.
@@ -49,17 +50,18 @@ Dialog {
         return -1
     }
 
-    // Centre each wheel on its current value on open (the wheel scrolls to it,
-    // which is Tumbler's default behaviour).
+    // Centre each wheel on open. A wheel with no current value (an RPM-capable
+    // grinder whose RPM has never been set) centres on its MIDDLE seed row — a
+    // neutral mid-range default — so Done commits a sensible middle value rather
+    // than the lowest seed.
     onOpened: Qt.callLater(function() {
         var gi = root._currentIndex(root.grindRows)
-        if (gi >= 0) grindTumbler.currentIndex = gi
+        grindTumbler.currentIndex = gi >= 0 ? gi : 0
         var ri = root._currentIndex(root.rpmRows)
-        if (ri >= 0) rpmTumbler.currentIndex = ri
+        rpmTumbler.currentIndex = ri >= 0 ? ri : Math.floor(root.rpmRows.length / 2)
     })
 
-    // Apply BOTH halves from whatever the wheels have settled on, then close.
-    // The only commit path — a single-axis grinder still confirms via Done.
+    // Apply whatever each wheel shows, then close — the only commit path.
     function _applyAndClose() {
         if (root.grindRows.length > 0 && grindTumbler.currentIndex >= 0
                 && grindTumbler.currentIndex < root.grindRows.length)

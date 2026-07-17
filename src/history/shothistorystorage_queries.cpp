@@ -1001,8 +1001,11 @@ static double grinderWideStep(QSqlDatabase& db, const QString& grinderModel)
         "WHERE kind = 'grinder' AND model = :model) "
         "AND grinder_setting IS NOT NULL AND grinder_setting != ''"));
     q.bindValue(":model", grinderModel);
-    if (!q.exec())
+    if (!q.exec()) {
+        qWarning() << "ShotHistoryStorage::grinderWideStep: query failed:"
+                   << q.lastError().text() << "grinderModel=" << grinderModel;
         return 0.0;
+    }
     QSet<double> numericSet;
     while (q.next()) {
         bool ok = false;
@@ -1013,6 +1016,34 @@ static double grinderWideStep(QSqlDatabase& db, const QString& grinderModel)
     QList<double> numeric(numericSet.begin(), numericSet.end());
     std::sort(numeric.begin(), numeric.end());
     return deriveGrindStep(numeric);
+}
+
+// RPM counterpart of grinderWideStep: the grinder's typical RPM step across all
+// beans and beverages (the shots.rpm column), so it matches the widget's
+// grindRpmStepForGrinder scope and the two never disagree. Returns 0 when it
+// cannot derive.
+static double grinderWideRpmStep(QSqlDatabase& db, const QString& grinderModel)
+{
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral(
+        "SELECT DISTINCT rpm FROM shots "
+        "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
+        "WHERE kind = 'grinder' AND model = :model) "
+        "AND rpm > 0"));
+    q.bindValue(":model", grinderModel);
+    if (!q.exec()) {
+        qWarning() << "ShotHistoryStorage::grinderWideRpmStep: query failed:"
+                   << q.lastError().text() << "grinderModel=" << grinderModel;
+        return 0.0;
+    }
+    QList<double> rpms;
+    while (q.next()) {
+        const int r = q.value(0).toInt();
+        if (r > 0)
+            rpms.append(r);
+    }
+    std::sort(rpms.begin(), rpms.end());
+    return deriveGrindStep(rpms);
 }
 
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
@@ -1096,9 +1127,9 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
         ctx.maxSetting = numeric.last();
     }
 
-    // RPM axis: the second half of the dial-in for variable-RPM grinders. Same
-    // scope as the settings query (grinder + beverage + optional bean brand),
-    // rpm > 0 = a real dial-in. Reuses deriveGrindStep for the typical step.
+    // RPM axis: the observed RPMs (and their range) are per-bean context, so
+    // they stay bean/beverage-scoped like settingsObserved. rpm > 0 = a real
+    // dial-in. ORDER BY rpm makes first()/last() the min/max.
     {
         QString rpmSql = QStringLiteral(
             "SELECT DISTINCT rpm FROM shots "
@@ -1116,22 +1147,25 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
         rq.bindValue(":bev", ctx.beverageType);
         if (!beanBrand.isEmpty())
             rq.bindValue(":brand", beanBrand);
-        if (rq.exec()) {
-            QList<double> rpms;
+        if (!rq.exec()) {
+            qWarning() << "ShotHistoryStorage::queryGrinderContext: rpm query failed:"
+                       << rq.lastError().text()
+                       << "grinderModel=" << grinderModel;
+        } else {
             while (rq.next()) {
                 const int r = rq.value(0).toInt();
-                if (r > 0) {
+                if (r > 0)
                     ctx.rpmsObserved.append(r);
-                    rpms.append(r);
-                }
             }
-            if (rpms.size() >= 2) {
-                ctx.rpmMin = rpms.first();
-                ctx.rpmMax = rpms.last();
-                ctx.rpmStepSize = deriveGrindStep(rpms);
+            if (ctx.rpmsObserved.size() >= 2) {
+                ctx.rpmMin = ctx.rpmsObserved.first();
+                ctx.rpmMax = ctx.rpmsObserved.last();
             }
         }
     }
+    // rpmStepSize is a GRINDER property like stepSize — grinder-model-wide, not
+    // bean/beverage-scoped — so it matches the widget's grindRpmStepForGrinder.
+    ctx.rpmStepSize = grinderWideRpmStep(db, grinderModel);
 
     return ctx;
 }

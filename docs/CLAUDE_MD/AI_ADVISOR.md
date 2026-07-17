@@ -136,7 +136,7 @@ Both the in-app AI advisor and the MCP `dialing_get_context` tool use the same u
 | **Profile Knowledge Base** | `resources/ai/profile_knowledge.md` | Per-profile curated knowledge (18 profiles). Loaded as Qt resource, injected via `shotAnalysisSystemPrompt()` |
 | **Dial-in reference tables** | `resources/ai/espresso_dial_in_reference.md` | Structured variable→taste tables. Loaded as Qt resource, appended in `shotAnalysisSystemPrompt()` |
 | **Profile KB matching** | `ShotSummarizer::matchProfileKey()` | Three-tier matching: direct KB ID → fuzzy title → editor type fallback |
-| **Grinder context** | `ShotHistoryStorage::queryGrinderContext()` | Observed settings range, min/max, and `stepSize` — the typical dial increment, noise-filtered (modal gap via `deriveGrindStep`) so a single mistyped setting doesn't skew it. Used by both MCP and in-app AI `requestRecentShotContext()`, and by the Grind quick-select widget via `grindStepForGrinder()` |
+| **Grinder context** | `ShotHistoryStorage::queryGrinderContext()` | Observed settings range, min/max, and `stepSize` — the grinder's effective step, the smallest gap the user makes repeatedly (`deriveGrindStep`), so a one-off mistyped setting doesn't skew it and a coarse-heavy history doesn't hide the fine step. Grinder-model-wide, so it matches the Grind quick-select widget's `grindStepForGrinder()`. Used by both MCP and in-app AI `requestRecentShotContext()` |
 | **Dial-in history** | `ShotHistoryStorage::getRecentShotsByKbId()` | Last N shots with same profile family |
 
 ### What Differs Between Paths
