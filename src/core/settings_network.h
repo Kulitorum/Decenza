@@ -20,6 +20,10 @@ class SettingsNetwork : public QObject {
     Q_PROPERTY(QString shotHistorySortField READ shotHistorySortField WRITE setShotHistorySortField NOTIFY shotHistorySortFieldChanged)
     Q_PROPERTY(QString shotHistorySortDirection READ shotHistorySortDirection WRITE setShotHistorySortDirection NOTIFY shotHistorySortDirectionChanged)
 
+    // Recipes page sort (recipe-list-organization)
+    Q_PROPERTY(QString recipeSortField READ recipeSortField WRITE setRecipeSortField NOTIFY recipeSortFieldChanged)
+    Q_PROPERTY(QString recipeSortDirection READ recipeSortDirection WRITE setRecipeSortDirection NOTIFY recipeSortDirectionChanged)
+
     // Shot server (HTTP API)
     Q_PROPERTY(bool shotServerEnabled READ shotServerEnabled WRITE setShotServerEnabled NOTIFY shotServerEnabledChanged)
     Q_PROPERTY(QString shotServerHostname READ shotServerHostname WRITE setShotServerHostname NOTIFY shotServerHostnameChanged)
@@ -64,6 +68,12 @@ public:
     void setShotHistorySortField(const QString& field);
     QString shotHistorySortDirection() const;
     void setShotHistorySortDirection(const QString& direction);
+
+    // Recipes page sort
+    QString recipeSortField() const;
+    void setRecipeSortField(const QString& field);
+    QString recipeSortDirection() const;
+    void setRecipeSortDirection(const QString& direction);
 
     // Shot server
     bool shotServerEnabled() const;
@@ -193,6 +203,8 @@ signals:
     void savedSearchesChanged();
     void shotHistorySortFieldChanged();
     void shotHistorySortDirectionChanged();
+    void recipeSortFieldChanged();
+    void recipeSortDirectionChanged();
     void shotServerEnabledChanged();
     void shotServerHostnameChanged();
     void shotServerPortChanged();

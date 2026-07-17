@@ -97,6 +97,9 @@ struct Recipe {
     qint64 clonedFromRecipeId = 0;
 
     qint64 lastUsedEpoch = 0; // bumped on activation and shot save (MRU)
+    // Set once by the created_at SQL DEFAULT at insert; read-only (never bound
+    // by INSERT/UPDATE). Surfaced so the recipes page can sort by date added.
+    qint64 createdEpoch = 0;
 
     bool isValid() const { return id > 0; }
     QVariantMap toVariantMap() const;

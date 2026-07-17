@@ -96,6 +96,12 @@ struct RecipeCol {
     RecipeCol{ sqlName, #member, false, \
                &readI64<&Recipe::member>, nullptr, \
                &getMember<&Recipe::member>, &setI64<&Recipe::member> }
+// Read-only epoch: SELECTed and surfaced in the map, but never written — the
+// column's SQL DEFAULT (strftime) owns its value. Used for created_at.
+#define COL_EPOCH_RO(sqlName, member) \
+    RecipeCol{ sqlName, #member, false, \
+               &readI64<&Recipe::member>, nullptr, \
+               &getMember<&Recipe::member>, &setI64<&Recipe::member> }
 
 const RecipeCol kCols[] = {
     COL_ID   ("id",                    id),
@@ -119,6 +125,9 @@ const RecipeCol kCols[] = {
     COL_EPOCH("created_from_shot_id",  createdFromShotId),
     COL_EPOCH("cloned_from_recipe_id", clonedFromRecipeId),
     COL_EPOCH("last_used",             lastUsedEpoch),
+    // Read-only (writable=false): the SQL DEFAULT sets it at insert. Kept last
+    // so recipeFromQueryRow's positional read stays aligned with the SELECT.
+    COL_EPOCH_RO("created_at",          createdEpoch),
 };
 
 #undef COL_STR
@@ -126,6 +135,7 @@ const RecipeCol kCols[] = {
 #undef COL_DBL_SIGNED
 #undef COL_BOOL
 #undef COL_EPOCH
+#undef COL_EPOCH_RO
 #undef COL_ID
 
 constexpr int kColCount = static_cast<int>(std::size(kCols));

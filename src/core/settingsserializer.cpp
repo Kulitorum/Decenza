@@ -193,6 +193,12 @@ QJsonObject SettingsSerializer::exportToJson(Settings* settings, bool includeSen
     shotHistory["sortDirection"] = settings->network()->shotHistorySortDirection();
     root["shotHistory"] = shotHistory;
 
+    // Recipes page settings (recipe-list-organization)
+    QJsonObject recipes;
+    recipes["sortField"] = settings->network()->recipeSortField();
+    recipes["sortDirection"] = settings->network()->recipeSortDirection();
+    root["recipes"] = recipes;
+
     // UI settings
     QJsonObject ui;
     ui["skin"] = settings->theme()->skin();
@@ -675,6 +681,15 @@ bool SettingsSerializer::importFromJson(Settings* settings, const QJsonObject& j
             settings->network()->setShotHistorySortField(shotHistory["sortField"].toString());
         if (shotHistory.contains("sortDirection"))
             settings->network()->setShotHistorySortDirection(shotHistory["sortDirection"].toString());
+    }
+
+    // Recipes page settings
+    if (json.contains("recipes") && !excludeKeys.contains("recipes")) {
+        QJsonObject recipes = json["recipes"].toObject();
+        if (recipes.contains("sortField"))
+            settings->network()->setRecipeSortField(recipes["sortField"].toString());
+        if (recipes.contains("sortDirection"))
+            settings->network()->setRecipeSortDirection(recipes["sortDirection"].toString());
     }
 
     // UI settings
