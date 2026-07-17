@@ -209,6 +209,14 @@ public:
     // ai_advisor_invoke before the provider hop) can use it.
     static std::optional<QJsonObject> parseStructuredNext(const QString& assistantMessage);
 
+    // Strip Decenza-internal per-turn keys (shotId, structuredNext) from a
+    // stored conversation, leaving only the {role, content} pair every
+    // chat-completion provider accepts. Applied before dispatching to a
+    // provider so internal bookkeeping never leaks into the API request —
+    // the Anthropic Messages API 400s on unknown per-message fields. Pure /
+    // static so the test harness can assert the invariant directly.
+    static QJsonArray sanitizeApiMessages(const QJsonArray& messages);
+
     // Parsed numeric score + remaining notes from a user's conversational
     // reply (issue #1055 Layer 1). When the advisor asks "how did this
     // taste?" and the user answers with a number 1-100, we persist the

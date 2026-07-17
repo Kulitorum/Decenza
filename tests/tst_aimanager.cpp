@@ -1412,6 +1412,48 @@ private slots:
         QCOMPARE(fields.grinder, QStringLiteral("Niche Zero with 63mm @ 4.0"));
     }
 
+    // Regression: AIConversation stamps internal per-turn keys (shotId from
+    // #1053 shot latching, structuredNext) onto stored message objects. Those
+    // are the same objects handed to the provider, and the Anthropic Messages
+    // API 400s on unknown per-message fields ("messages.0.shotId: Extra inputs
+    // are not permitted"), which broke every dial-in conversation request.
+    // sanitizeApiMessages must strip everything but role + content.
+    void sanitizeApiMessages_stripsInternalPerTurnKeys()
+    {
+        QJsonArray messages;
+
+        QJsonObject user;
+        user["role"] = QStringLiteral("user");
+        user["content"] = QStringLiteral("How did this shot taste?");
+        user["shotId"] = 1113.0;  // stored as double, per addUserMessage
+        messages.append(user);
+
+        QJsonObject assistant;
+        assistant["role"] = QStringLiteral("assistant");
+        assistant["content"] = QStringLiteral("Grind finer by one step.");
+        assistant["shotId"] = 1113.0;
+        assistant["structuredNext"] = QJsonObject{{"grindDelta", -1}};
+        messages.append(assistant);
+
+        const QJsonArray clean = AIManager::sanitizeApiMessages(messages);
+
+        QCOMPARE(clean.size(), 2);
+        for (const QJsonValue& v : clean) {
+            const QJsonObject msg = v.toObject();
+            // Exactly the two API-legal keys — nothing else may survive.
+            QCOMPARE(msg.keys().size(), 2);
+            QVERIFY(msg.contains(QStringLiteral("role")));
+            QVERIFY(msg.contains(QStringLiteral("content")));
+            QVERIFY(!msg.contains(QStringLiteral("shotId")));
+            QVERIFY(!msg.contains(QStringLiteral("structuredNext")));
+        }
+        // Content and role are preserved verbatim.
+        QCOMPARE(clean.at(0).toObject().value("role").toString(), QStringLiteral("user"));
+        QCOMPARE(clean.at(0).toObject().value("content").toString(),
+                 QStringLiteral("How did this shot taste?"));
+        QCOMPARE(clean.at(1).toObject().value("role").toString(), QStringLiteral("assistant"));
+    }
+
     void aiConversation_extractShotFields_detectorFlagsEchoFromShotAnalysisProse()
     {
         // Use the actual production-emitted strings from

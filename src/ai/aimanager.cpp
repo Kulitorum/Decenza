@@ -302,6 +302,26 @@ std::optional<QJsonObject> AIManager::parseStructuredNext(const QString& assista
     return doc.object();
 }
 
+QJsonArray AIManager::sanitizeApiMessages(const QJsonArray& messages)
+{
+    // AIConversation stores each turn as {role, content[, shotId][, structuredNext]}.
+    // shotId (issue #1053 shot latching) and structuredNext are Decenza-internal
+    // bookkeeping and must never reach a provider. The Anthropic Messages API
+    // rejects unknown per-message keys with HTTP 400 ("messages.N.shotId: Extra
+    // inputs are not permitted"), which killed every dial-in conversation request.
+    // Whitelist role + content only; content is copied verbatim (a plain string
+    // here — providers do their own cache-block wrapping downstream).
+    QJsonArray out;
+    for (const QJsonValue& v : messages) {
+        const QJsonObject msg = v.toObject();
+        QJsonObject clean;
+        clean["role"] = msg.value("role");
+        clean["content"] = msg.value("content");
+        out.append(clean);
+    }
+    return out;
+}
+
 // Heuristic for "the prior assistant message asked the user about
 // taste". Conservative: a false negative just means we don't auto-
 // persist — the user can still rate via the editor or the rating slider.
@@ -1559,7 +1579,9 @@ void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArra
     m_lastUserPrompt = QString("[Conversation with %1 messages]").arg(messages.size());
 
     logPrompt(selectedProvider(), systemPrompt, m_lastUserPrompt);
-    provider->analyzeConversation(systemPrompt, messages);
+    // Drop internal-only per-turn keys (shotId, structuredNext) before the
+    // payload reaches any provider — Anthropic 400s on unknown message fields.
+    provider->analyzeConversation(systemPrompt, sanitizeApiMessages(messages));
 }
 
 void AIManager::refreshOllamaModels()
