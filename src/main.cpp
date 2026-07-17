@@ -430,7 +430,9 @@ int main(int argc, char *argv[])
     //
     // Mobile (Android/iOS) keeps Qt's default: those windows are fullscreen and
     // don't resize, so the ligature glitch can't occur, and the default avoids the
-    // extra GPU cost of curve rendering on constrained devices.
+    // extra GPU cost of curve rendering on constrained devices. iOS shares macOS's
+    // CoreText/Apple Color Emoji stack, but the CopyEmojiImage crash has only ever
+    // been observed on macOS, so iOS is intentionally left on the default too.
     QQuickWindow::setTextRenderType(QQuickWindow::CurveTextRendering);
     {
         auto actual = QQuickWindow::textRenderType();
