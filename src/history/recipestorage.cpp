@@ -1486,6 +1486,21 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
                 return false;
             imported++;
             insertedIds.append(destId);
+            // Preserve the source's original creation timestamp. created_at is
+            // read-only in kCols, so the INSERT let the DEFAULT stamp it with
+            // import-time; restamp it here when the source carried a value, so
+            // "Date created" ordering stays meaningful across transfer / backup
+            // restore. Best-effort: the row already has a valid DEFAULT, so a
+            // failure here only loses the original date — never abort the import.
+            if (recipe.createdEpoch > 0) {
+                QSqlQuery keepCreated(destDb);
+                keepCreated.prepare("UPDATE recipes SET created_at = :c WHERE id = :id");
+                keepCreated.bindValue(":c", recipe.createdEpoch);
+                keepCreated.bindValue(":id", destId);
+                if (!keepCreated.exec())
+                    qWarning() << "RecipeStorage: could not preserve created_at on import:"
+                               << keepCreated.lastError().text();
+            }
             if (rowUnconverted && legacyAbsTemp > 0) {
                 // Stage the legacy absolute + the unconverted marker; the
                 // deferred pass (convertLegacyTempOffsetsStatic) turns it into

@@ -29,8 +29,11 @@ The derived list is built with a `sort()` over a shallow copy (never mutate the 
 ### Date created surfaces the existing `created_at` column read-only
 The `recipes` table has carried `created_at INTEGER DEFAULT (strftime('%s','now'))` since it was first created (migration 25), and the INSERT — built from the *writable* `kCols` — never touches it, so every existing row already holds a valid creation epoch. To sort by it, add `created_at` as a **read-only** `kCols` entry (`writable=false`, `nullptr` bind, new `COL_EPOCH_RO` macro mirroring `COL_ID`), appended last so `recipeFromQueryRow`'s positional read stays aligned. It is SELECTed and flows into the recipe map (`createdEpoch`) via the generic `toVariantMap`, but is excluded from INSERT and the update map — the SQL DEFAULT remains the sole writer.
 
-- **Alternative — a fully writable column / new migration:** rejected. Nothing should overwrite the creation timestamp, and the column already exists, so neither a schema edit nor a migration is warranted.
-- **Trade-off:** transfer/backup import inserts without binding `created_at`, so imported recipes take the *import* time as their creation date. Acceptable — the field was never surfaced before, so there is no regression, and import-time ordering is reasonable.
+- **Alternative — a fully writable column / new migration:** rejected. Nothing in the normal create/update path should overwrite the creation timestamp, and the column already exists, so neither a schema edit nor a migration is warranted.
+- **Import preserves the original date:** because the INSERT lets the SQL DEFAULT stamp import-time, `importRecipesStatic` restamps `created_at` with the source row's value via a best-effort post-insert `UPDATE` (mirroring the existing legacy-temp staging). So "Date created" ordering survives a device transfer / `.dcbackup` restore. The restamp is best-effort — the row already carries a valid DEFAULT, so a failed update only loses the original date, never aborts the import.
+
+### Surfacing `created` across MCP and web
+For parity with the in-app page, `created` (ISO 8601, via the existing `isoFromEpoch` / `toOffsetFromUtc` helpers — never a raw epoch, per the MCP data conventions) is emitted alongside `lastUsed` in both the MCP `recipeToJson` and the web `shotserver_recipes` recipe reads. Emitted only when non-zero.
 
 ### Reuse ShotHistoryPage's controls verbatim in spirit
 Same `StyledTextField` + `searchTimer` debounce + clear button; same `SelectionDialog` for the sort key; same direction toggle with the `SortAscending.svg`/`SortDescending.svg` icons. This is UI reuse, not code extraction — a shared component is out of scope for one extra page.

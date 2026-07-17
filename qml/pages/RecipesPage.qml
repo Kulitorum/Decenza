@@ -97,6 +97,56 @@ Page {
         return out
     }
 
+    // Resolved profile display numbers (base temp, target yield, per-frame
+    // temps) keyed by profile title. Filtering/sorting rebuilds the grid's
+    // delegates on every keystroke, and each card needs these numbers; without
+    // a cache every rebuild re-runs a synchronous ProfileManager catalog read
+    // + JSON parse per card. The cache makes each card's lookup an O(1) map
+    // hit. Cleared whenever the inventory reloads — the only time the
+    // underlying profile data can have changed. null = unresolvable profile.
+    property var _profileNumbersCache: ({})
+
+    function profileNumbersFor(title, profileJson) {
+        if (title === "")
+            return null
+        var hit = _profileNumbersCache[title]
+        if (hit !== undefined)
+            return hit
+        var d = null
+        var fn = ProfileManager.findProfileByTitle(title)
+        if (fn && fn !== "") {
+            d = ProfileManager.getProfileByFilename(fn)
+        } else if (profileJson && String(profileJson).length > 0) {
+            try { d = JSON.parse(profileJson) } catch (e) {
+                console.warn("RecipesPage: unparsable embedded profile JSON for", title, ":", e)
+                d = null
+            }
+        }
+        var result = null
+        if (d) {
+            var tempC = Number(d.espresso_temperature) || 0
+            var yieldG = Number(d.target_weight) || 0
+            var temps = []
+            var steps = d.steps || []
+            for (var i = 0; i < steps.length; ++i) {
+                var st = steps[i]
+                var stTemp = st ? Number(st.temperature) : 0
+                if (stTemp > 0)
+                    temps.push(stTemp)
+            }
+            // A resolved profile with no explicit per-step temps must still
+            // yield a non-empty array (see the card note below), else the offset
+            // silently drops. Fall back to the base temp.
+            result = {
+                tempC: tempC,
+                yieldG: yieldG,
+                stepTemps: temps.length > 0 ? temps : (tempC > 0 ? [tempC] : [])
+            }
+        }
+        _profileNumbersCache[title] = result
+        return result
+    }
+
     // Grid column math (BeanInfoPage pattern: fixed base width, computed
     // columns) — one implementation for both card grids.
     function cardWidth(avail) {
@@ -124,8 +174,10 @@ Page {
 
     Connections {
         target: MainController.recipeStorage
-        function onInventoryReady(list) { recipesPage.recipes = list }
-        function onArchivedReady(list) { recipesPage.archivedRecipes = list }
+        // Reloaded data may reflect edited profiles — drop the cached numbers
+        // so cards re-resolve once, then hit the cache on subsequent rebuilds.
+        function onInventoryReady(list) { recipesPage._profileNumbersCache = ({}); recipesPage.recipes = list }
+        function onArchivedReady(list) { recipesPage._profileNumbersCache = ({}); recipesPage.archivedRecipes = list }
         function onRecipesChanged() {
             MainController.recipeStorage.requestInventory()
             MainController.recipeStorage.requestArchived()
@@ -318,49 +370,21 @@ Page {
         }
 
         // The plan line needs the profile's base temperature, target weight,
-        // and frame temperatures (the recipe stores only its deltas). One
-        // synchronous profile read per card — the list is small. The frame
+        // and frame temperatures (the recipe stores only its deltas). These are
+        // resolved once per profile title and memoized on the page
+        // (profileNumbersFor) so the repeated delegate rebuilds from
+        // filtering/sorting don't each re-read the profile catalog. The frame
         // temps make the card render ITS OWN profile, never the loaded one
         // (recipe-relative-temp-offset); the recipe's embedded profile JSON
         // is the fallback for a renamed/uninstalled profile, and a recipe
         // resolvable by neither shows no temperature segment at all.
         function refreshProfileNumbers() {
-            profileTempC = 0
-            profileYieldG = 0
-            profileStepTemps = []
-            var t = recipe && recipe.profileTitle ? String(recipe.profileTitle) : ""
-            if (t === "")
-                return
-            var d = null
-            var fn = ProfileManager.findProfileByTitle(t)
-            if (fn && fn !== "") {
-                d = ProfileManager.getProfileByFilename(fn)
-            } else if (recipe.profileJson && String(recipe.profileJson).length > 0) {
-                try { d = JSON.parse(recipe.profileJson) } catch (e) {
-                    console.warn("RecipesPage: recipe", recipe.name,
-                                 "has unparsable embedded profile JSON:", e)
-                    d = null
-                }
-            }
-            if (!d)
-                return
-            profileTempC = Number(d.espresso_temperature) || 0
-            profileYieldG = Number(d.target_weight) || 0
-            var temps = []
-            var steps = d.steps || []
-            for (var i = 0; i < steps.length; ++i) {
-                var st = steps[i]
-                var stTemp = st ? Number(st.temperature) : 0
-                if (stTemp > 0)
-                    temps.push(stTemp)
-            }
-            // A resolved profile whose steps carry no explicit per-step
-            // temperature (e.g. some profile formats anchor solely on
-            // espresso_temperature) must still yield a non-empty array —
-            // otherwise ShotPlanText's _tempStr falls through to the
-            // loaded-profile branch, breaking "cards are immune to the
-            // loaded profile" and silently dropping the recipe's offset.
-            profileStepTemps = temps.length > 0 ? temps : (profileTempC > 0 ? [profileTempC] : [])
+            var nums = recipesPage.profileNumbersFor(
+                recipe && recipe.profileTitle ? String(recipe.profileTitle) : "",
+                recipe ? recipe.profileJson : "")
+            profileTempC = nums ? nums.tempC : 0
+            profileYieldG = nums ? nums.yieldG : 0
+            profileStepTemps = nums ? nums.stepTemps : []
         }
         onRecipeChanged: refreshProfileNumbers()
         Component.onCompleted: refreshProfileNumbers()
@@ -679,14 +703,19 @@ Page {
                 }
             }
 
-            // No-matches state: a non-empty library filtered to zero cards by
-            // the search (distinct from the "no recipes yet" starter tiles).
+            // No-matches state: a search that matches nothing anywhere —
+            // neither active nor archived (so a match hiding in the collapsed
+            // archived section never triggers a false "nothing matches"). The
+            // archived toggle below still shows its matching count so the user
+            // can reach any archived-only matches. Distinct from the "no
+            // recipes yet" starter tiles (a genuinely empty library).
             Label {
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.spacingMedium
-                visible: recipesPage.recipes.length > 0
+                visible: recipesPage.searchQuery.length > 0
+                         && (recipesPage.recipes.length + recipesPage.archivedRecipes.length) > 0
                          && recipesPage.visibleRecipes.length === 0
-                         && recipesPage.searchQuery.length > 0
+                         && recipesPage.visibleArchivedRecipes.length === 0
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
                 text: TranslationManager.translate("recipes.noMatches", "No recipes match your search")
@@ -697,8 +726,13 @@ Page {
             }
 
             // --- Archived section ---
+            // Count and visibility track the FILTERED archived set: with a
+            // search active the toggle only appears when archived recipes match
+            // and its count reflects the matches (with no search,
+            // visibleArchivedRecipes == archivedRecipes, so behaviour is
+            // unchanged).
             AccessibleButton {
-                visible: recipesPage.archivedRecipes.length > 0
+                visible: recipesPage.visibleArchivedRecipes.length > 0
                 Layout.preferredHeight: Theme.scaled(36)   // Layout child: raw height is ignored
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
@@ -706,7 +740,7 @@ Page {
                 text: (recipesPage.showArchived
                        ? TranslationManager.translate("recipes.archived.hide", "Hide archived")
                        : TranslationManager.translate("recipes.archived.show", "Show archived"))
-                      + " (" + recipesPage.archivedRecipes.length + ")"
+                      + " (" + recipesPage.visibleArchivedRecipes.length + ")"
                 accessibleName: text
                 onClicked: recipesPage.showArchived = !recipesPage.showArchived
             }
