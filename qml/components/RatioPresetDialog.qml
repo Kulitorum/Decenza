@@ -113,12 +113,12 @@ Dialog {
         ColumnLayout {
             id: contentCol
             width: parent.width
-            spacing: Theme.spacingMedium
+            spacing: Theme.spacingSmall
 
             // --- Header ---
             ColumnLayout {
                 Layout.fillWidth: true
-                Layout.topMargin: Theme.spacingLarge
+                Layout.topMargin: Theme.spacingMedium
                 Layout.leftMargin: Theme.spacingLarge
                 Layout.rightMargin: Theme.spacingLarge
                 spacing: Theme.scaled(2)
@@ -177,7 +177,7 @@ Dialog {
                     Layout.fillWidth: true
                     Layout.leftMargin: Theme.spacingLarge
                     Layout.rightMargin: Theme.spacingLarge
-                    Layout.preferredHeight: cardCol.implicitHeight + Theme.spacingMedium * 2
+                    Layout.preferredHeight: cardCol.implicitHeight + Theme.spacingSmall * 2
                     radius: Theme.buttonRadius
                     color: cardMa.pressed ? Qt.darker(Theme.backgroundColor, 1.1) : Theme.backgroundColor
                     border.width: isCurrent ? 2 : 1
@@ -303,7 +303,7 @@ Dialog {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.spacingLarge
                 Layout.rightMargin: Theme.spacingLarge
-                Layout.preferredHeight: Theme.scaled(40)
+                Layout.preferredHeight: Theme.scaled(36)
                 radius: Theme.buttonRadius
                 color: helpMa.pressed ? Qt.darker(Theme.backgroundColor, 1.1) : "transparent"
                 border.width: 1
@@ -382,8 +382,8 @@ Dialog {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.spacingLarge
                 Layout.rightMargin: Theme.spacingLarge
-                Layout.bottomMargin: Theme.spacingLarge
-                Layout.preferredHeight: Theme.scaled(48)
+                Layout.bottomMargin: Theme.spacingMedium
+                Layout.preferredHeight: Theme.scaled(44)
                 radius: Theme.buttonRadius
                 color: closeMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
                 Accessible.role: Accessible.Button
