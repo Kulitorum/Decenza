@@ -49,13 +49,14 @@ Dialog {
         return -1
     }
 
-    // Centre each wheel on its current value once the dialog is laid out.
-    onOpened: Qt.callLater(function() {
+    // Centre each wheel on its current value BEFORE the dialog animates in, so
+    // it opens already positioned instead of visibly scrolling to it after open.
+    onAboutToShow: {
         var gi = root._currentIndex(root.grindRows)
         if (gi >= 0) grindTumbler.currentIndex = gi
         var ri = root._currentIndex(root.rpmRows)
         if (ri >= 0) rpmTumbler.currentIndex = ri
-    })
+    }
 
     // Apply BOTH halves from whatever the wheels have settled on, then close.
     // The only commit path — a single-axis grinder still confirms via Done.
