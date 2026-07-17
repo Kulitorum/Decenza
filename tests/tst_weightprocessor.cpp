@@ -127,6 +127,61 @@ private slots:
     // Oscillation recovery
     // ==========================================
 
+    // An espresso cycle aborted BEFORE flow must disarm the worker. It is
+    // armed by startExtraction() at cycle start (during preheat), but
+    // stopExtraction() hangs off shotEnded, which only fires once flow has
+    // STARTED — so an abort during preheat used to leave SAW live against the
+    // dead shot's target, re-checking every weight sample that arrived until
+    // the next shot happened to re-arm it. Put a cup on the scale after
+    // aborting and SAW could fire at an idle machine. endShotCycle() is the
+    // pair of startExtraction and fires on every cycle exit.
+    void abortedCycleDisarmsSaw() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        configureEspresso(wp, 36.0, 0);
+        wp.startExtraction();          // cycle start (preheat) — SAW armed
+        wp.markExtractionStart();
+        wp.setTareComplete(true);
+        wp.setCurrentFrame(0);
+
+        QSignalSpy stopSpy(&wp, &WeightProcessor::stopNow);
+
+        // The cycle exits without ever reaching the target — an abort.
+        wp.endShotCycle();
+
+        // Weight now climbs past the dead shot's 36 g target (a cup set down
+        // on the scale). Nothing should fire: no shot is running. This is the
+        // SAME feed as normalShotStillStopsAtTarget, which asserts it fires
+        // when armed — so the only difference here is endShotCycle(), and this
+        // cannot pass by simply never reaching the threshold.
+        m_fakeClock += 5500;
+        feedRising(wp, 30.0, 2.0, 20);   // crosses the 35.5 g stop threshold
+
+        QCOMPARE(stopSpy.count(), 0);
+    }
+
+    // The disarm must not break the normal path: a shot that actually flows
+    // still stops at its target.
+    void normalShotStillStopsAtTarget() {
+        WeightProcessor wp;
+        installFakeClock(wp);
+        configureEspresso(wp, 36.0, 0);
+        wp.startExtraction();
+        wp.markExtractionStart();
+        wp.setTareComplete(true);
+        wp.setCurrentFrame(0);
+
+        QSignalSpy stopSpy(&wp, &WeightProcessor::stopNow);
+
+        // Identical feed to abortedCycleDisarmsSaw. This is the CONTROL: it
+        // proves that feed actually crosses the stop threshold, so the sibling
+        // test's "count == 0" means disarmed rather than never-triggered.
+        // Without it that test passed vacuously — the feed stopped at 33.6 g.
+        m_fakeClock += 5500;
+        feedRising(wp, 30.0, 2.0, 20);
+        QCOMPARE(stopSpy.count(), 1);
+    }
+
     void oscillationBlocksSaw() {
         WeightProcessor wp;
         installFakeClock(wp);

@@ -57,6 +57,9 @@ public slots:
     void startExtraction();
     void markExtractionStart();  // Called when flow starts (idempotent, espresso-only)
     void stopExtraction();
+    // The PAIR of startExtraction: disarms on espresso-cycle exit even when
+    // flow never began, which stopExtraction (gated on shotEnded) misses.
+    void endShotCycle();
     void resetForRetare();  // Clear LSLR buffer after auto-tare during preheat
 
 #ifdef DECENZA_TESTING

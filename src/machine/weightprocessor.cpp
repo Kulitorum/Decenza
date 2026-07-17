@@ -504,6 +504,22 @@ void WeightProcessor::markExtractionStart()
     m_extractionStartTime = m_wallClock();
 }
 
+void WeightProcessor::endShotCycle()
+{
+    // Disarm on espresso-cycle EXIT, whether or not flow ever happened.
+    // stopExtraction() cannot cover this: it hangs off shotEnded, which is
+    // gated on flow having STARTED, while startExtraction() arms at cycle
+    // start (during preheat). So a cycle aborted before flow — stop tapped,
+    // machine aborts, BLE drops — left SAW armed against the dead shot's
+    // target, re-checking every weight sample until the next shot re-armed
+    // it. Same signal asymmetry that leaked the yield latch, same fix.
+    // On a normal shot stopExtraction has already run and this is a no-op;
+    // deliberately NOT stopExtraction itself, whose scale-rate diagnostic
+    // would then log twice per shot (and which hot water/flush still reach
+    // via shotEnded without ever arming).
+    m_active = false;
+}
+
 void WeightProcessor::stopExtraction()
 {
     m_active = false;

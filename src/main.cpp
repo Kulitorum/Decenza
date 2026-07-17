@@ -952,8 +952,17 @@ int main(int argc, char *argv[])
     // exit rather than the narrowest. Fires after the save path has read the
     // snapshot (which survives release by design), and is idempotent.
     QObject::connect(&machineState, &MachineState::espressoCycleEnded,
-                     [&mainController]() {
+                     [&weightProcessor, &mainController]() {
                          mainController.profileManager()->releaseShotLatch();
+                         // Disarm the SAW worker for the same reason and by the
+                         // same asymmetry: startExtraction arms it at cycle
+                         // start (above), stopExtraction hangs off shotEnded and
+                         // so never runs for a cycle that never flowed, leaving
+                         // SAW live against the dead shot's target until the
+                         // next shot re-armed it. No-op on a normal shot.
+                         QMetaObject::invokeMethod(&weightProcessor, [&weightProcessor]() {
+                             weightProcessor.endShotCycle();
+                         }, Qt::QueuedConnection);
                      });
 
     // Machine phase → WeightProcessor: extend scale-feed-liveness detection to
