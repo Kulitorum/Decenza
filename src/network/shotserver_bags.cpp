@@ -46,7 +46,7 @@ QVariantMap bagFieldsFromBody(const QJsonObject& body)
     // anchor entirely. Both-present is rejected in the route handler.
     if (body.contains(QStringLiteral("yieldG"))) {
         const double g = body[QStringLiteral("yieldG")].toDouble();
-        fields.insert("yieldValue", g > 0 ? g : 0.0);
+        fields.insert("yieldValue", g > 0 ? YieldSpec::clampAbsolute(g) : 0.0);
         fields.insert("yieldMode", g > 0 ? QStringLiteral("absolute") : QStringLiteral("none"));
     } else if (body.contains(QStringLiteral("yieldRatio"))) {
         const double ratio = body[QStringLiteral("yieldRatio")].toDouble();

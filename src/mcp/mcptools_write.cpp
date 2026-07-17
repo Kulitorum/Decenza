@@ -1728,7 +1728,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // implicitly clears the other (add-yield-ratio-anchor).
             if (args.contains("yieldG")) {
                 const double g = args["yieldG"].toDouble();
-                fields.insert("yieldValue", g > 0 ? g : 0.0);
+                fields.insert("yieldValue", g > 0 ? YieldSpec::clampAbsolute(g) : 0.0);
                 fields.insert("yieldMode", g > 0 ? QStringLiteral("absolute") : QStringLiteral("none"));
             } else if (args.contains("yieldRatio")) {
                 const double ratio = args["yieldRatio"].toDouble();

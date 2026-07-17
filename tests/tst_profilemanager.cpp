@@ -1155,6 +1155,36 @@ private slots:
         QCOMPARE(shotEnded.count(), 0);
     }
 
+    // A BLE drop mid-pour also LEAVES the espresso cycle, but through
+    // updatePhase's disconnect branch, which returns before the normal
+    // cycle-exit detection runs. It must still fire espressoCycleEnded or the
+    // latch leaks exactly as it did off shotEnded — same bug, different road.
+    void bleDropMidPourStillEndsTheEspressoCycle() {
+        McpTestFixture f;
+        // Connectivity comes from the transport here, NOT simulationMode
+        // (which would short-circuit isConnected() to true and make the drop
+        // below unrepresentable).
+        f.transport.setConnectedSim(true);
+
+        QSignalSpy cycleEnded(&f.machineState, &MachineState::espressoCycleEnded);
+
+        f.device.m_state = DE1::State::Espresso;
+        f.device.m_subState = DE1::SubState::Pouring;
+        f.machineState.updatePhase();
+        QCOMPARE(f.machineState.phase(), MachineState::Phase::Pouring);
+
+        // The radio drops mid-pour: isConnected() goes false.
+        f.transport.setConnectedSim(false);
+        f.machineState.updatePhase();
+
+        QCOMPARE(f.machineState.phase(), MachineState::Phase::Disconnected);
+        QCOMPARE(cycleEnded.count(), 1);
+
+        // Idempotent: further disconnected updates must not re-fire it.
+        f.machineState.updatePhase();
+        QCOMPARE(cycleEnded.count(), 1);
+    }
+
     // The shot-save snapshot (add-yield-ratio-anchor): what RAN, not what the
     // session drifted to. The save path runs after SAW settling — i.e. after
     // releaseShotLatch() — so the snapshot must survive the release, or a

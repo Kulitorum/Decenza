@@ -755,15 +755,16 @@ void SettingsDye::persistYieldSpecToBag(double value, const QString& mode)
     // attached, and dodges the bagUpdated echo via m_pendingSelfWrites).
     // Writing a spec whose mode is "none" clears the bag's anchor.
     m_activeBagYieldMode = YieldSpec::normalizedMode(mode);
-    m_activeBagYieldValue = (YieldSpec::isSet(m_activeBagYieldMode) && value > 0) ? value : 0.0;
-    // Clamp a ratio to the same range the session anchor enforces
-    // (SettingsBrew::setBrewRatioAnchor). Storing unclamped would let the
-    // bag hold a ratio the session can never resolve to: an MCP/web write of
-    // 1:20 would persist verbatim, then every consumer that routes it
-    // through the session would clamp to 1:6 — the bag's stored design and
-    // the brewed shot disagreeing, silently and permanently.
-    if (m_activeBagYieldMode == YieldSpec::modeRatio())
-        m_activeBagYieldValue = YieldSpec::clampRatio(m_activeBagYieldValue);
+    // Normalize to the range the session resolves within (YieldSpec::clampValue
+    // — 0.5–6.0 for a ratio, 1–500 g for an absolute). This holds the invariant
+    // at the point of STORAGE: a bag must never hold a value the session cannot
+    // resolve to, or its stored design and the brewed shot disagree permanently
+    // and silently — the bag reads 900 g everywhere while the shot pulls 500.
+    // Clamp ONLY a value that is actually set: 0 is the "no anchor" sentinel,
+    // and clamping it would bound it UP to the 1 g floor and defeat the
+    // mode-collapse below.
+    const bool haveValue = YieldSpec::isSet(m_activeBagYieldMode) && value > 0;
+    m_activeBagYieldValue = haveValue ? YieldSpec::clampValue(m_activeBagYieldMode, value) : 0.0;
     if (m_activeBagYieldValue <= 0)
         m_activeBagYieldMode = YieldSpec::modeNone();
     // Notify unconditionally: the cache above has already changed, so the

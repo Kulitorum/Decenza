@@ -1774,6 +1774,21 @@ private slots:
         dye.persistYieldSpecToBag(2.0, QStringLiteral("none"));
         QCOMPARE(dye.activeBagYieldMode(), QString("none"));
 
+        // An OUT-OF-RANGE ratio normalizes to the bounds the session resolves
+        // within — the degenerate cases above only exercise the value>0 gate,
+        // which predates the clamp and passes without it. A bag holding 1:20
+        // while every session consumer clamps to 1:6 would mean its stored
+        // design and the brewed shot disagree permanently.
+        dye.persistYieldSpecToBag(20.0, QStringLiteral("ratio"));
+        QCOMPARE(dye.activeBagYieldValue(), 6.0);
+        QCOMPARE(dye.activeBagYieldMode(), QString("ratio"));
+        dye.persistYieldSpecToBag(0.1, QStringLiteral("ratio"));
+        QCOMPARE(dye.activeBagYieldValue(), 0.5);
+        QCOMPARE(dye.activeBagYieldMode(), QString("ratio"));
+        // An absolute is NOT a ratio and must not be clamped into 0.5–6.0.
+        dye.persistYieldSpecToBag(44.0, QStringLiteral("absolute"));
+        QCOMPARE(dye.activeBagYieldValue(), 44.0);
+
         { QSettings s; s.remove(QStringLiteral("dye")); s.sync(); }
     }
 

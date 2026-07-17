@@ -196,8 +196,22 @@ void MachineState::updatePhase() {
         // contract (see the signal doc).
         m_steamFlowStopPending = false;
         if (m_phase != Phase::Disconnected) {
+            // A drop mid-shot LEAVES the espresso cycle, so the cycle-ended
+            // pair must fire here too — this branch returns before the normal
+            // exit detection below ever runs. Without it a BLE drop during a
+            // pour leaks anything held since cycle start (the shot latch),
+            // which is the same failure shotEnded had, reached by a different
+            // road. Unlike steamFlowStopped above, this is not a "completion"
+            // event whose absence matters: it says the cycle is no longer
+            // running, which a disconnect makes true.
+            const bool wasInEspresso = (m_phase == Phase::EspressoPreheating ||
+                                        m_phase == Phase::Preinfusion ||
+                                        m_phase == Phase::Pouring ||
+                                        m_phase == Phase::Ending);
             m_phase = Phase::Disconnected;
             emit phaseChanged();
+            if (wasInEspresso)
+                emit espressoCycleEnded();
         }
         return;
     }

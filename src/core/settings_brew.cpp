@@ -929,12 +929,10 @@ void SettingsBrew::writeBrewYieldAnchor(double value, const QString& mode) {
     double newValue = value;
     if (newValue <= 0)
         newMode = YieldSpec::modeNone();
-    if (newMode == YieldSpec::modeRatio())
-        newValue = YieldSpec::clampRatio(newValue);
-    else if (newMode == YieldSpec::modeAbsolute())
-        newValue = qBound(1.0, newValue, 500.0);
-    else
-        newValue = 0.0;
+    // clampValue bounds BOTH modes from the shared vocabulary — the absolute
+    // bound used to be a magic qBound here, which is how the bag's writers
+    // came to enforce no upper bound at all.
+    newValue = YieldSpec::clampValue(newMode, newValue);
 
     const bool changed = newMode != m_brewYieldMode
         || !qFuzzyCompare(1.0 + m_brewYieldOverride, 1.0 + newValue);

@@ -277,7 +277,21 @@ MainController::MainController(QNetworkAccessManager* networkManager,
             [this](double value, const QString& mode) {
         if (!m_settings || !m_settings->brew())
             return;
-        if (m_settings->dye()->activeRecipeId() >= 0 && !m_activeRecipe.isEmpty()) {
+        if (m_settings->dye()->activeRecipeId() >= 0) {
+            if (m_activeRecipe.isEmpty()) {
+                // A recipe is active BY ID but its row hasn't arrived yet.
+                // This is STARTUP, not a bean switch: the bag read and the
+                // recipe read are separate async workers and the bag's is
+                // enqueued first, so this handler routinely runs before the
+                // recipe cache exists. The ladder can't be walked without its
+                // top rung — and crucially, unlike a bean switch, nothing has
+                // cleared the session anchor here: it was restored from
+                // settings and already IS the recipe's. Arming the bag's over
+                // it would silently demote a ratio recipe to its bean's grams
+                // on every launch. Leave it standing; the recipe's own load
+                // path owns re-seeding.
+                return;
+            }
             const QString recipeMode =
                 YieldSpec::normalizedMode(m_activeRecipe.value("yieldMode").toString());
             const double recipeValue = m_activeRecipe.value("yieldValue").toDouble();

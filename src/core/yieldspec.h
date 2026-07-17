@@ -41,6 +41,24 @@ inline double clampRatio(double r) {
     return qBound(0.5, r, 6.0);
 }
 
+// The absolute (grams) bound. It lives HERE, beside clampRatio, because the
+// two are the same rule wearing different units: a stored value outside what
+// the session will resolve to means the stored design and the brewed shot
+// disagree, permanently and silently. Bounding one mode and not the other
+// just moves the bug — a bag stored at 900 g brews at 500 g and still reads
+// 900 everywhere the dye cache is shown.
+inline double clampAbsolute(double g) {
+    return qBound(1.0, g, 500.0);
+}
+
+// Clamp by mode — use this at any boundary that accepts a whole spec, so the
+// caller cannot bound one mode and forget the other.
+inline double clampValue(const QString& mode, double value) {
+    if (mode == modeRatio())    return clampRatio(value);
+    if (mode == modeAbsolute()) return clampAbsolute(value);
+    return 0.0;
+}
+
 // Resolve a spec to grams against a dose. `fallbackG` answers for mode
 // "none" (the next ladder rung, typically the profile's target_weight).
 // A ratio with no usable dose resolves to the fallback too — a 0 g stop

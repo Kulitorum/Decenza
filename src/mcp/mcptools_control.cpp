@@ -227,7 +227,24 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 result["error"] = "Machine not connected";
                 return result;
             }
-            if (!machineState || !machineState->isFlowing()) {
+            // "In progress" means the machine is RUNNING an operation, which
+            // is not the same as liquid moving. isFlowing() excludes espresso
+            // preheat, Ending, and every non-flowing steam substate — so a
+            // stop during preheat used to be refused with "no operation in
+            // progress" while the machine went right on to pour a shot the
+            // caller had explicitly asked to abort. That is the one moment a
+            // stop is most likely to be wanted and most likely to be
+            // automated. requestIdle() is safe from any state (it just asks
+            // for Idle), so gate on the operation phases instead.
+            using Phase = MachineState::Phase;
+            const Phase phase = machineState ? machineState->phase() : Phase::Disconnected;
+            const bool operationRunning =
+                phase == Phase::EspressoPreheating || phase == Phase::Preinfusion ||
+                phase == Phase::Pouring || phase == Phase::Ending ||
+                phase == Phase::Steaming || phase == Phase::HotWater ||
+                phase == Phase::Flushing || phase == Phase::Descaling ||
+                phase == Phase::Cleaning;
+            if (!operationRunning) {
                 result["error"] = "No operation in progress";
                 return result;
             }

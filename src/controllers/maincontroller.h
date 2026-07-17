@@ -548,13 +548,13 @@ private:
     // Apply the activation bundle on the main thread (recipeActivationReady).
     void applyActivatedRecipe(qint64 recipeId, const QVariantMap& recipe,
                               qint64 linkedBagId, const QVariantMap& linkedBag);
+    // The single walk of the baseline ladder — see BaselineYield.
+    BaselineYield resolveBaselineYield() const;
     // Re-seed the SESSION yield/temperature overrides from a recipe's spec,
     // replacing whatever is armed. Shared by activation and the
     // active-recipe edit refresh (an edit re-seeds the brew exactly as
     // re-activating would). Pass an empty linkedBag to resolve the bag rung
     // from the live dye cache. Returns true when an override was armed.
-    // The single walk of the baseline ladder — see BaselineYield.
-    BaselineYield resolveBaselineYield() const;
     bool applyRecipeBrewOverrides(const QVariantMap& recipe,
                                   const QVariantMap& linkedBag = QVariantMap());
     // Stamp a tweak onto the active recipe row (no-op when none is active

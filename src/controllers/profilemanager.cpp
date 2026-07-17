@@ -487,6 +487,24 @@ void ProfileManager::latchForShot() {
     }
     m_shotSnapshotValid = true;
     m_shotLatched = true;
+    // Push the latched target so the machine and the snapshot agree BY
+    // CONSTRUCTION. main.cpp reads machineState.targetWeight() (not this
+    // value) to configure the WeightProcessor, while the shot record reads
+    // latchedTargetG() — so if MachineState were out of sync at cycle start
+    // for any reason, the shot would STOP at one number and be RECORDED at
+    // another, with nothing logged. Today the ladder's pushes keep them
+    // level and this is a no-op; it costs one comparison to stop that from
+    // being a standing assumption.
+    if (m_machineState)
+        m_machineState->setTargetWeight(m_latchedTargetG);
+    // The latch is silent machinery that decides what the machine stops at,
+    // and it exists because a target once moved mid-pour and cut a shot
+    // short. Log the resolution so a debug log can answer "what did this
+    // shot actually target, and why" — the field diagnoses these through the
+    // log, and every latch bug so far has been invisible in it.
+    qDebug().noquote() << QString("[Yield] latched target=%1g dose=%2g anchor=%3:%4")
+        .arg(m_latchedTargetG, 0, 'f', 1).arg(m_latchedDoseG, 0, 'f', 1)
+        .arg(m_latchedYieldMode).arg(m_latchedYieldAnchorValue, 0, 'f', 2);
 }
 
 void ProfileManager::releaseShotLatch() {
@@ -496,8 +514,18 @@ void ProfileManager::releaseShotLatch() {
     // Re-resolve against the live state so the NEXT shot picks up anything
     // written while the latch held (a dose capture, a bean switch, an anchor
     // edit) — all of which were deliberately inert on the running shot.
+    const double resolved = targetWeight();
+    // This write reaches the WeightProcessor through main.cpp's ungated
+    // forwarder, so a release arriving EARLY (a BLE glitch bouncing the phase
+    // out of the espresso set mid-pour) would move the live SAW target rather
+    // than merely unlatch. Log the value whenever it actually changes: if that
+    // ever happens mid-shot, this line is the evidence, and its absence on a
+    // normal shot end is free.
+    if (!qFuzzyCompare(resolved, m_latchedTargetG))
+        qDebug().noquote() << QString("[Yield] latch released, re-resolved %1g -> %2g")
+            .arg(m_latchedTargetG, 0, 'f', 1).arg(resolved, 0, 'f', 1);
     if (m_machineState)
-        m_machineState->setTargetWeight(targetWeight());
+        m_machineState->setTargetWeight(resolved);
     emit targetWeightChanged();
 }
 
