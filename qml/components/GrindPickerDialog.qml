@@ -49,14 +49,28 @@ Dialog {
         return -1
     }
 
-    // Centre each wheel on its current value BEFORE the dialog animates in, so
-    // it opens already positioned instead of visibly scrolling to it after open.
+    // Open each wheel already parked on its current value. Setting currentIndex
+    // alone still visibly scrolls (the internal view animates the move once it
+    // lays out), so suppress that move animation for the initial positioning,
+    // then restore natural flick-snap once the dialog is open.
+    function _setWheelAnim(tumbler, duration) {
+        if (tumbler && tumbler.contentItem
+                && tumbler.contentItem.highlightMoveDuration !== undefined)
+            tumbler.contentItem.highlightMoveDuration = duration
+    }
     onAboutToShow: {
+        _setWheelAnim(grindTumbler, 0)
+        _setWheelAnim(rpmTumbler, 0)
         var gi = root._currentIndex(root.grindRows)
         if (gi >= 0) grindTumbler.currentIndex = gi
         var ri = root._currentIndex(root.rpmRows)
         if (ri >= 0) rpmTumbler.currentIndex = ri
     }
+    onOpened: Qt.callLater(function() {
+        // -1 restores the default velocity-based snap for user flicks.
+        root._setWheelAnim(grindTumbler, -1)
+        root._setWheelAnim(rpmTumbler, -1)
+    })
 
     // Apply BOTH halves from whatever the wheels have settled on, then close.
     // The only commit path — a single-axis grinder still confirms via Done.
