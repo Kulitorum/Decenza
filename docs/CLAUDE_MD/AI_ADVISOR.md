@@ -136,7 +136,7 @@ Both the in-app AI advisor and the MCP `dialing_get_context` tool use the same u
 | **Profile Knowledge Base** | `resources/ai/profile_knowledge.md` | Per-profile curated knowledge (18 profiles). Loaded as Qt resource, injected via `shotAnalysisSystemPrompt()` |
 | **Dial-in reference tables** | `resources/ai/espresso_dial_in_reference.md` | Structured variable→taste tables. Loaded as Qt resource, appended in `shotAnalysisSystemPrompt()` |
 | **Profile KB matching** | `ShotSummarizer::matchProfileKey()` | Three-tier matching: direct KB ID → fuzzy title → editor type fallback |
-| **Grinder context** | `ShotHistoryStorage::queryGrinderContext()` | Observed settings range, min/max, smallest step. Used by both MCP and in-app AI `requestRecentShotContext()` |
+| **Grinder context** | `ShotHistoryStorage::queryGrinderContext()` | Observed settings range, min/max, and `stepSize` — the grinder's effective step, the smallest gap the user makes repeatedly (`deriveGrindStep`), so a one-off mistyped setting doesn't skew it and a coarse-heavy history doesn't hide the fine step. Grinder-model-wide, so it matches the Grind quick-select widget's `grindStepForGrinder()`. Used by both MCP and in-app AI `requestRecentShotContext()` |
 | **Dial-in history** | `ShotHistoryStorage::getRecentShotsByKbId()` | Last N shots with same profile family |
 
 ### What Differs Between Paths
@@ -159,7 +159,7 @@ Note: `dialing_get_context` (the MCP read tool) shares the four `McpDialingBlock
 
 The shot-analysis system prompt asks the model to append a fenced ` ```json ` block named `nextShot` at the very end of any response that recommends a concrete parameter change (grind / dose / profile). The block carries:
 
-- `grinderSetting`, `doseG`, `profileTitle` — present only on the field(s) the recommendation moves
+- `grinderSetting`, `rpm`, `doseG`, `profileTitle` — present only on the field(s) the recommendation moves. `rpm` (integer) is the motor-RPM half of the dial-in, offered only for variable-RPM grinders and independent of `grinderSetting`; `computeAdherence`/`summarizeStructuredNext` score and render it the same way as grind. Per-shot `rpm` also rides on `dialInSessions[]`, `bestRecentShot`, the `changeFromPrev`/`changeFromBest` diffs, and `grinderContext` (observed RPMs + `rpmStepSize`), all gated on the shot actually having an RPM.
 - `expectedDurationSec`, `expectedFlowMlPerSec` — required `[low, high]` ranges
 - `expectedPeakPressureBar` — optional `[low, high]` range when the advice targets pressure
 - `successCondition` — short natural-language predicate (stored verbatim)
@@ -676,7 +676,7 @@ Summary of the layered context approach:
 | Static knowledge | System prompt + curated profile knowledge base (19 profiles) | ~2-2.5K tokens | Per app release | System prompt caching (Anthropic/OpenAI/Gemini) | **Done** |
 | Recipe interpretation | Rules for deriving expected behavior from profile recipe (temp stepping, flow/pressure, limiters) | ~0.25K tokens | Per app release | System prompt caching | **Done** |
 | Dial-in reference | Roast/grind/flow/pressure/ratio → taste tables, flavor correction guide | ~2.1K tokens | Per app release | System prompt caching | **Done** |
-| Grinder context | Observed settings range, min/max, smallest step from shot history | ~0.1K tokens | Every request | Not cacheable | **Done** |
+| Grinder context | Observed settings range, min/max, noise-filtered typical step (`stepSize`) from shot history | ~0.1K tokens | Every request | Not cacheable | **Done** |
 | Profile catalog | Compact one-liner per KB profile (19 profiles) for cross-profile awareness | ~0.5K tokens | Per app release | System prompt caching | **Done** |
 | Bean enrichment | Origin, processing, variety, tasting notes from Bean Base/visualizer | ~0.5-1K tokens | Per bean preset | Included in user prompt | Not implemented |
 | Dial-in history | Last 5 shots with same profile family (recipe, grind, temp, score, notes) | ~1-2.5K tokens | Every request | Not cacheable | **Done** |
@@ -695,7 +695,7 @@ Total context today: ~8-10K tokens. With all layers: ~14-18K tokens, with ~50-70
 3. ~~**Dial-in reference tables in system prompt**~~ — **Done** (April 2026, PR #635). Full `ESPRESSO_DIAL_IN_REFERENCE.md` content loaded from Qt resource (`:/ai/espresso_dial_in_reference.md`) and appended in `shotAnalysisSystemPrompt()`. Shared between in-app AI and MCP — the MCP's separate `referenceGuide` field was removed to avoid duplication. ~2,100 cacheable tokens.
 4. ~~**Smarter summarizer observations**~~ — **Done** (April 2026, PR #635). `temperatureUnstable` flag is now recipe-aware: suppressed when the temperature goal curve shows intentional stepping (range > 5°C). Eliminates false positives on D-Flow, 80s Espresso, and other temperature-stepping profiles.
 5. ~~**Profile notes audit**~~ — **Done** (March 2026). D-Flow/Q and La Pavoni were the only empty ones; now fixed. All other profiles confirmed populated.
-6. ~~**Grinder context in user prompt**~~ — **Done** (April 2026, PR #635). Grinder settings range query extracted to shared `ShotHistoryStorage::queryGrinderContext()`. In-app AI includes observed settings, range, and smallest step in the user context. MCP uses the same shared helper.
+6. ~~**Grinder context in user prompt**~~ — **Done** (April 2026, PR #635). Grinder settings range query extracted to shared `ShotHistoryStorage::queryGrinderContext()`. In-app AI includes observed settings, range, and the noise-filtered typical step (`stepSize`) in the user context. MCP uses the same shared helper; the Grind quick-select widget consumes the same estimator via `grindStepForGrinder()`.
 7. ~~**Bean age calculation**~~ — **Skipped.** The raw roast date is already in the user prompt. Pre-computing "days since roast" adds noise that can mislead the AI for users who freeze beans. The AI can do the math itself if relevant, and the "Forbidden Simplifications" section already prevents it from assuming old = stale.
 8. ~~**Refocus knowledge base**~~ — **Partial** (April 2026, PR #646). Systematic quality pass: all 19 entries verified against profile JSON frame data, incorrect temperatures/pressures/flows corrected, missing temperatures added to 6 entries, DO NOT flags added to 4 entries, thin entries expanded (Default, Flow Profile), Extractamundo Dos bloom phase documented, Londinium naming disambiguated. New Filter3 entry added with data from JSON frames, official Decent guide, Scott Rao blog, and Diaspora community. Remaining: shift entries away from derivable curve behavior toward non-derivable wisdom, seek A-Flow author guidance.
 9. **Test conversations** — Collect 5-10 exported AI conversations covering different profiles and failure modes. Use to validate prompt changes before shipping.

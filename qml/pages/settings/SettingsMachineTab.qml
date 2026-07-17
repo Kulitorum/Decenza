@@ -363,68 +363,6 @@ KeyboardAwareContainer {
                     }
                 }
 
-                // Grinder Settings (grind quick-select step)
-                Rectangle {
-                    objectName: "grinder"
-                    Layout.fillWidth: true
-                    implicitHeight: grinderContent.implicitHeight + Theme.scaled(30)
-                    color: Theme.cardBackgroundColor
-                    radius: Theme.cardRadius
-
-                    ColumnLayout {
-                        id: grinderContent
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: Theme.scaled(15)
-                        spacing: Theme.scaled(10)
-
-                        Text {
-                            text: TranslationManager.translate("settings.preferences.grinder", "Grinder")
-                            color: Theme.textColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(16)
-                            font.bold: true
-                        }
-
-                        Text {
-                            Layout.fillWidth: true
-                            text: TranslationManager.translate("settings.preferences.grindStepDesc",
-                                "Increment between the grind values offered by the grind quick-select widget (numbers only).")
-                            color: Theme.textSecondaryColor
-                            font.family: Theme.bodyFont.family
-                            font.pixelSize: Theme.scaled(12)
-                            wrapMode: Text.WordWrap
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.scaled(4)
-
-                            Text {
-                                text: TranslationManager.translate("settings.preferences.grindStep", "Grind step")
-                                color: Theme.textColor
-                                font.pixelSize: Theme.scaled(14)
-                                Accessible.ignored: true
-                            }
-
-                            ValueInput {
-                                Layout.fillWidth: true
-                                from: 0.1
-                                to: 5.0
-                                stepSize: 0.05
-                                decimals: 2
-                                value: Settings.brew.grindQuickSelectStep
-                                valueColor: Theme.primaryColor
-                                accessibleName: TranslationManager.translate("settings.preferences.grindStep", "Grind step")
-                                onValueModified: function(newValue) {
-                                    Settings.brew.grindQuickSelectStep = newValue
-                                }
-                            }
-                        }
-                    }
-                }
-
                 // Shot Map Settings
                 Rectangle {
                     objectName: "shotMap"

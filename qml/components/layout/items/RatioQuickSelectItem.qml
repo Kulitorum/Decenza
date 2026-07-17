@@ -51,7 +51,14 @@ Item {
             Layout.preferredWidth: ratioValue.implicitWidth + Theme.spacingMedium * 2
             Layout.preferredHeight: Theme.scaled(32)
             radius: height / 2
-            color: ratioMa.pressed ? Qt.darker(root.zoneTextColor, 1.15) : root.zoneTextColor
+            // Over a background image the solid capsule reads as an opaque chip on
+            // the photo; render it transparent so the ratio sits on the background
+            // like the Beans/Milk widgets. Without a background image keep the
+            // existing solid pill (zone-color fill, accent text).
+            readonly property bool hasBackgroundImage: Settings.theme.backgroundImagePath.length > 0
+            color: hasBackgroundImage
+                ? "transparent"
+                : (ratioMa.pressed ? Qt.darker(root.zoneTextColor, 1.15) : root.zoneTextColor)
 
             Accessible.role: Accessible.Button
             Accessible.name: root.labelText + " " + root.ratioText + ". "
@@ -65,10 +72,14 @@ Item {
                 text: root.ratioText
                 // Pill fill is the zone text color (light on an accentBar zone);
                 // accent-colored text reads against it in the intended placements.
+                // Over a background image the pill is transparent, so the base
+                // color becomes the zone text color to read against the photo.
                 // Override-highlight when the session deviates from the active
-                // recipe's/bag's stored spec — consistent with the Brew
-                // Settings rows and the Shot Plan.
-                color: root.overridden ? Theme.highlightColor : Theme.primaryColor
+                // recipe's/bag's stored spec — consistent with the Brew Settings
+                // rows and the Shot Plan — and wins in both modes.
+                color: root.overridden
+                    ? Theme.highlightColor
+                    : (parent.hasBackgroundImage ? root.zoneTextColor : Theme.primaryColor)
                 font.pixelSize: Theme.scaled(20)
                 font.bold: true
             }

@@ -233,6 +233,24 @@ public:
     Q_INVOKABLE QStringList getDistinctGrinderBurrsForModel(const QString& grinderBrand, const QString& grinderModel);
     Q_INVOKABLE QStringList getDistinctGrinderSettingsForGrinder(const QString& grinderModel);
 
+    // Typical dial increment observed for a grinder, for the Grind quick-select
+    // widget. Non-empty model → that grinder's settings; empty model → the full
+    // cross-grinder history (getDistinctGrinderSettingsForGrinder handles both).
+    // Parses the numeric subset and runs the same noise-filtered estimator the
+    // AI dialing context uses, so the widget and the AI never disagree. Returns
+    // 0 when it cannot derive (cold cache, or <2 distinct numeric settings) —
+    // the caller applies its own default. Cache-backed like the getters above,
+    // so QML re-evaluates on distinctCacheReady() once history loads.
+    Q_INVOKABLE double grindStepForGrinder(const QString& grinderModel);
+
+    // RPM counterpart of grindStepForGrinder, for variable-RPM grinders: the
+    // typical increment between the RPMs the user has actually dialed on this
+    // grinder (the shots.rpm column), via the same noise-filtered estimator.
+    // Returns 0 when it cannot derive (cold cache, or <2 distinct RPMs) — the
+    // widget falls back to its fixed RPM step. Empty model → 0 (RPM mode always
+    // has an identified grinder).
+    Q_INVOKABLE double grindRpmStepForGrinder(const QString& grinderModel);
+
     // Async: runs query on background thread, emits autoFavoritesReady()
     Q_INVOKABLE void requestAutoFavorites(const QString& groupBy, int maxItems);
 

@@ -140,6 +140,7 @@ Item {
 
     readonly property bool _needsSettingsData: content.indexOf("%GRIND%") >= 0
         || content.indexOf("%GRINDER%") >= 0
+        || content.indexOf("%RPM%") >= 0
 
     // Variable substitution - only tracks the live properties this item actually uses.
     // Items showing static values (e.g. %PROFILE%) no longer re-evaluate at 5 Hz.
@@ -172,6 +173,7 @@ Item {
         }
         if (_needsSettingsData && typeof Settings !== "undefined") {
             void(Settings.dye.dyeGrinderSetting); void(Settings.dye.dyeGrinderModel)
+            void(Settings.dye.dyeGrinderRpm)
         }
         return substituteVariables(_c)
     }
@@ -242,6 +244,7 @@ Item {
         result = result.replace(/%SCALE%/g, typeof ScaleDevice !== "undefined" && ScaleDevice ? ScaleDevice.name : "—")
         // Grinder
         result = result.replace(/%GRIND%/g, typeof Settings !== "undefined" && Settings.dye.dyeGrinderSetting ? Settings.dye.dyeGrinderSetting : "—")
+        result = result.replace(/%RPM%/g, typeof Settings !== "undefined" && Settings.dye.dyeGrinderRpm > 0 ? String(Settings.dye.dyeGrinderRpm) : "—")
         result = result.replace(/%GRINDER%/g, typeof Settings !== "undefined" && Settings.dye.dyeGrinderModel ? Settings.dye.dyeGrinderModel : "—")
         // Machine ready status
         var machineReady = typeof MachineState !== "undefined" && MachineState.isReady

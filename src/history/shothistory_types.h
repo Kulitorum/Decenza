@@ -227,7 +227,21 @@ struct GrinderContext {
     bool allNumeric = false;
     double minSetting = 0;
     double maxSetting = 0;
-    double smallestStep = 0;
+    // The grinder's effective dial step: the smallest increment the user makes
+    // REPEATEDLY between observed settings (deriveGrindStep). Not the raw minimum
+    // (a single mistyped setting would collapse it) nor the most-common gap (that
+    // hides a fine step the user uses less often than a coarse one). Computed
+    // grinder-model-wide, not bean-scoped — the step is a grinder property.
+    // 0 when fewer than 2 distinct numeric settings are available.
+    double stepSize = 0;
+    // RPM axis (variable-RPM grinders): the second half of the dial-in. Empty /
+    // 0 when the grinder has no recorded RPM history. RPM is an integer domain,
+    // so min/max are int; rpmStepSize stays double (reuses the same estimator as
+    // stepSize) and is grinder-model-wide, not bean-scoped.
+    QList<int> rpmsObserved;
+    int rpmMin = 0;
+    int rpmMax = 0;
+    double rpmStepSize = 0;
 };
 
 // Filter criteria for queries

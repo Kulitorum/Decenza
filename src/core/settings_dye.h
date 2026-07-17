@@ -179,13 +179,6 @@ public:
                                            const QString& current, double deltaUnits,
                                            int decimals = 1) const;
 
-    // Catalog-CONFIRMED rpm capability: true only when brand+model matches a
-    // registry entry whose variableRpm flag is set. Unlike grinderRpmCapable()
-    // (unknown/custom grinder → true), an unmatched grinder returns false — so a
-    // quick-select can engage RPM mode from the catalog alone, with no "set an
-    // RPM once in Brew Settings first" detour.
-    Q_INVOKABLE bool isKnownRpmGrinder(const QString& brand, const QString& model) const;
-
     // Basket registry bridges for the vendor-first picker (add-basket-equipment).
     Q_INVOKABLE QStringList knownBasketBrands() const;
     Q_INVOKABLE QStringList knownBasketModels(const QString& brand) const;

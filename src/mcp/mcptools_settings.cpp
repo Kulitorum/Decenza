@@ -240,6 +240,7 @@ void registerSettingsReadTools(McpToolRegistry* registry, Settings* settings,
             if (include("dyeGrinderModel", "dye")) result["dyeGrinderModel"] = settings->dye()->dyeGrinderModel();
             if (include("dyeGrinderBurrs", "dye")) result["dyeGrinderBurrs"] = settings->dye()->dyeGrinderBurrs();
             if (include("dyeGrinderSetting", "dye")) result["dyeGrinderSetting"] = settings->dye()->dyeGrinderSetting();
+            if (include("dyeGrinderRpm", "dye")) result["dyeGrinderRpm"] = settings->dye()->dyeGrinderRpm();
             if (include("dyeBeanWeight", "dye")) result["dyeBeanWeight"] = settings->dye()->dyeBeanWeight();
             if (include("dyeDrinkWeight", "dye")) result["dyeDrinkWeight"] = settings->dye()->dyeDrinkWeight();
             // dyeDrinkTds/dyeDrinkEy are session-scratch and intentionally not exposed via MCP.

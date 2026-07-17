@@ -419,6 +419,8 @@ inline StructuredNextSummary summarizeStructuredNext(const QJsonObject& sn)
     StructuredNextSummary out;
     if (sn.contains(QStringLiteral("grinderSetting")))
         out.predictedParts << QStringLiteral("grinder %1").arg(sn.value("grinderSetting").toString());
+    if (sn.contains(QStringLiteral("rpm")))
+        out.predictedParts << QStringLiteral("%1 RPM").arg(sn.value("rpm").toInt());
     if (sn.contains(QStringLiteral("doseG")))
         out.predictedParts << QStringLiteral("dose %1g").arg(sn.value("doseG").toDouble(), 0, 'f', 1);
     if (sn.contains(QStringLiteral("profileTitle")))

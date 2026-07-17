@@ -209,6 +209,7 @@ void ShotComparisonModel::scheduleLoad()
                 shot.grinderModel = record.grinderModel;
                 shot.grinderBurrs = record.grinderBurrs;
                 shot.grinderSetting = record.grinderSetting;
+                shot.rpm = record.rpm;
                 shot.duration = record.summary.duration;
                 shot.doseWeight = record.summary.doseWeight;
                 shot.finalWeight = record.summary.finalWeight;
@@ -406,6 +407,7 @@ QVariantMap ShotComparisonModel::getShotInfo(int index) const
     result["grinderModel"] = shot.grinderModel;
     result["grinderBurrs"] = shot.grinderBurrs;
     result["grinderSetting"] = shot.grinderSetting;
+    result["rpm"] = static_cast<qint64>(shot.rpm);  // integer RPM — avoid "1200.0"
     result["durationSec"] = shot.duration;
     result["doseWeightG"] = shot.doseWeight;
     result["finalWeightG"] = shot.finalWeight;

@@ -440,9 +440,10 @@ QString SettingsDye::stepGrinderSetting(const QString& brand, const QString& mod
         && current.contains(QLatin1Char('+')))
         return GrinderAliases::formatGrinderSetting(*entry, stepped);
 
-    // Plain-numeric: honor the caller's configured step precision (the widget's
-    // grindQuickSelectStep goes to 2 decimals), not formatGrinderSetting's fixed
-    // single decimal, then strip trailing zeros to match the display convention.
+    // Plain-numeric: honor the caller's step precision (the grind widget passes
+    // the decimals of its history-derived step, up to 2), not
+    // formatGrinderSetting's fixed single decimal, then strip trailing zeros to
+    // match the display convention.
     const int d = qBound(0, decimals, 3);
     QString s = QString::number(stepped, 'f', d);
     if (s.contains(QLatin1Char('.'))) {
@@ -450,11 +451,6 @@ QString SettingsDye::stepGrinderSetting(const QString& brand, const QString& mod
         if (s.endsWith(QLatin1Char('.'))) s.chop(1);
     }
     return s;
-}
-
-bool SettingsDye::isKnownRpmGrinder(const QString& brand, const QString& model) const {
-    const GrinderAliases::GrinderEntry* entry = GrinderAliases::findEntry(brand, model);
-    return entry && entry->variableRpm;
 }
 
 QStringList SettingsDye::knownBasketBrands() const {

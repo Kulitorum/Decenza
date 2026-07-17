@@ -736,6 +736,8 @@ Page {
                             text: {
                                 var bean = (model.beanBrand || "") + (model.beanType ? " " + model.beanType : "")
                                 var grind = model.grinderSetting || ""
+                                // Pair the RPM half when recorded (variable-RPM grinders).
+                                if (grind && model.rpm > 0) grind += " · " + model.rpm
                                 var result
                                 if (bean && grind) result = bean + " (" + grind + ")"
                                 else if (bean) result = bean

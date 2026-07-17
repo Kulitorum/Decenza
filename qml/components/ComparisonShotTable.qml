@@ -44,6 +44,7 @@ ColumnLayout {
                 if (grinder && setting) return grinder + " @ " + setting
                 return grinder || setting || "\u2014"
             }
+            case "rpm":       return (info.rpm && info.rpm > 0) ? Math.round(info.rpm) + " RPM" : "\u2014"
             case "roast": {
                 var parts = []
                 if (info.roastLevel) parts.push(info.roastLevel)
@@ -68,6 +69,7 @@ ColumnLayout {
             var info = comparisonModel.getShotInfo(i)
             switch (key) {
                 case "tdsEy":   if (info.drinkTds > 0 || info.drinkEy  > 0) return true; break
+                case "rpm":     if (info.rpm && info.rpm > 0)                 return true; break
                 case "barista": if (info.barista !== "")                      return true; break
                 case "notes":   if (info.notes   !== "")                      return true; break
                 default: return true
@@ -84,6 +86,7 @@ ColumnLayout {
         { key: "rating",   label: TranslationManager.translate("comparison.rating", "Rating")    },
         { key: "bean",     label: TranslationManager.translate("comparison.bean", "Bean")      },
         { key: "grind",   label: TranslationManager.translate("comparison.grinder", "Grinder")   },
+        { key: "rpm",      label: TranslationManager.translate("comparison.rpm", "RPM")       },
         { key: "roast",    label: TranslationManager.translate("comparison.roast", "Roast")     },
         { key: "tdsEy",    label: "TDS/EY"   },
         { key: "barista",  label: TranslationManager.translate("comparison.barista", "Barista")   },

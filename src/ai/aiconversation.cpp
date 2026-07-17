@@ -804,6 +804,11 @@ AIConversation::ShotFields AIConversation::extractShotFields(const QString& cont
             const QString gs = shot.contains(QStringLiteral("grinderSetting"))
                 ? shot.value(QStringLiteral("grinderSetting")).toString()
                 : currentBean.value(QStringLiteral("grinderSetting")).toString();
+            // RPM is the second half of the dial-in; fold it into the change-
+            // detection string so an RPM-only move registers as "grinder changed".
+            const int rpm = shot.contains(QStringLiteral("rpm"))
+                ? shot.value(QStringLiteral("rpm")).toInt()
+                : currentBean.value(QStringLiteral("rpm")).toInt();
             QString grinder;
             if (!gb.isEmpty() && !gm.isEmpty())
                 grinder = gb + QLatin1Char(' ') + gm;
@@ -813,6 +818,7 @@ AIConversation::ShotFields AIConversation::extractShotFields(const QString& cont
                 grinder = gm;
             if (!gbur.isEmpty()) grinder += QStringLiteral(" with ") + gbur;
             if (!gs.isEmpty()) grinder += QStringLiteral(" @ ") + gs;
+            if (rpm > 0) grinder += QStringLiteral(" ") + QString::number(rpm) + QStringLiteral(" RPM");
             fields.grinder = grinder;
 
             fields.profileTitle = profile.value(QStringLiteral("title")).toString();

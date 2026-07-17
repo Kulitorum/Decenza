@@ -35,6 +35,7 @@ DialingHelpers::ShotDiffInputs toDiffInputs(const ShotProjection& s)
 {
     DialingHelpers::ShotDiffInputs d;
     d.grinderSetting = s.grinderSetting;
+    d.rpm = s.rpm;
     d.beanBrand = s.beanBrand;
     d.doseWeightG = s.doseWeightG;
     d.finalWeightG = s.finalWeightG;
@@ -100,6 +101,11 @@ QJsonObject shotToJson(const ShotProjection& shot,
         ? QJsonValue(shot.enjoyment0to100)
         : QJsonValue(QJsonValue::Null);
     h["grinderSetting"] = shot.grinderSetting;
+    // RPM is the second half of the dial-in for variable-RPM grinders and is
+    // shot-variable like grinderSetting — so it belongs on the per-shot entry,
+    // never the hoisted session context. Sparse: non-RPM shots omit it.
+    if (shot.rpm > 0)
+        h["rpm"] = shot.rpm;
     if (!override.grinderBrand.isEmpty())
         h["grinderBrand"] = override.grinderBrand;
     if (!override.grinderModel.isEmpty())
@@ -372,6 +378,8 @@ QJsonObject buildBestRecentShotBlock(QSqlDatabase& db,
         || best.stoppedBy == QStringLiteral("volume"))
         b["stoppedBy"] = best.stoppedBy;
     b["grinderSetting"] = best.grinderSetting;
+    if (best.rpm > 0)
+        b["rpm"] = best.rpm;  // RPM half of the anchor's dial-in (sparse)
     b["grinderModel"] = best.grinderModel;
     b["beanBrand"] = best.beanBrand;
     b["beanType"] = best.beanType;
@@ -446,7 +454,27 @@ QJsonObject buildGrinderContextBlock(QSqlDatabase& db,
     if (primary.allNumeric && primary.maxSetting > primary.minSetting) {
         grinderCtx["observedMinSetting"] = primary.minSetting;
         grinderCtx["observedMaxSetting"] = primary.maxSetting;
-        grinderCtx["smallestStep"] = primary.smallestStep;
+    }
+    // Noise-filtered typical dial increment. Emitted whenever ≥2 distinct
+    // numeric settings yielded a step (deriveGrindStep), independent of the
+    // min/max range gate above — a mixed-notation grinder can still have a
+    // meaningful numeric step.
+    if (primary.stepSize > 0)
+        grinderCtx["stepSize"] = primary.stepSize;
+    // RPM axis (variable-RPM grinders): the observed RPMs, their range, and the
+    // noise-filtered typical RPM step — the RPM counterpart of the fields above.
+    // Sparse: absent entirely for grinders with no recorded RPM history.
+    if (!primary.rpmsObserved.isEmpty()) {
+        QJsonArray rpmArr;
+        for (int r : primary.rpmsObserved)
+            rpmArr.append(r);
+        grinderCtx["rpmsObserved"] = rpmArr;
+        if (primary.rpmMax > primary.rpmMin) {
+            grinderCtx["observedMinRpm"] = primary.rpmMin;
+            grinderCtx["observedMaxRpm"] = primary.rpmMax;
+        }
+        if (primary.rpmStepSize > 0)
+            grinderCtx["rpmStepSize"] = primary.rpmStepSize;
     }
     if (haveCrossBean && !ctx.settingsObserved.isEmpty()) {
         QJsonArray allArr;
@@ -555,6 +583,21 @@ bool grinderMatches(const QString& recommended, const QString& actual,
     return true;
 }
 
+// RPM adherence: matched when the actual RPM lands within tolerance of the
+// recommended RPM AND the user actually moved from the prior RPM (same
+// no-movement guard as grinderMatches). RPM dials are coarse, so a ±25 RPM
+// window absorbs rounding without rewarding a shot that ignored the advice.
+constexpr int kRpmTolerance = 25;
+bool rpmMatches(int recommended, int actual, int prior)
+{
+    if (recommended <= 0) return true;
+    if (actual <= 0) return false;
+    if (std::abs(recommended - actual) > kRpmTolerance) return false;
+    if (prior > 0 && std::abs(actual - prior) <= kRpmTolerance && actual != recommended)
+        return false;
+    return true;
+}
+
 QString computeAdherence(const QJsonObject& sn, const ShotProjection& actual,
                           const ShotProjection& prior)
 {
@@ -567,6 +610,13 @@ QString computeAdherence(const QJsonObject& sn, const ShotProjection& actual,
         ++total;
         if (grinderMatches(sn.value("grinderSetting").toString(),
                            actual.grinderSetting, prior.grinderSetting))
+            ++matched;
+    }
+    if (sn.contains(QStringLiteral("rpm"))) {
+        anyRecommendation = true;
+        ++total;
+        if (rpmMatches(sn.value("rpm").toInt(),
+                       static_cast<int>(actual.rpm), static_cast<int>(prior.rpm)))
             ++matched;
     }
     if (sn.contains(QStringLiteral("doseG"))) {
@@ -717,6 +767,8 @@ QJsonArray buildRecentAdviceBlock(QSqlDatabase& db,
         QJsonObject userResponse;
         userResponse["actualNextShotId"] = static_cast<double>(actual.id);
         userResponse["grinderSetting"] = actual.grinderSetting;
+        if (actual.rpm > 0)
+            userResponse["rpm"] = actual.rpm;  // RPM half of what the user actually did
         userResponse["doseG"] = actual.doseWeightG;
         userResponse["adherence"] = computeAdherence(turn.structuredNext, actual, prior);
         if (actual.enjoyment0to100 > 0)
@@ -857,7 +909,8 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         "       bean_brand, bean_type, roast_date, final_weight, "
         "       COALESCE(enjoyment,0), COALESCE(drink_tds,0), "
         "       COALESCE(yield_override, 0), "
-        "       json_extract(profile_json,'$.target_weight') "
+        "       json_extract(profile_json,'$.target_weight'), "
+        "       COALESCE(rpm, 0) "
         "FROM shots "
         // Grinder identity resolves through the equipment_id pointer, not the
         // dropped per-shot grinder_model/grinder_burrs columns (add-equipment-
@@ -885,6 +938,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         QString kbId;
         double ugs = std::numeric_limits<double>::quiet_NaN();
         double setting = 0.0;
+        int rpm = 0;            // motor RPM (variable-RPM grinders); 0 = none
         QString bean;
         QString roast;
         bool dated = false;
@@ -915,6 +969,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         const QVariant twv      = q.value(11);
         const double  jsonTw    = twv.isNull() ? 0.0 : twv.toString().toDouble();
         const double  targetW   = yieldOv > 0.0 ? yieldOv : jsonTw;
+        const int     rpmVal    = q.value(12).toInt();
 
         // Dialed-in gate.
         const bool ratedOk  = enj >= 50;
@@ -940,6 +995,7 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         r.ugs = id.isEmpty() ? std::numeric_limits<double>::quiet_NaN()
                              : ShotSummarizer::ugsForKbId(id);
         r.setting = setVal;
+        r.rpm = rpmVal;
         r.bean = bBrand + QStringLiteral(" / ") + bType;
         r.roast = roast;
         r.dated = isDated(roast);
@@ -1058,12 +1114,14 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
     bool haveAnchor = false;
     qint64 anchorTs = -1;
     double anchorSetting = 0.0, anchorUgs = 0.0;
+    int anchorRpm = 0;
     QString anchorName;
     for (const CalRow& r : rows) {
         if (!r.currentBatch || std::isnan(r.ugs)) continue;
         if (r.ts > anchorTs) {
             anchorTs = r.ts;
             anchorSetting = r.setting;
+            anchorRpm = r.rpm;
             anchorUgs = r.ugs;
             anchorName = ShotSummarizer::canonicalNameForKbId(r.kbId);
             haveAnchor = true;
@@ -1174,6 +1232,11 @@ QJsonObject buildGrinderCalibrationBlock(QSqlDatabase& db,
         anchor["ugs"] = anchorUgs;
         anchor["setting"] = GrinderAliases::formatGrinderSetting(
             gEntry, anchorSetting);
+        // The anchor shot's actual RPM, so a variable-RPM recommendation can name
+        // the concrete RPM the setting is anchored at rather than only the prose
+        // "same RPM as your recent shot" caveat. Sparse: absent for non-RPM shots.
+        if (anchorRpm > 0)
+            anchor["rpm"] = anchorRpm;
         anchor["coffee"] = curBean;
         block["coffeeAnchor"] = anchor;
     }

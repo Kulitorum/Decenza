@@ -50,6 +50,8 @@ private slots:
     void buildShotChangeDiff_zeroFieldsSkipped();
     void buildShotChangeDiff_emptyStringsSkipped();
     void buildShotChangeDiff_changeFromBestExample();
+    void buildShotChangeDiff_rpmChangeIsIntegerFormatted();
+    void buildShotChangeDiff_rpmUnchangedOrZeroSkipped();
 
     // estimateFlowAtCutoff (issue #1021)
     void estimateFlowAtCutoff_emptySamples_returnsZero();
@@ -602,6 +604,41 @@ void TstDialingHelpers::buildShotChangeDiff_directionIsFromTo()
     // Numeric format: "<from> -> <to> <unit> (<sign><delta>)"
     QCOMPARE(diff["doseG"].toString(), QStringLiteral("18.0 -> 20.0 g (+2.0)"));
     QCOMPARE(diff["yieldG"].toString(), QStringLiteral("40.2 -> 35.9 g (-4.3)"));
+}
+
+void TstDialingHelpers::buildShotChangeDiff_rpmChangeIsIntegerFormatted()
+{
+    // RPM (the second dial-in axis) diffs as whole numbers via diffInt, not the
+    // one-decimal diffNum used for dose/yield.
+    ShotDiffInputs from;
+    from.grinderSetting = QStringLiteral("2.4");
+    from.rpm = 1400;
+
+    ShotDiffInputs to;
+    to.grinderSetting = QStringLiteral("2.4");   // grind unchanged
+    to.rpm = 1350;
+
+    const QJsonObject diff = buildShotChangeDiff(from, to);
+
+    QVERIFY(!diff.contains(QStringLiteral("grinderSetting")));  // unchanged → skipped
+    QCOMPARE(diff["rpm"].toString(), QStringLiteral("1400 -> 1350 rpm (-50)"));
+}
+
+void TstDialingHelpers::buildShotChangeDiff_rpmUnchangedOrZeroSkipped()
+{
+    // Unchanged RPM → no diff.
+    ShotDiffInputs a;
+    a.rpm = 1400;
+    ShotDiffInputs b;
+    b.rpm = 1400;
+    QVERIFY(!buildShotChangeDiff(a, b).contains(QStringLiteral("rpm")));
+
+    // A zero on either side (non-RPM grinder) → skipped, not "1400 -> 0".
+    ShotDiffInputs hasRpm;
+    hasRpm.rpm = 1400;
+    ShotDiffInputs noRpm;   // rpm defaults to 0
+    QVERIFY(!buildShotChangeDiff(hasRpm, noRpm).contains(QStringLiteral("rpm")));
+    QVERIFY(!buildShotChangeDiff(noRpm, hasRpm).contains(QStringLiteral("rpm")));
 }
 
 void TstDialingHelpers::buildShotChangeDiff_zeroFieldsSkipped()
