@@ -28,4 +28,4 @@
 
 ## 6. Verification
 
-- [ ] 6.1 Build in Qt Creator and exercise the recipes page: search by name/coffee/profile, sort by each key, toggle direction, confirm persistence across restart, confirm the archived grid follows, and confirm the "no matches" state.
+- [x] 6.1 Build in Qt Creator and exercise the recipes page: search by name/coffee/profile, sort by each key, toggle direction, confirm persistence across restart, confirm the archived grid follows, and confirm the "no matches" state. (Verified live by Jeff.)
