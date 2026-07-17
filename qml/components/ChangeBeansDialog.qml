@@ -97,9 +97,12 @@ Dialog {
     property bool fFreeze: false
     property string fFrozenDate: ""
     property string fDefrostDate: ""
-    // Non-frozen storage lifecycle (bean-freshness-followup). storageHint is a
-    // category tag ("" = unset); openedDate is the non-frozen analogue of the
-    // defrost date. Both apply only while the freeze toggle is OFF.
+    // Out-of-freezer storage lifecycle. storageHint is the PLAN for how beans
+    // are kept when not in the freezer ("" = unset); openedDate marks the
+    // current portion leaving airtight storage — a different event from
+    // defrostDate (leaving the freezer), on a different axis. NEITHER is
+    // freeze-gated: a frozen bag carries a plan for when it is thawed, and a
+    // thawed portion can then be opened. frozenDate alone decides frozen-ness.
     property string fStorageHint: ""
     property string fOpenedDate: ""
 
@@ -600,10 +603,12 @@ Dialog {
             fields["kind"] = bagKind
         if (formMode === "edit") {
             fields["defrostDate"] = fFreeze ? (fDefrostDate.length === 10 ? fDefrostDate : "") : ""
-            // openedDate is the non-frozen analogue of defrostDate — edit-mode
-            // only (the "Mark Opened" quick action on the bag card is the
-            // everyday path). Independent of the freeze axis: a bag frozen,
-            // later thawed, then moved to a counter jar carries both.
+            // openedDate marks the current portion leaving airtight storage —
+            // the sibling of defrostDate (leaving the freezer), not its
+            // non-frozen substitute. Edit-mode only (the "Mark Opened" quick
+            // action on the bag card is the everyday path). Independent of the
+            // freeze axis: a bag frozen, later thawed, then moved to a counter
+            // jar carries both.
             fields["openedDate"] = fOpenedDate.length === 10 ? fOpenedDate : ""
             // Re-point the bag's equipment package (<=0 -> NULL via the column hook).
             fields["equipmentId"] = fEquipmentId
@@ -1718,7 +1723,7 @@ Dialog {
                     }
 
                     // Defrost date is only directly editable in edit mode
-                    // ("Next Portion" on the bag card is the everyday path)
+                    // ("Thaw" on the bag card is the everyday path)
                     BeanDateField {
                         id: defrostDateField
                         visible: root.fFreeze && root.formMode === "edit"

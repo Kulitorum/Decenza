@@ -29,6 +29,12 @@ These fields describe **three orthogonal axes**, and no axis SHALL gate, hide, o
 - **WHEN** a bag has no `frozenDate`/`defrostDate` but has `openedDate` set
 - **THEN** the bag card SHALL display the absolute opened date and age together: "Opened {date} ({N}d)"
 
+#### Scenario: A thawed bag displays its opened date alongside its thaw date
+- **WHEN** a bag has `frozenDate` set, `defrostDate` set, and `openedDate` set
+- **THEN** the bag card SHALL display BOTH "Thawed {date} ({N}d)" and "Opened {date} ({N}d)"
+- **AND** the opened line SHALL NOT be suppressed by the presence of a thaw date — the two describe independent events and the card offers "Mark Opened" in exactly this state, so suppressing it would make that action write-only
+- **AND** the same SHALL hold for every surface rendering these fields (bag card and bean summary)
+
 #### Scenario: Bag with no lifecycle state at all
 - **WHEN** `frozenDate`, `defrostDate`, and `openedDate` are all null
 - **THEN** no freeze- or open-related indicators SHALL appear on the bag card

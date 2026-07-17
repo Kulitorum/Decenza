@@ -7,7 +7,9 @@ import Decenza
 // bags show a dense attribute line + verified badge; partial bags show only
 // what is available plus a subtle "Find in Bean Base" nudge. Tapping the card
 // selects the bag (sets activeBagId). Action row: Thaw (frozen bags),
-// Edit, and ONE removal action that follows the bag's life: a trash icon
+// Mark Opened (once a portion is out of the freezer — includes thawed bags,
+// so a thawed bag shows both), Edit, and ONE removal action that follows the
+// bag's life: a trash icon
 // while no shot references it (a mistaken creation — deletes the row), then
 // "Bag finished" once shots exist (leaves inventory, history kept). Storage
 // still refuses deleting a referenced bag — a brief message explains if the
@@ -33,9 +35,12 @@ Rectangle {
     readonly property bool isFrozen: bag && bag.frozenDate !== undefined && String(bag.frozenDate).length > 0
     // defrostDate is when the CURRENT portion left the freezer — not the bag.
     readonly property string defrostDate: bag && bag.defrostDate !== undefined ? String(bag.defrostDate) : ""
-    // True once beans are actually in use at room temperature: a never-frozen
-    // bag trivially, or a frozen bag whose current portion has been thawed.
-    // Until the first thaw there is nothing out of the freezer to have opened.
+    // True when beans are out at room temperature and could THEREFORE have been
+    // opened — not a claim that they are in use: a never-frozen bag trivially,
+    // or a frozen bag whose current portion has been thawed. Until the first
+    // thaw there is nothing out of the freezer to have opened. Deliberately NOT
+    // named for the freezer's contents: a frozen bag always has portions in the
+    // freezer, so "no portion in the freezer" would never be true of one.
     readonly property bool portionOutOfFreezer: !isFrozen || defrostDate.length > 0
     readonly property string openedDate: bag && bag.openedDate !== undefined ? String(bag.openedDate) : ""
 
@@ -176,6 +181,8 @@ Rectangle {
         var roast = formatRoastDate(bag && bag.roastDate ? String(bag.roastDate) : "")
         if (roast.length > 0)
             parts.push(TranslationManager.translate("beans.summary.roastedDate", "Roasted %1").arg(roast))
+        // Freezer state: the current portion's thaw date, or "Frozen" while no
+        // portion has been pulled yet.
         if (defrostDate.length > 0) {
             var defAge = daysSince(defrostDate)
             if (defAge >= 0)
@@ -183,9 +190,12 @@ Rectangle {
                     .arg(formatRoastDate(defrostDate)).arg(defAge))
         } else if (isFrozen) {
             parts.push(TranslationManager.translate("beans.summary.frozen", "Frozen"))
-        } else if (openedDate.length > 0) {
-            // Non-frozen bags: show the opened date/age the same way (only when
-            // not frozen — a frozen bag's lifecycle is the thaw date above).
+        }
+        // Opened is INDEPENDENT of the freezer state above, not an alternative
+        // to it: a thawed portion can also have been opened, and both dates are
+        // meaningful at once. Chaining this onto the else-if would render the
+        // "Mark Opened" action write-only on exactly the thawed bags that offer it.
+        if (openedDate.length > 0) {
             var openAge = daysSince(openedDate)
             if (openAge >= 0)
                 parts.push(TranslationManager.translate("beans.summary.openedDate", "Opened %1 (%2d)")
@@ -228,8 +238,9 @@ Rectangle {
         }
     }
 
-    // "Mark Opened" quick action for non-frozen bags (bean-freshness-followup),
-    // the non-frozen analogue of thawDatePicker.
+    // "Mark Opened" quick action, the room-temperature analogue of
+    // thawDatePicker: available once a portion is out of the freezer (see
+    // portionOutOfFreezer), which includes thawed bags — not only never-frozen ones.
     DatePickerDialog {
         id: openedDatePicker
         onDateSelected: function(dateString) {

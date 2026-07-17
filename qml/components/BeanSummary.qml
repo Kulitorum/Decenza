@@ -28,8 +28,10 @@ Item {
     property string beanBaseData: ""
     property string frozenDate: ""
     property string defrostDate: ""
-    // Non-frozen storage lifecycle (bean-freshness-followup): opened date, the
-    // non-frozen analogue of the defrost date.
+    // openedDate: when the current portion left airtight storage. Sibling of
+    // defrostDate (left the freezer), NOT restricted to non-frozen bags — a
+    // snapshot can legitimately carry frozenDate, defrostDate and openedDate
+    // together, and this summary renders the opened line independently below.
     property string openedDate: ""
 
     // Effective values for the active mode
@@ -101,6 +103,8 @@ Item {
         var roast = formatRoastDate(effRoastDate)
         if (roast.length > 0)
             parts.push(TranslationManager.translate("beans.summary.roastedDate", "Roasted %1").arg(roast))
+        // Freezer state: the current portion's thaw date, or "Frozen" while no
+        // portion has been pulled yet.
         if (effDefrostDate.length > 0) {
             var defAge = daysSince(effDefrostDate)
             if (defAge >= 0)
@@ -108,7 +112,10 @@ Item {
                     .arg(formatRoastDate(effDefrostDate)).arg(defAge))
         } else if (effFrozenDate.length > 0) {
             parts.push(TranslationManager.translate("beans.summary.frozen", "Frozen"))
-        } else if (effOpenedDate.length > 0) {
+        }
+        // Opened is INDEPENDENT of the freezer state above (mirrors BagCard):
+        // a thawed portion can also have been opened, and both dates matter.
+        if (effOpenedDate.length > 0) {
             var openAge = daysSince(effOpenedDate)
             if (openAge >= 0)
                 parts.push(TranslationManager.translate("beans.summary.openedDate", "Opened %1 (%2d)")

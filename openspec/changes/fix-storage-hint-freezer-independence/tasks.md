@@ -42,5 +42,5 @@ The force-clears are unconditional loss on the *save* path: a `storageHint`/`ope
 
 ## 6. Docs & housekeeping
 
-- [ ] 6.1 Update the GitHub wiki manual's bean/bag section — the storage-hint dropdown is no longer described as freeze-dependent, and "Mark Opened" is available on thawed bags
+- [x] 6.1 Update the GitHub wiki manual's bean/bag section — the storage-hint dropdown is no longer described as freeze-dependent, and "Mark Opened" is available on thawed bags
 - [ ] 6.2 `/opsx:archive` as the last commit on the branch, so the archive + spec promotion land inside the PR

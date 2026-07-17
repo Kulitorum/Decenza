@@ -1612,10 +1612,16 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         "Update fields on a coffee bag (metadata, freeze lifecycle, and bean details such as "
         "origin/variety/process/tasting notes/product URL). Only provided fields change. Pass an "
         "empty string to clear a text/date field. Setting inInventory=false marks the bag empty "
-        "(removes it from the inventory view; shots keep their snapshots). Setting defrostDate "
-        "records a thaw (the latest portion leaving the freezer); openedDate is the non-frozen "
-        "analogue (when a never-frozen portion started being used). storageHint is the non-frozen "
-        "storage type (counter/airtight/vacuum-sealed/fridge — never 'frozen'). Bean-detail edits "
+        "(removes it from the inventory view; shots keep their snapshots). The freeze and storage "
+        "fields are INDEPENDENT — setting one never requires or clears another. frozenDate says the "
+        "bag is stored frozen; defrostDate records the latest portion leaving the freezer (beans are "
+        "frozen in portions and pulled out one at a time, so a bag stays frozen after a thaw and "
+        "thawing recurs). openedDate is when the current portion left airtight storage — the sibling "
+        "of defrostDate, not a never-frozen substitute; a bag may carry both. storageHint is the "
+        "out-of-freezer storage PLAN (counter/airtight/vacuum-sealed/fridge — never 'frozen'): it "
+        "describes how the beans are kept when NOT in the freezer, so it is valid on a frozen bag "
+        "too (recording where they go once thawed) and must NOT be cleared to set frozenDate. "
+        "Bean-detail edits "
         "keep a canonical Bean Base link intact and sync to the user's Visualizer bag when linked.",
         QJsonObject{
             {"type", "object"},
@@ -1628,9 +1634,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"frozenDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear"}}},
                 {"defrostDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD, '' to clear"}}},
                 {"storageHint", QJsonObject{{"type", "string"},
-                    {"description", "Non-frozen storage: counter/airtight/vacuum-sealed/fridge, '' to clear"}}},
+                    {"description", "Out-of-freezer storage plan: counter/airtight/vacuum-sealed/fridge, '' to clear. Valid in any freeze state."}}},
                 {"openedDate", QJsonObject{{"type", "string"},
-                    {"description", "YYYY-MM-DD the non-frozen portion was opened, '' to clear"}}},
+                    {"description", "YYYY-MM-DD the current portion left airtight storage, '' to clear. Independent of frozenDate/defrostDate."}}},
                 {"notes", QJsonObject{{"type", "string"}}},
                 {"grinderBrand", QJsonObject{{"type", "string"}}},
                 {"grinderModel", QJsonObject{{"type", "string"}}},
