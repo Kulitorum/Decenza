@@ -118,4 +118,4 @@
 ## 9. Verification
 
 - [x] 9.1 Quick compile check via Qt Creator MCP (build only; do not launch the app). — Build succeeded, 0 errors / 0 warnings; tst_dialing_blocks, tst_aimanager, tst_settings all pass.
-- [ ] 9.2 Ask Jeff to launch the app and confirm: Grind pill steps by 0.25 on the Niche Zero, both pills render transparent over a background image, and the Grind step setting is gone from the Machine tab.
+- [x] 9.2 Ask Jeff to launch the app and confirm: Grind pill steps by 0.25 on the Niche Zero, both pills render transparent over a background image, and the Grind step setting is gone from the Machine tab.

@@ -95,3 +95,8 @@ The layout palette SHALL provide a `ratioQuickSelect` widget that displays the c
 - **GIVEN** a background image is configured
 - **WHEN** the Ratio pill is rendered
 - **THEN** the pill fill SHALL be transparent and its value text SHALL read against the background
+
+#### Scenario: Accessible as a button
+
+- **WHEN** a screen reader inspects the widget
+- **THEN** it SHALL expose a button role, a name conveying the current ratio, and a "tap to change" hint
