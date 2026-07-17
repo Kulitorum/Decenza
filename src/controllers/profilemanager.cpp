@@ -408,9 +408,14 @@ double ProfileManager::targetWeight() const {
     // MachineState, which main.cpp's forwarder hands to the WeightProcessor
     // with no phase gate. That MOVES THE LIVE SAW TARGET: a bean switch
     // during a pour dropped a 45 g target to 36 g and cut the shot short.
-    // Freezing the resolved value kills every one of those paths at once and
-    // keeps the display, the machine, and the shot record agreeing on the
-    // target that actually ran.
+    // Freezing the resolved value kills every path that RESOLVES THROUGH
+    // HERE at once, and keeps the display, the machine, and the shot record
+    // agreeing on the target that actually ran. It is not a guarantee about
+    // MachineState's target in general: a caller that writes
+    // setTargetWeight() with a value of its own bypasses this, latch and
+    // all. That is exactly what the deliberate +10 g bump does — so any new
+    // caller must route through targetWeight() unless it means to override a
+    // shot in flight.
     //
     // The deliberate mid-shot +10 g bump is unaffected — it writes
     // MachineState::setTargetWeight() directly and never comes through here.
@@ -2312,7 +2317,12 @@ void ProfileManager::uploadRecipeProfile(const QVariantMap& recipeParams) {
 
     // Sync stop targets to MachineState so SAW/volume checks use current values
     if (m_machineState) {
-        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        // Through the ladder, not the raw profile value: the overrides were
+        // just cleared so these resolve identically when idle, but mid-shot
+        // targetWeight() honours the latch while the raw read would shove a
+        // new target at the machine during the pour (reachable from MCP /
+        // the web editor, which can save a profile at any time).
+        m_machineState->setTargetWeight(targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         m_machineState->setProfileType(m_currentProfile.profileType());
     }
@@ -2474,7 +2484,12 @@ void ProfileManager::createNewProfileWithEditorType(EditorType type, const QStri
         m_settings->brew()->clearAllBrewOverrides();
     }
     if (m_machineState) {
-        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        // Through the ladder, not the raw profile value: the overrides were
+        // just cleared so these resolve identically when idle, but mid-shot
+        // targetWeight() honours the latch while the raw read would shove a
+        // new target at the machine during the pour (reachable from MCP /
+        // the web editor, which can save a profile at any time).
+        m_machineState->setTargetWeight(targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         m_machineState->setProfileType(m_currentProfile.profileType());
     }
@@ -2561,7 +2576,12 @@ void ProfileManager::createNewProfile(const QString& title) {
         m_settings->brew()->clearAllBrewOverrides();
     }
     if (m_machineState) {
-        m_machineState->setTargetWeight(m_currentProfile.targetWeight());
+        // Through the ladder, not the raw profile value: the overrides were
+        // just cleared so these resolve identically when idle, but mid-shot
+        // targetWeight() honours the latch while the raw read would shove a
+        // new target at the machine during the pour (reachable from MCP /
+        // the web editor, which can save a profile at any time).
+        m_machineState->setTargetWeight(targetWeight());
         m_machineState->setTargetVolume(m_currentProfile.targetVolume());
         m_machineState->setProfileType(m_currentProfile.profileType());
     }

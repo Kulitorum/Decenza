@@ -1713,39 +1713,38 @@ double MainController::activeBaselineTemperatureC() const {
 // back to the profile here is exactly the `yieldG > 0 ? yieldG :
 // profileYield` fallthrough that reintroduces #1485's spurious override
 // arrow, so the mode is consulted first.
-double MainController::activeBaselineYieldValue() const {
-    if (!m_activeRecipe.isEmpty()
-        && YieldSpec::isSet(YieldSpec::normalizedMode(
-               m_activeRecipe.value(QStringLiteral("yieldMode")).toString()))) {
-        const double v = m_activeRecipe.value(QStringLiteral("yieldValue")).toDouble();
-        if (v > 0.0)
-            return v;
-    }
-    if (m_settings && YieldSpec::isSet(m_settings->dye()->activeBagYieldMode())
-        && m_settings->dye()->activeBagYieldValue() > 0.0)
-        return m_settings->dye()->activeBagYieldValue();
-    return m_profileManager ? m_profileManager->profileTargetWeight() : 0.0;
-}
-
-QString MainController::activeBaselineYieldMode() const {
+MainController::BaselineYield MainController::resolveBaselineYield() const {
+    // The ladder, walked ONCE: recipe -> bag -> profile. Both public getters
+    // are views onto this result, so the value and the mode can never come
+    // from different rungs (see BaselineYield in the header).
     if (!m_activeRecipe.isEmpty()) {
         const QString mode = YieldSpec::normalizedMode(
             m_activeRecipe.value(QStringLiteral("yieldMode")).toString());
-        if (YieldSpec::isSet(mode)
-            && m_activeRecipe.value(QStringLiteral("yieldValue")).toDouble() > 0.0)
-            return mode;
+        const double value = m_activeRecipe.value(QStringLiteral("yieldValue")).toDouble();
+        if (YieldSpec::isSet(mode) && value > 0.0)
+            return {value, mode};
     }
     if (m_settings && YieldSpec::isSet(m_settings->dye()->activeBagYieldMode())
         && m_settings->dye()->activeBagYieldValue() > 0.0)
-        return m_settings->dye()->activeBagYieldMode();
-    return YieldSpec::modeAbsolute();  // the profile rung is always absolute
+        return {m_settings->dye()->activeBagYieldValue(), m_settings->dye()->activeBagYieldMode()};
+    // The profile rung: its target_weight is always plain grams.
+    return {m_profileManager ? m_profileManager->profileTargetWeight() : 0.0,
+            YieldSpec::modeAbsolute()};
+}
+
+double MainController::activeBaselineYieldValue() const {
+    return resolveBaselineYield().value;
+}
+
+QString MainController::activeBaselineYieldMode() const {
+    return resolveBaselineYield().mode;
 }
 
 double MainController::activeBaselineYieldG() const {
+    const BaselineYield baseline = resolveBaselineYield();
     const double dose = m_profileManager ? m_profileManager->brewByRatioDose() : 0.0;
     const double profileTarget = m_profileManager ? m_profileManager->profileTargetWeight() : 0.0;
-    return YieldSpec::resolveGrams(activeBaselineYieldMode(), activeBaselineYieldValue(),
-                                   dose, profileTarget);
+    return YieldSpec::resolveGrams(baseline.mode, baseline.value, dose, profileTarget);
 }
 
 bool MainController::temperatureIsRealOverride() const {

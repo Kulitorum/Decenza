@@ -1699,6 +1699,15 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     return;
                 }
             }
+            // yieldOverrideG was a real bag_update key until this change, so
+            // scripts and agent workflows still send it. The field loop below
+            // works off a whitelist, which would drop it silently and answer
+            // OK — the caller would believe it had set a yield it had not.
+            // Reject it loudly instead (the temperatureOverrideC precedent).
+            if (args.contains("yieldOverrideG")) {
+                respond(QJsonObject{{"error", "yieldOverrideG was replaced by yieldG (an absolute gram target) / yieldRatio (a multiple of the dose) — the bag now holds an explicit yield anchor rather than a deviation from the profile (add-yield-ratio-anchor). Rejected rather than silently dropped: send yieldG for the same behaviour as before."}});
+                return;
+            }
             // One yield anchor per bag — both keys at once is a contradiction,
             // rejected loudly (mirrors recipe_create/recipe_update).
             if (args.contains("yieldG") && args.contains("yieldRatio")) {

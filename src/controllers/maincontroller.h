@@ -6,6 +6,7 @@
 #include <QTimer>
 #include "profilemanager.h"
 #include "recipeselectionmodel.h"
+#include "core/yieldspec.h"
 #include "../profile/profile.h"
 #include "../network/visualizeruploader.h"
 #include "../network/visualizerimporter.h"
@@ -188,6 +189,16 @@ public:
     double activeBaselineYieldG() const;
     double activeBaselineYieldValue() const;
     QString activeBaselineYieldMode() const;
+    // One rung of the baseline ladder (recipe -> bag -> profile). The value
+    // and the mode MUST come from the SAME rung: activeBaselineYieldG()
+    // resolves one against the other, so pairing a recipe's "ratio" with a
+    // bag's 40 g would target 40 x the dose — 720 g. The public getters
+    // above are views onto a single walk (resolveBaselineYield) rather than
+    // two hand-duplicated walks that merely happen to agree today.
+    struct BaselineYield {
+        double value = 0.0;
+        QString mode = YieldSpec::modeNone();
+    };
     bool temperatureIsRealOverride() const;
     bool yieldIsRealOverride() const;
     qint64 selectedRecipeId() const { return m_recipeSelection.selected(); }
@@ -542,6 +553,8 @@ private:
     // active-recipe edit refresh (an edit re-seeds the brew exactly as
     // re-activating would). Pass an empty linkedBag to resolve the bag rung
     // from the live dye cache. Returns true when an override was armed.
+    // The single walk of the baseline ladder — see BaselineYield.
+    BaselineYield resolveBaselineYield() const;
     bool applyRecipeBrewOverrides(const QVariantMap& recipe,
                                   const QVariantMap& linkedBag = QVariantMap());
     // Stamp a tweak onto the active recipe row (no-op when none is active

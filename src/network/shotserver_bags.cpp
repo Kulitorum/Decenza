@@ -103,6 +103,11 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
 
     // POST /api/bags — create
     if (path == "/api/bags" && method == "POST") {
+        // Retired key — rejected, not dropped (see the bag_update MCP twin).
+        if (bodyJson.contains(QStringLiteral("yieldOverrideG"))) {
+            respondJson(QJsonObject{{"error", "yieldOverrideG was replaced by yieldG (an absolute gram target) / yieldRatio (a multiple of the dose) — the bag now holds an explicit yield anchor rather than a deviation from the profile (add-yield-ratio-anchor). Rejected rather than silently dropped: send yieldG for the same behaviour as before."}}, 400);
+            return;
+        }
         if (bodyJson.contains(QStringLiteral("yieldG")) && bodyJson.contains(QStringLiteral("yieldRatio"))) {
             respondJson(QJsonObject{{"error", "yieldG and yieldRatio are mutually exclusive — the bag holds ONE yield anchor. Send exactly one; writing it replaces the other automatically."}}, 400);
             return;
@@ -169,6 +174,11 @@ void ShotServer::handleBagsApi(QTcpSocket* socket, const QString& method,
 
         // POST /api/bag/<id> — update (same write-through path as app edits)
         if (action.isEmpty()) {
+            // Retired key — rejected, not dropped (see the bag_update MCP twin).
+            if (bodyJson.contains(QStringLiteral("yieldOverrideG"))) {
+                respondJson(QJsonObject{{"error", "yieldOverrideG was replaced by yieldG (an absolute gram target) / yieldRatio (a multiple of the dose) — the bag now holds an explicit yield anchor rather than a deviation from the profile (add-yield-ratio-anchor). Rejected rather than silently dropped: send yieldG for the same behaviour as before."}}, 400);
+                return;
+            }
             if (bodyJson.contains(QStringLiteral("yieldG")) && bodyJson.contains(QStringLiteral("yieldRatio"))) {
                 respondJson(QJsonObject{{"error", "yieldG and yieldRatio are mutually exclusive — the bag holds ONE yield anchor. Send exactly one; writing it replaces the other automatically."}}, 400);
                 return;
