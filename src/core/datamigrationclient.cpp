@@ -41,24 +41,6 @@ DataMigrationClient::~DataMigrationClient()
     delete m_tempDir;
 }
 
-bool DataMigrationClient::isTransientNetworkError(QNetworkReply::NetworkError error)
-{
-    // Errors that mean "the connection could not be established" and are worth a
-    // retry / an "unreachable" classification. EHOSTUNREACH surfaces as
-    // UnknownNetworkError. Deliberately excludes ConnectionRefusedError and
-    // RemoteHostClosedError — those mean the host answered, so it is reachable.
-    switch (error) {
-    case QNetworkReply::HostNotFoundError:
-    case QNetworkReply::TimeoutError:
-    case QNetworkReply::TemporaryNetworkFailureError:
-    case QNetworkReply::NetworkSessionFailedError:
-    case QNetworkReply::UnknownNetworkError:
-        return true;
-    default:
-        return false;
-    }
-}
-
 void DataMigrationClient::setupSslHandling(QNetworkReply* reply)
 {
     // Ignore SSL errors for self-signed certificates on LAN migration servers
@@ -126,6 +108,10 @@ void DataMigrationClient::connectToServer(const QString& serverUrl)
         parsedUrl.port(parsedUrl.scheme() == QLatin1String("https") ? 443 : 80));
     m_sessionToken = loadSessionToken(m_connectHost);
     m_manifestRetriesLeft = MANIFEST_MAX_RETRIES;
+    // A fresh connect supersedes any prior cancel/disconnect. Without this the
+    // stale flag makes tryNextProbeCandidate() early-return, hanging the
+    // preflight (m_connecting stuck true) on a reconnect to a multi-homed peer.
+    m_cancelled = false;
 
     // Pick a reachable local interface before the HTTP flow. This is what makes
     // migration work on a host that is multi-homed on the peer's subnet, where
@@ -188,7 +174,9 @@ void DataMigrationClient::startReachabilityPreflight()
     // Only the ambiguous case needs a probe: the target is an IPv4 literal and
     // we hold more than one local address on its subnet (i.e. genuinely
     // multi-homed there). A hostname, a routed target, or a single/zero on-subnet
-    // address has no ambiguity — keep the existing direct path, adding no delay.
+    // address has no ambiguity — keep the existing direct path, adding no probe
+    // round-trips (an IPv4 literal still does a sub-millisecond local route
+    // lookup here, but no TCP probe or per-candidate timeout).
     QList<QHostAddress> candidates;
     if (!target.isNull() && target.protocol() == QAbstractSocket::IPv4Protocol) {
         candidates = gatherSubnetCandidates(target, m_connectPort);
@@ -324,9 +312,10 @@ void DataMigrationClient::onManifestReply()
     const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QNetworkReply::NetworkError err = reply->error();
 
-    // Retry transient network failures (a cold neighbour on a multi-homed subnet
-    // can drop the first attempt) before declaring failure. The preflight has
-    // already selected a reachable link, so a retry usually succeeds. HTTP status
+    // Retry transient network failures before declaring failure — a cold
+    // neighbour on a multi-homed subnet can drop the first attempt. (When the
+    // multi-homed preflight ran it already picked a reachable link; on the common
+    // direct path this simply re-attempts the transient failure.) HTTP status
     // codes and parse errors mean the connection itself worked — never retried.
     if (statusCode != 401 && err != QNetworkReply::NoError &&
         isTransientNetworkError(err) && m_manifestRetriesLeft > 0) {
@@ -362,9 +351,13 @@ void DataMigrationClient::onManifestReply()
 
     if (err != QNetworkReply::NoError) {
         // Distinguish "could not reach the device at all" from "reached it, but
-        // the connection dropped/errored" so the message is truthful.
+        // the connection dropped/errored" so the message is truthful. Keep the
+        // raw error string in the reachability case too — UnknownNetworkError is
+        // a Qt grab-bag (EHOSTUNREACH lands here, but so can other transport
+        // faults), so the detail must stay visible rather than be replaced.
         const QString msg = isTransientNetworkError(err)
-            ? tr("Connection failed: device is not reachable on your local network")
+            ? tr("Connection failed: device is not reachable on your local network (%1)")
+                  .arg(reply->errorString())
             : tr("Connection failed: %1").arg(reply->errorString());
         setError(msg);
         emit connectionFailed(m_errorMessage);

@@ -8,6 +8,7 @@
 #include <QHostAddress>
 #include <QList>
 #include <QPair>
+#include <QNetworkReply>
 
 #include "core/datamigrationclient.h"
 
@@ -17,6 +18,10 @@ class TestMigrationInterfaceSelect : public QObject {
     Q_OBJECT
 
 private slots:
+    // Project rule: every test fails on any unexpected qWarning (see
+    // docs/CLAUDE_MD/TESTING.md "Handling Warnings").
+    void init() { QTest::failOnWarning(); }
+
     // Single interface on the target's subnet -> exactly that one candidate.
     void singleHomed()
     {
@@ -115,7 +120,40 @@ private slots:
         QCOMPARE(candidates.size(), 1);
         QCOMPARE(candidates.first(), QHostAddress("192.168.10.195"));
     }
+
+    // isTransientNetworkError drives BOTH the manifest retry decision and the
+    // reachable-vs-unreachable classification, so its mapping is contractual:
+    //  - EHOSTUNREACH (the reported bug) reaches Qt as UnknownNetworkError and
+    //    MUST be treated as transient/unreachable.
+    //  - ConnectionRefused/RemoteHostClosed mean the host answered -> NOT
+    //    transient (must not be relabelled "unreachable" or retried).
+    void transientErrorClassification_data()
+    {
+        QTest::addColumn<int>("error");
+        QTest::addColumn<bool>("transient");
+
+        QTest::newRow("unknown (EHOSTUNREACH)") << int(QNetworkReply::UnknownNetworkError) << true;
+        QTest::newRow("host-not-found")         << int(QNetworkReply::HostNotFoundError) << true;
+        QTest::newRow("timeout")                << int(QNetworkReply::TimeoutError) << true;
+        QTest::newRow("temporary-failure")      << int(QNetworkReply::TemporaryNetworkFailureError) << true;
+        QTest::newRow("session-failed")         << int(QNetworkReply::NetworkSessionFailedError) << true;
+
+        QTest::newRow("connection-refused")     << int(QNetworkReply::ConnectionRefusedError) << false;
+        QTest::newRow("remote-host-closed")     << int(QNetworkReply::RemoteHostClosedError) << false;
+        QTest::newRow("content-not-found")      << int(QNetworkReply::ContentNotFoundError) << false;
+        QTest::newRow("auth-required")          << int(QNetworkReply::AuthenticationRequiredError) << false;
+        QTest::newRow("no-error")               << int(QNetworkReply::NoError) << false;
+    }
+
+    void transientErrorClassification()
+    {
+        QFETCH(int, error);
+        QFETCH(bool, transient);
+        QCOMPARE(DataMigrationClient::isTransientNetworkError(
+                     static_cast<QNetworkReply::NetworkError>(error)),
+                 transient);
+    }
 };
 
-QTEST_MAIN(TestMigrationInterfaceSelect)
+QTEST_GUILESS_MAIN(TestMigrationInterfaceSelect)
 #include "tst_migrationinterfaceselect.moc"

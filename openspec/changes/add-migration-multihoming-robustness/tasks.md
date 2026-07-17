@@ -22,7 +22,7 @@
 - [ ] 5.1 Reproduce on the multi-homed Mac (Wi-Fi + USB-Ethernet, both on `192.168.10.0/24`): confirm import connects to the Android peer at `192.168.10.163:8888` where it previously showed "Host unreachable".
 - [ ] 5.2 Bring one link down and confirm the surviving link is selected; confirm single-homed hosts connect with no added user-perceptible delay.
 - [ ] 5.3 Confirm reachable-but-unauthenticated still prompts for a code, and a bad HTTP/manifest response shows a response error rather than "unreachable".
-- [ ] 5.4 Run the migration/unit tests via Qt Creator MCP (`run_tests`), fix any failures, and confirm a clean build.
+- [x] 5.4 Run the migration/unit tests via Qt Creator MCP (`run_tests`), fix any failures, and confirm a clean build. — 77 passed, 0 failed, 0 warnings, clean build (fixed the `failOnWarning` lint miss).
 
 ## 6. Docs
 

@@ -111,6 +111,25 @@ public:
         return result;
     }
 
+    // Errors that mean "the connection could not be established" and warrant a
+    // retry / an "unreachable" classification. EHOSTUNREACH surfaces as
+    // UnknownNetworkError. Deliberately EXCLUDES ConnectionRefusedError and
+    // RemoteHostClosedError — those mean the host answered, so it is reachable.
+    // Inline so tests can exercise the mapping without linking the client.
+    static bool isTransientNetworkError(QNetworkReply::NetworkError error)
+    {
+        switch (error) {
+        case QNetworkReply::HostNotFoundError:
+        case QNetworkReply::TimeoutError:
+        case QNetworkReply::TemporaryNetworkFailureError:
+        case QNetworkReply::NetworkSessionFailedError:
+        case QNetworkReply::UnknownNetworkError:
+            return true;
+        default:
+            return false;
+        }
+    }
+
     // Disconnect from current server
     Q_INVOKABLE void disconnect();
 
@@ -196,7 +215,6 @@ private:
     void teardownProbeSocket();
     void finishProbe(bool reachable);
     void fetchManifest();               // issues the actual GET /api/backup/manifest
-    static bool isTransientNetworkError(QNetworkReply::NetworkError error);
     void downloadNextProfile();
     void downloadNextMedia();
 
