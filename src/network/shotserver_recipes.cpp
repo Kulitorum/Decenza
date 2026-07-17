@@ -24,6 +24,9 @@
 #include "webtemplates/menu_css.h"
 #include "webtemplates/menu_html.h"
 #include "webtemplates/menu_js.h"
+#include "webtemplates/management_css.h"
+#include "webtemplates/management_html.h"
+#include "webtemplates/management_js.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -549,49 +552,31 @@ QString ShotServer::generateRecipesPage() const
     html += WEB_CSS_VARIABLES;
     html += WEB_CSS_HEADER;
     html += WEB_CSS_MENU;
+    html += WEB_CSS_MANAGEMENT;
     html += R"HTML(
-        .container { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
-        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; }
-        .card.active { border-color: var(--accent); }
-        .card h3 { margin-bottom: 0.25rem; }
-        .card .sub { color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 0.5rem; }
-        .row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
-        button { background: var(--surface-hover); color: var(--text); border: 1px solid var(--border);
-                 border-radius: 6px; padding: 0.4rem 0.8rem; cursor: pointer; }
-        button:hover { background: var(--border); }
-        button.primary { background: var(--accent); color: #000; border-color: var(--accent); }
-        .badge { color: var(--accent); font-size: 0.8rem; margin-left: 0.5rem; }
-        .archived-section { margin-top: 1.5rem; }
-        .muted { color: var(--text-secondary); }
-        #status { margin: 0.5rem 0; color: var(--text-secondary); min-height: 1.2em; }
-        dialog { background: var(--surface); color: var(--text); border: 1px solid var(--border);
-                 border-radius: 8px; padding: 1.25rem; max-width: 480px; width: 92%; }
-        dialog::backdrop { background: rgba(0,0,0,0.6); }
-        dialog label { display: block; margin: 0.5rem 0 0.15rem; font-size: 0.85rem; color: var(--text-secondary); }
-        dialog input, dialog select { width: 100%; background: var(--bg); color: var(--text);
-                 border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem; }
-        dialog .row { margin-top: 1rem; justify-content: flex-end; }
     </style>
 </head>
-<body>
-    <div class="header">
-        <div class="header-content">
-            <h1>&#128209; Recipes</h1>
 )HTML";
-    html += generateMenuHtml();
+    html += generateManagementHeader(QStringLiteral("&#128209; Recipes"));
     html += R"HTML(
-        </div>
-    </div>
     <div class="container">
-        <div class="row">
-            <button class="primary" onclick="openEditor(null)">Add Recipe</button>
+        <div class="toolbar">
+            <button class="primary" onclick="openEditor(null)">+ Add Recipe</button>
+        </div>
+        <div class="searchbar" id="searchbar" style="display:none">
+            <div class="search-wrap">
+                <input class="search" id="search" placeholder="Search recipes…" oninput="applyFilter()">
+                <button class="search-clear" id="searchClear" onclick="clearSearch()" style="display:none">&times;</button>
+            </div>
+            <button id="sortField" onclick="cycleSort()">Sort: Date used</button>
+            <button id="sortDir" onclick="toggleDir()">Newest first</button>
         </div>
         <div id="status"></div>
         <div id="list"></div>
-        <div class="archived-section">
-            <h2 class="muted" id="archivedHeader" style="display:none">Archived</h2>
-            <div id="archivedList"></div>
+        <div class="section-head" id="archivedHead" style="display:none">
+            <button onclick="toggleArchived()" id="archivedToggle">Show archived (0)</button>
         </div>
+        <div id="archivedList" style="display:none"></div>
     </div>
 
     <dialog id="editor">
@@ -600,11 +585,16 @@ QString ShotServer::generateRecipesPage() const
         <label>Profile title</label><input id="fProfile">
         <label>Bag (roaster/coffee fill in automatically)</label>
         <select id="fBag"><option value="0">(no bag)</option></select>
-        <label>Roaster</label><input id="fRoaster">
-        <label>Coffee</label><input id="fCoffee">
-        <label>Dose (g)</label><input id="fDose" type="number" step="0.1">
+        <div class="grid-2">
+            <div><label>Roaster</label><input id="fRoaster"></div>
+            <div><label>Coffee</label><input id="fCoffee"></div>
+        </div>
+        <div class="grid-2">
+            <div><label>Dose (g)</label><input id="fDose" type="number" step="0.1"></div>
+            <div><label>Temp offset (&deg;C)</label><input id="fTemp" type="number" step="0.1"></div>
+        </div>
         <label>Yield anchor (a fixed weight OR a ratio of the dose — never both)</label>
-        <div class="row">
+        <div class="grid-2">
             <select id="fYieldMode">
                 <option value="none">(none — profile default)</option>
                 <option value="absolute">Fixed (g)</option>
@@ -612,9 +602,10 @@ QString ShotServer::generateRecipesPage() const
             </select>
             <input id="fYieldValue" type="number" step="0.1">
         </div>
-        <label>Temp offset (&deg;C, relative to the profile)</label><input id="fTemp" type="number" step="0.1">
-        <label>Grind (this recipe's own; on create, blank adopts the bag's dial)</label><input id="fGrind">
-        <label>RPM (variable-RPM grinders)</label><input id="fRpm" type="number" step="1" min="0">
+        <div class="grid-2">
+            <div><label>Grind (blank adopts the bag's dial on create)</label><input id="fGrind"></div>
+            <div><label>RPM (0 = unset)</label><input id="fRpm" type="number" step="1"></div>
+        </div>
         <label>Drink type</label>
         <select id="fDrinkType">
             <option value="">(automatic from blocks)</option>
@@ -626,19 +617,41 @@ QString ShotServer::generateRecipesPage() const
             <option value="tea">Tea (portafilter)</option>
             <option value="tea_hotwater">Tea (hot water)</option>
         </select>
-        <label><input id="fHasMilk" type="checkbox" style="width:auto"> Milk drink</label>
-        <label>Milk (g)</label><input id="fMilk" type="number" step="1">
-        <label>Pitcher name</label><input id="fPitcher">
-        <label><input id="fHasWater" type="checkbox" style="width:auto"> Add hot water (Americano)</label>
-        <label>Water vessel name</label><input id="fVessel">
-        <label>Water order</label>
-        <select id="fWaterOrder">
-            <option value="after">After espresso (Americano)</option>
-            <option value="before">Before espresso (long black)</option>
-        </select>
-        <div class="row">
-            <button onclick="document.getElementById('editor').close()">Cancel</button>
+        <details class="dialog-section">
+            <summary>Milk / steam</summary>
+            <div class="check-row"><input type="checkbox" id="fHasMilk"><label for="fHasMilk">Milk drink</label></div>
+            <div class="grid-2">
+                <div><label>Milk (g)</label><input id="fMilk" type="number" step="1"></div>
+                <div><label>Pitcher name</label><input id="fPitcher"></div>
+            </div>
+            <div class="grid-2">
+                <div><label>Steam duration (s)</label><input id="fSteamDuration" type="number" step="1"></div>
+                <div><label>Steam flow</label><input id="fSteamFlow" type="number" step="0.1"></div>
+            </div>
+            <label>Steam temperature (&deg;C)</label><input id="fSteamTemp" type="number" step="1">
+        </details>
+        <details class="dialog-section">
+            <summary>Hot water</summary>
+            <div class="check-row"><input type="checkbox" id="fHasWater"><label for="fHasWater">Add hot water (Americano / long black)</label></div>
+            <label>Water vessel name</label><input id="fVessel">
+            <label>Water order</label>
+            <select id="fWaterOrder">
+                <option value="after">After espresso (Americano)</option>
+                <option value="before">Before espresso (long black)</option>
+            </select>
+        </details>
+        <div class="dialog-actions">
+            <button onclick="el('editor').close()">Cancel</button>
             <button class="primary" onclick="saveEditor()">Save</button>
+        </div>
+    </dialog>
+
+    <dialog id="repoint">
+        <h2>Choose beans</h2>
+        <div class="muted" id="repointHint">Pick an open bag to re-point this recipe.</div>
+        <div class="search-results" id="repointList"></div>
+        <div class="dialog-actions">
+            <button onclick="el('repoint').close()">Cancel</button>
         </div>
     </dialog>
 
@@ -646,20 +659,52 @@ QString ShotServer::generateRecipesPage() const
 )HTML";
     html += WEB_JS_MENU;
     html += WEB_JS_POWER_CONTROL;
+    html += WEB_JS_MANAGEMENT;
     html += R"HTML(
         let editingId = null;
-        const status = (m) => { document.getElementById('status').textContent = m || ''; };
-        const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-
+        let recipes = [];          // full list (active + archived), as fetched
         let bags = [];
         let bagsLoaded = false;
+        let filterText = '';
+        let showArchived = false;
+
+        // Sort field cycle mirrors the app's Recipes sort bar.
+        const SORTS = [
+            ['lastUsed', 'Date used'],
+            ['created', 'Date created'],
+            ['coffee', 'Coffee'],
+            ['profileTitle', 'Profile'],
+            ['name', 'Name'],
+        ];
+        let sortIdx = 0;
+        let sortAsc = false;   // date fields default newest-first
+
+        const DRINK_LABELS = {
+            espresso: 'Espresso', filter: 'Filter', americano: 'Americano',
+            long_black: 'Long black', latte: 'Latte', tea: 'Tea', tea_hotwater: 'Tea',
+        };
+        const drinkLabel = (t) => DRINK_LABELS[t] || (t ? t.replace('_', ' ') : '');
+        const isTeaType = (t) => t === 'tea' || t === 'tea_hotwater';
+
+        function makePlaceholder() {
+            const d = document.createElement('div');
+            d.className = 'thumb placeholder';
+            d.innerHTML = '&#9749;';
+            return d;
+        }
+        function thumbHtml(r) {
+            if (r.bagId > 0 && !r.bagStale)
+                return '<img class="thumb" src="/api/bag/' + r.bagId + '/image" alt="" '
+                     + 'onerror="this.replaceWith(makePlaceholder())">';
+            return '<div class="thumb placeholder">&#9749;</div>';
+        }
+
         function loadBags() {
-            fetch('/api/bags')
-                .then(r => { if (!r.ok) throw new Error('Server error (' + r.status + ')'); return r.json(); })
+            getJson('/api/bags')
                 .then(d => {
                     bags = d.bags || [];
                     bagsLoaded = true;
-                    const sel = document.getElementById('fBag');
+                    const sel = el('fBag');
                     sel.innerHTML = '<option value="0">(no bag)</option>' + bags.map(b =>
                         '<option value="' + b.id + '">'
                         + esc(((b.roasterName || '') + ' ' + (b.coffeeName || '')).trim()
@@ -669,11 +714,9 @@ QString ShotServer::generateRecipesPage() const
                 .catch(e => {
                     // Say so — a silently empty select reads as "no bags exist".
                     console.warn('Could not load bags:', e);
-                    const sel = document.getElementById('fBag');
+                    const sel = el('fBag');
                     const opt = document.createElement('option');
-                    opt.value = '';
-                    opt.disabled = true;
-                    opt.textContent = '(bags unavailable)';
+                    opt.value = ''; opt.disabled = true; opt.textContent = '(bags unavailable)';
                     sel.appendChild(opt);
                 });
         }
@@ -682,103 +725,212 @@ QString ShotServer::generateRecipesPage() const
         // the label promises "roaster/coffee fill in automatically", and the
         // backend adopts identity only for fields the form does NOT send.
         function onBagChanged() {
-            const id = parseInt(document.getElementById('fBag').value, 10) || 0;
+            const id = parseInt(el('fBag').value, 10) || 0;
             const b = bags.find(x => x.id === id);
             if (!b) return;  // "(no bag)" or the fallback option: leave the fields as typed
-            document.getElementById('fRoaster').value = b.roasterName || '';
-            document.getElementById('fCoffee').value = b.coffeeName || '';
+            el('fRoaster').value = b.roasterName || '';
+            el('fCoffee').value = b.coffeeName || '';
         }
 
         function load() {
             status('Loading…');
-            fetch('/api/recipes')
-                .then(r => { if (!r.ok) throw new Error('Server error (' + r.status + ')'); return r.json(); })
-                .then(d => { render(d.recipes || []); status(''); })
+            getJson('/api/recipes')
+                .then(d => { recipes = d.recipes || []; render(); status(''); })
                 .catch(e => status('Could not load recipes: ' + e.message));
         }
 
-        function subtitle(r) {
+        // --- Card rendering (matches the app's RecipeDrinkCard hierarchy) ---
+        function planLine(r) {
             const parts = [];
-            if (r.drinkType) parts.push(esc(r.drinkType.replace('_', ' ')));
+            if (r.doseG > 0 && r.yieldG > 0)
+                parts.push(r.doseG.toFixed(1) + 'g &rarr; ' + r.yieldG.toFixed(1) + 'g');
+            else if (r.yieldRatio > 0)
+                parts.push(r.doseG > 0
+                    ? r.doseG.toFixed(1) + 'g &rarr; ' + (r.doseG * r.yieldRatio).toFixed(1) + 'g (1:' + r.yieldRatio + ')'
+                    : '1:' + r.yieldRatio);
+            else if (r.doseG > 0)
+                parts.push(r.doseG.toFixed(1) + 'g');
+            if ((r.tempOffsetC || 0) !== 0)
+                parts.push((r.tempOffsetC > 0 ? '+' : '') + r.tempOffsetC + '&deg;C');
+            if (r.effectiveGrind) parts.push('grind ' + esc(r.effectiveGrind));
+            if (r.rpmPinned > 0) parts.push(r.rpmPinned + ' rpm');
+            return bullet(parts);
+        }
+
+        function drinkLine(r) {
+            const parts = [];
             if (r.profileTitle) parts.push(esc(r.profileTitle));
+            if (r.steam && r.steam.hasMilk && (r.steam.milkWeightG || 0) > 0)
+                parts.push(r.steam.milkWeightG + 'g milk');
+            if (r.hotWater && r.hotWater.hasWater)
+                parts.push(r.hotWater.order === 'before' ? '+water (long black)' : '+water (americano)');
+            const chip = r.drinkType
+                ? '<span class="chip">' + esc(drinkLabel(r.drinkType)) + '</span> '
+                : '';
+            return chip + bullet(parts);
+        }
+
+        function beanLine(r) {
+            if (r.bagStale)
+                return '<span class="chip warn" onclick="openRepoint(' + r.id + ')">'
+                     + 'Bag finished — tap to choose beans</span>';
             const bean = ((r.roasterName || '') + ' ' + (r.coffeeName || '')).trim();
+            const parts = [];
             if (bean) parts.push(esc(bean));
-            if (r.doseG > 0 && r.yieldG > 0) parts.push(r.doseG.toFixed(1) + 'g &rarr; ' + r.yieldG.toFixed(1) + 'g');
-            else if (r.yieldRatio > 0) parts.push(r.doseG > 0
-                ? r.doseG.toFixed(1) + 'g &rarr; ' + (r.doseG * r.yieldRatio).toFixed(1) + 'g (1:' + r.yieldRatio + ')'
-                : '1:' + r.yieldRatio);
-            if (r.effectiveGrind) parts.push('grind ' + esc(r.effectiveGrind) + ((r.rpmPinned && r.rpmPinned > 0) ? ' · ' + r.rpmPinned + ' RPM' : ''));
-            if (r.steam && r.steam.hasMilk) parts.push('milk' + (r.steam.milkWeightG ? ' ' + r.steam.milkWeightG + 'g' : ''));
-            if (r.hotWater && r.hotWater.hasWater) parts.push('+water' + (r.hotWater.order === 'before' ? ' (long black)' : ' (americano)'));
-            if (r.bagStale) parts.push('bag finished');
             if (r.shotCount > 0) parts.push(r.shotCount + ' shots');
-            return parts.join(' &middot; ');
+            return bullet(parts);
         }
 
         function cardHtml(r) {
             const actions = r.archived
                 ? '<button onclick="archiveRecipe(' + r.id + ', true)">Restore</button>'
-                : '<button onclick="activate(' + r.id + ')"' + (r.isActive ? ' disabled' : '') + '>Activate</button>'
+                : '<button class="primary" onclick="activate(' + r.id + ')"' + (r.isActive ? ' disabled' : '') + '>Activate</button>'
                   + '<button onclick="openEditor(' + r.id + ')">Edit</button>'
-                  + '<button onclick="cloneRecipe(' + r.id + ', ' + JSON.stringify(esc(r.name)) + ')">Clone</button>'
+                  + '<button onclick="cloneRecipe(' + r.id + ')">Clone</button>'
                   + (r.shotCount > 0
                       ? '<button onclick="archiveRecipe(' + r.id + ', false)">Archive</button>'
-                      : '<button onclick="deleteRecipe(' + r.id + ')">Delete</button>');
-            return '<div class="card' + (r.isActive ? ' active' : '') + '">'
-                + '<h3>' + esc(r.name) + (r.isActive ? '<span class="badge">Active</span>' : '') + '</h3>'
-                + '<div class="sub">' + subtitle(r) + '</div>'
-                + '<div class="row">' + actions + '</div></div>';
+                      : '<button class="danger" onclick="deleteRecipe(' + r.id + ')">Delete</button>');
+            const drink = drinkLine(r);
+            const bean = beanLine(r);
+            const plan = planLine(r);
+            let body = '<div class="card-body">'
+                + '<div class="card-title">' + esc(r.name)
+                + (r.isActive ? '<span class="badge">Active</span>' : '') + '</div>';
+            if (drink) body += '<div class="attr-line">' + drink + '</div>';
+            if (bean) body += '<div class="attr-line">' + bean + '</div>';
+            if (plan) body += '<div class="plan-line">' + plan + '</div>';
+            body += '</div>';
+            return '<div class="card' + (r.isActive ? ' active' : '') + (r.archived ? ' dimmed' : '') + '">'
+                + '<div class="card-head">' + thumbHtml(r) + body + '</div>'
+                + '<div class="actions">' + actions + '</div></div>';
         }
 
-        let recipes = [];
-        function render(list) {
-            recipes = list;
-            const active = list.filter(r => !r.archived);
-            const archived = list.filter(r => r.archived);
-            document.getElementById('list').innerHTML = active.length
-                ? active.map(cardHtml).join('')
-                : '<p class="muted">No recipes yet. Save one from a good shot in Shot History, or add one here.</p>';
-            document.getElementById('archivedHeader').style.display = archived.length ? '' : 'none';
-            document.getElementById('archivedList').innerHTML = archived.map(cardHtml).join('');
+        function matchesFilter(r) {
+            if (!filterText) return true;
+            const hay = [r.name, r.profileTitle, r.roasterName, r.coffeeName, drinkLabel(r.drinkType)]
+                .join(' ').toLowerCase();
+            return hay.indexOf(filterText) !== -1;
+        }
+        function sortRecipes(list) {
+            const key = SORTS[sortIdx][0];
+            const val = (r) => {
+                if (key === 'coffee') return ((r.roasterName || '') + ' ' + (r.coffeeName || '')).trim().toLowerCase();
+                if (key === 'name') return (r.name || '').toLowerCase();
+                if (key === 'profileTitle') return (r.profileTitle || '').toLowerCase();
+                return r[key] || '';   // lastUsed / created are ISO strings — lexical order works
+            };
+            const sorted = list.slice().sort((a, b) => {
+                const va = val(a), vb = val(b);
+                return va < vb ? -1 : (va > vb ? 1 : 0);
+            });
+            if (!sortAsc) sorted.reverse();
+            return sorted;
         }
 
-        function post(url, body) {
-            return fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify(body || {}) })
-                .then(r => r.json().then(d => { if (!r.ok || d.error) throw new Error(d.error || ('Server error (' + r.status + ')')); return d; }));
+        function render() {
+            const active = sortRecipes(recipes.filter(r => !r.archived && matchesFilter(r)));
+            const archived = recipes.filter(r => r.archived);
+            el('searchbar').style.display = recipes.some(r => !r.archived) ? '' : 'none';
+            el('searchClear').style.display = filterText ? '' : 'none';
+
+            if (!active.length) {
+                el('list').innerHTML = filterText
+                    ? '<p class="muted">No recipes match &ldquo;' + esc(filterText) + '&rdquo;.</p>'
+                    : '<div class="empty"><h2>No recipes yet</h2>'
+                      + '<div>Save one from a good shot in Shot History, or add one here.</div></div>';
+            } else {
+                el('list').innerHTML = '<div class="grid">' + active.map(cardHtml).join('') + '</div>';
+            }
+
+            el('archivedHead').style.display = archived.length ? '' : 'none';
+            el('archivedToggle').textContent = (showArchived ? 'Hide archived (' : 'Show archived (')
+                + archived.length + ')';
+            const al = el('archivedList');
+            al.style.display = showArchived && archived.length ? '' : 'none';
+            al.innerHTML = showArchived
+                ? '<div class="grid">' + archived.map(cardHtml).join('') + '</div>' : '';
         }
 
+        // --- Search / sort controls ---
+        function applyFilter() { filterText = el('search').value.trim().toLowerCase(); render(); }
+        function clearSearch() { el('search').value = ''; filterText = ''; render(); }
+        function cycleSort() {
+            sortIdx = (sortIdx + 1) % SORTS.length;
+            el('sortField').textContent = 'Sort: ' + SORTS[sortIdx][1];
+            render();
+        }
+        function toggleDir() {
+            sortAsc = !sortAsc;
+            el('sortDir').textContent = sortAsc ? 'Oldest / A→Z first' : 'Newest / Z→A first';
+            render();
+        }
+        function toggleArchived() { showArchived = !showArchived; render(); }
+
+        // --- Actions ---
         function activate(id) {
             status('Activating…');
-            post('/api/recipe/' + id + '/activate').then(() => load()).catch(e => status(e.message));
+            post('/api/recipe/' + id + '/activate').then(load).catch(e => status(e.message));
         }
-        function cloneRecipe(id, name) {
-            const newName = prompt('Name for the copy:', 'Copy of ' + name);
+        function cloneRecipe(id) {
+            const r = recipes.find(x => x.id === id) || {};
+            const newName = prompt('Name for the copy:', 'Copy of ' + (r.name || ''));
             if (!newName) return;
-            post('/api/recipe/' + id + '/clone', { name: newName }).then(() => load()).catch(e => status(e.message));
+            post('/api/recipe/' + id + '/clone', { name: newName }).then(load).catch(e => status(e.message));
         }
         function archiveRecipe(id, restore) {
             post('/api/recipe/' + id + '/archive', restore ? { restore: true } : {})
-                .then(() => load()).catch(e => status(e.message));
+                .then(load).catch(e => status(e.message));
         }
         function deleteRecipe(id) {
             if (!confirm('Delete this recipe permanently?')) return;
-            post('/api/recipe/' + id + '/archive', { delete: true }).then(() => load()).catch(e => status(e.message));
+            post('/api/recipe/' + id + '/archive', { delete: true }).then(load).catch(e => status(e.message));
         }
 
+        // --- Stale-bag re-point picker ---
+        function openRepoint(recipeId) {
+            const r = recipes.find(x => x.id === recipeId) || {};
+            const wantTea = isTeaType(r.drinkType);
+            const source = () => {
+                // Filter to open bags of the matching kind (unknown kind → allow).
+                const open = bags.filter(b => {
+                    if (!b.kind) return true;
+                    return wantTea ? b.kind === 'tea' : b.kind !== 'tea';
+                });
+                const list = el('repointList');
+                if (!open.length) {
+                    list.innerHTML = '<div class="result muted">No open '
+                        + (wantTea ? 'tea' : 'coffee') + ' bags to choose from.</div>';
+                } else {
+                    list.innerHTML = open.map(b =>
+                        '<div class="result" onclick="pickBag(' + recipeId + ', ' + b.id + ')">'
+                        + '<div class="r-title">' + esc(((b.roasterName || '') + ' ' + (b.coffeeName || '')).trim() || 'Bag ' + b.id) + '</div>'
+                        + (b.roastDate ? '<div class="r-sub">roasted ' + esc(b.roastDate) + '</div>' : '')
+                        + '</div>').join('');
+                }
+                el('repoint').showModal();
+            };
+            // Bags may not be loaded yet (or may be stale) — ensure fresh.
+            getJson('/api/bags').then(d => { bags = d.bags || []; source(); })
+                .catch(() => source());   // fall back to whatever we already have
+        }
+        function pickBag(recipeId, bagId) {
+            post('/api/recipe/' + recipeId, { bagId: bagId })
+                .then(() => { el('repoint').close(); load(); })
+                .catch(e => status(e.message));
+        }
+
+        // --- Create / edit ---
         function openEditor(id) {
             editingId = id;
             const r = recipes.find(x => x.id === id) || {};
-            document.getElementById('editorTitle').textContent = id ? 'Edit Recipe' : 'New Recipe';
-            document.getElementById('fName').value = r.name || '';
-            document.getElementById('fDrinkType').value = r.drinkType || '';
-            document.getElementById('fProfile').value = r.profileTitle || '';
-            const bagSel = document.getElementById('fBag');
+            el('editorTitle').textContent = id ? 'Edit Recipe' : 'New Recipe';
+            el('fName').value = r.name || '';
+            el('fDrinkType').value = r.drinkType || '';
+            el('fProfile').value = r.profileTitle || '';
+            const bagSel = el('fBag');
             bagSel.onchange = onBagChanged;
             // A finished linked bag is not in the open-bag list — add it so
-            // editing another field doesn't silently drop the link. When the
-            // bag fetch failed we don't KNOW the bag is finished — label it
-            // neutrally.
+            // editing another field doesn't silently drop the link.
             if (r.bagId > 0 && !bags.some(b => b.id === r.bagId)) {
                 const opt = document.createElement('option');
                 opt.value = r.bagId;
@@ -787,70 +939,75 @@ QString ShotServer::generateRecipesPage() const
                 bagSel.appendChild(opt);
             }
             bagSel.value = String(r.bagId > 0 ? r.bagId : 0);
-            document.getElementById('fRoaster').value = r.roasterName || '';
-            document.getElementById('fCoffee').value = r.coffeeName || '';
-            document.getElementById('fDose').value = r.doseG > 0 ? r.doseG : '';
-            // Yield anchor: one value + a mode, seeded from the sparse keys.
+            el('fRoaster').value = r.roasterName || '';
+            el('fCoffee').value = r.coffeeName || '';
+            el('fDose').value = r.doseG > 0 ? r.doseG : '';
             const yMode = r.yieldRatio > 0 ? 'ratio' : (r.yieldG > 0 ? 'absolute' : 'none');
-            document.getElementById('fYieldMode').value = yMode;
-            document.getElementById('fYieldValue').value =
-                yMode === 'ratio' ? r.yieldRatio : (yMode === 'absolute' ? r.yieldG : '');
-            document.getElementById('fTemp').value = (r.tempOffsetC || 0) !== 0 ? r.tempOffsetC : '';
-            document.getElementById('fGrind').value = r.grindPinned || '';
-            document.getElementById('fRpm').value = (r.rpmPinned && r.rpmPinned > 0) ? r.rpmPinned : '';
+            el('fYieldMode').value = yMode;
+            el('fYieldValue').value = yMode === 'ratio' ? r.yieldRatio : (yMode === 'absolute' ? r.yieldG : '');
+            el('fTemp').value = (r.tempOffsetC || 0) !== 0 ? r.tempOffsetC : '';
+            el('fGrind').value = r.grindPinned || '';
+            el('fRpm').value = r.rpmPinned > 0 ? r.rpmPinned : '';
             const steam = r.steam || {};
-            document.getElementById('fHasMilk').checked = !!steam.hasMilk;
-            document.getElementById('fMilk').value = steam.milkWeightG || '';
-            document.getElementById('fPitcher').value = steam.pitcherName || '';
+            el('fHasMilk').checked = !!steam.hasMilk;
+            el('fMilk').value = steam.milkWeightG || '';
+            el('fPitcher').value = steam.pitcherName || '';
+            el('fSteamDuration').value = steam.durationSec || '';
+            el('fSteamFlow').value = steam.flow || '';
+            el('fSteamTemp').value = steam.temperatureC || '';
             const water = r.hotWater || {};
-            document.getElementById('fHasWater').checked = !!water.hasWater;
-            document.getElementById('fVessel').value = water.vesselName || '';
-            document.getElementById('fWaterOrder').value = water.order === 'before' ? 'before' : 'after';
-            document.getElementById('editor').showModal();
+            el('fHasWater').checked = !!water.hasWater;
+            el('fVessel').value = water.vesselName || '';
+            el('fWaterOrder').value = water.order === 'before' ? 'before' : 'after';
+            el('editor').showModal();
         }
 
         function saveEditor() {
-            const name = document.getElementById('fName').value.trim();
-            const profileTitle = document.getElementById('fProfile').value.trim();
-            const hasWater = document.getElementById('fHasWater').checked;
+            const name = el('fName').value.trim();
+            const profileTitle = el('fProfile').value.trim();
+            const hasWater = el('fHasWater').checked;
             if (!name) { status('Name is required'); return; }
             // Profile-less recipes are valid only as hot-water drinks (tea).
             if (!profileTitle && !hasWater) {
                 status('Profile title is required (unless the recipe adds hot water)'); return;
             }
             const steam = {};
-            if (document.getElementById('fHasMilk').checked) steam.hasMilk = true;
-            const milk = parseFloat(document.getElementById('fMilk').value);
+            if (el('fHasMilk').checked) steam.hasMilk = true;
+            const milk = parseFloat(el('fMilk').value);
             if (milk > 0) steam.milkWeightG = milk;
-            const pitcher = document.getElementById('fPitcher').value.trim();
+            const pitcher = el('fPitcher').value.trim();
             if (pitcher) steam.pitcherName = pitcher;
+            const dur = parseInt(el('fSteamDuration').value, 10);
+            if (dur > 0) steam.durationSec = dur;
+            const flow = parseFloat(el('fSteamFlow').value);
+            if (flow > 0) steam.flow = flow;
+            const stemp = parseFloat(el('fSteamTemp').value);
+            if (stemp > 0) steam.temperatureC = stemp;
             const hotWater = {};
             if (hasWater) hotWater.hasWater = true;
-            const vessel = document.getElementById('fVessel').value.trim();
+            const vessel = el('fVessel').value.trim();
             if (vessel) hotWater.vesselName = vessel;
-            hotWater.order = document.getElementById('fWaterOrder').value === 'before' ? 'before' : 'after';
+            hotWater.order = el('fWaterOrder').value === 'before' ? 'before' : 'after';
             const bodyData = {
                 name: name,
                 profileTitle: profileTitle,
-                drinkType: document.getElementById('fDrinkType').value,
-                bagId: parseInt(document.getElementById('fBag').value, 10) || 0,
-                roasterName: document.getElementById('fRoaster').value.trim(),
-                coffeeName: document.getElementById('fCoffee').value.trim(),
-                doseG: parseFloat(document.getElementById('fDose').value) || 0,
-                tempOffsetC: parseFloat(document.getElementById('fTemp').value) || 0,
-                grindPinned: document.getElementById('fGrind').value.trim(),
-                rpmPinned: parseInt(document.getElementById('fRpm').value) || 0,
+                drinkType: el('fDrinkType').value,
+                bagId: parseInt(el('fBag').value, 10) || 0,
+                roasterName: el('fRoaster').value.trim(),
+                coffeeName: el('fCoffee').value.trim(),
+                doseG: parseFloat(el('fDose').value) || 0,
+                tempOffsetC: parseFloat(el('fTemp').value) || 0,
+                grindPinned: el('fGrind').value.trim(),
+                rpmPinned: parseInt(el('fRpm').value, 10) || 0,
                 steam: steam,
                 hotWater: hotWater
             };
-            // Yield anchor: send exactly ONE of yieldG / yieldRatio (they are
-            // mutually exclusive server-side). Mode "none" — or a blank value
-            // — sends an explicit yieldG: 0 clear; this is a deliberate
-            // choice in the mode select, so it can no longer silently wipe a
-            // ratio the way the old always-sent blank yield field could.
+            // Yield anchor: send exactly ONE of yieldG / yieldRatio (mutually
+            // exclusive server-side). Mode "none"/blank sends an explicit
+            // yieldG: 0 clear — a deliberate choice in the mode select.
             {
-                const yMode = document.getElementById('fYieldMode').value;
-                const yVal = parseFloat(document.getElementById('fYieldValue').value) || 0;
+                const yMode = el('fYieldMode').value;
+                const yVal = parseFloat(el('fYieldValue').value) || 0;
                 if (yMode === 'ratio' && yVal > 0) bodyData.yieldRatio = yVal;
                 else if (yMode === 'absolute' && yVal > 0) bodyData.yieldG = yVal;
                 else bodyData.yieldG = 0;
@@ -862,7 +1019,7 @@ QString ShotServer::generateRecipesPage() const
                 delete bodyData.grindPinned;
             const req = editingId ? post('/api/recipe/' + editingId, bodyData)
                                   : post('/api/recipes', bodyData);
-            req.then(() => { document.getElementById('editor').close(); load(); })
+            req.then(() => { el('editor').close(); load(); })
                .catch(e => status(e.message));
         }
 

@@ -14,6 +14,9 @@
 #include "webtemplates/menu_css.h"
 #include "webtemplates/menu_html.h"
 #include "webtemplates/menu_js.h"
+#include "webtemplates/management_css.h"
+#include "webtemplates/management_html.h"
+#include "webtemplates/management_js.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -24,10 +27,15 @@
 namespace {
 
 // Editable package fields accepted from the web form (matches the create/edit
-// dialog's field set; puck-prep flags stay in-app for v1).
+// dialog's field set). The puck-prep flags travel as "puckPrep_<key>" booleans
+// (PuckPrep::flagKeys) — EquipmentStorage's create/update read exactly those keys
+// via PuckPrep::canonicalMerged / mapTouches, so passing them through here is all
+// the wiring the web form needs.
 const QStringList kPackageEditableKeys = {
     "name", "grinderBrand", "grinderModel", "grinderBurrs",
-    "basketBrand", "basketModel"};
+    "basketBrand", "basketModel",
+    "puckPrep_wdt", "puckPrep_shaker", "puckPrep_puckScreen",
+    "puckPrep_paperFilter", "puckPrep_rdt"};
 
 QVariantMap packageFieldsFromBody(const QJsonObject& body)
 {
@@ -226,41 +234,16 @@ QString ShotServer::generateEquipmentPage() const
     html += WEB_CSS_VARIABLES;
     html += WEB_CSS_HEADER;
     html += WEB_CSS_MENU;
+    html += WEB_CSS_MANAGEMENT;
     html += R"HTML(
-        .container { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
-        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; }
-        .card.active { border-color: var(--accent); }
-        .card h3 { margin-bottom: 0.25rem; }
-        .card .sub { color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 0.5rem; }
-        .row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
-        button { background: var(--surface-hover); color: var(--text); border: 1px solid var(--border);
-                 border-radius: 6px; padding: 0.4rem 0.8rem; cursor: pointer; }
-        button:hover { background: var(--border); }
-        button.primary { background: var(--accent); color: #000; border-color: var(--accent); }
-        .badge { color: var(--accent); font-size: 0.8rem; margin-left: 0.5rem; }
-        .muted { color: var(--text-secondary); }
-        #status { margin: 0.5rem 0; color: var(--text-secondary); min-height: 1.2em; }
-        dialog { background: var(--surface); color: var(--text); border: 1px solid var(--border);
-                 border-radius: 8px; padding: 1.25rem; max-width: 480px; width: 92%; }
-        dialog::backdrop { background: rgba(0,0,0,0.6); }
-        dialog label { display: block; margin: 0.5rem 0 0.15rem; font-size: 0.85rem; color: var(--text-secondary); }
-        dialog input { width: 100%; background: var(--bg); color: var(--text);
-                 border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem; }
-        dialog .row { margin-top: 1rem; justify-content: flex-end; }
     </style>
 </head>
-<body>
-    <div class="header">
-        <div class="header-content">
-            <h1>&#9881; Equipment</h1>
 )HTML";
-    html += generateMenuHtml();
+    html += generateManagementHeader(QStringLiteral("&#9881; Equipment"));
     html += R"HTML(
-        </div>
-    </div>
     <div class="container">
-        <div class="row">
-            <button class="primary" onclick="openEditor(null)">Add Equipment</button>
+        <div class="toolbar">
+            <button class="primary" onclick="openEditor(null)">+ Add Equipment</button>
         </div>
         <div id="status"></div>
         <div id="list"></div>
@@ -269,13 +252,25 @@ QString ShotServer::generateEquipmentPage() const
     <dialog id="editor">
         <h2 id="editorTitle">Equipment</h2>
         <label>Name (optional label)</label><input id="fName">
-        <label>Grinder brand</label><input id="fGrinderBrand">
-        <label>Grinder model</label><input id="fGrinderModel">
+        <div class="grid-2">
+            <div><label>Grinder brand</label><input id="fGrinderBrand"></div>
+            <div><label>Grinder model</label><input id="fGrinderModel"></div>
+        </div>
         <label>Burrs</label><input id="fBurrs">
-        <label>Basket brand</label><input id="fBasketBrand">
-        <label>Basket model</label><input id="fBasketModel">
-        <div class="row">
-            <button onclick="document.getElementById('editor').close()">Cancel</button>
+        <div class="grid-2">
+            <div><label>Basket brand</label><input id="fBasketBrand"></div>
+            <div><label>Basket model</label><input id="fBasketModel"></div>
+        </div>
+        <details class="dialog-section" open>
+            <summary>Puck prep</summary>
+            <div class="check-row"><input type="checkbox" id="fWdt"><label for="fWdt">WDT</label></div>
+            <div class="check-row"><input type="checkbox" id="fShaker"><label for="fShaker">Shaker</label></div>
+            <div class="check-row"><input type="checkbox" id="fPuckScreen"><label for="fPuckScreen">Puck screen</label></div>
+            <div class="check-row"><input type="checkbox" id="fPaperFilter"><label for="fPaperFilter">Bottom paper filter</label></div>
+            <div class="check-row"><input type="checkbox" id="fRdt"><label for="fRdt">RDT spritz</label></div>
+        </details>
+        <div class="dialog-actions">
+            <button onclick="el('editor').close()">Cancel</button>
             <button class="primary" onclick="saveEditor()">Save</button>
         </div>
     </dialog>
@@ -284,92 +279,103 @@ QString ShotServer::generateEquipmentPage() const
 )HTML";
     html += WEB_JS_MENU;
     html += WEB_JS_POWER_CONTROL;
+    html += WEB_JS_MANAGEMENT;
     html += R"HTML(
         let editingId = null;
         let packages = [];
-        const status = (m) => { document.getElementById('status').textContent = m || ''; };
-        const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+        // Puck-prep flags: [wire key, DOM id, label] — mirrors PuckPrep::flagKeys.
+        const PUCK = [
+            ['puckPrep_wdt', 'fWdt', 'WDT'],
+            ['puckPrep_shaker', 'fShaker', 'Shaker'],
+            ['puckPrep_puckScreen', 'fPuckScreen', 'Puck screen'],
+            ['puckPrep_paperFilter', 'fPaperFilter', 'Bottom paper filter'],
+            ['puckPrep_rdt', 'fRdt', 'RDT spritz'],
+        ];
 
         function load() {
             status('Loading…');
-            fetch('/api/equipment')
-                .then(r => { if (!r.ok) throw new Error('Server error (' + r.status + ')'); return r.json(); })
+            getJson('/api/equipment')
                 .then(d => { render(d.equipment || []); status(''); })
                 .catch(e => status('Could not load equipment: ' + e.message));
         }
 
         function label(p) {
-            return p.name || ((p.grinderBrand || '') + ' ' + (p.grinderModel || '')).trim() || ('Package ' + p.id);
+            return p.name || ((p.grinderBrand || '') + ' ' + (p.grinderModel || '')).trim()
+                || ('Package ' + p.id);
         }
 
-        function subtitle(p) {
-            const parts = [];
-            const grinder = ((p.grinderBrand || '') + ' ' + (p.grinderModel || '')).trim();
-            if (grinder) parts.push(esc(grinder));
-            if (p.grinderBurrs) parts.push(esc(p.grinderBurrs));
+        function prepLine(p) {
+            return PUCK.filter(f => p[f[0]]).map(f => f[2]).join(', ');
+        }
+
+        function cardHtml(p) {
             const basket = ((p.basketBrand || '') + ' ' + (p.basketModel || '')).trim();
-            if (basket) parts.push('basket ' + esc(basket));
-            if (p.lastGrindSetting) parts.push('last grind ' + esc(p.lastGrindSetting));
-            return parts.join(' &middot; ');
+            const prep = prepLine(p);
+            let body = '<div class="card-body">'
+                + '<div class="card-title">' + esc(label(p))
+                + (p.isActive ? '<span class="badge">Active</span>' : '') + '</div>';
+            if (p.grinderBurrs) body += '<div class="attr-line">' + esc(p.grinderBurrs) + '</div>';
+            if (basket) body += '<div class="attr-line">Basket: ' + esc(basket) + '</div>';
+            if (prep) body += '<div class="attr-line">Prep: ' + esc(prep) + '</div>';
+            body += '</div>';
+            return '<div class="card' + (p.isActive ? ' active' : '') + '">'
+                + '<div class="card-head">' + body + '</div>'
+                + '<div class="actions">'
+                + '<button class="primary" onclick="activate(' + p.id + ')"' + (p.isActive ? ' disabled' : '') + '>Activate</button>'
+                + '<button onclick="openEditor(' + p.id + ')">Edit</button>'
+                + '<button class="danger" onclick="removePackage(' + p.id + ')">Remove</button>'
+                + '</div></div>';
         }
 
         function render(list) {
             packages = list;
-            document.getElementById('list').innerHTML = list.length ? list.map(p =>
-                '<div class="card' + (p.isActive ? ' active' : '') + '">'
-                + '<h3>' + esc(label(p)) + (p.isActive ? '<span class="badge">Active</span>' : '') + '</h3>'
-                + '<div class="sub">' + subtitle(p) + '</div>'
-                + '<div class="row">'
-                + '<button onclick="activate(' + p.id + ')"' + (p.isActive ? ' disabled' : '') + '>Activate</button>'
-                + '<button onclick="openEditor(' + p.id + ')">Edit</button>'
-                + '<button onclick="removePackage(' + p.id + ')">Remove</button>'
-                + '</div></div>').join('')
-                : '<p class="muted">No equipment packages yet.</p>';
+            el('list').innerHTML = list.length
+                ? '<div class="grid">' + list.map(cardHtml).join('') + '</div>'
+                : '<div class="empty"><h2>No equipment yet</h2>'
+                  + '<div>Add your grinder to track its model, burrs and dial-in per bag.</div></div>';
         }
 
-        function post(url, body) {
-            return fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify(body || {}) })
-                .then(r => r.json().then(d => { if (!r.ok || d.error) throw new Error(d.error || ('Server error (' + r.status + ')')); return d; }));
-        }
-
-        function activate(id) { post('/api/equipment/' + id + '/activate').then(() => load()).catch(e => status(e.message)); }
+        function activate(id) { post('/api/equipment/' + id + '/activate').then(load).catch(e => status(e.message)); }
         function removePackage(id) {
             if (!confirm('Remove this package from the inventory? Shot history keeps its attribution.')) return;
             // Try hard delete first (mistaken creations); fall back to soft
             // remove when the server refuses because it is referenced.
             post('/api/equipment/' + id + '/delete')
-                .then(() => load())
-                .catch(() => post('/api/equipment/' + id + '/remove').then(() => load()).catch(e => status(e.message)));
+                .then(load)
+                .catch(() => post('/api/equipment/' + id + '/remove').then(load).catch(e => status(e.message)));
         }
 
         function openEditor(id) {
             editingId = id;
             const p = packages.find(x => x.id === id) || {};
-            document.getElementById('editorTitle').textContent = id ? 'Edit Equipment' : 'New Equipment';
-            document.getElementById('fName').value = p.name || '';
-            document.getElementById('fGrinderBrand').value = p.grinderBrand || '';
-            document.getElementById('fGrinderModel').value = p.grinderModel || '';
-            document.getElementById('fBurrs').value = p.grinderBurrs || '';
-            document.getElementById('fBasketBrand').value = p.basketBrand || '';
-            document.getElementById('fBasketModel').value = p.basketModel || '';
-            document.getElementById('editor').showModal();
+            el('editorTitle').textContent = id ? 'Edit Equipment' : 'New Equipment';
+            el('fName').value = p.name || '';
+            el('fGrinderBrand').value = p.grinderBrand || '';
+            el('fGrinderModel').value = p.grinderModel || '';
+            el('fBurrs').value = p.grinderBurrs || '';
+            el('fBasketBrand').value = p.basketBrand || '';
+            el('fBasketModel').value = p.basketModel || '';
+            PUCK.forEach(f => { el(f[1]).checked = !!p[f[0]]; });
+            el('editor').showModal();
         }
 
         function saveEditor() {
             const bodyData = {
-                name: document.getElementById('fName').value.trim(),
-                grinderBrand: document.getElementById('fGrinderBrand').value.trim(),
-                grinderModel: document.getElementById('fGrinderModel').value.trim(),
-                grinderBurrs: document.getElementById('fBurrs').value.trim(),
-                basketBrand: document.getElementById('fBasketBrand').value.trim(),
-                basketModel: document.getElementById('fBasketModel').value.trim()
+                name: el('fName').value.trim(),
+                grinderBrand: el('fGrinderBrand').value.trim(),
+                grinderModel: el('fGrinderModel').value.trim(),
+                grinderBurrs: el('fBurrs').value.trim(),
+                basketBrand: el('fBasketBrand').value.trim(),
+                basketModel: el('fBasketModel').value.trim()
             };
+            PUCK.forEach(f => { bodyData[f[0]] = el(f[1]).checked; });
             if (!bodyData.name && !bodyData.grinderBrand && !bodyData.grinderModel) {
                 status('A name or grinder identity is required'); return;
             }
-            const req = editingId ? post('/api/equipment/' + editingId, bodyData) : post('/api/equipment', bodyData);
-            req.then(() => { document.getElementById('editor').close(); load(); })
+            const req = editingId ? post('/api/equipment/' + editingId, bodyData)
+                                  : post('/api/equipment', bodyData);
+            req.then(() => { el('editor').close(); load(); })
                .catch(e => status(e.message));
         }
 

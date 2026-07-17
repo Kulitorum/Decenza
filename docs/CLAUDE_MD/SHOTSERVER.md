@@ -14,10 +14,21 @@ The ShotServer is the in-app HTTP server that exposes shot history, settings, la
 - `shotserver_theme.cpp` — theme endpoints
 - `shotserver_upload.cpp` — file upload handling
 - `shotserver_recipes.cpp` — recipes REST + `/recipes` page (add-recipes)
-- `shotserver_bags.cpp` — coffee-bag REST + `/beans` page (add-recipes)
+- `shotserver_bags.cpp` — coffee-bag REST + `/beans` page (add-recipes), plus Bean Base search / AI extraction / bean image endpoints
 - `shotserver_equipment.cpp` — equipment-package REST + `/equipment` page (add-recipes)
+- `webtemplates/management_{css,html,js}.h` — shared style/shell/JS for the three management pages (see below)
 
 The layout editor web UI is served as inline HTML/JS from `shotserver_layout.cpp`.
+
+## Shared management-page style (beans / recipes / equipment)
+
+The `/beans`, `/recipes`, and `/equipment` pages are designed to closely match their in-app QML screens (`BagCard` / `RecipeDrinkCard` / `EquipmentCard`) in **look and features** — see the CLAUDE.md ShotServer rule. They share one set of `webtemplates/` helpers instead of each re-inlining CSS/JS:
+
+- `management_css.h` → `WEB_CSS_MANAGEMENT` — the card grid, cards (`.card` / `.card.active` / `.card.dimmed`), thumbnail, title/verified/roaster/attr/notes/meta/plan lines, `.badge` / `.chip` / `.chip.warn`, `.actions` buttons, `#status`, `.empty` state, toolbar/`.searchbar`, the `dialog` form (`.grid-2`, `.check-row`, `.dialog-section`, `.dialog-actions`), and `.search-results`.
+- `management_html.h` → `generateManagementHeader(titleHtml)` — the canonical `<header class="header">` (☕ Decenza logo + page title + burger menu), the same chrome the Shot History page uses. It emits the opening `<body>` tag.
+- `management_js.h` → `WEB_JS_MANAGEMENT` — the shared JS utilities `el`, `status`, `esc`, `bullet(parts)` (dot-joiner mirroring `Theme.joinWithBullet`), `getJson`, and `post`.
+
+When adding or restyling any of these pages, use these helpers — do not paste a private `<style>` block or re-declare `esc`/`status`/`post`. When you touch the in-app version of one of these screens, update the web page to match (and vice-versa).
 
 ## Async community endpoints (signal-based)
 
@@ -35,7 +46,8 @@ The layout editor web UI is served as inline HTML/JS from `shotserver_layout.cpp
 
 ## Recipes / bags / equipment surfaces (add-recipes)
 
-- Endpoints: `GET/POST /api/recipes`, `POST /api/recipes/from-shot/<shotId>`, `GET/POST /api/recipe/<id>` plus `/clone`, `/archive` (body: `restore`/`delete`), `/activate`; `GET/POST /api/bags`, `GET/POST /api/bag/<id>` plus `/finish`, `/delete`, `/activate`; `GET/POST /api/equipment`, `GET/POST /api/equipment/<id>` plus `/remove`, `/delete`, `/activate`. All behind the auth gate.
+- Endpoints: `GET/POST /api/recipes`, `POST /api/recipes/from-shot/<shotId>`, `GET/POST /api/recipe/<id>` plus `/clone`, `/archive` (body: `restore`/`delete`), `/activate`; `GET/POST /api/bags`, `GET/POST /api/bag/<id>` plus `/finish`, `/delete`, `/activate`, `GET /api/bag/<id>/image`; `GET /api/beans/search?q=…`, `POST /api/beans/extract` (async AI "get info from page"); `GET/POST /api/equipment`, `GET/POST /api/equipment/<id>` plus `/remove`, `/delete`, `/activate`. All behind the auth gate.
+- **Full app parity (polish-shotserver-inventory-pages):** the bag create/update payloads accept the full app field set — `kind` (coffee/tea, create-only), the yield anchor (`yieldG`/`yieldRatio`), `rpmPinned`/`rpm`, `equipmentId`, freeze-lifecycle dates (`openedDate`/`storageHint`), and the descriptive attributes carried in the `beanBaseData` JSON blob (the page parses/merges it client-side); `beanBaseId` + `beanBaseData` together set a Bean Base canonical link (the update route propagates it to the bag's shots, like the in-app edit dialog). Equipment payloads accept the puck-prep flags as `puckPrep_<key>` booleans (`PuckPrep::flagKeys`). `/api/beans/search` and `/api/beans/extract` reuse `BeanBaseClient` + `AIManager` (the same backends as the MCP `bean_search` / `bag_extract_details` tools) via the async socket pattern (fired guard + timeout + always-respond).
 - Reads use storage statics on background threads (recipes) or one-shot `inventoryReady`/`*Ready` connections (bags/equipment); mutations always go through the app's storage instances via one-shot signal connections so in-app views refresh exactly as for local edits.
 - `POST /api/recipe/<id>/activate` calls `MainController::activateRecipe` — the single activation path shared with the idle pills and MCP; respond only on the matching `recipeActivated(id, success)`.
 - Lifecycle guards are storage-enforced and surface as HTTP 409 (delete refused for rows with shots/references).
