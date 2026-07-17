@@ -149,6 +149,18 @@ struct ShotRecord {
     double temperatureOverride = 0.0;
     double targetWeight = 0.0;
 
+    // Yield anchor provenance (add-yield-ratio-anchor): the anchor that
+    // PRODUCED targetWeight — intent alongside the outcome above. mode is
+    // "none" | "absolute" | "ratio" (src/core/yieldspec.h); anchorValue is
+    // grams when absolute, a dose multiplier when ratio. STORED, never
+    // derived at read time from targetWeight / doseWeight: the dose is
+    // post-shot editable, and deriving would mint a ratio nobody chose.
+    // Promotion (recipepromotion.cpp) copies these verbatim. Persisted in
+    // shots.yield_mode / shots.yield_anchor_value (migration 34); legacy
+    // rows were backfilled 'absolute' from yield_override (>0), else 'none'.
+    QString yieldMode;
+    double yieldAnchorValue = 0.0;
+
     // Why the shot ended (#1161). One of: "weight" (stop-at-weight / SAW),
     // "volume" (stop-at-volume / SAV), "manual" (user tapped Stop in the
     // app), "profileEnd" (profile ran its course OR the DE1's own button —
@@ -260,6 +272,10 @@ struct ShotSaveData {
     double doseWeight = 0;
     double temperatureOverride = 0;
     double targetWeight = 0;
+
+    // Yield anchor provenance (add-yield-ratio-anchor): see ShotRecord.
+    QString yieldMode;
+    double yieldAnchorValue = 0;
 
     // Why the shot ended (#1161): "weight" | "volume" | "manual" |
     // "profileEnd" | "" (unknown). Classified in MainController::onShotEnded

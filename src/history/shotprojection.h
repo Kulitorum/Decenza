@@ -78,6 +78,11 @@ class ShotProjection {
     Q_PROPERTY(QString debugLog MEMBER debugLog)
     Q_PROPERTY(double temperatureOverrideC MEMBER temperatureOverrideC)
     Q_PROPERTY(double targetWeightG MEMBER targetWeightG)
+    // Yield anchor provenance (add-yield-ratio-anchor): the anchor that
+    // produced targetWeightG. yieldMode is "none"|"absolute"|"ratio";
+    // yieldAnchorValue is grams when absolute, a dose multiplier when ratio.
+    Q_PROPERTY(QString yieldMode MEMBER yieldMode)
+    Q_PROPERTY(double yieldAnchorValue MEMBER yieldAnchorValue)
     Q_PROPERTY(QString stoppedBy MEMBER stoppedBy)
     Q_PROPERTY(QString profileJson MEMBER profileJson)
     Q_PROPERTY(QString profileKbId MEMBER profileKbId)
@@ -175,6 +180,8 @@ public:
     QString debugLog;
     double temperatureOverrideC = 0.0;
     double targetWeightG = 0.0;
+    QString yieldMode;             // add-yield-ratio-anchor: "none"|"absolute"|"ratio"
+    double yieldAnchorValue = 0.0; // grams (absolute) or dose multiplier (ratio)
     QString stoppedBy;  // #1161: "weight"|"volume"|"manual"|"profileEnd"|""
     QString profileJson;
     QString profileKbId;

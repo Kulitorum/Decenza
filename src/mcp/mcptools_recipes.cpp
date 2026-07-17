@@ -20,6 +20,7 @@
 #include "../core/dbutils.h"
 #include "../core/settings.h"
 #include "../core/settings_dye.h"
+#include "../core/yieldspec.h"
 #include "../history/shothistorystorage.h"
 #include "../history/coffeebagstorage.h"
 #include "../history/recipestorage.h"
@@ -119,7 +120,13 @@ QJsonObject recipeToJson(const Recipe& r, Settings* settings, QSqlDatabase* db,
     if (r.equipmentId > 0)
         o["equipmentId"] = r.equipmentId;
     if (r.doseG > 0) o["doseG"] = r.doseG;
-    if (r.yieldG > 0) o["yieldG"] = r.yieldG;
+    // Yield spec (add-yield-ratio-anchor): sparse, mutually exclusive keys.
+    // An absolute yield emits yieldG (grams), a ratio emits yieldRatio (the
+    // dose multiplier — 2.0 means 1:2); mode "none" emits neither.
+    if (r.yieldMode == QLatin1String("absolute") && r.yieldValue > 0)
+        o["yieldG"] = r.yieldValue;
+    else if (r.yieldMode == QLatin1String("ratio") && r.yieldValue > 0)
+        o["yieldRatio"] = r.yieldValue;
     // The temperature is a SIGNED OFFSET against the recipe's profile
     // (recipe-relative-temp-offset) — present only when the recipe pins one.
     if (qAbs(r.tempOffsetC) > 0.05) o["tempOffsetC"] = r.tempOffsetC;
@@ -208,10 +215,21 @@ QVariantMap recipeFieldsFromArgs(const QJsonObject& args)
         fields.insert("equipmentId", args["equipmentId"].toInteger());
     if (args.contains("rpmPinned"))
         fields.insert("rpmPinned", args["rpmPinned"].toInteger());
-    static const QStringList kNumberKeys = {"doseG", "yieldG"};
-    for (const QString& key : kNumberKeys) {
-        if (args.contains(key))
-            fields.insert(key, args[key].toDouble());
+    if (args.contains("doseG"))
+        fields.insert("doseG", args["doseG"].toDouble());
+    // Yield spec (add-yield-ratio-anchor): the wire keys are sparse and
+    // mutually exclusive — writing one IS setting the mode, which implicitly
+    // clears the other (one value column + a discriminator; no stale sibling
+    // can survive a partial update). Both-present is rejected loudly in the
+    // create/update handlers before this runs. 0/negative clears the anchor.
+    if (args.contains("yieldG")) {
+        const double g = args["yieldG"].toDouble();
+        fields.insert("yieldValue", g > 0 ? g : 0.0);
+        fields.insert("yieldMode", g > 0 ? QStringLiteral("absolute") : QStringLiteral("none"));
+    } else if (args.contains("yieldRatio")) {
+        const double ratio = args["yieldRatio"].toDouble();
+        fields.insert("yieldValue", ratio > 0 ? YieldSpec::clampRatio(ratio) : 0.0);
+        fields.insert("yieldMode", ratio > 0 ? QStringLiteral("ratio") : QStringLiteral("none"));
     }
     if (args.contains("tempOffsetC"))
         fields.insert("tempOffsetC", args["tempOffsetC"].toDouble());
@@ -416,7 +434,19 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 {"coffeeName", QJsonObject{{"type", "string"}}},
                 {"equipmentId", QJsonObject{{"type", "integer"}, {"description", "Equipment package id (equipment_list)"}}},
                 {"doseG", QJsonObject{{"type", "number"}}},
-                {"yieldG", QJsonObject{{"type", "number"}}},
+                {"yieldG", QJsonObject{{"type", "number"},
+                    {"description", "Absolute yield target in grams. Mutually exclusive with "
+                                    "yieldRatio: a recipe holds ONE yield anchor, and writing "
+                                    "yieldG replaces any stored ratio (no separate clear "
+                                    "needed). Sending both keys in one call is rejected. "
+                                    "0 clears the yield entirely."}}},
+                {"yieldRatio", QJsonObject{{"type", "number"},
+                    {"description", "Yield as a multiplier of the dose (2.0 = a 1:2 ratio; "
+                                    "clamped to 0.5-6.0). The gram target then follows the "
+                                    "dose actually weighed. Mutually exclusive with yieldG: "
+                                    "writing yieldRatio replaces any stored absolute yield "
+                                    "(no separate clear needed). Sending both keys in one "
+                                    "call is rejected. 0 clears the yield entirely."}}},
                 {"tempOffsetC", QJsonObject{{"type", "number"},
                     {"description", "Signed temperature delta in Celsius against the recipe's "
                                     "profile (0/omitted = brew at the profile's own temperature)"}}},
@@ -439,6 +469,13 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
             // writing ~90 into the delta column would be a 90° offset.
             if (args.contains("temperatureOverrideC")) {
                 respond(QJsonObject{{"error", "temperatureOverrideC was replaced by tempOffsetC — a SIGNED DELTA in Celsius against the recipe's profile (recipe-relative-temp-offset). Rejected rather than silently dropped: an absolute written into the delta field would corrupt the recipe's temperature."}});
+                return;
+            }
+            // A recipe holds ONE yield anchor — both keys at once is a
+            // contradiction, rejected loudly rather than one silently winning
+            // (mirrors the temperatureOverrideC rejection above).
+            if (args.contains("yieldG") && args.contains("yieldRatio")) {
+                respond(QJsonObject{{"error", "yieldG and yieldRatio are mutually exclusive — a recipe holds ONE yield anchor (an absolute gram target OR a ratio of the dose). Send exactly one; writing it replaces the other automatically."}});
                 return;
             }
             QVariantMap fields = recipeFieldsFromArgs(args);
@@ -516,7 +553,18 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
                 {"coffeeName", QJsonObject{{"type", "string"}}},
                 {"equipmentId", QJsonObject{{"type", "integer"}}},
                 {"doseG", QJsonObject{{"type", "number"}}},
-                {"yieldG", QJsonObject{{"type", "number"}}},
+                {"yieldG", QJsonObject{{"type", "number"},
+                    {"description", "Absolute yield target in grams. Mutually exclusive with "
+                                    "yieldRatio; sending yieldG alone REPLACES a stored ratio "
+                                    "(updates are present-keys-only, but the yield anchor is "
+                                    "one field — no explicit clear of yieldRatio is needed or "
+                                    "possible). 0 clears the yield entirely."}}},
+                {"yieldRatio", QJsonObject{{"type", "number"},
+                    {"description", "Yield as a multiplier of the dose (2.0 = 1:2; clamped to "
+                                    "0.5-6.0); the gram target then follows the dose actually "
+                                    "weighed. Mutually exclusive with yieldG; sending "
+                                    "yieldRatio alone REPLACES a stored absolute yield. "
+                                    "0 clears the yield entirely."}}},
                 {"tempOffsetC", QJsonObject{{"type", "number"},
                     {"description", "Signed temperature delta in Celsius against the recipe's "
                                     "profile (0 clears it)"}}},
@@ -537,6 +585,12 @@ void registerRecipeTools(McpToolRegistry* registry, ShotHistoryStorage* shotHist
             // The retired absolute field fails LOUD (see recipe_create).
             if (args.contains("temperatureOverrideC")) {
                 respond(QJsonObject{{"error", "temperatureOverrideC was replaced by tempOffsetC — a SIGNED DELTA in Celsius against the recipe's profile (recipe-relative-temp-offset). Rejected rather than silently dropped: an absolute written into the delta field would corrupt the recipe's temperature."}});
+                return;
+            }
+            // One yield anchor per recipe — both keys at once is rejected
+            // loudly (see recipe_create).
+            if (args.contains("yieldG") && args.contains("yieldRatio")) {
+                respond(QJsonObject{{"error", "yieldG and yieldRatio are mutually exclusive — a recipe holds ONE yield anchor (an absolute gram target OR a ratio of the dose). Send exactly one; writing it replaces the other automatically."}});
                 return;
             }
             QVariantMap fields = recipeFieldsFromArgs(args);

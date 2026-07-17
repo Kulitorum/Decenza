@@ -64,17 +64,32 @@ Item {
     property bool yieldOverridden: Settings.brew.hasBrewYieldOverride
     property bool tempOverridden: Settings.brew.hasTemperatureOverride
 
-    // The active recipe's own yield/temp, injected by the LIVE idle widget so a
-    // recipe reads as the BASELINE, not overrides of the profile
-    // (recipe-baseline-not-override, #1485): the yield arrow and the amber
-    // highlight measure against these, so a recipe's designed yield shows as a
+    // Yield anchor (add-yield-ratio-anchor): the session anchor's mode and —
+    // when ratio-anchored — the ratio itself, so the yield segment carries
+    // the anchor mark ("36.0g (1:2)") and a ratio with no dose renders bare
+    // ("1:2" — nothing to multiply, and no fallback to the profile's gram
+    // target). Overridable like the flags above; cards inject their own.
+    property string yieldAnchorMode: Settings.brew.brewYieldMode
+    property double yieldAnchorRatio: yieldAnchorMode === "ratio" ? Settings.brew.brewYieldOverride : 0
+
+    // The ACTIVE STORE's own yield/temp, injected by the LIVE idle widget so
+    // the store's design reads as the BASELINE, not as an override of the
+    // profile (recipe-baseline-not-override, #1485): the yield arrow and the
+    // amber highlight measure against these, so a designed yield shows as a
     // plain target ("40.0g", not "36.0 → 40.0g") and isn't tinted. The
     // temperature STRING is re-anchored too — `_tempStr` shifts the frames to the
     // recipe's own temps (e.g. "81 · 91°C") and drops the profile-relative tag.
     // 0 = off — shot review leaves these unset and keeps its explicit
     // shot-relative behavior; recipe cards use the profile-step properties
     // below instead (they can't use this path — see below).
-    property double recipeBaselineYield: 0
+    //
+    // baselineYieldG carries the whole yield LADDER, not just the recipe
+    // (add-yield-ratio-anchor): the active recipe's spec, else the active
+    // BAG's, else the profile — a bean's own anchor is its design too, so it
+    // must render un-highlighted exactly like a recipe's. The temperature
+    // stays recipe-only (a bag holds no temperature), hence the asymmetry in
+    // these two names.
+    property double baselineYieldG: 0
     property double recipeBaselineTemp: 0
 
     // Recipe-card baseline resolution (recipe-relative-temp-offset). Cards
@@ -90,7 +105,7 @@ Item {
     // live Shot Plan once that recipe is active. Empty/0 = live behavior.
     property var profileStepTemps: []
     property double recipeTempOffsetC: 0
-    readonly property double _yieldBaseline: recipeBaselineYield > 0 ? recipeBaselineYield : profileYield
+    readonly property double _yieldBaseline: baselineYieldG > 0 ? baselineYieldG : profileYield
     readonly property double _tempHlBaseline: recipeBaselineTemp > 0 ? recipeBaselineTemp : profileTemp
     // Grind RPM + whether the grinder reports RPM, the beverage word, and the
     // cleaning flag — all default to the live singleton reads so the home
@@ -118,15 +133,26 @@ Item {
     // call-out (which uses a delta tag, not an arrow). yieldTargetOnly suppresses the arrow and
     // shows only the effective target ("40.0g"); with no active override it's a visible no-op.
     readonly property string _yieldStr: {
-        if (!(_has("doseYield") && targetWeight > 0)) return ""
+        if (!_has("doseYield")) return ""
+        // Ratio anchor with no dose: a bare "1:2" — there is nothing to
+        // multiply, and no fallback to the profile's gram target (that
+        // fallthrough is #1485's spurious-arrow bug through a side door).
+        if (yieldAnchorMode === "ratio" && yieldAnchorRatio > 0 && dose <= 0)
+            return "1:" + yieldAnchorRatio.toFixed(1)
+        if (targetWeight <= 0) return ""
+        // Anchor mark: a ratio-anchored target carries its ratio alongside
+        // the derived grams, so the plan says which quantity is held.
+        var mark = (yieldAnchorMode === "ratio" && yieldAnchorRatio > 0)
+            ? " (1:" + yieldAnchorRatio.toFixed(1) + ")" : ""
         // Arrow shows baseline → target. With a recipe active the baseline is the
-        // recipe's own yield, so a recipe sitting at its yield reads "40.0g" (no
-        // arrow, no profile reference); the arrow returns only for a per-brew
-        // tweak away from the recipe. No recipe → the profile target, as before.
+        // recipe's own yield — a ratio recipe's resolved through the dose — so a
+        // recipe sitting at its designed yield reads "40.0g" (no arrow, no profile
+        // reference); the arrow returns only for a per-brew tweak away from it.
+        // No recipe → the bag's anchor, else the profile target.
         if (!yieldTargetOnly && yieldOverridden && _yieldBaseline > 0
                 && Math.abs(targetWeight - _yieldBaseline) > 0.1)
-            return _yieldBaseline.toFixed(1) + " → " + targetWeight.toFixed(1) + "g"
-        return targetWeight.toFixed(1) + "g"
+            return _yieldBaseline.toFixed(1) + " → " + targetWeight.toFixed(1) + "g" + mark
+        return targetWeight.toFixed(1) + "g" + mark
     }
     readonly property string _doseStr: (_has("doseYield") && dose > 0) ? (dose.toFixed(1) + "g") : ""
     // temperatureDisplay() follows the C/F display unit; its Settings.app.temperatureUnit

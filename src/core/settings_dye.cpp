@@ -5,6 +5,7 @@
 #include "../history/equipmentstorage.h"
 #include "settings_visualizer.h"
 #include "grinderaliases.h"
+#include "yieldspec.h"
 #include "basketaliases.h"
 
 #include <QtMath>
@@ -84,6 +85,19 @@ void SettingsDye::setBagStorage(CoffeeBagStorage* storage)
                         m_activeBagOpenedDate = opened;
                         emit activeBagChanged();
                     }
+                    // Refresh the cached yield spec SILENTLY (no
+                    // activeBagYieldSpecApplied): keep-fields means the caller
+                    // owns what applies to the session — recipe activation
+                    // must not have the bag's spec re-armed over the
+                    // recipe's — but the cache must still be truthful, or the
+                    // yield-baseline ladder and Brew Settings' Update Bag
+                    // button would read the PREVIOUS bag's spec
+                    // (add-yield-ratio-anchor).
+                    m_activeBagYieldValue = bag.value("yieldValue", 0.0).toDouble();
+                    m_activeBagYieldMode = YieldSpec::normalizedMode(bag.value("yieldMode").toString());
+                    if (m_activeBagYieldValue <= 0)
+                        m_activeBagYieldMode = YieldSpec::modeNone();
+                    emit activeBagYieldSpecChanged();
                     return;
                 }
                 applyActiveBag(bag);
@@ -634,7 +648,9 @@ void SettingsDye::setActiveBagId(int bagId) {
         m_activeBagDefrostDate.clear();
         m_activeBagStorageHint.clear();
         m_activeBagOpenedDate.clear();
-        m_activeBagYieldOverrideG = 0;  // no bag → no override
+        m_activeBagYieldValue = 0;      // no bag → no yield spec
+        m_activeBagYieldMode = QStringLiteral("none");
+        emit activeBagYieldSpecChanged();
         emit activeBagChanged();
         return;
     }
@@ -657,6 +673,9 @@ void SettingsDye::setActiveBagKeepFields(int bagId)
         m_activeBagDefrostDate.clear();
         m_activeBagStorageHint.clear();
         m_activeBagOpenedDate.clear();
+        m_activeBagYieldValue = 0;      // no bag → no yield spec
+        m_activeBagYieldMode = QStringLiteral("none");
+        emit activeBagYieldSpecChanged();
         emit activeBagIdChanged();
         emit activeBagChanged();
         return;
@@ -716,21 +735,39 @@ void SettingsDye::applyActiveBag(const QVariantMap& bag)
         emit activeBagChanged();
     }
 
-    // The bag's yield override drives Settings.brew, not the DYE drink weight.
-    // Emit last (after m_applyingBag clears) so the MainController applies it
-    // to brewYieldOverride on top of the switch's clear-to-profile reset. 0 =
-    // no override → the brew stays at the profile default the clear restored.
-    m_activeBagYieldOverrideG = bag.value("yieldOverrideG", 0.0).toDouble();
-    emit activeBagYieldOverrideApplied(m_activeBagYieldOverrideG);
+    // The bag's yield spec drives the session anchor (Settings.brew), not the
+    // DYE drink weight. Emit last (after m_applyingBag clears) so the
+    // MainController applies it on top of the switch's clear-to-profile
+    // reset — gated there on no recipe being active (the ladder: recipe
+    // outranks bag). mode "none" → the brew stays at the profile default.
+    m_activeBagYieldValue = bag.value("yieldValue", 0.0).toDouble();
+    m_activeBagYieldMode = YieldSpec::normalizedMode(bag.value("yieldMode").toString());
+    if (m_activeBagYieldValue <= 0)
+        m_activeBagYieldMode = YieldSpec::modeNone();
+    emit activeBagYieldSpecChanged();
+    emit activeBagYieldSpecApplied(m_activeBagYieldValue, m_activeBagYieldMode);
 }
 
-void SettingsDye::persistYieldOverrideToBag(double yieldOverrideG)
+void SettingsDye::persistYieldSpecToBag(double value, const QString& mode)
 {
-    // Store 0 for "no override" so the bag follows the profile default when
-    // re-selected. Goes through writeThroughToBag (skips when no bag/storage
-    // is attached, and dodges the bagUpdated echo via m_pendingSelfWrites).
-    m_activeBagYieldOverrideG = yieldOverrideG > 0 ? yieldOverrideG : 0.0;
-    writeThroughToBag("yieldOverrideG", m_activeBagYieldOverrideG);
+    // The "Update Bag" write — the only path a yield reaches the bag. Goes
+    // through writeThroughToBag per field (skips when no bag/storage is
+    // attached, and dodges the bagUpdated echo via m_pendingSelfWrites).
+    // Writing a spec whose mode is "none" clears the bag's anchor.
+    m_activeBagYieldMode = YieldSpec::normalizedMode(mode);
+    m_activeBagYieldValue = (YieldSpec::isSet(m_activeBagYieldMode) && value > 0) ? value : 0.0;
+    if (m_activeBagYieldValue <= 0)
+        m_activeBagYieldMode = YieldSpec::modeNone();
+    if (!m_applyingBag && m_bagStorage && bagIdIsSet(activeBagId())) {
+        m_pendingSelfWrites++;
+        m_bagStorage->requestUpdateBag(activeBagId(),
+                                       {{QStringLiteral("yieldValue"), m_activeBagYieldValue},
+                                        {QStringLiteral("yieldMode"), m_activeBagYieldMode}});
+        // The bag's spec is a baseline rung — let listeners (the brew
+        // baseline, idle widgets) re-evaluate against the new stored value.
+        emit activeBagYieldSpecChanged();
+        emit activeBagYieldSpecApplied(m_activeBagYieldValue, m_activeBagYieldMode);
+    }
 }
 
 void SettingsDye::writeThroughToBag(const QString& field, const QVariant& value)

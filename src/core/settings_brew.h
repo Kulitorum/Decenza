@@ -81,8 +81,16 @@ class SettingsBrew : public QObject {
     Q_PROPERTY(double temperatureOverride READ temperatureOverride WRITE setTemperatureOverride NOTIFY temperatureOverrideChanged)
     Q_PROPERTY(bool hasTemperatureOverride READ hasTemperatureOverride NOTIFY temperatureOverrideChanged)
 
-    // Brew parameter overrides (persistent)
+    // Brew parameter overrides (persistent). The yield override is the SESSION
+    // YIELD ANCHOR (add-yield-ratio-anchor): {value, mode} where mode is
+    // "none" | "absolute" | "ratio" (src/core/yieldspec.h). brewYieldOverride
+    // is the anchor VALUE in its mode's own unit — grams when absolute, a
+    // dose multiplier when ratio. Writing through the legacy property setter
+    // anchors an ABSOLUTE (grams); ratio writers use setBrewRatioAnchor().
+    // hasBrewYieldOverride is defined as mode != none — never inferred by
+    // comparing a resolved gram value against the profile target.
     Q_PROPERTY(double brewYieldOverride READ brewYieldOverride WRITE setBrewYieldOverride NOTIFY brewOverridesChanged)
+    Q_PROPERTY(QString brewYieldMode READ brewYieldMode NOTIFY brewOverridesChanged)
     Q_PROPERTY(bool hasBrewYieldOverride READ hasBrewYieldOverride NOTIFY brewOverridesChanged)
 
     // Stop-at-volume gating when a BLE scale provides weight data
@@ -247,11 +255,27 @@ public:
     bool hasTemperatureOverride() const;
     Q_INVOKABLE void clearTemperatureOverride();
 
-    // Brew parameter overrides (persistent)
-    double brewYieldOverride() const;
+    // Brew parameter overrides (persistent) — the session yield anchor.
+    double brewYieldOverride() const;   // anchor value, in its mode's unit
+    QString brewYieldMode() const;      // "none" | "absolute" | "ratio"
+    // Anchor an absolute gram target (mode -> "absolute"); <= 0 clears the
+    // anchor entirely (mode -> "none"). Grams clamp to [1, 500].
     void setBrewYieldOverride(double yield);
-    bool hasBrewYieldOverride() const;
+    // Anchor a ratio (mode -> "ratio"); <= 0 clears. Clamped to the single
+    // C++ ratio bound (YieldSpec::clampRatio, 0.5–6.0) that every ratio
+    // write boundary shares.
+    Q_INVOKABLE void setBrewRatioAnchor(double ratio);
+    // Restore a stored spec verbatim (recipe/bag activation): mode is
+    // normalized, values clamped per mode; mode "none" clears.
+    void setBrewYieldAnchor(double value, const QString& mode);
+    bool hasBrewYieldOverride() const;  // == mode != "none"
     Q_INVOKABLE void clearAllBrewOverrides();
+    // The profile-load reset (add-yield-ratio-anchor): clears the temperature
+    // override unconditionally and an ABSOLUTE yield anchor (a gram target
+    // describes the profile it was set against), but KEEPS a ratio anchor —
+    // 1:2 is 1:2 on any profile. Callers that must drop everything (explicit
+    // user Clear, profile edit, new profile) use clearAllBrewOverrides().
+    Q_INVOKABLE void clearProfileScopedBrewOverrides();
 
     // Stop-at-volume gating
     bool ignoreVolumeWithScale() const;
@@ -304,5 +328,9 @@ private:
     double m_temperatureOverride = 0.0;
     bool m_hasTemperatureOverride = false;
     double m_brewYieldOverride = 0.0;
-    bool m_hasBrewYieldOverride = false;
+    QString m_brewYieldMode;  // normalized; "none" when no anchor is armed
+
+    // Shared write path for the session anchor: normalizes + clamps, updates
+    // the cache and QSettings, emits brewOverridesChanged once.
+    void writeBrewYieldAnchor(double value, const QString& mode);
 };

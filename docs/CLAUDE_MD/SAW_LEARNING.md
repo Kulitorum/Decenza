@@ -204,6 +204,29 @@ No explicit migration. The new keys are written lazily as users pull shots; the 
 
 A user who hits "Reset all" gets a clean slate (legacy + new keys both wiped) and starts fresh with the new architecture.
 
+## Why the yield-ratio anchor (add-yield-ratio-anchor) needs NO changes here
+
+A recipe/bag/session yield can now be a **ratio of the dose** that re-derives
+the gram target whenever the dose changes pre-shot. SAW learning is unaffected
+by design, and this section exists so nobody "fixes" the apparent mismatch:
+
+- The model **stores no absolute target**. It learns a drip-vs-flow regression:
+  `drip = m_weight − m_weightAtStop` ([shottimingcontroller.cpp](../../src/controllers/shottimingcontroller.cpp),
+  the settling capture) is measured against the **trigger weight**, and
+  predicted purely from end-of-shot flow. A 1:2 and a 1:3 shot on one profile
+  teach the same drip model — correctly, since drip is a lag × flow quantity.
+- The one target-dependent value, `overshoot`, uses `m_targetWeightAtStop`
+  captured **at trigger time** (fed by `sawTriggered`'s live payload), so it is
+  already correct against a target that moved — the `+10 g` mid-shot bump
+  forced that property long before ratios existed.
+- Learning being keyed per `(baseProfileName, scaleType)` while the target is
+  per-recipe *looks* like a mismatch and is not: the flow-similarity weighting
+  in the read path already absorbs ristretto-vs-lungo end-flow differences.
+- The dose used for ratio resolution is **latched at `espressoCycleStarted`**
+  (`ProfileManager::latchDoseForShot`, called right beside the SAW model
+  snapshot in [src/main.cpp](../../src/main.cpp)), so the resolved target the
+  snapshot captures cannot move mid-shot from a dose write.
+
 ## Files
 
 - [src/core/settings.h](../../src/core/settings.h) / [src/core/settings.cpp](../../src/core/settings.cpp) — schema, batch accumulator, read-path fallback chain, bootstrap recompute. The new public API mirrors flow cal: `sawLearnedLagFor`, `getExpectedDripFor`, `sawLearningEntriesFor`, `sawModelSource`, `resetSawLearningForProfile`, `globalSawBootstrapLag`, `addSawLearningPoint(…, profileFilename)`.

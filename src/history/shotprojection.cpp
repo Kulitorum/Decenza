@@ -37,6 +37,12 @@ QVariantMap ShotProjection::toVariantMap() const
     m["debugLog"] = debugLog;
     m["temperatureOverrideC"] = temperatureOverrideC;
     m["targetWeightG"] = targetWeightG;
+    // Yield anchor provenance (add-yield-ratio-anchor): sparse-emit — only
+    // shots pulled under a real anchor carry it; mode "none" simply omits.
+    if (yieldMode == QStringLiteral("absolute") || yieldMode == QStringLiteral("ratio")) {
+        m["yieldMode"] = yieldMode;
+        m["yieldAnchorValue"] = yieldAnchorValue;
+    }
     // #1161: sparse-emit, matching dialing_blocks / mcptools_shots and the
     // documented MCP contract ("omitted" when the profile ran to
     // completion / unknown). shots_get_detail serializes through here, so
@@ -162,6 +168,8 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.debugLog = m.value("debugLog").toString();
     p.temperatureOverrideC = m.value("temperatureOverrideC").toDouble();
     p.targetWeightG = m.value("targetWeightG").toDouble();
+    p.yieldMode = m.value("yieldMode").toString();
+    p.yieldAnchorValue = m.value("yieldAnchorValue").toDouble();
     p.stoppedBy = m.value("stoppedBy").toString();
     p.profileJson = m.value("profileJson").toString();
     p.profileKbId = m.value("profileKbId").toString();

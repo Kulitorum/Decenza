@@ -88,6 +88,13 @@ class MainController : public QObject {
     // switch, or a target-weight sync).
     Q_PROPERTY(double activeBaselineTemperatureC READ activeBaselineTemperatureC NOTIFY brewBaselineChanged)
     Q_PROPERTY(double activeBaselineYieldG READ activeBaselineYieldG NOTIFY brewBaselineChanged)
+    // The yield baseline as a SPEC (add-yield-ratio-anchor): the active
+    // store's own {value, mode} resolved through the ladder — the recipe's
+    // spec when a recipe is active and designs a yield, else the bag's, else
+    // the profile's target_weight (mode "absolute"). activeBaselineYieldG
+    // above is this spec resolved to grams through the current dose.
+    Q_PROPERTY(double activeBaselineYieldValue READ activeBaselineYieldValue NOTIFY brewBaselineChanged)
+    Q_PROPERTY(QString activeBaselineYieldMode READ activeBaselineYieldMode NOTIFY brewBaselineChanged)
     Q_PROPERTY(bool temperatureIsRealOverride READ temperatureIsRealOverride NOTIFY brewBaselineChanged)
     Q_PROPERTY(bool yieldIsRealOverride READ yieldIsRealOverride NOTIFY brewBaselineChanged)
     // The recipe the user has SELECTED in a pill row — set synchronously the
@@ -179,6 +186,8 @@ public:
     QVariantMap activeRecipe() const { return m_activeRecipe; }
     double activeBaselineTemperatureC() const;
     double activeBaselineYieldG() const;
+    double activeBaselineYieldValue() const;
+    QString activeBaselineYieldMode() const;
     bool temperatureIsRealOverride() const;
     bool yieldIsRealOverride() const;
     qint64 selectedRecipeId() const { return m_recipeSelection.selected(); }
@@ -528,6 +537,13 @@ private:
     // Apply the activation bundle on the main thread (recipeActivationReady).
     void applyActivatedRecipe(qint64 recipeId, const QVariantMap& recipe,
                               qint64 linkedBagId, const QVariantMap& linkedBag);
+    // Re-seed the SESSION yield/temperature overrides from a recipe's spec,
+    // replacing whatever is armed. Shared by activation and the
+    // active-recipe edit refresh (an edit re-seeds the brew exactly as
+    // re-activating would). Pass an empty linkedBag to resolve the bag rung
+    // from the live dye cache. Returns true when an override was armed.
+    bool applyRecipeBrewOverrides(const QVariantMap& recipe,
+                                  const QVariantMap& linkedBag = QVariantMap());
     // Stamp a tweak onto the active recipe row (no-op when none is active
     // or activation is applying).
     void stampActiveRecipe(const QString& field, const QVariant& value);

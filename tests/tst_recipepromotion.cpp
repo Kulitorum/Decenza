@@ -45,6 +45,37 @@ private slots:
         QCOMPARE(RecipePromotion::fieldsFromShotRecord(record, "R", std::nullopt, QString())
                      .value("bagId").toLongLong(), (qint64)0);
     }
+    // Promotion COPIES the shot's recorded yield anchor (add-yield-ratio-
+    // anchor): a ratio shot promotes to a ratio recipe, an absolute shot to
+    // an absolute one, and the ratio is NEVER reconstructed from target ÷
+    // dose — a post-shot dose correction must not distort a promoted ratio.
+    void promotionCopiesYieldAnchor() {
+        ShotRecord ratioShot = sampleShotRecord();
+        ratioShot.yieldMode = "ratio";
+        ratioShot.yieldAnchorValue = 2.0;
+        // Simulate a post-shot dose correction: 18 -> 19 g. The promoted
+        // ratio must stay 2.0, not become 36/19 = 1.89.
+        ratioShot.summary.doseWeight = 19.0;
+        QVariantMap f = RecipePromotion::fieldsFromShotRecord(ratioShot, "R", std::nullopt, QString());
+        QCOMPARE(f.value("yieldMode").toString(), QStringLiteral("ratio"));
+        QCOMPARE(f.value("yieldValue").toDouble(), 2.0);
+        QCOMPARE(f.value("doseG").toDouble(), 19.0);
+
+        ShotRecord absShot = sampleShotRecord();
+        absShot.yieldMode = "absolute";
+        absShot.yieldAnchorValue = 36.0;
+        f = RecipePromotion::fieldsFromShotRecord(absShot, "A", std::nullopt, QString());
+        QCOMPARE(f.value("yieldMode").toString(), QStringLiteral("absolute"));
+        QCOMPARE(f.value("yieldValue").toDouble(), 36.0);
+
+        // No anchor and no target: mode none, no value key.
+        ShotRecord bare = sampleShotRecord();
+        bare.targetWeight = 0;
+        f = RecipePromotion::fieldsFromShotRecord(bare, "B", std::nullopt, QString());
+        QCOMPARE(f.value("yieldMode").toString(), QStringLiteral("none"));
+        QVERIFY(!f.contains("yieldValue"));
+    }
+
     // No hasMilk override: the shot's own steam snapshot carries through
     // verbatim (the MCP tool's default behavior).
     void fieldsCarryShotDataVerbatimWithoutOverride() {
@@ -59,7 +90,10 @@ private slots:
         QCOMPARE(fields.value("coffeeName").toString(), QStringLiteral("Guji"));
         QCOMPARE(fields.value("equipmentId").toLongLong(), qint64(7));
         QCOMPARE(fields.value("doseG").toDouble(), 18.0);
-        QCOMPARE(fields.value("yieldG").toDouble(), 36.0);
+        // A record with no recorded anchor promotes its target as an
+        // ABSOLUTE spec (add-yield-ratio-anchor).
+        QCOMPARE(fields.value("yieldValue").toDouble(), 36.0);
+        QCOMPARE(fields.value("yieldMode").toString(), QStringLiteral("absolute"));
         // The shot's 92.5 absolute converts to an offset against the profile
         // snapshot's 90° (recipe-relative-temp-offset).
         QCOMPARE(fields.value("tempOffsetC").toDouble(), 2.5);

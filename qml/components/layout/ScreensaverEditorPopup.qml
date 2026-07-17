@@ -728,10 +728,11 @@ Dialog {
                             sentence: popup.shotPlanSentence
                             yieldTargetOnly: popup.shotPlanYieldTargetOnly
                             stacked: popup.shotPlanStacked
-                            // Match the live widget: an active recipe's own
-                            // yield/temp are the baseline, not overrides.
-                            recipeBaselineYield: (Settings.dye.activeRecipeId >= 0 && MainController.activeRecipe.yieldG > 0)
-                                                 ? MainController.activeRecipe.yieldG : 0
+                            // Match the live widget: the active store's own
+                            // yield/temp are the baseline, not overrides. The
+                            // yield baseline is the whole ladder (recipe ->
+                            // bag -> profile), same rule as ShotPlanItem.
+                            baselineYieldG: MainController.activeBaselineYieldG
                             recipeBaselineTemp: (Settings.dye.activeRecipeId >= 0
                                                  && ProfileManager.profileTargetTemperature > 0
                                                  && Math.abs(MainController.activeRecipe.tempOffsetC || 0) > 0.05)

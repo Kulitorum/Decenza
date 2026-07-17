@@ -116,8 +116,14 @@ Page {
         return parts.join(" · ")
     }
     function recipeDoseYieldText() {
+        // The dial-in card states the PLAN — the shot's recorded target, the
+        // same authority ShotDetailPage's card uses (the two cards used to
+        // disagree: this one showed the achieved drink weight, which already
+        // has its own editable field above). Falls back to the achieved
+        // weight only when no target was recorded (volume/timer profiles).
         var dose = editDoseWeight || 0
-        var yieldG = editDrinkWeight || 0
+        var yieldG = (editShotData.targetWeightG || 0) > 0 ? editShotData.targetWeightG
+                                                           : (editDrinkWeight || 0)
         if (dose > 0 && yieldG > 0) return dose.toFixed(1) + "g → " + yieldG.toFixed(1) + "g"
         if (dose > 0) return dose.toFixed(1) + "g"
         return ""

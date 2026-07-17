@@ -78,6 +78,21 @@ Dialog {
         : [fEquipmentBrand, fEquipmentModel].filter(function(s){ return s && s.length > 0 }).join(" ")
     property string fDose: ""         // text form; "" = unset
     property string fYield: ""
+    // Yield anchor (add-yield-ratio-anchor): the bag's own yield is a spec —
+    // a fixed weight OR a ratio of the dose, never both. Whichever field was
+    // last edited is the anchor; the other shows derived and dimmed.
+    property string fYieldRatio: ""   // text form; "" = unset
+    property string fYieldAnchor: "none"   // "none" | "absolute" | "ratio"
+    function syncDerivedBagYield() {
+        var d = parseFloat(fDose) || 0
+        if (fYieldAnchor === "ratio") {
+            var r = parseFloat(fYieldRatio) || 0
+            fYield = (d > 0 && r > 0) ? (d * r).toFixed(1) : ""
+        } else if (fYieldAnchor === "absolute") {
+            var y = parseFloat(fYield) || 0
+            fYieldRatio = (d > 0 && y > 0) ? (y / d).toFixed(1) : ""
+        }
+    }
     property string fNotes: ""
     property bool fFreeze: false
     property string fFrozenDate: ""
@@ -352,7 +367,7 @@ Dialog {
         fGrinderSetting = ""
         fEquipmentId = -1; fEquipmentName = ""; fEquipmentBrand = ""; fEquipmentModel = ""; fEquipmentBurrs = ""
         fRpm = ""
-        fDose = ""; fYield = ""; fNotes = ""
+        fDose = ""; fYield = ""; fYieldRatio = ""; fYieldAnchor = "none"; fNotes = ""
         fFreeze = false; fFrozenDate = ""; fDefrostDate = ""
         fStorageHint = ""; fOpenedDate = ""
         syncDetailFieldsFromBlob()   // blob is empty: clears every detail field
@@ -384,7 +399,19 @@ Dialog {
         // toFixed(1) (not String()) so a non-exact double like 37.8 prefills as
         // "37.8", not "37.800000000000004" — matching the brew-settings format.
         fDose = (bag.doseWeightG ?? 0) > 0 ? Number(bag.doseWeightG).toFixed(1) : ""
-        fYield = (bag.yieldOverrideG ?? 0) > 0 ? Number(bag.yieldOverrideG).toFixed(1) : ""
+        // Yield spec: the anchored field gets the stored value; the other
+        // derives through the dose. Search-model history rows carry the same
+        // yieldValue/yieldMode keys as stored bags.
+        var yMode = bag.yieldMode || "none"
+        var yVal = bag.yieldValue ?? 0
+        if ((yMode === "ratio" || yMode === "absolute") && yVal > 0) {
+            fYieldAnchor = yMode
+            if (yMode === "ratio") { fYieldRatio = Number(yVal).toFixed(1); fYield = "" }
+            else { fYield = Number(yVal).toFixed(1); fYieldRatio = "" }
+        } else {
+            fYieldAnchor = "none"; fYield = ""; fYieldRatio = ""
+        }
+        syncDerivedBagYield()
     }
 
     // Tier 1-4 search result -> creation form. Roast date is ALWAYS blank and
@@ -551,7 +578,14 @@ Dialog {
             "grinderSetting": isTea ? "" : fGrinderSetting.trim(),
             "rpm": isTea ? 0 : (parseInt(fRpm) || 0),
             "doseWeightG": parseWeight(fDose),
-            "yieldOverrideG": parseWeight(fYield),
+            // Yield spec: only the anchor is stored (one value + a mode).
+            "yieldValue": fYieldAnchor === "ratio"
+                ? ((parseFloat(fYieldRatio) || 0) > 0
+                   ? Math.max(0.5, Math.min(6.0, parseFloat(fYieldRatio))) : 0)
+                : parseWeight(fYield),
+            "yieldMode": (fYieldAnchor === "ratio" && (parseFloat(fYieldRatio) || 0) > 0) ? "ratio"
+                       : (fYieldAnchor === "absolute" && parseWeight(fYield) > 0) ? "absolute"
+                       : "none",
             "notes": fNotes,
             "frozenDate": fFreeze ? (fFrozenDate.length === 10 ? fFrozenDate : todayIso()) : "",
             // Non-frozen storage hint: cleared to "" whenever the bag is frozen
@@ -1811,27 +1845,66 @@ Dialog {
                             placeholder: TranslationManager.translate("changebeans.form.grams", "g")
                             accessibleName: TranslationManager.translate("changebeans.form.dose.accessible", "Dose weight in grams")
                             inputMethodHints: Qt.ImhFormattedNumbersOnly
-                            onTextEdited: root.fDose = text
+                            onTextEdited: {
+                                root.fDose = text
+                                // A dose edit re-derives the non-anchored
+                                // yield field; the anchor never moves.
+                                root.syncDerivedBagYield()
+                            }
                         }
 
                         Tr {
-                            key: "changebeans.form.yieldOverride"
-                            fallback: "Yield override:"
+                            key: "changebeans.form.yield"
+                            fallback: "Yield:"
+                            font: Theme.bodyFont
+                            color: Theme.textSecondaryColor
+                            Accessible.ignored: true
+                        }
+
+                        // The bag's own yield anchor (add-yield-ratio-anchor):
+                        // a fixed weight OR a ratio of the dose — last edited
+                        // wins, the other shows derived and dimmed. Blank =
+                        // no yield of its own (the profile answers).
+                        StyledTextField {
+                            id: yieldInput
+                            Layout.fillWidth: true
+                            text: root.fYield
+                            opacity: root.fYieldAnchor === "ratio" ? 0.55 : 1.0
+                            placeholder: TranslationManager.translate("changebeans.form.yieldOverride.placeholder", "Profile default")
+                            accessibleName: TranslationManager.translate("changebeans.form.yieldOverride.accessible", "Yield in grams, blank to follow the profile default")
+                            inputMethodHints: Qt.ImhFormattedNumbersOnly
+                            onTextEdited: {
+                                root.fYield = text
+                                root.fYieldAnchor = (parseFloat(text) || 0) > 0 ? "absolute" : "none"
+                                if (root.fYieldAnchor === "none")
+                                    root.fYieldRatio = ""
+                                root.syncDerivedBagYield()
+                            }
+                        }
+
+                        Tr {
+                            key: "changebeans.form.ratio"
+                            fallback: "Ratio 1:"
                             font: Theme.bodyFont
                             color: Theme.textSecondaryColor
                             Accessible.ignored: true
                         }
 
                         StyledTextField {
-                            id: yieldInput
+                            id: yieldRatioInput
                             Layout.fillWidth: true
-                            text: root.fYield
-                            // Blank = follow the profile's target weight; a value
-                            // overrides it for this bean (see yieldOverrideG).
-                            placeholder: TranslationManager.translate("changebeans.form.yieldOverride.placeholder", "Profile default")
-                            accessibleName: TranslationManager.translate("changebeans.form.yieldOverride.accessible", "Yield override in grams, blank to follow the profile default")
+                            text: root.fYieldRatio
+                            opacity: root.fYieldAnchor === "ratio" ? 1.0 : 0.55
+                            placeholder: "x"
+                            accessibleName: TranslationManager.translate("changebeans.form.yieldRatio.accessible", "Yield as a ratio of the dose, blank to follow the profile default")
                             inputMethodHints: Qt.ImhFormattedNumbersOnly
-                            onTextEdited: root.fYield = text
+                            onTextEdited: {
+                                root.fYieldRatio = text
+                                root.fYieldAnchor = (parseFloat(text) || 0) > 0 ? "ratio" : "none"
+                                if (root.fYieldAnchor === "none")
+                                    root.fYield = ""
+                                root.syncDerivedBagYield()
+                            }
                         }
                     }
 

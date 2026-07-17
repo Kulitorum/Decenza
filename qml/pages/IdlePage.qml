@@ -215,9 +215,12 @@ Page {
     property string activePresetFunction: ""  // "", "steam", "espresso", "hotwater", "flush", "beans", "equipment", "recipes"
 
     // Idle bean auto-capture: tracks a virtual zero off the empty scale, then when
-    // the dose cup (with beans) rests stable it sets the dose (dyeBeanWeight) and
-    // stop-at-weight (brewYieldOverride = dose x lastUsedRatio), optionally dings
-    // (if doseCaptureSoundEnabled), and confirms on the readout. Net dose =
+    // the dose cup (with beans) rests stable it sets the dose (dyeBeanWeight),
+    // optionally dings (if doseCaptureSoundEnabled), and confirms on the readout.
+    // The scale owns the DOSE and never the yield anchor (add-yield-ratio-anchor):
+    // under a ratio anchor the target re-derives in C++ from the anchor's own
+    // ratio; an absolute anchor stays put (it used to be stomped with
+    // dose x lastUsedRatio here on every capture). Net dose =
     // (load - virtualZero) - cupWeight, so it is robust to
     // an un-zeroed/drifting scale. The baseline tracks even with no cup saved (so the
     // "Weigh" button can reuse it); all user-visible behaviour and the actual capture
@@ -242,10 +245,13 @@ Page {
         stableMs: 2500
         onStableCaptured: function(net) {
             // net is always >= minNet (5 g) here — no extra floor needed.
-            // Always write the canonical dose + yield. The shared Brew Settings
-            // dialog reflects it via its dyeBeanWeight watcher while it is open.
+            // Write the canonical dose ONLY. A capture never computes a yield
+            // (the old `brewYieldOverride = net * lastUsedRatio` was
+            // anchor-blind and used the global preset); the active anchor's
+            // own ratio re-derives the target in ProfileManager. The shared
+            // Brew Settings dialog reflects the dose via its dyeBeanWeight
+            // watcher while it is open.
             Settings.dye.dyeBeanWeight = net
-            Settings.brew.brewYieldOverride = net * Settings.brew.lastUsedRatio
             idlePage.beanCaptureText = TranslationManager.translate("idle.doseCaptured", "Dose set: %1g").arg(net.toFixed(1))
             idlePage.beanCaptureShown = true
             idleBeanCaptureTimer.restart()

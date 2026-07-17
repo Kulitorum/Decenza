@@ -169,9 +169,21 @@ Page {
     }
 
     function formatRatio() {
+        // The ACHIEVED ratio, with the shot's recorded target ratio alongside
+        // when the shot was pulled under a ratio anchor (add-yield-ratio-
+        // anchor): "1:2.1 (target 1:2)". The anchor is the shot's stored
+        // provenance — never re-derived from target ÷ dose, which a post-shot
+        // dose correction would distort.
         if (shotData.doseWeightG > 0) {
-            return "1:" + (shotData.finalWeightG / shotData.doseWeightG).toFixed(1)
+            var achieved = "1:" + (shotData.finalWeightG / shotData.doseWeightG).toFixed(1)
+            if (shotData.yieldMode === "ratio" && (shotData.yieldAnchorValue || 0) > 0)
+                return achieved + " " + TranslationManager.translate("shotdetail.targetRatio", "(target 1:%1)")
+                    .arg(Number(shotData.yieldAnchorValue).toFixed(1))
+            return achieved
         }
+        if (shotData.yieldMode === "ratio" && (shotData.yieldAnchorValue || 0) > 0)
+            return TranslationManager.translate("shotdetail.targetRatioOnly", "target 1:%1")
+                .arg(Number(shotData.yieldAnchorValue).toFixed(1))
         return "-"
     }
 

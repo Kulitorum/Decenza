@@ -5,8 +5,8 @@ import "../.."
 
 // Layout widget: coffee:water ratio quick-select (composable-brew-bar).
 // Shows the current ratio as a 1:X.X pill; tapping opens the ratio chooser.
-// Selecting a preset applies the ratio live (records lastUsedRatio and recomputes
-// the stop-at-weight target from the measured dose).
+// Selecting a preset arms a RATIO ANCHOR on the session (add-yield-ratio-
+// anchor): the target then derives from the dose and follows it.
 Item {
     id: root
     property bool isCompact: false
@@ -15,13 +15,18 @@ Item {
     property bool zoneValueBold: false
 
     readonly property string labelText: TranslationManager.translate("idle.status.ratio", "Ratio")
-    // Show the ACTUAL active ratio (target ÷ dose) — the same source the scale
-    // widget and Brew Settings use — not lastUsedRatio, which is only the last
-    // preset tapped and can diverge (e.g. a bean's saved yield override applied
-    // on restart).
-    readonly property double _dose: ProfileManager.brewByRatioDose > 0 ? ProfileManager.brewByRatioDose : 18.0
-    readonly property double activeRatio: ProfileManager.targetWeight / _dose
-    readonly property string ratioText: "1:" + activeRatio.toFixed(1)
+    // The ACTUAL active ratio: the stored anchor when ratio-anchored, else
+    // derived target ÷ dose — ProfileManager.brewByRatio folds both, the same
+    // source the scale widget and Brew Settings use. With no dose recorded a
+    // derived ratio is unknowable — show a dash rather than a stand-in.
+    readonly property double activeRatio: ProfileManager.brewByRatio > 0
+        ? ProfileManager.brewByRatio
+        : (ProfileManager.brewByRatioDose > 0
+           ? ProfileManager.targetWeight / ProfileManager.brewByRatioDose : 0)
+    readonly property string ratioText: activeRatio > 0 ? "1:" + activeRatio.toFixed(1) : "1:—"
+    // Override state against the active anchor: the session deviates from
+    // the recipe's/bag's stored spec (the shared brew-baseline rule).
+    readonly property bool overridden: MainController.yieldIsRealOverride
 
     implicitWidth: col.implicitWidth
     implicitHeight: col.implicitHeight
@@ -60,7 +65,10 @@ Item {
                 text: root.ratioText
                 // Pill fill is the zone text color (light on an accentBar zone);
                 // accent-colored text reads against it in the intended placements.
-                color: Theme.primaryColor
+                // Override-highlight when the session deviates from the active
+                // recipe's/bag's stored spec — consistent with the Brew
+                // Settings rows and the Shot Plan.
+                color: root.overridden ? Theme.highlightColor : Theme.primaryColor
                 font.pixelSize: Theme.scaled(20)
                 font.bold: true
             }

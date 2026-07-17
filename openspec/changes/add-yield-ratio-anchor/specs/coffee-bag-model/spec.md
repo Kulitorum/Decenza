@@ -5,12 +5,14 @@
 ### Requirement: CoffeeBag data model
 The system SHALL define a `CoffeeBag` value type with the following fields:
 - Identity: `id` (int, DB primary key), `roasterName`, `coffeeName`, `roastDate`, `roastLevel`, `beanBaseId` (canonical UUID, nullable), `beanBaseData` (JSON blob, nullable)
-- Lifecycle: `frozenDate` (nullable), `defrostDate` (nullable), `notes` (nullable), `startWeightG` (double, nullable — column retained but UNSURFACED: the UI field was removed as low-value and Visualizer has no equivalent), `inInventory` (bool, default true)
+- Lifecycle: `frozenDate` (nullable), `defrostDate` (nullable), `storageHint` (nullable string enum: `counter` / `airtight` / `vacuum-sealed` / `fridge` — describes non-frozen storage only; frozen state is determined solely by `frozenDate` being set, never by `storageHint`, so the two cannot disagree), `openedDate` (nullable date — the non-frozen analogue of `defrostDate`: when the current portion started being actively used/exposed to room temperature), `notes` (nullable), `startWeightG` (double, nullable — column retained but UNSURFACED: the UI field was removed as low-value and Visualizer has no equivalent), `inInventory` (bool, default true)
 - Last-used grinder/dose: `grinderBrand`, `grinderModel`, `grinderBurrs`, `grinderSetting`, `doseWeightG` (all nullable)
 - Yield spec: `yieldValue` (double) + `yieldMode` (`none` | `absolute` | `ratio`) — the bean's **own** yield, a first-class anchor rather than a deviation from the active profile's target weight (`yield-anchor`). `mode = none` means the bag designs no yield and the ladder falls through to the profile. The legacy `yieldOverrideG` column is converted by migration and left dead in place.
 - Visualizer sync: `visualizerBagId` (nullable UUID string), `visualizerRoasterId` (nullable UUID string), `visualizerSyncPending` (bool, default false — a bag edit failed to push and awaits retry)
 
-The yield spec SHALL be a local-only field, same as the grinder/dose fields — it SHALL NOT be included in `touchesVisualizerFields()`, so an anchor edit never triggers a bag PATCH.
+The yield spec SHALL be a local-only field, same as the grinder/dose fields — it SHALL NOT be included in `touchesVisualizerFields()`, so an anchor edit never triggers a bag PATCH. `storageHint` and `openedDate` are local-only for the same reason (`bean-freshness-followup`): neither is included in `touchesVisualizerFields()` and neither is pushed to a Visualizer bag.
+
+> **Merge note (tasks.md 1.11):** this requirement is rewritten wholesale by BOTH this change (the yield spec) and `bean-freshness-followup` (`storageHint`/`openedDate`), so whichever archives second silently deletes the other's fields. The lifecycle fields above are folded in here deliberately — `bean-freshness-followup`'s code already shipped ([#1510](https://github.com/Kulitorum/Decenza/pull/1510)) while its spec archive is still pending, so this delta would otherwise describe a `CoffeeBag` the code does not have. If `bean-freshness-followup` archives AFTER this change, its own delta must likewise fold in `yieldValue`/`yieldMode` or it will revert the bag to `yieldOverrideG`.
 
 The `beanBaseData` blob SHALL be valid **without** a canonical `id`: a manual bag may carry user-entered detail keys (`origin`, `region`, `farm`, `producer`, `variety`, `elevation`, `process`, `harvest`, `qualityScore`, `placeOfPurchase`, `tastingNotes`, `link`, `degree`) while remaining unlinked (`isLinked` stays defined solely by a non-empty `id`). A linked blob additionally carries a `canonical` sub-object — the pristine entry snapshot for revert — which consumers of the flat working keys ignore and shot snapshots carry along unchanged.
 
@@ -47,8 +49,14 @@ Applying a bag's **yield spec** SHALL be gated on **no recipe being active**: th
 #### Scenario: Bag selection applies dose and yield spec to the machine
 - **WHEN** a bag with a stored `doseWeightG` and a yield spec whose mode is not `none` is selected, and no recipe is active
 - **THEN** the dose SHALL drive the next shot's dose (`dyeBeanWeight`)
-- **AND** switching the bean SHALL first reset the brew overrides to the active profile's defaults, then re-apply the bag's yield spec to the session anchor — so a bag with an anchor turns the idle brew-settings widget yellow and a bag without one stays at the profile default
+- **AND** switching the bean SHALL first reset the brew overrides to the active profile's defaults, then re-apply the bag's yield spec to the session anchor — so the next shot's target is the bean's own, and a bag without an anchor stays at the profile default
 - **AND** the bag's yield spec is NOT routed through `dyeDrinkWeight` (which remains plain DYE drink-weight metadata)
+
+#### Scenario: A bag's own anchor is a baseline, not an override
+- **WHEN** a bag holding `{42.0, absolute}` is active, no recipe is active, and the profile's `target_weight` is 36 g
+- **THEN** every surface SHALL render 42 g as the BASELINE — un-highlighted, with no `36.0 → 42.0g` arrow on the Shot Plan — because the bean's yield is its design, not a deviation from the profile (the `yield-anchor` ladder resolves the baseline; a bag's anchor is button-protected and therefore always deliberate)
+- **AND** only a per-brew deviation FROM 42 g SHALL highlight, arrowing against the bean's 42 g rather than the profile's 36 g
+- **AND** pressing "Update Bag" on a deviation SHALL make the shown value the bean's stored spec, clearing the highlight on every surface
 
 #### Scenario: Recipe-driven bag selection does not overwrite the recipe's anchor
 - **WHEN** a recipe holding `{2.0, ratio}` is activated and activation selects the recipe's own linked bag, which holds `{40.0, absolute}`

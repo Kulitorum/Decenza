@@ -34,10 +34,17 @@ Dialog {
     property double doseValue: 18.0
     property double ratio: Settings.brew.lastUsedRatio
 
-    // Target (yield) value and tracking
+    // Target (yield) value and the YIELD ANCHOR (add-yield-ratio-anchor):
+    // which of {ratio, stop-at} was last written. "ratio" = the ratio is the
+    // anchor and the stop-at derives (dose x ratio); "absolute" = the stop-at
+    // is the anchor and the ratio derives; "none" = neither is anchored (the
+    // profile answers) until the user edits a row. This is the permanent home
+    // of what targetManuallySet used to track per-dialog-session. Seeded from
+    // the persisted session anchor (Settings.brew.brewYieldMode); mutated
+    // ONLY by the user editing a row — never by a dose capture.
     property double targetValue: doseValue * ratio
     property double profileTargetWeight: ProfileManager.profileTargetWeight
-    property bool targetManuallySet: false
+    property string anchorMode: "none"
 
     // Equipment (read-only, resolved from the active package via SettingsDye) +
     // the dial-in fields that live in Brew Settings (grind setting + rpm).
@@ -73,8 +80,29 @@ Dialog {
     readonly property double recipeTempBaseline: (recipeActive && profileTemperature > 0
             && Math.abs(MainController.activeRecipe.tempOffsetC || 0) > 0.05)
         ? profileTemperature + MainController.activeRecipe.tempOffsetC : profileTemperature
-    readonly property double recipeYieldBaseline: (recipeActive && MainController.activeRecipe.yieldG > 0)
-                                                  ? MainController.activeRecipe.yieldG : profileTargetWeight
+    // Yield baseline as a TYPE-AWARE ANCHOR PAIR (add-yield-ratio-anchor):
+    // the active store's own {value, mode} resolved through the ladder
+    // (recipe -> bag -> profile; MainController folds that), with the OTHER
+    // row's baseline derived through the dialog's dose. Because the derived
+    // baseline moves with the dose exactly as the derived value does,
+    // neither row spuriously highlights on a dose change — in either mode.
+    // A ratio-anchored store never falls back to the profile's gram target
+    // (that fallthrough is the #1485 spurious-override bug).
+    readonly property double baselineYieldValue: MainController.activeBaselineYieldValue
+    readonly property string baselineYieldMode: MainController.activeBaselineYieldMode
+    // True when a recipe or bag actually designs a yield; false = the ladder
+    // bottomed out at the profile (baselineYieldMode reads "absolute" there,
+    // but Clear must restore anchor mode "none", not arm an absolute).
+    readonly property bool baselineIsStoreAnchor:
+        (recipeActive && (MainController.activeRecipe.yieldMode || "none") !== "none"
+                      && (MainController.activeRecipe.yieldValue || 0) > 0)
+        || (Settings.dye.activeBagYieldMode !== "none" && Settings.dye.activeBagYieldValue > 0)
+    readonly property double baselineStopAt: baselineYieldMode === "ratio"
+        ? (doseValue > 0 ? baselineYieldValue * doseValue : 0)
+        : baselineYieldValue
+    readonly property double baselineRatio: baselineYieldMode === "ratio"
+        ? baselineYieldValue
+        : ((doseValue > 0 && baselineYieldValue > 0) ? baselineYieldValue / doseValue : 0)
     // Non-archived MRU recipe inventory (same source as the pill row), for the
     // quick-switch suggestions and the name→id resolution.
     property var recipeChoices: []
@@ -122,6 +150,68 @@ Dialog {
         return fallback
     }
 
+    // --- The single yield/ratio Update button (add-yield-ratio-anchor) ---
+    // One persist button for the yield/ratio pair. It sits on whichever row
+    // is anchored (its location IS the anchor indicator) and its destination
+    // follows the resolution ladder: the active recipe when it designs a
+    // yield (or has nothing to fall through to), else the active bag, else
+    // nothing (hidden — the session anchor still applies to the brew). A
+    // profile is never a destination: target_weight is absolute and profiles
+    // are shared/exported ("Update Profile" for yield lives in the profile
+    // editors now).
+    readonly property string yieldPersistTarget: {
+        if (recipeActive) {
+            if ((MainController.activeRecipe.yieldMode || "none") !== "none")
+                return "recipe"
+            // The recipe designs no yield: the ladder fell through to the
+            // bag, so the store being shown — and edited — is the bag.
+            if (Settings.dye.activeBagId >= 0)
+                return "bag"
+            return "recipe"  // bean-less recipe: nothing below it to edit
+        }
+        if (Settings.dye.activeBagId >= 0)
+            return "bag"
+        return ""
+    }
+    readonly property string yieldPersistLabel: yieldPersistTarget === "recipe"
+        ? TranslationManager.translate("brewDialog.updateRecipe", "Update Recipe")
+        : TranslationManager.translate("brewDialog.updateBag", "Update Bag")
+    // The DESTINATION store's own stored spec (not the ladder baseline) —
+    // the button gates on the shown anchor differing from what that store
+    // already holds, comparing like with like. A mode change alone enables
+    // it: persisting it genuinely changes behaviour on the next dose change
+    // even when the gram value is identical.
+    readonly property double storedYieldValue: yieldPersistTarget === "recipe"
+        ? (MainController.activeRecipe.yieldValue || 0)
+        : Settings.dye.activeBagYieldValue
+    readonly property string storedYieldMode: yieldPersistTarget === "recipe"
+        ? (MainController.activeRecipe.yieldMode || "none")
+        : Settings.dye.activeBagYieldMode
+    readonly property bool yieldPersistEnabled: {
+        if (yieldPersistTarget === "" || anchorMode === "none")
+            return false
+        if (anchorMode !== storedYieldMode)
+            return true
+        var shown = anchorMode === "ratio" ? ratio : targetValue
+        if (anchorMode === "ratio") {
+            // One tolerance unit, converted through the dose (0.1 g).
+            var d = doseValue > 0 ? doseValue : 18
+            return Math.abs(shown - storedYieldValue) * d > 0.1
+        }
+        return Math.abs(shown - storedYieldValue) > 0.1
+    }
+    function persistYieldAnchor() {
+        var value = anchorMode === "ratio" ? ratio : targetValue
+        if (yieldPersistTarget === "recipe") {
+            _pendingRecipeUpdateId = Settings.dye.activeRecipeId
+            MainController.recipeStorage.requestUpdateRecipe(
+                Settings.dye.activeRecipeId,
+                {"yieldValue": value, "yieldMode": anchorMode})
+        } else if (yieldPersistTarget === "bag") {
+            Settings.dye.persistYieldSpecToBag(value, anchorMode)
+        }
+    }
+
     // Seed every dial-in field from the current DYE/profile/override state.
     // Called on open and after a recipe switch settles. Writes ONLY local
     // root.* values — never Settings — so re-seeding can't trigger a
@@ -141,10 +231,23 @@ Dialog {
         selectedProfileTitle = ProfileManager.currentProfileName
         selectedRecipeName = (recipeActive && MainController.activeRecipe.name) ? MainController.activeRecipe.name : ""
 
-        // Yield: use override if active, otherwise use profile default
-        targetValue = Settings.brew.hasBrewYieldOverride ? Settings.brew.brewYieldOverride : profileTargetWeight
-        ratio = doseValue > 0 ? targetValue / doseValue : Settings.brew.lastUsedRatio
-        targetManuallySet = Settings.brew.hasBrewYieldOverride
+        // Yield: seed the anchor from the persisted session spec — the one
+        // line where the stored mode enters the dialog. A ratio-anchored
+        // session opens ratio-first (its identity used to be invisible:
+        // activation wrote grams for any recipe, so the dialog always opened
+        // yield-first). Mode "none" shows the profile's target, unanchored.
+        anchorMode = Settings.brew.brewYieldMode
+        if (anchorMode === "ratio") {
+            ratio = Settings.brew.brewYieldOverride
+            targetValue = doseValue > 0 ? doseValue * ratio : profileTargetWeight
+        } else if (anchorMode === "absolute") {
+            targetValue = Settings.brew.brewYieldOverride
+            ratio = doseValue > 0 ? targetValue / doseValue : Settings.brew.lastUsedRatio
+        } else {
+            targetValue = profileTargetWeight
+            ratio = doseValue > 0 && targetValue > 0 ? targetValue / doseValue
+                                                     : Settings.brew.lastUsedRatio
+        }
     }
 
     function getProfileSuggestions() {
@@ -162,8 +265,20 @@ Dialog {
             root.profileTemperature = ProfileManager.profileTargetTemperature
             root.temperatureValue = root.profileTemperature
             root.profileTargetWeight = ProfileManager.profileTargetWeight
-            if (!root.targetManuallySet)
+            // Mode asymmetry (add-yield-ratio-anchor): a ratio anchor
+            // survives the profile switch (1:2 is 1:2 on any profile — the
+            // target keeps deriving from the dose); an absolute or
+            // unanchored yield follows the new profile's target.
+            if (root.anchorMode === "none")
                 root.targetValue = root.profileTargetWeight
+            else if (root.anchorMode === "absolute") {
+                // The C++ reset cleared the absolute session anchor on the
+                // switch; mirror it locally so OK doesn't re-arm a stale one.
+                root.anchorMode = "none"
+                root.targetValue = root.profileTargetWeight
+                root.ratio = root.doseValue > 0 && root.targetValue > 0
+                    ? root.targetValue / root.doseValue : root.ratio
+            }
         }
     }
 
@@ -203,10 +318,13 @@ Dialog {
         target: Settings.dye
         enabled: root.visible
         function onDyeBeanWeightChanged() {
-            if (root.visible && Settings.dye.dyeBeanWeight > 0) {
-                root.targetManuallySet = false
+            // A capture writes the DOSE and never flips the anchor
+            // (add-yield-ratio-anchor: the scale owns the dose, the
+            // recipe/bag owns the anchor). The old `targetManuallySet =
+            // false` here silently re-anchored the ratio on every capture,
+            // stomping an absolute yield.
+            if (root.visible && Settings.dye.dyeBeanWeight > 0)
                 root.doseValue = Settings.dye.dyeBeanWeight
-            }
         }
         // Deactivation while open (id → -1): refresh the returning Profile
         // row's seeded values. Successful switches re-seed off recipeActivated
@@ -218,16 +336,18 @@ Dialog {
         }
     }
 
-    // Recalculate target when dose or ratio changes (unless manually overridden)
+    // A dose change re-derives the NON-anchored quantity: under a ratio
+    // anchor the stop-at follows (dose x ratio); under an absolute anchor the
+    // stop-at holds and the displayed ratio drifts; unanchored, the stop-at
+    // is the profile's and the ratio display derives from it.
     onDoseValueChanged: {
-        if (!targetManuallySet) {
+        if (anchorMode === "ratio") {
             targetValue = doseValue * ratio
-        }
-    }
-
-    onRatioChanged: {
-        if (!targetManuallySet) {
-            targetValue = doseValue * ratio
+        } else if (anchorMode === "absolute") {
+            if (doseValue > 0)
+                ratio = targetValue / doseValue
+        } else if (doseValue > 0 && targetValue > 0) {
+            ratio = targetValue / doseValue
         }
     }
 
@@ -296,6 +416,22 @@ Dialog {
             root.seedFromCurrentState()
             if (!success)
                 root.showRecipeError(TranslationManager.translate("brewDialog.recipeSwitchFailed", "Couldn't switch to that recipe"))
+        }
+    }
+
+    // The named-ratio chooser, opened from the Ratio row's 1:X.X readout.
+    // PICK-ONLY: it fills this dialog's local dial (anchoring the ratio, per
+    // the last-written rule) rather than arming the session — the session is
+    // armed by OK, like every other field here.
+    RatioPresetDialog {
+        id: brewRatioPicker
+        pickOnly: true
+        compareRatio: root.ratio
+        onRatioPicked: function(r) {
+            root.anchorMode = "ratio"
+            root.ratio = r
+            if (root.doseValue > 0)
+                root.targetValue = root.doseValue * r
         }
     }
 
@@ -381,24 +517,31 @@ Dialog {
                         root.selectedProfileTitle = ProfileManager.currentProfileName
                         root.grindSetting = Settings.dye.dyeGrinderSetting
                         root.grindRpm = Settings.dye.dyeGrinderRpm
-                        root.targetManuallySet = false
                         // Clear returns each override field to the ACTIVE baseline —
-                        // the recipe's own yield/temp when a recipe is active, the
-                        // profile default otherwise. It only strips per-brew deviations;
-                        // it never edits the recipe's stored values (that is "Update
-                        // Recipe"'s job). recipeTempBaseline folds the recipe-vs-profile
-                        // choice for temperature; the yield branch below restores a
-                        // pinned recipe yield exactly, else keeps the profile-derived
-                        // fallback the no-recipe dialog has always used (which handles
-                        // volume/timer profiles with target 0 via lastUsedRatio).
+                        // the recipe's/bag's own spec when one designs a yield, the
+                        // profile default otherwise. It only strips per-brew
+                        // deviations; it never edits the stored values (that is the
+                        // Update button's job). The restore is MODE-AWARE: a ratio
+                        // store restores {ratio, mode ratio} — the old code restored
+                        // activeRecipe.yieldG and would restore nothing for a
+                        // ratio-anchored recipe.
                         root.temperatureValue = root.recipeTempBaseline
-                        if (root.recipeActive && MainController.activeRecipe.yieldG > 0) {
-                            root.targetValue = MainController.activeRecipe.yieldG
-                            root.ratio = root.doseValue > 0 ? root.targetValue / root.doseValue : Settings.brew.lastUsedRatio
+                        if (root.baselineIsStoreAnchor) {
+                            root.anchorMode = root.baselineYieldMode
+                            if (root.baselineYieldMode === "ratio") {
+                                root.ratio = root.baselineYieldValue
+                                root.targetValue = root.doseValue > 0
+                                    ? root.doseValue * root.ratio : root.targetValue
+                            } else {
+                                root.targetValue = root.baselineYieldValue
+                                root.ratio = root.doseValue > 0
+                                    ? root.targetValue / root.doseValue : Settings.brew.lastUsedRatio
+                            }
                         } else {
+                            root.anchorMode = "none"
                             var profileTarget = ProfileManager.profileTargetWeight
                             root.ratio = (profileTarget > 0 && root.doseValue > 0) ? profileTarget / root.doseValue : Settings.brew.lastUsedRatio
-                            root.targetValue = root.doseValue * root.ratio
+                            root.targetValue = profileTarget > 0 ? profileTarget : root.doseValue * root.ratio
                         }
                     }
                     background: Rectangle {
@@ -446,14 +589,23 @@ Dialog {
                     accessibleName: TranslationManager.translate("brewDialog.confirmBrewSettings", "Confirm brew settings")
                     onClicked: {
                         Qt.inputMethod.commit()
-                        Settings.brew.lastUsedRatio = root.ratio
+                        // lastUsedRatio survives only as PRESET MEMORY (which
+                        // pick is highlighted; a fresh brew's seed) — it is
+                        // never an authority a yield derives from, so only a
+                        // deliberately-anchored ratio updates it.
+                        if (root.anchorMode === "ratio")
+                            Settings.brew.lastUsedRatio = root.ratio
                         // Grinder identity is managed via Switch Equipment; only the
                         // dial-in (grind setting + rpm) is saved from here.
                         Settings.dye.dyeGrinderSetting = root.grindSetting
                         Settings.dye.dyeGrinderRpm = root.grindRpm
+                        // The session anchor is armed AS A SPEC — value in
+                        // its mode's own unit. Mode "none" clears the yield
+                        // override so the profile answers.
                         ProfileManager.activateBrewWithOverrides(
                             root.doseValue,
-                            root.targetValue,
+                            root.anchorMode === "ratio" ? root.ratio : root.targetValue,
+                            root.anchorMode,
                             root.temperatureValue,
                             root.grindSetting
                         )
@@ -850,7 +1002,8 @@ Dialog {
                     accentColor: overridden ? Theme.highlightColor : Theme.primaryColor
                     accessibleName: TranslationManager.translate("brewDialog.doseWeight", "Dose weight")
                     onValueModified: function(newValue) {
-                        root.targetManuallySet = false  // Reset manual flag when dose changes
+                        // A dose edit never changes the yield anchor — the
+                        // non-anchored row re-derives via onDoseValueChanged.
                         root.doseValue = newValue
                         if (newValue >= 3) {
                             root.showScaleWarning = false
@@ -873,7 +1026,7 @@ Dialog {
                         var net = MachineState.scaleWeight - root.scaleVirtualZero - Settings.brew.doseCupTareWeight
                         if (net >= 3) {
                             root.showScaleWarning = false
-                            root.targetManuallySet = false  // Reset manual flag
+                            // A measurement never changes the anchor.
                             root.doseValue = net
                         } else {
                             // Show warning but don't change dose
@@ -992,41 +1145,92 @@ Dialog {
                     Accessible.ignored: true  // Label for sighted users; input has accessibleName
                 }
 
-                ValueInput {
-                    id: ratioInput
+                // The ratio is a STYLE choice, not a fine dial: tapping opens
+                // the named-ratio chooser (Ristretto / Normale / Lungo — the
+                // user's own configured presets, with the descriptions that
+                // explain them), which is where a ratio is actually decided.
+                // The +/- stepper is gone deliberately — the Stop-at row below
+                // is the precise-number control, and the two rows are two
+                // views of ONE anchor, so a second numeric dial here was
+                // redundant. A custom ratio still comes from the chooser's
+                // Edit mode, which tunes the presets themselves.
+                //
+                // Framed like the other fields so it reads as a value, with an
+                // edit icon so it reads as tappable (a bare colored number
+                // did not).
+                Rectangle {
+                    id: ratioPick
                     Layout.fillWidth: true
-                    // Overridden ≈ Clear would change it: the baseline ratio is the
-                    // active baseline YIELD ÷ the current dose. In recipe mode that
-                    // yield is the recipe's own (recipeYieldBaseline), so a recipe whose
-                    // yield differs from the profile reads its ratio as at-baseline
-                    // (white) rather than as an override — matching the Stop-at field.
-                    // recipeYieldBaseline collapses to profileTargetWeight with no recipe
-                    // (unchanged there), and is 0 for volume/timer profiles with no
-                    // recipe yield → inert, as before.
-                    readonly property bool overridden: Math.abs(root.ratio - ((root.doseValue > 0 && root.recipeYieldBaseline > 0) ? root.recipeYieldBaseline / root.doseValue : root.ratio)) > 0.05
-                    value: root.ratio
-                    from: 0.5
-                    to: 20.0
-                    stepSize: 0.1
-                    decimals: 1
-                    valueColor: overridden ? Theme.highlightColor : Theme.textColor
-                    accentColor: overridden ? Theme.highlightColor : Theme.primaryColor
-                    accessibleName: TranslationManager.translate("brewDialog.brewRatio", "Brew ratio")
-                    onValueModified: function(newValue) {
-                        root.targetManuallySet = false  // Reset manual flag when ratio changes
-                        root.ratio = newValue
+                    Layout.preferredHeight: Theme.scaled(44)
+                    // Overridden ≈ Clear would change it: the baseline ratio
+                    // derives from the anchor pair (baselineRatio — the
+                    // stored ratio verbatim when the store is ratio-anchored,
+                    // else the stored/profile grams ÷ the dose). The
+                    // tolerance is the stop-at row's 0.1 g converted through
+                    // the dose, so the two rows can never disagree about
+                    // whether the user has deviated. Baseline 0 (volume/
+                    // timer profile, no anchor) stays inert, as before.
+                    readonly property bool overridden: root.baselineRatio > 0
+                        && Math.abs(root.ratio - root.baselineRatio)
+                           * (root.doseValue > 0 ? root.doseValue : 18) > 0.1
+                    radius: Theme.scaled(8)
+                    color: ratioPickMa.pressed ? Qt.darker(Theme.backgroundColor, 1.1) : "transparent"
+                    border.width: 1
+                    border.color: overridden ? Theme.highlightColor : Theme.textSecondaryColor
+
+                    Accessible.role: Accessible.Button
+                    Accessible.name: TranslationManager.translate("brewDialog.brewRatio", "Brew ratio")
+                        + " 1:" + root.ratio.toFixed(1)
+                        + (root.anchorMode === "ratio"
+                           ? TranslationManager.translate("brewDialog.anchored", " (anchored)")
+                           : TranslationManager.translate("brewDialog.derived", " (derived)"))
+                        + ". " + TranslationManager.translate(
+                            "brewDialog.tapToChooseRatio", "Tap to choose a ratio")
+                    Accessible.focusable: true
+                    Accessible.onPressAction: brewRatioPicker.open()
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spacingMedium
+                        anchors.rightMargin: Theme.spacingSmall
+                        spacing: Theme.spacingSmall
+                        Text {
+                            Layout.fillWidth: true
+                            text: "1:" + root.ratio.toFixed(1)
+                            font: Theme.bodyFont
+                            color: ratioPick.overridden ? Theme.highlightColor : Theme.textColor
+                            horizontalAlignment: Text.AlignHCenter
+                            Accessible.ignored: true
+                        }
+                        ColoredIcon {
+                            source: "qrc:/icons/edit.svg"
+                            iconWidth: Theme.scaled(16)
+                            iconHeight: Theme.scaled(16)
+                            iconColor: ratioPick.overridden ? Theme.highlightColor : Theme.primaryColor
+                            Accessible.ignored: true
+                        }
+                    }
+                    MouseArea {
+                        id: ratioPickMa
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: brewRatioPicker.open()
                     }
                 }
 
-                // Show the multiplier (the stepper) as a ratio too, so it's clear
-                // 1.8 == 1:1.8 (matches the ratio widget / scale widget display).
-                Text {
-                    text: "1:" + root.ratio.toFixed(1)
-                    font: Theme.bodyFont
-                    color: Theme.primaryColor
-                    Layout.preferredWidth: Theme.scaled(60)
-                    horizontalAlignment: Text.AlignRight
-                    Accessible.ignored: true
+                // The single yield/ratio persist button, shown HERE only when
+                // the ratio is the anchor — its location is the anchor
+                // indicator (editing the stop-at moves it there).
+                AccessibleButton {
+                    Layout.preferredHeight: Theme.scaled(44)
+                    visible: root.anchorMode === "ratio" && root.yieldPersistTarget !== ""
+                    text: root.yieldPersistLabel
+                    accessibleName: root.yieldPersistTarget === "recipe"
+                        ? TranslationManager.translate("brewDialog.saveRatioToRecipe", "Save ratio to recipe")
+                        : TranslationManager.translate("brewDialog.saveRatioToBag", "Save ratio to bean")
+                    primary: true
+                    enabled: root.yieldPersistEnabled
+                    onClicked: root.persistYieldAnchor()
                 }
             }
 
@@ -1051,14 +1255,17 @@ Dialog {
                     ValueInput {
                         id: targetInput
                         Layout.fillWidth: true
-                        // Overridden ≈ Clear would change it. The baseline is the
-                        // recipe's own yieldG when a recipe is active (its yield is the
-                        // recipe's design, not a deviation), else the profile target
-                        // weight — recipeYieldBaseline folds both. On volume/timer
-                        // profiles with no recipe yield the baseline is 0, so any dialed
-                        // stop-at reads as an override, as before. In no-recipe mode
-                        // recipeYieldBaseline == profileTargetWeight (unchanged).
-                        readonly property bool overridden: Math.abs(root.targetValue - root.recipeYieldBaseline) > 0.1
+                        // Overridden ≈ Clear would change it. The baseline is
+                        // the anchor pair's stop-at (baselineStopAt): the
+                        // stored grams when the store is absolute-anchored,
+                        // the stored ratio x the dose when it is
+                        // ratio-anchored — so a ratio recipe sitting at its
+                        // designed yield reads at-baseline, and a dose change
+                        // moves value and baseline together (no spurious
+                        // highlight). Baseline 0 (volume/timer profile, no
+                        // anchor): any dialed stop-at reads as an override,
+                        // as before.
+                        readonly property bool overridden: Math.abs(root.targetValue - root.baselineStopAt) > 0.1
                         value: root.targetValue
                         from: 1
                         to: 500
@@ -1067,75 +1274,57 @@ Dialog {
                         suffix: "g"
                         valueColor: overridden ? Theme.highlightColor : Theme.textColor
                         accentColor: overridden ? Theme.highlightColor : Theme.primaryColor
-                        accessibleName: TranslationManager.translate("brewDialog.stopAtWeight", "Stop at weight") + (root.targetManuallySet ? TranslationManager.translate("brewDialog.manual", " (manual)") : TranslationManager.translate("brewDialog.calculated", " (calculated)"))
+                        accessibleName: TranslationManager.translate("brewDialog.stopAtWeight", "Stop at weight")
+                            + (root.anchorMode === "absolute"
+                               ? TranslationManager.translate("brewDialog.anchored", " (anchored)")
+                               : TranslationManager.translate("brewDialog.derived", " (derived)"))
                         onValueModified: function(newValue) {
-                            root.targetManuallySet = true  // Mark as manually set
+                            // Editing the stop-at ANCHORS the absolute
+                            // (last-written rule): the ratio becomes the
+                            // derived quantity. Touching the number field is
+                            // the honest gesture for "I want this weight,
+                            // absolutely" — it also converts a ratio recipe
+                            // back to absolute via the Update button.
+                            root.anchorMode = "absolute"
                             root.targetValue = newValue
-                            // Update ratio to match (yield / dose)
                             if (root.doseValue > 0) {
                                 root.ratio = newValue / root.doseValue
                             }
                         }
                     }
 
-                    // Save the shown stop-at weight to the baseline: the profile
-                    // normally, the active recipe's yieldG in recipe mode (writing
-                    // the shared profile there would leak into its sibling recipes).
+                    // The single yield/ratio persist button, shown HERE only
+                    // when the stop-at is the anchor (editing the ratio moves
+                    // it to the Ratio row). Destination follows the ladder —
+                    // recipe, else bag; never the profile ("Update Profile"
+                    // for yield lives in the profile editors now).
                     AccessibleButton {
                         Layout.preferredHeight: Theme.scaled(44)
-                        text: root.recipeActive
-                            ? TranslationManager.translate("brewDialog.updateRecipe", "Update Recipe")
-                            : TranslationManager.translate("brewDialog.updateProfile", "Update Profile")
-                        accessibleName: root.recipeActive
+                        visible: root.anchorMode === "absolute" && root.yieldPersistTarget !== ""
+                        text: root.yieldPersistLabel
+                        accessibleName: root.yieldPersistTarget === "recipe"
                             ? TranslationManager.translate("brewDialog.saveStopWeightToRecipe", "Save stop-at-weight to recipe")
-                            : TranslationManager.translate("brewDialog.saveStopWeightToProfile", "Save stop-at-weight to profile")
+                            : TranslationManager.translate("brewDialog.saveStopWeightToBag", "Save stop-at-weight to bean")
                         primary: true
-                        // Enabled ⟺ the value deviates from the active baseline —
-                        // exactly the field's override-highlight state (see the Temp
-                        // Delta button for the full rationale). `overridden` measures
-                        // against recipeYieldBaseline, so it handles an unset yieldG by
-                        // falling back to the profile target and collapses to the
-                        // profile in no-recipe mode, keeping "Update enabled ⟺ value
-                        // highlighted" and letting the recipe baseline move to any value
-                        // (including back to the profile default).
-                        enabled: targetInput.overridden
-                        onClicked: {
-                            if (root.recipeActive) {
-                                // Absolute grams, matching what activation reads back.
-                                // recipeUpdated → MainController refreshes m_activeRecipe.
-                                root._pendingRecipeUpdateId = Settings.dye.activeRecipeId
-                                MainController.recipeStorage.requestUpdateRecipe(
-                                    Settings.dye.activeRecipeId,
-                                    {"yieldG": root.targetValue})
-                                return
-                            }
-                            var profile = ProfileManager.getCurrentProfile()
-                            if (profile) {
-                                profile.target_weight = root.targetValue
-                                ProfileManager.uploadProfile(profile)
-                            }
-                            root.profileTargetWeight = root.targetValue
-                            if (ProfileManager.baseProfileName.length > 0) {
-                                ProfileManager.saveProfile(ProfileManager.baseProfileName)
-                            }
-                        }
+                        enabled: root.yieldPersistEnabled
+                        onClicked: root.persistYieldAnchor()
                     }
                 }
 
-                // Profile-default reference, shown only while the stop-at deviates
-                // from the ACTIVE baseline (recipeYieldBaseline via targetInput —
-                // the recipe's own yield when a recipe is active, else the profile),
-                // so a recipe sitting at its own yield no longer shows a spurious
-                // amber "Profile: Xg" (recipe-baseline-not-override, #1485).
+                // Baseline reference, shown only while the stop-at deviates
+                // from the ACTIVE baseline (baselineStopAt via targetInput —
+                // the anchor pair's derived stop-at), so a recipe sitting at
+                // its own yield — ratio-anchored included — never shows a
+                // spurious amber "Profile: Xg" (#1485). A ratio baseline
+                // renders as its derived grams here; the anchored form
+                // ("1:2") is visible on the Ratio row itself.
                 Text {
-                    // Baseline reference the shown value deviates from — a baseline is
-                    // a baseline: the active recipe's own yield when a recipe is active
-                    // ("Recipe: 40g"), else the profile default ("Profile: 36g"),
-                    // matching the temperature sub-line above.
-                    visible: targetInput.overridden
+                    visible: targetInput.overridden && root.baselineStopAt > 0
                     text: root.recipeActive
-                        ? TranslationManager.translate("brewDialog.recipeDefault", "Recipe: %1g").arg(root.recipeYieldBaseline.toFixed(0))
-                        : TranslationManager.translate("brewDialog.profileDefault", "Profile: %1g").arg(root.profileTargetWeight.toFixed(0))
+                        ? TranslationManager.translate("brewDialog.recipeDefault", "Recipe: %1g").arg(root.baselineStopAt.toFixed(0))
+                        : (root.baselineIsStoreAnchor
+                           ? TranslationManager.translate("brewDialog.bagDefault", "Bean: %1g").arg(root.baselineStopAt.toFixed(0))
+                           : TranslationManager.translate("brewDialog.profileDefault", "Profile: %1g").arg(root.profileTargetWeight.toFixed(0)))
                     font.family: Theme.bodyFont.family
                     font.pixelSize: Theme.scaled(11)
                     font.italic: true
@@ -1144,8 +1333,10 @@ Dialog {
                     Layout.leftMargin: Theme.scaled(75) + Theme.scaled(8)
                     Accessible.role: Accessible.StaticText
                     Accessible.name: root.recipeActive
-                        ? TranslationManager.translate("brewDialog.recipeStopWeight", "Recipe stop-at-weight: %1 grams").arg(root.recipeYieldBaseline.toFixed(0))
-                        : TranslationManager.translate("brewDialog.profileDefaultStopWeight", "Profile default stop-at-weight: %1 grams").arg(root.profileTargetWeight.toFixed(0))
+                        ? TranslationManager.translate("brewDialog.recipeStopWeight", "Recipe stop-at-weight: %1 grams").arg(root.baselineStopAt.toFixed(0))
+                        : (root.baselineIsStoreAnchor
+                           ? TranslationManager.translate("brewDialog.bagStopWeight", "Bean stop-at-weight: %1 grams").arg(root.baselineStopAt.toFixed(0))
+                           : TranslationManager.translate("brewDialog.profileDefaultStopWeight", "Profile default stop-at-weight: %1 grams").arg(root.profileTargetWeight.toFixed(0)))
                 }
             }
 

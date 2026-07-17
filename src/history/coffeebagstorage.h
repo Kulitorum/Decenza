@@ -77,10 +77,22 @@ struct CoffeeBag {
     QString grinderBrand;
     QString grinderModel;
     QString grinderBurrs;
-    // Bean-scoped dial memory (write-through from edits, stamped on shot save).
+    // Bean-scoped dial memory, split on the measurement/intent line
+    // (add-yield-ratio-anchor): grinderSetting/rpm/doseWeightG are dial-in —
+    // things the user physically did — and keep their unconditional
+    // write-through from edits plus the dose stamp on shot save. The yield
+    // spec below is design intent and is button-protected: it changes ONLY
+    // via the explicit "Update Bag" action in Brew Settings — never from a
+    // shot save, Brew Settings OK, dose capture, or bag selection.
     QString grinderSetting;
     double doseWeightG = 0;  // 0 = unset
-    double yieldOverrideG = 0; // 0 = unset
+    // The bean's OWN yield spec ("none" | "absolute" | "ratio", see
+    // src/core/yieldspec.h) — a first-class anchor, not a deviation from the
+    // active profile's target. Local-only (never synced to Visualizer).
+    // Replaces the legacy yield_override_g, which migration 34 converts and
+    // leaves dead in place.
+    double yieldValue = 0;   // 0 = unset (grams when absolute, multiplier when ratio)
+    QString yieldMode = QStringLiteral("none");
 
     // Equipment (add-equipment-packages). equipmentId points at the bag's
     // grinder package; rpm is the grinder rpm dial-in (sibling of grinderSetting).
@@ -189,14 +201,6 @@ public:
     // dose/yield stamp must not hit the network). Single source of truth for the
     // local-key → Visualizer-field mapping.
     static bool touchesVisualizerFields(const QVariantMap& fields);
-
-    // The bag's yield override is the shot's target weight ONLY when it differs
-    // from the profile's default target; a plain profile-default pour stores 0
-    // (no override), so it doesn't pin the bag to the profile's own number (and
-    // doesn't turn the idle brew-settings widget yellow). Shared by the shot-save
-    // stamp (MainController) and the brew-settings commit (ProfileManager) so the
-    // "is this an override?" rule lives in exactly one tested place.
-    static double yieldOverrideForTarget(double shotTargetWeightG, double profileTargetWeightG);
 
     // Convert one legacy bean preset JSON object (SettingsDye "bean/presets"
     // entry: name/brand/type/roastDate/roastLevel/grinder*/barista/showOnIdle/

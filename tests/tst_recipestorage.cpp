@@ -70,7 +70,8 @@ static Recipe sampleRecipe() {
     r.coffeeName = "Guji";
     r.equipmentId = 7;
     r.doseG = 18.0;
-    r.yieldG = 40.0;
+    r.yieldValue = 40.0;   // yield spec (add-yield-ratio-anchor)
+    r.yieldMode = "absolute";
     r.tempOffsetC = -2.5;  // SIGNED: negative offsets must survive the bind
     r.grindPinned = "";  // no grind recorded (a valid state)
     r.rpmPinned = 90;    // migration-26 field; round-trips through COL_EPOCH
@@ -109,7 +110,8 @@ private slots:
         QCOMPARE(back.coffeeName, r.coffeeName);
         QCOMPARE(back.equipmentId, r.equipmentId);
         QCOMPARE(back.doseG, r.doseG);
-        QCOMPARE(back.yieldG, r.yieldG);
+        QCOMPARE(back.yieldValue, r.yieldValue);
+        QCOMPARE(back.yieldMode, r.yieldMode);
         QCOMPARE(back.tempOffsetC, r.tempOffsetC);
         QCOMPARE(back.grindPinned, r.grindPinned);
         QCOMPARE(back.rpmPinned, r.rpmPinned);
@@ -124,6 +126,7 @@ private slots:
         QCOMPARE(r.name, QString("Only name"));
         QCOMPARE(r.equipmentId, (qint64)0);
         QCOMPARE(r.doseG, 0.0);
+        QCOMPARE(r.yieldMode, QString("none"));
         QCOMPARE(r.archived, false);
         QVERIFY(r.grindPinned.isEmpty());
         QVERIFY(r.drinkType.isEmpty());
@@ -652,6 +655,75 @@ private slots:
                 QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, /*merge=*/true,
                                                            idMap, {}, {}));
                 QVERIFY(RecipeStorage::loadRecipeStatic(destDb, localId).grindPinned.isEmpty());
+            });
+        });
+    }
+
+    // Yield-spec import conversion (add-yield-ratio-anchor): a pre-34 source
+    // (yield_g but no yield_mode) converts on import — yield_g > 0 becomes
+    // {value, absolute}, else "none" — producing the same specs the local
+    // migration would have.
+    void importConvertsLegacyYieldG() {
+        const QString srcPath = freshDbPath();
+        const QString destPath = freshDbPath();
+        withRawDb(srcPath, "y34_src", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QSqlQuery q(db);
+            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN yield_value"));
+            QVERIFY(q.exec("ALTER TABLE recipes DROP COLUMN yield_mode"));
+            QVERIFY(q.exec("INSERT INTO recipes (name, yield_g) VALUES ('LegacyYield', 40.0)"));
+            QVERIFY(q.exec("INSERT INTO recipes (name) VALUES ('LegacyNone')"));
+        });
+        withRawDb(destPath, "y34_dest", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+        });
+        withRawDb(srcPath, "y34_src2", [&](QSqlDatabase& srcDb) {
+            withRawDb(destPath, "y34_dest2", [&](QSqlDatabase& destDb) {
+                QHash<qint64, qint64> idMap;
+                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, /*merge=*/false,
+                                                           idMap, {}, {}));
+                QSqlQuery q(destDb);
+                QVERIFY(q.exec("SELECT yield_value, yield_mode FROM recipes WHERE name = 'LegacyYield'"));
+                QVERIFY(q.next());
+                QCOMPARE(q.value(0).toDouble(), 40.0);
+                QCOMPARE(q.value(1).toString(), QStringLiteral("absolute"));
+                QVERIFY(q.exec("SELECT yield_mode FROM recipes WHERE name = 'LegacyNone'"));
+                QVERIFY(q.next());
+                QCOMPARE(q.value(1).isValid() ? q.value(0).toString() : q.value(0).toString(),
+                         QStringLiteral("none"));
+            });
+        });
+    }
+
+    // A ≥34 source imports its spec VERBATIM and its dead yield_g is ignored
+    // — reconverting would resurrect a yield the user has since changed to a
+    // ratio (the staged-conversion discipline of the temperature migration).
+    void importNeverReconvertsFromDeadYieldG() {
+        const QString srcPath = freshDbPath();
+        const QString destPath = freshDbPath();
+        withRawDb(srcPath, "y34v_src", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            // A recipe migrated from yield_g 40 then changed to a 1:2 ratio:
+            // the dead column still holds 40.
+            QSqlQuery q(db);
+            QVERIFY(q.exec("INSERT INTO recipes (name, yield_g, yield_value, yield_mode) "
+                           "VALUES ('NowRatio', 40.0, 2.0, 'ratio')"));
+        });
+        withRawDb(destPath, "y34v_dest", [&](QSqlDatabase& db) {
+            QVERIFY(RecipeStorage::ensureTableStatic(db));
+            QVERIFY(CoffeeBagStorage::ensureTableStatic(db));
+        });
+        withRawDb(srcPath, "y34v_src2", [&](QSqlDatabase& srcDb) {
+            withRawDb(destPath, "y34v_dest2", [&](QSqlDatabase& destDb) {
+                QHash<qint64, qint64> idMap;
+                QVERIFY(RecipeStorage::importRecipesStatic(srcDb, destDb, /*merge=*/false,
+                                                           idMap, {}, {}));
+                QSqlQuery q(destDb);
+                QVERIFY(q.exec("SELECT yield_value, yield_mode FROM recipes WHERE name = 'NowRatio'"));
+                QVERIFY(q.next());
+                QCOMPARE(q.value(0).toDouble(), 2.0);
+                QCOMPARE(q.value(1).toString(), QStringLiteral("ratio"));
             });
         });
     }

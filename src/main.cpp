@@ -839,6 +839,19 @@ int main(int argc, char *argv[])
     // startExtraction() (which resets m_tareComplete=false), causing tare to be lost.
     QObject::connect(&machineState, &MachineState::espressoCycleStarted,
                      [&weightProcessor, &machineState, &settings, &mainController, &timingController]() {
+                         // Freeze the resolved target + dose for the duration
+                         // of the shot (add-yield-ratio-anchor Decision 9),
+                         // alongside the SAW model snapshot below so the two
+                         // stay consistent. While latched,
+                         // ProfileManager::targetWeight() answers with the
+                         // frozen value, so NO late write — a dose capture,
+                         // a bean switch's override clear, a recipe
+                         // activation, an MCP/web anchor write, a profile
+                         // load — can re-resolve and reach the worker through
+                         // the ungated forwarder below and move the live SAW
+                         // target. Event-driven, released at shot end.
+                         mainController.profileManager()->latchForShot();
+
                          // Build snapshot of learning data and configuration.
                          // Per-(profile, scale) lookup falls back to the global pool / scale
                          // default automatically when the pair has not yet graduated (< 3
@@ -922,7 +935,10 @@ int main(int argc, char *argv[])
                      });
 
     QObject::connect(&machineState, &MachineState::shotEnded,
-                     [&weightProcessor]() {
+                     [&weightProcessor, &mainController]() {
+                         // Release the shot latch: the NEXT shot re-resolves
+                         // against whatever the live state is now.
+                         mainController.profileManager()->releaseShotLatch();
                          QMetaObject::invokeMethod(&weightProcessor, [&weightProcessor]() {
                              weightProcessor.stopExtraction();
                          }, Qt::QueuedConnection);
@@ -950,6 +966,11 @@ int main(int argc, char *argv[])
     // Pre-shot callers (profile activation, recipe save) also fire this signal, but
     // configure() overwrites m_targetWeight at shot start, so any pre-shot forwarding
     // is harmless. Only mid-shot bumps observably move the worker's target.
+    // Dose writes can no longer reach this path mid-shot (add-yield-ratio-anchor):
+    // a ratio anchor re-derives the target from the dose, but resolution uses the
+    // dose LATCHED at espressoCycleStarted (see above), so a dose write during a
+    // shot leaves targetWeight() — and therefore this forwarder — unmoved. The
+    // deliberately mid-shot caller (the phase-gated +10 g bump) still flows through.
     QObject::connect(&machineState, &MachineState::targetWeightChanged,
                      [&weightProcessor, &machineState]() {
                          const double w = machineState.targetWeight();

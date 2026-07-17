@@ -204,7 +204,8 @@ QVariantList UnifiedBeanSearchModel::queryHistoryStatic(QSqlDatabase& db, const 
         "SELECT bean_brand, bean_type, beanbase_id, beanbase_json, roast_level, "
         "       eg.brand AS grinder_brand, eg.model AS grinder_model, "
         "       json_extract(eg.attrs, '$.burrs') AS grinder_burrs, grinder_setting, "
-        "       dose_weight, yield_override, MAX(timestamp) AS last_ts "
+        "       dose_weight, yield_override, MAX(timestamp) AS last_ts, "
+        "       yield_mode, yield_anchor_value "
         "FROM shots s "
         "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
         "WHERE (COALESCE(bean_brand,'') <> '' OR COALESCE(bean_type,'') <> '') "
@@ -240,8 +241,24 @@ QVariantList UnifiedBeanSearchModel::queryHistoryStatic(QSqlDatabase& db, const 
         row["grinderBurrs"] = query.value(7).toString();
         row["grinderSetting"] = query.value(8).toString();
         row["doseWeightG"] = query.value(9).toDouble();
-        row["yieldOverrideG"] = query.value(10).toDouble();
         row["lastUsedEpoch"] = query.value(11).toLongLong();
+        // Yield spec seed for a bag created from history (add-yield-ratio-
+        // anchor): the shot's own anchor when recorded — a 1:2 shot seeds a
+        // 1:2 bag. A NULL mode (row imported before its backfill) reads by
+        // the legacy relabel: absolute when a target was recorded, else none.
+        {
+            QString mode = query.value(12).toString();
+            double value = query.value(13).toDouble();
+            const double targetG = query.value(10).toDouble();
+            if (mode != QLatin1String("absolute") && mode != QLatin1String("ratio")) {
+                mode = targetG > 0 ? QStringLiteral("absolute") : QStringLiteral("none");
+                value = targetG;
+            }
+            if (value <= 0)
+                mode = QStringLiteral("none");
+            row["yieldValue"] = value;
+            row["yieldMode"] = mode;
+        }
 
         const QString key = identityKey(row["roasterName"].toString(), row["coffeeName"].toString());
         const auto existing = indexByName.constFind(key);
@@ -349,7 +366,8 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
             row["grinderBurrs"] = h.value("grinderBurrs");
             row["grinderSetting"] = h.value("grinderSetting");
             row["doseWeightG"] = h.value("doseWeightG");
-            row["yieldOverrideG"] = h.value("yieldOverrideG");
+            row["yieldValue"] = h.value("yieldValue");
+            row["yieldMode"] = h.value("yieldMode");
             row["roastLevel"] = h.value("roastLevel");
             // History's blob may carry legacy-only fields (CDN image URL,
             // tasting tags), so keep it when it has real content; the fresh

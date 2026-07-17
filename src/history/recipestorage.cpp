@@ -1,6 +1,7 @@
 #include "recipestorage.h"
 #include "coffeebagstorage.h"
 #include "core/dbutils.h"
+#include "core/yieldspec.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -62,6 +63,14 @@ template<auto M> void setDbl (Recipe& r, const QVariant& v) { static_assert(std:
 template<auto M> void setI64 (Recipe& r, const QVariant& v) { static_assert(std::is_same_v<RecipeMemberT<M>, qint64>);  r.*M = v.toLongLong(); }
 template<auto M> void setBool(Recipe& r, const QVariant& v) { static_assert(std::is_same_v<RecipeMemberT<M>, bool>);    r.*M = v.toBool(); }
 
+// yield_mode hooks: NULL / junk normalizes to "none" on every path (a row
+// imported from an unconverted source reads as mode-less until the deferred
+// conversion runs), and "none" is stored explicitly — bindStr's empty->NULL
+// collapse never applies because the normalized mode is never empty.
+void readYieldMode(Recipe& r, const QVariant& v) { r.yieldMode = YieldSpec::normalizedMode(v.toString()); }
+QVariant bindYieldMode(const Recipe& r) { return YieldSpec::normalizedMode(r.yieldMode); }
+void setYieldMode(Recipe& r, const QVariant& v) { r.yieldMode = YieldSpec::normalizedMode(v.toString()); }
+
 struct RecipeCol {
     const char* sql;                            // SQLite column name
     const char* key;                            // camelCase Recipe / QVariantMap key
@@ -109,7 +118,16 @@ const RecipeCol kCols[] = {
     COL_STR  ("coffee_name",           coffeeName),
     COL_EPOCH("equipment_id",          equipmentId),
     COL_DBL  ("dose_g",                doseG),
-    COL_DBL  ("yield_g",               yieldG),
+    // Yield spec (add-yield-ratio-anchor). Plain COL_DBL is correct for
+    // yield_value: both a gram target and a ratio are strictly positive, so
+    // the nullIfZero collapse is safe (contrast temp_offset_c below, whose 0
+    // is meaningful). yield_mode normalizes through YieldSpec so NULL/junk
+    // reads as "none" and "none" round-trips explicitly. The legacy yield_g
+    // column is dead in place (migration 34), like temp_override_c.
+    COL_DBL  ("yield_value",           yieldValue),
+    RecipeCol{ "yield_mode", "yieldMode", true,
+               &readYieldMode, &bindYieldMode,
+               &getMember<&Recipe::yieldMode>, &setYieldMode },
     COL_DBL_SIGNED("temp_offset_c",    tempOffsetC),
     COL_STR  ("grind_pinned",          grindPinned),
     COL_EPOCH("rpm_pinned",            rpmPinned),
@@ -722,7 +740,9 @@ bool RecipeStorage::ensureTableStatic(QSqlDatabase& db)
             coffee_name TEXT,
             equipment_id INTEGER,
             dose_g REAL,
-            yield_g REAL,
+            yield_g REAL, -- dead: pre-34 absolute yields; carrier for legacy-source imports only
+            yield_value REAL,
+            yield_mode TEXT,
             temp_offset_c REAL,
             temp_override_c REAL, -- dead: pre-31 absolute temps; carrier for legacy-source imports only
             grind_pinned TEXT,
@@ -1410,10 +1430,29 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
     const bool srcHasOverrideCol = srcColumns.contains(QStringLiteral("temp_override_c"));
     const bool srcHasOffsetCol = srcColumns.contains(QStringLiteral("temp_offset_c"));
     QString trailingCols;
-    if (srcHasOverrideCol)
+    int nextTrailingIdx = kColCount;
+    if (srcHasOverrideCol) {
         trailingCols += QStringLiteral(", COALESCE(temp_override_c, 0)");
-    if (srcHasOverrideCol && srcHasOffsetCol)
+        ++nextTrailingIdx;
+    }
+    if (srcHasOverrideCol && srcHasOffsetCol) {
         trailingCols += QStringLiteral(", temp_offset_c IS NULL");
+        ++nextTrailingIdx;
+    }
+    // Yield-spec conversion for pre-34 sources (add-yield-ratio-anchor): a
+    // source with yield_g but no yield_mode column converts on import —
+    // yield_g > 0 becomes {yield_g, absolute}, else the struct's default
+    // "none" — producing the same specs the local migration would have.
+    // Unlike temperature the conversion needs no external anchor, so it runs
+    // inline on the struct rather than staging for a deferred pass. A ≥34
+    // source imports its spec verbatim through kCols and its dead yield_g is
+    // ignored — reconverting would resurrect a yield the user has since
+    // changed to a ratio or cleared.
+    const bool srcNeedsYieldConversion = !srcColumns.contains(QStringLiteral("yield_mode"))
+        && srcColumns.contains(QStringLiteral("yield_g"));
+    const int yieldTrailingIdx = nextTrailingIdx;
+    if (srcNeedsYieldConversion)
+        trailingCols += QStringLiteral(", COALESCE(yield_g, 0)");
     QString selectSql = QString("SELECT %1%2 FROM recipes")
         .arg(selectCols.join(QStringLiteral(", ")), trailingCols);
 
@@ -1442,6 +1481,14 @@ bool RecipeStorage::importRecipesStatic(QSqlDatabase& srcDb, QSqlDatabase& destD
         // recipe.
         recipe.equipmentId = packageIdMap.value(recipe.equipmentId, 0);
         recipe.bagId = bagIdMap.value(recipe.bagId, 0);
+
+        if (srcNeedsYieldConversion) {
+            const double legacyYieldG = srcRecipes.value(yieldTrailingIdx).toDouble();
+            if (legacyYieldG > 0) {
+                recipe.yieldValue = legacyYieldG;
+                recipe.yieldMode = YieldSpec::modeAbsolute();
+            }
+        }
 
         qint64 destId = -1;
         if (merge) {

@@ -59,6 +59,12 @@ struct ShotMetadata {
     qint64 recipeId = -1;
     QString steamJson;
     QString hotWaterJson;
+
+    // Yield anchor provenance (add-yield-ratio-anchor): the anchor that
+    // produced the shot's resolved gram target. Local history only — never
+    // part of the Visualizer upload payload (DYE has no such field).
+    QString yieldMode;             // "none" | "absolute" | "ratio"
+    double yieldAnchorValue = 0;   // grams (absolute) or dose multiplier (ratio)
 };
 
 class VisualizerUploader : public QObject {

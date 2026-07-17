@@ -7,6 +7,7 @@
 #include "../history/equipmentstorage.h"
 #include "../core/basketaliases.h"
 #include "../core/puckprep.h"
+#include "../core/yieldspec.h"
 #include "../history/bagid.h"
 #include "../network/beanbase_blob.h"
 #include "../network/visualizeruploader.h"
@@ -1541,7 +1542,13 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         if (!bag.grinderBurrs.isEmpty()) obj["grinderBurrs"] = bag.grinderBurrs;
         if (!bag.grinderSetting.isEmpty()) obj["grinderSetting"] = bag.grinderSetting;
         if (bag.doseWeightG > 0) obj["doseWeightG"] = bag.doseWeightG;
-        if (bag.yieldOverrideG > 0) obj["yieldOverrideG"] = bag.yieldOverrideG;
+        // Yield spec (add-yield-ratio-anchor): sparse, mutually exclusive
+        // keys — grams for an absolute anchor, a dose multiplier for a
+        // ratio; mode "none" emits neither.
+        if (bag.yieldMode == QLatin1String("absolute") && bag.yieldValue > 0)
+            obj["yieldG"] = bag.yieldValue;
+        else if (bag.yieldMode == QLatin1String("ratio") && bag.yieldValue > 0)
+            obj["yieldRatio"] = bag.yieldValue;
         if (!bag.beanBaseData.isEmpty()) {
             const QJsonDocument doc = QJsonDocument::fromJson(bag.beanBaseData.toUtf8());
             if (doc.isObject())
@@ -1630,7 +1637,18 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"grinderBurrs", QJsonObject{{"type", "string"}}},
                 {"grinderSetting", QJsonObject{{"type", "string"}}},
                 {"doseWeightG", QJsonObject{{"type", "number"}}},
-                {"yieldOverrideG", QJsonObject{{"type", "number"}}},
+                {"yieldG", QJsonObject{{"type", "number"},
+                    {"description", "The bag's own absolute yield target in grams. Mutually "
+                                    "exclusive with yieldRatio: the bag holds ONE yield "
+                                    "anchor, and writing yieldG replaces any stored ratio "
+                                    "(no separate clear needed). Sending both keys in one "
+                                    "call is rejected. 0 clears the yield entirely."}}},
+                {"yieldRatio", QJsonObject{{"type", "number"},
+                    {"description", "The bag's own yield as a multiplier of the dose (2.0 = "
+                                    "1:2; clamped to 0.5-6.0); the gram target then follows "
+                                    "the dose actually weighed. Mutually exclusive with "
+                                    "yieldG; writing yieldRatio replaces any stored absolute "
+                                    "yield. 0 clears the yield entirely."}}},
                 {"inInventory", QJsonObject{{"type", "boolean"}, {"description", "false = mark the bag empty"}}},
                 {"origin", QJsonObject{{"type", "string"}, {"description", "Origin country, '' to clear"}}},
                 {"region", QJsonObject{{"type", "string"}}},
@@ -1681,15 +1699,32 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                     return;
                 }
             }
+            // One yield anchor per bag — both keys at once is a contradiction,
+            // rejected loudly (mirrors recipe_create/recipe_update).
+            if (args.contains("yieldG") && args.contains("yieldRatio")) {
+                respond(QJsonObject{{"error", "yieldG and yieldRatio are mutually exclusive — the bag holds ONE yield anchor (an absolute gram target OR a ratio of the dose). Send exactly one; writing it replaces the other automatically."}});
+                return;
+            }
             QVariantMap fields;
             static const QStringList kEditable = {
                 "roasterName", "coffeeName", "roastDate", "roastLevel",
                 "frozenDate", "defrostDate", "storageHint", "openedDate", "notes",
                 "grinderBrand", "grinderModel", "grinderBurrs", "grinderSetting",
-                "doseWeightG", "yieldOverrideG", "inInventory"};
+                "doseWeightG", "inInventory"};
             for (const QString& key : kEditable) {
                 if (args.contains(key))
                     fields.insert(key, args[key].toVariant());
+            }
+            // Yield spec: writing one wire key IS setting the mode, which
+            // implicitly clears the other (add-yield-ratio-anchor).
+            if (args.contains("yieldG")) {
+                const double g = args["yieldG"].toDouble();
+                fields.insert("yieldValue", g > 0 ? g : 0.0);
+                fields.insert("yieldMode", g > 0 ? QStringLiteral("absolute") : QStringLiteral("none"));
+            } else if (args.contains("yieldRatio")) {
+                const double ratio = args["yieldRatio"].toDouble();
+                fields.insert("yieldValue", ratio > 0 ? YieldSpec::clampRatio(ratio) : 0.0);
+                fields.insert("yieldMode", ratio > 0 ? QStringLiteral("ratio") : QStringLiteral("none"));
             }
             // Bean-detail edits live in the beanBaseData blob, not columns.
             // Collected here; merged below via the same BeanBaseBlob helper the

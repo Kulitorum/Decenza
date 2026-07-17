@@ -194,6 +194,26 @@ Page {
     property string errorMessage: ""
     property string _autoName: ""
 
+    // Yield anchor (add-yield-ratio-anchor): which of {yield, ratio} was last
+    // written — "none" | "absolute" | "ratio". The non-anchored field shows
+    // the derived value, dimmed, never blank; only the anchor is stored.
+    property string fYieldMode: "none"
+
+    // Re-derive the non-anchored yield field through the dose. Called on any
+    // dose/yield/ratio edit and after seeding.
+    function syncDerivedYieldFields() {
+        var d = parseFloat(doseField.text) || 0
+        if (fYieldMode === "ratio") {
+            var r = parseFloat(ratioField.text) || 0
+            yieldField.text = (d > 0 && r > 0) ? (d * r).toFixed(1) : ""
+        } else if (fYieldMode === "absolute") {
+            var y = parseFloat(yieldField.text) || 0
+            ratioField.text = (d > 0 && y > 0) ? (y / d).toFixed(1) : ""
+        } else {
+            // Unanchored: both empty unless one gets typed into.
+        }
+    }
+
     readonly property bool hasBean: fBeanBaseId !== "" || fRoaster !== "" || fCoffee !== ""
     readonly property bool canSave: MainController.recipeStorage.isSaveValid(
         nameField.text, fProfileTitle, buildHotWaterJson())
@@ -211,7 +231,13 @@ Page {
         roasterName: fRoaster,
         coffeeName: fCoffee,
         doseG: parseFloat(doseField.text) || 0,
-        yieldG: parseFloat(yieldField.text) || 0,
+        yieldValue: fYieldMode === "ratio"
+            ? ((parseFloat(ratioField.text) || 0) > 0
+               ? Math.max(0.5, Math.min(6.0, parseFloat(ratioField.text))) : 0)
+            : (parseFloat(yieldField.text) || 0),
+        yieldMode: (fYieldMode === "ratio" && (parseFloat(ratioField.text) || 0) > 0) ? "ratio"
+                 : (fYieldMode === "absolute" && (parseFloat(yieldField.text) || 0) > 0) ? "absolute"
+                 : "none",
         tempOffsetC: isTeaDrink
             ? (fProfileTempC > 0
                 ? (fTeaTempC > 0 && Math.abs(fTeaTempC - fProfileTempC) > 0.05
@@ -288,7 +314,23 @@ Page {
         fCoffee = r.coffeeName || ""
         fEquipmentId = r.equipmentId || 0
         doseField.text = r.doseG > 0 ? Number(r.doseG).toFixed(1) : ""
-        yieldField.text = r.yieldG > 0 ? Number(r.yieldG).toFixed(1) : ""
+        // Yield spec: the anchored field gets the stored value; the other
+        // derives through the dose (dimmed, never blank). A legacy prefill
+        // map still carrying yieldG seeds an absolute.
+        fYieldMode = ((r.yieldMode === "ratio" || r.yieldMode === "absolute")
+                      && (r.yieldValue || 0) > 0) ? r.yieldMode
+                   : ((r.yieldG || 0) > 0 ? "absolute" : "none")
+        if (fYieldMode === "ratio") {
+            ratioField.text = Number(r.yieldValue).toFixed(1)
+            yieldField.text = ""
+        } else if (fYieldMode === "absolute") {
+            yieldField.text = Number((r.yieldValue || 0) > 0 ? r.yieldValue : r.yieldG).toFixed(1)
+            ratioField.text = ""
+        } else {
+            yieldField.text = ""
+            ratioField.text = ""
+        }
+        syncDerivedYieldFields()
         fLoadedTempOffsetC = r.tempOffsetC || 0
         refreshProfileTemp()
         // The stored offset loads verbatim — no open-time subtraction against
@@ -441,7 +483,15 @@ Page {
             coffeeName: shot.beanType || "",
             equipmentId: shot.equipmentId || 0,
             doseG: shot.doseWeightG || 0,
-            yieldG: shot.targetWeightG || 0,
+            // Promotion copies the shot's recorded ANCHOR (add-yield-ratio-
+            // anchor): a 1:2 shot promotes to a 1:2 recipe; a legacy shot
+            // (no anchor emitted) promotes its recorded target as absolute —
+            // never a ratio reconstructed from target ÷ dose (the dose is
+            // post-shot editable). Mirrors RecipePromotion::fieldsFromShotRecord.
+            yieldValue: (shot.yieldMode === "ratio" || shot.yieldMode === "absolute")
+                ? (shot.yieldAnchorValue || 0) : (shot.targetWeightG || 0),
+            yieldMode: (shot.yieldMode === "ratio" || shot.yieldMode === "absolute")
+                ? shot.yieldMode : ((shot.targetWeightG || 0) > 0 ? "absolute" : "none"),
             // The shot's temperature override is a frozen ABSOLUTE; converted
             // to the recipe's offset below, once applyRecipeMap has resolved
             // the shot's profile temperature.
@@ -561,7 +611,18 @@ Page {
             coffeeName: fCoffee,
             equipmentId: fEquipmentId,
             doseG: parseFloat(doseField.text) || 0,
-            yieldG: parseFloat(yieldField.text) || 0,
+            // Yield spec: only the ANCHOR is stored (one value + a mode);
+            // the derived field is display-only and never persisted.
+            // Ratio clamps to the single C++ bound (YieldSpec::clampRatio,
+            // 0.5-6.0) so the stored spec can never disagree with what
+            // activation arms.
+            yieldValue: fYieldMode === "ratio"
+                ? ((parseFloat(ratioField.text) || 0) > 0
+                   ? Math.max(0.5, Math.min(6.0, parseFloat(ratioField.text))) : 0)
+                : (parseFloat(yieldField.text) || 0),
+            yieldMode: (fYieldMode === "ratio" && (parseFloat(ratioField.text) || 0) > 0) ? "ratio"
+                     : (fYieldMode === "absolute" && (parseFloat(yieldField.text) || 0) > 0) ? "absolute"
+                     : "none",
             // The offset IS the stored value (recipe-relative-temp-offset):
             // the stepper edits it verbatim, 0 = brew at the profile's own
             // temperature. Tea details edit the ABSOLUTE temp instead
@@ -756,10 +817,15 @@ Page {
         if ((detail.recommended_dose > 0 && doseField.text === "")
             || (detail.target_weight > 0 && yieldField.text === ""))
             _numbersSource = "profile"
-        if (detail.recommended_dose > 0 && doseField.text === "")
+        if (detail.recommended_dose > 0 && doseField.text === "") {
             doseField.text = Number(detail.recommended_dose).toFixed(1)
-        if (detail.target_weight > 0 && yieldField.text === "")
+            syncDerivedYieldFields()
+        }
+        if (detail.target_weight > 0 && yieldField.text === "" && fYieldMode === "none") {
             yieldField.text = Number(detail.target_weight).toFixed(1)
+            fYieldMode = "absolute"
+            syncDerivedYieldFields()
+        }
         fProfileTempC = detail.espresso_temperature || 0
         fProfileYieldG = detail.target_weight || 0
         var pickedTemps = []
@@ -850,7 +916,14 @@ Page {
         var parts = []
         var dose = parseFloat(doseField.text) || 0
         var yieldG = parseFloat(yieldField.text) || 0
-        if (dose > 0 && yieldG > 0 && !isHotWaterTea)
+        var ratioV = parseFloat(ratioField.text) || 0
+        if (fYieldMode === "ratio" && ratioV > 0 && !isHotWaterTea)
+            // Anchor mark: the ratio is the stored quantity; grams derive
+            // from the dose when one is known, else the ratio stands alone.
+            parts.push(dose > 0
+                ? dose.toFixed(1) + "g → " + (dose * ratioV).toFixed(1) + "g (1:" + ratioV.toFixed(1) + ")"
+                : "1:" + ratioV.toFixed(1))
+        else if (dose > 0 && yieldG > 0 && !isHotWaterTea)
             parts.push(dose.toFixed(1) + "g → " + yieldG.toFixed(1) + "g")
         else if (dose > 0)
             parts.push(dose.toFixed(1) + "g")
@@ -890,6 +963,9 @@ Page {
         }
         doseField.text = dose > 0 ? Number(dose).toFixed(1) : ""
         yieldField.text = fProfileYieldG > 0 ? Number(fProfileYieldG).toFixed(1) : ""
+        fYieldMode = fProfileYieldG > 0 ? "absolute" : "none"
+        ratioField.text = ""
+        syncDerivedYieldFields()
         fTempDeltaC = 0
         if (isTeaDrink)
             fTeaTempC = fProfileTempC > 0 ? fProfileTempC
@@ -1179,8 +1255,17 @@ Page {
             wizardPage._numbersSource = "history"
             if (shot.doseWeightG > 0)
                 doseField.text = Number(shot.doseWeightG).toFixed(1)
-            if (shot.targetWeightG > 0)
+            // History prefill carries the shot's ANCHOR: a 1:2 shot seeds a
+            // ratio anchor; a legacy/absolute shot seeds grams (add-yield-
+            // ratio-anchor).
+            if (shot.yieldMode === "ratio" && (shot.yieldAnchorValue || 0) > 0) {
+                wizardPage.fYieldMode = "ratio"
+                ratioField.text = Number(shot.yieldAnchorValue).toFixed(1)
+            } else if (shot.targetWeightG > 0) {
+                wizardPage.fYieldMode = "absolute"
                 yieldField.text = Number(shot.targetWeightG).toFixed(1)
+            }
+            wizardPage.syncDerivedYieldFields()
             if (shot.temperatureOverrideC > 0) {
                 if (wizardPage.isTeaDrink)
                     wizardPage.fTeaTempC = shot.temperatureOverrideC
@@ -1372,6 +1457,10 @@ Page {
         property string label: ""
         property alias text: numberInput.text
         property alias input: numberInput
+        // Dimmed = a DERIVED value (the non-anchored half of the yield/ratio
+        // pair): shown as a consequence, still editable — editing it anchors
+        // it (add-yield-ratio-anchor).
+        property bool dim: false
         signal edited(string newText)
         spacing: Theme.scaled(4)
         Label {
@@ -1383,6 +1472,7 @@ Page {
         StyledTextField {
             id: numberInput
             Layout.fillWidth: true
+            opacity: numberField.dim ? 0.55 : 1.0
             inputMethodHints: Qt.ImhFormattedNumbersOnly
             Accessible.name: numberField.label
             onTextEdited: numberField.edited(text)
@@ -2171,23 +2261,139 @@ Page {
                                 Accessible.role: Accessible.StaticText
                                 Accessible.name: text
                             }
-                            RowLayout {
+                            // WRAPS rather than squeezing (add-yield-ratio-anchor):
+                            // the Ratio control made this a FOUR-control row, and
+                            // dose+yield+ratio+temp simply do not fit side by side
+                            // in a narrow card — the layout paid for it by crushing
+                            // whichever child had the smallest minimum, clipping
+                            // "36.0" to "6.0". A grid drops to 2x2 instead, and only
+                            // goes single-row where there is genuinely room.
+                            // Bound to the CARD's width, never this grid's own, or
+                            // the columns binding would feed back into the layout.
+                            // Invisible children take no cell, so the tea variants
+                            // (no ratio; no yield for hot-water tea) reflow for free.
+                            GridLayout {
                                 Layout.fillWidth: true
-                                spacing: Theme.spacingMedium
+                                columns: numbersCard.width >= Theme.scaled(620) ? 4 : 2
+                                columnSpacing: Theme.spacingMedium
+                                rowSpacing: Theme.spacingSmall
                                 NumberField {
                                     id: doseField
                                     Layout.preferredWidth: Theme.scaled(120)
                                     label: wizardPage.isTeaDrink
                                         ? TranslationManager.translate("recipes.wizard.leafDose", "Leaf (g)")
                                         : TranslationManager.translate("recipes.composer.doseLabel", "Dose (g)")
-                                    onEdited: wizardPage._detailsUserEdited = true
+                                    onEdited: {
+                                        wizardPage._detailsUserEdited = true
+                                        // A dose edit re-derives the NON-anchored
+                                        // yield field; the anchor never moves.
+                                        wizardPage.syncDerivedYieldFields()
+                                    }
                                 }
+                                // Yield anchor pair (add-yield-ratio-anchor): a
+                                // three-state choice — nothing, a fixed yield, or a
+                                // ratio of the dose. Whichever was LAST EDITED is the
+                                // anchor (stored); the other shows the derived value,
+                                // dimmed, never blank. Clearing the anchored field
+                                // clears the yield entirely (mode "none").
                                 NumberField {
                                     id: yieldField
                                     visible: !wizardPage.isHotWaterTea
                                     Layout.preferredWidth: Theme.scaled(120)
                                     label: TranslationManager.translate("recipes.composer.yieldLabel", "Yield (g)")
-                                    onEdited: wizardPage._detailsUserEdited = true
+                                    dim: wizardPage.fYieldMode === "ratio"
+                                    onEdited: function(newText) {
+                                        wizardPage._detailsUserEdited = true
+                                        wizardPage.fYieldMode = (parseFloat(newText) || 0) > 0 ? "absolute" : "none"
+                                        if (wizardPage.fYieldMode === "none")
+                                            ratioField.text = ""
+                                        wizardPage.syncDerivedYieldFields()
+                                    }
+                                }
+                                // Ratio: a STYLE choice, picked from the named
+                                // chooser (Ristretto / Normale / Lungo — the
+                                // user's own configured presets, with the
+                                // descriptions that explain them). Designing a
+                                // drink is exactly where that vocabulary
+                                // belongs. Same framed, edit-icon'd,
+                                // tap-to-choose control as Brew Settings' Ratio
+                                // row — one idiom in both places; the Yield
+                                // field beside it stays the precise-grams
+                                // control (the two are one anchor, two views).
+                                // Renders "1:2.5" rather than a bare 2.5, and
+                                // "Pick…" when unset so the presets are
+                                // discoverable.
+                                ColumnLayout {
+                                    id: ratioField
+                                    visible: !wizardPage.isHotWaterTea && !wizardPage.isTeaDrink
+                                    // The typed-value API the rest of the page
+                                    // uses (syncDerivedYieldFields, save map,
+                                    // applyRecipeMap) — kept so the ratio's
+                                    // storage path is unchanged by the control swap.
+                                    property string text: ""
+                                    readonly property double _r: parseFloat(text) || 0
+                                    Layout.preferredWidth: Theme.scaled(120)
+                                    // A minimum is load-bearing here: the tap
+                                    // control below is a bare Rectangle
+                                    // (implicitWidth 0), so with this row
+                                    // crowded the layout would shrink it to
+                                    // nothing while the text-field columns
+                                    // held their size — the value elided to
+                                    // "…" and the ratio became unreadable.
+                                    // Sized to fit "1:2.5" + the edit icon.
+                                    Layout.minimumWidth: Theme.scaled(96)
+                                    spacing: Theme.scaled(4)
+                                    Label {
+                                        text: TranslationManager.translate("recipes.composer.ratioLabel", "Ratio")
+                                        font: Theme.captionFont
+                                        color: Theme.textSecondaryColor
+                                        Accessible.ignored: true
+                                    }
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: Theme.scaled(40)
+                                        radius: Theme.scaled(8)
+                                        color: wizardRatioMa.pressed ? Qt.darker(Theme.backgroundColor, 1.1) : "transparent"
+                                        border.width: 1
+                                        border.color: Theme.textSecondaryColor
+                                        opacity: wizardPage.fYieldMode === "ratio" ? 1.0 : 0.55
+                                        Accessible.role: Accessible.Button
+                                        Accessible.name: TranslationManager.translate(
+                                            "recipes.composer.chooseNamedRatio", "Choose a named brew ratio")
+                                            + (ratioField._r > 0 ? ". 1:" + ratioField._r.toFixed(1) : "")
+                                        Accessible.focusable: true
+                                        Accessible.onPressAction: wizardRatioPicker.open()
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: Theme.spacingSmall
+                                            anchors.rightMargin: Theme.spacingSmall
+                                            spacing: Theme.scaled(2)
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: ratioField._r > 0
+                                                    ? "1:" + ratioField._r.toFixed(1)
+                                                    : TranslationManager.translate("recipes.composer.pickRatio", "Pick…")
+                                                font: Theme.bodyFont
+                                                color: ratioField._r > 0 ? Theme.textColor : Theme.textSecondaryColor
+                                                horizontalAlignment: Text.AlignHCenter
+                                                elide: Text.ElideRight
+                                                Accessible.ignored: true
+                                            }
+                                            ColoredIcon {
+                                                source: "qrc:/icons/edit.svg"
+                                                iconWidth: Theme.scaled(14)
+                                                iconHeight: Theme.scaled(14)
+                                                iconColor: Theme.primaryColor
+                                                Accessible.ignored: true
+                                            }
+                                        }
+                                        MouseArea {
+                                            id: wizardRatioMa
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: wizardRatioPicker.open()
+                                        }
+                                    }
                                 }
                                 // Coffee drinks: temperature as an OFFSET on the
                                 // profile (shot-plan semantics). Tea: absolute.
@@ -2246,7 +2452,9 @@ Page {
                                         wizardPage._detailsUserEdited = true
                                     }
                                 }
-                                Item { Layout.fillWidth: true }
+                                // (The RowLayout's trailing fillWidth spacer is
+                                // gone: in a grid it would consume a cell and
+                                // shove the wrap point one control early.)
                             }
                             // The way back after editing: revert to the
                             // profile's own numbers (no revert exists on the
@@ -2554,7 +2762,12 @@ Page {
                                 var parts = []
                                 var dose = parseFloat(doseField.text) || 0
                                 var yieldG = parseFloat(yieldField.text) || 0
-                                if (dose > 0 && yieldG > 0 && !wizardPage.isHotWaterTea)
+                                var ratioV = parseFloat(ratioField.text) || 0
+                                if (wizardPage.fYieldMode === "ratio" && ratioV > 0 && !wizardPage.isHotWaterTea)
+                                    parts.push(dose > 0
+                                        ? dose.toFixed(1) + "g → " + (dose * ratioV).toFixed(1) + "g (1:" + ratioV.toFixed(1) + ")"
+                                        : "1:" + ratioV.toFixed(1))
+                                else if (dose > 0 && yieldG > 0 && !wizardPage.isHotWaterTea)
                                     parts.push(dose.toFixed(1) + "g → " + yieldG.toFixed(1) + "g")
                                 else if (dose > 0)
                                     parts.push(dose.toFixed(1) + "g")
@@ -2848,5 +3061,21 @@ Page {
     BottomBar {
         barColor: "transparent"
         onBackClicked: wizardPage.goBackOneStep()
+    }
+
+    // The named-ratio chooser (Ristretto / Normale / Lungo), opened from the
+    // Ratio field's 1:X.X readout. PICK-ONLY: it fills the wizard's field and
+    // anchors the ratio, never touching the live session — this page designs a
+    // recipe, it does not arm the next brew.
+    RatioPresetDialog {
+        id: wizardRatioPicker
+        pickOnly: true
+        compareRatio: parseFloat(ratioField.text) || 0
+        onRatioPicked: function(r) {
+            ratioField.text = Number(r).toFixed(1)
+            wizardPage.fYieldMode = "ratio"
+            wizardPage._detailsUserEdited = true
+            wizardPage.syncDerivedYieldFields()
+        }
     }
 }
