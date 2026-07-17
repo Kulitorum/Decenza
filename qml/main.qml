@@ -4163,19 +4163,27 @@ ApplicationWindow {
         onTriggered: autoLoadStaleToast.opacity = 0
     }
 
-    // Surface ShotHistoryStorage errors to the user. ShotHistoryStorage::errorOccurred
-    // previously had NO consumer, so every DB failure — failed shot save, failed
-    // metadata write (e.g. a taste tap or rating that never persisted), failed
-    // delete/import — was silent: the user assumed their data was saved when it
-    // wasn't. One connection surfaces all emit sites as a non-blocking error toast.
+    // Surface storage errors to the user. Both ShotHistoryStorage::errorOccurred
+    // and CoffeeBagStorage::errorOccurred previously had NO consumer, so every DB
+    // failure — failed shot save, failed metadata write (e.g. a taste tap or
+    // rating that never persisted), failed delete/import, failed bean edit — was
+    // silent: the user assumed their data was saved when it wasn't. One toast
+    // surfaces every emit site from both stores, non-blocking.
     Rectangle {
-        id: shotHistoryErrorToast
+        id: storageErrorToast
         property string message: ""
+        function show(msg) {
+            message = msg
+            opacity = 1
+            storageErrorToastTimer.restart()
+            if (AccessibilityManager.enabled)
+                AccessibilityManager.announce(msg, true)
+        }
         anchors.bottom: parent.bottom
         anchors.bottomMargin: Theme.scaled(40)
         anchors.horizontalCenter: parent.horizontalCenter
         width: Math.min(parent.width - Theme.scaled(48), Theme.scaled(400))
-        height: shotHistoryErrorToastLabel.implicitHeight + Theme.scaled(16)
+        height: storageErrorToastLabel.implicitHeight + Theme.scaled(16)
         radius: Theme.cardRadius
         color: Theme.surfaceColor
         border.color: Theme.errorColor
@@ -4190,12 +4198,12 @@ ApplicationWindow {
         }
 
         Text {
-            id: shotHistoryErrorToastLabel
+            id: storageErrorToastLabel
             anchors.centerIn: parent
-            width: shotHistoryErrorToast.width - Theme.scaled(24)
+            width: storageErrorToast.width - Theme.scaled(24)
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
-            text: shotHistoryErrorToast.message
+            text: storageErrorToast.message
             color: Theme.errorColor
             font.pixelSize: Theme.scaled(13)
             Accessible.ignored: true
@@ -4203,19 +4211,22 @@ ApplicationWindow {
     }
 
     Timer {
-        id: shotHistoryErrorToastTimer
+        id: storageErrorToastTimer
         interval: 5000
-        onTriggered: shotHistoryErrorToast.opacity = 0
+        onTriggered: storageErrorToast.opacity = 0
     }
 
     Connections {
         target: MainController.shotHistory
         function onErrorOccurred(message) {
-            shotHistoryErrorToast.message = message
-            shotHistoryErrorToast.opacity = 1
-            shotHistoryErrorToastTimer.restart()
-            if (AccessibilityManager.enabled)
-                AccessibilityManager.announce(message, true)
+            storageErrorToast.show(message)
+        }
+    }
+
+    Connections {
+        target: MainController.bagStorage
+        function onErrorOccurred(message) {
+            storageErrorToast.show(message)
         }
     }
 

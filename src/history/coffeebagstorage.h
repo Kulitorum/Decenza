@@ -54,13 +54,22 @@ struct CoffeeBag {
     // brewTempC, leafGramsPer100Ml, …) live in the beanBaseData blob.
     QString kind = QStringLiteral("coffee");
 
-    // Lifecycle. frozenDate/defrostDate/storageHint/openedDate describe the
-    // CURRENT portion only — the full history lives in per-shot snapshots.
-    // storageHint is a non-frozen storage category (counter / airtight /
-    // vacuum-sealed / fridge — never "frozen"; frozen state is defined solely
-    // by frozenDate being set). openedDate is the non-frozen analogue of
-    // defrostDate: when the current portion started being actively used at
-    // room temperature. Both are local-only (never synced to Visualizer).
+    // Lifecycle, on two INDEPENDENT axes — nothing here gates or clears
+    // anything else here.
+    //   Freezer: frozenDate says the BAG is stored frozen; defrostDate says
+    //     when the CURRENT PORTION left the freezer. Beans are frozen in
+    //     portions and pulled out one at a time, so a frozen bag keeps
+    //     portions in the freezer indefinitely — frozenDate staying set after
+    //     a thaw is correct, and thawing is a recurring event.
+    //   Container: storageHint is the PLAN for how beans are kept when NOT in
+    //     the freezer (counter / airtight / vacuum-sealed / fridge). It is
+    //     forward-looking on a frozen bag and valid in every freeze state.
+    //     There is no "frozen" value — frozenDate alone decides frozen-ness,
+    //     so the two answer different questions and cannot disagree.
+    //   Use: openedDate is when the current portion left airtight storage —
+    //     the sibling of defrostDate, not its non-frozen substitute.
+    // All describe the CURRENT portion only; full history lives in per-shot
+    // snapshots. All are local-only (never synced to Visualizer).
     QString frozenDate;
     QString defrostDate;
     QString storageHint;
@@ -122,7 +131,7 @@ struct CoffeeBag {
     // empty/invalid JSON or absent keys land on the struct defaults.
     static TeaBrewingData teaBrewingFromBlob(const QString& beanBaseData);
 
-    // Canonical non-frozen storageHint values (bean-freshness-followup). The
+    // Canonical out-of-freezer storageHint values (bean-freshness-followup). The
     // single C++ source of truth for the enum; the QML dropdown
     // (ChangeBeansDialog `hintValues`) must mirror it. "frozen" is deliberately
     // NOT a value — frozen state is defined solely by `frozenDate` being set,
@@ -271,6 +280,13 @@ signals:
     void bagReady(qint64 bagId, const QVariantMap& bag);   // bag empty if not found
     void bagCreated(qint64 bagId, const QVariantMap& bag); // bagId -1 on failure
     void bagUpdated(qint64 bagId, bool success);
+    // A write failed in a way the user must know about. bagUpdated carries the
+    // same status, but it is a terminal signal for programmatic callers (the
+    // MCP tool arms a one-shot to send its response) — the UI never consumed
+    // it, so a failed save closed the dialog silently and the user read the
+    // unchanged card as their own mistake. Mirrors
+    // ShotHistoryStorage::errorOccurred; main.qml surfaces both as a toast.
+    void errorOccurred(const QString& message);
     // The bag left inventory (requestMarkEmpty, or any update carrying
     // inInventory=false — card, MCP, web all funnel through requestUpdateBag).
     // The recipe roll-on-finish relink hooks onto this event

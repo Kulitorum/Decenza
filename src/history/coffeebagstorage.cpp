@@ -401,6 +401,7 @@ void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
     if (m_dbPath.isEmpty()) {
         qWarning() << "CoffeeBagStorage: requestUpdateBag on uninitialized storage, bag" << bagId;
         emit bagUpdated(bagId, false);
+        emit errorOccurred(QStringLiteral("Couldn't save your bean changes — please try again."));
         return;
     }
     auto success = std::make_shared<bool>(false);
@@ -414,6 +415,14 @@ void CoffeeBagStorage::requestUpdateBag(qint64 bagId, const QVariantMap& fields,
         // terminal status callers (e.g. the MCP bag_update tool) wait on.
         [this, bagId, fields, success](bool) {
             emit bagUpdated(bagId, *success);
+            if (!*success) {
+                // The dialog has already closed and bagsChanged() is not
+                // emitted, so the card still shows the old value — without
+                // this the user reads that as "I forgot to pick it", retries,
+                // and fails again. Covers every surface: dialog save, the
+                // card's Thaw / Mark Opened quick actions, MCP and web writes.
+                emit errorOccurred(QStringLiteral("Couldn't save your bean changes — please try again."));
+            }
             if (*success) {
                 emit bagsChanged();
                 if (touchesVisualizerFields(fields))

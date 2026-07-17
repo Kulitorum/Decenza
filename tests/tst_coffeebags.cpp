@@ -625,7 +625,7 @@ private slots:
             srcBagId = CoffeeBagStorage::insertBagStatic(db, bag);
             QVERIFY(srcBagId > 0);
             // Shot linked to the bag, carrying the once-dropped columns plus the
-            // non-frozen storage lifecycle snapshot (bean-freshness-followup).
+            // out-of-freezer storage lifecycle snapshot (bean-freshness-followup).
             QSqlQuery q(db);
             q.prepare("INSERT INTO shots (uuid, timestamp, profile_name, duration_seconds, "
                       "bean_brand, bean_type, bag_id, stopped_by, beanbase_json, frozen_date, "
@@ -969,6 +969,57 @@ private slots:
             QVERIFY(q.exec("SELECT yield_mode FROM coffee_bags WHERE coffee_name = 'NoYield'"));
             QVERIFY(q.next());
             QCOMPARE(q.value(0).toString(), QStringLiteral("none"));
+        });
+    }
+
+    // fix-storage-hint-freezer-independence: pins the storage layer's freeze
+    // INDEPENDENCE as an invariant. Note what this does and does not guard: the
+    // force-clear bug lived in ChangeBeansDialog.qml, never here, so this test
+    // would stay green if that QML regressed — it is not a regression guard for
+    // that fix (no QML test harness exists; see the change's tasks.md). What it
+    // does lock in is that the frozen + thawed + hint + opened combination the
+    // pre-fix dialog made unreachable survives storage intact, and that no
+    // freeze coupling is ever introduced into this layer.
+    void storageLayerDoesNotCoupleHintToFreezeState() {
+        const QString path = freshDb();
+        withRawDb(path, "freezer_plan", [&](QSqlDatabase& db) {
+            // Frozen, not yet thawed, with a plan for when it comes out.
+            CoffeeBag bag;
+            bag.roasterName = "Prodigal";
+            bag.coffeeName = "Milk Blend";
+            bag.roastDate = "2026-06-01";
+            bag.frozenDate = "2026-06-03";
+            bag.storageHint = "vacuum-sealed";
+            const qint64 id = CoffeeBagStorage::insertBagStatic(db, bag);
+            QVERIFY(id > 0);
+
+            CoffeeBag loaded = CoffeeBagStorage::loadBagStatic(db, id);
+            QCOMPARE(loaded.frozenDate, QString("2026-06-03"));
+            QVERIFY2(loaded.storageHint == QStringLiteral("vacuum-sealed"),
+                     "a frozen bag must keep its out-of-freezer plan — the two "
+                     "fields lie on independent axes and cannot disagree");
+            QVERIFY(loaded.defrostDate.isEmpty());
+            QVERIFY(loaded.openedDate.isEmpty());
+
+            // Thawed, then opened: all four coexist. bean-freshness-followup's
+            // design already called this legitimate ("A bag could in principle
+            // be frozen AND later show an openedDate once thawed and moved to a
+            // counter jar") — but that SAME design also specified hiding and
+            // clearing storageHint while frozen, which is the bug this test
+            // locks out. Trust this test, not that document.
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, id, {
+                {"defrostDate", "2026-06-11"}, {"openedDate", "2026-06-12"}}));
+            loaded = CoffeeBagStorage::loadBagStatic(db, id);
+            QCOMPARE(loaded.frozenDate, QString("2026-06-03"));
+            QCOMPARE(loaded.defrostDate, QString("2026-06-11"));
+            QCOMPARE(loaded.openedDate, QString("2026-06-12"));
+            QCOMPARE(loaded.storageHint, QString("vacuum-sealed"));
+
+            // Updating an unrelated field leaves the storage plan alone.
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, id, {{"grinderSetting", "12"}}));
+            loaded = CoffeeBagStorage::loadBagStatic(db, id);
+            QCOMPARE(loaded.storageHint, QString("vacuum-sealed"));
+            QCOMPARE(loaded.openedDate, QString("2026-06-12"));
         });
     }
 
