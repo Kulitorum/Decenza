@@ -37,10 +37,10 @@ The force-clears are unconditional loss on the *save* path: a `storageHint`/`ope
 - [x] 5.1 Create a bag with the freeze toggle ON and a storage hint selected — confirm the hint persists on save and is still there on reopen (this is the exact case the old build silently cleared)
 - [x] 5.2 On a thawed bag (`frozenDate` + `defrostDate`), confirm both "Thaw" and "Mark Opened" appear and each sets only its own field
 - [x] 5.3 On a frozen, never-thawed bag, confirm "Mark Opened" does NOT appear
-- [ ] 5.4 Confirm all four fields survive an app restart
+- [x] 5.4 Confirm all four fields survive an app restart
 - [x] 5.5 Carries the regression 4.1-4.3 could not automate: set `storageHint` + `openedDate` on a FROZEN bag via the `bag_update` MCP tool, then open that bag in the Change Beans dialog and save WITHOUT touching either field. Re-read via `bag_list` and assert both values are still present — on the pre-fix build this is exactly the path that silently wiped them
 
 ## 6. Docs & housekeeping
 
 - [x] 6.1 Update the GitHub wiki manual's bean/bag section — the storage-hint dropdown is no longer described as freeze-dependent, and "Mark Opened" is available on thawed bags
-- [ ] 6.2 `/opsx:archive` as the last commit on the branch, so the archive + spec promotion land inside the PR
+- [x] 6.2 `/opsx:archive` as the last commit on the branch, so the archive + spec promotion land inside the PR
