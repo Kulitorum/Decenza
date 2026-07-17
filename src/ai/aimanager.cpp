@@ -1579,8 +1579,7 @@ void AIManager::analyzeConversation(const QString& systemPrompt, const QJsonArra
     m_lastUserPrompt = QString("[Conversation with %1 messages]").arg(messages.size());
 
     logPrompt(selectedProvider(), systemPrompt, m_lastUserPrompt);
-    // Drop internal-only per-turn keys (shotId, structuredNext) before the
-    // payload reaches any provider — Anthropic 400s on unknown message fields.
+    // Strip internal-only per-turn keys before the payload leaves the app.
     provider->analyzeConversation(systemPrompt, sanitizeApiMessages(messages));
 }
 

@@ -1435,9 +1435,19 @@ private slots:
         assistant["structuredNext"] = QJsonObject{{"grindDelta", -1}};
         messages.append(assistant);
 
+        // A future/unknown internal key must be stripped too. The sanitizer is
+        // a whitelist (rebuilds each object from role + content), so this guards
+        // against a later refactor to an explicit-blacklist approach that would
+        // silently leak any newly-stamped bookkeeping field.
+        QJsonObject withUnknownKey;
+        withUnknownKey["role"] = QStringLiteral("user");
+        withUnknownKey["content"] = QStringLiteral("Anything else?");
+        withUnknownKey["someFutureInternalKey"] = 42;
+        messages.append(withUnknownKey);
+
         const QJsonArray clean = AIManager::sanitizeApiMessages(messages);
 
-        QCOMPARE(clean.size(), 2);
+        QCOMPARE(clean.size(), 3);
         for (const QJsonValue& v : clean) {
             const QJsonObject msg = v.toObject();
             // Exactly the two API-legal keys — nothing else may survive.
@@ -1446,6 +1456,7 @@ private slots:
             QVERIFY(msg.contains(QStringLiteral("content")));
             QVERIFY(!msg.contains(QStringLiteral("shotId")));
             QVERIFY(!msg.contains(QStringLiteral("structuredNext")));
+            QVERIFY(!msg.contains(QStringLiteral("someFutureInternalKey")));
         }
         // Content and role are preserved verbatim.
         QCOMPARE(clean.at(0).toObject().value("role").toString(), QStringLiteral("user"));
