@@ -24,7 +24,9 @@ Dialog {
                     parent ? parent.width * 0.95 : Theme.scaled(280))
     height: Math.min(Theme.scaled(480), parent ? parent.height * 0.92 : Theme.scaled(480))
     modal: true
-    closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
+    // Only Cancel / Done close the dialog — no tap-outside or Escape, so a
+    // stray tap can't silently discard a half-made grind/RPM change.
+    closePolicy: Popup.NoAutoClose
     padding: 0
 
     // [{ value: string, isCurrent: bool }] — fine -> coarse order, per wheel.
