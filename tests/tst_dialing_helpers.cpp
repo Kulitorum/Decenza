@@ -29,6 +29,7 @@ private slots:
     // bean-freshness-followup
     void buildBeanFreshness_openedDate_isKnownWithoutFreeze();
     void buildBeanFreshness_storageHintOnly_surfacedButNotKnown();
+    void buildBeanFreshness_frozenWithPlan_hintContributesNoAnchor();
     void buildBeanFreshness_unknownInstruction_teachesUpperBound();
     void buildBeanFreshness_defrostAndOpened_bothSurfaced();
     void buildBeanFreshness_knownInstruction_carriesUnderRestedGuidance();
@@ -268,6 +269,29 @@ void TstDialingHelpers::buildBeanFreshness_openedDate_isKnownWithoutFreeze()
              "known-storage instruction must NOT ask the user about storage");
     QVERIFY2(instruction.contains(QStringLiteral("openedDate")),
              "known instruction must anchor aging on openedDate when present");
+}
+
+// fix-storage-hint-freezer-independence: a frozen bag may now carry an
+// out-of-freezer plan. The plan is advisory only — it contributes no DATE, so
+// it must not act as an aging anchor. Here freshnessKnown is true purely on the
+// strength of frozenDate; the hint rides along as context.
+void TstDialingHelpers::buildBeanFreshness_frozenWithPlan_hintContributesNoAnchor()
+{
+    const QJsonObject block = buildBeanFreshness(QStringLiteral("2026-06-01"),
+                                                 QStringLiteral("2026-06-03"),  // frozenDate
+                                                 QString(),                     // no defrost
+                                                 QStringLiteral("vacuum-sealed"),
+                                                 QString());                    // no opened
+    QVERIFY(!block.isEmpty());
+    QCOMPARE(block["frozenDate"].toString(), QStringLiteral("2026-06-03"));
+    QCOMPARE(block["storageHint"].toString(), QStringLiteral("vacuum-sealed"));
+    QVERIFY2(block["freshnessKnown"].toBool(),
+             "frozenDate alone anchors the clock; the plan neither adds nor removes that");
+    // The plan carries no date, so no thaw/open anchor may appear.
+    QVERIFY2(!block.contains(QStringLiteral("defrostDate")),
+             "a storage plan must not synthesize a defrost anchor");
+    QVERIFY2(!block.contains(QStringLiteral("openedDate")),
+             "a storage plan must not synthesize an opened anchor");
 }
 
 void TstDialingHelpers::buildBeanFreshness_storageHintOnly_surfacedButNotKnown()

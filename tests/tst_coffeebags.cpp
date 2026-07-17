@@ -972,6 +972,50 @@ private slots:
         });
     }
 
+    // fix-storage-hint-freezer-independence: storageHint is the out-of-freezer
+    // storage PLAN, orthogonal to the freezer axis — so a frozen bag legitimately
+    // carries one, and the frozen + thawed + hint + opened combination (which the
+    // pre-fix dialog made unreachable) must survive storage intact. The storage
+    // layer must never clear either field on account of frozenDate.
+    void frozenBagRetainsOutOfFreezerPlan() {
+        const QString path = freshDb();
+        withRawDb(path, "freezer_plan", [&](QSqlDatabase& db) {
+            // Frozen, not yet thawed, with a plan for when it comes out.
+            CoffeeBag bag;
+            bag.roasterName = "Prodigal";
+            bag.coffeeName = "Milk Blend";
+            bag.roastDate = "2026-06-01";
+            bag.frozenDate = "2026-06-03";
+            bag.storageHint = "vacuum-sealed";
+            const qint64 id = CoffeeBagStorage::insertBagStatic(db, bag);
+            QVERIFY(id > 0);
+
+            CoffeeBag loaded = CoffeeBagStorage::loadBagStatic(db, id);
+            QCOMPARE(loaded.frozenDate, QString("2026-06-03"));
+            QVERIFY2(loaded.storageHint == QStringLiteral("vacuum-sealed"),
+                     "a frozen bag must keep its out-of-freezer plan — the two "
+                     "fields lie on independent axes and cannot disagree");
+            QVERIFY(loaded.defrostDate.isEmpty());
+            QVERIFY(loaded.openedDate.isEmpty());
+
+            // Thawed, then opened: all four coexist. This is the state
+            // bean-freshness-followup's design.md:28 names as legitimate.
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, id, {
+                {"defrostDate", "2026-06-11"}, {"openedDate", "2026-06-12"}}));
+            loaded = CoffeeBagStorage::loadBagStatic(db, id);
+            QCOMPARE(loaded.frozenDate, QString("2026-06-03"));
+            QCOMPARE(loaded.defrostDate, QString("2026-06-11"));
+            QCOMPARE(loaded.openedDate, QString("2026-06-12"));
+            QCOMPARE(loaded.storageHint, QString("vacuum-sealed"));
+
+            // Updating an unrelated field leaves the storage plan alone.
+            QVERIFY(CoffeeBagStorage::updateBagFieldsStatic(db, id, {{"grinderSetting", "12"}}));
+            loaded = CoffeeBagStorage::loadBagStatic(db, id);
+            QCOMPARE(loaded.storageHint, QString("vacuum-sealed"));
+            QCOMPARE(loaded.openedDate, QString("2026-06-12"));
+        });
+    }
+
     // bean-freshness-followup: the canonical storageHint set is the single
     // C++ source of truth the MCP write boundary validates against. "" (unset)
     // is valid; "frozen" is deliberately NOT — freeze state is frozenDate.

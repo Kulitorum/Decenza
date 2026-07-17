@@ -25,10 +25,16 @@ Rectangle {
     readonly property bool selected: bag && bag.id !== undefined && bag.id === Settings.dye.activeBagId
     readonly property bool hasShots: bag && (bag.shotCount ?? 0) > 0
     readonly property bool hasCanonical: bag && bag.beanBaseId !== undefined && String(bag.beanBaseId).length > 0
+    // NOTE: isFrozen means "has EVER been frozen" — a thawed bag keeps its
+    // frozenDate, so this stays true after a thaw. That is the intended
+    // reading for the "Frozen" badge and the freeze toggle, but NOT for
+    // anything asking "is a portion in the freezer right now" — use
+    // portionInFreezer for that.
     readonly property bool isFrozen: bag && bag.frozenDate !== undefined && String(bag.frozenDate).length > 0
     readonly property string defrostDate: bag && bag.defrostDate !== undefined ? String(bag.defrostDate) : ""
-    // Non-frozen storage lifecycle (bean-freshness-followup): the "Mark Opened"
-    // quick action mirrors "Thaw" and shows only on non-frozen bags.
+    // A portion is in the freezer only while the bag is frozen and no thaw has
+    // been recorded; once defrostDate is set the current portion is out.
+    readonly property bool portionInFreezer: isFrozen && defrostDate.length === 0
     readonly property string openedDate: bag && bag.openedDate !== undefined ? String(bag.openedDate) : ""
 
     readonly property var beanBase: {
@@ -447,11 +453,14 @@ Rectangle {
                 onClicked: thawDatePicker.openWithDate("")
             }
 
-            // Non-frozen bag: "Mark Opened" is the equivalent quick action —
-            // records when the current portion started being used. Same picker
-            // pattern as Thaw, always defaulting to today.
+            // "Mark Opened" records when the current portion started being
+            // used at room temperature. Shown whenever no portion is in the
+            // freezer — i.e. never-frozen bags AND thawed ones, which carry
+            // both actions: "Thaw" records a later portion leaving the
+            // freezer, "Mark Opened" this portion leaving airtight storage.
+            // Same picker pattern as Thaw, always defaulting to today.
             AccessibleButton {
-                visible: !card.isFrozen
+                visible: !card.portionInFreezer
                 height: Theme.scaled(36)
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)
