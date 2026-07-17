@@ -453,11 +453,6 @@ QString SettingsDye::stepGrinderSetting(const QString& brand, const QString& mod
     return s;
 }
 
-bool SettingsDye::isKnownRpmGrinder(const QString& brand, const QString& model) const {
-    const GrinderAliases::GrinderEntry* entry = GrinderAliases::findEntry(brand, model);
-    return entry && entry->variableRpm;
-}
-
 QStringList SettingsDye::knownBasketBrands() const {
     return BasketAliases::allBrands();
 }

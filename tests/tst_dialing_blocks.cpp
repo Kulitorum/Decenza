@@ -969,6 +969,53 @@ private slots:
         });
     }
 
+    // stepSize is decoupled from allNumeric: a grinder with a mix of numeric and
+    // non-numeric settings still gets a numeric step, but min/max (which need an
+    // all-numeric range) are omitted.
+    void grinderContextBlock_stepSizeDecoupledFromAllNumeric()
+    {
+        const QString path = freshDbPath();
+        initAndClose(path);
+        withRawDb(path, QStringLiteral("grinder_mixed"), [&](QSqlDatabase& db) {
+            int i = 0;
+            for (const auto& s : {QStringLiteral("8"), QStringLiteral("8.5"),
+                                   QStringLiteral("9"), QStringLiteral("medium")}) {
+                ShotRow r;
+                r.uuid = QStringLiteral("uuid-mixed-%1").arg(i++);
+                r.profileName = QStringLiteral("p");
+                r.beanBrand = QStringLiteral("Mix");
+                r.grinderModel = QStringLiteral("Zero");
+                r.grinderSetting = s;
+                QVERIFY(insertShot(db, r) > 0);
+            }
+            const QJsonObject ctx = DialingBlocks::buildGrinderContextBlock(
+                db, QStringLiteral("Zero"), QStringLiteral("espresso"),
+                QStringLiteral("Mix"));
+            // Numeric step present (0.5 from 8/8.5/9)...
+            QVERIFY2(qAbs(ctx.value(QStringLiteral("stepSize")).toDouble() - 0.5) < 0.0001,
+                     "mixed history should still yield a numeric stepSize");
+            // ...but the min/max range is omitted (history is not all-numeric).
+            QVERIFY2(!ctx.contains(QStringLiteral("observedMinSetting")),
+                     "min/max must be absent for a non-all-numeric history");
+            QVERIFY(!ctx.contains(QStringLiteral("observedMaxSetting")));
+            QVERIFY(!ctx.value(QStringLiteral("isNumeric")).toBool());
+        });
+    }
+
+    // summarizeStructuredNext renders a recommended rpm as a whole-number
+    // predicted part, alongside the grind (the advisor's RPM coaching output).
+    void summarizeStructuredNext_rendersRpm()
+    {
+        QJsonObject sn;
+        sn["grinderSetting"] = QStringLiteral("8.5");
+        sn["rpm"] = 1350;
+        const DialingBlocks::StructuredNextSummary s =
+            DialingBlocks::summarizeStructuredNext(sn);
+        QVERIFY(s.predictedParts.contains(QStringLiteral("grinder 8.5")));
+        QVERIFY2(s.predictedParts.contains(QStringLiteral("1350 RPM")),
+                 "recommended rpm should appear as a whole-number predicted part");
+    }
+
     // -------------------------------------------------------------------
     // End-to-end parity (issue #1044's headline test) — the four blocks
     // should be byte-equivalent regardless of which "surface" assembled

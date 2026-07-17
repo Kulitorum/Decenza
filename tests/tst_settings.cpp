@@ -1687,7 +1687,7 @@ private slots:
     // ==========================================
     // Grind-quick-select catalog stepping (grind-quick-select widget):
     // stepGrinderSetting routes numeric AND Compound "a+b" grinders through the
-    // catalog pipeline; isKnownRpmGrinder confirms rpm capability from the DB.
+    // catalog pipeline.
     // ==========================================
 
     void stepGrinderSetting_numeric() {
@@ -1748,16 +1748,6 @@ private slots:
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "fine", 2.0), QString());
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "", 2.0), QString());
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "   ", 2.0), QString());
-    }
-
-    void isKnownRpmGrinder_catalogConfirmedOnly() {
-        SettingsDye* dye = m_settings.dye();
-        QVERIFY(dye->isKnownRpmGrinder("Turin", "DF83V"));                 // variableRpm true
-        QVERIFY(!dye->isKnownRpmGrinder("Eureka", "Mignon Specialita"));   // variableRpm false
-        QVERIFY(!dye->isKnownRpmGrinder("Acme", "NotReal"));               // unknown → false (NOT unknown→true)
-        // variableRpm is orthogonal to notation: a Compound grinder can still be
-        // RPM-capable (Mignon Turbo), so notation must not gate the flag.
-        QVERIFY(dye->isKnownRpmGrinder("Eureka", "Mignon Turbo"));         // Compound + variableRpm true
     }
 
 };

@@ -990,8 +990,10 @@ static double deriveGrindStep(const QList<double>& sortedDistinct)
 // bean or the drink — so it is deliberately not scoped to either. This is the
 // SAME model-wide distinct-settings scope the widget's grindStepForGrinder uses
 // (getDistinctGrinderSettingsForGrinder), fed to the SAME deriveGrindStep, so
-// the widget and the AI grinderContext can never report different steps.
-// Returns 0 when it cannot derive.
+// for any identified grinder the widget and the AI grinderContext report the
+// same step. (An empty model — no grinder selected — is not reached here:
+// queryGrinderContext returns early on an empty model.) Returns 0 when it
+// cannot derive.
 static double grinderWideStep(QSqlDatabase& db, const QString& grinderModel)
 {
     QSqlQuery q(db);
