@@ -30,7 +30,7 @@ namespace {
 // Bean Base linking and AI URL import stay in-app).
 const QStringList kBagEditableKeys = {
     "roasterName", "coffeeName", "roastDate", "roastLevel", "frozenDate",
-    "defrostDate", "notes", "startWeightG", "grinderSetting", "doseWeightG",
+    "defrostDate", "notes", "startWeightG", "grinderSetting", "rpm", "doseWeightG",
     "inInventory"};
 
 QVariantMap bagFieldsFromBody(const QJsonObject& body)
@@ -318,6 +318,7 @@ QString ShotServer::generateBeansPage() const
         <label>Defrost date (YYYY-MM-DD)</label><input id="fDefrost">
         <label>Start weight (g)</label><input id="fStartWeight" type="number" step="1">
         <label>Grind setting</label><input id="fGrind">
+        <label>RPM</label><input id="fRpm" type="number" step="1" min="0">
         <label>Dose (g)</label><input id="fDose" type="number" step="0.1">
         <label>Notes</label><input id="fNotes">
         <div class="row">
@@ -349,7 +350,7 @@ QString ShotServer::generateBeansPage() const
             if (b.roastDate) parts.push('roasted ' + esc(b.roastDate));
             if (b.frozenDate) parts.push('frozen ' + esc(b.frozenDate));
             if (b.defrostDate) parts.push('defrosted ' + esc(b.defrostDate));
-            if (b.grinderSetting) parts.push('grind ' + esc(b.grinderSetting));
+            if (b.grinderSetting) parts.push('grind ' + esc(b.grinderSetting) + ((b.rpm && b.rpm > 0) ? ' · ' + b.rpm + ' RPM' : ''));
             if (b.doseWeightG > 0) parts.push(b.doseWeightG.toFixed(1) + 'g dose');
             if (b.shotCount > 0) parts.push(b.shotCount + ' shots');
             return parts.join(' &middot; ');
@@ -400,6 +401,7 @@ QString ShotServer::generateBeansPage() const
             document.getElementById('fDefrost').value = b.defrostDate || '';
             document.getElementById('fStartWeight').value = b.startWeightG > 0 ? b.startWeightG : '';
             document.getElementById('fGrind').value = b.grinderSetting || '';
+            document.getElementById('fRpm').value = (b.rpm && b.rpm > 0) ? b.rpm : '';
             document.getElementById('fDose').value = b.doseWeightG > 0 ? b.doseWeightG : '';
             document.getElementById('fNotes').value = b.notes || '';
             document.getElementById('editor').showModal();
@@ -415,6 +417,7 @@ QString ShotServer::generateBeansPage() const
                 defrostDate: document.getElementById('fDefrost').value.trim(),
                 startWeightG: parseFloat(document.getElementById('fStartWeight').value) || 0,
                 grinderSetting: document.getElementById('fGrind').value.trim(),
+                rpm: parseInt(document.getElementById('fRpm').value) || 0,
                 doseWeightG: parseFloat(document.getElementById('fDose').value) || 0,
                 notes: document.getElementById('fNotes').value.trim()
             };

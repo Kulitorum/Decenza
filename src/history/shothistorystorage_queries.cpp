@@ -29,7 +29,9 @@
 #include <QDebug>
 #include <QRegularExpression>
 #include <QThread>
+#include <QMap>
 #include <algorithm>
+#include <cmath>
 
 using decenza::storage::detail::use12h;
 
@@ -393,7 +395,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
             "temperature_override, yield_override, beverage_type, "
             "drink_tds, drink_ey, "
             "channeling_detected, grind_issue_detected, "
-            "skip_first_frame_detected, pour_truncated_detected "
+            "skip_first_frame_detected, pour_truncated_detected, rpm "
             "FROM shots WHERE (") + ftsMatch + grinderMatchClause + ") "
             + extraConditions + " " + orderByClause + " LIMIT ? OFFSET ?";
     } else {
@@ -404,7 +406,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                    temperature_override, yield_override, beverage_type,
                    drink_tds, drink_ey,
                    channeling_detected, grind_issue_detected,
-                   skip_first_frame_detected, pour_truncated_detected
+                   skip_first_frame_detected, pour_truncated_detected, rpm
             FROM shots
             %1
             %2
@@ -474,6 +476,7 @@ void ShotHistoryStorage::requestShotsFiltered(const QVariantMap& filterMap, int 
                             shot["grindIssueDetected"] = query.value(18).toInt() != 0;
                             shot["skipFirstFrameDetected"] = query.value(19).toInt() != 0;
                             shot["pourTruncatedDetected"] = query.value(20).toInt() != 0;
+                            shot["rpm"] = query.value(21).toLongLong();  // RPM half of the dial-in
 
                             QDateTime dt = QDateTime::fromSecsSinceEpoch(
                                 query.value(2).toLongLong());
@@ -937,6 +940,49 @@ QVariantMap ShotHistoryStorage::loadLatestGrindForBeanStatic(QSqlDatabase& db,
 // ShotServer, and the AI advisor) lives in shothistorystorage_serialize.cpp.
 
 
+// Robust "typical dial increment" estimator over the user's observed numeric
+// grinder settings. `sortedDistinct` MUST be sorted ascending and de-duplicated.
+// Returns 0 when it cannot derive (fewer than 2 distinct values) so callers can
+// apply their own default.
+//
+// Noise tolerance is the whole point: rather than the raw minimum gap (which a
+// single mistyped setting collapses — an `8.1` among 7.5/8/8.5/9 would force
+// 0.1 forever), take the MOST COMMON gap between consecutive values. A lone
+// outlier contributes at most a couple of one-off gaps that lose to the modal
+// step. Ties break toward the SMALLER gap (if the user has demonstrated a finer
+// move as often as a coarser one, offer the finer). Clamped to a 0.05 floor so
+// a stray fine-typo cluster can't yield a uselessly small step.
+static double deriveGrindStep(const QList<double>& sortedDistinct)
+{
+    if (sortedDistinct.size() < 2)
+        return 0.0;
+
+    // Histogram of consecutive gaps, rounded to 2 decimals to absorb float dirt
+    // (e.g. 8.75 - 8.5 == 0.24999999). QMap keeps keys sorted ascending, which
+    // makes the tie-break-toward-smaller fall out naturally below.
+    QMap<double, int> freq;
+    for (qsizetype i = 1; i < sortedDistinct.size(); ++i) {
+        double gap = std::round((sortedDistinct[i] - sortedDistinct[i - 1]) * 100.0) / 100.0;
+        if (gap > 0.0)
+            freq[gap] += 1;
+    }
+    if (freq.isEmpty())
+        return 0.0;
+
+    // Modal gap. Iterating ascending with a strict '>' keeps the first (smallest)
+    // gap that reaches the max count, so ties resolve toward the finer step.
+    double best = 0.0;
+    int bestCount = 0;
+    for (auto it = freq.constBegin(); it != freq.constEnd(); ++it) {
+        if (it.value() > bestCount) {
+            bestCount = it.value();
+            best = it.key();
+        }
+    }
+
+    return best < 0.05 ? 0.05 : best;
+}
+
 GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     const QString& grinderModel, const QString& beverageType,
     const QString& beanBrand)
@@ -1003,18 +1049,54 @@ GrinderContext ShotHistoryStorage::queryGrinderContext(QSqlDatabase& db,
     }
 
     QList<double> numeric(numericSet.begin(), numericSet.end());
+    std::sort(numeric.begin(), numeric.end());
+    // stepSize is derived from the numeric subset whenever ≥2 distinct numeric
+    // settings exist, independent of whether EVERY value parsed (a grinder that
+    // also has a few letter/note settings still has a meaningful numeric step).
+    if (numeric.size() >= 2)
+        ctx.stepSize = deriveGrindStep(numeric);
+    // min/max stay gated on an all-numeric history — a mixed list has no
+    // meaningful numeric range to report.
     if (ctx.allNumeric && numeric.size() >= 2) {
-        std::sort(numeric.begin(), numeric.end());
         ctx.minSetting = numeric.first();
         ctx.maxSetting = numeric.last();
+    }
 
-        double smallest = numeric.last() - numeric.first();
-        for (qsizetype i = 1; i < numeric.size(); ++i) {
-            double diff = numeric[i] - numeric[i-1];
-            if (diff > 0 && diff < smallest)
-                smallest = diff;
+    // RPM axis: the second half of the dial-in for variable-RPM grinders. Same
+    // scope as the settings query (grinder + beverage + optional bean brand),
+    // rpm > 0 = a real dial-in. Reuses deriveGrindStep for the typical step.
+    {
+        QString rpmSql = QStringLiteral(
+            "SELECT DISTINCT rpm FROM shots "
+            "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
+            "WHERE kind = 'grinder' AND model = :model) "
+            "AND beverage_type = :bev "
+            "AND rpm > 0");
+        if (!beanBrand.isEmpty())
+            rpmSql += QStringLiteral(" AND bean_brand = :brand");
+        rpmSql += QStringLiteral(" ORDER BY rpm");
+
+        QSqlQuery rq(db);
+        rq.prepare(rpmSql);
+        rq.bindValue(":model", grinderModel);
+        rq.bindValue(":bev", ctx.beverageType);
+        if (!beanBrand.isEmpty())
+            rq.bindValue(":brand", beanBrand);
+        if (rq.exec()) {
+            QList<double> rpms;
+            while (rq.next()) {
+                const int r = rq.value(0).toInt();
+                if (r > 0) {
+                    ctx.rpmsObserved.append(r);
+                    rpms.append(r);
+                }
+            }
+            if (rpms.size() >= 2) {
+                ctx.rpmMin = rpms.first();
+                ctx.rpmMax = rpms.last();
+                ctx.rpmStepSize = deriveGrindStep(rpms);
+            }
         }
-        ctx.smallestStep = smallest;
     }
 
     return ctx;
@@ -1484,6 +1566,67 @@ QStringList ShotHistoryStorage::getDistinctGrinderSettingsForGrinder(const QStri
         "ORDER BY grinder_setting",
         {grinderModel});
     return {};
+}
+
+double ShotHistoryStorage::grindStepForGrinder(const QString& grinderModel)
+{
+    // Reuse the cache-backed distinct-settings getter (empty model → all
+    // grinders). On a cold cache it returns {} and kicks off the async fetch;
+    // we return 0 and QML recomputes when distinctCacheReady() fires.
+    const QStringList settings = getDistinctGrinderSettingsForGrinder(grinderModel);
+    if (settings.isEmpty())
+        return 0.0;
+
+    // Numeric subset only — letter/compound notations don't define a numeric
+    // step and are stepped by their own path in the widget.
+    QSet<double> numericSet;
+    for (const QString& s : settings) {
+        bool ok = false;
+        const double v = s.trimmed().toDouble(&ok);
+        if (ok)
+            numericSet.insert(v);
+    }
+    QList<double> numeric(numericSet.begin(), numericSet.end());
+    std::sort(numeric.begin(), numeric.end());
+    return deriveGrindStep(numeric);
+}
+
+double ShotHistoryStorage::grindRpmStepForGrinder(const QString& grinderModel)
+{
+    // RPM mode always has an identified grinder; an empty model has no
+    // meaningful RPM history to pool.
+    if (grinderModel.isEmpty())
+        return 0.0;
+
+    // Cache-backed like getDistinctGrinderSettingsForGrinder, but over the
+    // integer shots.rpm column (rpm > 0 = a real dial-in). Cold cache → kick off
+    // the async fetch and return 0; QML recomputes on distinctCacheReady().
+    const QString cacheKey = "grinder_rpm:" + grinderModel;
+    QStringList values;
+    if (m_distinctCache.contains(cacheKey)) {
+        values = m_distinctCache.value(cacheKey);
+    } else {
+        if (!m_ready) return 0.0;
+        requestDistinctValueAsync(cacheKey,
+            "SELECT DISTINCT rpm FROM shots "
+            "WHERE equipment_id IN (SELECT package_id FROM equipment_items "
+            "WHERE kind = 'grinder' AND model = ?) "
+            "AND rpm > 0 "
+            "ORDER BY rpm",
+            {grinderModel});
+        return 0.0;
+    }
+
+    QSet<double> numericSet;
+    for (const QString& s : values) {
+        bool ok = false;
+        const double v = s.trimmed().toDouble(&ok);
+        if (ok && v > 0)
+            numericSet.insert(v);
+    }
+    QList<double> numeric(numericSet.begin(), numericSet.end());
+    std::sort(numeric.begin(), numeric.end());
+    return deriveGrindStep(numeric);
 }
 
 void ShotHistoryStorage::sortGrinderSettings(QStringList& settings)

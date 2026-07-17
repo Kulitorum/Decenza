@@ -1896,6 +1896,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
                     '<div class="edit-row"><span class="label">Model</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderModel" value="' + escapeAttr(shotData.grinderModel) + '"></div></div>' +
                     '<div class="edit-row"><span class="label">Burrs</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderBurrs" value="' + escapeAttr(shotData.grinderBurrs) + '"></div></div>' +
                     '<div class="edit-row"><span class="label">Setting</span><div class="edit-field"><input type="text" class="edit-input" id="editGrinderSetting" value="' + escapeAttr(shotData.grinderSetting) + '"></div></div>' +
+                    '<div class="edit-row"><span class="label">RPM</span><div class="edit-field"><input type="number" class="edit-input" id="editRpm" step="1" min="0" value="' + (shotData.rpm > 0 ? shotData.rpm : '') + '"></div></div>' +
                 '</div>' +
                 '<div class="info-card"><h3>Additional</h3>' +
                     '<div class="edit-row"><span class="label">Barista</span><div class="edit-field"><input type="text" class="edit-input" id="editBarista" value="' + escapeAttr(shotData.barista) + '"></div></div>' +
@@ -1949,6 +1950,7 @@ QString ShotServer::generateShotDetailPage(qint64 shotId, const ShotProjection& 
                 grinderModel: document.getElementById('editGrinderModel').value,
                 grinderBurrs: document.getElementById('editGrinderBurrs').value,
                 grinderSetting: document.getElementById('editGrinderSetting').value,
+                rpm: parseInt(document.getElementById('editRpm').value) || 0,
                 espressoNotes: document.getElementById('editNotes').value,
                 doseWeight: parseFloat(document.getElementById('editDose').value) || 0,
                 finalWeight: parseFloat(document.getElementById('editYield').value) || 0,
@@ -2450,6 +2452,7 @@ QString ShotServer::generateComparisonPage(const QList<ShotRecord>& shots) const
         info["grinderModel"] = shot.grinderModel;
         info["grinderBurrs"] = shot.grinderBurrs;
         info["grinderSetting"] = shot.grinderSetting;
+        info["rpm"] = static_cast<double>(shot.rpm);  // RPM half of the dial-in
         info["drinkTds"] = shot.drinkTds;
         info["drinkEy"] = shot.drinkEy;
         info["barista"] = shot.barista;

@@ -614,6 +614,7 @@ QString ShotServer::generateRecipesPage() const
         </div>
         <label>Temp offset (&deg;C, relative to the profile)</label><input id="fTemp" type="number" step="0.1">
         <label>Grind (this recipe's own; on create, blank adopts the bag's dial)</label><input id="fGrind">
+        <label>RPM (variable-RPM grinders)</label><input id="fRpm" type="number" step="1" min="0">
         <label>Drink type</label>
         <select id="fDrinkType">
             <option value="">(automatic from blocks)</option>
@@ -706,7 +707,7 @@ QString ShotServer::generateRecipesPage() const
             else if (r.yieldRatio > 0) parts.push(r.doseG > 0
                 ? r.doseG.toFixed(1) + 'g &rarr; ' + (r.doseG * r.yieldRatio).toFixed(1) + 'g (1:' + r.yieldRatio + ')'
                 : '1:' + r.yieldRatio);
-            if (r.effectiveGrind) parts.push('grind ' + esc(r.effectiveGrind));
+            if (r.effectiveGrind) parts.push('grind ' + esc(r.effectiveGrind) + ((r.rpmPinned && r.rpmPinned > 0) ? ' · ' + r.rpmPinned + ' RPM' : ''));
             if (r.steam && r.steam.hasMilk) parts.push('milk' + (r.steam.milkWeightG ? ' ' + r.steam.milkWeightG + 'g' : ''));
             if (r.hotWater && r.hotWater.hasWater) parts.push('+water' + (r.hotWater.order === 'before' ? ' (long black)' : ' (americano)'));
             if (r.bagStale) parts.push('bag finished');
@@ -796,6 +797,7 @@ QString ShotServer::generateRecipesPage() const
                 yMode === 'ratio' ? r.yieldRatio : (yMode === 'absolute' ? r.yieldG : '');
             document.getElementById('fTemp').value = (r.tempOffsetC || 0) !== 0 ? r.tempOffsetC : '';
             document.getElementById('fGrind').value = r.grindPinned || '';
+            document.getElementById('fRpm').value = (r.rpmPinned && r.rpmPinned > 0) ? r.rpmPinned : '';
             const steam = r.steam || {};
             document.getElementById('fHasMilk').checked = !!steam.hasMilk;
             document.getElementById('fMilk').value = steam.milkWeightG || '';
@@ -837,6 +839,7 @@ QString ShotServer::generateRecipesPage() const
                 doseG: parseFloat(document.getElementById('fDose').value) || 0,
                 tempOffsetC: parseFloat(document.getElementById('fTemp').value) || 0,
                 grindPinned: document.getElementById('fGrind').value.trim(),
+                rpmPinned: parseInt(document.getElementById('fRpm').value) || 0,
                 steam: steam,
                 hotWater: hotWater
             };

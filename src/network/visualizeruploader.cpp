@@ -226,6 +226,10 @@ void VisualizerUploader::uploadShotFromHistoryWithOverrides(
         auto it = overrides.find(QLatin1String(k));
         if (it != overrides.end()) shot.*f = it->toInt();
     };
+    auto applyI64    = [&](qint64        ShotProjection::*f, const char* k) {
+        auto it = overrides.find(QLatin1String(k));
+        if (it != overrides.end()) shot.*f = it->toLongLong();
+    };
 
     applyStr   (&ShotProjection::profileName,     "profileName");
     applyStr   (&ShotProjection::beanBrand,       "beanBrand");
@@ -235,6 +239,7 @@ void VisualizerUploader::uploadShotFromHistoryWithOverrides(
     applyStr   (&ShotProjection::grinderBrand,    "grinderBrand");
     applyStr   (&ShotProjection::grinderModel,    "grinderModel");
     applyStr   (&ShotProjection::grinderSetting,  "grinderSetting");
+    applyI64   (&ShotProjection::rpm,             "rpm");
     applyStr   (&ShotProjection::barista,         "barista");
     applyStr   (&ShotProjection::espressoNotes,   "espressoNotes");
     // grinderBurrs and beverageType: no PATCH/POST JSON fields for them; callers
@@ -276,6 +281,10 @@ void VisualizerUploader::updateShotOnVisualizerWithOverrides(
         auto it = overrides.find(QLatin1String(k));
         if (it != overrides.end()) shot.*f = it->toInt();
     };
+    auto applyI64    = [&](qint64        ShotProjection::*f, const char* k) {
+        auto it = overrides.find(QLatin1String(k));
+        if (it != overrides.end()) shot.*f = it->toLongLong();
+    };
 
     applyStr   (&ShotProjection::profileName,     "profileName");
     applyStr   (&ShotProjection::beanBrand,       "beanBrand");
@@ -285,6 +294,7 @@ void VisualizerUploader::updateShotOnVisualizerWithOverrides(
     applyStr   (&ShotProjection::grinderBrand,    "grinderBrand");
     applyStr   (&ShotProjection::grinderModel,    "grinderModel");
     applyStr   (&ShotProjection::grinderSetting,  "grinderSetting");
+    applyI64   (&ShotProjection::rpm,             "rpm");
     applyStr   (&ShotProjection::barista,         "barista");
     applyStr   (&ShotProjection::espressoNotes,   "espressoNotes");
     // grinderBurrs and beverageType: no PATCH/POST JSON fields for them; callers
@@ -368,7 +378,14 @@ void VisualizerUploader::updateShotOnVisualizer(const QString& visualizerId, con
         shotObj["grinder_model"] =
             combined.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(combined);
     }
-    setStr("grinder_setting", &ShotProjection::grinderSetting);
+    // Pair RPM into the freeform grinder_setting (the Visualizer has no native
+    // RPM field), matching the initial POST — otherwise a metadata edit PATCHes
+    // "2.4 1400rpm" back to bare "2.4" and drops the RPM. Empty → null, same as
+    // the generic setStr it replaces.
+    {
+        const QString gs = grinderSettingWithRpm(shotData.grinderSetting, shotData.rpm);
+        shotObj["grinder_setting"] = gs.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(gs);
+    }
     setDouble("drink_tds", &ShotProjection::drinkTdsPct);
     setDouble("drink_ey", &ShotProjection::drinkEyPct);
     shotObj["espresso_enjoyment"] = shotData.enjoyment0to100 > 0

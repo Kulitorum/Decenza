@@ -541,10 +541,15 @@ void ProfileManager::setTargetWeight(double weight) {
 
 void ProfileManager::activateBrewWithOverrides(double dose, double yieldValue,
                                                const QString& yieldMode,
-                                               double temperature, const QString& grind) {
+                                               double temperature, const QString& grind,
+                                               int rpm) {
     if (m_settings) {
         m_settings->dye()->setDyeBeanWeight(dose);
         m_settings->dye()->setDyeGrinderSetting(grind);
+        // RPM is the second half of the dial-in; set it only when the caller
+        // supplied one (rpm >= 0), leaving it untouched otherwise.
+        if (rpm >= 0)
+            m_settings->dye()->setDyeGrinderRpm(rpm);
         const QString mode = YieldSpec::normalizedMode(yieldMode);
         if (mode == YieldSpec::modeRatio()) {
             // A ratio is always a deliberate anchor — even when it derives

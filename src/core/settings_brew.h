@@ -24,10 +24,6 @@ class SettingsBrew : public QObject {
     // Dose cup tare: empty weight of the dosing vessel, subtracted from the scale
     // reading in "Get from scale" so the dose is net beans. Default 0 = no tare.
     Q_PROPERTY(double doseCupTareWeight READ doseCupTareWeight WRITE setDoseCupTareWeight NOTIFY doseCupTareWeightChanged)
-    // Global step size used by the grind quick-select widget when generating the
-    // +/- grind values in NUMERIC mode. One source of truth (was a per-widget
-    // option). Default 1.0, clamped to [0.1, 5.0].
-    Q_PROPERTY(double grindQuickSelectStep READ grindQuickSelectStep WRITE setGrindQuickSelectStep NOTIFY grindQuickSelectStepChanged)
     // Master toggle for weight-timed steaming (UI label "Weight-timed steaming").
     // When off, steam time is never scaled from milk weight. Default OFF; setting a
     // pitcher's reference milk (setSteamPitcherCalibration) turns it on automatically.
@@ -118,9 +114,6 @@ public:
 
     double doseCupTareWeight() const;
     void setDoseCupTareWeight(double weight);
-
-    double grindQuickSelectStep() const;
-    void setGrindQuickSelectStep(double step);
 
     bool milkAutoCaptureEnabled() const;
     void setMilkAutoCaptureEnabled(bool enabled);
@@ -289,7 +282,6 @@ signals:
     void ratioPreset2Changed();
     void ratioPreset3Changed();
     void doseCupTareWeightChanged();
-    void grindQuickSelectStepChanged();
     void milkAutoCaptureEnabledChanged();
     void doseCaptureSoundEnabledChanged();
     void lastSteamMilkGChanged();

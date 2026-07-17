@@ -227,7 +227,18 @@ struct GrinderContext {
     bool allNumeric = false;
     double minSetting = 0;
     double maxSetting = 0;
-    double smallestStep = 0;
+    // Typical dial increment between the user's observed numeric settings,
+    // derived by a noise-filtered modal-gap estimator (deriveGrindStep) — not
+    // the raw minimum gap, so a single mistyped setting cannot collapse it.
+    // 0 when fewer than 2 distinct numeric settings are available.
+    double stepSize = 0;
+    // RPM axis (variable-RPM grinders): the second half of the dial-in. Empty /
+    // 0 when the grinder has no recorded RPM history. rpmStepSize uses the same
+    // noise-filtered estimator as stepSize.
+    QList<int> rpmsObserved;
+    double rpmMin = 0;
+    double rpmMax = 0;
+    double rpmStepSize = 0;
 };
 
 // Filter criteria for queries

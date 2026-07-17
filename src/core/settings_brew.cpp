@@ -203,18 +203,6 @@ void SettingsBrew::setDoseCupTareWeight(double weight) {
     }
 }
 
-double SettingsBrew::grindQuickSelectStep() const {
-    return m_settings.value("espresso/grindQuickSelectStep", 1.0).toDouble();
-}
-
-void SettingsBrew::setGrindQuickSelectStep(double step) {
-    step = qBound(0.1, step, 5.0);  // sane grind-step range
-    if (!qFuzzyCompare(grindQuickSelectStep(), step)) {
-        m_settings.setValue("espresso/grindQuickSelectStep", step);
-        emit grindQuickSelectStepChanged();
-    }
-}
-
 bool SettingsBrew::milkAutoCaptureEnabled() const {
     return m_settings.value("steam/milkAutoCaptureEnabled", false).toBool();  // off by default; calibrating turns it on
 }

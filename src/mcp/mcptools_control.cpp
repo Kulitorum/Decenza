@@ -68,13 +68,14 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
         "machine_start_espresso",
         "Start pulling an espresso shot. Machine must be in Ready state. Only works on DE1 v1.0 headless machines — "
         "most machines with GHC require a physical button press. Do not offer this unless the user explicitly asks. "
-        "Optional brew overrides (dose, yield, temperature, grind) are applied for this shot only — they are "
+        "Optional brew overrides (dose, yield, temperature, grind, rpm) are applied for this shot only — they are "
         "automatically cleared when the shot ends, matching the QML BrewDialog behavior.",
         QJsonObject{{"type", "object"}, {"properties", QJsonObject{
             {"dose", QJsonObject{{"type", "number"}, {"description", "Override dose weight for this shot (grams)"}}},
             {"yield", QJsonObject{{"type", "number"}, {"description", "Override target yield for this shot (grams)"}}},
             {"temperature", QJsonObject{{"type", "number"}, {"description", "Override temperature for this shot (Celsius)"}}},
-            {"grind", QJsonObject{{"type", "string"}, {"description", "Override grind setting for this shot"}}}
+            {"grind", QJsonObject{{"type", "string"}, {"description", "Override grind setting for this shot"}}},
+            {"rpm", QJsonObject{{"type", "integer"}, {"description", "Override grinder motor RPM for this shot (variable-RPM grinders only); the second half of the dial-in alongside grind"}}}
         }}},
         [device, machineState, profileManager, settings](const QJsonObject& args) -> QJsonObject {
             QJsonObject result;
@@ -99,7 +100,8 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
             // ratio anchor (add-yield-ratio-anchor). Same for a missing
             // temperature, which armed a 0 °C override.
             bool hasOverrides = args.contains("dose") || args.contains("yield") ||
-                                args.contains("temperature") || args.contains("grind");
+                                args.contains("temperature") || args.contains("grind") ||
+                                args.contains("rpm");
             if (hasOverrides && profileManager && settings) {
                 const double dose = args.contains("dose") ? args["dose"].toDouble()
                                                           : profileManager->brewByRatioDose();
@@ -125,8 +127,11 @@ void registerControlTools(McpToolRegistry* registry, DE1Device* device, MachineS
                 const QString grind = args.contains("grind")
                     ? args["grind"].toString()
                     : settings->dye()->dyeGrinderSetting();
+                // RPM override: -1 leaves the live RPM untouched (the common case);
+                // only a supplied rpm changes it. Independent of the grind override.
+                const int rpm = args.contains("rpm") ? args["rpm"].toInt() : -1;
                 profileManager->activateBrewWithOverrides(dose, yieldValue, yieldMode,
-                                                          temperature, grind);
+                                                          temperature, grind, rpm);
             }
 
             device->startEspresso();

@@ -154,7 +154,7 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                     // 23, add-equipment-packages task 4.1).
                     QString sql = "SELECT s.id, timestamp, profile_name, dose_weight, final_weight, "
                                   "duration_seconds, enjoyment, "
-                                  "grinder_setting, eg.model AS grinder_model, "
+                                  "grinder_setting, rpm, eg.model AS grinder_model, "
                                   "espresso_notes, bean_brand, bean_type, yield_override, profile_json, "
                                   "stopped_by "
                                   "FROM shots s "
@@ -222,6 +222,9 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                             const int enjoyment = query.value("enjoyment").toInt();
                             shot["enjoyment0to100"] = enjoyment > 0 ? QJsonValue(enjoyment) : QJsonValue(QJsonValue::Null);
                             shot["grinderSetting"] = query.value("grinder_setting").toString();
+                            const qint64 rpm = query.value("rpm").toLongLong();
+                            if (rpm > 0)
+                                shot["rpm"] = rpm;  // RPM half of the dial-in (sparse)
                             shot["grinderModel"] = query.value("grinder_model").toString();
                             shot["notes"] = query.value("espresso_notes").toString();
                             shot["beanBrand"] = query.value("bean_brand").toString();
@@ -530,6 +533,12 @@ void registerShotTools(McpToolRegistry* registry, ShotHistoryStorage* shotHistor
                         diffStr(&ShotProjection::grinderSetting, "grinderSetting");
                         diffStr(&ShotProjection::profileName, "profileName");
                         diffStr(&ShotProjection::beanBrand, "beanBrand");
+                        // RPM half of the dial-in — whole-number diff so a
+                        // variable-RPM change between shots is visible.
+                        if (prev.rpm > 0 && curr.rpm > 0 && prev.rpm != curr.rpm)
+                            diff["rpm"] = QString("%1 -> %2 rpm (%3%4)")
+                                .arg(prev.rpm).arg(curr.rpm)
+                                .arg(curr.rpm > prev.rpm ? "+" : "").arg(curr.rpm - prev.rpm);
                         diffNum(prev.doseWeightG, curr.doseWeightG, "doseG", "g");
                         diffNum(prev.finalWeightG, curr.finalWeightG, "yieldG", "g");
                         diffNum(prev.durationSec, curr.durationSec, "durationSec", "s");

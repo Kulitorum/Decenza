@@ -1702,8 +1702,8 @@ private slots:
         // stepped < 0, not <= 0) → returns "0", not "".
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "2", -2.0), QString("0"));
         // Sub-0.5 step precision is honored, not truncated to a single decimal
-        // (the widget's grindQuickSelectStep goes to 2 decimals). Trailing zeros
-        // stripped: 20.50 → "20.5".
+        // (the grind widget's history-derived step goes to 2 decimals). Trailing
+        // zeros stripped: 20.50 → "20.5".
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.25, 2), QString("20.25"));
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.05, 2), QString("20.05"));
         QCOMPARE(dye->stepGrinderSetting("Turin", "DF83V", "20", 0.5, 2),  QString("20.5"));

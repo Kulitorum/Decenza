@@ -26,6 +26,14 @@ QVariantMap ShotProjection::toVariantMap() const
     m["grinderModel"] = grinderModel;
     m["grinderBurrs"] = grinderBurrs;
     m["grinderSetting"] = grinderSetting;
+    // Motor RPM is the second half of the dial-in for variable-RPM grinders.
+    // Sparse-emit (only when set) so non-RPM shots surface no rpm field — keeps
+    // legacy/manual grinders clean and matches the sparse convention used for
+    // yieldMode/stoppedBy above. This is the linchpin that carries rpm into
+    // shots_get_detail / shots_compare, the QML history row, and the clone
+    // round-trip (fromVariantMap reads it back below).
+    if (rpm > 0)
+        m["rpm"] = rpm;
     m["drinkTdsPct"] = drinkTdsPct;
     m["drinkEyPct"] = drinkEyPct;
     m["espressoNotes"] = espressoNotes;
@@ -157,6 +165,7 @@ ShotProjection ShotProjection::fromVariantMap(const QVariantMap& m)
     p.grinderModel = m.value("grinderModel").toString();
     p.grinderBurrs = m.value("grinderBurrs").toString();
     p.grinderSetting = m.value("grinderSetting").toString();
+    p.rpm = m.value("rpm").toLongLong();  // absent (non-RPM shot) → 0
     p.drinkTdsPct = m.value("drinkTdsPct").toDouble();
     p.drinkEyPct = m.value("drinkEyPct").toDouble();
     p.espressoNotes = m.value("espressoNotes").toString();

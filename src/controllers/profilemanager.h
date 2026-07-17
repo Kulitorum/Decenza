@@ -142,9 +142,12 @@ public:
     // Arm the session overrides from Brew Settings OK. The yield arrives as a
     // spec: value + mode ("none" | "absolute" | "ratio"). The legacy 4-arg
     // form (MCP machine_start_espresso) anchors an absolute.
+    // `rpm` < 0 leaves the live RPM untouched (the common case); >= 0 sets it
+    // (variable-RPM grinders). RPM is independent of the grind setting.
     Q_INVOKABLE void activateBrewWithOverrides(double dose, double yieldValue,
                                                const QString& yieldMode,
-                                               double temperature, const QString& grind);
+                                               double temperature, const QString& grind,
+                                               int rpm = -1);
     Q_INVOKABLE void activateBrewWithOverrides(double dose, double yield, double temperature, const QString& grind);
     Q_INVOKABLE void clearBrewOverrides();
 

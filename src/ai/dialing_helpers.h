@@ -278,6 +278,7 @@ inline QJsonObject buildBeanFreshness(const QString& roastDate,
 // out of scope for the diff.
 struct ShotDiffInputs {
     QString grinderSetting;
+    int rpm = 0;               // motor RPM (variable-RPM grinders); 0 = none
     QString beanBrand;
     double doseWeightG = 0;
     double finalWeightG = 0;
@@ -307,7 +308,15 @@ inline QJsonObject buildShotChangeDiff(const ShotDiffInputs& from,
                 .arg(a, 0, 'f', 1).arg(b, 0, 'f', 1).arg(unit)
                 .arg(b > a ? "+" : "").arg(b - a, 0, 'f', 1);
     };
+    // Integer variant for RPM — whole numbers read better than "1400.0 rpm".
+    auto diffInt = [&](int a, int b, const QString& key, const QString& unit) {
+        if (a != 0 && b != 0 && a != b)
+            diff[key] = QString("%1 -> %2 %3 (%4%5)")
+                .arg(a).arg(b).arg(unit)
+                .arg(b > a ? "+" : "").arg(b - a);
+    };
     diffStr(from.grinderSetting, to.grinderSetting, QStringLiteral("grinderSetting"));
+    diffInt(from.rpm, to.rpm, QStringLiteral("rpm"), QStringLiteral("rpm"));
     diffStr(from.beanBrand, to.beanBrand, QStringLiteral("beanBrand"));
     diffNum(from.doseWeightG, to.doseWeightG, QStringLiteral("doseG"), QStringLiteral("g"));
     diffNum(from.finalWeightG, to.finalWeightG, QStringLiteral("yieldG"), QStringLiteral("g"));

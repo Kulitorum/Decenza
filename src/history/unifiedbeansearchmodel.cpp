@@ -205,7 +205,7 @@ QVariantList UnifiedBeanSearchModel::queryHistoryStatic(QSqlDatabase& db, const 
         "       eg.brand AS grinder_brand, eg.model AS grinder_model, "
         "       json_extract(eg.attrs, '$.burrs') AS grinder_burrs, grinder_setting, "
         "       dose_weight, yield_override, MAX(timestamp) AS last_ts, "
-        "       yield_mode, yield_anchor_value "
+        "       yield_mode, yield_anchor_value, rpm "
         "FROM shots s "
         "LEFT JOIN equipment_items eg ON eg.package_id = s.equipment_id AND eg.kind = 'grinder' "
         "WHERE (COALESCE(bean_brand,'') <> '' OR COALESCE(bean_type,'') <> '') "
@@ -240,6 +240,7 @@ QVariantList UnifiedBeanSearchModel::queryHistoryStatic(QSqlDatabase& db, const 
         row["grinderModel"] = query.value(6).toString();
         row["grinderBurrs"] = query.value(7).toString();
         row["grinderSetting"] = query.value(8).toString();
+        row["rpm"] = query.value(14).toLongLong();  // RPM half of the dial-in seed (index 14 = trailing rpm col)
         row["doseWeightG"] = query.value(9).toDouble();
         row["lastUsedEpoch"] = query.value(11).toLongLong();
         // Yield spec seed for a bag created from history (add-yield-ratio-
@@ -365,6 +366,7 @@ QVariantList UnifiedBeanSearchModel::mergeLanes(const QVariantList& inventoryBag
             row["grinderModel"] = h.value("grinderModel");
             row["grinderBurrs"] = h.value("grinderBurrs");
             row["grinderSetting"] = h.value("grinderSetting");
+            row["rpm"] = h.value("rpm");  // carry the RPM half through the merge
             row["doseWeightG"] = h.value("doseWeightG");
             row["yieldValue"] = h.value("yieldValue");
             row["yieldMode"] = h.value("yieldMode");

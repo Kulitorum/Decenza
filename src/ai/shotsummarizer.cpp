@@ -557,6 +557,7 @@ static QJsonObject buildShotBlock(const ShotSummary& summary)
     if (summary.totalDuration > 0) shot["durationSec"] = summary.totalDuration;
     if (summary.ratio > 0) shot["ratio"] = summary.ratio;
     if (!summary.grinderSetting.isEmpty()) shot["grinderSetting"] = summary.grinderSetting;
+    if (summary.rpm > 0) shot["rpm"] = summary.rpm;  // RPM half of the dial-in (sparse)
     if (summary.drinkTds > 0) shot["extractionTdsPct"] = summary.drinkTds;
     if (summary.drinkEy > 0) shot["extractionEyPct"] = summary.drinkEy;
     // CLAUDE.md MCP convention: scale lives in the field name for
@@ -676,7 +677,10 @@ QString ShotSummarizer::renderShotAnalysisProse(const ShotSummary& summary, Rend
     out << " ratio 1:" << QString::number(summary.ratio, 'f', 1) << "\n";
     out << "- **Duration**: " << QString::number(summary.totalDuration, 'f', 0) << "s\n";
     if (!summary.grinderSetting.isEmpty()) {
-        out << "- **Grind setting**: " << summary.grinderSetting << "\n";
+        out << "- **Grind setting**: " << summary.grinderSetting;
+        if (summary.rpm > 0)  // pair the RPM half for variable-RPM grinders
+            out << " @ " << summary.rpm << " RPM";
+        out << "\n";
     }
     if (summary.drinkTds > 0 || summary.drinkEy > 0) {
         out << "- **Extraction**: ";
@@ -928,6 +932,7 @@ QString ShotSummarizer::buildHistoryContext(const QVariantList& recentShots)
             }
             if (!shot.grinderBurrs.isEmpty()) out << " with " << shot.grinderBurrs;
             if (!shot.grinderSetting.isEmpty()) out << " @ " << shot.grinderSetting;
+            if (shot.rpm > 0) out << " " << shot.rpm << " RPM";  // pair RPM half
             out << "\n";
         }
 
@@ -1143,6 +1148,7 @@ QString ShotSummarizer::shotAnalysisSystemPrompt(const QString& beverageType, co
         "block entirely — do not emit a placeholder.\n\n"
         "Schema:\n\n"
         "- `grinderSetting` (string) — REQUIRED iff you recommend moving grind. Omit when grind is unchanged.\n"
+        "- `rpm` (integer) — REQUIRED iff you recommend moving motor RPM. ONLY for variable-RPM grinders (the shot's `rpm` / `grinderContext.rpmsObserved` are present); OMIT for fixed-RPM grinders and when RPM is unchanged. RPM and grind are independent axes — you may recommend one, the other, or both.\n"
         "- `doseG` (number) — REQUIRED iff you recommend moving dose. Omit when dose is unchanged.\n"
         "- `profileTitle` (string) — REQUIRED iff you recommend switching profile. The title (`result.profile.title`), not the filename. Omit otherwise.\n"
         "- `expectedDurationSec` ([low, high]) — REQUIRED. Predicted duration window if your recommendation is followed.\n"

@@ -26,6 +26,7 @@ private slots:
     void hasBag_followsSentinelRule();
     void toVariantMap_sparseEmitsBagIdOnlyWhenPresent();
     void toVariantMap_roundTripsTasteAxes();
+    void toVariantMap_roundTripsRpm();
 };
 
 static ShotProjection makeSampleShot()
@@ -159,6 +160,23 @@ void TstShotProjection::toVariantMap_roundTripsTasteAxes()
     const ShotProjection back = ShotProjection::fromVariantMap(m);
     QCOMPARE(back.tasteBalance, QStringLiteral("sour"));
     QCOMPARE(back.tasteBody, QStringLiteral("thin"));
+}
+
+// RPM is the second half of the dial-in; it must survive the JSON round-trip
+// (the linchpin that carries rpm into shots_get_detail / shots_compare and the
+// clone/coerce path), and stay sparse (omitted) when unset.
+void TstShotProjection::toVariantMap_roundTripsRpm()
+{
+    ShotProjection p = makeSampleShot();
+    QVERIFY2(!p.toVariantMap().contains(QStringLiteral("rpm")),
+             "unset rpm (0) must be omitted");
+
+    p.rpm = 1400;
+    const QVariantMap m = p.toVariantMap();
+    QCOMPARE(m.value(QStringLiteral("rpm")).toLongLong(), static_cast<qint64>(1400));
+
+    const ShotProjection back = ShotProjection::fromVariantMap(m);
+    QCOMPARE(back.rpm, static_cast<qint64>(1400));
 }
 
 QTEST_APPLESS_MAIN(TstShotProjection)

@@ -76,6 +76,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 // editable here — change it via the equipment package. Only the
                 // per-shot grind setting remains a shot-level field.
                 {"grinderSetting", QJsonObject{{"type", "string"}, {"description", "Grinder setting"}}},
+                {"rpm", QJsonObject{{"type", "integer"}, {"description", "Grinder motor RPM (variable-RPM grinders); the second half of the dial-in alongside grinderSetting"}}},
                 {"barista", QJsonObject{{"type", "string"}, {"description", "Barista name"}}},
                 {"beverageType", QJsonObject{{"type", "string"}, {"description", "Beverage type (e.g. 'espresso', 'lungo'). Saved locally; the Visualizer shot schema carries beverage type via the profile, not the shot, so editing it here does not propagate to visualizer.coffee."}}},
                 {"drinkTds", QJsonObject{{"type", "number"}, {"description", "TDS measurement"}}},
@@ -124,6 +125,9 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             // map omits them). Only the per-shot grind setting is editable here.
             if (args.contains("grinderSetting"))
                 metadata["grinderSetting"] = args["grinderSetting"].toString();
+            // RPM half of the dial-in; updateShotMetadataStatic already maps {"rpm","rpm"}.
+            if (args.contains("rpm"))
+                metadata["rpm"] = args["rpm"].toInt();
             if (args.contains("barista"))
                 metadata["barista"] = args["barista"].toString();
             if (args.contains("beverageType"))
@@ -513,6 +517,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"dyeGrinderModel", QJsonObject{{"type", "string"}, {"description", "Grinder model"}}},
                 {"dyeGrinderBurrs", QJsonObject{{"type", "string"}, {"description", "Grinder burrs"}}},
                 {"dyeGrinderSetting", QJsonObject{{"type", "string"}, {"description", "Grinder setting"}}},
+                {"dyeGrinderRpm", QJsonObject{{"type", "integer"}, {"description", "Grinder motor RPM (variable-RPM grinders); the second half of the dial-in alongside dyeGrinderSetting"}}},
                 {"dyeBeanWeight", QJsonObject{{"type", "number"}, {"description", "Dose weight in grams"}}},
                 {"dyeDrinkWeight", QJsonObject{{"type", "number"}, {"description", "Drink weight in grams"}}},
                 {"dyeDrinkTds", QJsonObject{{"type", "number"}, {"description", "TDS measurement"}}},
@@ -870,6 +875,11 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 QString v = args["dyeGrinderSetting"].toString();
                 addSetter([settings, v]() { settings->dye()->setDyeGrinderSetting(v); });
                 updated << "dyeGrinderSetting";
+            }
+            if (args.contains("dyeGrinderRpm")) {
+                int v = args["dyeGrinderRpm"].toInt();
+                addSetter([settings, v]() { settings->dye()->setDyeGrinderRpm(v); });
+                updated << "dyeGrinderRpm";
             }
             if (args.contains("dyeBeanWeight")) {
                 double v = args["dyeBeanWeight"].toDouble();
@@ -1541,6 +1551,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
         if (!bag.grinderModel.isEmpty()) obj["grinderModel"] = bag.grinderModel;
         if (!bag.grinderBurrs.isEmpty()) obj["grinderBurrs"] = bag.grinderBurrs;
         if (!bag.grinderSetting.isEmpty()) obj["grinderSetting"] = bag.grinderSetting;
+        if (bag.rpm > 0) obj["rpm"] = bag.rpm;  // RPM half of the bean-scoped dial-in (sparse)
         if (bag.doseWeightG > 0) obj["doseWeightG"] = bag.doseWeightG;
         // Yield spec (add-yield-ratio-anchor): sparse, mutually exclusive
         // keys — grams for an absolute anchor, a dose multiplier for a
@@ -1642,6 +1653,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"grinderModel", QJsonObject{{"type", "string"}}},
                 {"grinderBurrs", QJsonObject{{"type", "string"}}},
                 {"grinderSetting", QJsonObject{{"type", "string"}}},
+                {"rpm", QJsonObject{{"type", "integer"}, {"description", "Coffee bags only: bean-scoped grinder motor RPM (variable-RPM grinders), paired with grinderSetting"}}},
                 {"doseWeightG", QJsonObject{{"type", "number"}}},
                 {"yieldG", QJsonObject{{"type", "number"},
                     {"description", "The bag's own absolute yield target in grams. Mutually "
@@ -1724,7 +1736,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             static const QStringList kEditable = {
                 "roasterName", "coffeeName", "roastDate", "roastLevel",
                 "frozenDate", "defrostDate", "storageHint", "openedDate", "notes",
-                "grinderBrand", "grinderModel", "grinderBurrs", "grinderSetting",
+                "grinderBrand", "grinderModel", "grinderBurrs", "grinderSetting", "rpm",
                 "doseWeightG", "inInventory"};
             for (const QString& key : kEditable) {
                 if (args.contains(key))
@@ -1970,6 +1982,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
                 {"roastDate", QJsonObject{{"type", "string"}, {"description", "YYYY-MM-DD"}}},
                 {"roastLevel", QJsonObject{{"type", "string"}, {"description", "Coffee bags only"}}},
                 {"grinderSetting", QJsonObject{{"type", "string"}, {"description", "Coffee bags only: bean-scoped dial"}}},
+                {"rpm", QJsonObject{{"type", "integer"}, {"description", "Coffee bags only: bean-scoped grinder motor RPM (variable-RPM grinders), paired with grinderSetting"}}},
                 {"doseWeightG", QJsonObject{{"type", "number"}}},
                 {"notes", QJsonObject{{"type", "string"}}},
                 {"origin", QJsonObject{{"type", "string"}}},
@@ -2043,6 +2056,7 @@ void registerWriteTools(McpToolRegistry* registry, ProfileManager* profileManage
             for (const QString& key : {QStringLiteral("roastDate"), QStringLiteral("roastLevel"),
                                        QStringLiteral("grinderSetting"), QStringLiteral("notes")})
                 if (args.contains(key)) bag.insert(key, args[key].toString());
+            if (args.contains("rpm")) bag.insert("rpm", args["rpm"].toInt());  // RPM half of the dial-in
             if (args.contains("doseWeightG")) bag.insert("doseWeightG", args["doseWeightG"].toDouble());
             bag.insert("inInventory", true);
 

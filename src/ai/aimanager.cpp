@@ -889,6 +889,9 @@ static QString renderRecentAdviceEntry(const QJsonObject& entry)
     const QString actualGrinder = resp.value("grinderSetting").toString();
     if (!actualGrinder.isEmpty())
         actual << QStringLiteral("grinder %1").arg(actualGrinder);
+    const int actualRpm = resp.value("rpm").toInt();
+    if (actualRpm > 0)
+        actual << QStringLiteral("%1 RPM").arg(actualRpm);
     const double actualDose = resp.value("doseG").toDouble();
     if (actualDose > 0)
         actual << QStringLiteral("dose %1g").arg(actualDose, 0, 'f', 1);
@@ -1153,8 +1156,26 @@ void AIManager::emitRecentShotContext(
         if (grinderCtx.allNumeric && grinderCtx.maxSetting > grinderCtx.minSetting) {
             section += "- **Range explored**: " + QString::number(grinderCtx.minSetting) + " \u2013 "
                      + QString::number(grinderCtx.maxSetting) + "\n";
-            if (grinderCtx.smallestStep > 0) {
-                section += "- **Smallest step**: " + QString::number(grinderCtx.smallestStep) + "\n";
+        }
+        // Noise-filtered typical dial increment (mirrors grinderContext.stepSize
+        // in the MCP payload). Decoupled from the range gate so it shows for a
+        // mixed-notation grinder too.
+        if (grinderCtx.stepSize > 0) {
+            section += "- **Typical step**: " + QString::number(grinderCtx.stepSize) + "\n";
+        }
+        // RPM axis (variable-RPM grinders): mirrors grinderContext.rpmsObserved /
+        // observedMin/MaxRpm / rpmStepSize in the MCP payload.
+        if (!grinderCtx.rpmsObserved.isEmpty()) {
+            QStringList rpmStrs;
+            for (int r : grinderCtx.rpmsObserved)
+                rpmStrs << QString::number(r);
+            section += "- **RPMs used**: " + rpmStrs.join(", ") + "\n";
+            if (grinderCtx.rpmMax > grinderCtx.rpmMin) {
+                section += "- **RPM range**: " + QString::number(grinderCtx.rpmMin) + " – "
+                         + QString::number(grinderCtx.rpmMax) + "\n";
+            }
+            if (grinderCtx.rpmStepSize > 0) {
+                section += "- **Typical RPM step**: " + QString::number(grinderCtx.rpmStepSize) + "\n";
             }
         }
         result += section;

@@ -867,7 +867,7 @@ private slots:
             QJsonObject{{"sessionStart", "2026-04-29T09:29:19-06:00"},
                         {"shotCount", 1}}};
         const QJsonObject bestRecentShot{{"id", 42}, {"enjoyment0to100", 85}};
-        const QJsonObject grinderContext{{"model", "Zero"}, {"smallestStep", 0.25}};
+        const QJsonObject grinderContext{{"model", "Zero"}, {"stepSize", 0.25}};
 
         mgr.enrichUserPromptObject(payload, shot, dialInSessions, bestRecentShot, grinderContext);
 

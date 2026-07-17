@@ -105,6 +105,7 @@ private:
         QString grinderModel;
         QString grinderBurrs;
         QString grinderSetting;
+        qint64 rpm = 0;  // grinder motor RPM (variable-RPM grinders); 0 = none
         double duration = 0;
         double doseWeight = 0;
         double finalWeight = 0;
