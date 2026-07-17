@@ -25,16 +25,18 @@ Rectangle {
     readonly property bool selected: bag && bag.id !== undefined && bag.id === Settings.dye.activeBagId
     readonly property bool hasShots: bag && (bag.shotCount ?? 0) > 0
     readonly property bool hasCanonical: bag && bag.beanBaseId !== undefined && String(bag.beanBaseId).length > 0
-    // NOTE: isFrozen means "has EVER been frozen" — a thawed bag keeps its
-    // frozenDate, so this stays true after a thaw. That is the intended
-    // reading for the "Frozen" badge and the freeze toggle, but NOT for
-    // anything asking "is a portion in the freezer right now" — use
-    // portionInFreezer for that.
+    // isFrozen means "this bag is stored frozen". Beans are frozen in PORTIONS
+    // and pulled out one at a time, so the bag keeps portions in the freezer
+    // indefinitely — this stays true after a thaw, and "Thaw" stays available
+    // to record the next portion coming out. Do NOT read it as "nothing of
+    // this bag is out right now".
     readonly property bool isFrozen: bag && bag.frozenDate !== undefined && String(bag.frozenDate).length > 0
+    // defrostDate is when the CURRENT portion left the freezer — not the bag.
     readonly property string defrostDate: bag && bag.defrostDate !== undefined ? String(bag.defrostDate) : ""
-    // A portion is in the freezer only while the bag is frozen and no thaw has
-    // been recorded; once defrostDate is set the current portion is out.
-    readonly property bool portionInFreezer: isFrozen && defrostDate.length === 0
+    // True once beans are actually in use at room temperature: a never-frozen
+    // bag trivially, or a frozen bag whose current portion has been thawed.
+    // Until the first thaw there is nothing out of the freezer to have opened.
+    readonly property bool portionOutOfFreezer: !isFrozen || defrostDate.length > 0
     readonly property string openedDate: bag && bag.openedDate !== undefined ? String(bag.openedDate) : ""
 
     readonly property var beanBase: {
@@ -454,13 +456,15 @@ Rectangle {
             }
 
             // "Mark Opened" records when the current portion started being
-            // used at room temperature. Shown whenever no portion is in the
-            // freezer — i.e. never-frozen bags AND thawed ones, which carry
-            // both actions: "Thaw" records a later portion leaving the
-            // freezer, "Mark Opened" this portion leaving airtight storage.
-            // Same picker pattern as Thaw, always defaulting to today.
+            // used at room temperature. Shown once a portion is actually out
+            // of the freezer — never-frozen bags, and frozen bags with a thaw
+            // recorded. A frozen bag carries BOTH actions once thawed, and
+            // keeps them: "Thaw" records the NEXT portion coming out of the
+            // freezer (portions are frozen and pulled one at a time, so the
+            // bag stays frozen), "Mark Opened" this portion leaving airtight
+            // storage. Same picker pattern as Thaw, always defaulting to today.
             AccessibleButton {
-                visible: !card.portionInFreezer
+                visible: card.portionOutOfFreezer
                 height: Theme.scaled(36)
                 _customFontSize: Theme.captionFont.pixelSize
                 leftPadding: Theme.scaled(10)

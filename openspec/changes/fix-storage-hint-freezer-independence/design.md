@@ -6,9 +6,11 @@ The right question is what `storageHint` describes. It is the user's **plan for 
 
 | Axis | Fields | Question answered |
 |---|---|---|
-| Freezer | `frozenDate`, `defrostDate` | Is it in the freezer; when did this portion leave? |
+| Freezer | `frozenDate`, `defrostDate` | Is the bag stored frozen; when did the current portion come out? |
 | Container | `storageHint` | How is it kept when *not* in the freezer? |
 | Use | `openedDate` | When did this portion start being used at room temperature? |
+
+**Beans are frozen in portions and pulled out one at a time.** This is the workflow the fields exist to serve, and it drives the whole model: a frozen bag keeps portions in the freezer indefinitely, so `frozenDate` describes the BAG while `defrostDate` describes only the CURRENT PORTION. "Thaw" is therefore a recurring action, not a one-shot state transition — which is why its picker defaulting to today matters so much, and why `isFrozen` staying true after a thaw is correct rather than a bug. Nothing may be phrased as "the bag has left the freezer"; that never happens.
 
 Orthogonal axes cannot disagree, so there was never a contradiction to defend against. The invariant that does matter — `storageHint` must never assert frozen-ness — is satisfied by the enum simply having no `"frozen"` value, which requires no hiding and no clearing.
 
@@ -39,11 +41,13 @@ Constraint: the `storage_hint`/`opened_date` columns already exist on both `coff
 
 **The force-clears are fixed regardless of the visibility decision.** `ChangeBeansDialog.qml:593` and `:604` clear `storageHint`/`openedDate` to `""` whenever `fFreeze` is true. This is unconditional data loss on the *save* path, not a display concern: a hint set through `bag_update` (MCP) is silently wiped the next time anyone opens and saves that bag in the dialog — with no user action naming those fields and no feedback that anything was discarded. Under "always visible" the fix is also mandatory: a control the user can set must not be erased on save.
 
-**"Mark Opened" is re-gated to "no portion currently in the freezer", not to "never frozen".** `BagCard.qml:454` uses `!card.isFrozen`, and `isFrozen` (`BagCard.qml:28`) is `frozenDate` presence alone — which stays set forever once frozen. So a thawed bag reads as frozen and never offers the action, making `openedDate` unreachable for exactly the bags the archived `design.md:28` describes. The correct predicate is `frozenDate` set **and** `defrostDate` empty.
+**"Mark Opened" is gated on "a portion is out of the freezer", not on "never frozen".** `BagCard.qml:454` uses `!card.isFrozen`, and `isFrozen` is `frozenDate` presence alone. Since a frozen bag stays frozen for its whole life (portions leave, the bag doesn't), that gate hides the action forever on any bag ever frozen — making `openedDate` unreachable for exactly the bags the archived `design.md:28` describes. The correct predicate is `portionOutOfFreezer` = `frozenDate` empty **or** `defrostDate` set.
 
-**A thawed bag will show both "Thaw" and "Mark Opened" — accepted deliberately.** This is a visible bag-card change. It is coherent: a thawed portion can be re-thawed (a later portion leaving the freezer) *and* opened (leaving airtight storage), and the archived design keeps those events distinct on purpose. The alternative — keeping the card to one action — would require choosing which of two legitimate events the user is forbidden to record. Two buttons on the subset of bags that are frozen-and-thawed is the cheaper cost.
+The predicate is deliberately NOT named for the freezer's contents. An earlier draft called it `portionInFreezer` (`isFrozen && !defrostDate`) and gated on its negation. Same truth table, but the name asserts something false: thawing one portion does not empty the freezer, so "no portion in the freezer" is never true of a frozen bag and any reader reasoning from that name will get the next change wrong. Name it for what it actually decides — are there beans out, at room temperature, that could have been opened.
 
-**Scope of the `isFrozen` conflation is held to this feature's call sites.** `isFrozen`/`fFreeze` meaning "has ever been frozen" is the shared root cause, and the name invites the same bug again. But `isFrozen` also drives the card's "Frozen" badge and the freeze toggle's own checked state, where "has ever been frozen" is arguably the intended reading. Renaming or re-deriving it globally would touch behaviour this change has no evidence about. This change fixes the call sites where the predicate is demonstrably wrong and leaves the derivation alone; a note in the spec records the trap.
+**A thawed bag shows both "Thaw" and "Mark Opened", permanently — accepted deliberately.** This is a visible bag-card change. It is coherent precisely because portions are pulled one at a time: "Thaw" records the NEXT portion coming out of a bag that is still frozen, "Mark Opened" records the current portion leaving airtight storage. Both events recur, and neither supersedes the other. The alternative — keeping the card to one action — would require choosing which of two legitimate, repeating events the user is forbidden to record. Two buttons on frozen-and-thawed bags is the cheaper cost.
+
+**Scope of the `isFrozen` reading is held to this feature's call sites.** `isFrozen` means "this bag is stored frozen", which is the correct reading for the card's "Frozen" badge and the freeze toggle's checked state — a bag with portions still in the freezer IS frozen, thaw or no thaw. It is only wrong where a caller needs "beans are out right now". So `isFrozen` is left exactly as it is, and this change adds `portionOutOfFreezer` alongside it for the callers that need the other question. Renaming or re-deriving `isFrozen` would break the badge, which is currently right.
 
 ## Risks / Trade-offs
 
