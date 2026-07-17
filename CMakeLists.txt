@@ -808,6 +808,7 @@ set(QML_FILES
     qml/components/BeanBaseDetailsPopup.qml
     qml/components/BeanBaseDetailsRow.qml
     qml/components/BeanSummary.qml
+    qml/components/LinkBeanBaseDialog.qml
     qml/components/ChangeBeansDialog.qml
     qml/components/BagCard.qml
     qml/components/SwitchEquipmentDialog.qml

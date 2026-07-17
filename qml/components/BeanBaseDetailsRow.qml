@@ -35,6 +35,10 @@ Item {
         id: rowLayout
         anchors.fill: parent
         spacing: Theme.scaled(10)
+        // Intrinsically tied to hasData, not just the root's `visible`: a host
+        // may override root.visible (e.g. a recipe-gate), and without this the
+        // fallback text would paint into the zero-height (!hasData) box.
+        visible: root.hasData
 
         // Bag thumbnail — collapses when missing or failing to load
         Image {
@@ -76,6 +80,7 @@ Item {
 
     AccessibleMouseArea {
         anchors.fill: parent
+        enabled: root.hasData   // no dead tap target when there's nothing to open
         accessibleName: TranslationManager.translate("beanbase.row.accessible", "Bean details from Bean Base. Opens details dialog")
         accessibleItem: root
         onAccessibleClicked: detailsPopup.open()
