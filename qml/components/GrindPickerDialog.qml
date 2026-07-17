@@ -3,44 +3,69 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Decenza
 
-// Value picker opened from the grindQuickSelect layout widget. A variable-RPM
-// grinder's dial-in has two halves, so this shows up to two columns SIDE BY
-// SIDE — Grind (always) and RPM (when the grinder is RPM-capable). Picking a row
-// applies only that half.
+// Value picker opened from the grindQuickSelect layout widget, styled as native
+// picker wheels (Qt Tumbler). A variable-RPM grinder's dial-in has two halves,
+// so it shows up to two wheels SIDE BY SIDE — Grind (always) and RPM (when the
+// grinder is RPM-capable) — under a shared selection band.
 //
-// Layout: a fixed title header at the top and a fixed Close button at the
-// bottom; between them, each column's section header + Finer label are pinned
-// above its list and the Coarser label pinned below, so ONLY the value list
-// scrolls. Each list opens centred on its current value. Rows are ordered
-// fine -> coarse (smallest value / lowest RPM first).
+// Each wheel opens centred on the grinder's current value. Because a two-axis
+// dial-in needs both a grind AND an RPM chosen, nothing is applied until the
+// user presses Done: that reads whatever each wheel has settled on and applies
+// both halves at once. Dismissing by Escape / tap-outside cancels (no change).
+//
+// Rows are ordered fine -> coarse (smallest value / lowest RPM first), so the
+// top of the wheel is the finest setting.
 Dialog {
     id: root
     parent: Overlay.overlay
     anchors.centerIn: parent
-    // Narrow for a single Grind column; wider when the RPM column is present.
-    width: Math.min(root.rpmRows.length > 0 ? Theme.scaled(460) : Theme.scaled(320),
-                    parent ? parent.width * 0.95 : Theme.scaled(320))
-    // Bounded so the dialog always fits the screen — the lists scroll inside.
-    height: Math.min(Theme.scaled(560), parent ? parent.height * 0.92 : Theme.scaled(560))
+    // Narrow for a single Grind wheel; wider when the RPM wheel is present.
+    width: Math.min(root.rpmRows.length > 0 ? Theme.scaled(420) : Theme.scaled(280),
+                    parent ? parent.width * 0.95 : Theme.scaled(280))
+    height: Math.min(Theme.scaled(480), parent ? parent.height * 0.92 : Theme.scaled(480))
     modal: true
     closePolicy: Dialog.CloseOnEscape | Dialog.CloseOnPressOutside
     padding: 0
 
-    // [{ value: string, isCurrent: bool }] — fine -> coarse order, per column.
+    // [{ value: string, isCurrent: bool }] — fine -> coarse order, per wheel.
     property var grindRows: []
     property var rpmRows: []
-    // Whether to show the grind column's finer/coarser end annotations.
+    // Reserved for API compatibility with the widget (the wheel makes the
+    // fine/coarse direction self-evident, so no separate labels are drawn).
     property bool finerHint: false
 
     signal grindPicked(string value)
     signal rpmPicked(string value)
 
-    // Centre each list on its current value once the dialog is laid out.
+    readonly property bool _hasRpm: rpmRows.length > 0
+
+    // Index of the current value within a rows array (-1 if none is current).
+    function _currentIndex(rows) {
+        for (var i = 0; i < rows.length; i++)
+            if (rows[i].isCurrent === true)
+                return i
+        return -1
+    }
+
+    // Centre each wheel on its current value once the dialog is laid out.
     onOpened: Qt.callLater(function() {
-        grindColumn.centerCurrent()
-        if (rpmColumn.visible)
-            rpmColumn.centerCurrent()
+        var gi = root._currentIndex(root.grindRows)
+        if (gi >= 0) grindTumbler.currentIndex = gi
+        var ri = root._currentIndex(root.rpmRows)
+        if (ri >= 0) rpmTumbler.currentIndex = ri
     })
+
+    // Apply BOTH halves from whatever the wheels have settled on, then close.
+    // The only commit path — a single-axis grinder still confirms via Done.
+    function _applyAndClose() {
+        if (root.grindRows.length > 0 && grindTumbler.currentIndex >= 0
+                && grindTumbler.currentIndex < root.grindRows.length)
+            root.grindPicked(String(root.grindRows[grindTumbler.currentIndex].value))
+        if (root._hasRpm && rpmTumbler.currentIndex >= 0
+                && rpmTumbler.currentIndex < root.rpmRows.length)
+            root.rpmPicked(String(root.rpmRows[rpmTumbler.currentIndex].value))
+        root.close()
+    }
 
     background: Rectangle {
         color: Theme.surfaceColor
@@ -49,124 +74,23 @@ Dialog {
         border.color: Theme.borderColor
     }
 
-    // One scrollable value column: a pinned header + Finer slot, the scrolling
-    // list, and a pinned Coarser slot. The end slots reserve their height even
-    // when hidden (the RPM column) so the two columns' lists stay aligned.
-    component PickerColumn: ColumnLayout {
-        id: col
-        property string sectionLabel: ""
-        property var rows: []
-        property bool showEnds: false
-        property string kind: "grind"    // "grind" | "rpm"
-        spacing: Theme.spacingSmall
-
-        function centerCurrent() {
-            for (var i = 0; i < rows.length; i++) {
-                if (rows[i].isCurrent === true) {
-                    list.positionViewAtIndex(i, ListView.Center)
-                    return
-                }
-            }
-            list.positionViewAtBeginning()
-        }
-
-        // --- Pinned: section header ---
-        Text {
-            Layout.fillWidth: true
-            horizontalAlignment: Text.AlignHCenter
-            text: col.sectionLabel.toUpperCase()
-            color: Theme.textColor
-            font: Theme.subtitleFont
-        }
-
-        // --- Pinned: Finer label (reserves height in both columns to align) ---
+    // Shared wheel-row delegate: the centred item (displacement ~0) is bold and
+    // accent-coloured; the rest fade with distance from the selection band.
+    Component {
+        id: wheelDelegate
         Item {
-            Layout.fillWidth: true
-            Layout.preferredHeight: finerText.implicitHeight
+            required property var modelData
+            required property int index
+            readonly property real _dist: Math.abs(Tumbler.displacement)
+            readonly property bool _centered: _dist < 0.5
             Text {
-                id: finerText
                 anchors.centerIn: parent
-                visible: col.showEnds && col.rows.length > 2
-                text: TranslationManager.translate("grind.picker.finer", "Finer").toUpperCase()
-                color: Theme.textSecondaryColor
-                font: Theme.captionFont
-            }
-        }
-
-        // --- Scrolling: the value list ---
-        ListView {
-            id: list
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            clip: true
-            model: col.rows
-            spacing: Theme.spacingSmall
-            boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-
-            delegate: Rectangle {
-                id: rowRect
-                required property var modelData
-                readonly property bool isCurrent: modelData.isCurrent === true
-                width: ListView.view.width
-                height: Theme.scaled(48)
-                radius: Theme.buttonRadius
-                color: rowMa.pressed ? Qt.darker(Theme.backgroundColor, 1.1) : Theme.backgroundColor
-                border.width: isCurrent ? 2 : 1
-                border.color: isCurrent ? Theme.primaryColor : Theme.borderColor
-
-                Accessible.role: Accessible.Button
-                Accessible.name: String(modelData.value)
-                                 + (isCurrent ? ", " + TranslationManager.translate("grind.picker.current", "current") : "")
-                Accessible.focusable: true
-                Accessible.onPressAction: rowMa.clicked(null)
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingMedium
-                    anchors.rightMargin: Theme.spacingMedium
-                    spacing: Theme.spacingSmall
-                    Text {
-                        text: String(rowRect.modelData.value)
-                        color: rowRect.isCurrent ? Theme.primaryColor : Theme.textColor
-                        font.family: Theme.bodyFont.family
-                        font.pixelSize: Theme.bodyFont.pixelSize
-                        font.bold: rowRect.isCurrent
-                    }
-                    Item { Layout.fillWidth: true }
-                    Text {
-                        visible: rowRect.isCurrent
-                        text: TranslationManager.translate("grind.picker.current", "current").toUpperCase()
-                        color: Theme.primaryColor
-                        font: Theme.captionFont
-                    }
-                }
-
-                MouseArea {
-                    id: rowMa
-                    anchors.fill: parent
-                    onClicked: {
-                        if (col.kind === "rpm")
-                            root.rpmPicked(String(rowRect.modelData.value))
-                        else
-                            root.grindPicked(String(rowRect.modelData.value))
-                        root.close()
-                    }
-                }
-            }
-        }
-
-        // --- Pinned: Coarser label ---
-        Item {
-            Layout.fillWidth: true
-            Layout.preferredHeight: coarserText.implicitHeight
-            Text {
-                id: coarserText
-                anchors.centerIn: parent
-                visible: col.showEnds && col.rows.length > 2
-                text: TranslationManager.translate("grind.picker.coarser", "Coarser").toUpperCase()
-                color: Theme.textSecondaryColor
-                font: Theme.captionFont
+                text: String(modelData.value)
+                color: _centered ? Theme.primaryColor : Theme.textColor
+                font.family: Theme.bodyFont.family
+                font.pixelSize: Theme.bodyFont.pixelSize
+                font.bold: _centered
+                opacity: 1.0 - Math.min(0.72, _dist * 0.36)
             }
         }
     }
@@ -187,46 +111,90 @@ Dialog {
                 font: Theme.titleFont
             }
             Text {
-                text: TranslationManager.translate("grind.picker.subtitle", "Tap a value to set the grinder")
+                text: TranslationManager.translate("grind.picker.subtitle", "Spin to choose, then Done")
                 color: Theme.textSecondaryColor
                 font: Theme.labelFont
             }
         }
 
-        // --- Body: side-by-side scrolling columns ---
+        // --- Column labels (one per wheel, aligned above them) ---
         RowLayout {
+            Layout.fillWidth: true
+            Layout.leftMargin: Theme.spacingLarge
+            Layout.rightMargin: Theme.spacingLarge
+            spacing: Theme.spacingMedium
+            visible: root.grindRows.length > 0 || root._hasRpm
+            Text {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                text: TranslationManager.translate("grind.quickSelect.label", "Grind").toUpperCase()
+                color: Theme.textColor
+                font: Theme.subtitleFont
+            }
+            Text {
+                visible: root._hasRpm
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                text: TranslationManager.translate("grind.quickSelect.rpmLabel", "RPM").toUpperCase()
+                color: Theme.textColor
+                font: Theme.subtitleFont
+            }
+        }
+
+        // --- Body: side-by-side wheels under a shared selection band ---
+        Item {
+            id: wheelArea
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.leftMargin: Theme.spacingLarge
             Layout.rightMargin: Theme.spacingLarge
-            spacing: Theme.spacingMedium
-            visible: root.grindRows.length > 0 || root.rpmRows.length > 0
+            visible: root.grindRows.length > 0 || root._hasRpm
 
-            PickerColumn {
-                id: grindColumn
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                sectionLabel: TranslationManager.translate("grind.quickSelect.label", "Grind")
-                rows: root.grindRows
-                showEnds: root.finerHint
-                kind: "grind"
+            // Selection band: one item tall, centred on the wheels' middle row.
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                height: parent.height / grindTumbler.visibleItemCount
+                radius: Theme.buttonRadius
+                color: Theme.primaryColor
+                opacity: 0.14
             }
 
-            PickerColumn {
-                id: rpmColumn
-                visible: root.rpmRows.length > 0
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                sectionLabel: TranslationManager.translate("grind.quickSelect.rpmLabel", "RPM")
-                rows: root.rpmRows
-                showEnds: false
-                kind: "rpm"
+            RowLayout {
+                anchors.fill: parent
+                spacing: Theme.spacingMedium
+
+                Tumbler {
+                    id: grindTumbler
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    model: root.grindRows
+                    visibleItemCount: 5
+                    wrap: false
+                    delegate: wheelDelegate
+                    Accessible.role: Accessible.Slider
+                    Accessible.name: TranslationManager.translate("grind.quickSelect.label", "Grind")
+                }
+
+                Tumbler {
+                    id: rpmTumbler
+                    visible: root._hasRpm
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    model: root.rpmRows
+                    visibleItemCount: 5
+                    wrap: false
+                    delegate: wheelDelegate
+                    Accessible.role: Accessible.Slider
+                    Accessible.name: TranslationManager.translate("grind.quickSelect.rpmLabel", "RPM")
+                }
             }
         }
 
         // --- Empty state: no value could be generated ---
         Text {
-            visible: root.grindRows.length === 0 && root.rpmRows.length === 0
+            visible: root.grindRows.length === 0 && !root._hasRpm
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.leftMargin: Theme.spacingLarge
@@ -240,7 +208,7 @@ Dialog {
             font: Theme.bodyFont
         }
 
-        // --- Fixed footer: Close ---
+        // --- Fixed footer: Done applies both wheels ---
         Rectangle {
             Layout.fillWidth: true
             Layout.leftMargin: Theme.spacingLarge
@@ -248,18 +216,18 @@ Dialog {
             Layout.bottomMargin: Theme.spacingLarge
             Layout.preferredHeight: Theme.scaled(48)
             radius: Theme.buttonRadius
-            color: closeMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
+            color: doneMa.pressed ? Qt.darker(Theme.primaryColor, 1.15) : Theme.primaryColor
             Accessible.role: Accessible.Button
-            Accessible.name: TranslationManager.translate("common.button.close", "Close")
+            Accessible.name: TranslationManager.translate("common.button.done", "Done")
             Accessible.focusable: true
-            Accessible.onPressAction: closeMa.clicked(null)
+            Accessible.onPressAction: doneMa.clicked(null)
             Text {
                 anchors.centerIn: parent
-                text: TranslationManager.translate("common.button.close", "Close")
+                text: TranslationManager.translate("common.button.done", "Done")
                 color: Theme.primaryContrastColor
                 font: Theme.bodyFont
             }
-            MouseArea { id: closeMa; anchors.fill: parent; onClicked: root.close() }
+            MouseArea { id: doneMa; anchors.fill: parent; onClicked: root._applyAndClose() }
         }
     }
 }
